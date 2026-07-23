@@ -109,14 +109,17 @@ fn served_tsdb_scope(
 /// (routing fall-through). (CONCEPT:EG-KG.query.dispatch-convention — server dispatch convention)
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    graph_name: &str,
+    ctx: super::TryHandleContext<'_>,
     core: Arc<GraphCore>,
     method: Method,
-    read_authority: Option<&GraphReadAuthority>,
-    caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<Response, Method> {
+    let super::TryHandleContext {
+        req_id,
+        graph_name,
+        read_authority,
+        caller,
+    } = ctx;
     #[cfg(not(feature = "security"))]
     let _ = caller;
     // `state` is consumed only by the `query`-gated in-txn cross-modal RYOW arms
@@ -178,9 +181,11 @@ pub(crate) async fn try_handle(
             match eg_query::classify(&query) {
                 Ok(kind) if !matches!(kind, eg_query::StatementKind::Read) => Ok(exec_sql_write(
                     req_id,
-                    graph_name,
-                    authority.tenant_scope(),
-                    Some(authority.actor_scope()),
+                    SqlWriteScope {
+                        graph_name,
+                        tenant_scope: authority.tenant_scope(),
+                        caller: Some(authority.actor_scope()),
+                    },
                     read_authority,
                     sql_method,
                     &core,
@@ -357,14 +362,13 @@ pub(crate) async fn try_handle(
                         _marker: std::marker::PhantomData,
                     },
                     #[cfg(feature = "tsdb")]
-                    tsdb.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    tsdb_tenant.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    tsdb_graph.as_deref(),
-                    // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
-                    #[cfg(feature = "tsdb")]
-                    None,
+                    TsdbLegBind {
+                        tsdb: tsdb.as_deref(),
+                        tsdb_tenant: tsdb_tenant.as_deref(),
+                        tsdb_graph: tsdb_graph.as_deref(),
+                        // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
+                        staged_series: None,
+                    },
                 )
             })
             .await
@@ -468,14 +472,13 @@ pub(crate) async fn try_handle(
                         _marker: std::marker::PhantomData,
                     },
                     #[cfg(feature = "tsdb")]
-                    tsdb.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    tsdb_tenant.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    tsdb_graph.as_deref(),
-                    // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
-                    #[cfg(feature = "tsdb")]
-                    None,
+                    TsdbLegBind {
+                        tsdb: tsdb.as_deref(),
+                        tsdb_tenant: tsdb_tenant.as_deref(),
+                        tsdb_graph: tsdb_graph.as_deref(),
+                        // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
+                        staged_series: None,
+                    },
                 )
             })
             .await
@@ -1139,14 +1142,13 @@ pub(crate) async fn try_handle(
                         _marker: std::marker::PhantomData,
                     },
                     #[cfg(feature = "tsdb")]
-                    tsdb.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    tsdb_tenant.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    tsdb_graph.as_deref(),
-                    // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
-                    #[cfg(feature = "tsdb")]
-                    None,
+                    TsdbLegBind {
+                        tsdb: tsdb.as_deref(),
+                        tsdb_tenant: tsdb_tenant.as_deref(),
+                        tsdb_graph: tsdb_graph.as_deref(),
+                        // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
+                        staged_series: None,
+                    },
                 )
             })
             .await
@@ -1529,6 +1531,26 @@ pub(crate) struct ServedIndexes<'a> {
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
+/// Bundles `run_unified`'s tsdb `Op::TsScan` leg-binding parameters — ONE
+/// parameter rather than four, so the function's argument count stays under the
+/// clippy ceiling (mirrors the `ServedIndexes` rationale above). Only exists
+/// under the `tsdb` feature; a non-`tsdb` build omits the parameter entirely.
+#[cfg(all(feature = "query", feature = "tsdb"))]
+pub(crate) struct TsdbLegBind<'a> {
+    /// The committed native tsdb `SeriesStore` backing `Op::TsScan`, threaded in
+    /// so a UQL plan fuses its time-series leg with the graph/vector/relational
+    /// legs. `None` ⇒ a `TsScan` yields no rows (degrade, never err).
+    pub tsdb: Option<&'a eg_tsdb::store::SeriesStore>,
+    /// Verified tenant + actor-owned graph policy context for committed TsScan
+    /// reads. Served callers bind both or omit the store entirely.
+    pub tsdb_tenant: Option<&'a str>,
+    pub tsdb_graph: Option<&'a str>,
+    /// In-txn tsdb read-your-own-writes (CONCEPT:EG-KG.query.txn-tsdb-read-your): the resolved txn's OWN staged,
+    /// uncommitted series points, overlaid onto `Op::TsScan` BEFORE the committed store so
+    /// an in-txn UQL reads its own measurements. `None` off-txn ⇒ committed series only.
+    pub staged_series: Option<&'a eg_plan::StagedSeries>,
+}
+
 /// Execute a unified cross-modal plan (CONCEPT:AU-KG.compute.vector/209) over one off-lock
 /// snapshot and return the result rows as `[id, score|nil]`. The plan is routed through the
 /// full cost optimizer by `eg_plan::execute` (CONCEPT:EG-KG.query.served-plan-optimize-routing); a
@@ -1542,20 +1564,15 @@ pub(crate) fn run_unified(
     view: &crate::graph::GraphView,
     semantic: &eg_core::compute::semantic::SemanticStore,
     served: ServedIndexes<'_>,
-    // RECONCILE (Lane C tsdb-in-plan, CONCEPT:EG-KG.query.native-time-series): the committed native tsdb
-    // `SeriesStore` backing `Op::TsScan`, threaded in so a UQL plan fuses its
-    // time-series leg with the graph/vector/relational legs. `None` ⇒ a `TsScan`
-    // yields no rows (degrade, never err). Only exists under the `tsdb` feature.
-    #[cfg(feature = "tsdb")] tsdb: Option<&eg_tsdb::store::SeriesStore>,
-    // Verified tenant + actor-owned graph policy context for committed TsScan
-    // reads. Served callers bind both or omit the store entirely.
-    #[cfg(feature = "tsdb")] tsdb_tenant: Option<&str>,
-    #[cfg(feature = "tsdb")] tsdb_graph: Option<&str>,
-    // In-txn tsdb read-your-own-writes (CONCEPT:EG-KG.query.txn-tsdb-read-your): the resolved txn's OWN staged,
-    // uncommitted series points, overlaid onto `Op::TsScan` BEFORE the committed store so
-    // an in-txn UQL reads its own measurements. `None` off-txn ⇒ committed series only.
-    #[cfg(feature = "tsdb")] staged_series: Option<&eg_plan::StagedSeries>,
+    #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
+    #[cfg(feature = "tsdb")]
+    let TsdbLegBind {
+        tsdb,
+        tsdb_tenant,
+        tsdb_graph,
+        staged_series,
+    } = tsdb_ctx;
     #[cfg(feature = "text")]
     let served_text = served.text;
     #[cfg(feature = "geo")]
@@ -1731,13 +1748,12 @@ mod tensor_served_round_trip_tests {
             &semantic,
             served_indexes(),
             #[cfg(feature = "tsdb")]
-            None,
-            #[cfg(feature = "tsdb")]
-            None,
-            #[cfg(feature = "tsdb")]
-            None,
-            #[cfg(feature = "tsdb")]
-            None,
+            TsdbLegBind {
+                tsdb: None,
+                tsdb_tenant: None,
+                tsdb_graph: None,
+                staged_series: None,
+            },
         )
     }
 
@@ -2981,13 +2997,12 @@ async fn run_unified_overlaid(
                     _marker: std::marker::PhantomData,
                 },
                 #[cfg(feature = "tsdb")]
-                tsdb.as_deref(),
-                #[cfg(feature = "tsdb")]
-                tsdb_tenant.as_deref(),
-                #[cfg(feature = "tsdb")]
-                tsdb_graph_scope.as_deref(),
-                #[cfg(feature = "tsdb")]
-                Some(&staged_series),
+                TsdbLegBind {
+                    tsdb: tsdb.as_deref(),
+                    tsdb_tenant: tsdb_tenant.as_deref(),
+                    tsdb_graph: tsdb_graph_scope.as_deref(),
+                    staged_series: Some(&staged_series),
+                },
             )
         } else {
             let committed = core.semantic_store.read().clone();
@@ -3005,13 +3020,12 @@ async fn run_unified_overlaid(
                     _marker: std::marker::PhantomData,
                 },
                 #[cfg(feature = "tsdb")]
-                tsdb.as_deref(),
-                #[cfg(feature = "tsdb")]
-                tsdb_tenant.as_deref(),
-                #[cfg(feature = "tsdb")]
-                tsdb_graph_scope.as_deref(),
-                #[cfg(feature = "tsdb")]
-                Some(&staged_series),
+                TsdbLegBind {
+                    tsdb: tsdb.as_deref(),
+                    tsdb_tenant: tsdb_tenant.as_deref(),
+                    tsdb_graph: tsdb_graph_scope.as_deref(),
+                    staged_series: Some(&staged_series),
+                },
             )
         }
     })
@@ -3087,18 +3101,30 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
 /// Blocking work (redb commits, the node scan) runs on the blocking pool via
 /// `compute_off_lock`. Returns a `QueryResult`-shaped ack (`[tag]` column, one
 /// rows-affected row) so the client decodes a write response exactly like a read.
+/// The verified actor/scope fields for [`exec_sql_write`], bundled so the
+/// function stays under the clippy argument-count ceiling.
+#[cfg(feature = "query")]
+struct SqlWriteScope<'a> {
+    graph_name: &'a str,
+    tenant_scope: &'a str,
+    caller: Option<&'a str>,
+}
+
 #[cfg(feature = "query")]
 async fn exec_sql_write(
     req_id: u64,
-    graph_name: &str,
-    tenant_scope: &str,
-    caller: Option<&str>,
+    scope: SqlWriteScope<'_>,
     read_authority: &GraphReadAuthority,
     sql_method: Method,
     core: &Arc<GraphCore>,
     store: &eg_query::TableStore,
     kind: eg_query::StatementKind,
 ) -> Response {
+    let SqlWriteScope {
+        graph_name,
+        tenant_scope,
+        caller,
+    } = scope;
     use eg_query::StatementKind as K;
     let read_core = read_authority.project_core(core);
     match kind {
@@ -3187,9 +3213,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3205,9 +3233,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3225,9 +3255,11 @@ async fn exec_sql_write(
             txn.push(op);
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3244,9 +3276,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3292,9 +3326,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3311,9 +3347,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3329,9 +3367,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3472,9 +3512,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3490,9 +3532,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3512,9 +3556,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3527,9 +3573,11 @@ async fn exec_sql_write(
             txn.push(eg_query::TxnOp::DropExtension { name, if_exists });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3546,9 +3594,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3564,9 +3614,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3625,9 +3677,11 @@ async fn exec_sql_write(
             txn.push(eg_query::TxnOp::PutAnnIndex { plan });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3642,9 +3696,11 @@ async fn exec_sql_write(
             txn.push(eg_query::TxnOp::PutHypertable { plan });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3662,9 +3718,11 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                tenant_scope,
-                graph_name,
-                caller,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
                 sql_method,
                 store,
                 txn,
@@ -3729,14 +3787,17 @@ fn sql_write_ack(
 #[cfg(feature = "query")]
 async fn commit_sql_catalog_txn(
     req_id: u64,
-    tenant_scope: &str,
-    graph_name: &str,
-    caller: Option<&str>,
+    scope: SqlWriteScope<'_>,
     sql_method: Method,
     store: &eg_query::TableStore,
     txn: eg_query::TableTxn,
     tag: &'static str,
 ) -> Response {
+    let SqlWriteScope {
+        graph_name,
+        tenant_scope,
+        caller,
+    } = scope;
     let tenant_scope = tenant_scope.to_string();
     let graph_name = graph_name.to_string();
     let caller = caller.map(ToOwned::to_owned);
@@ -4258,7 +4319,7 @@ mod result_cache_dispatch_tests {
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
@@ -4566,7 +4627,7 @@ mod rls_aware_cache_no_cross_agent_leak {
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
@@ -4908,7 +4969,7 @@ mod dispatch_write_tests {
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
@@ -5236,7 +5297,7 @@ mod txn_ryow_dispatch_tests {
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,

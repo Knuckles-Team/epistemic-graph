@@ -332,13 +332,16 @@ impl Circuit {
                         continue;
                     }
                     let ts = props.get(TS_FIELD).and_then(Value::as_f64).unwrap_or(0.0);
-                    let val = props.get(VALUE_FIELD).and_then(Value::as_f64).unwrap_or(0.0);
+                    let val = props
+                        .get(VALUE_FIELD)
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0);
                     let k = bucket_index(ts, w.secs);
                     let b = buckets.entry(k).or_default();
                     b.sum += val;
                     b.count += 1;
                 }
-                finalize_buckets(buckets.into_iter(), w, self.limit)
+                finalize_buckets(buckets, w, self.limit)
             }
             None => {
                 let ids = nodes
@@ -455,8 +458,14 @@ fn pred_holds(props: &Map<String, Value>, pred: &Pred) -> bool {
             Some(Value::Bool(b)) => b.to_string() == *value,
             _ => false,
         },
-        Pred::GtNum { prop, n } => props.get(prop).and_then(Value::as_f64).is_some_and(|v| v > *n),
-        Pred::LtNum { prop, n } => props.get(prop).and_then(Value::as_f64).is_some_and(|v| v < *n),
+        Pred::GtNum { prop, n } => props
+            .get(prop)
+            .and_then(Value::as_f64)
+            .is_some_and(|v| v > *n),
+        Pred::LtNum { prop, n } => props
+            .get(prop)
+            .and_then(Value::as_f64)
+            .is_some_and(|v| v < *n),
         // Non-relational preds never reach here (compile rejects them).
         _ => false,
     }
@@ -508,17 +517,33 @@ mod tests {
 
     #[test]
     fn compile_accepts_supported_shapes() {
-        assert!(Circuit::compile(&Plan::new(vec![Op::Scan { label: "Doc".into() }])).is_ok());
+        assert!(Circuit::compile(&Plan::new(vec![Op::Scan {
+            label: "Doc".into()
+        }]))
+        .is_ok());
         assert!(Circuit::compile(&Plan::new(vec![
-            Op::Scan { label: "Doc".into() },
-            Op::Filter { preds: vec![Pred::GtNum { prop: "year".into(), n: 2000.0 }] },
-            Op::AsOf { ts: 5.0, axis: TimeAxis::Valid },
+            Op::Scan {
+                label: "Doc".into()
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2000.0
+                }]
+            },
+            Op::AsOf {
+                ts: 5.0,
+                axis: TimeAxis::Valid
+            },
             Op::Limit { k: 10 },
         ]))
         .is_ok());
         assert!(Circuit::compile(&Plan::new(vec![
             Op::Scan { label: "M".into() },
-            Op::WindowAgg { secs: 10.0, agg: "sum".into() },
+            Op::WindowAgg {
+                secs: 10.0,
+                agg: "sum".into()
+            },
             Op::Limit { k: 3 },
         ]))
         .is_ok());
@@ -528,8 +553,14 @@ mod tests {
     fn compile_rejects_unsupported_ops_with_index() {
         // Traverse → fallback, naming its index.
         let e = Circuit::compile(&Plan::new(vec![
-            Op::Scan { label: "Doc".into() },
-            Op::Traverse { rel: "CITES".into(), min: 1, max: 2 },
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Traverse {
+                rel: "CITES".into(),
+                min: 1,
+                max: 2,
+            },
         ]))
         .unwrap_err();
         assert_eq!(e.index, 1);
@@ -537,7 +568,10 @@ mod tests {
         // min/max window agg → fallback.
         let e = Circuit::compile(&Plan::new(vec![
             Op::Scan { label: "M".into() },
-            Op::WindowAgg { secs: 10.0, agg: "max".into() },
+            Op::WindowAgg {
+                secs: 10.0,
+                agg: "max".into(),
+            },
         ]))
         .unwrap_err();
         assert_eq!(e.index, 1);
@@ -548,7 +582,9 @@ mod tests {
 
         // Nothing after Limit.
         let e = Circuit::compile(&Plan::new(vec![
-            Op::Scan { label: "Doc".into() },
+            Op::Scan {
+                label: "Doc".into(),
+            },
             Op::Limit { k: 1 },
             Op::Filter { preds: vec![] },
         ]))
@@ -560,7 +596,9 @@ mod tests {
 
     #[test]
     fn scan_add_update_remove_matches_recompute() {
-        let plan = Plan::new(vec![Op::Scan { label: "Doc".into() }]);
+        let plan = Plan::new(vec![Op::Scan {
+            label: "Doc".into(),
+        }]);
         let mut c = Circuit::compile(&plan).unwrap();
         let mut model = node_map(&[]);
 
@@ -585,8 +623,15 @@ mod tests {
     #[test]
     fn filter_predicate_matches_recompute() {
         let plan = Plan::new(vec![
-            Op::Scan { label: "Doc".into() },
-            Op::Filter { preds: vec![Pred::GtNum { prop: "year".into(), n: 2000.0 }] },
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2000.0,
+                }],
+            },
         ]);
         let mut c = Circuit::compile(&plan).unwrap();
         let mut model = node_map(&[]);
@@ -613,7 +658,10 @@ mod tests {
     fn asof_predicate_matches_recompute() {
         let plan = Plan::new(vec![
             Op::Scan { label: "E".into() },
-            Op::AsOf { ts: 100.0, axis: TimeAxis::Valid },
+            Op::AsOf {
+                ts: 100.0,
+                axis: TimeAxis::Valid,
+            },
         ]);
         let mut c = Circuit::compile(&plan).unwrap();
         let mut model = node_map(&[]);
@@ -632,7 +680,10 @@ mod tests {
     fn window_sum_matches_recompute_across_retracts() {
         let plan = Plan::new(vec![
             Op::Scan { label: "M".into() },
-            Op::WindowAgg { secs: 10.0, agg: "sum".into() },
+            Op::WindowAgg {
+                secs: 10.0,
+                agg: "sum".into(),
+            },
         ]);
         let mut c = Circuit::compile(&plan).unwrap();
         let mut model = node_map(&[]);
@@ -656,10 +707,19 @@ mod tests {
 
         // move c from bucket 1 to bucket 0 (update ts 12→8) via retract+insert
         c.apply(&Delta::from(vec![
-            super::super::zset::ZRow::retract("c", props(json!({"type": "M", "ts": 12.0, "value": 4.0}))),
-            super::super::zset::ZRow::insert("c", props(json!({"type": "M", "ts": 8.0, "value": 4.0}))),
+            super::super::zset::ZRow::retract(
+                "c",
+                props(json!({"type": "M", "ts": 12.0, "value": 4.0})),
+            ),
+            super::super::zset::ZRow::insert(
+                "c",
+                props(json!({"type": "M", "ts": 8.0, "value": 4.0})),
+            ),
         ]));
-        model.insert("c".into(), props(json!({"type": "M", "ts": 8.0, "value": 4.0})));
+        model.insert(
+            "c".into(),
+            props(json!({"type": "M", "ts": 8.0, "value": 4.0})),
+        );
         assert_eq!(c.current(), c.recompute(&model));
         // bucket 1 now empty (pruned), bucket 0 = 2+4 = 6
         assert_eq!(c.current().ids(), vec!["0"]);
@@ -671,7 +731,10 @@ mod tests {
         for (agg, _lbl) in [("count", "M"), ("mean", "M"), ("avg", "M")] {
             let plan = Plan::new(vec![
                 Op::Scan { label: "M".into() },
-                Op::WindowAgg { secs: 10.0, agg: agg.into() },
+                Op::WindowAgg {
+                    secs: 10.0,
+                    agg: agg.into(),
+                },
             ]);
             let mut c = Circuit::compile(&plan).unwrap();
             let mut model = node_map(&[]);
@@ -686,7 +749,12 @@ mod tests {
 
     #[test]
     fn limit_truncates_and_matches_recompute() {
-        let plan = Plan::new(vec![Op::Scan { label: "Doc".into() }, Op::Limit { k: 2 }]);
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Limit { k: 2 },
+        ]);
         let mut c = Circuit::compile(&plan).unwrap();
         let mut model = node_map(&[]);
         for id in ["d", "a", "c", "b"] {

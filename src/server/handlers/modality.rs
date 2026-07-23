@@ -1234,7 +1234,7 @@ mod tests {
     #[test]
     fn resource_gate_is_bounded_and_every_leaf_is_12_of_12() {
         assert_eq!(env_limit("__EG_TEST_UNSET_SOURCE_LIMIT", 1024, 2048), 1024);
-        assert!(validate_request_sizes(&[0x90], &vec![0; 64]).is_ok());
+        assert!(validate_request_sizes(&[0x90], &[0; 64]).is_ok());
         assert!(validate_request_sizes(&[], &[1]).is_err());
         assert!(validate_request_sizes(&[0xdd, 0xff, 0xff, 0xff, 0xff], &[1]).is_err());
         for result in [

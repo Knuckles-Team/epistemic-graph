@@ -32,9 +32,9 @@ fn eg073_named_foreign_scan_materializes_registered_rows() {
     assert!(!registry.is_empty());
 
     let plan = Plan::new(vec![Op::ForeignScan {
-        source: ForeignSourceSpec::Named {
+        source: Box::new(ForeignSourceSpec::Named {
             name: "peer-east".into(),
-        },
+        }),
         join: false,
     }]);
 
@@ -72,9 +72,9 @@ fn eg073_named_foreign_scan_composes_with_a_local_join() {
             }],
         },
         Op::ForeignScan {
-            source: ForeignSourceSpec::Named {
+            source: Box::new(ForeignSourceSpec::Named {
                 name: "peer-east".into(),
-            },
+            }),
             join: true,
         },
         Op::Rank {
@@ -147,9 +147,9 @@ fn eg073_unbound_named_source_errors_cleanly() {
     registry.register_table("peer-east", rows(&[("d2", None)]));
 
     let scan = Plan::new(vec![Op::ForeignScan {
-        source: ForeignSourceSpec::Named {
+        source: Box::new(ForeignSourceSpec::Named {
             name: "ghost".into(),
-        },
+        }),
         join: false,
     }]);
     let ctx = PlanCtx::new(&fx.view, &fx.semantic).with_foreign(&registry);
@@ -173,9 +173,9 @@ fn eg073_unbound_named_source_errors_cleanly() {
 fn eg073_named_scan_without_a_registry_errors() {
     let fx = crate::fixture::build();
     let plan = Plan::new(vec![Op::ForeignScan {
-        source: ForeignSourceSpec::Named {
+        source: Box::new(ForeignSourceSpec::Named {
             name: "peer-east".into(),
-        },
+        }),
         join: false,
     }]);
     // Default ctx — no `.with_foreign(..)`.

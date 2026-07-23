@@ -87,7 +87,7 @@ fn state() -> Arc<RwLock<ServerState>> {
         per_graph_inflight_limit: 8,
         write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen::default()),
+        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
         txn_ttl_secs: 300,
         txn_max_per_graph: 256,
         txn_max_per_agent: 256,
@@ -648,16 +648,16 @@ fn register_identity_req(
     agent_id: &str,
     role: epistemic_graph::acl::AgentRole,
 ) -> Request {
-    common::signed_register_identity_request(
-        SECRET,
+    common::signed_register_identity_request(common::SignedRegisterIdentity {
+        secret: SECRET,
         id,
-        "__commons__",
+        graph: "__commons__",
         actor,
-        agent_id,
+        registered_agent: agent_id,
         role,
-        Vec::new(),
-        Vec::new(),
-    )
+        teams: Vec::new(),
+        roles: Vec::new(),
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

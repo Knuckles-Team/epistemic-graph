@@ -37,6 +37,12 @@
 
 use std::collections::HashMap;
 
+/// One assignment of every variable's categorical value (indexed by topological
+/// order position) paired with its joint probability. Named to keep
+/// [`DiscreteCausalGraph::joint_assignments`]'s signature under clippy's
+/// `type_complexity` threshold.
+type JointAssignments = Vec<(Vec<usize>, f64)>;
+
 use eg_types::Distribution;
 
 /// Default credible-mass for a [`CausalEstimate::interval`] — mirrors
@@ -500,7 +506,12 @@ impl CausalModelKind {
     /// causal `Method` can select the discrete model. Unknown spellings are an
     /// error rather than a silent fallback.
     pub fn parse(s: &str) -> Result<Self, String> {
-        match s.trim().to_ascii_lowercase().replace(['-', ' '], "_").as_str() {
+        match s
+            .trim()
+            .to_ascii_lowercase()
+            .replace(['-', ' '], "_")
+            .as_str()
+        {
             "" | "linear_gaussian" | "lineargaussian" | "gaussian" | "linear" | "continuous" => {
                 Ok(CausalModelKind::LinearGaussian)
             }
@@ -712,7 +723,7 @@ impl DiscreteCausalGraph {
     /// the linear model's closed-form joint, and exact (full enumeration, no
     /// sampling). Cost is the product of cardinalities, so intended for the small
     /// SCMs causal queries pose in practice.
-    fn joint_assignments(&self) -> (Vec<(Vec<usize>, f64)>, HashMap<String, usize>) {
+    fn joint_assignments(&self) -> (JointAssignments, HashMap<String, usize>) {
         let idx: HashMap<String, usize> = self
             .order
             .iter()
@@ -723,7 +734,8 @@ impl DiscreteCausalGraph {
         for id in &self.order {
             let eq = &self.equations[id];
             let parent_pos: Vec<usize> = eq.parents.iter().map(|p| idx[p]).collect();
-            let mut next: Vec<(Vec<usize>, f64)> = Vec::with_capacity(states.len() * eq.cardinality);
+            let mut next: Vec<(Vec<usize>, f64)> =
+                Vec::with_capacity(states.len() * eq.cardinality);
             for (assignment, prob) in &states {
                 let key: Vec<usize> = parent_pos.iter().map(|&pp| assignment[pp]).collect();
                 let row = &eq.table[&key];
@@ -843,8 +855,7 @@ impl DiscreteCausalGraph {
         if evidence.is_empty() {
             return Ok(self.marginals(&all, &idx, 1.0));
         }
-        let ev_pos: Vec<(usize, usize)> =
-            evidence.iter().map(|(id, &v)| (idx[id], v)).collect();
+        let ev_pos: Vec<(usize, usize)> = evidence.iter().map(|(id, &v)| (idx[id], v)).collect();
         let kept: Vec<(Vec<usize>, f64)> = all
             .into_iter()
             .filter(|(a, _)| ev_pos.iter().all(|&(pos, v)| a[pos] == v))
@@ -1290,7 +1301,10 @@ mod tests {
         //   Z: unaffected upstream, replay u_z=0.75 -> cat 1 (reproduces actual).
         //   X: pinned to 0.
         //   Y | X=0: row [0.9,0.1], cum[0]=0.9 ; u_y=0.65 < 0.9 -> cat 0.
-        assert_eq!(cf["z"], 1, "Z is upstream of X and must reproduce its actual value");
+        assert_eq!(
+            cf["z"], 1,
+            "Z is upstream of X and must reproduce its actual value"
+        );
         assert_eq!(cf["x"], 0, "X is pinned to the counterfactual category");
         assert_eq!(
             cf["y"], 0,

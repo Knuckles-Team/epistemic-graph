@@ -167,6 +167,18 @@ pub(crate) struct ChangeEnvelopePayload {
     pub(crate) committed_at_ms: u64,
 }
 
+/// A bounded page request over one graph's durable rows — every
+/// [`Cmd::ReadGraphDumpPage`] field except the routing `graph` name and the
+/// reply channel. Boxed inside the command so an unsent `Cmd` (returned whole
+/// inside a channel `SendError`) stays small.
+pub(crate) struct PageQuery {
+    pub(crate) node_offset: usize,
+    pub(crate) edge_offset: usize,
+    pub(crate) node_after: Option<String>,
+    pub(crate) edge_after: Option<(String, String, u32)>,
+    pub(crate) page_size: usize,
+}
+
 /// One write command handed to the off-reactor thread. A `Mutation` carries the
 /// graph file-name + the applied method; the thread translates it into row writes
 /// inside the current group-commit transaction.
@@ -235,11 +247,7 @@ pub(crate) enum Cmd {
     /// `ReadGraphDump`.
     ReadGraphDumpPage {
         graph: String,
-        node_offset: usize,
-        edge_offset: usize,
-        node_after: Option<String>,
-        edge_after: Option<(String, String, u32)>,
-        page_size: usize,
+        query: Box<PageQuery>,
         reply: std::sync::mpsc::Sender<Result<Option<crate::redb_store::GraphDumpPage>, String>>,
     },
     /// Export ONE graph's rows VERBATIM for an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs
@@ -1338,11 +1346,13 @@ impl RedbBackend {
             .tx
             .send(Cmd::ReadGraphDumpPage {
                 graph: graph_fname.to_string(),
-                node_offset,
-                edge_offset,
-                node_after,
-                edge_after,
-                page_size,
+                query: Box::new(PageQuery {
+                    node_offset,
+                    edge_offset,
+                    node_after,
+                    edge_after,
+                    page_size,
+                }),
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -1719,7 +1729,7 @@ impl PersistenceBackend for RedbBackend {
             let tx = self.shard_for(graph_fname).tx.clone();
             tokio::task::spawn_blocking(move || {
                 let _routing = guard;
-                tx.send(cmd)
+                tx.send(cmd).map_err(|_| ())
             })
             .await
             .map_err(|e| format!("redb record_durable join error: {e}"))?
@@ -1728,7 +1738,7 @@ impl PersistenceBackend for RedbBackend {
             })?;
         } else {
             let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd))
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
                 .await
                 .map_err(|e| format!("redb record_durable join error: {e}"))?
                 .map_err(|_| {
@@ -1772,14 +1782,14 @@ impl PersistenceBackend for RedbBackend {
             let tx = self.shard_for(graph_fname).tx.clone();
             tokio::task::spawn_blocking(move || {
                 let _routing = guard;
-                tx.send(cmd)
+                tx.send(cmd).map_err(|_| ())
             })
             .await
             .map_err(|e| format!("commit_mutation_batch join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
         } else {
             let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd))
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
                 .await
                 .map_err(|e| format!("commit_mutation_batch join error: {e}"))?
                 .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -1814,14 +1824,14 @@ impl PersistenceBackend for RedbBackend {
             let tx = self.shard_for(graph_fname).tx.clone();
             tokio::task::spawn_blocking(move || {
                 let _routing = guard;
-                tx.send(cmd)
+                tx.send(cmd).map_err(|_| ())
             })
             .await
             .map_err(|e| format!("commit_mutation_batch_state join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
         } else {
             let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd))
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
                 .await
                 .map_err(|e| format!("commit_mutation_batch_state join error: {e}"))?
                 .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -1832,26 +1842,20 @@ impl PersistenceBackend for RedbBackend {
 
     async fn commit_mutation_batch_crossmodal(
         &self,
-        graph_fname: &str,
-        batch: &MutationBatch,
-        methods: &[Method],
-        vectors: &[(String, Vec<f32>)],
-        blob_refs: &[(String, String)],
-        measurements: &[crate::MeasurementBatch],
-        result_msgpack: Option<&[u8]>,
-        committed_at_ms: u64,
+        args: super::CrossModalCommitArgs<'_>,
     ) -> Result<MutationBatchCommit, String> {
+        let graph_fname = args.graph_fname;
         let (done, rx) = oneshot::channel();
         let cmd = Cmd::CrossModalBatchCommit {
             payload: Box::new(CrossModalBatchPayload {
                 graph: graph_fname.to_string(),
-                batch: batch.clone(),
-                methods: methods.to_vec(),
-                vectors: vectors.to_vec(),
-                blob_refs: blob_refs.to_vec(),
-                measurements: measurements.to_vec(),
-                result_msgpack: result_msgpack.map(ToOwned::to_owned),
-                committed_at_ms,
+                batch: args.batch.clone(),
+                methods: args.methods.to_vec(),
+                vectors: args.vectors.to_vec(),
+                blob_refs: args.blob_refs.to_vec(),
+                measurements: args.measurements.to_vec(),
+                result_msgpack: args.result_msgpack.map(ToOwned::to_owned),
+                committed_at_ms: args.committed_at_ms,
             }),
             done,
         };
@@ -1860,14 +1864,14 @@ impl PersistenceBackend for RedbBackend {
             let tx = self.shard_for(graph_fname).tx.clone();
             tokio::task::spawn_blocking(move || {
                 let _routing = guard;
-                tx.send(cmd)
+                tx.send(cmd).map_err(|_| ())
             })
             .await
             .map_err(|e| format!("commit_mutation_batch_crossmodal join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
         } else {
             let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd))
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
                 .await
                 .map_err(|e| format!("commit_mutation_batch_crossmodal join error: {e}"))?
                 .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -1941,14 +1945,14 @@ impl PersistenceBackend for RedbBackend {
             let tx = self.shard_for(graph_fname).tx.clone();
             tokio::task::spawn_blocking(move || {
                 let _routing = guard;
-                tx.send(cmd)
+                tx.send(cmd).map_err(|_| ())
             })
             .await
             .map_err(|e| format!("claim_mutation_outbox join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
         } else {
             let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd))
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
                 .await
                 .map_err(|e| format!("claim_mutation_outbox join error: {e}"))?
                 .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -1977,14 +1981,14 @@ impl PersistenceBackend for RedbBackend {
             let tx = self.shard_for(graph_fname).tx.clone();
             tokio::task::spawn_blocking(move || {
                 let _routing = guard;
-                tx.send(cmd)
+                tx.send(cmd).map_err(|_| ())
             })
             .await
             .map_err(|e| format!("ack_mutation_outbox join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
         } else {
             let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd))
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
                 .await
                 .map_err(|e| format!("ack_mutation_outbox join error: {e}"))?
                 .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -2043,14 +2047,14 @@ impl PersistenceBackend for RedbBackend {
             let tx = self.shard_for(graph_fname).tx.clone();
             tokio::task::spawn_blocking(move || {
                 let _routing = guard;
-                tx.send(cmd)
+                tx.send(cmd).map_err(|_| ())
             })
             .await
             .map_err(|e| format!("commit_change_envelope join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
         } else {
             let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd))
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
                 .await
                 .map_err(|e| format!("commit_change_envelope join error: {e}"))?
                 .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -2144,14 +2148,14 @@ impl PersistenceBackend for RedbBackend {
             let tx = self.shard_for(graph_fname).tx.clone();
             tokio::task::spawn_blocking(move || {
                 let _routing = guard;
-                tx.send(cmd)
+                tx.send(cmd).map_err(|_| ())
             })
             .await
             .map_err(|e| format!("commit_crossmodal join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
         } else {
             let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd))
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
                 .await
                 .map_err(|e| format!("commit_crossmodal join error: {e}"))?
                 .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -2176,7 +2180,7 @@ impl PersistenceBackend for RedbBackend {
             done,
         };
         let tx = self.shard_for(graph_fname).tx.clone();
-        tokio::task::spawn_blocking(move || tx.send(cmd))
+        tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
             .await
             .map_err(|e| format!("redb register_graph join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -2193,7 +2197,7 @@ impl PersistenceBackend for RedbBackend {
             done,
         };
         let tx = self.shard_for(graph_fname).tx.clone();
-        tokio::task::spawn_blocking(move || tx.send(cmd))
+        tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
             .await
             .map_err(|e| format!("redb purge_graph join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -2480,7 +2484,7 @@ impl RedbBackend {
             done,
         };
         let tx = self.shard0().tx.clone();
-        tokio::task::spawn_blocking(move || tx.send(cmd))
+        tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
             .await
             .map_err(|e| format!("raft_log_append join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -2516,6 +2520,7 @@ impl RedbBackend {
                 from,
                 done,
             })
+            .map_err(|_| ())
         })
         .await
         .map_err(|e| format!("raft_log_delete_from join error: {e}"))?
@@ -2535,6 +2540,7 @@ impl RedbBackend {
                 upto,
                 done,
             })
+            .map_err(|_| ())
         })
         .await
         .map_err(|e| format!("raft_log_purge_upto join error: {e}"))?
@@ -2573,6 +2579,7 @@ impl RedbBackend {
                 val,
                 done,
             })
+            .map_err(|_| ())
         })
         .await
         .map_err(|e| format!("raft_meta_put join error: {e}"))?
@@ -2622,6 +2629,7 @@ impl RedbBackend {
                 slice,
                 done,
             })
+            .map_err(|_| ())
         })
         .await
         .map_err(|e| format!("xshard_prepare_put join error: {e}"))?
@@ -2663,6 +2671,7 @@ impl RedbBackend {
                 retain_for_parent: false,
                 done,
             })
+            .map_err(|_| ())
         })
         .await
         .map_err(|e| format!("xshard_decision_put join error: {e}"))?
@@ -2689,6 +2698,7 @@ impl RedbBackend {
                 retain_for_parent: true,
                 done,
             })
+            .map_err(|_| ())
         })
         .await
         .map_err(|e| format!("xshard recoverable decision join error: {e}"))?
@@ -2705,6 +2715,7 @@ impl RedbBackend {
         let tx = self.shard0().tx.clone();
         tokio::task::spawn_blocking(move || {
             tx.send(Cmd::XshardRecoverablePendingPut { txn_id, done })
+                .map_err(|_| ())
         })
         .await
         .map_err(|e| format!("xshard recoverable pending join error: {e}"))?
@@ -2725,6 +2736,7 @@ impl RedbBackend {
                 group_id,
                 done,
             })
+            .map_err(|_| ())
         })
         .await
         .map_err(|e| format!("xshard_prepare_clear join error: {e}"))?
@@ -2739,10 +2751,13 @@ impl RedbBackend {
         let (done, rx) = oneshot::channel();
         let txn_id = txn_id.to_string();
         let tx = self.shard0().tx.clone();
-        tokio::task::spawn_blocking(move || tx.send(Cmd::XshardDecisionClear { txn_id, done }))
-            .await
-            .map_err(|e| format!("xshard_decision_clear join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::XshardDecisionClear { txn_id, done })
+                .map_err(|_| ())
+        })
+        .await
+        .map_err(|e| format!("xshard_decision_clear join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
         rx.await
             .map_err(|_| "redb writer dropped xshard_decision_clear completion".to_string())?
     }
@@ -2808,10 +2823,13 @@ impl RedbBackend {
         let (done, rx) = oneshot::channel();
         let name = name.to_string();
         let tx = self.shard0().tx.clone();
-        tokio::task::spawn_blocking(move || tx.send(Cmd::MatViewPut { name, blob, done }))
-            .await
-            .map_err(|e| format!("matview_put join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::MatViewPut { name, blob, done })
+                .map_err(|_| ())
+        })
+        .await
+        .map_err(|e| format!("matview_put join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
         rx.await
             .map_err(|_| "redb writer dropped matview_put completion".to_string())?
     }
@@ -2835,10 +2853,13 @@ impl RedbBackend {
         let (done, rx) = oneshot::channel();
         let name = name.to_string();
         let tx = self.shard0().tx.clone();
-        tokio::task::spawn_blocking(move || tx.send(Cmd::PlanMatViewPut { name, blob, done }))
-            .await
-            .map_err(|e| format!("plan_matview_put join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::PlanMatViewPut { name, blob, done })
+                .map_err(|_| ())
+        })
+        .await
+        .map_err(|e| format!("plan_matview_put join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
         rx.await
             .map_err(|_| "redb writer dropped plan_matview_put completion".to_string())?
     }
@@ -2849,10 +2870,13 @@ impl RedbBackend {
         let (done, rx) = oneshot::channel();
         let name = name.to_string();
         let tx = self.shard0().tx.clone();
-        tokio::task::spawn_blocking(move || tx.send(Cmd::PlanMatViewDelete { name, done }))
-            .await
-            .map_err(|e| format!("plan_matview_delete join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::PlanMatViewDelete { name, done })
+                .map_err(|_| ())
+        })
+        .await
+        .map_err(|e| format!("plan_matview_delete join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
         rx.await
             .map_err(|_| "redb writer dropped plan_matview_delete completion".to_string())?
     }
@@ -2872,12 +2896,17 @@ impl RedbBackend {
     /// Durably upsert an incremental matview's operator-state snapshot
     /// (CONCEPT:EG-KG.storage.incremental-matview). Awaits the fsync.
     #[cfg(feature = "matview")]
-    pub async fn matview_operator_state_put(&self, name: &str, blob: Vec<u8>) -> Result<(), String> {
+    pub async fn matview_operator_state_put(
+        &self,
+        name: &str,
+        blob: Vec<u8>,
+    ) -> Result<(), String> {
         let (done, rx) = oneshot::channel();
         let name = name.to_string();
         let tx = self.shard0().tx.clone();
         tokio::task::spawn_blocking(move || {
             tx.send(Cmd::MatViewOperatorStatePut { name, blob, done })
+                .map_err(|_| ())
         })
         .await
         .map_err(|e| format!("matview_operator_state_put join error: {e}"))?
@@ -2892,10 +2921,13 @@ impl RedbBackend {
         let (done, rx) = oneshot::channel();
         let name = name.to_string();
         let tx = self.shard0().tx.clone();
-        tokio::task::spawn_blocking(move || tx.send(Cmd::MatViewOperatorStateDelete { name, done }))
-            .await
-            .map_err(|e| format!("matview_operator_state_delete join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::MatViewOperatorStateDelete { name, done })
+                .map_err(|_| ())
+        })
+        .await
+        .map_err(|e| format!("matview_operator_state_delete join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
         rx.await.map_err(|_| {
             "redb writer dropped matview_operator_state_delete completion".to_string()
         })?
@@ -3145,11 +3177,7 @@ fn handle_cmd(
         }
         Cmd::ReadGraphDumpPage {
             graph,
-            node_offset,
-            edge_offset,
-            node_after,
-            edge_after,
-            page_size,
+            query,
             reply,
         } => {
             // Flush pending first (same consistency contract as ReadGraphDump), then
@@ -3159,13 +3187,15 @@ fn handle_cmd(
                 db,
                 &graph,
                 crypto,
-                node_offset,
-                edge_offset,
-                node_after.as_deref(),
-                edge_after
-                    .as_ref()
-                    .map(|(source, target, ordinal)| (source.as_str(), target.as_str(), *ordinal)),
-                page_size,
+                crate::redb_store::PageCursorRef {
+                    node_offset: query.node_offset,
+                    edge_offset: query.edge_offset,
+                    node_after: query.node_after.as_deref(),
+                    edge_after: query.edge_after.as_ref().map(|(source, target, ordinal)| {
+                        (source.as_str(), target.as_str(), *ordinal)
+                    }),
+                    page_size: query.page_size,
+                },
             ));
             false
         }
@@ -3280,14 +3310,18 @@ fn handle_cmd(
             commit_and_notify(db, pending, Durability::Immediate, crypto);
             let res = commit_mutation_batch_crossmodal(
                 db,
-                &graph,
-                &batch,
-                &methods,
-                &vectors,
-                &blob_refs,
-                &measurements,
-                result_msgpack.as_deref(),
-                committed_at_ms,
+                crate::redb_store::CrossModalCommitInput {
+                    graph_fname: &graph,
+                    batch: &batch,
+                    rows: crate::redb_store::CrossModalBatchRows {
+                        methods: &methods,
+                        vectors: &vectors,
+                        blob_refs: &blob_refs,
+                        measurements: &measurements,
+                    },
+                    result_msgpack: result_msgpack.as_deref(),
+                    committed_at_ms,
+                },
                 crypto,
                 #[cfg(feature = "security")]
                 &mut pending.audit_tail,
@@ -3311,15 +3345,17 @@ fn handle_cmd(
             let res = if let Some(state) = authoritative_state_msgpack.as_deref() {
                 commit_mutation_batch_state(
                     db,
-                    &graph,
-                    &batch,
-                    state,
-                    result_msgpack.as_deref(),
-                    committed_at_ms,
+                    crate::redb_store::StateCommitInput {
+                        graph_fname: &graph,
+                        batch: &batch,
+                        authoritative_state_msgpack: state,
+                        result_msgpack: result_msgpack.as_deref(),
+                        committed_at_ms,
+                        audited,
+                    },
                     crypto,
                     #[cfg(feature = "security")]
                     &mut pending.audit_tail,
-                    audited,
                 )
             } else {
                 commit_mutation_batch(
@@ -3559,7 +3595,9 @@ fn handle_cmd(
         #[cfg(feature = "matview")]
         Cmd::MatViewOperatorStatePut { name, blob, done } => {
             commit_and_notify(db, pending, Durability::Immediate, crypto);
-            let _ = done.send(crate::redb_store::put_matview_operator_state(db, &name, &blob));
+            let _ = done.send(crate::redb_store::put_matview_operator_state(
+                db, &name, &blob,
+            ));
             false
         }
         #[cfg(feature = "matview")]
@@ -3856,7 +3894,7 @@ mod tests {
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(dashmap::DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,

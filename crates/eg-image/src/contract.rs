@@ -152,7 +152,7 @@ impl GovernedModality for ImageData {
                     && region.height > 0.0
                     && region.x + region.width <= self.width as f64
                     && region.y + region.height <= self.height as f64
-                    && region.label.as_deref().map_or(true, opaque)
+                    && region.label.as_deref().is_none_or(opaque)
             })
     }
 

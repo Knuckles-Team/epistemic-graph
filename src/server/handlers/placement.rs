@@ -244,7 +244,11 @@ async fn handle_move(
 }
 
 #[cfg(feature = "raft")]
-async fn handle_abort_move(state: &Arc<RwLock<ServerState>>, req_id: u64, move_id: String) -> Response {
+async fn handle_abort_move(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    move_id: String,
+) -> Response {
     let (multi, backend) = match resolve_admin_authority(state).await {
         Ok(authority) => authority,
         Err(error) => return Response::err(req_id, error),

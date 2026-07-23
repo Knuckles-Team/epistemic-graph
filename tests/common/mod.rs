@@ -124,17 +124,33 @@ pub fn signed_request_as(
     request
 }
 
+/// Bundled arguments for [`signed_register_identity_request`], kept under the
+/// clippy argument-count ceiling without dropping any of the fields the
+/// signed-envelope construction needs.
 #[allow(dead_code)]
-pub fn signed_register_identity_request(
-    secret: &str,
-    id: u64,
-    graph: &str,
-    actor: &str,
-    registered_agent: &str,
-    role: AgentRole,
-    teams: Vec<String>,
-    roles: Vec<String>,
-) -> Request {
+pub struct SignedRegisterIdentity<'a> {
+    pub secret: &'a str,
+    pub id: u64,
+    pub graph: &'a str,
+    pub actor: &'a str,
+    pub registered_agent: &'a str,
+    pub role: AgentRole,
+    pub teams: Vec<String>,
+    pub roles: Vec<String>,
+}
+
+#[allow(dead_code)]
+pub fn signed_register_identity_request(args: SignedRegisterIdentity<'_>) -> Request {
+    let SignedRegisterIdentity {
+        secret,
+        id,
+        graph,
+        actor,
+        registered_agent,
+        role,
+        teams,
+        roles,
+    } = args;
     configure_authority();
     let context = context_for(actor);
     let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);

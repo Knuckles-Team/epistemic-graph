@@ -2621,42 +2621,6 @@ pub(crate) fn where_clause(preds: &[Pred]) -> Result<String, String> {
     Ok(clauses.join(" AND "))
 }
 
-#[cfg(test)]
-mod filter_security_tests {
-    use super::*;
-
-    #[test]
-    fn wire_supplied_identifiers_and_literals_cannot_escape_sql() {
-        let clause = where_clause(&[Pred::Eq {
-            prop: "name\" OR 1=1 --".into(),
-            value: "x' OR '1'='1".into(),
-        }])
-        .unwrap();
-        assert_eq!(clause, "\"name\"\" OR 1=1 --\" = 'x'' OR ''1''=''1'");
-    }
-
-    #[test]
-    fn invalid_or_unbounded_wire_predicates_fail_closed() {
-        assert!(where_clause(&[Pred::GtNum {
-            prop: "score".into(),
-            n: f64::NAN,
-        }])
-        .is_err());
-        assert!(where_clause(&[Pred::Eq {
-            prop: "bad\nname".into(),
-            value: String::new(),
-        }])
-        .is_err());
-        let too_many = (0..=MAX_FILTER_PREDICATES)
-            .map(|_| Pred::Eq {
-                prop: "type".into(),
-                value: "Document".into(),
-            })
-            .collect::<Vec<_>>();
-        assert!(where_clause(&too_many).is_err());
-    }
-}
-
 /// The O(1) fast-path RESULT for a lone `id = <id>` equality predicate
 /// (CONCEPT:EG-KG.query.point-lookup-fast-path) — BYTE-IDENTICAL to what
 /// `sql_filter_ids(view, &[Pred::Eq{prop:"id", value:id.into()}], restrict_to)` would
@@ -2811,4 +2775,40 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
             .map(|v| v.get("relationship").and_then(|x| x.as_str()) == Some(rel))
             .unwrap_or(false)
     })
+}
+
+#[cfg(test)]
+mod filter_security_tests {
+    use super::*;
+
+    #[test]
+    fn wire_supplied_identifiers_and_literals_cannot_escape_sql() {
+        let clause = where_clause(&[Pred::Eq {
+            prop: "name\" OR 1=1 --".into(),
+            value: "x' OR '1'='1".into(),
+        }])
+        .unwrap();
+        assert_eq!(clause, "\"name\"\" OR 1=1 --\" = 'x'' OR ''1''=''1'");
+    }
+
+    #[test]
+    fn invalid_or_unbounded_wire_predicates_fail_closed() {
+        assert!(where_clause(&[Pred::GtNum {
+            prop: "score".into(),
+            n: f64::NAN,
+        }])
+        .is_err());
+        assert!(where_clause(&[Pred::Eq {
+            prop: "bad\nname".into(),
+            value: String::new(),
+        }])
+        .is_err());
+        let too_many = (0..=MAX_FILTER_PREDICATES)
+            .map(|_| Pred::Eq {
+                prop: "type".into(),
+                value: "Document".into(),
+            })
+            .collect::<Vec<_>>();
+        assert!(where_clause(&too_many).is_err());
+    }
 }

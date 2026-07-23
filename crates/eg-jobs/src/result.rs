@@ -219,15 +219,17 @@ impl TypedJobResult {
         if self.evidence_refs.is_empty() {
             return Err("typed job result requires at least one evidence reference".to_string());
         }
-        if !self.uncertainty.map_or(true, |value| {
-            value.is_finite() && (0.0..=1.0).contains(&value)
-        }) || !self.calibration.map_or(true, |(lower, upper)| {
-            lower.is_finite()
-                && upper.is_finite()
-                && (0.0..=1.0).contains(&lower)
-                && (0.0..=1.0).contains(&upper)
-                && lower <= upper
-        }) {
+        if !self
+            .uncertainty
+            .is_none_or(|value| value.is_finite() && (0.0..=1.0).contains(&value))
+            || !self.calibration.is_none_or(|(lower, upper)| {
+                lower.is_finite()
+                    && upper.is_finite()
+                    && (0.0..=1.0).contains(&lower)
+                    && (0.0..=1.0).contains(&upper)
+                    && lower <= upper
+            })
+        {
             return Err("typed job result uncertainty/calibration is invalid".to_string());
         }
         for row in &self.rows {
@@ -237,10 +239,10 @@ impl TypedJobResult {
                 .get("evidence_refs")
                 .and_then(serde_json::Value::as_array);
             let sources = row.get("source_refs").and_then(serde_json::Value::as_array);
-            if !id.is_some_and(|value| !value.is_empty())
+            if id.is_none_or(|value| value.is_empty())
                 || !confidence.is_some_and(|value| (0.0..=1.0).contains(&value))
-                || !evidence.is_some_and(|values| !values.is_empty())
-                || !sources.is_some_and(|values| !values.is_empty())
+                || evidence.is_none_or(|values| values.is_empty())
+                || sources.is_none_or(|values| values.is_empty())
             {
                 return Err(
                     "typed job result rows require an id, bounded confidence, evidence and sources"

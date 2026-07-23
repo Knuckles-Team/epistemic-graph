@@ -118,7 +118,10 @@ impl std::fmt::Display for TransitionError {
                 write!(f, "transition {transition} targets undeclared state '{to}'")
             }
             TransitionError::CompositeUnsupported(s) => {
-                write!(f, "state '{s}' is composite/parallel/history (unsupported in phase-1)")
+                write!(
+                    f,
+                    "state '{s}' is composite/parallel/history (unsupported in phase-1)"
+                )
             }
         }
     }
@@ -158,9 +161,10 @@ pub fn transition(
             continue;
         }
         // A firing edge must target a declared, non-composite state.
-        let label = candidate.label.clone().unwrap_or_else(|| {
-            format!("{}-{}->{}", candidate.from, candidate.event, candidate.to)
-        });
+        let label = candidate
+            .label
+            .clone()
+            .unwrap_or_else(|| format!("{}-{}->{}", candidate.from, candidate.event, candidate.to));
         let Some(target) = def.state(&candidate.to) else {
             return Err(TransitionError::UndeclaredTarget {
                 transition: label,
@@ -290,7 +294,7 @@ fn depth(parent: &BTreeMap<&str, &str>, id: &str) -> usize {
 
 /// Whether a state is composite (has children).
 fn is_compound(def: &StatechartDef, id: &str) -> bool {
-    def.state(id).map_or(false, |s| !s.children.is_empty())
+    def.state(id).is_some_and(|s| !s.children.is_empty())
 }
 
 /// The transition domain: the least common compound ancestor of `source` and `target`
@@ -500,7 +504,14 @@ pub fn initial_configuration(
     let mut active = BTreeSet::new();
     let mut actions = Vec::new();
     let history = BTreeMap::new();
-    enter_full(def, &parent, &def.initial, &history, &mut active, &mut actions);
+    enter_full(
+        def,
+        &parent,
+        &def.initial,
+        &history,
+        &mut active,
+        &mut actions,
+    );
     Ok((Configuration { active, history }, actions))
 }
 
@@ -613,8 +624,11 @@ pub fn step(
 
     // Exit inner-out (deepest first): run exit actions, drop from active.
     let mut exit_ordered: Vec<&StateId> = exit_all.iter().collect();
-    exit_ordered
-        .sort_by(|a, b| depth(&parent, b.as_str()).cmp(&depth(&parent, a.as_str())).then(b.cmp(a)));
+    exit_ordered.sort_by(|a, b| {
+        depth(&parent, b.as_str())
+            .cmp(&depth(&parent, a.as_str()))
+            .then(b.cmp(a))
+    });
     for s in exit_ordered {
         if let Some(st) = def.state(s) {
             actions.extend(st.exit.iter().cloned());
@@ -675,22 +689,26 @@ mod tests {
             name: "turnstile".into(),
             schema_version: 1,
             states: vec![
-                State::new("locked")
-                    .with_entry(vec![Action::Assign {
-                        key: "at".into(),
-                        value: ActionValue::Const { value: serde_json::json!("locked") },
-                    }]),
-                State::new("unlocked")
-                    .with_entry(vec![Action::Assign {
-                        key: "at".into(),
-                        value: ActionValue::Const { value: serde_json::json!("unlocked") },
-                    }]),
+                State::new("locked").with_entry(vec![Action::Assign {
+                    key: "at".into(),
+                    value: ActionValue::Const {
+                        value: serde_json::json!("locked"),
+                    },
+                }]),
+                State::new("unlocked").with_entry(vec![Action::Assign {
+                    key: "at".into(),
+                    value: ActionValue::Const {
+                        value: serde_json::json!("unlocked"),
+                    },
+                }]),
             ],
             alphabet: vec!["coin".into(), "push".into()],
             transitions: vec![
                 Transition::new("locked", "coin", "unlocked").with_actions(vec![Action::Assign {
                     key: "coins".into(),
-                    value: ActionValue::Const { value: serde_json::json!(1) },
+                    value: ActionValue::Const {
+                        value: serde_json::json!(1),
+                    },
                 }]),
                 Transition::new("unlocked", "push", "locked"),
             ],
@@ -709,7 +727,10 @@ mod tests {
         assert_eq!(out.next_state, "unlocked");
         // transition action set coins=1, then entry(unlocked) set at="unlocked".
         assert_eq!(out.next_context.get("coins"), Some(&serde_json::json!(1)));
-        assert_eq!(out.next_context.get("at"), Some(&serde_json::json!("unlocked")));
+        assert_eq!(
+            out.next_context.get("at"),
+            Some(&serde_json::json!("unlocked"))
+        );
     }
 
     #[test]
@@ -727,8 +748,13 @@ mod tests {
     #[test]
     fn event_outside_alphabet_is_a_request_error() {
         let def = turnstile();
-        let err = transition(&def, "locked", &Context::new(), &EventInput::new("teleport"))
-            .unwrap_err();
+        let err = transition(
+            &def,
+            "locked",
+            &Context::new(),
+            &EventInput::new("teleport"),
+        )
+        .unwrap_err();
         assert_eq!(err, TransitionError::UnknownEvent("teleport".into()));
     }
 
@@ -740,8 +766,10 @@ mod tests {
             states: vec![State::new("a"), State::new("hi"), State::new("lo")],
             alphabet: vec!["go".into()],
             transitions: vec![
-                Transition::new("a", "go", "hi")
-                    .with_guard(Guard::Gt { key: "n".into(), value: 10.0 }),
+                Transition::new("a", "go", "hi").with_guard(Guard::Gt {
+                    key: "n".into(),
+                    value: 10.0,
+                }),
                 Transition::new("a", "go", "lo"),
             ],
             initial: "a".into(),
@@ -750,10 +778,20 @@ mod tests {
         };
         let mut hi = Context::new();
         hi.set("n", serde_json::json!(20));
-        assert_eq!(transition(&def, "a", &hi, &EventInput::new("go")).unwrap().next_state, "hi");
+        assert_eq!(
+            transition(&def, "a", &hi, &EventInput::new("go"))
+                .unwrap()
+                .next_state,
+            "hi"
+        );
         // n<=10 ⇒ first guard false ⇒ fall through to the unguarded 'lo' edge.
         let lo = Context::new();
-        assert_eq!(transition(&def, "a", &lo, &EventInput::new("go")).unwrap().next_state, "lo");
+        assert_eq!(
+            transition(&def, "a", &lo, &EventInput::new("go"))
+                .unwrap()
+                .next_state,
+            "lo"
+        );
     }
 
     #[test]
@@ -763,9 +801,7 @@ mod tests {
             schema_version: 0,
             states: vec![State::new("a"), State::new("b")],
             alphabet: vec!["go".into()],
-            transitions: vec![
-                Transition::new("a", "go", "b").with_guard(Guard::Never),
-            ],
+            transitions: vec![Transition::new("a", "go", "b").with_guard(Guard::Never)],
             initial: "a".into(),
             finals: vec![],
             meta: Default::default(),
@@ -801,13 +837,21 @@ mod tests {
     /// Log markers let the test observe outer-in / inner-out ordering.
     fn nested_chart() -> StatechartDef {
         let mut active = State::new("active")
-            .with_entry(vec![Action::Log { message: "enter-active".into() }])
-            .with_exit(vec![Action::Log { message: "exit-active".into() }]);
+            .with_entry(vec![Action::Log {
+                message: "enter-active".into(),
+            }])
+            .with_exit(vec![Action::Log {
+                message: "exit-active".into(),
+            }]);
         active.children = vec!["idle".into(), "running".into()];
         active.initial_child = Some("idle".into());
         let running = State::new("running")
-            .with_entry(vec![Action::Log { message: "enter-running".into() }])
-            .with_exit(vec![Action::Log { message: "exit-running".into() }]);
+            .with_entry(vec![Action::Log {
+                message: "enter-running".into(),
+            }])
+            .with_exit(vec![Action::Log {
+                message: "exit-running".into(),
+            }]);
         StatechartDef {
             name: "nested".into(),
             schema_version: 1,
@@ -1016,9 +1060,19 @@ mod tests {
         assert!(out2.next.contains("parked") && !out2.next.contains("outer"));
 
         // Resume — deep history restores the ENTIRE subtree, back to x2.
-        let out3 = step(&def, &out2.next, &Context::new(), &EventInput::new("resume")).unwrap();
+        let out3 = step(
+            &def,
+            &out2.next,
+            &Context::new(),
+            &EventInput::new("resume"),
+        )
+        .unwrap();
         for id in ["outer", "inner", "x2"] {
-            assert!(out3.next.contains(id), "deep resume should restore {id}: {:?}", out3.next.active);
+            assert!(
+                out3.next.contains(id),
+                "deep resume should restore {id}: {:?}",
+                out3.next.active
+            );
         }
         assert!(!out3.next.contains("x1"));
     }

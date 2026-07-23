@@ -897,10 +897,10 @@ pub fn sweep_expired(core: &GraphCore, now_ms: u64) -> usize {
                 }
             }
             // EG-280: proactively return an expired lease to the claimable pool.
-            if lease_expired {
-                if core.broker_release_expired_delivery(&id, f_u64(obj, "lease_until"), now_ms) {
-                    acted += 1;
-                }
+            if lease_expired
+                && core.broker_release_expired_delivery(&id, f_u64(obj, "lease_until"), now_ms)
+            {
+                acted += 1;
             }
         }
     }

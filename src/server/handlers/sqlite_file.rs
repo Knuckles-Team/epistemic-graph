@@ -112,7 +112,7 @@ fn sqlite_logical_filename(value: &str) -> Result<&str, String> {
     let first = chars.next();
     if value.is_empty()
         || value.len() > 255
-        || !first.is_some_and(|character| character.is_ascii_alphanumeric())
+        || first.is_none_or(|character| !character.is_ascii_alphanumeric())
         || !chars.all(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
         })
@@ -841,7 +841,10 @@ mod tests {
         assert_eq!(people[1], "2|bob|NULL|0|NULL");
 
         // Overflow TEXT (18000 hex chars) and the large b-tree round-tripped intact.
-        assert_eq!(run_sqlite(&dst, "SELECT length(txt) FROM big;").trim(), "18000");
+        assert_eq!(
+            run_sqlite(&dst, "SELECT length(txt) FROM big;").trim(),
+            "18000"
+        );
         assert_eq!(
             run_sqlite(&dst, "SELECT count(*),min(n),max(n) FROM nums;").trim(),
             "4000|1|4000"

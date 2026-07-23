@@ -898,7 +898,7 @@ impl PubSub {
         let new_key = !g.channels.contains_key(&channel);
         let next_key_bytes = g.subscription_key_bytes.checked_add(channel.len());
         if g.subscription_links >= MAX_REDIS_PUBSUB_LINKS
-            || (new_key && next_key_bytes.map_or(true, |bytes| bytes > MAX_REDIS_PUBSUB_KEY_BYTES))
+            || (new_key && next_key_bytes.is_none_or(|bytes| bytes > MAX_REDIS_PUBSUB_KEY_BYTES))
         {
             return false;
         }
@@ -939,7 +939,7 @@ impl PubSub {
         let new_key = !g.patterns.contains_key(&pattern);
         let next_key_bytes = g.subscription_key_bytes.checked_add(pattern.len());
         if g.subscription_links >= MAX_REDIS_PUBSUB_LINKS
-            || (new_key && next_key_bytes.map_or(true, |bytes| bytes > MAX_REDIS_PUBSUB_KEY_BYTES))
+            || (new_key && next_key_bytes.is_none_or(|bytes| bytes > MAX_REDIS_PUBSUB_KEY_BYTES))
         {
             return false;
         }
@@ -1907,7 +1907,7 @@ fn dispatch(
             .try_fold(0usize, |total, value| total.checked_add(value.len()));
         let next_bytes = command_bytes.and_then(|size| conn.queued_bytes.checked_add(size));
         if conn.queued.len() >= MAX_MULTI_COMMANDS
-            || next_bytes.map_or(true, |size| size > MAX_MULTI_BYTES)
+            || next_bytes.is_none_or(|size| size > MAX_MULTI_BYTES)
         {
             conn.multi_dirty = true;
             return vec![Resp::Error(
@@ -2056,7 +2056,7 @@ fn subscribe(pubsub: &PubSub, conn: &mut ConnState, chans: &[Vec<u8>], pattern: 
         let next_sub_bytes = conn.sub_bytes.checked_add(name.len());
         if !already_subscribed
             && (conn.sub_count() as usize >= MAX_REDIS_SUBSCRIPTIONS
-                || next_sub_bytes.map_or(true, |bytes| bytes > MAX_REDIS_SUBSCRIPTION_BYTES))
+                || next_sub_bytes.is_none_or(|bytes| bytes > MAX_REDIS_SUBSCRIPTION_BYTES))
         {
             out.push(Resp::Error(
                 "ERR subscription resource limit exceeded".into(),

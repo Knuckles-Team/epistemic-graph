@@ -60,7 +60,7 @@ use crate::server::access::CarrierAuthority;
 
 use eg_tsdb::point::Point;
 use eg_tsdb::query::{asof_join_backward, gap_fill_locf, time_bucket, Agg};
-use eg_tsdb::store::{SeriesKey, SeriesStore};
+use eg_tsdb::store::{ScopedAppendBatch, SeriesKey, SeriesStore};
 
 const MAX_POINTS_MSGPACK_BYTES: usize = 32 * 1024 * 1024;
 const MAX_POINTS_MSGPACK_ITEMS: usize = 1_000_000;
@@ -231,12 +231,14 @@ pub(crate) async fn try_handle(
                 store
                     .append_scoped_batch(
                         &key,
-                        n_fields,
-                        bucket_ns,
-                        &field_names,
-                        &points,
-                        &batch,
-                        now,
+                        ScopedAppendBatch {
+                            n_fields,
+                            bucket_ns,
+                            field_names: &field_names,
+                            points: &points,
+                            batch: &batch,
+                            committed_at_ms: now,
+                        },
                     )
                     .map_err(|e| e.to_string())
             })
@@ -566,12 +568,14 @@ mod nested_payload_tests {
         let committed = store
             .append_scoped_batch(
                 &alice_key,
-                1,
-                60_000_000_000,
-                &["value".to_string()],
-                &points,
-                &batch,
-                now,
+                ScopedAppendBatch {
+                    n_fields: 1,
+                    bucket_ns: 60_000_000_000,
+                    field_names: &["value".to_string()],
+                    points: &points,
+                    batch: &batch,
+                    committed_at_ms: now,
+                },
             )
             .expect("append committed");
         assert_eq!(committed, 2);
@@ -583,7 +587,10 @@ mod nested_payload_tests {
             .expect("alice range read");
         assert_eq!(alice_read.len(), 2);
         assert_eq!(
-            store.scan_all_scoped(&alice_key).expect("alice full scan").len(),
+            store
+                .scan_all_scoped(&alice_key)
+                .expect("alice full scan")
+                .len(),
             2
         );
 

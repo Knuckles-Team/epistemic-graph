@@ -17,6 +17,20 @@ pub struct NativeDocumentRuntime {
     served: ServedModalityRuntime<DocumentData>,
 }
 
+/// The verified-authority ingest request for [`NativeDocumentRuntime::ingest_text_authorized`],
+/// bundled into one type so the entry point stays under clippy's `too_many_arguments`
+/// threshold without dropping any of the fields the authority check + governed
+/// `ServedIngest` construction need.
+pub struct TextIngestAuthorized<'a> {
+    pub idempotency_ref: OpaqueRef,
+    pub target_occurrence_id: OccurrenceId,
+    /// `None` creates a new occurrence; `Some(v)` is an OCC compare-and-swap update.
+    pub expected_version: Option<u64>,
+    pub bundle: ArtifactBundle,
+    pub bytes: &'a [u8],
+    pub lexemes: &'a dyn LexemeEncoder,
+}
+
 pub fn production_probe() -> NativeProductionProbe {
     let lexeme = |value: &str| {
         Some(format!(
@@ -72,13 +86,16 @@ impl NativeDocumentRuntime {
     pub fn ingest_text_authorized(
         &mut self,
         scope: &ServedPolicyScope,
-        idempotency_ref: OpaqueRef,
-        target_occurrence_id: OccurrenceId,
-        expected_version: Option<u64>,
-        bundle: ArtifactBundle,
-        bytes: &[u8],
-        lexemes: &dyn LexemeEncoder,
+        request: TextIngestAuthorized<'_>,
     ) -> Result<ApplyOutcome, ServedError> {
+        let TextIngestAuthorized {
+            idempotency_ref,
+            target_occurrence_id,
+            expected_version,
+            bundle,
+            bytes,
+            lexemes,
+        } = request;
         let occurrence = bundle
             .occurrences
             .iter()

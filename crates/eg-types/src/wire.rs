@@ -325,8 +325,10 @@ pub enum ForeignSourceSpec {
         /// Identity, tenant, audience, capabilities, active policy version, and
         /// delegation path signed into every remote request. The receiving engine
         /// independently checks these claims against deployment policy and RBAC.
+        /// Boxed: `RequestContextClaims` is the single field that made this the
+        /// largest `ForeignSourceSpec` variant by a wide margin.
         #[serde(default)]
-        context: crate::acl::RequestContextClaims,
+        context: Box<crate::acl::RequestContextClaims>,
         /// A UQL query run on the remote (its rows seed the RowSet). When empty, `cypher`
         /// is used instead.
         #[serde(default)]
@@ -538,7 +540,7 @@ pub enum Op {
     /// server/planner constructs.
     #[cfg(feature = "federation")]
     ForeignScan {
-        source: ForeignSourceSpec,
+        source: Box<ForeignSourceSpec>,
         /// When this `ForeignScan` is NOT the first op, intersect its rows with the
         /// current candidate set (a foreign∩local JOIN keyed on id) instead of
         /// replacing the input. The default (false) makes it a pure source. The

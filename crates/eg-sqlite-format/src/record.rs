@@ -5,8 +5,8 @@
 //! N≥12 even = BLOB of `(N-12)/2` bytes, N≥13 odd = TEXT of `(N-13)/2` bytes.
 
 use crate::error::{Error, Result};
-use crate::varint::{read_varint, varint_len, write_varint};
 use crate::value::Value;
+use crate::varint::{read_varint, varint_len, write_varint};
 
 /// Serial type + the body bytes to store for one value.
 fn value_serial(value: &Value) -> (u64, Vec<u8>) {
@@ -83,8 +83,7 @@ fn decode_value(serial: u64, body: &[u8]) -> Result<Value> {
         9 => Value::Integer(1),
         n if n >= 12 && n % 2 == 0 => Value::Blob(body.to_vec()),
         n if n >= 13 => Value::Text(
-            String::from_utf8(body.to_vec())
-                .map_err(|_| Error::corrupt("non-UTF-8 text value"))?,
+            String::from_utf8(body.to_vec()).map_err(|_| Error::corrupt("non-UTF-8 text value"))?,
         ),
         _ => return Err(Error::corrupt("invalid serial type")),
     })
@@ -188,7 +187,11 @@ mod tests {
             Value::Integer(i64::MAX),
             Value::Integer(i64::MIN),
         ]);
-        rt(vec![Value::Real(9.5), Value::Real(-0.0), Value::Real(f64::MIN)]);
+        rt(vec![
+            Value::Real(9.5),
+            Value::Real(-0.0),
+            Value::Real(f64::MIN),
+        ]);
         rt(vec![
             Value::Text(String::new()),
             Value::Text("hello".into()),

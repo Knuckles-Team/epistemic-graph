@@ -443,10 +443,10 @@ impl IsolationLayer {
                 AccessLevel::Read => crate::acl::RbacAction::Read,
                 AccessLevel::Write => crate::acl::RbacAction::Write,
             };
-            return matches!(
+            matches!(
                 self.rbac.evaluate(&identity.roles, &ctx, action),
                 Some(crate::acl::GrantEffect::Allow)
-            );
+            )
         }
 
         #[cfg(not(feature = "security"))]

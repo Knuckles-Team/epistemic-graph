@@ -1780,7 +1780,7 @@ fn select_ready_for_worker(
                 continue;
             }
             let order = (rank, created_at_ms, job_id.to_string());
-            if best.as_ref().map_or(true, |(current, _)| order < *current) {
+            if best.as_ref().is_none_or(|(current, _)| order < *current) {
                 best = Some((order, job));
             }
             // The range is priority/FIFO ordered. Once one row from this anchor
@@ -1838,7 +1838,7 @@ fn reconcile_scheduler(wtx: &WriteTransaction, now_ms: i64) -> Result<bool> {
         let lease_expired = job
             .lease
             .as_ref()
-            .map_or(true, |lease| lease.expires_at_ms <= now_ms);
+            .is_none_or(|lease| lease.expires_at_ms <= now_ms);
         if !lease_expired || !cancellation_indexed(&job) {
             continue;
         }
@@ -1867,10 +1867,10 @@ fn reconcile_scheduler(wtx: &WriteTransaction, now_ms: i64) -> Result<bool> {
     };
     for job_id in expired_ids {
         let mut job = read_job_in_wtx(wtx, &job_id)?;
-        if !job
+        if job
             .lease
             .as_ref()
-            .is_some_and(|lease| lease.expires_at_ms <= now_ms)
+            .is_none_or(|lease| lease.expires_at_ms > now_ms)
         {
             continue;
         }
@@ -1928,10 +1928,10 @@ fn reconcile_scheduler(wtx: &WriteTransaction, now_ms: i64) -> Result<bool> {
             .is_some_and(|lease| lease.expires_at_ms > now_ms);
         if lease_live
             || !deadline_indexed(&job)
-            || !job
+            || job
                 .policy
                 .deadline_unix_ms
-                .is_some_and(|deadline| deadline <= now_ms)
+                .is_none_or(|deadline| deadline > now_ms)
         {
             continue;
         }
@@ -2260,7 +2260,7 @@ mod tests {
     fn full_lifecycle_submit_running_succeed() {
         let dir = tempfile::tempdir().unwrap();
         let store = JobStore::open_in_dir(dir.path()).unwrap();
-        let job = store.submit(spec("g1", 7)).unwrap();
+        let _job = store.submit(spec("g1", 7)).unwrap();
 
         let claim = store
             .claim_next(
@@ -2615,7 +2615,7 @@ mod tests {
             JobState::Running { checkpoint } => assert_eq!(checkpoint.progress, 0.4),
             other => panic!("expected reassigned Running job, got {other:?}"),
         }
-        let job = store
+        let _job = store
             .stage_result_fenced(
                 &job_id,
                 &claim.lease.worker_ref,

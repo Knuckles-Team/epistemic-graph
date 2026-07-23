@@ -94,7 +94,9 @@ impl Writer {
             page_size
         };
         if !(512..=65_536).contains(&page_size) || !page_size.is_power_of_two() {
-            return Err(Error::unsupported("page size must be a power of two in [512,65536]"));
+            return Err(Error::unsupported(
+                "page size must be a power of two in [512,65536]",
+            ));
         }
         Ok(Writer {
             path: path.to_path_buf(),
@@ -144,8 +146,14 @@ impl Writer {
                 .enumerate()
                 .map(|(i, row)| ((i as i64) + 1, encode_record(row)))
                 .collect();
-            let root =
-                build_btree(&mut pager, self.page_size as usize, usable, 0, rows, RootTarget::Alloc)?;
+            let root = build_btree(
+                &mut pager,
+                self.page_size as usize,
+                usable,
+                0,
+                rows,
+                RootTarget::Alloc,
+            )?;
             schema_entries.push((t.name.clone(), create_table_ddl(&t.name, &t.columns), root));
         }
 
@@ -241,7 +249,14 @@ fn build_btree(
 
     // Phase 2: build interior levels until a single root remains.
     loop {
-        let interiors = build_interior_level(pager, page_size, usable, cap_reduce, &children, &root_target)?;
+        let interiors = build_interior_level(
+            pager,
+            page_size,
+            usable,
+            cap_reduce,
+            &children,
+            &root_target,
+        )?;
         if interiors.len() == 1 {
             return Ok(interiors[0].page_no);
         }
@@ -429,7 +444,13 @@ fn emit_leaf(
         let ptr = content as u16;
         buf[ptr_base + i * 2..ptr_base + i * 2 + 2].copy_from_slice(&ptr.to_be_bytes());
     }
-    write_leaf_header(buf, header_offset, PageType::TableLeaf, cells.len() as u16, content);
+    write_leaf_header(
+        buf,
+        header_offset,
+        PageType::TableLeaf,
+        cells.len() as u16,
+        content,
+    );
     Ok(())
 }
 

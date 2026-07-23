@@ -65,6 +65,20 @@ pub mod rebalance;
 #[cfg(feature = "redb")]
 pub mod backup;
 
+/// Borrowed carrier for [`PersistenceBackend::commit_mutation_batch_crossmodal`]'s
+/// arguments, bundled so the trait method (and every implementation of it) stays
+/// under the clippy argument-count ceiling.
+pub struct CrossModalCommitArgs<'a> {
+    pub graph_fname: &'a str,
+    pub batch: &'a MutationBatch,
+    pub methods: &'a [Method],
+    pub vectors: &'a [(String, Vec<f32>)],
+    pub blob_refs: &'a [(String, String)],
+    pub measurements: &'a [crate::MeasurementBatch],
+    pub result_msgpack: Option<&'a [u8]>,
+    pub committed_at_ms: u64,
+}
+
 /// A durable persistence tier for the graph registry.
 ///
 /// Recovery and mutation APIs are asynchronous because every acknowledged
@@ -155,14 +169,7 @@ pub trait PersistenceBackend: Send + Sync {
     /// `commit_crossmodal` is not an acceptable substitute for a public mutation.
     async fn commit_mutation_batch_crossmodal(
         &self,
-        _graph_fname: &str,
-        _batch: &MutationBatch,
-        _methods: &[Method],
-        _vectors: &[(String, Vec<f32>)],
-        _blob_refs: &[(String, String)],
-        _measurements: &[crate::MeasurementBatch],
-        _result_msgpack: Option<&[u8]>,
-        _committed_at_ms: u64,
+        _args: CrossModalCommitArgs<'_>,
     ) -> Result<MutationBatchCommit, String> {
         Err(
             "persistence backend does not support atomic cross-modal MutationBatch commits"

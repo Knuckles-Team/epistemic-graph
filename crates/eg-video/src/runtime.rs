@@ -229,7 +229,7 @@ fn parse_tracks_and_frames(bytes: &[u8]) -> Option<(Vec<VideoTrack>, Vec<VideoFr
         };
         let mut timestamp = 0u64;
         for (index, ((byte_offset, byte_length), delta)) in
-            offsets.into_iter().zip(deltas.into_iter()).enumerate()
+            offsets.into_iter().zip(deltas).enumerate()
         {
             let start_ms = timestamp.checked_mul(1_000)? / u64::from(timescale);
             timestamp = timestamp.checked_add(u64::from(delta))?;

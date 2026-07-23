@@ -261,7 +261,10 @@ fn rank_text_finds_selective_candidates_behind_many_higher_scoring_noise_docs() 
     // narrows the RowSet down to exactly these two before RankText runs.
     for id in ["keep1", "keep2"] {
         core.add_node(id.into(), json_doc(true));
-        text.upsert(id, "a sentence that mentions apple exactly once among other words");
+        text.upsert(
+            id,
+            "a sentence that mentions apple exactly once among other words",
+        );
     }
     text.commit().unwrap();
 

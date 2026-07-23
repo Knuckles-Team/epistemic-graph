@@ -297,7 +297,11 @@ mod index_method {
 
     /// The registered [`IndexMethod`]'s cost estimate for `op`, or `None` if no method
     /// claims it (a caller falls back to its own default costing).
-    pub fn estimate(op: &Op, in_card: f64, card: &ModalityCardinality) -> Option<IndexMethodCostEstimate> {
+    pub fn estimate(
+        op: &Op,
+        in_card: f64,
+        card: &ModalityCardinality,
+    ) -> Option<IndexMethodCostEstimate> {
         methods()
             .into_iter()
             .find(|m| m.matches(op))
@@ -306,9 +310,9 @@ mod index_method {
 }
 
 #[cfg(feature = "query")]
-pub use index_method::{IndexMethod, IndexMethodCostEstimate};
-#[cfg(feature = "query")]
 pub(crate) use index_method::{estimate as index_method_estimate, is_index_method_op};
+#[cfg(feature = "query")]
+pub use index_method::{IndexMethod, IndexMethodCostEstimate};
 
 // ── A tiny Bloom filter for cross-modal candidate-set join probes ────────────────
 // (CONCEPT:EG-KG.query.bloom-gate) — pairs with the index-method seam above: when an
@@ -1278,9 +1282,7 @@ mod tests {
         let fx = crate::fixture::build();
         let ctx = crate::exec::PlanCtx::new(&fx.view, &fx.semantic);
         let card = ModalityCardinality::new(PlanStats::collect(&ctx));
-        let rank_text = Op::RankText {
-            query: "q".into(),
-        };
+        let rank_text = Op::RankText { query: "q".into() };
 
         // As a SOURCE (empty input): bounded by DEFAULT_TOP_K, not a pass-through zero.
         let source_rows = card.rows_out(&rank_text, 0.0, &ctx);

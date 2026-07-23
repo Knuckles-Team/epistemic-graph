@@ -145,7 +145,7 @@ fn foreign_join_with_local_equals_manual_join() {
         },
         // Intersect the local-filtered set with the foreign source's ids (foreign∩local).
         Op::ForeignScan {
-            source: foreign_spec,
+            source: Box::new(foreign_spec),
             join: true,
         },
         Op::Rank {
@@ -207,7 +207,7 @@ fn foreign_scan_as_a_pure_source_replaces_the_input() {
             label: "Doc".into(),
         },
         Op::ForeignScan {
-            source: spec,
+            source: Box::new(spec),
             join: false,
         },
         Op::Limit { k: 10 },

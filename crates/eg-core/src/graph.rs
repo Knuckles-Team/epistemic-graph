@@ -3914,7 +3914,9 @@ impl GraphCore {
         // paged-in-but-durable node would otherwise be wrongly reported absent. When
         // incomplete this is a no-op guard and behavior is byte-for-byte the
         // pre-bloom original: every miss falls through to the durable point-read.
-        if self.bloom_complete.load(std::sync::atomic::Ordering::Acquire)
+        if self
+            .bloom_complete
+            .load(std::sync::atomic::Ordering::Acquire)
             && !self.node_bloom.read().might_contain(node_id)
         {
             return None;

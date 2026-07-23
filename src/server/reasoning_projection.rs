@@ -56,10 +56,7 @@ impl<'a, W: Write + ?Sized> BoundedSnapshotWriter<'a, W> {
         })?;
         if len > self.max_bytes.saturating_sub(self.written) {
             self.limit_exceeded = true;
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                PROJECTION_SNAPSHOT_SIZE_LIMIT_ERROR,
-            ));
+            return Err(std::io::Error::other(PROJECTION_SNAPSHOT_SIZE_LIMIT_ERROR));
         }
         Ok(len)
     }

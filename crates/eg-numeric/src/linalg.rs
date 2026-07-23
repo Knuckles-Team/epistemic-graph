@@ -206,7 +206,7 @@ pub fn pinv(a: ArrayView2<'_, f64>) -> Result<Array2<f64>> {
     let tolerance = (rows.max(cols) as f64) * f64::EPSILON * largest;
     let inverse = decomposition
         .pseudo_inverse(tolerance)
-        .map_err(|error| NumericError::linalg(error))?;
+        .map_err(NumericError::linalg)?;
     Ok(na_to_nd(&inverse))
 }
 

@@ -38,14 +38,17 @@ use crate::protocol::{Method, Response, ResultPayload};
 /// dispatch chain (routing fall-through); dispatch only ever routes RDF methods here.
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    graph_name: &str,
+    ctx: super::TryHandleContext<'_>,
     core: Arc<GraphCore>,
     method: Method,
-    read_authority: Option<&GraphReadAuthority>,
-    caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<Response, Method> {
+    let super::TryHandleContext {
+        req_id,
+        graph_name,
+        read_authority,
+        caller,
+    } = ctx;
     #[cfg(not(feature = "security"))]
     let _ = caller;
     // `caller`/`rls` are consumed only by the `sparql`-gated read path below; in a
@@ -991,7 +994,7 @@ mod run_rules_dispatch_tests {
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,

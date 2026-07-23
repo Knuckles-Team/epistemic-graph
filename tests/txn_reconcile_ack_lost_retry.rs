@@ -54,7 +54,7 @@ fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> Arc<RwLock<S
         per_graph_inflight_limit: 8,
         write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen::default()),
+        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
         txn_ttl_secs: 300,
         txn_max_per_graph: 256,
         txn_max_per_agent: 256,
@@ -175,7 +175,11 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
             ),
         )
         .await;
-        assert!(cr.error.is_none(), "CreateGraph {graph} failed: {:?}", cr.error);
+        assert!(
+            cr.error.is_none(),
+            "CreateGraph {graph} failed: {:?}",
+            cr.error
+        );
     }
     let target = target.as_str();
 
@@ -212,7 +216,11 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
         ),
     )
     .await;
-    assert!(staged.error.is_none(), "TxnAddNode failed: {:?}", staged.error);
+    assert!(
+        staged.error.is_none(),
+        "TxnAddNode failed: {:?}",
+        staged.error
+    );
 
     let first_commit: Response = dispatch(
         &state,

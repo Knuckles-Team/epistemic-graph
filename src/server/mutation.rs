@@ -678,6 +678,7 @@ fn idempotency_store() -> &'static IdempotencyStore {
 /// arm covers a future idempotent addition to [`GATEWAY_ROUTED`] generically
 /// (correct but not as precise as a bespoke key).
 fn idempotency_key(graph_name: &str, method: &Method) -> String {
+    #[cfg(feature = "modality-serving")]
     let modality_discriminator = |value: &eg_types::ServedModalityKind| match value {
         eg_types::ServedModalityKind::Document => "document",
         eg_types::ServedModalityKind::Image => "image",
@@ -715,6 +716,7 @@ fn idempotency_key(graph_name: &str, method: &Method) -> String {
             digest.update(Sha256::digest(source_bytes));
             format!("ServedModality|{graph_name}|{}", hex::encode(digest.finalize()))
         }
+        #[cfg(feature = "modality-serving")]
         Method::ServedModality {
             op:
                 eg_types::ServedModalityOp::Delete {
@@ -727,6 +729,7 @@ fn idempotency_key(graph_name: &str, method: &Method) -> String {
             "ServedModalityDelete|{graph_name}|{}|{idempotency_ref}|{occurrence_id}|{expected_version}",
             modality_discriminator(modality)
         ),
+        #[cfg(feature = "modality-serving")]
         Method::ServedModality {
             op: eg_types::ServedModalityOp::IngestStream { modality, items },
         } => {
@@ -841,7 +844,7 @@ pub(crate) fn durable_receipt_method(method: &Method) -> Method {
             }
             _ => return method.clone(),
         }
-        drop(field);
+        let _ = field;
         return Method::ApplyMutation {
             event_type: "served_modality_v1".to_string(),
             query: format!("sha256:{}", hex::encode(digest.finalize())),
@@ -1445,10 +1448,8 @@ pub(crate) async fn publish_committed_row_delta(
     delta: &crate::graph_delta::GraphRowDelta,
     source_version: u64,
 ) -> Result<(), String> {
-    if core.version() == source_version {
-        if delta.apply_to(core).is_ok() {
-            return Ok(());
-        }
+    if core.version() == source_version && delta.apply_to(core).is_ok() {
+        return Ok(());
     }
     // A bypass writer or an unexpected projection error cannot undo the already
     // committed authority. Repair from redb only on that exceptional path; the
@@ -2356,8 +2357,7 @@ mod tests {
         for (tag, build_method) in [
             (
                 "from-msgpack",
-                (|msgpack: Vec<u8>| Method::FromMsgpack { msgpack })
-                    as fn(Vec<u8>) -> Method,
+                (|msgpack: Vec<u8>| Method::FromMsgpack { msgpack }) as fn(Vec<u8>) -> Method,
             ),
             (
                 "reconcile",
@@ -2395,8 +2395,7 @@ mod tests {
             // Seed one durable AddNode -- one audit entry, one CDC event.
             let seed = Method::AddNode {
                 node_id: "seed".to_string(),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"v": 1}))
-                    .unwrap(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"v": 1})).unwrap(),
             };
             let seed_plan = MutationPlan::for_method(&seed);
             let seed_resp = commit_mutation(&ctx, &seed_plan, &seed, |core| {
@@ -3584,8 +3583,10 @@ mod tests {
         // The same discriminator explained on `SELF_ROUTED_ADMIN_METHODS`: NOT
         // ALSO present in `raft::NATIVE_CONSENSUS_METHODS`, or `cluster_mutation_route`
         // would be ambiguous about which route wins.
-        let native_consensus: BTreeSet<&'static str> =
-            crate::raft::NATIVE_CONSENSUS_METHODS.iter().copied().collect();
+        let native_consensus: BTreeSet<&'static str> = crate::raft::NATIVE_CONSENSUS_METHODS
+            .iter()
+            .copied()
+            .collect();
         for name in SELF_ROUTED_ADMIN_METHODS {
             assert!(
                 !native_consensus.contains(name),

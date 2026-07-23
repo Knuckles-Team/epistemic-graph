@@ -149,11 +149,7 @@ pub struct Transition {
 
 impl Transition {
     /// A minimal unguarded, action-free transition.
-    pub fn new(
-        from: impl Into<String>,
-        event: impl Into<String>,
-        to: impl Into<String>,
-    ) -> Self {
+    pub fn new(from: impl Into<String>, event: impl Into<String>, to: impl Into<String>) -> Self {
         Self {
             from: from.into(),
             event: event.into(),
@@ -185,7 +181,7 @@ impl Transition {
     ) -> bool {
         self.guard
             .as_ref()
-            .map_or(true, |guard| guard.eval(context, event))
+            .is_none_or(|guard| guard.eval(context, event))
     }
 }
 

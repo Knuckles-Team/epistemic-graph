@@ -3,7 +3,9 @@
 use super::auth::VerifiedRequestContext;
 use crate::graph::{GraphCore, GraphView};
 use crate::isolation::{AccessLevel, IsolationLayer};
-use crate::protocol::{CypherMode, Method};
+#[cfg(feature = "cypher")]
+use crate::protocol::CypherMode;
+use crate::protocol::Method;
 use std::sync::Arc;
 
 /// Verified ownership carried into stores that are not naturally graph-scoped.
@@ -160,11 +162,11 @@ impl GraphReadAuthority {
                         .to_string(),
                 );
             }
-            return Ok(Self {
+            Ok(Self {
                 carrier,
                 actor,
                 isolation: Arc::new(isolation.clone()),
-            });
+            })
         }
         #[cfg(not(feature = "security"))]
         {
@@ -182,7 +184,7 @@ impl GraphReadAuthority {
     pub(crate) fn actor(&self) -> Option<&str> {
         #[cfg(feature = "security")]
         {
-            return (!self.actor.is_empty()).then_some(self.actor.as_str());
+            (!self.actor.is_empty()).then_some(self.actor.as_str())
         }
         #[cfg(not(feature = "security"))]
         {
@@ -239,9 +241,8 @@ impl GraphReadAuthority {
     pub(crate) fn can_see_blob(&self, blob: &[u8]) -> bool {
         #[cfg(feature = "security")]
         {
-            return self
-                .isolation
-                .can_see_row(&self.actor, &crate::isolation::row_visibility(blob));
+            self.isolation
+                .can_see_row(&self.actor, &crate::isolation::row_visibility(blob))
         }
         #[cfg(not(feature = "security"))]
         {

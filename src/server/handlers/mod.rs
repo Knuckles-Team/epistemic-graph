@@ -135,3 +135,20 @@ pub(crate) mod placement;
 // declared (like `placement`); the real answer is `raft`-gated, and a non-raft build
 // answers a clean typed error.
 pub(crate) mod raft_admin;
+
+/// The caller/isolation-scoping fields shared by the graph-scoped read handlers'
+/// `try_handle` entry points (`query::try_handle`, `rdf::try_handle`), bundled so
+/// each stays under the clippy argument-count ceiling once the feature-gated `rls`
+/// authority parameter is unified in.
+#[cfg(any(
+    feature = "query",
+    feature = "cypher",
+    feature = "graphql",
+    feature = "rdf"
+))]
+pub(crate) struct TryHandleContext<'a> {
+    pub(crate) req_id: u64,
+    pub(crate) graph_name: &'a str,
+    pub(crate) read_authority: Option<&'a super::access::GraphReadAuthority>,
+    pub(crate) caller: &'a str,
+}

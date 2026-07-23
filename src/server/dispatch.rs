@@ -149,6 +149,16 @@ fn replicated_apply_scope(
     }
 }
 
+/// The identifying fields of a replicated transaction participant, bundled so
+/// [`apply_replicated_transaction_participant`] stays under the clippy
+/// argument-count ceiling.
+#[cfg(feature = "raft")]
+pub(crate) struct ReplicatedParticipantRef<'a> {
+    pub(crate) coordinator_id: &'a str,
+    pub(crate) participant_id: u64,
+    pub(crate) plan: Option<&'a [u8]>,
+}
+
 #[cfg(feature = "raft")]
 pub(crate) async fn apply_replicated_transaction_participant(
     state: &Arc<RwLock<ServerState>>,
@@ -157,10 +167,13 @@ pub(crate) async fn apply_replicated_transaction_participant(
     authority: &crate::raft::RaftMutationContext,
     applying_group: crate::raft::GroupId,
     phase: crate::raft::TransactionParticipantPhase,
-    coordinator_id: &str,
-    participant_id: u64,
-    plan: Option<&[u8]>,
+    participant: ReplicatedParticipantRef<'_>,
 ) -> Result<bool, String> {
+    let ReplicatedParticipantRef {
+        coordinator_id,
+        participant_id,
+        plan,
+    } = participant;
     REPLICATED_APPLY
         .scope(replicated_apply_scope(committed_at_ms, authority), async {
             match phase {
@@ -181,12 +194,14 @@ pub(crate) async fn apply_replicated_transaction_participant(
                         state,
                         request_id,
                         applying_group,
-                        authority.placement_epoch,
-                        authority.fencing_token,
-                        coordinator_id,
-                        participant_id,
-                        plan.ok_or_else(|| "participant commit is missing its plan".to_string())?,
-                        &authority.principal_fingerprint,
+                        authority,
+                        handlers::txn::ConsensusParticipantCommitRef {
+                            coordinator_id,
+                            participant_id,
+                            plan_bytes: plan.ok_or_else(|| {
+                                "participant commit is missing its plan".to_string()
+                            })?,
+                        },
                     )
                     .await
                 }
@@ -1510,9 +1525,7 @@ fn preflight_request_msgpack(method: &Method) -> Result<(), &'static str> {
             }
             eg_types::modality::ServedModalityOp::IngestStream { items, .. } => {
                 if !(2..=64).contains(&items.len()) {
-                    return Err(
-                        "served modality ingest stream cardinality is outside bounds".into(),
-                    );
+                    return Err("served modality ingest stream cardinality is outside bounds");
                 }
                 for item in items {
                     preflight_nested_msgpack(&item.bundle_msgpack)?;
@@ -2034,7 +2047,7 @@ async fn dispatch_inner(
                     // (`handlers::raft_admin::try_handle` answers
                     // `RAFT_NOT_CONFIGURED`/`CLUSTER_CONFIGURATION_INVALID` itself,
                     // matching this exact pair of messages) — it must not be
-                    // pre-empted here, exactly like `ReadOnly`/`VolatileControl`.
+                    // preempted here, exactly like `ReadOnly`/`VolatileControl`.
                     ClusterMutationRoute::ReadOnly
                     | ClusterMutationRoute::VolatileControl
                     | ClusterMutationRoute::SelfRoutedAdmin => {}
@@ -2121,6 +2134,8 @@ async fn dispatch_inner(
         if let Some(result) = control.saga.replayed.clone() {
             return Response::ok(req.id, result);
         }
+        #[cfg(not(feature = "redb"))]
+        let _ = control;
     }
 
     let response = match req.method {
@@ -2158,7 +2173,7 @@ async fn dispatch_inner(
             };
             let uptime_s = 0; // you can capture start time in ServerState
             let mem_bytes = 0;
-            let mut served_ops = vec![
+            let served_ops = vec![
                 "ParseFiles",
                 "IndexRepository",
                 "ObserveScreen",
@@ -2170,7 +2185,11 @@ async fn dispatch_inner(
                 "KnowledgeStream",
             ];
             #[cfg(feature = "modality-serving")]
-            served_ops.push("ServedModality");
+            let served_ops = {
+                let mut served_ops = served_ops;
+                served_ops.push("ServedModality");
+                served_ops
+            };
             // ``version`` + ``ops`` let clients negotiate capabilities (e.g. only
             // use ``ParseFiles`` against an engine that advertises it) and fall
             // back gracefully against an older binary. (CONCEPT:EG-KG.query.dispatch-routing)
@@ -3918,11 +3937,13 @@ async fn coordinated_sparql_http_update(
             redb,
             req_id,
             coordinator_caller,
-            crate::mutation_batch::MutationDomain::MultiGraph,
-            &parent_id,
-            SPARQL_RECOVERY_EVENT,
-            &digest,
-            &encrypted,
+            handlers::admin::AdminSagaPayload {
+                domain: crate::mutation_batch::MutationDomain::MultiGraph,
+                batch_id: &parent_id,
+                event_type: SPARQL_RECOVERY_EVENT,
+                payload_digest: &digest,
+                encrypted_payload: &encrypted,
+            },
         ) {
             Ok(saga) => saga,
             Err(error) => return Response::err(req_id, error),
@@ -4021,11 +4042,13 @@ async fn coordinated_sparql_http_update(
             redb,
             req_id,
             coordinator_caller,
-            crate::mutation_batch::MutationDomain::MultiGraph,
-            &compensation_id,
-            SPARQL_COMPENSATION_EVENT,
-            &digest,
-            &encrypted,
+            handlers::admin::AdminSagaPayload {
+                domain: crate::mutation_batch::MutationDomain::MultiGraph,
+                batch_id: &compensation_id,
+                event_type: SPARQL_COMPENSATION_EVENT,
+                payload_digest: &digest,
+                encrypted_payload: &encrypted,
+            },
         ) {
             Ok(marker) => marker,
             Err(error) => return Response::err(req_id, error),
@@ -4530,10 +4553,12 @@ async fn dispatch_graph_op(
 ) -> Response {
     dispatch_graph_op_inner(
         state,
-        graph_name,
-        req_id,
-        caller,
-        verified_context,
+        GraphOpContext {
+            graph_name,
+            req_id,
+            caller,
+            verified_context,
+        },
         method,
         #[cfg(feature = "modality-serving")]
         None,
@@ -4555,10 +4580,12 @@ async fn dispatch_served_modality(
 ) -> Response {
     dispatch_graph_op_inner(
         state,
-        graph_name,
-        req_id,
-        caller,
-        verified_context,
+        GraphOpContext {
+            graph_name,
+            req_id,
+            caller,
+            verified_context,
+        },
         Method::ServedModality { op },
         Some(authority),
         #[cfg(feature = "knowledge-batch")]
@@ -4579,10 +4606,12 @@ async fn dispatch_knowledge_stream(
 ) -> Response {
     dispatch_graph_op_inner(
         state,
-        graph_name,
-        req_id,
-        caller,
-        verified_context,
+        GraphOpContext {
+            graph_name,
+            req_id,
+            caller,
+            verified_context,
+        },
         Method::KnowledgeStream { request },
         #[cfg(feature = "modality-serving")]
         None,
@@ -4828,12 +4857,19 @@ async fn replicate_served_modality(
     }
 }
 
+/// The caller/isolation-scoping fields shared by every `dispatch_graph_op_inner`
+/// entry point, bundled so the function stays under the clippy argument-count
+/// ceiling once the feature-gated authority parameters are unified in.
+struct GraphOpContext<'a> {
+    graph_name: &'a str,
+    req_id: u64,
+    caller: Option<&'a str>,
+    verified_context: &'a VerifiedRequestContext,
+}
+
 async fn dispatch_graph_op_inner(
     state: &Arc<RwLock<ServerState>>,
-    graph_name: &str,
-    req_id: u64,
-    caller: Option<&str>,
-    verified_context: &VerifiedRequestContext,
+    ctx: GraphOpContext<'_>,
     method: Method,
     #[cfg(feature = "modality-serving")] modality_authority: Option<
         handlers::modality::ModalityAuthority,
@@ -4842,6 +4878,12 @@ async fn dispatch_graph_op_inner(
         handlers::knowledge_stream::KnowledgeStreamAuthority,
     >,
 ) -> Response {
+    let GraphOpContext {
+        graph_name,
+        req_id,
+        caller,
+        verified_context,
+    } = ctx;
     #[cfg(feature = "cypher")]
     if let Err(error) = handlers::query::validate_cypher_mode(&method) {
         return Response::err(req_id, error);
@@ -4938,6 +4980,10 @@ async fn dispatch_graph_op_inner(
         Ok(actor) => actor,
         Err(denied) => return Response::err(req_id, denied),
     };
+    // Consumed only by the query/cypher/graphql/rdf/knowledge-stream gateway arms
+    // below (each independently feature-gated); a slim build with none of them
+    // enabled still needs this binding to compile.
+    let _ = verified_actor;
     let tenant_scope = read_authority
         .as_ref()
         .and_then(GraphReadAuthority::carrier)
@@ -5735,12 +5781,14 @@ async fn dispatch_graph_op_inner(
                 move |staged_core| async move {
                     match handlers::query::try_handle(
                         state,
-                        req_id,
-                        graph_name,
+                        handlers::TryHandleContext {
+                            req_id,
+                            graph_name,
+                            read_authority: query_read_authority.as_ref(),
+                            caller: verified_actor,
+                        },
                         staged_core,
                         method_apply,
-                        query_read_authority.as_ref(),
-                        verified_actor,
                         #[cfg(feature = "security")]
                         &rls_apply,
                     )
@@ -5763,12 +5811,14 @@ async fn dispatch_graph_op_inner(
         } else {
             match handlers::query::try_handle(
                 state,
-                req_id,
-                graph_name,
+                handlers::TryHandleContext {
+                    req_id,
+                    graph_name,
+                    read_authority: read_authority.as_ref(),
+                    caller: verified_actor,
+                },
                 core.clone(),
                 method,
-                read_authority.as_ref(),
-                verified_actor,
                 #[cfg(feature = "security")]
                 &rls,
             )
@@ -5826,12 +5876,14 @@ async fn dispatch_graph_op_inner(
                 move |staged_core| async move {
                     match handlers::rdf::try_handle(
                         state,
-                        req_id,
-                        graph_name,
+                        handlers::TryHandleContext {
+                            req_id,
+                            graph_name,
+                            read_authority: rdf_read_authority.as_ref(),
+                            caller: verified_actor,
+                        },
                         staged_core,
                         method_apply,
-                        rdf_read_authority.as_ref(),
-                        verified_actor,
                         #[cfg(feature = "security")]
                         &rls_apply,
                     )
@@ -5852,12 +5904,14 @@ async fn dispatch_graph_op_inner(
         } else {
             match handlers::rdf::try_handle(
                 state,
-                req_id,
-                graph_name,
+                handlers::TryHandleContext {
+                    req_id,
+                    graph_name,
+                    read_authority: read_authority.as_ref(),
+                    caller: verified_actor,
+                },
                 core.clone(),
                 method,
-                read_authority.as_ref(),
-                verified_actor,
                 #[cfg(feature = "security")]
                 &rls,
             )
@@ -6315,7 +6369,7 @@ mod eg318_dispatch_tests {
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
@@ -6751,7 +6805,7 @@ mod admin_scope_tests {
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
@@ -7023,7 +7077,7 @@ mod blob_dispatch_tests {
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,

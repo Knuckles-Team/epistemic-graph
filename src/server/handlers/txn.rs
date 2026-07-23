@@ -24,7 +24,7 @@ use super::super::state::ServerState;
 use super::super::txn::IsolationLevel;
 #[cfg(feature = "tsdb")]
 use super::super::txn::StagedMeasurement;
-use super::super::txn::{now_ms, parse_isolation, GraphTxnState};
+use super::super::txn::{now_ms, parse_isolation, GraphTxnState, NewTxnArgs};
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
 
@@ -198,11 +198,13 @@ fn begin_txn_receipt(
         redb,
         req_id,
         caller,
-        crate::mutation_batch::MutationDomain::ControlPlane,
-        &transaction_receipt_id(txn_id),
-        "transaction_recovery_plan",
-        &payload_digest,
-        &encrypted_payload,
+        crate::server::handlers::admin::AdminSagaPayload {
+            domain: crate::mutation_batch::MutationDomain::ControlPlane,
+            batch_id: &transaction_receipt_id(txn_id),
+            event_type: "transaction_recovery_plan",
+            payload_digest: &payload_digest,
+            encrypted_payload: &encrypted_payload,
+        },
     )?;
     let replayed = saga.replayed.clone();
     Ok((TxnReceipt { backend, saga }, replayed))
@@ -219,6 +221,11 @@ fn begin_txn_receipt(
     Err("transaction commit requires the redb MutationBatch coordinator".to_string())
 }
 
+/// A resumed receipt, its already-known apply result (if any), and the rebuilt
+/// ephemeral staging state — [`resume_txn_receipt`]'s success payload.
+#[cfg(feature = "redb")]
+type ResumedTxnReceipt = (TxnReceipt, Option<ResultPayload>, Option<GraphTxnState>);
+
 /// Re-open a prepared/committed parent receipt after process restart.  A Prepared
 /// receipt must still have its encrypted private plan; the plan is authenticated,
 /// decrypted, digest-verified against the canonical batch, and only then rebuilt
@@ -228,7 +235,7 @@ fn resume_txn_receipt(
     backend: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     caller: Option<&str>,
     txn_id: &str,
-) -> Result<Option<(TxnReceipt, Option<ResultPayload>, Option<GraphTxnState>)>, String> {
+) -> Result<Option<ResumedTxnReceipt>, String> {
     let Some(backend) = backend else {
         return Ok(None);
     };
@@ -276,12 +283,18 @@ fn resume_txn_receipt(
     Ok(Some((TxnReceipt { backend, saga }, replayed, txn)))
 }
 
+/// The not-built stand-in for [`ResumedTxnReceipt`] when `redb` (and therefore
+/// `TxnReceipt`) is not compiled in — same shape, `()` where the durable receipt
+/// would be, since [`resume_txn_receipt`] below always returns `None` here.
+#[cfg(not(feature = "redb"))]
+type ResumedTxnReceiptStub = ((), Option<ResultPayload>, Option<GraphTxnState>);
+
 #[cfg(not(feature = "redb"))]
 fn resume_txn_receipt(
     _backend: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     _caller: Option<&str>,
     _txn_id: &str,
-) -> Result<Option<((), Option<ResultPayload>, Option<GraphTxnState>)>, String> {
+) -> Result<Option<ResumedTxnReceiptStub>, String> {
     Ok(None)
 }
 
@@ -475,9 +488,8 @@ async fn reconcile_committed_txn(
     for (graph, core) in &graphs {
         let fname = crate::persist::sanitize(graph);
         for namespace in ["txn", "crossmodal"] {
-            let batch_id = crate::server::mutation_batch::opaque_coordinator_key(
-                namespace, graph, &parent_id,
-            );
+            let batch_id =
+                crate::server::mutation_batch::opaque_coordinator_key(namespace, graph, &parent_id);
             lookups.push((graph.clone(), core.clone(), fname.clone(), batch_id));
         }
     }
@@ -496,11 +508,15 @@ async fn reconcile_committed_txn(
                 .acquire_owned()
                 .await
                 .expect("reconcile lookup semaphore is never closed");
-            (idx, persistence.read_mutation_batch(&fname, &batch_id).await)
+            (
+                idx,
+                persistence.read_mutation_batch(&fname, &batch_id).await,
+            )
         });
     }
-    let mut read_results: Vec<Option<Result<Option<crate::mutation_batch::MutationBatchRecord>, String>>> =
-        (0..lookups.len()).map(|_| None).collect();
+    let mut read_results: Vec<
+        Option<Result<Option<crate::mutation_batch::MutationBatchRecord>, String>>,
+    > = (0..lookups.len()).map(|_| None).collect();
     while let Some(joined) = set.join_next().await {
         let (idx, result) =
             joined.map_err(|error| format!("txn reconcile lookup task failed: {error}"))?;
@@ -608,6 +624,10 @@ pub(crate) async fn try_handle(
     } else {
         None
     };
+    // Consumed only by the sparql/query/epistemic derived-read txn stages below
+    // (each independently feature-gated); a slim build with none of them enabled
+    // still needs this binding to compile.
+    let _ = &derived_read_authority;
     #[cfg(feature = "tsdb")]
     let measurement_authority = if matches!(&method, Method::TxnAddMeasurement { .. }) {
         Some(carrier_authority.clone())
@@ -772,9 +792,11 @@ pub(crate) async fn try_handle(
             req_id,
             &txn_id,
             graph.as_deref(),
-            plan,
-            anchor_id,
-            relationship,
+            PlanWritebackArgs {
+                plan,
+                anchor_id,
+                relationship,
+            },
             derived_read_authority
                 .as_ref()
                 .expect("TxnPlanWriteback is a derived read stage"),
@@ -828,6 +850,10 @@ fn method_txn_id(method: &Method) -> Option<&str> {
 }
 
 fn is_derived_read_stage(method: &Method) -> bool {
+    // Matched only by the sparql/query/epistemic arms below (each independently
+    // feature-gated); a slim build with none of them enabled still needs this
+    // parameter to compile.
+    let _ = method;
     #[cfg(feature = "sparql")]
     if matches!(method, Method::TxnConstruct { .. }) {
         return true;
@@ -920,13 +946,15 @@ async fn begin_txn(
         txn_id.clone(),
         parking_lot::Mutex::new(GraphTxnState::new(
             &entry.core,
-            graph_name,
-            tenant_scope.to_string(),
-            begin_version,
-            level,
-            predicate,
-            agent,
-            now_ms(),
+            NewTxnArgs {
+                graph: graph_name,
+                tenant_scope: tenant_scope.to_string(),
+                begin_version,
+                isolation: level,
+                predicate,
+                agent,
+                now_ms: now_ms(),
+            },
         )),
     );
     Response::ok(req_id, ResultPayload::String(txn_id))
@@ -1307,17 +1335,29 @@ pub(crate) fn plan_writeback_to_methods(
 /// snapshot, lower to `AddEdge` methods, stage via `GraphTxnState::stage_plan_writeback`
 /// so the materialized edges land in the SAME cross-modal `WriteTransaction` as the
 /// txn's other staged modalities. Acks `Bool(true)`.
+/// The plan-writeback payload fields of [`Method::TxnPlanWriteback`], bundled so
+/// [`stage_plan_writeback`] stays under the clippy argument-count ceiling.
+#[cfg(feature = "query")]
+struct PlanWritebackArgs {
+    plan: eg_plan::Plan,
+    anchor_id: String,
+    relationship: String,
+}
+
 #[cfg(feature = "query")]
 async fn stage_plan_writeback(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     txn_id: &str,
     target_graph: Option<&str>,
-    plan: eg_plan::Plan,
-    anchor_id: String,
-    relationship: String,
+    args: PlanWritebackArgs,
     read_authority: &GraphReadAuthority,
 ) -> Response {
+    let PlanWritebackArgs {
+        plan,
+        anchor_id,
+        relationship,
+    } = args;
     let s = state.read().await;
     let core = match resolve_txn_default_core(&s, req_id, txn_id, target_graph, "plan writeback") {
         Ok(c) => c,
@@ -2022,26 +2062,38 @@ fn isolate_participant_transaction(
 /// Apply a decided participant atomically in its owning graph/group. The child
 /// batch id binds graph + participant + parent, making command and snapshot replay
 /// idempotent. A missing/mismatched prepared intent never authorizes a first apply.
+/// The identifying fields of a decided consensus transaction participant,
+/// bundled so [`apply_consensus_participant_commit`] stays under the clippy
+/// argument-count ceiling.
+#[cfg(feature = "raft")]
+pub(crate) struct ConsensusParticipantCommitRef<'a> {
+    pub(crate) coordinator_id: &'a str,
+    pub(crate) participant_id: u64,
+    pub(crate) plan_bytes: &'a [u8],
+}
+
 #[cfg(feature = "raft")]
 pub(crate) async fn apply_consensus_participant_commit(
     state: &Arc<RwLock<ServerState>>,
     request_id: u64,
     applying_group: crate::raft::GroupId,
-    applying_epoch: u64,
-    applying_fence: Option<u64>,
-    coordinator_id: &str,
-    participant_id: u64,
-    plan_bytes: &[u8],
-    principal: &str,
+    authority: &crate::raft::RaftMutationContext,
+    participant: ConsensusParticipantCommitRef<'_>,
 ) -> Result<bool, String> {
-    let principal = crate::server::mutation_batch::principal_fingerprint(principal)?;
+    let ConsensusParticipantCommitRef {
+        coordinator_id,
+        participant_id,
+        plan_bytes,
+    } = participant;
+    let principal =
+        crate::server::mutation_batch::principal_fingerprint(&authority.principal_fingerprint)?;
     let (plan, txn) = decode_consensus_participant(plan_bytes, coordinator_id, participant_id)?;
     let core = validate_consensus_participant_placement(
         state,
         &plan,
         applying_group,
-        applying_epoch,
-        applying_fence,
+        authority.placement_epoch,
+        authority.fencing_token,
     )
     .await?;
     let backend = state
@@ -2552,13 +2604,15 @@ pub(crate) async fn commit_graphql_cross_modal(
         .ok_or_else(|| format!("unknown transaction '{txn_id}'"))?;
     let mut txn = GraphTxnState::new(
         core,
-        graph_name.to_string(),
-        authority.tenant_scope().to_string(),
-        core.version(),
-        IsolationLevel::Snapshot,
-        None,
-        authority.owner_scope().to_string(),
-        now_ms(),
+        NewTxnArgs {
+            graph: graph_name.to_string(),
+            tenant_scope: authority.tenant_scope().to_string(),
+            begin_version: core.version(),
+            isolation: IsolationLevel::Snapshot,
+            predicate: None,
+            agent: authority.owner_scope().to_string(),
+            now_ms: now_ms(),
+        },
     );
     // Staged graph writes (from `sparqlUpdate` / `sparqlConstruct`, already lowered to the
     // property-graph projection) → the SAME `AddNode`/`AddEdge` write-set the RPC/pgwire
@@ -2743,16 +2797,16 @@ pub(crate) async fn commit_cross_modal_txn(
         let result = rmp_serde::to_vec_named(&ResultPayload::Bool(true))
             .map_err(|e| format!("cross-modal result encode failed: {e}"))?;
         let committed = p
-            .commit_mutation_batch_crossmodal(
-                &fname,
-                &batch,
-                &methods,
-                &txn.vectors,
-                &txn.blob_refs,
-                &measurements,
-                Some(&result),
-                now_ms(),
-            )
+            .commit_mutation_batch_crossmodal(crate::server::persistence::CrossModalCommitArgs {
+                graph_fname: &fname,
+                batch: &batch,
+                methods: &methods,
+                vectors: &txn.vectors,
+                blob_refs: &txn.blob_refs,
+                measurements: &measurements,
+                result_msgpack: Some(&result),
+                committed_at_ms: now_ms(),
+            })
             .await
             .map_err(|e| format!("cross-modal MutationBatch commit failed: {e}"))?;
         if committed.replayed {

@@ -130,6 +130,7 @@
 | `GetChangeEnvelope` | false | None | `ingest:read` | true | false | false | Snapshot | Verified tenant-scoped reconciliation read |
 | `GetContentVersion` | false | None | `ingest:read` | true | false | false | Snapshot | Typed content versions are never compared lexically |
 | `GetChangeCursor` | false | None | `ingest:read` | true | false | false | Snapshot | Typed source cursors are tenant/graph/partition scoped |
+| `ServedModality` | ~true | GraphRedb | `modality:write` | false | true | true | Atomic | runtime-conditional: authority/query/events/capabilities are verified read snapshots; ingest/delete/cold/restore commit an encrypted state-backed MutationBatch |
 | `CreateGraph` | true | GraphRedb | `graph:admin` | true | false | false | Atomic | native lifecycle MutationBatch before registry publication |
 | `DeleteGraph` | true | GraphRedb | `graph:admin` | true | false | false | Atomic | native lifecycle MutationBatch before registry eviction |
 | `ListGraphs` | false | None | `graph:read` | true | false | false | Snapshot |  |
@@ -256,9 +257,12 @@
 | `RegisterIdentity` | true | ControlRedb | `security:admin` | true | false | false | Atomic | RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX |
 | `RbacAdmin` | ~true | ControlRedb | `security:admin` | true | false | false | Atomic | runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata |
 | `ApplyMultisigMutation` | true | GraphRedb | `security:admin` | true | true | true | Saga | threshold validation translates into the graph MutationBatch gateway |
+| `AnalyticsJob` | ~true | JobsRedb | `jobs:write` | false | false | false | Atomic | runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway |
+| `Statechart` | ~true | StatechartRedb | `statechart:write` | false | false | false | Atomic | runtime-conditional: GetState/List are reads; Define/Instantiate/SendEvent commit to the native statecharts.redb store (CONCEPT:INT-P2-2) |
 | `Sql` | ~true | GraphRedb | `query:sql` | false | true | false | Atomic | runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox |
 | `CypherQuery` | ~true | GraphRedb | `query:cypher` | false | true | false | Atomic | runtime-conditional; writes execute against a staged graph and publish only after durable MutationBatch commit |
 | `GraphQl` | ~true | GraphRedb | `query:graphql` | false | true | false | Atomic | runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox |
+| `KnowledgeStream` | false | None | `query:stream` | true | false | false | Snapshot | one RequestContext/RLS/placement-bound stream with the sole native Arrow IPC projection for all seven query families |
 | `UnifiedQuery` | false | None | `query:unified` | true | false | false | Snapshot |  |
 | `UnifiedQueryText` | false | None | `query:unified` | true | false | false | Snapshot |  |
 | `ExplainPlan` | false | None | `explain:read` | true | false | false | Snapshot |  |

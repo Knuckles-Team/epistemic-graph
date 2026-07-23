@@ -1356,11 +1356,14 @@ fn text_to_text_udf(
 ) -> ScalarUDF {
     let fun = Arc::new(move |args: &[ColumnarValue]| {
         let arrays = ColumnarValue::values_to_arrays(args)?;
-        let input = arrays[0].as_any().downcast_ref::<StringArray>().ok_or_else(|| {
-            datafusion::error::DataFusionError::Execution(format!(
-                "{name}: argument must be Utf8"
-            ))
-        })?;
+        let input = arrays[0]
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| {
+                datafusion::error::DataFusionError::Execution(format!(
+                    "{name}: argument must be Utf8"
+                ))
+            })?;
         let out: StringArray = (0..input.len())
             .map(|i| {
                 if input.is_null(i) {
@@ -1389,11 +1392,14 @@ fn text_to_bool_udf(
 ) -> ScalarUDF {
     let fun = Arc::new(move |args: &[ColumnarValue]| {
         let arrays = ColumnarValue::values_to_arrays(args)?;
-        let input = arrays[0].as_any().downcast_ref::<StringArray>().ok_or_else(|| {
-            datafusion::error::DataFusionError::Execution(format!(
-                "{name}: argument must be Utf8"
-            ))
-        })?;
+        let input = arrays[0]
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| {
+                datafusion::error::DataFusionError::Execution(format!(
+                    "{name}: argument must be Utf8"
+                ))
+            })?;
         let out: arrow::array::BooleanArray = (0..input.len())
             .map(|i| {
                 if input.is_null(i) {
@@ -1603,10 +1609,7 @@ mod crypto_ipaddr_tests {
         );
         assert_eq!(
             parse_ip_or_net("::1"),
-            Some((
-                std::net::IpAddr::from([0, 0, 0, 0, 0, 0, 0, 1]),
-                128
-            ))
+            Some((std::net::IpAddr::from([0, 0, 0, 0, 0, 0, 0, 1]), 128))
         );
         assert_eq!(parse_ip_or_net("not-an-ip"), None);
     }

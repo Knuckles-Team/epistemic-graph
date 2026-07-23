@@ -485,7 +485,7 @@ async fn handle_connection(
                     return Err(invalid_data("invalid MQTT PUBLISH packet"));
                 }
                 let body_start = c.i.min(payload.len());
-                drop(c);
+                let _ = c;
                 // Reuse the packet allocation for the body instead of cloning a
                 // potentially-large payload into a second Vec.
                 payload.drain(..body_start);
@@ -842,7 +842,8 @@ fn parse_connect_version(payload: &[u8]) -> Option<u8> {
     let username = connect_flags & 0x80 != 0;
     let invalid_flags = connect_flags & 0x01 != 0
         || will_qos == 0x03
-        || (!will && (will_qos != 0 || will_retain))
+        || will_qos != 0
+        || will_retain
         || will
         || !clean_start
         || (password && !username);
@@ -1304,7 +1305,7 @@ mod tests {
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,

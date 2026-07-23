@@ -152,21 +152,21 @@ impl GovernedModality for DocumentData {
             && self.annotations.len() <= MAX_STRUCTURED_ITEMS
             && self.chunks.len() <= MAX_STRUCTURED_ITEMS
             && self.lexical_postings.len() <= MAX_STRUCTURED_ITEMS
-            && self.language.as_deref().map_or(true, safe_language)
-            && self.version.as_deref().map_or(true, opaque)
+            && self.language.as_deref().is_none_or(safe_language)
+            && self.version.as_deref().is_none_or(opaque)
             && self.pages.iter().all(|page| {
                 page.number > 0
                     && page_numbers.insert(page.number)
                     && page.blocks.iter().all(|block| {
                         (block.kind == crate::BlockKind::Table) == block.table.is_some()
                             && block.spans.iter().all(|span| {
-                                span.end > span.start && span.label.as_deref().map_or(true, opaque)
+                                span.end > span.start && span.label.as_deref().is_none_or(opaque)
                             })
                             && block
                                 .spans
                                 .windows(2)
                                 .all(|pair| pair[0].end <= pair[1].start)
-                            && block.table.as_ref().map_or(true, |table| {
+                            && block.table.as_ref().is_none_or(|table| {
                                 table.rows > 0
                                     && table.cols > 0
                                     && table.rows.checked_mul(table.cols).is_some_and(|slots| {

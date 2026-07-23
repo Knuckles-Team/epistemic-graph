@@ -131,7 +131,9 @@ mod tests {
     #[test]
     fn from_value_accepts_object_and_null_but_rejects_scalars() {
         assert!(Context::from_value(serde_json::json!({"a": 1})).is_ok());
-        assert!(Context::from_value(serde_json::Value::Null).unwrap().is_empty());
+        assert!(Context::from_value(serde_json::Value::Null)
+            .unwrap()
+            .is_empty());
         assert!(Context::from_value(serde_json::json!(3)).is_err());
         assert!(Context::from_value(serde_json::json!([1, 2])).is_err());
     }

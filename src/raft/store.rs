@@ -253,23 +253,27 @@ mod current_snapshot_schema_tests {
         let encoded = rmp_serde::to_vec_named(&incomplete).unwrap();
         assert!(rmp_serde::from_slice::<GraphSnapshot>(&encoded).is_err());
 
-        let mut rows = crate::server::persistence::online_reshard::RawGraphRows::default();
-        rows.schema_version = 0;
+        let rows = crate::server::persistence::online_reshard::RawGraphRows {
+            schema_version: 0,
+            ..Default::default()
+        };
         assert!(rows.validate_schema().is_err());
 
         let mut orphaned = crate::server::persistence::online_reshard::RawGraphRows::default();
         orphaned.nodes.push(("node".to_string(), Vec::new()));
         assert!(orphaned.durable_identity("graph").is_err());
 
-        let mut durable = crate::server::persistence::online_reshard::RawGraphRows::default();
-        durable.meta = Some(
-            crate::redb_store::encode_meta_with_incarnation(
-                "graph",
-                GraphType::Global,
-                "incarnation:test:raft-snapshot",
-            )
-            .unwrap(),
-        );
+        let durable = crate::server::persistence::online_reshard::RawGraphRows {
+            meta: Some(
+                crate::redb_store::encode_meta_with_incarnation(
+                    "graph",
+                    GraphType::Global,
+                    "incarnation:test:raft-snapshot",
+                )
+                .unwrap(),
+            ),
+            ..Default::default()
+        };
         let graph = GraphSnapshot {
             schema_version: RAFT_SNAPSHOT_SCHEMA_VERSION,
             fname: "graph".to_string(),
@@ -481,517 +485,525 @@ impl EgStore {
     fn apply_request<'a>(
         &'a self,
         req: &'a RaftRequest,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<RaftResponse, String>> + Send + 'a>>
-    {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<RaftResponse, String>> + Send + 'a>,
+    > {
         Box::pin(async move {
-        req.validate()?;
-        let server_secret = self.ctx.state.read().await.auth_secret.clone();
+            req.validate()?;
+            let server_secret = self.ctx.state.read().await.auth_secret.clone();
 
-        // Every bounded native family executes only after its command is committed.
-        // Re-entering the domain dispatcher under the replicated-apply scope reuses
-        // the existing MutationBatch/saga kernels while suppressing any nested Raft
-        // proposal and replacing local wall-clock reads with the leader-selected
-        // commit time. The reconstructed authority contains only opaque scopes.
-        if let ReplicatedMutation::Native { command } = &req.command {
-            match command {
-                NativeMutationCommand::TransactionParticipant {
-                    phase,
-                    coordinator_id,
-                    participant_id,
-                    ..
-                } => {
-                    let plan = command.open_transaction_plan(&server_secret)?;
-                    let outcome = crate::server::apply_replicated_transaction_participant(
-                        &self.ctx.state,
-                        req.mutation.request_id,
-                        req.committed_at_ms,
-                        &req.mutation,
-                        self.group_id,
-                        *phase,
+            // Every bounded native family executes only after its command is committed.
+            // Re-entering the domain dispatcher under the replicated-apply scope reuses
+            // the existing MutationBatch/saga kernels while suppressing any nested Raft
+            // proposal and replacing local wall-clock reads with the leader-selected
+            // commit time. The reconstructed authority contains only opaque scopes.
+            if let ReplicatedMutation::Native { command } = &req.command {
+                match command {
+                    NativeMutationCommand::TransactionParticipant {
+                        phase,
                         coordinator_id,
-                        *participant_id,
-                        plan.as_deref(),
-                    )
-                    .await;
-                    return Ok(match outcome {
-                        Ok(value) => RaftResponse {
-                            applied: true,
-                            native_result: Some(crate::protocol::ResultPayload::Bool(value)),
-                            ..Default::default()
-                        },
-                        Err(error) => RaftResponse {
-                            applied: true,
-                            native_error: Some(error),
-                            ..Default::default()
-                        },
-                    });
-                }
-                NativeMutationCommand::TransactionDecision {
-                    coordinator_id,
-                    commit,
-                } => {
-                    let outcome = crate::server::apply_replicated_transaction_decision(
-                        &self.ctx.state,
-                        req.committed_at_ms,
-                        &req.mutation,
+                        participant_id,
+                        ..
+                    } => {
+                        let plan = command.open_transaction_plan(&server_secret)?;
+                        let outcome = crate::server::apply_replicated_transaction_participant(
+                            &self.ctx.state,
+                            req.mutation.request_id,
+                            req.committed_at_ms,
+                            &req.mutation,
+                            self.group_id,
+                            *phase,
+                            crate::server::ReplicatedParticipantRef {
+                                coordinator_id,
+                                participant_id: *participant_id,
+                                plan: plan.as_deref(),
+                            },
+                        )
+                        .await;
+                        return Ok(match outcome {
+                            Ok(value) => RaftResponse {
+                                applied: true,
+                                native_result: Some(crate::protocol::ResultPayload::Bool(value)),
+                                ..Default::default()
+                            },
+                            Err(error) => RaftResponse {
+                                applied: true,
+                                native_error: Some(error),
+                                ..Default::default()
+                            },
+                        });
+                    }
+                    NativeMutationCommand::TransactionDecision {
                         coordinator_id,
-                        *commit,
-                    )
-                    .await;
-                    return Ok(match outcome {
-                        Ok(value) => RaftResponse {
-                            applied: true,
-                            native_result: Some(crate::protocol::ResultPayload::Bool(value)),
-                            ..Default::default()
-                        },
-                        Err(error) => RaftResponse {
-                            applied: true,
-                            native_error: Some(error),
-                            ..Default::default()
-                        },
-                    });
-                }
-                NativeMutationCommand::TransactionFinalize {
-                    coordinator_id,
-                    commit,
-                } => {
-                    let outcome = crate::server::apply_replicated_transaction_finalize(
-                        &self.ctx.state,
-                        req.committed_at_ms,
-                        &req.mutation,
+                        commit,
+                    } => {
+                        let outcome = crate::server::apply_replicated_transaction_decision(
+                            &self.ctx.state,
+                            req.committed_at_ms,
+                            &req.mutation,
+                            coordinator_id,
+                            *commit,
+                        )
+                        .await;
+                        return Ok(match outcome {
+                            Ok(value) => RaftResponse {
+                                applied: true,
+                                native_result: Some(crate::protocol::ResultPayload::Bool(value)),
+                                ..Default::default()
+                            },
+                            Err(error) => RaftResponse {
+                                applied: true,
+                                native_error: Some(error),
+                                ..Default::default()
+                            },
+                        });
+                    }
+                    NativeMutationCommand::TransactionFinalize {
                         coordinator_id,
-                        *commit,
-                    )
-                    .await;
-                    return Ok(match outcome {
-                        Ok(value) => RaftResponse {
-                            applied: true,
-                            native_result: Some(crate::protocol::ResultPayload::Bool(value)),
-                            ..Default::default()
-                        },
-                        Err(error) => RaftResponse {
-                            applied: true,
-                            native_error: Some(error),
-                            ..Default::default()
-                        },
-                    });
+                        commit,
+                    } => {
+                        let outcome = crate::server::apply_replicated_transaction_finalize(
+                            &self.ctx.state,
+                            req.committed_at_ms,
+                            &req.mutation,
+                            coordinator_id,
+                            *commit,
+                        )
+                        .await;
+                        return Ok(match outcome {
+                            Ok(value) => RaftResponse {
+                                applied: true,
+                                native_result: Some(crate::protocol::ResultPayload::Bool(value)),
+                                ..Default::default()
+                            },
+                            Err(error) => RaftResponse {
+                                applied: true,
+                                native_error: Some(error),
+                                ..Default::default()
+                            },
+                        });
+                    }
+                    #[cfg(feature = "jobs")]
+                    NativeMutationCommand::JobPublicationCommit { coordinator_id, .. } => {
+                        let plan = command.open_job_publication_payload(&server_secret)?;
+                        let outcome = crate::server::apply_replicated_job_publication_commit(
+                            &self.ctx.state,
+                            req.mutation.request_id,
+                            req.committed_at_ms,
+                            &req.mutation,
+                            self.group_id,
+                            coordinator_id,
+                            &plan,
+                        )
+                        .await;
+                        return Ok(match outcome {
+                            Ok(value) => RaftResponse {
+                                applied: true,
+                                native_result: Some(crate::protocol::ResultPayload::Bool(value)),
+                                ..Default::default()
+                            },
+                            Err(error) => RaftResponse {
+                                applied: true,
+                                native_error: Some(error),
+                                ..Default::default()
+                            },
+                        });
+                    }
+                    #[cfg(feature = "jobs")]
+                    NativeMutationCommand::JobPublicationFinalize { coordinator_id, .. } => {
+                        let receipt = command.open_job_publication_payload(&server_secret)?;
+                        let outcome = crate::server::apply_replicated_job_publication_finalize(
+                            &self.ctx.state,
+                            req.committed_at_ms,
+                            &req.mutation,
+                            coordinator_id,
+                            &receipt,
+                        )
+                        .await;
+                        return Ok(match outcome {
+                            Ok(result) => RaftResponse {
+                                applied: true,
+                                native_result: Some(result),
+                                ..Default::default()
+                            },
+                            Err(error) => RaftResponse {
+                                applied: true,
+                                native_error: Some(error),
+                                ..Default::default()
+                            },
+                        });
+                    }
+                    _ => {}
                 }
-                #[cfg(feature = "jobs")]
-                NativeMutationCommand::JobPublicationCommit { coordinator_id, .. } => {
-                    let plan = command.open_job_publication_payload(&server_secret)?;
-                    let outcome = crate::server::apply_replicated_job_publication_commit(
-                        &self.ctx.state,
-                        req.mutation.request_id,
-                        req.committed_at_ms,
-                        &req.mutation,
-                        self.group_id,
-                        coordinator_id,
-                        &plan,
-                    )
-                    .await;
-                    return Ok(match outcome {
-                        Ok(value) => RaftResponse {
+                if let Some(method) = command.open_public_method(&server_secret)? {
+                    if crate::server::txn::consensus_graph_is_prepared(&req.graph_name)
+                        || crate::server::txn::consensus_control_conflicts(&method)
+                    {
+                        return Ok(RaftResponse {
                             applied: true,
-                            native_result: Some(crate::protocol::ResultPayload::Bool(value)),
+                            native_error: Some(
+                                "graph is reserved by a prepared consensus transaction".to_string(),
+                            ),
                             ..Default::default()
-                        },
-                        Err(error) => RaftResponse {
-                            applied: true,
-                            native_error: Some(error),
-                            ..Default::default()
-                        },
-                    });
-                }
-                #[cfg(feature = "jobs")]
-                NativeMutationCommand::JobPublicationFinalize { coordinator_id, .. } => {
-                    let receipt = command.open_job_publication_payload(&server_secret)?;
-                    let outcome = crate::server::apply_replicated_job_publication_finalize(
-                        &self.ctx.state,
-                        req.committed_at_ms,
-                        &req.mutation,
-                        coordinator_id,
-                        &receipt,
-                    )
-                    .await;
-                    return Ok(match outcome {
-                        Ok(result) => RaftResponse {
-                            applied: true,
-                            native_result: Some(result),
-                            ..Default::default()
-                        },
-                        Err(error) => RaftResponse {
-                            applied: true,
-                            native_error: Some(error),
-                            ..Default::default()
-                        },
-                    });
-                }
-                _ => {}
-            }
-            if let Some(method) = command.open_public_method(&server_secret)? {
-                if crate::server::txn::consensus_graph_is_prepared(&req.graph_name)
-                    || crate::server::txn::consensus_control_conflicts(&method)
-                {
+                        });
+                    }
+                    let response = if matches!(method, Method::Commit { .. }) {
+                        let Method::Commit { txn_id } = method else {
+                            unreachable!();
+                        };
+                        crate::server::apply_replicated_transaction_prepare(
+                            &self.ctx.state,
+                            req.mutation.request_id,
+                            req.committed_at_ms,
+                            &req.mutation,
+                            &txn_id,
+                        )
+                        .await
+                    } else {
+                        crate::server::apply_replicated_native(
+                            &self.ctx.state,
+                            req.graph_name.clone(),
+                            req.mutation.request_id,
+                            req.committed_at_ms,
+                            &req.mutation,
+                            method,
+                        )
+                        .await
+                    };
                     return Ok(RaftResponse {
                         applied: true,
-                        native_error: Some(
-                            "graph is reserved by a prepared consensus transaction".to_string(),
-                        ),
+                        native_result: response.result,
+                        native_error: response.error,
                         ..Default::default()
                     });
                 }
-                let response = if matches!(method, Method::Commit { .. }) {
-                    let Method::Commit { txn_id } = method else {
-                        unreachable!();
-                    };
-                    crate::server::apply_replicated_transaction_prepare(
-                        &self.ctx.state,
-                        req.mutation.request_id,
-                        req.committed_at_ms,
-                        &req.mutation,
-                        &txn_id,
-                    )
-                    .await
-                } else {
-                    crate::server::apply_replicated_native(
-                        &self.ctx.state,
-                        req.graph_name.clone(),
-                        req.mutation.request_id,
-                        req.committed_at_ms,
-                        &req.mutation,
-                        method,
-                    )
-                    .await
-                };
+            }
+
+            if crate::server::txn::consensus_graph_is_prepared(&req.graph_name) {
                 return Ok(RaftResponse {
                     applied: true,
-                    native_result: response.result,
-                    native_error: response.error,
+                    native_error: Some(
+                        "graph is reserved by a prepared consensus transaction".to_string(),
+                    ),
                     ..Default::default()
                 });
             }
-        }
 
-        if crate::server::txn::consensus_graph_is_prepared(&req.graph_name) {
-            return Ok(RaftResponse {
-                applied: true,
-                native_error: Some(
-                    "graph is reserved by a prepared consensus transaction".to_string(),
-                ),
-                ..Default::default()
-            });
-        }
-
-        // Resolve the target graph's RESIDENT core. Mirrors the live dispatch
-        // cold-path: a follower replaying a CreateGraph->write sequence may find the
-        // graph catalog-known but not yet materialized (evicted mid-replay, or
-        // catalog-only after a restart) -- `exists()` true but `get()` None. Lazy-open
-        // it FIRST (a no-op for a genuinely-unknown name, so a follower's first sight
-        // of a brand-new graph still falls through to create), then create only if
-        // genuinely absent. Fixes the follower catch-up "missing after create" apply
-        // failure that stalls a lagging node from ever finishing catch-up.
-        #[cfg(feature = "redb")]
-        {
-            let miss = {
-                let s = self.ctx.state.read().await;
-                s.registry.get(&req.graph_name).is_none()
-            };
-            if miss {
-                let cap = crate::server::persistence::cold_offload::max_resident_graphs();
-                let page_size = crate::server::persistence::cold_offload::lazy_open_page_size();
-                crate::server::persistence::cold_offload::lazy_open(
-                    &self.ctx.state,
-                    &req.graph_name,
-                    cap,
-                    page_size,
-                )
-                .await;
-            }
-        }
-        let (core, persistence) = {
-            let mut s = self.ctx.state.write().await;
-            if !s.registry.exists(&req.graph_name) {
-                s.registry
-                    .create_graph(&req.graph_name, req.graph_type, None)
-                    .map_err(|e| {
-                        format!("graph '{}' create failed on replay: {e}", req.graph_name)
-                    })?;
-            }
-            let core = match s.registry.get(&req.graph_name).map(|e| e.core.clone()) {
-                Some(c) => c,
-                None => return Err(format!("graph '{}' missing after create", req.graph_name)),
-            };
-            (core, s.persistence.clone())
-        };
-
-        let graph_method = req.command.open_graph(&server_secret)?;
-        if let Some(method) = graph_method.as_ref() {
-            if !crate::mutation_apply::is_durable_mutation(method)
-                || crate::server::mutation_batch::is_work_item_method(method)
+            // Resolve the target graph's RESIDENT core. Mirrors the live dispatch
+            // cold-path: a follower replaying a CreateGraph->write sequence may find the
+            // graph catalog-known but not yet materialized (evicted mid-replay, or
+            // catalog-only after a restart) -- `exists()` true but `get()` None. Lazy-open
+            // it FIRST (a no-op for a genuinely-unknown name, so a follower's first sight
+            // of a brand-new graph still falls through to create), then create only if
+            // genuinely absent. Fixes the follower catch-up "missing after create" apply
+            // failure that stalls a lagging node from ever finishing catch-up.
+            #[cfg(feature = "redb")]
             {
-                return Err(
-                    "Raft graph command is not a deterministic replicated mutation".to_string(),
-                );
-            }
-        }
-        let change_envelope = req.command.open_change_envelope(&server_secret)?;
-        #[cfg(feature = "modality-serving")]
-        let modality_command = match &req.command {
-            ReplicatedMutation::Native {
-                command: NativeMutationCommand::ServedModality { command },
-            } => {
-                command.validate(&server_secret)?;
-                Some(command)
-            }
-            _ => None,
-        };
-
-        // ChangeEnvelope is one atomic state-machine command. Decomposing it into
-        // graph operations would lose its content-version, cursor, governance,
-        // lineage, evidence, and outbox authority.
-        if let Some(envelope) = change_envelope.as_ref() {
-            if envelope.mutation.graph != req.graph_name {
-                return Err(
-                    "replicated ChangeEnvelope graph does not match request authority".to_string(),
-                );
-            }
-            let expected_tenant_scope = crate::server::mutation_batch::opaque_coordinator_key(
-                "carrier-tenant",
-                "verified",
-                &envelope.mutation.tenant,
-            );
-            if req.mutation.batch_id != envelope.mutation.batch_id
-                || req.mutation.request_id != envelope.mutation.context.request_id
-                || req.mutation.tenant_scope != expected_tenant_scope
-                || req.mutation.principal_fingerprint != envelope.mutation.context.principal
-                || req.mutation.placement_epoch != envelope.mutation.placement_epoch
-                || req.mutation.fencing_token != envelope.mutation.fencing_token
-                || req.mutation.created_at_ms != envelope.mutation.created_at_ms
-            {
-                return Err(
-                    "replicated ChangeEnvelope does not match its mutation authority".to_string(),
-                );
-            }
-            let committed_at_ms = req.committed_at_ms;
-            let backend = persistence.as_ref().ok_or_else(|| {
-                "replicated ChangeEnvelope requires a configured persistence backend".to_string()
-            })?;
-            let committed = backend
-                .commit_change_envelope(&req.graph_fname, envelope, committed_at_ms)
-                .await?;
-            let projection_pending = if committed.replayed {
-                false
-            } else {
-                match crate::server::mutation_batch::publish_change_envelope_projection(
-                    &core, envelope,
-                ) {
-                    Ok(()) => false,
-                    Err(error) => {
-                        tracing::warn!(
-                            graph = %req.graph_fname,
-                            error = %error,
-                            "replicated ChangeEnvelope projection queued for repair"
-                        );
-                        true
-                    }
+                let miss = {
+                    let s = self.ctx.state.read().await;
+                    s.registry.get(&req.graph_name).is_none()
+                };
+                if miss {
+                    let cap = crate::server::persistence::cold_offload::max_resident_graphs();
+                    let page_size = crate::server::persistence::cold_offload::lazy_open_page_size();
+                    crate::server::persistence::cold_offload::lazy_open(
+                        &self.ctx.state,
+                        &req.graph_name,
+                        cap,
+                        page_size,
+                    )
+                    .await;
                 }
-            };
-            return Ok(RaftResponse {
-                applied: true,
-                change_envelope_commit: Some(committed),
-                projection_pending,
-                ..Default::default()
-            });
-        }
-
-        let persistence = persistence.ok_or_else(|| {
-            "ordinary replicated mutation requires a configured persistence backend".to_string()
-        })?;
-
-        #[cfg(feature = "modality-serving")]
-        let durable_method = modality_command
-            .map(super::SanitizedModalityRaftCommand::receipt_method)
-            .or_else(|| graph_method.clone())
-            .ok_or_else(|| "replicated native command has no receipt method".to_string())?;
-        #[cfg(not(feature = "modality-serving"))]
-        let durable_method = graph_method
-            .clone()
-            .ok_or_else(|| "replicated native command has no receipt method".to_string())?;
-
-        use sha2::{Digest, Sha256};
-        let authority = &req.mutation;
-        let batch_id = authority.batch_id.as_str();
-        let expected_principal = authority.principal_fingerprint.as_str();
-
-        // Phase-2 recovery intentionally submits the same deterministic child
-        // authority again.  Resolve that receipt BEFORE staging from today's graph
-        // image; otherwise its authoritative-state digest would differ and turn a
-        // valid replay into an idempotency conflict.
-        if let Some(record) = persistence
-            .read_mutation_batch(&req.graph_fname, batch_id)
-            .await?
-        {
-            let encoded_method =
-                rmp_serde::to_vec_named(&durable_method).map_err(|error| error.to_string())?;
-            let expected_digest =
-                format!("sha256:{}", hex::encode(Sha256::digest(&encoded_method)));
-            let operation_matches = record.batch.operations.len() == 1
-                && matches!(
-                    &record.batch.operations[0].method,
-                    crate::protocol::Method::ApplyMutation { event_type, query }
-                        if event_type == "authoritative_state_operation"
-                            && query == &expected_digest
-                );
-            #[cfg(feature = "modality-serving")]
-            let expected_result = if let Some(command) = modality_command.as_ref() {
-                command.result_msgpack.clone()
-            } else {
-                rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true))
-                    .map_err(|error| error.to_string())?
-            };
-            #[cfg(not(feature = "modality-serving"))]
-            let expected_result =
-                rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true))
-                    .map_err(|error| error.to_string())?;
-            if record.status != crate::mutation_batch::MutationBatchStatus::Committed
-                || record.batch.batch_id != batch_id
-                || record.batch.tenant != authority.tenant_scope
-                || record.batch.graph != req.graph_name
-                || record.batch.context.principal != expected_principal
-                || !operation_matches
-                || record.result_msgpack.as_deref() != Some(expected_result.as_slice())
-            {
-                return Err("replicated child receipt conflicts with replay authority".to_string());
             }
-            let (snapshot, version) = persistence
+            let (core, persistence) = {
+                let mut s = self.ctx.state.write().await;
+                if !s.registry.exists(&req.graph_name) {
+                    s.registry
+                        .create_graph(&req.graph_name, req.graph_type, None)
+                        .map_err(|e| {
+                            format!("graph '{}' create failed on replay: {e}", req.graph_name)
+                        })?;
+                }
+                let core = match s.registry.get(&req.graph_name).map(|e| e.core.clone()) {
+                    Some(c) => c,
+                    None => return Err(format!("graph '{}' missing after create", req.graph_name)),
+                };
+                (core, s.persistence.clone())
+            };
+
+            let graph_method = req.command.open_graph(&server_secret)?;
+            if let Some(method) = graph_method.as_ref() {
+                if !crate::mutation_apply::is_durable_mutation(method)
+                    || crate::server::mutation_batch::is_work_item_method(method)
+                {
+                    return Err(
+                        "Raft graph command is not a deterministic replicated mutation".to_string(),
+                    );
+                }
+            }
+            let change_envelope = req.command.open_change_envelope(&server_secret)?;
+            #[cfg(feature = "modality-serving")]
+            let modality_command = match &req.command {
+                ReplicatedMutation::Native {
+                    command: NativeMutationCommand::ServedModality { command },
+                } => {
+                    command.validate(&server_secret)?;
+                    Some(command)
+                }
+                _ => None,
+            };
+
+            // ChangeEnvelope is one atomic state-machine command. Decomposing it into
+            // graph operations would lose its content-version, cursor, governance,
+            // lineage, evidence, and outbox authority.
+            if let Some(envelope) = change_envelope.as_ref() {
+                if envelope.mutation.graph != req.graph_name {
+                    return Err(
+                        "replicated ChangeEnvelope graph does not match request authority"
+                            .to_string(),
+                    );
+                }
+                let expected_tenant_scope = crate::server::mutation_batch::opaque_coordinator_key(
+                    "carrier-tenant",
+                    "verified",
+                    &envelope.mutation.tenant,
+                );
+                if req.mutation.batch_id != envelope.mutation.batch_id
+                    || req.mutation.request_id != envelope.mutation.context.request_id
+                    || req.mutation.tenant_scope != expected_tenant_scope
+                    || req.mutation.principal_fingerprint != envelope.mutation.context.principal
+                    || req.mutation.placement_epoch != envelope.mutation.placement_epoch
+                    || req.mutation.fencing_token != envelope.mutation.fencing_token
+                    || req.mutation.created_at_ms != envelope.mutation.created_at_ms
+                {
+                    return Err(
+                        "replicated ChangeEnvelope does not match its mutation authority"
+                            .to_string(),
+                    );
+                }
+                let committed_at_ms = req.committed_at_ms;
+                let backend = persistence.as_ref().ok_or_else(|| {
+                    "replicated ChangeEnvelope requires a configured persistence backend"
+                        .to_string()
+                })?;
+                let committed = backend
+                    .commit_change_envelope(&req.graph_fname, envelope, committed_at_ms)
+                    .await?;
+                let projection_pending = if committed.replayed {
+                    false
+                } else {
+                    match crate::server::mutation_batch::publish_change_envelope_projection(
+                        &core, envelope,
+                    ) {
+                        Ok(()) => false,
+                        Err(error) => {
+                            tracing::warn!(
+                                graph = %req.graph_fname,
+                                error = %error,
+                                "replicated ChangeEnvelope projection queued for repair"
+                            );
+                            true
+                        }
+                    }
+                };
+                return Ok(RaftResponse {
+                    applied: true,
+                    change_envelope_commit: Some(committed),
+                    projection_pending,
+                    ..Default::default()
+                });
+            }
+
+            let persistence = persistence.ok_or_else(|| {
+                "ordinary replicated mutation requires a configured persistence backend".to_string()
+            })?;
+
+            #[cfg(feature = "modality-serving")]
+            let durable_method = modality_command
+                .map(super::SanitizedModalityRaftCommand::receipt_method)
+                .or_else(|| graph_method.clone())
+                .ok_or_else(|| "replicated native command has no receipt method".to_string())?;
+            #[cfg(not(feature = "modality-serving"))]
+            let durable_method = graph_method
+                .clone()
+                .ok_or_else(|| "replicated native command has no receipt method".to_string())?;
+
+            use sha2::{Digest, Sha256};
+            let authority = &req.mutation;
+            let batch_id = authority.batch_id.as_str();
+            let expected_principal = authority.principal_fingerprint.as_str();
+
+            // Phase-2 recovery intentionally submits the same deterministic child
+            // authority again.  Resolve that receipt BEFORE staging from today's graph
+            // image; otherwise its authoritative-state digest would differ and turn a
+            // valid replay into an idempotency conflict.
+            if let Some(record) = persistence
+                .read_mutation_batch(&req.graph_fname, batch_id)
+                .await?
+            {
+                let encoded_method =
+                    rmp_serde::to_vec_named(&durable_method).map_err(|error| error.to_string())?;
+                let expected_digest =
+                    format!("sha256:{}", hex::encode(Sha256::digest(&encoded_method)));
+                let operation_matches = record.batch.operations.len() == 1
+                    && matches!(
+                        &record.batch.operations[0].method,
+                        crate::protocol::Method::ApplyMutation { event_type, query }
+                            if event_type == "authoritative_state_operation"
+                                && query == &expected_digest
+                    );
+                #[cfg(feature = "modality-serving")]
+                let expected_result = if let Some(command) = modality_command.as_ref() {
+                    command.result_msgpack.clone()
+                } else {
+                    rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true))
+                        .map_err(|error| error.to_string())?
+                };
+                #[cfg(not(feature = "modality-serving"))]
+                let expected_result =
+                    rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true))
+                        .map_err(|error| error.to_string())?;
+                if record.status != crate::mutation_batch::MutationBatchStatus::Committed
+                    || record.batch.batch_id != batch_id
+                    || record.batch.tenant != authority.tenant_scope
+                    || record.batch.graph != req.graph_name
+                    || record.batch.context.principal != expected_principal
+                    || !operation_matches
+                    || record.result_msgpack.as_deref() != Some(expected_result.as_slice())
+                {
+                    return Err(
+                        "replicated child receipt conflicts with replay authority".to_string()
+                    );
+                }
+                let (snapshot, version) = persistence
+                    .read_authoritative_graph_snapshot(&req.graph_fname)
+                    .await?
+                    .ok_or_else(|| "committed replicated graph image is missing".to_string())?;
+                core.install_committed_snapshot(snapshot, version)?;
+                return Ok(RaftResponse {
+                    applied: true,
+                    ..Default::default()
+                });
+            }
+
+            // Stage from the durable pre-image. This handles the complete mutation
+            // vocabulary (including runtime-result/multi-row methods) without applying a
+            // speculative write to the serving projection.
+            let (base_snapshot, source_version) = match persistence
                 .read_authoritative_graph_snapshot(&req.graph_fname)
                 .await?
-                .ok_or_else(|| "committed replicated graph image is missing".to_string())?;
-            core.install_committed_snapshot(snapshot, version)?;
-            return Ok(RaftResponse {
-                applied: true,
-                ..Default::default()
-            });
-        }
-
-        // Stage from the durable pre-image. This handles the complete mutation
-        // vocabulary (including runtime-result/multi-row methods) without applying a
-        // speculative write to the serving projection.
-        let (base_snapshot, source_version) = match persistence
-            .read_authoritative_graph_snapshot(&req.graph_fname)
-            .await?
-        {
-            Some(value) => value,
-            None => {
-                let version = persistence
-                    .read_mutation_graph_version(&req.graph_fname)
-                    .await?
-                    .unwrap_or_else(|| core.version());
-                (core.snapshot(), version)
+            {
+                Some(value) => value,
+                None => {
+                    let version = persistence
+                        .read_mutation_graph_version(&req.graph_fname)
+                        .await?
+                        .unwrap_or_else(|| core.version());
+                    (core.snapshot(), version)
+                }
+            };
+            let staged = crate::graph::GraphCore::from_snapshot(base_snapshot, source_version)?;
+            #[cfg(feature = "modality-serving")]
+            if let Some(command) = modality_command.as_ref() {
+                staged.add_node(
+                    command.node_id.clone(),
+                    command.sealed_runtime_state.clone(),
+                );
+            } else {
+                crate::mutation_apply::apply(
+                    &staged,
+                    graph_method.as_ref().ok_or_else(|| {
+                        "replicated graph mutation is missing its typed method".to_string()
+                    })?,
+                );
             }
-        };
-        let staged = crate::graph::GraphCore::from_snapshot(base_snapshot, source_version)?;
-        #[cfg(feature = "modality-serving")]
-        if let Some(command) = modality_command.as_ref() {
-            staged.add_node(
-                command.node_id.clone(),
-                command.sealed_runtime_state.clone(),
-            );
-        } else {
+            #[cfg(not(feature = "modality-serving"))]
             crate::mutation_apply::apply(
                 &staged,
                 graph_method.as_ref().ok_or_else(|| {
                     "replicated graph mutation is missing its typed method".to_string()
                 })?,
             );
-        }
-        #[cfg(not(feature = "modality-serving"))]
-        crate::mutation_apply::apply(
-            &staged,
-            graph_method.as_ref().ok_or_else(|| {
-                "replicated graph mutation is missing its typed method".to_string()
-            })?,
-        );
-        let staged_snapshot = staged.snapshot();
-        let state_msgpack = staged_snapshot.to_msgpack()?;
-        let descriptor = crate::mutation_batch::MutationStateDescriptor {
-            algorithm: "sha256".to_string(),
-            digest: hex::encode(Sha256::digest(&state_msgpack)),
-            source_graph_version: source_version,
-            target_graph_version: source_version.saturating_add(1),
-        };
-        let created_at_ms = authority.created_at_ms;
-        // Resolve BEFORE `durable_method` is moved into `compile_methods` below --
-        // `compile_methods` erases it into an opaque state receipt (see
-        // `redb_store::commit_mutation_batch_inner`'s doc comment), so the
-        // policy-audited answer for the REAL replicated method must be captured
-        // here or it becomes unrecoverable.
-        let audited = eg_capabilities::policy(&durable_method).audited;
-        let batch = crate::server::mutation_batch::compile_methods(
-            crate::server::mutation_batch::CompileBatch {
-                batch_id,
-                request_id: authority.request_id,
-                principal: Some(expected_principal),
-                tenant: &authority.tenant_scope,
-                graph: &req.graph_name,
-                placement_epoch: authority.placement_epoch,
-                idempotency_key: batch_id,
-                expected_graph_version: Some(source_version),
-                fencing_token: authority.fencing_token,
-                created_at_ms,
-                default_surface: crate::mutation_batch::MutationSurface::Graph,
-                authoritative_state: Some(descriptor),
-            },
-            vec![durable_method],
-        )?;
-        batch.validate()?;
-        #[cfg(feature = "modality-serving")]
-        let result = if let Some(command) = modality_command.as_ref() {
-            command.result_msgpack.clone()
-        } else {
-            rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true))
-                .map_err(|error| error.to_string())?
-        };
-        #[cfg(not(feature = "modality-serving"))]
-        let result = rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true))
-            .map_err(|error| error.to_string())?;
-        let committed = persistence
-            .commit_mutation_batch_state(
-                &req.graph_fname,
-                &batch,
-                state_msgpack,
-                Some(&result),
-                created_at_ms,
-                audited,
-            )
-            .await?;
-        if committed.replayed {
-            let (snapshot, version) = persistence
-                .read_authoritative_graph_snapshot(&req.graph_fname)
-                .await?
-                .ok_or_else(|| "committed replicated graph image is missing".to_string())?;
-            core.install_committed_snapshot(snapshot, version)?;
-        } else {
-            core.prepare_snapshot_publish(staged_snapshot, source_version)?;
-            core.mark_dirty();
-        }
-        #[cfg(all(feature = "modality-serving", feature = "streaming"))]
-        if !committed.replayed {
-            if let Some(command) = modality_command.as_ref() {
-                let hub = self.ctx.state.read().await.cdc.clone();
-                if let Some(hub) = hub.as_ref() {
-                    crate::server::cdc::emit_served_modality(
-                        hub,
-                        &req.graph_name,
-                        command.modality,
-                    );
+            let staged_snapshot = staged.snapshot();
+            let state_msgpack = staged_snapshot.to_msgpack()?;
+            let descriptor = crate::mutation_batch::MutationStateDescriptor {
+                algorithm: "sha256".to_string(),
+                digest: hex::encode(Sha256::digest(&state_msgpack)),
+                source_graph_version: source_version,
+                target_graph_version: source_version.saturating_add(1),
+            };
+            let created_at_ms = authority.created_at_ms;
+            // Resolve BEFORE `durable_method` is moved into `compile_methods` below --
+            // `compile_methods` erases it into an opaque state receipt (see
+            // `redb_store::commit_mutation_batch_inner`'s doc comment), so the
+            // policy-audited answer for the REAL replicated method must be captured
+            // here or it becomes unrecoverable.
+            let audited = eg_capabilities::policy(&durable_method).audited;
+            let batch = crate::server::mutation_batch::compile_methods(
+                crate::server::mutation_batch::CompileBatch {
+                    batch_id,
+                    request_id: authority.request_id,
+                    principal: Some(expected_principal),
+                    tenant: &authority.tenant_scope,
+                    graph: &req.graph_name,
+                    placement_epoch: authority.placement_epoch,
+                    idempotency_key: batch_id,
+                    expected_graph_version: Some(source_version),
+                    fencing_token: authority.fencing_token,
+                    created_at_ms,
+                    default_surface: crate::mutation_batch::MutationSurface::Graph,
+                    authoritative_state: Some(descriptor),
+                },
+                vec![durable_method],
+            )?;
+            batch.validate()?;
+            #[cfg(feature = "modality-serving")]
+            let result = if let Some(command) = modality_command.as_ref() {
+                command.result_msgpack.clone()
+            } else {
+                rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true))
+                    .map_err(|error| error.to_string())?
+            };
+            #[cfg(not(feature = "modality-serving"))]
+            let result = rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true))
+                .map_err(|error| error.to_string())?;
+            let committed = persistence
+                .commit_mutation_batch_state(
+                    &req.graph_fname,
+                    &batch,
+                    state_msgpack,
+                    Some(&result),
+                    created_at_ms,
+                    audited,
+                )
+                .await?;
+            if committed.replayed {
+                let (snapshot, version) = persistence
+                    .read_authoritative_graph_snapshot(&req.graph_fname)
+                    .await?
+                    .ok_or_else(|| "committed replicated graph image is missing".to_string())?;
+                core.install_committed_snapshot(snapshot, version)?;
+            } else {
+                core.prepare_snapshot_publish(staged_snapshot, source_version)?;
+                core.mark_dirty();
+            }
+            #[cfg(all(feature = "modality-serving", feature = "streaming"))]
+            if !committed.replayed {
+                if let Some(command) = modality_command.as_ref() {
+                    let hub = self.ctx.state.read().await.cdc.clone();
+                    if let Some(hub) = hub.as_ref() {
+                        crate::server::cdc::emit_served_modality(
+                            hub,
+                            &req.graph_name,
+                            command.modality,
+                        );
+                    }
                 }
             }
-        }
-        Ok(RaftResponse {
-            applied: true,
-            ..Default::default()
-        })
+            Ok(RaftResponse {
+                applied: true,
+                ..Default::default()
+            })
         })
     }
 
@@ -1214,7 +1226,7 @@ impl RaftLogReader<TypeConfig> for Arc<EgStore> {
             || blobs
                 .iter()
                 .try_fold(0usize, |total, blob| total.checked_add(blob.len()))
-                .map_or(true, |total| total > MAX_RAFT_SNAPSHOT_BYTES)
+                .is_none_or(|total| total > MAX_RAFT_SNAPSHOT_BYTES)
         {
             return Err(ioerr("raft log read exceeds resource limits"));
         }

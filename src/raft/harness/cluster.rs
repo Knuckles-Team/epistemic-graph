@@ -83,7 +83,7 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         per_graph_inflight_limit: 64,
         write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
-        txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+        txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
         txn_ttl_secs: 300,
         txn_max_per_graph: 256,
         txn_max_per_agent: 256,
@@ -435,7 +435,7 @@ impl Cluster {
         let m = self.members.get(&id)?;
         let s = m.started.as_ref()?;
         let metrics = s.handle.raft.metrics();
-        let last_applied = metrics.borrow_watched().last_applied.clone();
+        let last_applied = metrics.borrow_watched().last_applied;
         last_applied.map(|l| l.index)
     }
 

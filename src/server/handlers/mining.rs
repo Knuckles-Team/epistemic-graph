@@ -4242,13 +4242,12 @@ fn gather_plan_rows(
             _marker: std::marker::PhantomData,
         },
         #[cfg(feature = "tsdb")]
-        None,
-        #[cfg(feature = "tsdb")]
-        None,
-        #[cfg(feature = "tsdb")]
-        None,
-        #[cfg(feature = "tsdb")]
-        None,
+        crate::server::handlers::query::TsdbLegBind {
+            tsdb: None,
+            tsdb_tenant: None,
+            tsdb_graph: None,
+            staged_series: None,
+        },
     ) {
         Ok(rows) => rows,
         Err(_) => return (Vec::new(), Vec::new()),
@@ -4282,13 +4281,12 @@ fn gather_plan_rows_snapshot(
         &store,
         crate::server::handlers::query::ServedIndexes::default(),
         #[cfg(feature = "tsdb")]
-        None,
-        #[cfg(feature = "tsdb")]
-        None,
-        #[cfg(feature = "tsdb")]
-        None,
-        #[cfg(feature = "tsdb")]
-        None,
+        crate::server::handlers::query::TsdbLegBind {
+            tsdb: None,
+            tsdb_tenant: None,
+            tsdb_graph: None,
+            staged_series: None,
+        },
     ) {
         Ok(rows) => rows,
         Err(_) => return (Vec::new(), Vec::new()),

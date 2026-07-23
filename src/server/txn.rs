@@ -456,6 +456,19 @@ impl StagedMeasurement {
     }
 }
 
+/// Constructor arguments for [`GraphTxnState::new`], bundled (alongside the
+/// separately-borrowed `core: &GraphCore` snapshot argument) so the constructor
+/// stays under the clippy argument-count ceiling.
+pub(crate) struct NewTxnArgs {
+    pub(crate) graph: String,
+    pub(crate) tenant_scope: String,
+    pub(crate) begin_version: u64,
+    pub(crate) isolation: IsolationLevel,
+    pub(crate) predicate: Option<PredicateRead>,
+    pub(crate) agent: String,
+    pub(crate) now_ms: u64,
+}
+
 impl GraphTxnState {
     /// Serialize the complete staged transaction into a stable canonical ordering.
     /// The returned bytes are plaintext only in process memory and MUST be sealed
@@ -546,16 +559,16 @@ impl GraphTxnState {
     /// `predicate`, capture its result-set fingerprint NOW (the snapshot the txn
     /// reads against) so commit can detect a phantom/range change. `core` is the
     /// txn's target graph core (an off-lock read; nothing is held while staging).
-    pub(crate) fn new(
-        core: &GraphCore,
-        graph: String,
-        tenant_scope: String,
-        begin_version: u64,
-        isolation: IsolationLevel,
-        predicate: Option<PredicateRead>,
-        agent: String,
-        now_ms: u64,
-    ) -> Self {
+    pub(crate) fn new(core: &GraphCore, args: NewTxnArgs) -> Self {
+        let NewTxnArgs {
+            graph,
+            tenant_scope,
+            begin_version,
+            isolation,
+            predicate,
+            agent,
+            now_ms,
+        } = args;
         let predicate_reads = match (isolation, predicate) {
             (IsolationLevel::Serializable, Some(p)) => {
                 let fp = p.fingerprint(core);
@@ -818,13 +831,15 @@ mod recovery_plan_tests {
         let core = GraphCore::new();
         let mut first = GraphTxnState::new(
             &core,
-            "logical-graph".to_string(),
-            "opaque-tenant-scope".to_string(),
-            7,
-            IsolationLevel::Snapshot,
-            None,
-            "raw-personal-identity".to_string(),
-            10,
+            NewTxnArgs {
+                graph: "logical-graph".to_string(),
+                tenant_scope: "opaque-tenant-scope".to_string(),
+                begin_version: 7,
+                isolation: IsolationLevel::Snapshot,
+                predicate: None,
+                agent: "raw-personal-identity".to_string(),
+                now_ms: 10,
+            },
         );
         first.write_set.push(Method::RemoveNode {
             node_id: "node-a".to_string(),

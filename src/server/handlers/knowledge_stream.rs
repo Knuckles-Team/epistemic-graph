@@ -175,13 +175,15 @@ pub(crate) async fn try_handle(
         req_id,
         graph_name,
         &core,
-        caller,
-        carrier,
-        placement_epoch,
-        fencing_token,
-        authority,
+        KnowledgeStreamExecCtx {
+            caller,
+            carrier,
+            placement_epoch,
+            fencing_token,
+            authority,
+            read_authority,
+        },
         &request.query,
-        read_authority,
         #[cfg(feature = "security")]
         rls,
     )
@@ -204,20 +206,35 @@ pub(crate) async fn try_handle(
     })
 }
 
+/// The caller/authority fields `execute_family` needs alongside its per-query
+/// `query` argument, bundled so the function stays under the clippy
+/// argument-count ceiling.
+struct KnowledgeStreamExecCtx<'a> {
+    caller: &'a str,
+    carrier: &'a CarrierAuthority,
+    placement_epoch: u64,
+    fencing_token: Option<u64>,
+    authority: &'a KnowledgeStreamAuthority,
+    read_authority: &'a GraphReadAuthority,
+}
+
 async fn execute_family(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     graph_name: &str,
     core: &Arc<GraphCore>,
-    caller: &str,
-    carrier: &CarrierAuthority,
-    placement_epoch: u64,
-    fencing_token: Option<u64>,
-    authority: &KnowledgeStreamAuthority,
+    ctx: KnowledgeStreamExecCtx<'_>,
     query: &KnowledgeStreamQuery,
-    read_authority: &GraphReadAuthority,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<FamilyExecution, String> {
+    let KnowledgeStreamExecCtx {
+        caller,
+        carrier,
+        placement_epoch,
+        fencing_token,
+        authority,
+        read_authority,
+    } = ctx;
     match query {
         KnowledgeStreamQuery::Graph { label, limit } => {
             #[cfg_attr(not(feature = "security"), allow(unused_mut))]
@@ -272,15 +289,17 @@ async fn execute_family(
             }
             let response = super::query::try_handle(
                 state,
-                req_id,
-                graph_name,
+                super::TryHandleContext {
+                    req_id,
+                    graph_name,
+                    read_authority: Some(read_authority),
+                    caller,
+                },
                 core.clone(),
                 Method::Sql {
                     query: query.clone(),
                     params_msgpack: params_msgpack.clone(),
                 },
-                Some(read_authority),
-                caller,
                 #[cfg(feature = "security")]
                 rls,
             )
@@ -319,16 +338,18 @@ async fn execute_family(
             {
                 let response = super::rdf::try_handle(
                     state,
-                    req_id,
-                    graph_name,
+                    super::TryHandleContext {
+                        req_id,
+                        graph_name,
+                        read_authority: Some(read_authority),
+                        caller,
+                    },
                     core.clone(),
                     Method::Sparql {
                         query: query.clone(),
                         base_iri: base_iri.clone(),
                         type_convention: type_convention.clone(),
                     },
-                    Some(read_authority),
-                    caller,
                     #[cfg(feature = "security")]
                     rls,
                 )
@@ -498,12 +519,14 @@ async fn execute_family(
         KnowledgeStreamQuery::CrossModal { text } => {
             let response = super::query::try_handle(
                 state,
-                req_id,
-                graph_name,
+                super::TryHandleContext {
+                    req_id,
+                    graph_name,
+                    read_authority: Some(read_authority),
+                    caller,
+                },
                 core.clone(),
                 Method::UnifiedQueryText { text: text.clone() },
-                Some(read_authority),
-                caller,
                 #[cfg(feature = "security")]
                 rls,
             )
