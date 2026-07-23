@@ -17,6 +17,7 @@
 //!       - a variable-length hop `*a..b` → petgraph BFS over the `GraphView`;
 //!       - a Cypher 25 quantified group `((…)){m,n}` → repeated whole-subpattern
 //!         expansion.
+//!
 //!     `eg_core::graph::vf2_match_views` is not on this path; it remains only a
 //!     cross-check oracle in the test suite.
 //!
