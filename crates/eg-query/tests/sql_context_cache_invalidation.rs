@@ -13,6 +13,9 @@
 //!      before this module ever sees them, so two callers' filtered snapshots at an
 //!      otherwise-identical graph/catalog epoch must never share an entry (else one
 //!      agent's row-filtered data would leak to a different agent through the cache).
+//!      `edges_never_leak_across_callers_through_the_cache` proves the SAME property
+//!      specifically through `EdgesTableProvider` (P10/W1.7-A/C) — its own
+//!      per-instance memoization and src/dst-pushed traversal — not just `nodes`.
 //!   3. a repeated query at the SAME epoch is a genuine cache HIT (`SqlContextCache::stats`)
 //!      and returns byte-identical rows to the uncached path.
 //!   4. a battery of differently-shaped queries (WHERE, aggregate, JOIN, a view
@@ -363,6 +366,116 @@ fn different_epochs_never_share_a_cached_context() {
     );
 }
 
+/// Companion to `different_epochs_never_share_a_cached_context`'s caller-identity
+/// axis (P10/W1.7-A/C), but for EDGES specifically: `EdgesTableProvider` (the new
+/// src/dst-adjacency pushdown provider `build_ctx` now constructs per epoch) has
+/// its OWN per-instance memoization (`full`) and its OWN traversal logic — this is
+/// the negative test proving that machinery never lets one caller's edges leak
+/// into a different caller's result through the cache, exactly like `nodes`
+/// already doesn't. Two query shapes, both at the SAME (tenant, graph,
+/// graph_version) epoch: an unfiltered `SELECT` (exercises `full_batch`) and a
+/// `src`-pushed one (exercises `scan_by_src`).
+#[test]
+fn edges_never_leak_across_callers_through_the_cache() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let cache = SqlContextCache::new();
+    let shared_v = 424_242u64;
+
+    // Alice sees n1, n2 and the n1->n2 edge only. Bob ADDITIONALLY sees a
+    // `secret` node and the n2->secret edge — the edge a real
+    // `IsolationLayer::filter_view` would have hidden from Alice (its endpoint is
+    // a node she cannot see).
+    let view_alice = view_with_edges(&["n1", "n2"], &[("n1", "n2")]);
+    let view_bob = view_with_edges(&["n1", "n2", "secret"], &[("n1", "n2"), ("n2", "secret")]);
+
+    // ── unfiltered SELECT (exercises `EdgesTableProvider::full_batch`) ──
+    let r_alice = exec_sql_typed_with_tables_cached_cancellable(
+        &view_alice,
+        shared_v,
+        TENANT,
+        GRAPH,
+        "edge-alice",
+        &store,
+        &cache,
+        "SELECT src, dst FROM edges ORDER BY src, dst",
+        &CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(rows(&r_alice), vec![vec![json!("n1"), json!("n2")]]);
+
+    let r_bob = exec_sql_typed_with_tables_cached_cancellable(
+        &view_bob,
+        shared_v,
+        TENANT,
+        GRAPH,
+        "edge-bob",
+        &store,
+        &cache,
+        "SELECT src, dst FROM edges ORDER BY src, dst",
+        &CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        rows(&r_bob),
+        vec![
+            vec![json!("n1"), json!("n2")],
+            vec![json!("n2"), json!("secret")]
+        ],
+        "bob's own filtered edge set must be served in full, not alice's cached (narrower) one"
+    );
+
+    let r_alice_again = exec_sql_typed_with_tables_cached_cancellable(
+        &view_alice,
+        shared_v,
+        TENANT,
+        GRAPH,
+        "edge-alice",
+        &store,
+        &cache,
+        "SELECT src, dst FROM edges ORDER BY src, dst",
+        &CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        rows(&r_alice_again),
+        vec![vec![json!("n1"), json!("n2")]],
+        "alice must never see bob's edge through a shared cache entry"
+    );
+
+    // ── src-pushed SELECT (exercises `EdgesTableProvider::scan_by_src`) ──
+    let r_bob_src = exec_sql_typed_with_tables_cached_cancellable(
+        &view_bob,
+        shared_v,
+        TENANT,
+        GRAPH,
+        "edge-bob",
+        &store,
+        &cache,
+        "SELECT dst FROM edges WHERE src = 'n2'",
+        &CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(rows(&r_bob_src), vec![vec![json!("secret")]]);
+
+    let r_alice_src = exec_sql_typed_with_tables_cached_cancellable(
+        &view_alice,
+        shared_v,
+        TENANT,
+        GRAPH,
+        "edge-alice",
+        &store,
+        &cache,
+        "SELECT dst FROM edges WHERE src = 'n2'",
+        &CancellationToken::new(),
+    )
+    .unwrap();
+    assert!(
+        rows(&r_alice_src).is_empty(),
+        "alice's src='n2' pushdown must not see bob's secret edge: {:?}",
+        rows(&r_alice_src)
+    );
+}
+
 /// Build a `GraphView` containing exactly the given node ids (each an untyped,
 /// empty-property node — id is all these tests need), hand-assembled the SAME way
 /// `IsolationLayer::filter_view` prunes one (drop the hidden node from `graph` +
@@ -380,6 +493,21 @@ fn view_with_only(ids: &[&str]) -> eg_core::graph::GraphView {
             (*id).to_string(),
             std::sync::Arc::new(rmp_serde::to_vec_named(&json!({})).unwrap()),
         );
+    }
+    v
+}
+
+/// Like [`view_with_only`] but also wires directed edges between visible nodes —
+/// stands in for a caller-specific filtered view that differs on the EDGES a
+/// caller sees, not just the nodes (`IsolationLayer::filter_view` drops any edge
+/// incident to a hidden node too, so a real filtered view never has an edge to a
+/// node absent from `ids`).
+fn view_with_edges(ids: &[&str], edges: &[(&str, &str)]) -> eg_core::graph::GraphView {
+    let mut v = view_with_only(ids);
+    for (src, dst) in edges {
+        let src_idx = v.node_map[*src];
+        let dst_idx = v.node_map[*dst];
+        v.graph.add_edge(src_idx, dst_idx, format!("{src}:{dst}"));
     }
     v
 }

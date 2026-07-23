@@ -69,7 +69,13 @@ mod pgfamily;
 /// FOR, RETURN, RAISE, `SELECT … INTO`) against a variable environment, running embedded
 /// SQL back through the same read path. Pure Rust — no new deps (folds into `sql`).
 mod plpgsql;
-mod providers;
+// `pub(crate)` (not `mod providers;`) so `crate::tables::provider::UserTableProvider`
+// (CONCEPT:EG-KG.query.register-each-user-table) can reuse `NodesTableProvider`'s generic equality-index
+// pushdown for its own full-scan fallback, instead of duplicating that machinery.
+// This does NOT widen the crate's EXTERNAL API: nothing outside `eg-query` reaches
+// a module path directly — external consumers only ever see the explicit `pub use`
+// re-exports below (`SqlCache`), unchanged.
+pub(crate) mod providers;
 mod tablefuncs;
 mod udfs;
 

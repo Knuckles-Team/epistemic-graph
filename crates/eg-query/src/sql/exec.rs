@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use arrow::array::Array;
 use arrow::datatypes::SchemaRef;
+use datafusion::catalog::TableProvider;
 use datafusion::datasource::MemTable;
 use datafusion::execution::context::SessionContext;
 use datafusion::prelude::SessionConfig;
@@ -22,7 +23,7 @@ pub use eg_types::protocol::QueryResult;
 
 use super::catalog::register_system_catalogs;
 use super::pgfamily::{plan_ann_search, AnnIndexPlan};
-use super::providers::{infer_edges, infer_nodes, NodesTableProvider, SqlCache};
+use super::providers::{infer_nodes, EdgesTableProvider, NodesTableProvider, SqlCache};
 use super::tablefuncs::{BetweennessFunc, GenerateSeriesFunc, PagerankFunc};
 use super::udfs::{
     base64_decode_udf, base64_encode_udf, bm25_match_udf, bm25_score_udf, bm25_snippet_udf,
@@ -32,11 +33,25 @@ use super::udfs::{
     sha1_udf, sha256_udf, time_bucket_udf, tsrange_udf, vector_cosine_udf, vector_ip_udf,
     vector_l2_udf,
 };
-use crate::tables::{StoredFunction, TableStore};
+use crate::tables::{StoredFunction, TableSchema, TableStore};
 
-/// One user table materialized for registration into the SQL context: its name plus
-/// the Arrow `(schema, batch)` scanned out of the redb store (CONCEPT:EG-KG.query.register-user-tables-alongside).
-type UserTable = (String, SchemaRef, arrow::record_batch::RecordBatch);
+/// One user table's registration plan for `build_ctx` (CONCEPT:EG-KG.query.register-user-tables-alongside):
+/// [`materialize_user_tables`] chooses PER TABLE between the two variants below.
+enum UserTable {
+    /// `(name, schema, batch)` pre-materialized out of the redb store —
+    /// byte-identical to this crate's original sole behavior. The ONLY mode
+    /// [`apply_ann_pushdown`]'s durable-index top-k slice can narrow (it mutates
+    /// an already-materialized batch in place), so this variant is used for a
+    /// table a durable ANN index actually covers.
+    Eager(String, SchemaRef, arrow::record_batch::RecordBatch),
+    /// `(name, typed catalog schema, store handle)` — row materialization
+    /// deferred to a [`crate::tables::provider::UserTableProvider`], which pushes
+    /// a `SERIAL`-column equality down to a redb point-get instead of a full
+    /// table scan (see that type's own module doc for exactly what still falls
+    /// back to a scan). Used for every OTHER table — the common case, since a
+    /// durable ANN index over a user table is a narrow, opt-in feature.
+    Lazy(String, TableSchema, TableStore),
+}
 
 /// Register the CONCEPT:EG-KG.query.greatest-least-int4range-tsrange Postgres common-function surface — `greatest`/`least`,
 /// the range constructors (`int4range`/`tsrange`) + predicates (`range_contains`/
@@ -348,11 +363,9 @@ pub fn exec_sql(
     cancel: &CancellationToken,
 ) -> Result<QueryResult, String> {
     let nodes = infer_nodes(view)?;
-    let edges = infer_edges(view)?;
     run(
         view,
         nodes,
-        edges,
         Vec::new(),
         Vec::new(),
         Vec::new(),
@@ -411,20 +424,42 @@ pub fn exec_sql_over_tables(
     })
 }
 
-/// Materialize EVERY user table in `store` into an Arrow `(name, schema, batch)` so
-/// it can be registered alongside `nodes`/`edges` (CONCEPT:EG-KG.query.register-user-tables-alongside). One redb scan
-/// per table; the unified-engine payoff is that the resulting tables join the graph
-/// in a single DataFusion plan.
-fn materialize_user_tables(store: &TableStore) -> Result<Vec<UserTable>, String> {
+/// Build the registration plan for EVERY user table in `store` so each can be
+/// registered alongside `nodes`/`edges` (CONCEPT:EG-KG.query.register-user-tables-alongside). A table's schema is
+/// ALWAYS resolved here (one cheap catalog lookup — never a row scan); whether its
+/// ROWS are eagerly scanned too depends on `ann_indexes`:
+///
+/// * a table `ann_indexes` names is [`UserTable::Eager`] — pre-scanned + materialized
+///   NOW, exactly as this crate's original sole behavior, because
+///   [`apply_ann_pushdown`]'s durable-index top-k slice runs BEFORE `build_ctx` and
+///   can only narrow an ALREADY-materialized batch in place.
+/// * every other table is [`UserTable::Lazy`] — its row scan is deferred entirely to
+///   [`crate::tables::provider::UserTableProvider`], which pushes a `SERIAL`-column
+///   equality down to a redb point-get instead of an eager `TableStore::scan` (see
+///   that type's own module doc for exactly what still falls back to a scan). Since
+///   `ann_indexes` is empty for the overwhelming majority of stores/tables, this is
+///   the common case: NO row scan happens here at all for those tables — not even a
+///   deferred one — until (and unless) `UserTableProvider::scan` actually needs one.
+fn materialize_user_tables(
+    store: &TableStore,
+    ann_indexes: &[AnnIndexPlan],
+) -> Result<Vec<UserTable>, String> {
     let mut out = Vec::new();
     for name in store.list_tables()? {
         let schema = match store.get_schema(&name)? {
             Some(s) => s,
             None => continue,
         };
-        let rows = store.scan(&name)?;
-        let (arrow_schema, batch) = crate::tables::provider::materialize(&schema, &rows)?;
-        out.push((name, arrow_schema, batch));
+        let ann_covered = ann_indexes
+            .iter()
+            .any(|ix| ix.table.eq_ignore_ascii_case(&name));
+        if ann_covered {
+            let rows = store.scan(&name)?;
+            let (arrow_schema, batch) = crate::tables::provider::materialize(&schema, &rows)?;
+            out.push(UserTable::Eager(name, arrow_schema, batch));
+        } else {
+            out.push(UserTable::Lazy(name, schema, store.clone()));
+        }
     }
     Ok(out)
 }
@@ -484,11 +519,9 @@ pub fn exec_sql_typed_cancellable(
     cancel: &CancellationToken,
 ) -> Result<TypedQueryResult, String> {
     let nodes = infer_nodes(view)?;
-    let edges = infer_edges(view)?;
     run_typed(
         view,
         nodes,
-        edges,
         Vec::new(),
         Vec::new(),
         Vec::new(),
@@ -544,18 +577,18 @@ pub fn exec_sql_typed_with_tables_cancellable(
         }
     }
     let nodes = infer_nodes(view)?;
-    let edges = infer_edges(view)?;
-    let user = materialize_user_tables(store)?;
+    // CONCEPT:EG-KG.query.real-ann-top-k/EG-313: the durable pgvector ANN index registrations, consulted to
+    // push a matching `ORDER BY col <-> $1 LIMIT k` down to a real eg-ann index —
+    // fetched BEFORE `materialize_user_tables` so it can decide, per table, whether
+    // an eager pre-materialized batch is required (see that function's own doc).
+    let ann_indexes = store.list_ann_indexes()?;
+    let user = materialize_user_tables(store, &ann_indexes)?;
     // CONCEPT:EG-KG.query.durable-views: the durable views, registered as read-only named queries so a
     // SELECT that references a view expands its stored SELECT during context build.
     let views = store.list_views()?;
-    // CONCEPT:EG-KG.query.real-ann-top-k/EG-313: the durable pgvector ANN index registrations, consulted to
-    // push a matching `ORDER BY col <-> $1 LIMIT k` down to a real eg-ann index.
-    let ann_indexes = store.list_ann_indexes()?;
     run_typed(
         view,
         nodes,
-        edges,
         user,
         views,
         functions,
@@ -579,7 +612,6 @@ pub fn exec_sql_cached(
     run(
         view,
         tables.nodes,
-        tables.edges,
         Vec::new(),
         Vec::new(),
         Vec::new(),
@@ -654,6 +686,38 @@ struct SqlContextEpoch {
     /// between; there is no existing isolation-policy epoch counter to close it, and
     /// this module cannot see `IsolationLayer` at all — see the crate-level report
     /// for the full accounting).
+    ///
+    /// CONCEPT:EG-KG.sharding.row-level-security, P10/W1.7-C — investigated narrowing this to a coarser
+    /// RLS-equivalence-CLASS (same visible-row-set ⇒ same class) so N distinct
+    /// callers sharing one class would amortize ONE rebuild instead of N. Finding,
+    /// worked from `IsolationLayer::can_see_row`'s own rules (`crates/eg-core/src/isolation.rs`):
+    /// for an OWNED+PRIVATE row, visibility is `owner == agent_id || grants.contains(agent_id)
+    /// || is_manager_of(agent_id, owner)` — checked against the EXACT agent_id
+    /// string, with no coarser structural index over ownership/grants anywhere in
+    /// eg-core. Two DIFFERENT non-`System` agents can therefore be PROVEN equivalent
+    /// ONLY by comparing their filtered views (an O(V) walk — the exact cost this
+    /// field exists to amortize) or by building NEW infrastructure (a persisted
+    /// owner/grant reverse index) — out of scope here. The ONE class that IS
+    /// provably safe with NO scan is `System`: `can_see_row` grants it every row
+    /// unconditionally, before any owner/grant/manager check ever runs, so EVERY
+    /// `System` caller's filtered view is the SAME unfiltered graph. Exploiting even
+    /// that narrow win would still require TWO further changes out of this field's
+    /// reach: (1) the facade's owner-scoped registry
+    /// (`server::sql_tables::sql_context_cache`) instantiates a SEPARATE
+    /// `SqlContextCache` per (tenant, agent_id) for an UNRELATED, stronger reason —
+    /// each instance's `BuiltCtx` also embeds that agent's OWN privately-owned
+    /// `TableStore`-derived user tables, which must never be shared regardless of
+    /// RLS class — so two `System` callers never reach the SAME `SqlContextCache`
+    /// instance to begin with; and (2) even if they did, `BuiltCtx` would need
+    /// splitting into an RLS-class-shareable graph layer and a strictly per-agent
+    /// catalog layer. Both are real, multi-file architectural changes — the RLS/
+    /// cache-architecture refactor this field's narrowing is deferred to, not
+    /// something this task ships a partial/cosmetic version of. `caller` therefore
+    /// stays the raw, per-agent identity: the one key this crate can PROVE, from
+    /// `IsolationLayer`'s own semantics, never lets two differently-visible callers
+    /// share an entry (proof exercised by
+    /// `tests/sql_context_cache_invalidation.rs`'s caller-identity + edges-specific
+    /// negative tests).
     caller: String,
 }
 
@@ -726,10 +790,13 @@ impl SqlContextCache {
     /// here, where `view` is ALREADY caller-filtered and two different callers can
     /// legitimately share a `graph_version` while their view CONTENT differs. Two
     /// different callers sharing one `SqlCache` instance at the same version would
-    /// silently hand caller B caller A's (already RLS-filtered) `nodes`/`edges`
-    /// batch. Instead, `nodes`/`edges` are inferred fresh on every genuine EPOCH
-    /// miss — safe because the epoch (which DOES include `caller`) is what gates
-    /// reuse, not a narrower sub-key.
+    /// silently hand caller B caller A's (already RLS-filtered) `nodes` batch.
+    /// Instead, `nodes` is inferred fresh on every genuine EPOCH miss — safe
+    /// because the epoch (which DOES include `caller`) is what gates reuse, not a
+    /// narrower sub-key. `edges` is never inferred here at all — `build_ctx`
+    /// constructs an `EdgesTableProvider` straight from `snap` (see its own doc);
+    /// nothing about that changes per-caller, since the provider still only ever
+    /// walks the ALREADY-caller-filtered `view`/`snap` it is handed.
     async fn get_or_build(
         &self,
         epoch: SqlContextEpoch,
@@ -745,11 +812,14 @@ impl SqlContextCache {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let nodes = infer_nodes(view)?;
-        let edges = infer_edges(view)?;
-        let user = materialize_user_tables(store)?;
+        // See `exec_sql_typed_with_tables_cancellable`'s identical ordering note:
+        // `ann_indexes` is fetched BEFORE `materialize_user_tables` so it can pick
+        // Eager vs Lazy per table.
+        let ann_indexes = store.list_ann_indexes()?;
+        let user = materialize_user_tables(store, &ann_indexes)?;
         let views = store.list_views()?;
         let functions = store.list_functions()?;
-        let built = build_ctx(snap, nodes, edges, user)?;
+        let built = build_ctx(snap, nodes, user)?;
         register_views(&built.ctx, &views, &functions).await?;
         register_system_catalogs(
             &built.ctx,
@@ -921,23 +991,26 @@ struct BuiltCtx {
 /// sync with the same schema-on-read inference.
 ///
 /// `nodes_schema`/`edges_schema` are the inferred Arrow schemas the catalog is
-/// derived from (the catalog reports exactly the columns a SELECT returns). The
-/// `nodes` table is the index-pushdown provider; `edges` a plain MemTable.
+/// derived from (the catalog reports exactly the columns a SELECT returns). Both
+/// `nodes` and `edges` are index-pushdown providers (CONCEPT:EG-KG.query.concept-12): `edges`'s schema is
+/// static (no scan needed to know it — see `EdgesTableProvider`'s own doc), so it
+/// is computed here with no row materialization at all.
 fn build_ctx(
     snap: Arc<GraphView>,
     nodes: (SchemaRef, arrow::record_batch::RecordBatch),
-    edges: (SchemaRef, arrow::record_batch::RecordBatch),
     user_tables: Vec<UserTable>,
 ) -> Result<BuiltCtx, String> {
     let nodes_schema = nodes.0.clone();
-    let edges_schema = edges.0.clone();
 
-    // CONCEPT:EG-KG.query.concept-12: the `nodes` table is a custom provider with secondary-index
-    // predicate pushdown — a `WHERE col = 'x'` narrows rows via the index instead of
-    // scanning every node. `edges` stays a plain MemTable.
+    // CONCEPT:EG-KG.query.concept-12: `nodes` is a custom provider with secondary-index predicate
+    // pushdown — a `WHERE col = 'x'` narrows rows via the index instead of scanning
+    // every node. `edges` pushes src/dst equality down to an O(deg) adjacency walk
+    // over `snap` instead of ever materializing the full edge set (its own module
+    // doc has the full design) — constructed straight from the snapshot, with no
+    // `(schema, batch)` argument needed at all.
     let nodes_table = NodesTableProvider::new(nodes.0, nodes.1);
-    let edges_table = MemTable::try_new(edges.0, vec![vec![edges.1]])
-        .map_err(|e| format!("edges mem table: {e}"))?;
+    let edges_table = EdgesTableProvider::new(snap.clone());
+    let edges_schema = edges_table.schema();
 
     // CONCEPT:EG-KG.query.route-create-view-create: DataFusion's native `information_schema` is DISABLED — the engine
     // synthesizes the whole `information_schema` (plus `pg_catalog`) itself in
@@ -950,19 +1023,32 @@ fn build_ctx(
         .map_err(|e| format!("register nodes: {e}"))?;
     ctx.register_table("edges", Arc::new(edges_table))
         .map_err(|e| format!("register edges: {e}"))?;
-    // CONCEPT:EG-KG.query.register-user-tables-alongside: register each user table (a MemTable over its scanned rows)
-    // alongside the graph projection, and remember its schema for the catalog so a
-    // reflecting driver sees it in `pg_class`/`information_schema`.
-    // CONCEPT:EG-KG.query.register-each-user-table: register each user table through the SAME secondary-index
-    // pushdown provider the `nodes` table uses (`NodesTableProvider` is generic
-    // equality-pushdown over an Arrow batch), so a `WHERE col = 'x'` on a user table
-    // narrows rows via the index instead of scanning the whole batch.
+    // CONCEPT:EG-KG.query.register-user-tables-alongside: register each user table alongside the graph projection, and
+    // remember its schema for the catalog so a reflecting driver sees it in
+    // `pg_class`/`information_schema`. CONCEPT:EG-KG.query.register-each-user-table: an `Eager` table (a durable ANN
+    // index covers it) goes through the SAME secondary-index pushdown provider
+    // `nodes` uses; every other (`Lazy`) table goes through `UserTableProvider`,
+    // which additionally pushes a `SERIAL`-column equality to a redb point-get
+    // instead of an eager `TableStore::scan` (see `materialize_user_tables`'s doc
+    // for the Eager/Lazy choice, and `UserTableProvider`'s own doc for exactly what
+    // still falls back to a scan).
     let mut user_relations: Vec<(String, SchemaRef)> = Vec::with_capacity(user_tables.len());
-    for (name, schema, batch) in user_tables {
-        let table = NodesTableProvider::new(schema.clone(), batch);
-        ctx.register_table(name.as_str(), Arc::new(table))
-            .map_err(|e| format!("register user table `{name}`: {e}"))?;
-        user_relations.push((name, schema));
+    for entry in user_tables {
+        match entry {
+            UserTable::Eager(name, schema, batch) => {
+                let table = NodesTableProvider::new(schema.clone(), batch);
+                ctx.register_table(name.as_str(), Arc::new(table))
+                    .map_err(|e| format!("register user table `{name}`: {e}"))?;
+                user_relations.push((name, schema));
+            }
+            UserTable::Lazy(name, schema, store) => {
+                let arrow_schema = crate::tables::provider::arrow_schema(&schema);
+                let table = crate::tables::provider::UserTableProvider::new(store, schema);
+                ctx.register_table(name.as_str(), Arc::new(table))
+                    .map_err(|e| format!("register user table `{name}`: {e}"))?;
+                user_relations.push((name, arrow_schema));
+            }
+        }
     }
     ctx.register_udf(json_get_udf());
     ctx.register_udf(json_get_f64_udf());
@@ -1062,7 +1148,15 @@ fn apply_ann_pushdown(
         }
         return;
     }
-    for (name, schema, batch) in user_tables.iter_mut() {
+    for entry in user_tables.iter_mut() {
+        // A `Lazy` table is, by `materialize_user_tables`'s construction, never one
+        // an ANN index covers (that's exactly the condition it uses to pick
+        // `Eager`) — so `plan.table` can only ever name an `Eager` entry here. The
+        // `let else` still degrades to a no-op rather than panicking if that
+        // invariant were ever violated.
+        let UserTable::Eager(name, schema, batch) = entry else {
+            continue;
+        };
         if name.eq_ignore_ascii_case(&plan.table) {
             if let Some(sliced) = super::ann::topk_slice(
                 schema,
@@ -1092,10 +1186,6 @@ fn run(
         arrow::datatypes::SchemaRef,
         arrow::record_batch::RecordBatch,
     ),
-    edges: (
-        arrow::datatypes::SchemaRef,
-        arrow::record_batch::RecordBatch,
-    ),
     user_tables: Vec<UserTable>,
     views: Vec<(String, String)>,
     functions: Vec<StoredFunction>,
@@ -1105,6 +1195,8 @@ fn run(
 ) -> Result<QueryResult, String> {
     // The graph table functions run their kernel over an owned snapshot; clone the
     // topology+ids once (cheap relative to the algorithm) so they don't borrow `view`.
+    // `EdgesTableProvider` reuses this SAME snapshot (built_ctx below), so `edges`
+    // needs no separate materialization here at all.
     let snap = Arc::new(view.clone());
     let mut nodes = nodes;
     let mut user_tables = user_tables;
@@ -1131,7 +1223,7 @@ fn run(
     // operator for them). A no-op when none are present or the SQL doesn't parse.
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
-        let built = build_ctx(snap, nodes, edges, user_tables)?;
+        let built = build_ctx(snap, nodes, user_tables)?;
         let ctx = built.ctx;
         register_views(&ctx, &views, &functions).await?;
         // CONCEPT:EG-KG.query.route-create-view-create — synthesize `pg_catalog` + `information_schema` from the live
@@ -1179,11 +1271,9 @@ pub fn exec_sql_arrow_cancellable(
     cancel: &CancellationToken,
 ) -> Result<(SchemaRef, Vec<arrow::record_batch::RecordBatch>), String> {
     let nodes = infer_nodes(view)?;
-    let edges = infer_edges(view)?;
     run_arrow(
         view,
         nodes,
-        edges,
         Vec::new(),
         Vec::new(),
         Vec::new(),
@@ -1200,10 +1290,6 @@ pub fn exec_sql_arrow_cancellable(
 fn run_arrow(
     view: &GraphView,
     nodes: (
-        arrow::datatypes::SchemaRef,
-        arrow::record_batch::RecordBatch,
-    ),
-    edges: (
         arrow::datatypes::SchemaRef,
         arrow::record_batch::RecordBatch,
     ),
@@ -1228,7 +1314,7 @@ fn run_arrow(
     apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables);
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
-        let built = build_ctx(snap, nodes, edges, user_tables)?;
+        let built = build_ctx(snap, nodes, user_tables)?;
         let ctx = built.ctx;
         register_views(&ctx, &views, &functions).await?;
         register_system_catalogs(
@@ -1297,10 +1383,6 @@ fn run_typed(
         arrow::datatypes::SchemaRef,
         arrow::record_batch::RecordBatch,
     ),
-    edges: (
-        arrow::datatypes::SchemaRef,
-        arrow::record_batch::RecordBatch,
-    ),
     user_tables: Vec<UserTable>,
     views: Vec<(String, String)>,
     functions: Vec<StoredFunction>,
@@ -1326,7 +1408,7 @@ fn run_typed(
     // CONCEPT:EG-KG.query.view-pgvector-operators — see `run`: desugar the pgvector operators before planning.
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
-        let built = build_ctx(snap, nodes, edges, user_tables)?;
+        let built = build_ctx(snap, nodes, user_tables)?;
         let ctx = built.ctx;
         register_views(&ctx, &views, &functions).await?;
         // CONCEPT:EG-KG.query.route-create-view-create — synthesize `pg_catalog` + `information_schema` (see `run`).
