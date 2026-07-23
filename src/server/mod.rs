@@ -638,6 +638,7 @@ mod tests {
             scopes: vec!["*".to_string()],
             policy_version: "policy-test".to_string(),
             delegation: Vec::new(),
+            node: None,
         };
         let mut request = Request {
             id,
@@ -1214,6 +1215,7 @@ mod tests {
                 scopes: vec!["kg:read".into()],
                 policy_version: "policy-test".into(),
                 delegation: vec![],
+                node: None,
             }),
             uql: "MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]->{1,2}".into(),
             cypher: String::new(),

@@ -127,6 +127,20 @@ pub fn build_envelope_v2_bytes(
     buf.extend_from_slice(&timestamp.to_be_bytes());
     put(&mut buf, nonce);
     put(&mut buf, idempotency_key);
+    // ADR-3 / W1.9 node-bound envelopes (`reports/wave1/ADR-scale-trio.md`):
+    // appended ONLY when the minting client set a target-node claim, so an
+    // envelope from a client that predates node binding — an un-upgraded
+    // Python client, or one of the non-Python `clients/{js,go}` bindings,
+    // neither of which this change touches — encodes BYTE-FOR-BYTE
+    // IDENTICALLY to before. This is what makes the wire change genuinely
+    // additive rather than a breaking MAC-format bump: those clients keep
+    // verifying with zero changes. Presence itself is MAC-covered (not just
+    // the value), so a captured envelope's node claim can never be silently
+    // stripped or retargeted to a different node without invalidating the MAC.
+    if let Some(node) = claims.node.as_deref() {
+        buf.push(1);
+        put(&mut buf, node);
+    }
     buf
 }
 
@@ -5667,6 +5681,98 @@ impl Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn node_binding_fixture_claims() -> crate::acl::RequestContextClaims {
+        crate::acl::RequestContextClaims {
+            principal: "p".into(),
+            tenant: "t".into(),
+            audience: "a".into(),
+            agent_id: "p".into(),
+            roles: vec![],
+            scopes: vec![],
+            policy_version: "v".into(),
+            delegation: vec![],
+            node: None,
+        }
+    }
+
+    #[test]
+    fn envelope_v2_bytes_are_unchanged_when_node_claim_is_absent() {
+        // ADR-3 / W1.9: rebuild the PRE-ADR-3 canonical encoding by hand and
+        // assert `build_envelope_v2_bytes` is byte-for-byte identical when
+        // `node` is `None` -- proving the change is genuinely additive for
+        // clients (`clients/js`, `clients/go`, or an un-upgraded Python
+        // client) that never send the claim at all.
+        fn pre_adr3_bytes(
+            request_id: u64,
+            graph: &str,
+            method_name: &str,
+            body_hash: &str,
+            claims: &crate::acl::RequestContextClaims,
+            timestamp: u64,
+            nonce: &str,
+            idempotency_key: &str,
+        ) -> Vec<u8> {
+            fn put(buf: &mut Vec<u8>, value: &str) {
+                buf.extend_from_slice(&(value.len() as u32).to_be_bytes());
+                buf.extend_from_slice(value.as_bytes());
+            }
+            fn put_list(buf: &mut Vec<u8>, values: &[String]) {
+                buf.extend_from_slice(&(values.len() as u32).to_be_bytes());
+                for value in values {
+                    put(buf, value);
+                }
+            }
+            let mut buf = Vec::new();
+            put(&mut buf, "eg-envelope-v2");
+            buf.extend_from_slice(&request_id.to_be_bytes());
+            put(&mut buf, graph);
+            put(&mut buf, method_name);
+            put(&mut buf, body_hash);
+            put(&mut buf, &claims.principal);
+            put(&mut buf, &claims.tenant);
+            put(&mut buf, &claims.audience);
+            put(&mut buf, &claims.agent_id);
+            put_list(&mut buf, &claims.roles);
+            put_list(&mut buf, &claims.scopes);
+            put(&mut buf, &claims.policy_version);
+            put_list(&mut buf, &claims.delegation);
+            buf.extend_from_slice(&timestamp.to_be_bytes());
+            put(&mut buf, nonce);
+            put(&mut buf, idempotency_key);
+            buf
+        }
+
+        let claims = node_binding_fixture_claims();
+        let current =
+            build_envelope_v2_bytes(7, "g", "Ping", "hash", &claims, 111, "nonce", "idem");
+        let legacy = pre_adr3_bytes(7, "g", "Ping", "hash", &claims, 111, "nonce", "idem");
+        assert_eq!(
+            current, legacy,
+            "an absent node claim must encode byte-for-byte identically to the \
+             pre-ADR-3 wire format"
+        );
+    }
+
+    #[test]
+    fn envelope_v2_bytes_cover_the_node_claim_when_present() {
+        let mut claims = node_binding_fixture_claims();
+        let absent = build_envelope_v2_bytes(7, "g", "Ping", "hash", &claims, 111, "nonce", "idem");
+        claims.node = Some("node-a".into());
+        let present_a =
+            build_envelope_v2_bytes(7, "g", "Ping", "hash", &claims, 111, "nonce", "idem");
+        claims.node = Some("node-b".into());
+        let present_b =
+            build_envelope_v2_bytes(7, "g", "Ping", "hash", &claims, 111, "nonce", "idem");
+        assert_ne!(
+            absent, present_a,
+            "a present node claim must change the MAC-covered bytes"
+        );
+        assert_ne!(
+            present_a, present_b,
+            "different target nodes must not share an encoding"
+        );
+    }
 
     #[test]
     fn test_request_roundtrip_add_node() {
