@@ -65,6 +65,10 @@ dmypy.json
 
 # Rust target directory and backups
 target/
+# Worktree-local build dir (`cargo ... --target-dir ./target-isolated`) — the
+# shared global CARGO_TARGET_DIR both serializes and corrupts concurrent
+# worktree builds, so every worktree build uses its own isolated target dir.
+target-isolated/
 debug/
 **/*.rs.bk
 *.pdb
