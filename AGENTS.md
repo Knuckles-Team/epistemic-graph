@@ -330,8 +330,8 @@ Sub-clients on the connection: `.nodes`, `.edges`, `.graph` (algorithms),
 `.tenants`, `.consensus`, `.query` (UQL/SQL/epistemic explain surfaces), `.jobs`
 (the durable analytics-job plane, feature `jobs`), `.rbac`, `.admin`, `.broker`.
 **Connection pooling + shard routing** live in
-`epistemic_graph/pool.py` (`ConnectionPool`, `ShardRouter` using rendezvous/HRW
-hashing over `GRAPH_SERVICE_ENDPOINTS`). `epistemic_graph/quant.py` provides
+`epistemic_graph/pool.py` (`ConnectionPool`, `ShardRouter` accepting engine-authoritative
+placement routes over `GRAPH_SERVICE_ENDPOINTS`). `epistemic_graph/quant.py` provides
 pure-Python rolling-stats/order-matching helpers (no compiled extension).
 
 Engine capabilities served over the protocol:
