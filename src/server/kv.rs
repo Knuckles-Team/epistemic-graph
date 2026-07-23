@@ -924,6 +924,7 @@ mod dispatch_tests {
             scopes: vec!["*".to_string()],
             policy_version: "policy-test".to_string(),
             delegation: Vec::new(),
+            node: None,
         };
         let mut request = Request {
             id,

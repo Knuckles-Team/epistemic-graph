@@ -77,6 +77,7 @@ class ConnectionPool:
         auth_secret: str | None = None,
         min_size: int = 1,
         max_size: int | None = None,
+        node_id: str | None = None,
     ) -> None:
         self.endpoint = endpoint
         self.auth_secret = auth_secret or os.environ.get(
@@ -85,6 +86,17 @@ class ConnectionPool:
         if not self.auth_secret:
             raise ValueError("a non-empty authentication secret is required")
         self.verified_context = validate_request_context(verified_context)
+        # ADR-3 / W1.9 node-bound envelopes: this pool's endpoint is a
+        # specific cluster node's address, so the id -- when the caller
+        # knows it -- is endpoint/connection metadata, not identity. `None`
+        # (the default) is today's zero-friction behavior: no topology
+        # discovery wired in yet, so every minted envelope simply omits the
+        # `node` claim, exactly like a client built before node binding
+        # existed. Every client this pool creates gets the SAME node_id, so
+        # switching to a DIFFERENT pool (a different endpoint) naturally
+        # mints with a DIFFERENT node claim -- no separate "re-mint on
+        # failover" step is needed.
+        self.node_id = node_id
         # CONCEPT:EG-KG.backend.multiplexed-connections — auto-size to the box when the caller doesn't pin a cap,
         # so M concurrent callers each get their own in-flight connection instead
         # of contending on one. An explicit cap is still honored.
@@ -112,6 +124,7 @@ class ConnectionPool:
                 auth_secret=self.auth_secret,
                 verified_context=self.verified_context,
                 tls=use_tls,
+                node_id=self.node_id,
             )
         elif self.endpoint.startswith("unix://"):
             socket_path = self.endpoint[7:]
@@ -119,6 +132,7 @@ class ConnectionPool:
                 socket_path=socket_path,
                 auth_secret=self.auth_secret,
                 verified_context=self.verified_context,
+                node_id=self.node_id,
             )
         else:
             # Default to socket if no scheme provided
@@ -126,6 +140,7 @@ class ConnectionPool:
                 socket_path=self.endpoint,
                 auth_secret=self.auth_secret,
                 verified_context=self.verified_context,
+                node_id=self.node_id,
             )
 
         self._active_connections += 1
@@ -227,6 +242,7 @@ class ShardRouter:
         min_size: int = 1,
         max_size: int | None = None,
         route_resolver: Callable[[str], str] | None = None,
+        node_ids: dict[str, str] | None = None,
     ) -> None:
         if not endpoints:
             raise ValueError("ShardRouter requires at least one endpoint")
@@ -237,6 +253,15 @@ class ShardRouter:
         self.endpoints = endpoints
         self._route_resolver = route_resolver
         context = validate_request_context(verified_context)
+        # ADR-3 / W1.9 node-bound envelopes: optional endpoint -> node_id map
+        # (e.g. once ADR-1's `ClusterMembers`/`PlacementRoute.endpoints`
+        # discovery is wired in). Absent or missing an entry ⇒ that
+        # endpoint's pool mints with no node claim -- unchanged, zero-friction
+        # behavior. A caller switching to a DIFFERENT endpoint on a later
+        # call (e.g. after invalidating a stale route) transparently gets
+        # THAT endpoint's pool and node_id -- there is no separate re-mint
+        # step, since every `_send()` builds a fresh envelope already.
+        node_ids = node_ids or {}
         self.pools: dict[str, ConnectionPool] = {}
         for ep in endpoints:
             self.pools[ep] = ConnectionPool(
@@ -245,6 +270,7 @@ class ShardRouter:
                 auth_secret=auth_secret,
                 min_size=min_size,
                 max_size=max_size,
+                node_id=node_ids.get(ep),
             )
 
     async def initialize(self) -> None:

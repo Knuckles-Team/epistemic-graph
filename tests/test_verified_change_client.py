@@ -174,6 +174,152 @@ def test_v2_token_contains_no_secret_and_binds_stable_idempotency_key() -> None:
     assert "fixture-secret" not in token
 
 
+# ── ADR-3 / W1.9: node-bound envelopes ───────────────────────────────────────
+
+
+def _node_bound_request() -> dict[str, object]:
+    return {
+        "id": 20,
+        "graph": "graph-fixture",
+        "method": "GetContentVersion",
+        "params": {"object_id": "node-fixture", "tenant": "tenant-fixture"},
+    }
+
+
+def _decode_envelope(token: str) -> dict[str, object]:
+    return json.loads(bytes.fromhex(token.removeprefix("eg2.")).decode("utf-8"))
+
+
+def test_v2_token_includes_node_claim_when_connection_node_id_is_known() -> None:
+    client = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context=_context(),
+        node_id="node-a",
+    )
+    payload = _decode_envelope(
+        client._compute_verified_token(_node_bound_request(), "idempotency-fixture")
+    )
+    assert payload["context"] == {**_context(), "node": "node-a"}
+
+
+def test_v2_token_omits_node_claim_when_unknown() -> None:
+    """The default -- no `node_id` on connect -- must be genuinely additive:
+    the exact pre-ADR-3 payload shape, not a `"node": null` key."""
+
+    client = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context=_context(),
+    )
+    payload = _decode_envelope(
+        client._compute_verified_token(_node_bound_request(), "idempotency-fixture")
+    )
+    assert "node" not in payload["context"]
+    assert payload["context"] == _context()
+
+
+def test_v2_token_node_claim_changes_the_mac() -> None:
+    """Different target nodes must not share a MAC (ADR-3 / W1.9): the node
+    claim is part of the SIGNED context, not an unsigned label appended after
+    signing."""
+
+    client_a = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context=_context(),
+        node_id="node-a",
+    )
+    client_b = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context=_context(),
+        node_id="node-b",
+    )
+    payload_a = _decode_envelope(
+        client_a._compute_verified_token(_node_bound_request(), "idempotency-fixture")
+    )
+    payload_b = _decode_envelope(
+        client_b._compute_verified_token(_node_bound_request(), "idempotency-fixture")
+    )
+    assert payload_a["context"]["node"] == "node-a"
+    assert payload_b["context"]["node"] == "node-b"
+    assert payload_a["mac"] != payload_b["mac"]
+
+
+def test_two_connections_with_different_node_ids_mint_independently() -> None:
+    """Simulates ShardRouter/ConnectionPool routing to a DIFFERENT node on a
+    later call (ADR-3: "On failover retry to a different node, re-mint"): a
+    second client bound to a different endpoint's node_id naturally signs its
+    own envelope with its own claim -- no shared, stale, or cached state."""
+
+    request = _node_bound_request()
+    first = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context=_context(),
+        node_id="node-a",
+    )
+    second = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context=_context(),
+        node_id="node-b",
+    )
+    token_first = first._compute_verified_token(dict(request), None)
+    token_second = second._compute_verified_token(dict(request), None)
+    assert _decode_envelope(token_first)["context"]["node"] == "node-a"
+    assert _decode_envelope(token_second)["context"]["node"] == "node-b"
+    # Re-minting on the SAME connection also produces a fresh nonce/mac each
+    # call (never a cached/reused envelope).
+    token_first_again = first._compute_verified_token(dict(request), None)
+    assert _decode_envelope(token_first_again)["nonce"] != _decode_envelope(token_first)["nonce"]
+
+
+def test_explicit_context_node_overrides_connection_node_id() -> None:
+    """A caller that deliberately sets `node` on the effective verified_context
+    (e.g. via `use_verified_context`) wins over the connection's own node_id."""
+
+    client = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context=_context(),
+        node_id="connection-node",
+    )
+    with client.use_verified_context({**_context(), "node": "override-node"}):
+        payload = _decode_envelope(
+            client._compute_verified_token(_node_bound_request(), "idempotency-fixture")
+        )
+    assert payload["context"]["node"] == "override-node"
+
+
+def test_validate_request_context_accepts_optional_node_claim() -> None:
+    validated = validate_request_context({**_context(), "node": "node-a"})
+    assert validated["node"] == "node-a"
+    validated_absent = validate_request_context(_context())
+    assert "node" not in validated_absent
+
+
+@pytest.mark.parametrize("bad_node", ["", "   ", 42])
+def test_validate_request_context_rejects_invalid_node_claim(bad_node: object) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        validate_request_context({**_context(), "node": bad_node})
+
+
 def test_signed_f32_body_matches_rust_rmp_serde_fixture() -> None:
     """The fixture is Rust ``rmp_serde::to_vec_named(Method::AddEmbedding)``."""
 

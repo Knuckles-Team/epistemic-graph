@@ -849,6 +849,7 @@ mod tests {
             scopes: vec!["query:graphql".into()],
             policy_version: "policy-test".into(),
             delegation: Vec::new(),
+            node: None,
         };
         request.auth_token = compute_verified_envelope_token(
             "graphql-test-secret",
