@@ -16,9 +16,12 @@ MAX_SCAN_BYTES = 8 * 1024 * 1024
 # .security-audit-allow.txt is the OSV dependency-audit risk-acceptance ledger
 # (scripts/audit_dependencies.py, wired into the dependency-audit pre-commit hook)
 # — a committed, actively-read governance input, not scratch/garbage.
+# .cargo-audit-allow.txt is its Rust twin: the RUSTSEC advisory risk-acceptance
+# ledger (deny.toml / cargo-deny CVE gate) — same governance role, not garbage.
 ALLOWED_TXT_NAMES = {
     "requirements.txt",
     "requirements-dev.txt",
+    ".cargo-audit-allow.txt",
     "llms.txt",
     "overrides.txt",
     ".security-audit-allow.txt",
