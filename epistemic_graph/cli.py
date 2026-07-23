@@ -14,10 +14,15 @@ import signal
 import subprocess
 import sys
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .client import RequestContextClaims
+
 logger = logging.getLogger(__name__)
 
 
-def _request_context(raw: str) -> dict:
+def _request_context(raw: str) -> RequestContextClaims:
     from .client import validate_request_context
 
     if not raw:

@@ -95,10 +95,12 @@ pub fn current_isolation() -> IsolationLayer {
     isolation
 }
 
+#[allow(dead_code)]
 pub fn signed_request(secret: &str, id: u64, graph: &str, method: Method) -> Request {
     signed_request_as(secret, id, graph, TEST_AGENT, method)
 }
 
+#[allow(dead_code)]
 pub fn signed_request_as(
     secret: &str,
     id: u64,
