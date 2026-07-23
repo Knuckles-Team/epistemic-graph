@@ -14,7 +14,7 @@
 #     --build-arg RELEASE_REQUIREMENTS_SHA256=<requirements-sha256> \
 #     --build-arg EPISTEMIC_GRAPH_VERSION=<exact-version> .
 
-FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS builder-base
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS builder-base
 COPY --from=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a /uv /uvx /bin/
 ENV UV_SYSTEM_PYTHON=1 \
     UV_HTTP_TIMEOUT=3600 \
@@ -46,7 +46,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
       echo "No local wheel for arch '${TARGETARCH:-?}' in /wheels; installing the exact published release"; \
       uv pip install --system --break-system-packages "epistemic-graph[full]==${EG_VERSION}"; \
     fi; \
-    python -c 'import sys; assert sys.version_info[:2] == (3, 12)'; \
+    python -c 'import sys; assert sys.version_info[:2] == (3, 14)'; \
     epistemic-graph-server --help >/dev/null
 
 # Exact offline release input. The caller supplies the complete component closure and
@@ -65,10 +65,10 @@ RUN test "$(basename -- "${RELEASE_REQUIREMENTS}")" = "${RELEASE_REQUIREMENTS}" 
     && uv pip install --system --break-system-packages --offline --no-index \
         --find-links /tmp/release-wheelhouse --only-binary :all: --require-hashes \
         --requirement "/tmp/release-wheelhouse/${RELEASE_REQUIREMENTS}" \
-    && python -c 'import importlib.metadata as m, pathlib, shutil, sys; expected = sys.argv[1]; assert sys.version_info[:2] == (3, 12); assert m.version("epistemic-graph") == expected; assert shutil.which("epistemic-graph-server"); roots = {pathlib.Path(d.locate_file("")) for d in m.distributions()}; assert not any(path for root in roots for path in root.glob("*.dist-info/direct_url.json")); import epistemic_graph.numeric' \
+    && python -c 'import importlib.metadata as m, pathlib, shutil, sys; expected = sys.argv[1]; assert sys.version_info[:2] == (3, 14); assert m.version("epistemic-graph") == expected; assert shutil.which("epistemic-graph-server"); roots = {pathlib.Path(d.locate_file("")) for d in m.distributions()}; assert not any(path for root in roots for path in root.glob("*.dist-info/direct_url.json")); import epistemic_graph.numeric' \
         "${EPISTEMIC_GRAPH_VERSION}"
 
-FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS runtime-base
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS runtime-base
 
 LABEL org.opencontainers.image.title="epistemic-graph" \
       org.opencontainers.image.description="Durable Rust-native epistemic graph DB engine (the one full CPU artifact)" \
