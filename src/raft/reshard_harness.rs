@@ -1,6 +1,6 @@
 //! Online-resharding + tenant-hibernation gauntlet (CONCEPT:EG-KG.storage.100m-tenant).
 //!
-//! Spins a live one-node, two-group cluster over a shared `graph.redb` (the SAME
+//! Spins a live one-node, two-group cluster over a shared authoritative shard (the SAME
 //! machinery the cross-shard harness uses) and proves the two elastic-tenant
 //! invariants:
 //!
@@ -21,13 +21,13 @@ use super::multi::MultiRaft;
 use super::reshard::TenantManager;
 use super::{AppCtx, GroupId, NodeId, RaftRequest};
 use crate::channels::ChannelManager;
+use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
 use crate::registry::GraphRegistry;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
-use crate::wal_service::FsyncPolicy;
 
 const GROUP_A: GroupId = 100;
 const GROUP_B: GroupId = 200;
@@ -45,12 +45,11 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         auth_secret: "reshard-test".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend),
-        redb_authoritative: true,
         max_in_flight: Arc::new(tokio::sync::Semaphore::new(64)),
         read_admission: Arc::new(tokio::sync::Semaphore::new(64)),
         per_graph_inflight: Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit: 16,
-        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
         txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -65,8 +64,6 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: None,
         #[cfg(feature = "wasm-udf")]
@@ -79,6 +76,8 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }))
 }
 
@@ -159,11 +158,22 @@ async fn write_via_owner(multi: &Arc<MultiRaft>, node_id: &str) -> Result<(), St
         graph_fname: crate::persist::sanitize(GRAPH),
         graph_name: GRAPH.to_string(),
         graph_type: GraphType::Global,
-        method: Method::AddNode {
-            node_id: node_id.to_string(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"id": node_id}))
-                .unwrap(),
-        },
+        committed_at_ms: 0,
+        mutation: super::RaftMutationContext::internal(
+            "raft-reshard-harness",
+            GRAPH,
+            node_id,
+            0,
+            0,
+        ),
+        command: super::ReplicatedMutation::graph(
+            Method::AddNode {
+                node_id: node_id.to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"id": node_id}))
+                    .unwrap(),
+            },
+            "reshard-test",
+        )?,
     };
     group.client_write(req).await.map(|_| ())
 }
@@ -192,7 +202,7 @@ async fn node_count(state: &Arc<RwLock<ServerState>>) -> usize {
 async fn reshard_keeps_data_and_serves_after() {
     let dir = fresh_dir("keep");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
 
@@ -237,7 +247,7 @@ async fn reshard_keeps_data_and_serves_after() {
 async fn reshard_data_durable_across_restart() {
     let dir = fresh_dir("durable");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     {
         let (multi, _state) = bring_up(&dir, backend.clone()).await;
         let tenants = TenantManager::new(multi.clone(), backend.clone());
@@ -256,7 +266,7 @@ async fn reshard_data_durable_across_restart() {
     backend.shutdown();
     drop(backend);
     let backend2: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("reopen"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen"));
     let (multi2, state2) = bring_up(&dir, backend2.clone()).await;
     backend2.load_all(&state2).await.expect("load_all");
     for i in 0..4 {
@@ -278,7 +288,7 @@ async fn reshard_data_durable_across_restart() {
 async fn hibernate_then_rehydrate_intact() {
     let dir = fresh_dir("hib");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
 

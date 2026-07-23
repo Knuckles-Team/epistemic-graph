@@ -34,6 +34,7 @@ fn cosine_sim_text_literals() {
         "SELECT cosine_sim('[1,2,3]', '[1,2,3]') AS same, \
                 cosine_sim('[1,0]', '[0,1]') AS orth, \
                 cosine_sim('[1,0]', '[-1,0]') AS opp LIMIT 1",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -57,7 +58,12 @@ fn cosine_sim_text_literals() {
 #[test]
 fn cosine_sim_dim_mismatch_is_null() {
     let snap = graph().analysis_snapshot();
-    let r = exec_sql(&snap, "SELECT cosine_sim('[1,2,3]', '[1,2]') AS m LIMIT 1").unwrap();
+    let r = exec_sql(
+        &snap,
+        "SELECT cosine_sim('[1,2,3]', '[1,2]') AS m LIMIT 1",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let v = rows(&r);
     assert_eq!(v[0][0], json!(null));
 }
@@ -66,7 +72,12 @@ fn cosine_sim_dim_mismatch_is_null() {
 fn l2_normalize_unit_vector() {
     // [3,4] → [0.6, 0.8] (‖[3,4]‖ = 5). Decodes as a JSON array (List<Float32>).
     let snap = graph().analysis_snapshot();
-    let r = exec_sql(&snap, "SELECT l2_normalize('[3,4]') AS u LIMIT 1").unwrap();
+    let r = exec_sql(
+        &snap,
+        "SELECT l2_normalize('[3,4]') AS u LIMIT 1",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let v = rows(&r);
     let arr = v[0][0].as_array().expect("l2_normalize → JSON array");
     assert_eq!(arr.len(), 2);
@@ -81,6 +92,7 @@ fn l2_normalize_feeds_cosine_sim() {
     let r = exec_sql(
         &snap,
         "SELECT cosine_sim(l2_normalize('[3,4]'), '[3,4]') AS s LIMIT 1",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -99,6 +111,7 @@ fn zscore_standardizes_column() {
         &snap,
         "SELECT json_get_f64(props, 'x') AS x, zscore(json_get_f64(props, 'x')) AS z \
          FROM nodes ORDER BY x",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -128,6 +141,7 @@ fn covariance_udaf() {
     let r = exec_sql(
         &snap,
         "SELECT covariance(json_get_f64(props, 'x'), json_get_f64(props, 'y')) AS c FROM nodes",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -141,7 +155,7 @@ fn covariance_udaf() {
 // ── svd (CONCEPT:EG-KG.query.svd-eg-pca-column) / pca (CONCEPT:EG-KG.query.concept-6) — column→Array2 marshalling UDAFs ──
 //
 // Both aggregate a COLUMN OF VECTORS (text-literal operand form, as `cosine_sim` accepts)
-// into a matrix and run a faer kernel, so a `VALUES` list of vectors is the exact matrix.
+// into a matrix and run a nalgebra kernel, so a `VALUES` list of vectors is the exact matrix.
 
 #[test]
 fn svd_singular_values_of_known_matrix() {
@@ -151,6 +165,7 @@ fn svd_singular_values_of_known_matrix() {
     let r = exec_sql(
         &snap,
         "SELECT svd(v) AS s FROM (VALUES ('[3,0]'), ('[0,-2]')) AS t(v)",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -169,6 +184,7 @@ fn svd_rectangular_matrix() {
     let r = exec_sql(
         &snap,
         "SELECT svd(v) AS s FROM (VALUES ('[2,0]'), ('[0,3]'), ('[0,0]')) AS t(v)",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -187,6 +203,7 @@ fn pca_first_component_direction() {
         &snap,
         "SELECT pca(v, 1) AS pcs \
          FROM (VALUES ('[2,2]'), ('[1,1]'), ('[-1,-1]'), ('[-2,-2]')) AS t(v)",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -212,6 +229,7 @@ fn pca_two_components_are_orthonormal_and_ordered() {
         &snap,
         "SELECT pca(v, 2) AS pcs \
          FROM (VALUES ('[4,1]'), ('[2,0]'), ('[-2,0]'), ('[-4,-1]')) AS t(v)",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -257,6 +275,7 @@ fn kmeans_two_blobs_partition() {
         "SELECT kmeans(v, 2) AS c FROM (VALUES \
            ('[0,0]'), ('[0.1,-0.1]'), ('[-0.1,0.2]'), \
            ('[10,10]'), ('[10.1,9.9]'), ('[9.8,10.2]')) AS t(v)",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -286,8 +305,8 @@ fn kmeans_deterministic() {
     let snap = graph().analysis_snapshot();
     let sql = "SELECT kmeans(v, 2) AS c FROM (VALUES \
         ('[1,1]'), ('[1.2,0.9]'), ('[8,8]'), ('[8.1,7.8]'), ('[4,9]')) AS t(v)";
-    let a = rows(&exec_sql(&snap, sql).unwrap());
-    let b = rows(&exec_sql(&snap, sql).unwrap());
+    let a = rows(&exec_sql(&snap, sql, &eg_query::CancellationToken::new()).unwrap());
+    let b = rows(&exec_sql(&snap, sql, &eg_query::CancellationToken::new()).unwrap());
     assert_eq!(a, b, "kmeans must be deterministic given the default seed");
 }
 
@@ -297,6 +316,7 @@ fn kmeans_empty_is_null() {
     let r = exec_sql(
         &snap,
         "SELECT kmeans(json_get_f64(props, 'missing_vec'), 2) AS c FROM nodes WHERE 1 = 0",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -310,6 +330,7 @@ fn svd_empty_is_null() {
     let r = exec_sql(
         &snap,
         "SELECT svd(json_get_f64(props, 'missing_vec')) AS s FROM nodes WHERE 1 = 0",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);

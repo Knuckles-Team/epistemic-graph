@@ -45,8 +45,9 @@ It is loaded via ``--l2-adapter``::
      "adapter_params": {"base_url": "http://localhost:9130"}}
 
 ``adapter_params`` are forwarded verbatim as keyword arguments to the constructor
-(all optional — with none supplied the connector reads the engine's EG-187
-environment via :meth:`KvCacheConfig.from_env`). There is deliberately **no**
+(the effective configuration must include a non-empty bearer/JWT token; values
+omitted here are read from the engine's EG-187 environment via
+:meth:`KvCacheConfig.from_env`). There is deliberately **no**
 ``submit_batch_delete``: the shared, content-addressed pool is evicted by the
 engine's own tiered store (CONCEPT:EG-KG.memory.byte-bounded-tiers), so L2 delete is a no-op.
 
@@ -66,7 +67,7 @@ from dataclasses import replace
 from itertools import count
 from typing import TYPE_CHECKING
 
-from .config import KvCacheConfig, _addr_to_base_url
+from .config import KvCacheConfig
 from .connector import RemoteKVConnector
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -94,15 +95,14 @@ class RemoteKVL2Connector:
 
     Args:
         base_url: Explicit engine KV base URL, e.g. ``http://localhost:9130``.
-            Wins over ``addr``.
+            Wins over ``addr``. Non-loopback endpoints require HTTPS.
         addr: Engine bind value (``host:port`` / bare port / enable token),
             coerced to a base URL like ``EPISTEMIC_GRAPH_KVCACHE_ADDR``.
-        token: Bearer token for the EG-187 surface.
+        token: Non-empty bearer secret or JWT for the EG-187 surface.
         timeout_s: Per-request timeout (hot-path — keep short).
         num_workers: Background I/O worker threads (parallel batches). Also raises
             the pooled-connection ceiling to at least ``2 × num_workers``.
         max_connections: Explicit pooled-connection ceiling.
-        verify_tls: TLS verification toggle.
         connector: Pre-built :class:`RemoteKVConnector` (dependency injection for
             tests); wins over all endpoint kwargs.
     """
@@ -116,7 +116,6 @@ class RemoteKVL2Connector:
         timeout_s: float | None = None,
         num_workers: int = 8,
         max_connections: int | None = None,
-        verify_tls: bool | None = None,
         connector: RemoteKVConnector | None = None,
     ) -> None:
         if not hasattr(os, "eventfd"):  # pragma: no cover - non-Linux guard
@@ -134,7 +133,6 @@ class RemoteKVL2Connector:
                 token=token,
                 timeout_s=timeout_s,
                 max_connections=max_connections,
-                verify_tls=verify_tls,
                 workers=workers,
             )
             self._backend = RemoteKVConnector(cfg)
@@ -148,8 +146,7 @@ class RemoteKVL2Connector:
         self._closed = False
         self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="eg-l2")
         logger.info(
-            "RemoteKVL2Connector ready (base_url=%s, workers=%d)",
-            self._backend.config.base_url,
+            "RemoteKVL2Connector ready (workers=%d)",
             workers,
         )
 
@@ -169,28 +166,20 @@ class RemoteKVL2Connector:
         token: str | None,
         timeout_s: float | None,
         max_connections: int | None,
-        verify_tls: bool | None,
         workers: int,
     ) -> KvCacheConfig:
         """Layer explicit ``adapter_params`` over the EG-187 environment defaults."""
-        cfg = KvCacheConfig.from_env()
-        updates: dict[str, object] = {}
-        if base_url:
-            updates["base_url"] = base_url.rstrip("/")
-        elif addr:
-            updates["base_url"] = _addr_to_base_url(addr)
-        if token is not None:
-            updates["token"] = token
-        if timeout_s is not None:
-            updates["timeout_s"] = float(timeout_s)
-        if verify_tls is not None:
-            updates["verify_tls"] = bool(verify_tls)
-        # Give the transport at least 2 conns per worker unless pinned.
-        if max_connections is not None:
-            updates["max_connections"] = int(max_connections)
-        else:
-            updates["max_connections"] = max(workers * 2, cfg.max_connections)
-        return replace(cfg, **updates)
+        cfg = KvCacheConfig.from_env(
+            base_url=base_url,
+            addr=addr,
+            token=token,
+            timeout_s=timeout_s,
+            max_connections=max_connections,
+        )
+        if max_connections is not None or cfg.max_connections >= workers * 2:
+            return cfg
+        # Give the transport at least two connections per worker unless pinned.
+        return replace(cfg, max_connections=workers * 2)
 
     # -- native-client contract (CONCEPT:EG-KG.backend.shipped-pip-installable-python) ------------------------------
     def event_fd(self) -> int:

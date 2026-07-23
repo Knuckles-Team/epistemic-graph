@@ -25,12 +25,22 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 /// PQ codebook entries per subspace (8-bit codes).
 pub const PQ_KSUB: usize = 256;
 
 /// One encoded row produced by `add`: (id, ivf-cell, PQ code, SQ8 code, sq_min, sq_scale).
 type EncodedRow = (u64, u32, Vec<u8>, Vec<u8>, f32, f32);
+
+/// One row that survived the metadata/deletion checks during an ADC scan.
+/// Keeping the row ordinal lets selection use the same deterministic total order
+/// even when duplicate external ids have identical approximate distances.
+#[derive(Clone, Copy, Debug)]
+struct AdcCandidate {
+    row: usize,
+    distance: f32,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IvfPqParams {
@@ -343,6 +353,9 @@ impl IvfPq {
         sp: SearchParams,
         allow: Option<&dyn Fn(u64) -> bool>,
     ) -> Vec<SearchResult> {
+        if k == 0 {
+            return Vec::new();
+        }
         let dim = self.dim;
         let dsub = self.dsub;
         let rq = rotate(&self.rotation, query, dim);
@@ -356,18 +369,25 @@ impl IvfPq {
                 )
             })
             .collect();
-        cell_d.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        cell_d.truncate(sp.nprobe.max(1));
+        let nprobe = sp.nprobe.max(1).min(cell_d.len());
+        retain_best_sorted_by(&mut cell_d, nprobe, cell_distance_cmp);
 
         // 2. ADC over each probed cell's posting list.
-        let mut cands: Vec<(usize, f32)> = Vec::new(); // (row, adc_dist)
+        let mut cands: Vec<AdcCandidate> = Vec::new();
+        // Scratch buffers reused across probed cells instead of reallocated each
+        // iteration: `qresid` (dim floats) and `table` (m*PQ_KSUB floats, ~100KB
+        // at default settings) are both FULLY overwritten every iteration before
+        // any read — `qresid` by the `0..dim` fill below, `table` by the `sq`/`kc`
+        // double loop covering every `sq*PQ_KSUB+kc` index exactly once — so
+        // reuse is behavior-preserving and turns O(nprobe) allocations into O(1).
+        let mut qresid = vec![0.0f32; dim];
+        let mut table = vec![0.0f32; self.m * PQ_KSUB];
         for &(cell, _) in &cell_d {
             let base = cell * dim;
-            let qresid: Vec<f32> = (0..dim)
-                .map(|d| rq[d] - self.coarse_centroids[base + d])
-                .collect();
+            for d in 0..dim {
+                qresid[d] = rq[d] - self.coarse_centroids[base + d];
+            }
             // ADC table: m x 256 squared sub-distances.
-            let mut table = vec![0.0f32; self.m * PQ_KSUB];
             for sq in 0..self.m {
                 let qs = &qresid[sq * dsub..(sq + 1) * dsub];
                 let book_base = sq * PQ_KSUB * dsub;
@@ -400,44 +420,41 @@ impl IvfPq {
                     let code = self.codes[cbase + sq] as usize;
                     dist += table[sq * PQ_KSUB + code];
                 }
-                cands.push((row, dist));
+                cands.push(AdcCandidate {
+                    row,
+                    distance: dist,
+                });
             }
         }
 
+        let adc_cmp = |a: &AdcCandidate, b: &AdcCandidate| {
+            distance_cmp(a.distance, b.distance)
+                .then_with(|| self.ids[a.row].cmp(&self.ids[b.row]))
+                .then_with(|| a.row.cmp(&b.row))
+        };
         if !sp.refine || self.sq_codes.is_empty() {
-            cands.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            cands.truncate(k);
+            retain_best_sorted_by(&mut cands, k, adc_cmp);
             return cands
                 .into_iter()
-                .map(|(row, d)| SearchResult {
-                    id: self.ids[row],
-                    distance: d,
+                .map(|candidate| SearchResult {
+                    id: self.ids[candidate.row],
+                    distance: candidate.distance,
                 })
                 .collect();
         }
 
         // 3. Refine: keep the best refine_factor*k ADC candidates, re-rank by SQ8
         // distance (near-exact in the rotated space).
-        let keep = (sp.refine_factor.max(1) * k).min(cands.len());
-        if keep < cands.len() {
-            cands.select_nth_unstable_by(keep.saturating_sub(1), |a, b| {
-                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-            });
-            cands.truncate(keep);
-        }
+        let keep = sp.refine_factor.max(1).saturating_mul(k).min(cands.len());
+        retain_best_unordered_by(&mut cands, keep, adc_cmp);
         let mut refined: Vec<SearchResult> = cands
             .into_iter()
-            .map(|(row, _)| SearchResult {
-                id: self.ids[row],
-                distance: self.sq8_dist(&rq, row),
+            .map(|candidate| SearchResult {
+                id: self.ids[candidate.row],
+                distance: self.sq8_dist(&rq, candidate.row),
             })
             .collect();
-        refined.sort_by(|a, b| {
-            a.distance
-                .partial_cmp(&b.distance)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        refined.truncate(k);
+        retain_best_sorted_by(&mut refined, k, search_result_cmp);
         refined
     }
 
@@ -475,6 +492,53 @@ impl IvfPq {
         let dead = self.deleted.iter().filter(|&&d| d == 1).count();
         dead as f32 / self.ids.len() as f32
     }
+}
+
+/// Keep the exact best `limit` items under a total order without ordering the
+/// discarded suffix. This is expected O(N), with O(1) selection scratch.
+#[inline]
+fn retain_best_unordered_by<T, F>(values: &mut Vec<T>, limit: usize, cmp: F)
+where
+    F: Fn(&T, &T) -> Ordering + Copy,
+{
+    if limit == 0 {
+        values.clear();
+    } else if values.len() > limit {
+        values.select_nth_unstable_by(limit, cmp);
+        values.truncate(limit);
+    }
+}
+
+/// Select in expected linear time, then order only the retained prefix.
+#[inline]
+fn retain_best_sorted_by<T, F>(values: &mut Vec<T>, limit: usize, cmp: F)
+where
+    F: Fn(&T, &T) -> Ordering + Copy,
+{
+    retain_best_unordered_by(values, limit, cmp);
+    values.sort_unstable_by(cmp);
+}
+
+/// Nearest-first float order shared by coarse, ADC, and refine selection. NaN is
+/// always last so malformed vectors cannot displace a finite candidate.
+#[inline]
+fn distance_cmp(left: f32, right: f32) -> Ordering {
+    match (left.is_nan(), right.is_nan()) {
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (true, true) => left.to_bits().cmp(&right.to_bits()),
+        (false, false) => left.total_cmp(&right),
+    }
+}
+
+#[inline]
+fn cell_distance_cmp(left: &(usize, f32), right: &(usize, f32)) -> Ordering {
+    distance_cmp(left.1, right.1).then_with(|| left.0.cmp(&right.0))
+}
+
+#[inline]
+fn search_result_cmp(left: &SearchResult, right: &SearchResult) -> Ordering {
+    distance_cmp(left.distance, right.distance).then_with(|| left.id.cmp(&right.id))
 }
 
 /// Merge per-shard kNN result lists into ONE global top-k (CONCEPT:EG-KG.retrieval.scatter-gather). This is
@@ -697,4 +761,117 @@ fn sq8_encode(v: &[f32]) -> (Vec<u8>, f32, f32) {
         .map(|&x| ((x - mn) * inv).round().clamp(0.0, 255.0) as u8)
         .collect();
     (codes, mn, scale)
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    fn hand_built_index() -> IvfPq {
+        IvfPq {
+            dim: 1,
+            nlist: 1,
+            m: 1,
+            dsub: 1,
+            rotation: vec![1.0],
+            coarse_centroids: vec![0.0],
+            pq_centroids: vec![0.0; PQ_KSUB],
+            // Every ADC code ties; ids/row ordinals therefore exercise the exact
+            // selection boundary. SQ8 minima encode values 5,1,4,2,3 exactly.
+            codes: vec![0; 5],
+            sq_codes: vec![0; 5],
+            sq_min: vec![5.0, 1.0, 4.0, 2.0, 3.0],
+            sq_scale: vec![1.0; 5],
+            ids: vec![50, 10, 40, 20, 30],
+            list_of: vec![0; 5],
+            deleted: vec![0; 5],
+            postings: vec![vec![0, 1, 2, 3, 4]],
+        }
+    }
+
+    #[test]
+    fn adc_and_refine_searches_return_exact_bounded_order() {
+        let index = hand_built_index();
+        let adc = index.search(
+            &[0.0],
+            2,
+            SearchParams {
+                nprobe: 1,
+                refine: false,
+                refine_factor: 1,
+            },
+        );
+        assert_eq!(adc.iter().map(|hit| hit.id).collect::<Vec<_>>(), [10, 20]);
+
+        let refined = index.search(
+            &[0.0],
+            2,
+            SearchParams {
+                nprobe: 1,
+                refine: true,
+                refine_factor: 10,
+            },
+        );
+        assert_eq!(
+            refined
+                .iter()
+                .map(|hit| (hit.id, hit.distance))
+                .collect::<Vec<_>>(),
+            [(10, 1.0), (20, 4.0)]
+        );
+        assert!(index.search(&[0.0], 0, SearchParams::default()).is_empty());
+    }
+
+    #[test]
+    fn partial_refine_selection_matches_total_full_sort() {
+        let input = vec![
+            SearchResult {
+                id: 90,
+                distance: 3.0,
+            },
+            SearchResult {
+                id: 40,
+                distance: 1.0,
+            },
+            SearchResult {
+                id: 20,
+                distance: 1.0,
+            },
+            SearchResult {
+                id: 10,
+                distance: f32::NAN,
+            },
+            SearchResult {
+                id: 50,
+                distance: 2.0,
+            },
+        ];
+        let mut expected = input.clone();
+        expected.sort_unstable_by(search_result_cmp);
+        expected.truncate(3);
+
+        let mut selected = input;
+        retain_best_sorted_by(&mut selected, 3, search_result_cmp);
+
+        assert_eq!(selected, expected);
+        assert_eq!(
+            selected.iter().map(|hit| hit.id).collect::<Vec<_>>(),
+            [20, 40, 50]
+        );
+    }
+
+    #[test]
+    fn partial_coarse_selection_matches_total_full_sort() {
+        let input = vec![(4, 2.0), (3, 1.0), (1, 1.0), (0, f32::NAN), (2, 1.5)];
+        let mut expected = input.clone();
+        expected.sort_unstable_by(cell_distance_cmp);
+        expected.truncate(3);
+
+        let mut selected = input;
+        retain_best_unordered_by(&mut selected, 3, cell_distance_cmp);
+        selected.sort_unstable_by(cell_distance_cmp);
+
+        assert_eq!(selected, expected);
+        assert_eq!(selected, [(1, 1.0), (3, 1.0), (2, 1.5)]);
+    }
 }

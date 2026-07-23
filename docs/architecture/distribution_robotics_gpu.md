@@ -22,7 +22,7 @@ Beyond the synchronous multi-Raft groups + the EG-KG.ontology.federation-client 
 a **local, eventually-consistent read copy** that never pays a cross-region Raft round-trip on
 every write. The primary appends every committed mutation to a bounded monotone-LSN
 `ReplicationLog` and serves the tail over `/replicate?since=<lsn>`; a follower pulls it and
-applies it via the canonical `wal::apply` path (byte-identical to Raft/WAL replay). Capacity
+applies it via the same canonical mutation applier as Raft. Capacity
 guardrails — a circuit breaker, a per-tenant quota, and backpressure — protect the primary from
 a slow/hostile region or a greedy tenant.
 
@@ -36,7 +36,7 @@ flowchart LR
     CB{CircuitBreaker\nallow?}
     PULL[run_replica_follower\npull loop] --> CB
     CB -->|closed / half-open| SRV
-    SRV -->|ordered tail| APPLY[apply_replicated_batch\nwal::apply]
+    SRV -->|ordered tail| APPLY[apply_replicated_batch\ncanonical mutation applier]
     APPLY --> REG[(local registry\nread-serve)]
     CB -->|open: fail fast| SKIP[skip tick]
   end
@@ -107,7 +107,7 @@ pure-Rust `tokio-tungstenite` client.
 flowchart LR
   subgraph Engine
     CDC[(CDC feed)] --> C2P[cdc_to_publish]
-    P2M[publish_to_method] --> APPLY[wal::apply → graph]
+    P2M[publish_to_request] --> APPLY[authenticated dispatch → MutationBatch gateway]
   end
   subgraph WS [rosbridge WebSocket]
     C2P -->|op:publish| RB[rosbridge_server]
@@ -121,13 +121,33 @@ flowchart LR
 * **Engine → ROS2:** tail the CDC feed for a graph; each change becomes a rosbridge
   `{"op":"publish","topic":…,"msg":{"data":…}}` (`cdc_to_publish`).
 * **ROS2 → engine:** `subscribe` a topic; each inbound publish maps to an `AddNode`
-  (`publish_to_method`) applied via `wal::apply`.
+  (`publish_to_request`) verified and applied through authenticated dispatch and the
+  canonical MutationBatch gateway.
 
 The protocol framing (`RosbridgeOp`) + the CDC↔ROS2 mapping are pure and unit-tested; the
 WebSocket driver (`run_ros2_bridge`) wires them onto a live connection. Enabled by
-`EPISTEMIC_GRAPH_ROSBRIDGE_URL=ws://host:9090`. A native DDS/RTPS wire (CycloneDDS) is a documented
-optional leg — it needs the CycloneDDS C toolchain, so it is not folded into the workspace
-`--all-features` build.
+`EPISTEMIC_GRAPH_ROSBRIDGE_URL=ws://host:9090`.
+
+Two further legs sit behind the SAME `DdsTransport` trait (`src/server/dds.rs`), both
+`full-extras`-only (never in `default`/`full`):
+
+* **`ros2-dds`** — a native DDS/RTPS wire over the PURE-RUST `rustdds` crate
+  (mio/pnet/speedy/cdr-encoding). No CycloneDDS/rmw/C toolchain, so it CI-builds
+  everywhere; wire-compatible with the rmw name/type mangling (below) but not the
+  CycloneDDS-C stack itself.
+* **`ros2-rmw`** (S5) — the REAL `rmw_cyclonedds`/CycloneDDS-C stack via the safe
+  `cyclonedds` Rust crate. `cyclonedds-src` vendors the CycloneDDS C sources IN the crate
+  tarball (no network fetch at build time); `cyclonedds-rust-sys`'s build.rs configures +
+  builds it with `cmake` (static lib) and ships prebuilt bindgen output, so it needs a C
+  toolchain (`cc`/`cmake`) but not libclang at build time. This is genuine zero-config
+  live-`ros2` interop — a real `ros2` node discovers/pubs/subs with no bridge.
+
+Both legs apply the rmw name/type mangling convention (`mangle_topic_name`/
+`mangle_type_name` in `src/server/dds.rs`, CONCEPT:EG-KG.ingest.rmw-topic-prefix) so a
+topic published either way is discoverable by a live `ros2` daemon with zero config: the
+`rt/` topic prefix + the `<pkg>::<ns>::dds_::<Msg>_` type descriptor. Neither leg is
+folded into the workspace `--all-features` build (toolchain-gated, `full-extras` opt-in
+only).
 
 ---
 

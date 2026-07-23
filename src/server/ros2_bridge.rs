@@ -14,23 +14,23 @@
 //!   message any ROS2 node can subscribe to. It `advertise`s the out-topic first.
 //! * **ROS2 → engine (subscribe).** The bridge `subscribe`s to a configured in-topic and,
 //!   for each inbound `{"op":"publish","topic":<in_topic>,"msg":{…}}`, maps the message to
-//!   an engine [`Method`] (an `AddNode`) and applies it via the canonical
-//!   `crate::wal::apply` path — so a ROS2 message becomes graph state.
+//!   an engine [`Request`] carrying an `AddNode` and applies it through authenticated
+//!   engine dispatch — so a signed ROS2 request becomes graph state.
 //!
 //! The rosbridge protocol framing ([`RosbridgeOp`]) and the CDC↔ROS2 message mapping
-//! ([`cdc_to_publish`] / [`publish_to_method`]) are pure and unit-tested; the WebSocket
+//! ([`cdc_to_publish`] / [`publish_to_request`]) are pure and unit-tested; the WebSocket
 //! driver ([`run_ros2_bridge`]) wires them onto a live connection.
 //!
 //! Feature-gated behind `ros2-bridge` (out of `pi`/`default`/`node`): a slim build links
 //! no `tokio-tungstenite` (Pi contract). The PURE mapping here ([`cdc_to_publish`] /
-//! [`publish_to_method`] / [`RosbridgeOp`]) is ALSO compiled under `ros2-dds`
+//! [`publish_to_request`] / [`RosbridgeOp`]) is ALSO compiled under `ros2-dds`
 //! (CONCEPT:EG-KG.ingest.dds-transport): the native DDS/RTPS transport seam ([`super::dds`]) reuses this exact
 //! shaping, so the DDS leg puts the IDENTICAL `std_msgs/String` payload on the wire as the
 //! rosbridge leg. Only the tungstenite driver [`run_ros2_bridge`] is `ros2-bridge`-specific.
 
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::{GraphType, Method};
+use crate::protocol::{Method, Request};
 use crate::wire::{CdcEvent, CdcKind};
 
 // ── The rosbridge JSON protocol (CONCEPT:EG-KG.domains.robotics-gpu-distribution) ─────────────────────────────
@@ -137,6 +137,38 @@ pub fn publish_to_method(msg: &serde_json::Value) -> Option<Method> {
     })
 }
 
+/// Bind an inbound ROS2 payload to the exact current signed engine request.
+///
+/// The message retains the compact `node_id`/`properties` shape, but must also
+/// carry `request_id`, the configured `graph`, and an `auth_token` containing a
+/// current `eg2.` request envelope. The token is verified by ordinary dispatch
+/// against this reconstructed `Method::AddNode`; it is never retained by the
+/// bridge or written to graph state.
+#[cfg(feature = "server")]
+pub fn publish_to_request(msg: &serde_json::Value, graph: &str) -> Option<Request> {
+    let obj: serde_json::Value = match msg.get("data") {
+        Some(serde_json::Value::String(value)) => serde_json::from_str(value).ok()?,
+        _ => msg.clone(),
+    };
+    let request_id = obj.get("request_id")?.as_u64()?;
+    let request_graph = obj.get("graph")?.as_str()?;
+    if request_graph != graph {
+        return None;
+    }
+    let auth_token = obj.get("auth_token")?.as_str()?.to_string();
+    if !auth_token.starts_with("eg2.") {
+        return None;
+    }
+    let method = publish_to_method(&obj)?;
+    Some(Request {
+        id: request_id,
+        graph: request_graph.to_string(),
+        auth_token,
+        agent_id: None,
+        method,
+    })
+}
+
 // ── Config + live WebSocket driver (CONCEPT:EG-KG.domains.robotics-gpu-distribution) ──────────────────────────
 
 /// Env-driven configuration for the ROS2 bridge (CONCEPT:EG-KG.domains.robotics-gpu-distribution).
@@ -178,32 +210,24 @@ impl Ros2BridgeConfig {
     }
 }
 
-/// Apply an inbound ROS2 message to the engine graph (CONCEPT:EG-KG.domains.robotics-gpu-distribution) via the canonical
-/// `crate::wal::apply` path (the same one Raft/WAL replay use). Creates the graph if absent.
-/// Returns `true` if the message mapped to a method and was applied.
+/// Apply an inbound ROS2 message through current authenticated dispatch.
+///
+/// The configured graph must already exist through the governed graph-lifecycle
+/// surface. Dispatch verifies the exact request/session/tenant/idempotency
+/// authority before routing `AddNode` through the graph mutation gateway.
+/// Returns `true` only when the signed request commits successfully.
 #[cfg(feature = "server")]
 pub async fn apply_inbound(
     state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
     graph: &str,
     msg: &serde_json::Value,
 ) -> bool {
-    let Some(method) = publish_to_method(msg) else {
+    let Some(request) = publish_to_request(msg, graph) else {
+        crate::metrics::auth_failure();
         return false;
     };
-    let core = {
-        let mut s = state.write().await;
-        if !s.registry.exists(graph) {
-            let _ = s.registry.create_graph(graph, GraphType::Global, None);
-        }
-        s.registry.get(graph).map(|e| e.core.clone())
-    };
-    if let Some(core) = core {
-        crate::wal::apply(&core, &method);
-        core.mark_dirty();
-        true
-    } else {
-        false
-    }
+    let response = crate::server::dispatch::dispatch(state, request).await;
+    response.error.is_none()
 }
 
 /// Run the ROS2 bridge until the connection drops (CONCEPT:EG-KG.domains.robotics-gpu-distribution). Connects to the
@@ -223,6 +247,17 @@ pub async fn run_ros2_bridge(
 ) -> Result<(), String> {
     use futures::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
+
+    {
+        let server = state.read().await;
+        if crate::server::access::unauthenticated_carrier_denied(&server.isolation) {
+            crate::metrics::access_denied();
+            return Err(
+                "ROS2 CDC bridge requires a verified tenant/actor carrier under active policy"
+                    .to_string(),
+            );
+        }
+    }
 
     let (ws, _resp) = tokio_tungstenite::connect_async(&cfg.rosbridge_url)
         .await
@@ -412,5 +447,26 @@ mod tests {
 
         // A message with no node_id is not ingested.
         assert!(publish_to_method(&serde_json::json!({"foo": 1})).is_none());
+    }
+
+    #[cfg(feature = "server")]
+    #[test]
+    fn inbound_request_is_exactly_graph_and_envelope_bound() {
+        let message = serde_json::json!({
+            "request_id": 41,
+            "graph": "robotics",
+            "auth_token": "eg2.opaque-envelope",
+            "node_id": "robot-opaque",
+            "properties": {"type": "Pose"}
+        });
+        let request = publish_to_request(&message, "robotics").expect("signed request");
+        assert_eq!(request.id, 41);
+        assert_eq!(request.graph, "robotics");
+        assert_eq!(request.auth_token, "eg2.opaque-envelope");
+        assert!(publish_to_request(&message, "different-graph").is_none());
+
+        let mut unsigned = message;
+        unsigned["auth_token"] = serde_json::json!("legacy-token");
+        assert!(publish_to_request(&unsigned, "robotics").is_none());
     }
 }

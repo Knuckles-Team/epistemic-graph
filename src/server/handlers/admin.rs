@@ -15,8 +15,135 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+#[cfg(feature = "redb")]
+use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
 use crate::protocol::{Method, Response};
 use crate::server::state::ServerState;
+
+#[cfg(feature = "redb")]
+const BACKUP_ROOT_ENV: &str = "EPISTEMIC_GRAPH_BACKUP_ROOT";
+
+#[cfg(feature = "redb")]
+fn backup_root() -> Result<std::path::PathBuf, String> {
+    let configured = std::env::var_os(BACKUP_ROOT_ENV)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("backup RPC is disabled; configure {BACKUP_ROOT_ENV}"))?;
+    let configured = std::path::PathBuf::from(configured);
+    let metadata = std::fs::symlink_metadata(&configured)
+        .map_err(|_| "configured backup root is unavailable".to_string())?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("configured backup root must be a real directory".to_string());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err("configured backup root must have private permissions".to_string());
+        }
+    }
+    configured
+        .canonicalize()
+        .map_err(|_| "configured backup root is unavailable".to_string())
+}
+
+#[cfg(feature = "redb")]
+fn backup_bundle_name(value: &str) -> Result<&str, String> {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return Err("backup bundle name is required".to_string());
+    };
+    if value.len() > 128
+        || !first.is_ascii_alphanumeric()
+        || !chars.all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+    {
+        return Err("backup bundle name must be a bounded logical name".to_string());
+    }
+    Ok(value)
+}
+
+#[cfg(feature = "redb")]
+fn resolve_backup_destination(
+    value: &str,
+    request_id: u64,
+) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+    let root = backup_root()?;
+    let name = backup_bundle_name(value)?;
+    let destination = root.join(name);
+    if destination.exists() || std::fs::symlink_metadata(&destination).is_ok() {
+        return Err("backup destination already exists".to_string());
+    }
+    let token = opaque_ref(&format!("backup-stage:{request_id}:{name}"));
+    let stage = root.join(format!(
+        ".backup-stage-{}",
+        token.trim_start_matches("sha256:")
+    ));
+    if let Ok(metadata) = std::fs::symlink_metadata(&stage) {
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err("backup staging target is unsafe".to_string());
+        }
+        std::fs::remove_dir_all(&stage).map_err(|_| "backup staging cleanup failed".to_string())?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut builder = std::fs::DirBuilder::new();
+        builder.mode(0o700);
+        builder
+            .create(&stage)
+            .map_err(|_| "create private backup stage failed".to_string())?;
+    }
+    #[cfg(not(unix))]
+    std::fs::create_dir(&stage).map_err(|_| "create private backup stage failed".to_string())?;
+    Ok((destination, stage))
+}
+
+#[cfg(feature = "redb")]
+fn resolve_backup_source(value: &str) -> Result<std::path::PathBuf, String> {
+    let root = backup_root()?;
+    let name = backup_bundle_name(value)?;
+    let candidate = root.join(name);
+    let metadata = std::fs::symlink_metadata(&candidate)
+        .map_err(|_| "backup source does not exist".to_string())?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("backup source must be a real directory".to_string());
+    }
+    let source = candidate
+        .canonicalize()
+        .map_err(|_| "backup source is unavailable".to_string())?;
+    if source.parent() != Some(root.as_path()) {
+        return Err("backup source escaped the configured root".to_string());
+    }
+    Ok(source)
+}
+
+#[cfg(feature = "redb")]
+fn cleanup_backup_stage(stage: &std::path::Path) {
+    if matches!(
+        std::fs::symlink_metadata(stage),
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink()
+    ) {
+        let _ = std::fs::remove_dir_all(stage);
+    }
+}
+
+#[cfg(feature = "redb")]
+fn create_private_directory(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut builder = std::fs::DirBuilder::new();
+        builder.mode(0o700);
+        return builder
+            .create(path)
+            .map_err(|_| "create private engine directory failed".to_string());
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir(path).map_err(|_| "create private engine directory failed".to_string())
+    }
+}
 
 /// Route an M3 admin method (CONCEPT:EG-KG.backend.m3-admin-dispatch). `Ok(resp)` = handled; `Err(method)` = not an
 /// admin method (unreachable — the dispatch arm only routes admin variants here).
@@ -24,6 +151,7 @@ use crate::server::state::ServerState;
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    caller: Option<&str>,
     method: Method,
 ) -> Result<Response, Method> {
     use crate::protocol::ResultPayload;
@@ -46,26 +174,57 @@ pub(crate) async fn try_handle(
         }
     };
 
+    let original_method = method.clone();
     match method {
         Method::Reshard { graph, to_shard } => {
+            let saga = match begin_admin_saga(
+                backend,
+                req_id,
+                caller,
+                &original_method,
+                MutationDomain::MultiGraph,
+            ) {
+                Ok(saga) => saga,
+                Err(error) => return Ok(Response::err(req_id, error)),
+            };
+            if let Some(result) = saga.replayed {
+                return Ok(Response::ok(req_id, result));
+            }
             let fname = crate::persist::sanitize(&graph);
             match backend.reshard_graph(&fname, to_shard).await {
-                Ok(report) => Ok(Response::ok(
-                    req_id,
+                Ok(report) => match finish_admin_saga(
+                    backend,
+                    saga.batch,
+                    saga.created_at_ms,
                     ResultPayload::Json(report_json(&report)),
-                )),
+                ) {
+                    Ok(result) => Ok(Response::ok(req_id, result)),
+                    Err(error) => Ok(Response::err(req_id, error)),
+                },
                 Err(e) => Ok(Response::err(req_id, format!("Reshard failed: {e}"))),
             }
         }
-        Method::CatalogAssign { graph, shard, node } => Ok(with_catalog(req_id, backend, |cat| {
-            cat.assign(&crate::persist::sanitize(&graph), shard, node)
-        })),
-        Method::CatalogReassign { graph, shard } => Ok(with_catalog(req_id, backend, |cat| {
-            cat.reassign(&crate::persist::sanitize(&graph), shard)
-        })),
-        Method::CatalogRemove { graph } => Ok(with_catalog(req_id, backend, |cat| {
-            cat.remove(&crate::persist::sanitize(&graph))
-        })),
+        Method::CatalogAssign { graph, shard, node } => Ok(catalog_saga(
+            req_id,
+            caller,
+            backend,
+            &original_method,
+            |catalog| catalog.assign(&crate::persist::sanitize(&graph), shard, node),
+        )),
+        Method::CatalogReassign { graph, shard } => Ok(catalog_saga(
+            req_id,
+            caller,
+            backend,
+            &original_method,
+            |catalog| catalog.reassign(&crate::persist::sanitize(&graph), shard),
+        )),
+        Method::CatalogRemove { graph } => Ok(catalog_saga(
+            req_id,
+            caller,
+            backend,
+            &original_method,
+            |catalog| catalog.remove(&crate::persist::sanitize(&graph)),
+        )),
         Method::CatalogList => {
             let Some(cat) = backend.catalog() else {
                 return Ok(no_catalog(req_id));
@@ -114,6 +273,19 @@ pub(crate) async fn try_handle(
             tolerance,
             max_moves,
         } => {
+            let saga = match begin_admin_saga(
+                backend,
+                req_id,
+                caller,
+                &original_method,
+                MutationDomain::MultiGraph,
+            ) {
+                Ok(saga) => saga,
+                Err(error) => return Ok(Response::err(req_id, error)),
+            };
+            if let Some(result) = saga.replayed {
+                return Ok(Response::ok(req_id, result));
+            }
             let Some(cat) = backend.catalog() else {
                 return Ok(no_catalog(req_id));
             };
@@ -123,10 +295,15 @@ pub(crate) async fn try_handle(
             match backend.rebalance_execute(&plan).await {
                 Ok(reports) => {
                     let moves: Vec<serde_json::Value> = reports.iter().map(report_json).collect();
-                    Ok(Response::ok(
-                        req_id,
+                    match finish_admin_saga(
+                        backend,
+                        saga.batch,
+                        saga.created_at_ms,
                         ResultPayload::Json(serde_json::json!({"executed": moves})),
-                    ))
+                    ) {
+                        Ok(result) => Ok(Response::ok(req_id, result)),
+                        Err(error) => Ok(Response::err(req_id, error)),
+                    }
                 }
                 Err(e) => Ok(Response::err(
                     req_id,
@@ -139,34 +316,90 @@ pub(crate) async fn try_handle(
             // ONLINE, no quiesce: per-shard begin_read() MVCC snapshot streamed verbatim.
             // The engine version + wall-clock timestamp are supplied HERE (application
             // code) — the library `backup` fn never reads the clock.
+            if label
+                .as_ref()
+                .is_some_and(|value| value.len() > 256 || value.chars().any(char::is_control))
+            {
+                return Ok(Response::err(req_id, "backup label is invalid"));
+            }
+            let (destination, stage) = match resolve_backup_destination(&destination, req_id) {
+                Ok(value) => value,
+                Err(error) => return Ok(Response::err(req_id, error)),
+            };
             let ts = now_secs();
             match backend.backup(
-                std::path::Path::new(&destination),
+                &stage,
                 env!("CARGO_PKG_VERSION"),
                 ts,
                 label.as_deref().unwrap_or(""),
             ) {
-                Ok(r) => Ok(Response::ok(
-                    req_id,
-                    ResultPayload::Json(serde_json::json!({
-                        "destination": destination,
-                        "label": label.unwrap_or_default(),
-                        "timestamp": ts,
-                        "engine_version": env!("CARGO_PKG_VERSION"),
-                        "shards": r.shards,
-                        "graphs": r.graphs,
-                        "nodes": r.nodes,
-                        "edges": r.edges,
-                        "ledger": r.ledger,
-                        "semantic": r.semantic,
-                        "audit": r.audit,
-                        "global": r.global,
-                    })),
-                )),
-                Err(e) => Ok(Response::err(req_id, format!("Backup failed: {e}"))),
+                Ok(r) => {
+                    if let Err(error) = std::fs::rename(&stage, &destination) {
+                        cleanup_backup_stage(&stage);
+                        return Ok(Response::err(
+                            req_id,
+                            format!(
+                                "Backup publication failed; error_ref={}",
+                                opaque_ref(&error.to_string())
+                            ),
+                        ));
+                    }
+                    Ok(Response::ok(
+                        req_id,
+                        ResultPayload::Json(serde_json::json!({
+                            "shards": r.shards,
+                            "graphs": r.graphs,
+                            "nodes": r.nodes,
+                            "edges": r.edges,
+                            "ledger": r.ledger,
+                            "semantic": r.semantic,
+                            "audit": r.audit,
+                            "auxiliary": r.auxiliary,
+                            "global": r.global,
+                            "xshard_prepares": r.xshard_prepares,
+                            "xshard_decisions": r.xshard_decisions,
+                            "admin_batches": r.admin_mutations.batches,
+                            "prepared_parents": r.admin_mutations.prepared,
+                            "encrypted_recovery_plans": r.admin_mutations.encrypted_private_payloads,
+                        })),
+                    ))
+                }
+                Err(e) => {
+                    cleanup_backup_stage(&stage);
+                    Ok(Response::err(
+                        req_id,
+                        format!("Backup failed; error_ref={}", opaque_ref(&e)),
+                    ))
+                }
             }
         }
-        Method::Restore { source } => {
+        Method::Restore {
+            source,
+            target_shards,
+        } => {
+            if !(1..=64).contains(&target_shards) {
+                return Ok(Response::err(
+                    req_id,
+                    "restore target shard count is outside bounds",
+                ));
+            }
+            let saga = match begin_admin_saga(
+                backend,
+                req_id,
+                caller,
+                &original_method,
+                MutationDomain::ControlPlane,
+            ) {
+                Ok(saga) => saga,
+                Err(error) => return Ok(Response::err(req_id, error)),
+            };
+            if let Some(result) = saga.replayed {
+                return Ok(Response::ok(req_id, result));
+            }
+            let source = match resolve_backup_source(&source) {
+                Ok(value) => value,
+                Err(error) => return Ok(Response::err(req_id, error)),
+            };
             // The running engine holds an exclusive lock on its live persist dir, so an
             // in-place restore is offline-only (use the `restore` CLI). Over the wire we
             // STAGE the rebuilt copy in a sibling dir for the operator to swap in.
@@ -176,41 +409,98 @@ pub(crate) async fn try_handle(
                     "cannot resolve the engine persist dir for a staged restore",
                 ));
             };
+            let stage_token = opaque_ref(&saga.batch.batch_id);
+            let suffix = stage_token.trim_start_matches("sha256:");
             let stage = persist_dir.with_file_name(format!(
                 "{}.restored-{}",
                 persist_dir
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "eg".to_string()),
-                now_secs()
+                suffix
             ));
-            match crate::server::persistence::backup::restore_bundle(
-                std::path::Path::new(&source),
-                &stage,
-                None,
-            ) {
-                Ok(r) => Ok(Response::ok(
-                    req_id,
-                    ResultPayload::Json(serde_json::json!({
-                        "source": source,
-                        "staged_dir": stage.display().to_string(),
-                        "note": "restored into a sibling dir; stop the engine and swap it \
-                                 into the persist dir to activate (in-place restore uses \
-                                 the offline `restore` CLI)",
+            // A crash after rebuilding the stage but before committing the
+            // portable receipt leaves the parent Prepared. Its deterministic
+            // retry must rebuild from a clean target rather than becoming
+            // permanently wedged on existing files. Never follow a substituted
+            // symlink outside the engine-owned sibling location.
+            if stage.exists() {
+                match std::fs::symlink_metadata(&stage) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        return Ok(Response::err(
+                            req_id,
+                            "staged restore target is not an engine-owned directory",
+                        ));
+                    }
+                    Ok(metadata) if metadata.is_dir() => {
+                        if let Err(error) = std::fs::remove_dir_all(&stage) {
+                            return Ok(Response::err(
+                                req_id,
+                                format!(
+                                    "Restore retry cleanup failed; error_ref={}",
+                                    opaque_ref(&error.to_string())
+                                ),
+                            ));
+                        }
+                    }
+                    Ok(_) => {
+                        return Ok(Response::err(
+                            req_id,
+                            "staged restore target is not an engine-owned directory",
+                        ));
+                    }
+                    Err(error) => {
+                        return Ok(Response::err(
+                            req_id,
+                            format!(
+                                "Restore retry inspection failed; error_ref={}",
+                                opaque_ref(&error.to_string())
+                            ),
+                        ));
+                    }
+                }
+            }
+            if let Err(error) = create_private_directory(&stage) {
+                return Ok(Response::err(req_id, error));
+            }
+            match crate::server::persistence::backup::restore_bundle(&source, &stage, target_shards)
+            {
+                Ok(r) => {
+                    // The receipt is portable and contains no local username or
+                    // filesystem reference. The deterministic stage token is
+                    // sufficient for an operator-side swap workflow.
+                    let durable = ResultPayload::Json(serde_json::json!({
+                        "stage_ref": stage_token,
                         "restored_shards": r.restored_shards,
-                        "bundle_engine_version": r.manifest.engine_version,
-                        "bundle_timestamp": r.manifest.timestamp,
-                        "bundle_label": r.manifest.label,
                         "graphs": r.migration.graphs,
                         "nodes": r.migration.nodes,
                         "edges": r.migration.edges,
                         "ledger": r.migration.ledger,
                         "semantic": r.migration.semantic,
                         "audit": r.migration.audit,
+                        "auxiliary": r.migration.auxiliary,
                         "global": r.migration.global,
-                    })),
-                )),
-                Err(e) => Ok(Response::err(req_id, format!("Restore failed: {e}"))),
+                        "xshard_prepares": r.manifest.xshard_prepares,
+                        "xshard_decisions": r.manifest.xshard_decisions,
+                        "admin_batches": r.admin_mutations.batches,
+                        "prepared_parents": r.admin_mutations.prepared,
+                        "encrypted_recovery_plans": r.admin_mutations.encrypted_private_payloads,
+                    }));
+                    match finish_admin_saga(backend, saga.batch, saga.created_at_ms, durable) {
+                        // Return the same portable receipt on first execution and
+                        // replay. The local staging path is intentionally neither
+                        // persisted nor exposed through the protocol.
+                        Ok(result) => Ok(Response::ok(req_id, result)),
+                        Err(error) => Ok(Response::err(req_id, error)),
+                    }
+                }
+                Err(e) => {
+                    cleanup_backup_stage(&stage);
+                    Ok(Response::err(
+                        req_id,
+                        format!("Restore failed; error_ref={}", opaque_ref(&e)),
+                    ))
+                }
             }
         }
         other => Err(other),
@@ -221,10 +511,20 @@ pub(crate) async fn try_handle(
 /// HANDLER (application code), never in the library `backup`/`restore_bundle` fns.
 #[cfg(feature = "redb")]
 fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    crate::server::dispatch::authoritative_now_secs()
+}
+
+#[cfg(feature = "redb")]
+fn opaque_ref(value: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    let digest = Sha256::digest(value.as_bytes());
+    let mut encoded = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(encoded, "{byte:02x}");
+    }
+    format!("sha256:{encoded}")
 }
 
 /// Non-redb build: every admin method returns a clean "not available" error.
@@ -232,6 +532,7 @@ fn now_secs() -> u64 {
 pub(crate) async fn try_handle(
     _state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    _caller: Option<&str>,
     method: Method,
 ) -> Result<Response, Method> {
     match method {
@@ -248,6 +549,278 @@ pub(crate) async fn try_handle(
             "M3 resharding admin is not available in this build (requires the `redb` feature)",
         )),
         other => Err(other),
+    }
+}
+
+#[cfg(feature = "redb")]
+pub(crate) struct AdminSaga {
+    pub(crate) batch: MutationBatch,
+    pub(crate) created_at_ms: u64,
+    pub(crate) replayed: Option<crate::protocol::ResultPayload>,
+}
+
+#[cfg(feature = "redb")]
+pub(crate) fn begin_admin_saga(
+    backend: &crate::server::persistence::redb_backend::RedbBackend,
+    req_id: u64,
+    caller: Option<&str>,
+    method: &Method,
+    domain: MutationDomain,
+) -> Result<AdminSaga, String> {
+    let batch_id = crate::server::mutation_batch::opaque_request_key(
+        "cluster-admin",
+        "cluster-admin",
+        req_id,
+        method,
+    );
+    begin_named_admin_saga(backend, req_id, caller, method, domain, &batch_id)
+}
+
+/// Begin or resume a coordinator whose identity spans request retries. Callers
+/// supply only an already-opaque key; transaction/session ids and payloads are
+/// never copied into the admin ledger.
+#[cfg(feature = "redb")]
+pub(crate) fn begin_named_admin_saga(
+    backend: &crate::server::persistence::redb_backend::RedbBackend,
+    req_id: u64,
+    caller: Option<&str>,
+    method: &Method,
+    domain: MutationDomain,
+    batch_id: &str,
+) -> Result<AdminSaga, String> {
+    let db = backend.admin_mutation_store();
+    let expected = eg_mutation_store::version(db, "native", "cluster-admin")?;
+    let now = crate::server::dispatch::authoritative_now_ms();
+    let batch = crate::server::mutation_batch::compile_opaque_method(
+        crate::server::mutation_batch::CompileBatch {
+            batch_id,
+            request_id: req_id,
+            principal: caller,
+            tenant: "native",
+            graph: "cluster-admin",
+            placement_epoch: 0,
+            idempotency_key: batch_id,
+            expected_graph_version: Some(expected),
+            fencing_token: None,
+            created_at_ms: now,
+            default_surface: MutationSurface::Other,
+            authoritative_state: None,
+        },
+        method,
+        MutationSurface::Other,
+        domain,
+        "cluster_admin_operation",
+    )?;
+    let replayed = match eg_mutation_store::prepare_saga(db, &batch, now)? {
+        eg_mutation_store::SagaBegin::Committed(record) => {
+            let bytes = record
+                .result_msgpack
+                .as_deref()
+                .ok_or_else(|| "committed admin saga has no result".to_string())?;
+            Some(rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?)
+        }
+        eg_mutation_store::SagaBegin::Execute | eg_mutation_store::SagaBegin::Resume(_) => None,
+    };
+    Ok(AdminSaga {
+        batch,
+        created_at_ms: now,
+        replayed,
+    })
+}
+
+/// Begin or resume a digest-only coordinator and atomically attach opaque private
+/// recovery bytes.  The caller must supply authenticated ciphertext whose plaintext
+/// SHA-256 is `payload_digest`; neither the canonical batch nor its outbox contains
+/// the private body.
+#[cfg(feature = "redb")]
+pub(crate) fn begin_named_admin_saga_with_private_payload(
+    backend: &crate::server::persistence::redb_backend::RedbBackend,
+    req_id: u64,
+    caller: Option<&str>,
+    domain: MutationDomain,
+    batch_id: &str,
+    event_type: &str,
+    payload_digest: &str,
+    encrypted_payload: &[u8],
+) -> Result<AdminSaga, String> {
+    let db = backend.admin_mutation_store();
+    let expected = eg_mutation_store::version(db, "native", "cluster-admin")?;
+    let now = crate::server::dispatch::authoritative_now_ms();
+    let batch = crate::server::mutation_batch::compile_opaque_digest(
+        crate::server::mutation_batch::CompileBatch {
+            batch_id,
+            request_id: req_id,
+            principal: caller,
+            tenant: "native",
+            graph: "cluster-admin",
+            placement_epoch: 0,
+            idempotency_key: batch_id,
+            expected_graph_version: Some(expected),
+            fencing_token: None,
+            created_at_ms: now,
+            default_surface: MutationSurface::Other,
+            authoritative_state: None,
+        },
+        payload_digest,
+        MutationSurface::Transaction,
+        domain,
+        event_type,
+    )?;
+    let replayed = match eg_mutation_store::prepare_saga_with_private_payload(
+        db,
+        &batch,
+        now,
+        Some(encrypted_payload),
+    )? {
+        eg_mutation_store::SagaBegin::Committed(record) => {
+            let bytes = record
+                .result_msgpack
+                .as_deref()
+                .ok_or_else(|| "committed admin saga has no result".to_string())?;
+            Some(rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?)
+        }
+        eg_mutation_store::SagaBegin::Execute | eg_mutation_store::SagaBegin::Resume(_) => None,
+    };
+    Ok(AdminSaga {
+        batch,
+        created_at_ms: now,
+        replayed,
+    })
+}
+
+/// Re-open the exact durable coordinator batch without reconstructing its original
+/// payload-bearing operation.  This is the crash-recovery path after ephemeral
+/// staging has disappeared.
+#[cfg(feature = "redb")]
+pub(crate) fn resume_named_admin_saga(
+    backend: &crate::server::persistence::redb_backend::RedbBackend,
+    batch_id: &str,
+    caller: Option<&str>,
+) -> Result<Option<AdminSaga>, String> {
+    let expected_principal = crate::server::mutation_batch::principal_fingerprint(
+        caller.ok_or_else(|| "coordinator recovery requires a verified principal".to_string())?,
+    )?;
+    let Some(record) = eg_mutation_store::read_record(backend.admin_mutation_store(), batch_id)?
+    else {
+        return Ok(None);
+    };
+    record.batch.validate()?;
+    if record.batch.batch_id != batch_id || record.batch.idempotency_key != batch_id {
+        return Err("coordinator receipt identity is corrupt".to_string());
+    }
+    if record.batch.context.principal != expected_principal {
+        return Err("coordinator receipt does not match caller scope".to_string());
+    }
+    let replayed = match record.status {
+        crate::mutation_batch::MutationBatchStatus::Prepared => None,
+        crate::mutation_batch::MutationBatchStatus::Committed => {
+            let bytes = record
+                .result_msgpack
+                .as_deref()
+                .ok_or_else(|| "committed admin saga has no result".to_string())?;
+            Some(rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?)
+        }
+        crate::mutation_batch::MutationBatchStatus::Aborted => {
+            return Err("coordinator receipt was aborted".to_string())
+        }
+    };
+    Ok(Some(AdminSaga {
+        batch: record.batch,
+        created_at_ms: record.committed_at_ms,
+        replayed,
+    }))
+}
+
+/// Read one terminal named coordinator receipt without re-creating the original
+/// payload-bearing operation. Used by acknowledgement-lost transaction retries.
+#[cfg(feature = "redb")]
+pub(crate) fn read_named_admin_saga_result(
+    backend: &crate::server::persistence::redb_backend::RedbBackend,
+    batch_id: &str,
+    caller: Option<&str>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    let expected_principal = crate::server::mutation_batch::principal_fingerprint(
+        caller.ok_or_else(|| "coordinator recovery requires a verified principal".to_string())?,
+    )?;
+    let Some(record) = eg_mutation_store::read_record(backend.admin_mutation_store(), batch_id)?
+    else {
+        return Ok(None);
+    };
+    if record.status != crate::mutation_batch::MutationBatchStatus::Committed {
+        return Ok(None);
+    }
+    if record.batch.context.principal != expected_principal {
+        return Err("committed coordinator receipt does not match caller scope".to_string());
+    }
+    let bytes = record
+        .result_msgpack
+        .as_deref()
+        .ok_or_else(|| "committed admin saga has no result".to_string())?;
+    rmp_serde::from_slice(bytes)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(feature = "redb")]
+pub(crate) fn finish_admin_saga(
+    backend: &crate::server::persistence::redb_backend::RedbBackend,
+    batch: MutationBatch,
+    committed_at_ms: u64,
+    result: crate::protocol::ResultPayload,
+) -> Result<crate::protocol::ResultPayload, String> {
+    let encoded = rmp_serde::to_vec_named(&result).map_err(|error| error.to_string())?;
+    let (record, replayed) = eg_mutation_store::commit_saga(
+        backend.admin_mutation_store(),
+        &batch,
+        encoded,
+        committed_at_ms,
+    )?;
+    if replayed {
+        let bytes = record
+            .result_msgpack
+            .as_deref()
+            .ok_or_else(|| "committed admin saga has no result".to_string())?;
+        rmp_serde::from_slice(bytes).map_err(|error| error.to_string())
+    } else {
+        Ok(result)
+    }
+}
+
+#[cfg(feature = "redb")]
+fn catalog_saga(
+    req_id: u64,
+    caller: Option<&str>,
+    backend: &crate::server::persistence::redb_backend::RedbBackend,
+    method: &Method,
+    apply: impl FnOnce(&crate::server::persistence::tenant_catalog::TenantCatalog) -> Result<(), String>,
+) -> Response {
+    let saga = match begin_admin_saga(
+        backend,
+        req_id,
+        caller,
+        method,
+        MutationDomain::ControlPlane,
+    ) {
+        Ok(saga) => saga,
+        Err(error) => return Response::err(req_id, error),
+    };
+    if let Some(result) = saga.replayed {
+        return Response::ok(req_id, result);
+    }
+    let Some(catalog) = backend.catalog() else {
+        return no_catalog(req_id);
+    };
+    if let Err(error) = apply(&catalog) {
+        return Response::err(req_id, format!("catalog write failed: {error}"));
+    }
+    match finish_admin_saga(
+        backend,
+        saga.batch,
+        saga.created_at_ms,
+        crate::protocol::ResultPayload::Bool(true),
+    ) {
+        Ok(result) => Response::ok(req_id, result),
+        Err(error) => Response::err(req_id, error),
     }
 }
 
@@ -293,24 +866,6 @@ fn plan_json(
         )
         .collect();
     serde_json::json!({"moves": moves, "shards": loads})
-}
-
-/// Run a catalog mutation, returning `Bool(true)` on success or a clean error when no
-/// catalog is attached / the write fails.
-#[cfg(feature = "redb")]
-fn with_catalog(
-    req_id: u64,
-    backend: &crate::server::persistence::redb_backend::RedbBackend,
-    f: impl FnOnce(&crate::server::persistence::tenant_catalog::TenantCatalog) -> Result<(), String>,
-) -> Response {
-    use crate::protocol::ResultPayload;
-    let Some(cat) = backend.catalog() else {
-        return no_catalog(req_id);
-    };
-    match f(&cat) {
-        Ok(()) => Response::ok(req_id, ResultPayload::Bool(true)),
-        Err(e) => Response::err(req_id, format!("catalog write failed: {e}")),
-    }
 }
 
 #[cfg(feature = "redb")]
@@ -361,4 +916,26 @@ async fn live_graph_loads(state: &Arc<RwLock<ServerState>>) -> (Vec<(String, u64
         .map(|r| r.shard_count())
         .unwrap_or(1);
     (loads, k)
+}
+
+#[cfg(all(test, feature = "redb"))]
+mod security_tests {
+    use super::backup_bundle_name;
+
+    #[test]
+    fn backup_bundle_names_are_logical_not_paths() {
+        for valid in ["scheduled-001", "snapshot_2", "release.3"] {
+            assert_eq!(backup_bundle_name(valid).unwrap(), valid);
+        }
+        for invalid in [
+            "",
+            ".hidden",
+            "../snapshot",
+            "nested/snapshot",
+            "C:\\snapshot",
+            "snapshot\n",
+        ] {
+            assert!(backup_bundle_name(invalid).is_err(), "accepted {invalid:?}");
+        }
+    }
 }

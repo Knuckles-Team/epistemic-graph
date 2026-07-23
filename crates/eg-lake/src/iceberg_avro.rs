@@ -269,6 +269,7 @@ fn manifest_entry_value(location: &str, f: &FileEntry, snapshot_id: i64) -> Avro
 /// with the required Iceberg manifest metadata in the container header.
 fn write_manifest(
     schema: &LakeSchema,
+    schema_id: i32,
     location: &str,
     live: &[&FileEntry],
     snapshot_id: i64,
@@ -278,11 +279,17 @@ fn write_manifest(
     let mut writer = Writer::new(&avro_schema, Vec::new());
 
     // Required Iceberg manifest metadata (lands in the Avro file header). A reader uses
-    // these to bind field-ids and inherit sequence numbers.
-    let ib_schema = iceberg_schema(schema).to_string();
+    // these to bind field-ids and inherit sequence numbers. `schema-id` is the table's
+    // CURRENT schema-id (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id, INT-P2-4) -- real Iceberg declares the
+    // manifest's schema at the MANIFEST level (one schema per manifest file), so this
+    // is spec-correct; a live file that predates a later evolution still carries ITS
+    // OWN schema-id on the JSON manifest preview (`crate::iceberg::build_iceberg`) even
+    // though this single Avro manifest's header names only the current one.
+    let ib_schema = iceberg_schema(schema, schema_id).to_string();
+    let schema_id_str = schema_id.to_string();
     let meta: [(&str, &str); 6] = [
         ("schema", ib_schema.as_str()),
-        ("schema-id", "0"),
+        ("schema-id", schema_id_str.as_str()),
         ("partition-spec", "[]"),
         ("partition-spec-id", "0"),
         ("format-version", "2"),
@@ -363,6 +370,7 @@ fn write_manifest_list(
 /// caller persists both byte blobs to the object store.
 pub fn build_iceberg_manifests(
     schema: &LakeSchema,
+    schema_id: i32,
     snapshot: &SnapshotLog,
     location: &str,
 ) -> Result<IcebergManifests, String> {
@@ -375,7 +383,7 @@ pub fn build_iceberg_manifests(
     let manifest_path = manifest_file_path(location, snapshot_id);
     let manifest_list_path = manifest_list_path(location, snapshot_id);
 
-    let manifest_avro = write_manifest(schema, location, &live, snapshot_id)?;
+    let manifest_avro = write_manifest(schema, schema_id, location, &live, snapshot_id)?;
     let manifest_list_avro = write_manifest_list(
         &manifest_path,
         manifest_avro.len() as i64,

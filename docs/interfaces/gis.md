@@ -79,7 +79,7 @@ nearest resource — the field-ops / urban-planning task layer over the spatial 
   store — see [sql](sql.md).
 - **GeoSPARQL** (feature `geosparql`): the `geo:` / `geof:` vocab, WKT/GML literals, and
   `sfWithin`/`sfIntersects`/`distance` + the RCC8/Egenhofer function families — see
-  [sparql](sparql.md#geosparql--spatial-sparql-eg-261155-feature-geosparql).
+  [sparql](sparql.md#geosparql).
 - **UQL**: `Op::SpatialScan` / `Op::SpatialOp` are first-class planner ops, so a spatial filter composes
   with `Traverse`/`Rank`/`Filter` in one [UQL](../uql.md) pipeline.
 

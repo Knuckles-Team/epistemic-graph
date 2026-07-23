@@ -1,4 +1,41 @@
-from .client import EpistemicGraphClient, SyncEpistemicGraphClient
+from .client import (
+    EpistemicGraphClient,
+    KnowledgeStreamBatch,
+    KnowledgeStreamClient,
+    KnowledgeStreamCursor,
+    KnowledgeStreamQuery,
+    ModalityApplyOutcome,
+    ModalityAuthority,
+    RequestContextClaims,
+    ResultTooLargeError,
+    ServedModalityCapabilities,
+    ServedModalityClient,
+    ServedModalityEvent,
+    ServedModalityPage,
+    ServedModalityStats,
+    StaleRouteError,
+    SyncEpistemicGraphClient,
+    validate_request_context,
+)
 from .parser import RustASTParser
 
-__all__ = ["EpistemicGraphClient", "SyncEpistemicGraphClient", "RustASTParser"]
+__all__ = [
+    "EpistemicGraphClient",
+    "SyncEpistemicGraphClient",
+    "KnowledgeStreamClient",
+    "KnowledgeStreamQuery",
+    "KnowledgeStreamCursor",
+    "KnowledgeStreamBatch",
+    "ServedModalityClient",
+    "ModalityAuthority",
+    "ModalityApplyOutcome",
+    "ServedModalityPage",
+    "ServedModalityEvent",
+    "ServedModalityStats",
+    "ServedModalityCapabilities",
+    "RequestContextClaims",
+    "validate_request_context",
+    "ResultTooLargeError",
+    "StaleRouteError",
+    "RustASTParser",
+]

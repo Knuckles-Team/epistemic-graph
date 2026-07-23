@@ -2,18 +2,18 @@
 
 > The program that turns epistemic-graph into an **analytical system embedded in the data**:
 > a slim, BLAS/LAPACK-free Rust numeric kernel (`crates/eg-numeric`) that serves **both**
-> Python-side array math (replacing numpy in agent-utilities) **and** — in later phases —
-> in-database analytics over engine-resident data. This page is the map; the shipped P1 kernel
+> Python-side array math (replacing direct numpy/scipy use in agent-utilities) **and**
+> in-database analytics over engine-resident data. This page is the map; the kernel
 > is documented in full at **[numeric-kernel](numeric_kernel.md)**.
 
 ## Thesis
 
-epistemic-graph already does **compute-near-data** for vectors (`batch_cosine_similarity`,
-`semantic_search` run server-side in Rust, zero numpy). The Analytics Program generalizes that
+epistemic-graph already does **compute-near-data** for vectors (`semantic_search` and
+`batch_l2_normalize` run server-side in Rust, zero numpy). The Analytics Program generalizes that
 proven pattern into **one numeric kernel exposed on two surfaces**:
 
 - **Surface A — in-process Python.** `epistemic_graph.numeric` (a pyo3 extension) + the
-  agent-utilities `xp` numpy-shim (`CONCEPT:AU-KG.compute.surface-analytics-program`, transparent numpy fallback). For
+  kernel-required agent-utilities `xp` surface (`CONCEPT:AU-KG.compute.surface-analytics-program`). For
   **transient** data (finance dataframes, ad-hoc KG math) computed in-process.
 - **Surface B — engine operators.** The *same* rlib exposed as DataFusion SQL UDFs/UDAFs +
   graph/vector/timeseries analytics, for **engine-resident** data (embeddings, columnar,
@@ -22,27 +22,29 @@ proven pattern into **one numeric kernel exposed on two surfaces**:
 **Decision rule:** data already in the engine → Surface B (compute-near-data). Data transient
 in Python → Surface A. Never round-trip transient data into the DB just to compute.
 
-## Status — honest, phased
+## Current capability
 
-| Phase | Scope | Status |
-|-------|-------|:------:|
-| **P1** | `eg-numeric` kernel (reductions/stats · element-wise · faer linalg · seedable random) + **Surface A** Python extension + the AU `xp` shim; 847 `np.allclose` parity checks | ✅ **shipped this release** (`CONCEPT:AU-KG.compute.numeric-kernel`) |
-| **P2–P3** | mechanical `import numpy as np` → `from agent_utilities.numeric import xp as np` migration (light-op files, then linalg files) | 🗺 follow-on |
-| **P4** | **Surface B** — DataFusion SQL UDFs/UDAFs over the kernel (`cosine_sim`/`l2_normalize`/`zscore`/`covariance`) + the `BatchL2Normalize` engine Method, all behind `numeric` (in the main build) | ▶ **first increment shipped** (`CONCEPT:EG-KG.query.surface-b-numeric-operators`/`EG-KG.compute.l2-normalize-batch-vectors`) |
-| **P4 (cont.)** | `svd(vec_col)` / `pca(vec_col,k)` column→matrix UDAFs (`MatrixAcc` row-buffering accumulator → dense `ndarray::Array2` → faer `svdvals`/`eigh`; results render as JSON arrays) | ✅ **shipped** (`CONCEPT:EG-KG.query.svd-eg-pca-column`/`EG-KG.query.concept-6`) |
-| **P4 (cont.)** | `kmeans(vec_col,k)` column→matrix clustering UDAF (new pure-Rust `eg-numeric::cluster` Lloyd + k-means++ kernel, **no linfa/BLAS**; one `List<Int64>` label per row) | ✅ **shipped** (`CONCEPT:EG-KG.query.kmeans-clustering-half-one`) |
-| **P4 — the differentiator** | **cross-modal join → PCA/cluster in-engine** — join graph ⋈ vector ⋈ timeseries, then `pca`/`kmeans`/`covariance` over the joined result set in-engine (**impossible in numpy** — no data layer). E2E-proven in `crates/eg-query/tests/cross_modal_analytics.rs` | ✅ **shipped** (`CONCEPT:EG-KG.query.eg-3`) |
-| **P4 (next)** | graph/timeseries unification under the kernel via native `Method` surfaces (beyond SQL) | 🗺 follow-on |
-| **P5** | drop numpy/scipy from agent-utilities; the `eg-numeric` wheel is the dep (the `xp` shim stays so future backend swaps remain mechanical) | 🗺 follow-on |
+| Surface | Scope |
+|---------|-------|
+| Rust kernel | `eg-numeric` reductions, statistics, element-wise operations, faer linear algebra, seedable random operations, and 847 `np.allclose` parity checks (`CONCEPT:AU-KG.compute.numeric-kernel`) |
+| Python | `epistemic_graph.numeric` plus `from agent_utilities.numeric import xp as np`; the compiled kernel is required |
+| SQL analytics | DataFusion `cosine_sim`, `l2_normalize`, `zscore`, `covariance`, `svd`, `pca`, and `kmeans` operators over resident data |
+| Native method | `BatchL2Normalize` through the engine client |
+| Cross-modal analytics | Graph ⋈ vector ⋈ time-series joins followed by PCA, clustering, or covariance in the shared query path (`CONCEPT:EG-KG.query.eg-3`) |
+| Agent Utilities dependency | `epistemic-graph[full]`; Python `[full]` includes numeric interoperability dependencies, while the `xp` surface retains a kernel-owned numpy tail for unsupported shapes |
 
-> **Release policy.** P1 ships in the current release. **P2–P5 + full Surface B** proceed as a
-> parallel follow-on program *after* this release — they do **not** block the current publish.
+> **Release policy.** Agent Utilities installs the approved
+> `epistemic-graph[full]` artifact. Importing its numeric compatibility
+> surface without the compiled kernel fails immediately; there is no package-level
+> fallback or partial engine profile.
 
-## Pi contract
+## Rust/Python feature boundary
 
-The `numeric` cargo feature (`numeric = ["dep:eg-numeric"]`) is part of the one main build, so a
-full-featured engine links the pure faer/ndarray kernel. pyo3 sits behind eg-numeric's own
-`python` feature, off in every engine build (`cargo tree | grep -ci pyo3` = 0).
+Cargo `full` includes the `numeric` Rust feature, so the main engine links the pure
+faer/ndarray kernel. The Python `[full]` extra applies only at installation time
+and includes `[numeric]`; it does not select Rust features. pyo3 sits behind the
+kernel crate's `python` feature and remains off in the server binary
+(`cargo tree | grep -ci pyo3` = 0).
 
 ## Synergies
 
@@ -54,8 +56,8 @@ full-featured engine links the pure faer/ndarray kernel. pyo3 sits behind eg-num
 
 ## References
 
-- Shipped P1 kernel & op-surface: **[numeric-kernel](numeric_kernel.md)** (`CONCEPT:AU-KG.compute.numeric-kernel`).
-- AU-side `xp` shim & migration: `agent_utilities/numeric/` (`CONCEPT:AU-KG.compute.surface-analytics-program`) and the
+- Rust kernel and operation surface: **[numeric-kernel](numeric_kernel.md)** (`CONCEPT:AU-KG.compute.numeric-kernel`).
+- Agent Utilities `xp` surface: `agent_utilities/numeric/` (`CONCEPT:AU-KG.compute.surface-analytics-program`) and the
   agent-utilities KV-cache-layering / numeric docs.
 - Full end-to-end program tracker: `plans/epistemic-graph-analytics_program.md` (workspace).
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import signal
@@ -14,6 +15,20 @@ import subprocess
 import sys
 
 logger = logging.getLogger(__name__)
+
+
+def _request_context(raw: str) -> dict:
+    from .client import validate_request_context
+
+    if not raw:
+        raise SystemExit(
+            "EPISTEMIC_GRAPH_REQUEST_CONTEXT_JSON is required for client commands"
+        )
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit("request context JSON is invalid") from exc
+    return validate_request_context(value)
 
 
 def _default_socket_path() -> str:
@@ -73,8 +88,6 @@ def cmd_start(args: argparse.Namespace) -> None:
     cmd = [binary, "--socket-path", args.socket_path]
     if args.tcp_addr:
         cmd.extend(["--tcp-addr", args.tcp_addr])
-    if args.auth_secret:
-        cmd.extend(["--auth-secret", args.auth_secret])
     if args.persist_dir:
         cmd.extend(["--persist-dir", args.persist_dir])
 
@@ -141,7 +154,7 @@ def cmd_ping(args: argparse.Namespace) -> None:
     async def _ping() -> None:
         client = await EpistemicGraphClient.connect(
             socket_path=args.socket_path,
-            auth_secret=args.auth_secret,
+            verified_context=_request_context(args.request_context_json),
         )
         result = await client.ping()
         print(f"Pong: {result}")
@@ -157,7 +170,7 @@ def cmd_graphs_list(args: argparse.Namespace) -> None:
     async def _list() -> None:
         client = await EpistemicGraphClient.connect(
             socket_path=args.socket_path,
-            auth_secret=args.auth_secret,
+            verified_context=_request_context(args.request_context_json),
         )
         graphs = await client.tenants.list()
         if not graphs:
@@ -182,9 +195,9 @@ def main() -> None:
         help="Unix Domain Socket path",
     )
     parser.add_argument(
-        "--auth-secret",
-        default=os.environ.get("GRAPH_SERVICE_AUTH_SECRET", ""),
-        help="HMAC-SHA256 shared secret",
+        "--request-context-json",
+        default=os.environ.get("EPISTEMIC_GRAPH_REQUEST_CONTEXT_JSON", ""),
+        help="Complete current request-context claims as JSON",
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -192,7 +205,7 @@ def main() -> None:
     # start
     sp_start = subparsers.add_parser("start", help="Start the service")
     sp_start.add_argument("--tcp-addr", help="Optional TCP address (host:port)")
-    sp_start.add_argument("--persist-dir", help="Checkpoint persistence directory")
+    sp_start.add_argument("--persist-dir", help="Durable engine data directory")
     sp_start.set_defaults(func=cmd_start)
 
     # stop

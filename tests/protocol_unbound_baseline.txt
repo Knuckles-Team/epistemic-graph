@@ -1,13 +1,11 @@
 # Rust `Method` variants intentionally NOT bound in the thin epistemic_graph
 # Python client (see tests/test_protocol_parity.py). Each line is a variant name.
-# A variant belongs here only if it is reached some other way (e.g. GetTriples
-# is issued from agent-utilities' SPARQL fast path, not this client) or is an
-# engine-internal/maintenance op. Adding a NEW Method variant forces a choice:
+# A variant belongs here only if it is reached through a declared wire adapter or
+# is an engine-internal/maintenance op. Adding a NEW Method variant forces a choice:
 # bind it in client.py, or add it here with a reason — the gate fails otherwise.
 CompactNodesByType
 DiffAgainst
 Fork
-GetTriples
 # Distributed graph compute (CONCEPT:KG-2.227, `compute-dist` feature, cluster tier):
 # cross-shard Pregel + the materialized-view lifecycle. These are cluster-orchestrated
 # server ops driven by the engine's multi-Raft coordinator, not the thin client's
@@ -61,9 +59,15 @@ RunRules
 # (client.broker.* / client.query.nl_query / client.rbac.* / client.admin.*), so they are
 # NO LONGER listed here — they now have a Python sender. See docs/interfaces/clients.md.
 
-# SHACL/ShEx validation (CONCEPT:EG-132/133): reached via the RDF/SPARQL surface.
-ShaclValidate
+# ShEx validation (CONCEPT:EG-133): reached via the RDF/SPARQL surface. SHACL
+# validation is bound as `client.rdf.validate_shacl` and is no longer baselined.
 ShexValidate
+# X5-enforce write-time ICV policy registration (CONCEPT:EG-KG.ontology.rdf-update-guard):
+# the write-time counterpart of SHACL validation, reached through connector governance — the SHACL
+# shapes payload is emitted by agent-utilities' connector-manifest compiler (alongside
+# its RLS/ABAC policy output) and registered directly, not through this thin
+# nodes/edges/graph client. Bind here until a Python RDF/ICV sub-client is added.
+IcvConfigure
 
 # --- EG-318 agent-memory / scene-graph / trajectory + CEP wire ops (deferred to B3.16 / B3.14) ---
 # These expose eg-core LIBRARY primitives over the wire (hierarchical summaries EG-220,
@@ -97,3 +101,9 @@ DiscountedReturn
 CepSubscribe
 CepUnsubscribe
 CepPoll
+
+# Durable analytics job plane (INT-P2-1, `jobs` feature) — submit/status/cancel/resume
+# over a redb-backed AnalyticsJob state machine, and the generic in-flight CancelRequest —
+# are now BOUND (gap-fill program): client.jobs.{submit,status,cancel,resume}
+# (Method::AnalyticsJob) and client.cancel_request (Method::CancelRequest). No longer
+# listed here — they now have a Python sender.

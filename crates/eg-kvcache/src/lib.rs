@@ -18,6 +18,15 @@
 //!   fetch a page a warm worker already computed. This is the seam an external
 //!   vLLM/LMCache connector calls.
 //!
+//! * **Zero-copy snapshot-fork (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork)** — the
+//!   "LMCacheMPConnector snapshot → branch" primitive on [`SharedKvIndex`]:
+//!   [`snapshot`](SharedKvIndex::snapshot) pins a set of shared pages, then
+//!   [`fork`](SharedKvIndex::fork) fans out N branches that all read those SAME physical
+//!   pages by `Arc` (ONE copy, regardless of branch count), copy-on-write only when a
+//!   branch [`branch_put`](SharedKvIndex::branch_put)s. This makes warm-fork fan-out O(1)
+//!   in copies — the zero-copy rung the agent-utilities `crossmodal_fork` `max_concurrency>1`
+//!   path targets, replacing per-branch page COPIES with pointer bumps.
+//!
 //! ## Dependency posture (the Pi contract)
 //!
 //! The default build links NOTHING — the content hash (FNV-1a-128), the WARM compressor
@@ -42,9 +51,22 @@ pub mod tiered;
 pub mod value;
 pub mod version;
 
+// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for StoredBlock`,
+// behind the crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
+
+// Graph-guided paging adapter (CONCEPT:EG-KG.memory.graph-guided-paging): computes
+// PageRank/centrality importance scores over an `eg-compute::GraphView` and shapes them
+// for `TieredCache::apply_importance_scores`. Behind the crate's own opt-in `graph`
+// feature (default OFF, pulls `eg-compute`) — the core `TieredCache::set_importance`
+// mechanism itself stays dependency-free either way. See `src/graph_importance.rs`.
+#[cfg(feature = "graph")]
+pub mod graph_importance;
+
 pub use compress::{Codec, StoredBlock};
 pub use hash::content_hash;
-pub use shared::{SharedKvBackend, SharedKvIndex, SharedStats};
+pub use shared::{BranchId, ForkStats, SharedKvBackend, SharedKvIndex, SharedStats, SnapshotId};
 pub use tiered::{CacheStats, Tier, TieredCache};
 pub use value::{Block, CacheValue};
 pub use version::DataVersion;

@@ -49,8 +49,6 @@ ex:p4 a ex:Paper .
         &mut iris,
         "g",
         eg_rdf::mapping::parse_turtle(ttl).unwrap(),
-        #[cfg(feature = "rdf-redb")]
-        None,
     )
     .unwrap();
 
@@ -546,4 +544,91 @@ fn tsdb_scan_without_store_is_empty() {
         out.is_empty(),
         "TsScan with no store must degrade to empty, not err"
     );
+}
+
+/// A committed store without the complete verified `(tenant, graph)` scope is
+/// unreachable, even when the requested local series id exists.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsdb_scan_rejects_unscoped_committed_store() {
+    use crate::exec::{execute, PlanCtx};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_tsdb::point::Point;
+    use eg_tsdb::store::{SeriesKey, SeriesStore};
+    use eg_types::wire::{Op, Plan};
+
+    let path = temp_store_path("graph_scope");
+    let store = SeriesStore::open(&path).unwrap();
+    store
+        .append_scoped(
+            &SeriesKey::new("acme", "acme:metrics", "cpu"),
+            1,
+            1_000_000_000,
+            &["value".into()],
+            &[Point::single(1_000_000_000, 10.0)],
+        )
+        .unwrap();
+    let core = GraphCore::new();
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let plan = Plan::new(vec![Op::TsScan {
+        series: vec!["cpu".into()],
+        from: 0.0,
+        to: 2.0,
+    }]);
+    let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+    let out = execute(&plan, &ctx).unwrap();
+    assert!(out.is_empty());
+    let _ = std::fs::remove_file(path);
+}
+
+/// The served two-component scope separates Alice/Bob inside one tenant and also
+/// rejects the same actor namespace under another tenant.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsdb_scan_honors_verified_actor_and_tenant_scope() {
+    use crate::exec::{execute, PlanCtx};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_tsdb::point::Point;
+    use eg_tsdb::store::{SeriesKey, SeriesStore};
+    use eg_types::wire::{Op, Plan};
+
+    let path = temp_store_path("verified_owner_scope");
+    let store = SeriesStore::open(&path).unwrap();
+    for (tenant, owner_graph, value) in [
+        ("tenant-a", "alice-owner", 10.0),
+        ("tenant-a", "bob-owner", 20.0),
+        ("tenant-b", "alice-owner", 30.0),
+    ] {
+        store
+            .append_scoped(
+                &SeriesKey::new(tenant, owner_graph, "cpu"),
+                1,
+                1_000_000_000,
+                &["value".into()],
+                &[Point::single(1_000_000_000, value)],
+            )
+            .unwrap();
+    }
+
+    let core = GraphCore::new();
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let plan = Plan::new(vec![Op::TsScan {
+        series: vec!["cpu".into()],
+        from: 0.0,
+        to: 2.0,
+    }]);
+    let score = |tenant, owner_graph| {
+        let ctx = PlanCtx::new(&view, &semantic)
+            .with_tsdb(&store)
+            .with_tsdb_scope(tenant, owner_graph);
+        execute(&plan, &ctx).unwrap().rows()[0].score
+    };
+    assert_eq!(score("tenant-a", "alice-owner"), Some(10.0));
+    assert_eq!(score("tenant-a", "bob-owner"), Some(20.0));
+    assert_eq!(score("tenant-b", "alice-owner"), Some(30.0));
+    let _ = std::fs::remove_file(path);
 }

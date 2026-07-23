@@ -1,21 +1,14 @@
 # One build, opt-in layers
 
-The engine ships as **one binary** built from a single Cargo workspace. There is **no
-longer a pi / pi-max / node deployment-tier split** (CONCEPT:EG-KG.sharding.deployment-tiers): the `default` build
-*is* the full-featured build — every MAIN feature that compiles without an external
-GPU/robotics toolchain. Two thin **opt-in layers** stack on top for the cases the
+The engine ships as **one binary** built from a single Cargo workspace. The `default`
+build *is* the full-featured Rust build: every main feature that compiles without an
+external GPU or robotics toolchain. Two **opt-in feature layers** stack on top for the cases the
 single-node main build cannot cover on its own. This page is the **feature-composition
 map**; for build commands, wheel recipes, and Docker, see [Deployment](../deployment.md).
 
-> **Why the tiers were removed.** The old `pi` / `node` tiers existed to STRIP heavy deps
-> (DataFusion, etc.) into a tiny Raspberry-Pi-3 binary. But every tier compiled a
-> *different* binary while sharing the SAME wheel filename
-> (`epistemic_graph-<ver>-py3-none-<platform>`), so only one tier could ever publish to
-> PyPI. Collapsing to one build makes the published wheel the true full-featured system
-> **and** removes the filename collision. The build targets **Raspberry Pi 4+** (not Pi 3).
-
-> **Vocabulary note.** There is **no "tiny = SQLite/LadybugDB"** and **no L0/L1/L2/L3 tier**
-> model. The engine is the one store at every scale, redb-authoritative throughout.
+The engine is the same redb-authoritative store at every supported scale. The
+published wheel contains the main Rust build; Python extras select Python runtime
+dependencies and never recompile or reduce the Rust binary.
 
 ---
 
@@ -74,19 +67,29 @@ engine **plus** its extra capability.
 
 ## Invariants (asserted by `cargo tree`)
 
-The old "no-DataFusion Pi contract" is **retired for DataFusion** — SQL/DataFusion is now
-part of the main build. These invariants still hold and gate the tree:
+SQL/DataFusion is part of the main build. These dependency boundaries gate the tree:
 
 | Dependency | In the default/main build? | Enforced by |
 |------------|:--------------------------:|-------------|
-| DataFusion | **yes** (query is a main feature now) | — (previously forbidden; now expected) |
+| DataFusion | **yes** (query is a main feature) | `cargo tree -i datafusion` on default |
 | PyO3 | **no** — in any build (`bindings = "bin"`) | `scripts/check_no_pyo3.sh` |
 | openraft | **no** — `cluster`-only | `cargo tree -i openraft` on default ⇒ none |
 | cudarc / rustdds | **no** — `full-extras`-only | `cargo tree -i cudarc` / `-i rustdds` on default ⇒ none |
 
-The engine binary never links a Python extension; the numeric Surface-A kernel is a
-**separate** maturin pyo3 cdylib folded into the wheel post-build, so the binary's
-no-PyO3 guarantee is untouched.
+The engine binary never links a Python extension. Release composition places the
+compiled numeric extension at `epistemic_graph.numeric` in the same wheel while
+preserving the server binary's no-PyO3 boundary.
+
+## Cargo `full` and Python `[full]`
+
+These names apply at different layers:
+
+- Cargo `full` is the Rust feature aggregate and is enabled by `default`; it includes
+  the server, query engines, durable store, wire surfaces, native analytics, numeric
+  kernels, and program optimization.
+- Python `[full]` is an installation extra for the already-compiled wheel. It adds
+  Python-side OWL, LMCache, and numeric-interoperability dependencies. It includes
+  the Python `numeric` extra, so no second numeric extra is needed.
 
 See [Deployment](../deployment.md) for the `cargo build` / `maturin` / Docker recipes and
 [the cost model](../cost_model.md) for mapping a workload to RAM and shard count.

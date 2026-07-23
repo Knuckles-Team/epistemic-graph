@@ -12,15 +12,33 @@ pure-Rust and shares the engine's one durability model.
 
 ## The store
 
-`SeriesStore` keeps columnar chunks under a composite redb key `(series_id, bucket_start)`:
+`SeriesStore` keeps columnar chunks under a composite redb key
+`(canonical_scope, bucket_start)`, where `canonical_scope` is a versioned,
+length-prefixed `(tenant, graph, series_id)` identity. Public `Ts*` requests always pass
+through the target graph's ACL and placement route before the store is opened; `TsAppend`
+requires write access and the range/ASOF/window/gap-fill operations require read access.
+The same local series name can therefore be used in two tenant graphs without sharing
+metadata or points.
 
-- `append_batch` amortizes the fsync across a group of points in one transaction;
-- `range` does a bounded scan over a `[from, to)` window;
-- `evict_before` applies retention, trimming straddling buckets at the boundary (per-point trim, EG-KG.temporal.bucket-cutoff-trim),
+- `append_scoped` amortizes the fsync across a group of points and commits its projection cursor in the same transaction;
+- `range_scoped` does a bounded scan over a `[from, to)` window within one tenant/graph scope;
+- `evict_before_scoped` applies retention, trimming straddling buckets at the boundary (per-point trim, EG-KG.temporal.bucket-cutoff-trim),
   not just whole-bucket eviction.
 
+Cross-modal transactions persist this same canonical key in the authoritative
+authoritative shard copy. Startup reconciliation records a durable count/timestamp-span high-water
+cursor in `series.redb`; an interrupted projection is reported as `catching_up` or
+`degraded` and is replayed without duplicating points.
+
+| Validation | Coverage |
+|---|---|
+| Canonical-key collision | Equal local ids in different tenants return different points. |
+| Negative authorization | An agent cannot read another agent graph's identically named series. |
+| Restart | Canonical keys and the durable projection cursor survive store reopen. |
+| Crash reconciliation | Authoritative points replay once; a second pass is a no-op. |
+
 A **columnar (struct-of-arrays) segment layout** (EG-089) backs analytical scans over the tsdb/table store
-— the same layout the SQL window functions read (see [sql](sql.md#window-functions--columnar-scans-eg-089)).
+— the same layout the SQL window functions read (see [sql](sql.md#window-functions)).
 
 ## Time operations (native, no DataFusion)
 
@@ -46,7 +64,7 @@ MATCH (:Reading)
   |> LIMIT 100
 ```
 
-## PromQL / Prometheus HTTP API (EG-172, feature `promql` on the `obs` listener)
+## PromQL / Prometheus HTTP API (EG-172, feature `promql` on the `obs` listener) {#promql-api}
 
 A PromQL evaluator (instant/range vectors, selectors, `rate`/`sum`/`avg`/`max`/`min`/histogram functions,
 binary ops) over the eg-tsdb metric series is exposed as a Prometheus-compatible HTTP API on the obs
@@ -64,9 +82,7 @@ surface (logs + PromQL + traces) — see [observability](observability.md).
 
 `CREATE EXTENSION timescaledb` lights up `create_hypertable()`, `time_bucket()` gap-fill, and
 `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous)` continuous aggregates, lowered onto this
-time-series store + `Op::Window` — see [sql](sql.md#postgres-extensions--create-extension-eg-102).
-</content>
-
+time-series store + `Op::Window` — see [sql](sql.md#create-extension).
 ---
 
 **See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](sql.md) · [Observability](observability.md) · [Messaging & Broker](messaging.md) · [Connecting (per-wire guide)](connecting.md).

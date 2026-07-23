@@ -2,21 +2,20 @@
 //! commit path (CONCEPT:EG-KG.ontology.rdf-update-guard).
 //!
 //! The enforcement WIRING lives in `eg-rdf` (the [`eg_rdf::guard::WriteGuard`] hook +
-//! [`eg_rdf::update::execute_guarded`]); the ICV POLICY that implements the hook lives in
+//! [`eg_rdf::update::execute`]); the ICV POLICY that implements the hook lives in
 //! `eg-shacl` (which sits ABOVE eg-rdf in the DAG and is used here as a DEV-dependency).
-//! This test drives a real [`eg_rdf::update::MapStore`] through `execute_guarded` and
+//! This test drives a real [`eg_rdf::update::MapStore`] through the mandatory guard and
 //! asserts:
 //!
-//!  * `Enforce` REJECTS a change set that would introduce an integrity violation, and the
+//!  * the policy REJECTS a change set that would introduce an integrity violation, and the
 //!    store is left UNCHANGED (nothing committed) — the rejection carries the introduced
 //!    violation(s) with their SPARQL witness;
-//!  * `Enforce` ACCEPTS a clean change set (it commits);
-//!  * `Warn` logs but APPLIES the violating change;
-//!  * `Off` (and an empty registry) leaves the write path unchanged.
+//!  * the policy ACCEPTS a clean change set (it commits);
+//!  * an empty registry fails closed.
 
-use eg_rdf::sparql::{run_outcome, Projection, QueryOutcome};
-use eg_rdf::update::{execute_guarded_str, MapStore, UpdateError};
-use eg_shacl::{IcvMode, IcvPolicy, IcvPolicyRegistry};
+use eg_rdf::sparql::{execute, Dataset, Projection, QueryOutcome};
+use eg_rdf::update::{execute_str, MapStore, UpdateError};
+use eg_shacl::{IcvPolicy, IcvPolicyRegistry};
 
 const PREFIXES: &str = r#"
 @prefix sh:   <http://www.w3.org/ns/shacl#> .
@@ -32,29 +31,30 @@ ex:PersonShape a sh:NodeShape ;
     sh:property [ sh:path ex:manager ; sh:maxCount 1 ] .
 "#;
 
-fn policy(mode: IcvMode) -> IcvPolicyRegistry {
-    let p = IcvPolicy::from_turtle(mode, &format!("{PREFIXES}{SHAPES}")).unwrap();
+fn policy() -> IcvPolicyRegistry {
+    let p = IcvPolicy::from_turtle(&format!("{PREFIXES}{SHAPES}")).unwrap();
     IcvPolicyRegistry::new().with(None, p)
 }
 
 /// Seed a conforming base: one Person with exactly one manager.
 fn seed(store: &MapStore) {
-    execute_guarded_str(
+    execute_str(
         "PREFIX ex: <http://example.org/>
          INSERT DATA { ex:a a ex:Person ; ex:manager ex:m1 }",
         store,
         &Projection::raw(),
-        &IcvPolicyRegistry::new(), // inactive guard for the seed
+        &policy(),
     )
     .expect("seed");
 }
 
 fn manager_count(store: &MapStore) -> usize {
     let view = store.core_of(None).analysis_snapshot();
-    match run_outcome(
-        &view,
+    match execute(
+        &Dataset::new(&view, Vec::new()),
         "SELECT ?m WHERE { <http://example.org/a> <http://example.org/manager> ?m }",
         &Projection::raw(),
+        None,
     )
     .unwrap()
     {
@@ -72,13 +72,8 @@ fn eg300_enforce_rejects_violating_change_and_leaves_store_unchanged() {
     seed(&store);
     assert_eq!(manager_count(&store), 1);
 
-    let err = execute_guarded_str(
-        ADD_SECOND_MANAGER,
-        &store,
-        &Projection::raw(),
-        &policy(IcvMode::Enforce),
-    )
-    .expect_err("Enforce must reject a maxCount-breaking change");
+    let err = execute_str(ADD_SECOND_MANAGER, &store, &Projection::raw(), &policy())
+        .expect_err("Enforce must reject a maxCount-breaking change");
 
     match err {
         UpdateError::Rejected(rej) => {
@@ -108,11 +103,11 @@ fn eg300_enforce_accepts_clean_change() {
     let store = MapStore::new();
     seed(&store);
 
-    let report = execute_guarded_str(
+    let report = execute_str(
         "PREFIX ex: <http://example.org/> INSERT DATA { ex:a ex:nickname \"Ay\" }",
         &store,
         &Projection::raw(),
-        &policy(IcvMode::Enforce),
+        &policy(),
     )
     .expect("clean change under Enforce must commit");
     assert_eq!(report.inserted, 1);
@@ -122,39 +117,17 @@ fn eg300_enforce_accepts_clean_change() {
 }
 
 #[test]
-fn eg300_warn_logs_but_applies_the_violating_change() {
+fn eg300_missing_policy_rejects_the_write() {
     let store = MapStore::new();
     seed(&store);
 
-    execute_guarded_str(
+    let error = execute_str(
         ADD_SECOND_MANAGER,
         &store,
         &Projection::raw(),
-        &policy(IcvMode::Warn),
+        &IcvPolicyRegistry::new(),
     )
-    .expect("Warn never aborts");
-
-    // Warn APPLIES — the second manager is now present.
-    assert_eq!(
-        manager_count(&store),
-        2,
-        "Warn mode applies the change (it only logs)"
-    );
-}
-
-#[test]
-fn eg300_off_leaves_the_write_path_unchanged() {
-    let store = MapStore::new();
-    seed(&store);
-
-    // An all-Off registry (and, equivalently, an empty one) is an inactive guard: the
-    // violating change is applied exactly as the plain write path would.
-    execute_guarded_str(
-        ADD_SECOND_MANAGER,
-        &store,
-        &Projection::raw(),
-        &policy(IcvMode::Off),
-    )
-    .expect("Off is inert");
-    assert_eq!(manager_count(&store), 2, "Off applies the change unchanged");
+    .expect_err("missing integrity policy must reject");
+    assert!(matches!(error, UpdateError::Rejected(_)));
+    assert_eq!(manager_count(&store), 1);
 }

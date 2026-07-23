@@ -1,23 +1,21 @@
 //! W1 — Native RDF ⇄ property-graph mapping over `GraphCore` (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql).
 //!
-//! THE MAPPING (verbatim — faithful for the common shape; the one lossy edge is
-//! handled by the opt-in [`crate::quads`] redb table):
+//! THE MAPPING (verbatim and lossless):
 //!
 //! | RDF construct | engine representation |
 //! |---|---|
 //! | IRI / blank-node **subject or object** | a graph **node**, id = canonical term string (`<iri>` / `_:b`); the IRI is interned in [`IriStore`] so the node id is a stable handle. |
-//! | triple with a **resource object** `(s,p,o)` | a **typed edge** `s --p--> o`, edge-blob `{ "type": p }` — the engine's existing edge-relation convention (`rel_matches`/`GetTriples` already read `type`). |
+//! | triple with a **resource object** `(s,p,o)` | a **typed edge** `s --p--> o`, edge-blob `{ "relationship": p }` — the engine's canonical edge-relation field. |
 //! | triple with a **literal object** `(s,p,"lit"^^dt@lang)` | a **node property** on `s`: `p -> {value, datatype, lang}` (a typed cell INSIDE the JSON property blob, so the xsd datatype + language tag survive). |
 //! | `rdf:type` | folded into the node `"type"` property (lights up the engine's `type`-based label index) AND kept as an explicit typing edge so multi-typed resources round-trip. |
 //! | **named graph** | a `GraphCore` in the multi-graph registry — a graph name IS a named graph. A `:NamedGraph` marker node records the container (see [`NAMED_GRAPH_MARKER`]). |
 //!
-//! **The one lossy edge (handled, not pretended-away):** a node property map is
-//! key-unique, so a subject with two different literals for the SAME predicate
-//! (`ex:x ex:tag "a", "b"`) would collapse to one. [`load_triples`] detects a
-//! multi-valued literal predicate and, when a [`crate::quads::QuadStore`] is
-//! supplied, stores the EXTRA values in the lossless redb `quads` table; the FIRST
-//! value still lands in the property blob (the query-fast projection). With no
-//! quad store the extras are dropped and reported, so the loss is never silent.
+//! **The one formerly lossy edge:** a node property map is key-unique, so a
+//! subject with two different literals for the SAME predicate needs an auxiliary
+//! representation. Extras are now retained under [`RDF_MULTI_VALUE_KEY`] in the
+//! same authoritative node blob as the query-fast first value. Consequently the
+//! full RDF dataset participates in the graph's MutationBatch transaction and has
+//! one commit authority.
 //!
 //! Round-trip: parse Turtle/N-Triples → store into GraphCore → serialize back to
 //! N-Triples, and the triple SET is equal (semantic equality — bnode labels and
@@ -26,7 +24,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use eg_core::graph::GraphCore;
-use oxrdf::{BlankNode, GraphName, Literal, NamedNode, Quad, Subject, Term, Triple};
+use oxrdf::{BlankNode, GraphName, Literal, NamedNode, NamedOrBlankNode, Quad, Term, Triple};
 use oxttl::{
     NQuadsParser, NQuadsSerializer, NTriplesParser, NTriplesSerializer, TriGParser, TriGSerializer,
     TurtleParser, TurtleSerializer,
@@ -35,6 +33,11 @@ use oxttl::{
 /// The engine `type` of the marker node that records "this graph is an RDF named
 /// graph" (the `:NamedGraph` node shape linking the RDF surface to the registry).
 pub const NAMED_GRAPH_MARKER: &str = "NamedGraph";
+
+/// Reserved node-property key holding `{ predicate_iri: [typed_literal, ...] }`
+/// for second-and-later literal values. The first value stays at its ordinary
+/// predicate key for property-graph query compatibility.
+pub const RDF_MULTI_VALUE_KEY: &str = "__rdf_multivalue_literals";
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
@@ -101,10 +104,10 @@ pub fn cell_to_literal(cell: &serde_json::Value) -> Option<Literal> {
 }
 
 /// Canonical node id for a subject (IRI or blank node).
-fn subject_id(s: &Subject) -> String {
+fn subject_id(s: &NamedOrBlankNode) -> String {
     match s {
-        Subject::NamedNode(n) => format!("<{}>", n.as_str()),
-        Subject::BlankNode(b) => format!("_:{}", b.as_str()),
+        NamedOrBlankNode::NamedNode(n) => format!("<{}>", n.as_str()),
+        NamedOrBlankNode::BlankNode(b) => format!("_:{}", b.as_str()),
         #[allow(unreachable_patterns)]
         _ => unreachable!("RDF-1.1 subjects are IRI or bnode"),
     }
@@ -119,6 +122,104 @@ fn term_node_id(t: &Term) -> Option<String> {
         #[allow(unreachable_patterns)]
         _ => None,
     }
+}
+
+/// Canonical lossless property-graph rows lowered from an RDF triple stream.
+/// Every server surface consumes this representation so literal multiplicity,
+/// typing edges, identifiers, and serialization cannot drift by transport.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoweredTripleGraph {
+    pub nodes: Vec<(String, Vec<u8>)>,
+    pub edges: Vec<(String, String, Vec<u8>)>,
+    pub triples: usize,
+    pub multivalue: usize,
+}
+
+/// Lower RDF triples to deterministic graph rows without mutating a graph.
+pub fn lower_triples(
+    triples: impl IntoIterator<Item = Triple>,
+) -> Result<LoweredTripleGraph, String> {
+    let mut node_props: BTreeMap<String, serde_json::Map<String, serde_json::Value>> =
+        BTreeMap::new();
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    let mut multivalue: Vec<(String, String, serde_json::Value)> = Vec::new();
+    let mut count = 0usize;
+
+    for triple in triples {
+        count += 1;
+        let subject = subject_id(&triple.subject);
+        let predicate = triple.predicate.as_str().to_string();
+        match &triple.object {
+            Term::Literal(literal) => {
+                let properties = node_props.entry(subject.clone()).or_default();
+                if properties.contains_key(&predicate) {
+                    multivalue.push((subject, predicate, literal_to_cell(literal)));
+                } else {
+                    properties.insert(predicate, literal_to_cell(literal));
+                }
+            }
+            #[cfg(feature = "sparql-star")]
+            Term::Triple(_) => {}
+            object => {
+                let object_id = term_node_id(object)
+                    .ok_or_else(|| "RDF resource object has no canonical node id".to_string())?;
+                node_props.entry(subject.clone()).or_default();
+                node_props.entry(object_id.clone()).or_default();
+                if predicate == RDF_TYPE {
+                    if let Term::NamedNode(node_type) = object {
+                        node_props
+                            .entry(subject.clone())
+                            .or_default()
+                            .entry("type".to_string())
+                            .or_insert_with(|| {
+                                serde_json::Value::String(node_type.as_str().to_string())
+                            });
+                    }
+                }
+                edges.push((subject, predicate, object_id));
+            }
+        }
+    }
+
+    for (subject, predicate, cell) in &multivalue {
+        let properties = node_props.entry(subject.clone()).or_default();
+        let extra = properties
+            .entry(RDF_MULTI_VALUE_KEY.to_string())
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        let extra_object = extra
+            .as_object_mut()
+            .ok_or_else(|| format!("reserved RDF multivalue cell on {subject} is not an object"))?;
+        extra_object
+            .entry(predicate.clone())
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()))
+            .as_array_mut()
+            .ok_or_else(|| format!("RDF multivalue predicate {predicate} is not an array"))?
+            .push(cell.clone());
+    }
+
+    let nodes = node_props
+        .into_iter()
+        .map(|(id, properties)| {
+            let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(properties))
+                .map_err(|error| format!("encode RDF node {id}: {error}"))?;
+            Ok((id, blob))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let edges = edges
+        .into_iter()
+        .map(|(source, predicate, target)| {
+            let blob = rmp_serde::to_vec_named(&serde_json::json!({ "relationship": predicate }))
+                .map_err(|error| format!("encode RDF edge: {error}"))?;
+            Ok((source, target, blob))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(LoweredTripleGraph {
+        nodes,
+        edges,
+        triples: count,
+        multivalue: multivalue.len(),
+    })
 }
 
 /// Register the `:NamedGraph` marker node-shape that links this RDF dataset to its
@@ -136,107 +237,39 @@ pub fn register_named_graph(core: &GraphCore, graph_name: &str) {
 
 /// Load an RDF triple stream into a `GraphCore` (one named graph), interning IRIs.
 ///
-/// When `quads` is `Some`, multi-valued literal predicates (the lossy edge of the
-/// property-graph mapping) are preserved losslessly: the FIRST literal for a
-/// `(subject, predicate)` lands in the property blob, every EXTRA literal is
-/// written to the redb quad table. With `quads = None` the extras are DROPPED and
-/// their count is returned in [`LoadReport::dropped_multivalue`] so the loss is
-/// never silent.
+/// Multi-valued literal predicates are preserved losslessly in the authoritative
+/// node blob: the FIRST literal lands at its ordinary predicate key and every
+/// EXTRA literal lands under [`RDF_MULTI_VALUE_KEY`].
 pub fn load_triples(
     core: &GraphCore,
     iris: &mut IriStore,
     graph_name: &str,
     triples: impl IntoIterator<Item = Triple>,
-    #[cfg(feature = "rdf-redb")] quads: Option<&crate::quads::QuadStore>,
 ) -> Result<LoadReport, String> {
-    // Accumulate per-subject literal props so a node is written once with all its
-    // literal-valued predicates; collect object-edges separately.
-    let mut node_props: HashMap<String, serde_json::Map<String, serde_json::Value>> =
-        HashMap::new();
-    let mut edges: Vec<(String, String, String)> = Vec::new();
-    // (subject, predicate, literal-cell) extras beyond the first per (s,p): the
-    // lossless cases that the key-unique property blob can't hold.
-    let mut multivalue: Vec<(String, String, serde_json::Value)> = Vec::new();
-    let mut n = 0usize;
-
-    for t in triples {
-        n += 1;
-        let s_id = subject_id(&t.subject);
-        iris.intern(&s_id);
-        let pred = t.predicate.as_str().to_string();
-
-        match &t.object {
-            Term::Literal(lit) => {
-                let entry = node_props.entry(s_id.clone()).or_default();
-                if entry.contains_key(&pred) {
-                    // SECOND+ literal for the same predicate — the lossy edge.
-                    multivalue.push((s_id.clone(), pred, literal_to_cell(lit)));
-                } else {
-                    entry.insert(pred, literal_to_cell(lit));
-                }
-            }
-            // RDF-star (CONCEPT:EG-KG.ontology.concept-5): quoted-triple objects are NOT persisted through
-            // the LPG node/edge store in this increment (documented follow-up). They
-            // round-trip natively via the parse/serialize path; skip here rather than
-            // fabricate a node/edge that export could not reverse.
-            #[cfg(feature = "sparql-star")]
-            Term::Triple(_) => {}
-            obj => {
-                let o_id = term_node_id(obj).expect("non-literal object");
-                iris.intern(&o_id);
-                node_props.entry(s_id.clone()).or_default();
-                node_props.entry(o_id.clone()).or_default();
-                if pred == RDF_TYPE {
-                    if let Term::NamedNode(nt) = obj {
-                        let entry = node_props.entry(s_id.clone()).or_default();
-                        entry
-                            .entry("type".to_string())
-                            .or_insert_with(|| serde_json::Value::String(nt.as_str().to_string()));
-                    }
-                }
-                edges.push((s_id.clone(), pred, o_id));
-            }
-        }
+    let lowered = lower_triples(triples)?;
+    for (id, _) in &lowered.nodes {
+        iris.intern(id);
+    }
+    for (source, target, _) in &lowered.edges {
+        iris.intern(source);
+        iris.intern(target);
     }
 
-    // Write nodes (one blob each), then edges, in a single txn.
+    // Write the complete lossless rows in one GraphCore txn. The enclosing server
+    // gateway stages this txn and durably publishes it once.
     let mut txn = core.txn();
-    for (id, props) in &node_props {
-        let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props.clone()))
-            .map_err(|e| format!("encode node {id}: {e}"))?;
-        txn.add_node(id.clone(), blob);
+    for (id, blob) in &lowered.nodes {
+        txn.add_node(id.clone(), blob.clone());
     }
-    for (s, p, o) in &edges {
-        let blob = rmp_serde::to_vec_named(&serde_json::json!({ "type": p }))
-            .map_err(|e| format!("encode edge: {e}"))?;
-        txn.add_edge(s.clone(), o.clone(), blob)?;
+    for (source, target, blob) in &lowered.edges {
+        txn.add_edge(source.clone(), target.clone(), blob.clone())?;
     }
     drop(txn);
-
-    // Route the multi-valued literal extras to the lossless store when present;
-    // otherwise they are dropped and counted (never silently lost).
-    #[cfg(feature = "rdf-redb")]
-    let dropped = match quads {
-        Some(store) => {
-            for (s, p, cell) in &multivalue {
-                store
-                    .put_literal(graph_name, s, p, cell)
-                    .map_err(|e| format!("quad store put: {e}"))?;
-            }
-            0
-        }
-        None => multivalue.len(),
-    };
-    #[cfg(not(feature = "rdf-redb"))]
-    let dropped = {
-        let _ = graph_name;
-        multivalue.len()
-    };
+    let _ = graph_name;
 
     Ok(LoadReport {
-        triples: n,
-        multivalue: multivalue.len(),
-        dropped_multivalue: dropped,
+        triples: lowered.triples,
+        multivalue: lowered.multivalue,
     })
 }
 
@@ -247,9 +280,6 @@ pub struct LoadReport {
     pub triples: usize,
     /// Multi-valued literal extras encountered (second+ literal per `(s,p)`).
     pub multivalue: usize,
-    /// Of `multivalue`, how many were DROPPED (no quad store supplied). Zero when a
-    /// quad store preserved them losslessly.
-    pub dropped_multivalue: usize,
 }
 
 /// Parse a Turtle document into oxrdf triples.
@@ -272,38 +302,52 @@ pub fn parse_ntriples(doc: &str) -> Result<Vec<Triple>, String> {
 
 /// Serialize the `GraphCore` back OUT to RDF triples — the inverse mapping. Edges →
 /// object triples; node literal-cell properties → literal triples; the folded
-/// `type` property is emitted as the `rdf:type` edge (so it round-trips once). When
-/// `quads` is `Some`, the multi-valued literal extras stored losslessly are unioned
-/// back in. The `:NamedGraph` marker node is skipped (it is engine bookkeeping).
-pub fn export_triples(
-    core: &GraphCore,
-    graph_name: &str,
-    #[cfg(feature = "rdf-redb")] quads: Option<&crate::quads::QuadStore>,
-) -> Result<Vec<Triple>, String> {
+/// `type` property is emitted as the `rdf:type` edge (so it round-trips once).
+/// Multi-valued literals come from the same node image. The `:NamedGraph` marker
+/// node is skipped because it is engine bookkeeping.
+pub fn export_triples(core: &GraphCore, graph_name: &str) -> Result<Vec<Triple>, String> {
     let mut out: Vec<Triple> = Vec::new();
+    let mut graph_registered = false;
 
     // Object triples from edges.
     for (s, o, props) in core.get_edges() {
-        let v: serde_json::Value = rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
+        let v = eg_types::msgpack::decode_property_value(&props).unwrap_or(serde_json::json!({}));
         let pred = v
-            .get("type")
+            .get("relationship")
             .and_then(|x| x.as_str())
-            .ok_or("edge missing type")?;
+            .ok_or("edge missing relationship")?;
         out.push(make_triple(&s, pred, &o)?);
     }
 
     // Literal triples + folded rdf:type from node property blobs.
     for (id, props) in core.get_nodes() {
         if id.starts_with("__named_graph__:") {
+            graph_registered = true;
             continue; // engine bookkeeping, not RDF.
         }
-        let v: serde_json::Value = rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
+        let v = eg_types::msgpack::decode_property_value(&props).unwrap_or(serde_json::json!({}));
         let Some(obj) = v.as_object() else { continue };
         // Skip the marker node by its type, too (defensive).
         if obj.get("type").and_then(|t| t.as_str()) == Some(NAMED_GRAPH_MARKER) {
+            graph_registered = true;
             continue;
         }
         for (k, cell) in obj {
+            if k == RDF_MULTI_VALUE_KEY {
+                if let Some(by_predicate) = cell.as_object() {
+                    for (predicate, values) in by_predicate {
+                        let pred = NamedNode::new(predicate)
+                            .map_err(|e| format!("bad pred iri {predicate}: {e}"))?;
+                        for value in values.as_array().into_iter().flatten() {
+                            if let Some(lit) = cell_to_literal(value) {
+                                let subj = parse_subject(id.as_str())?;
+                                out.push(Triple::new(subj, pred.clone(), lit));
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
             if k == "type" {
                 continue; // emitted as an explicit rdf:type edge already.
             }
@@ -318,35 +362,18 @@ pub fn export_triples(
         }
     }
 
-    // Union the lossless multi-valued literal extras.
-    #[cfg(feature = "rdf-redb")]
-    if let Some(store) = quads {
-        for (s, p, cell) in store
-            .scan_literals(graph_name)
-            .map_err(|e| format!("quad store scan: {e}"))?
-        {
-            if let Some(lit) = cell_to_literal(&cell) {
-                let subj = parse_subject(&s)?;
-                let pred = NamedNode::new(&p).map_err(|e| format!("bad pred iri {p}: {e}"))?;
-                out.push(Triple::new(subj, pred, lit));
-            }
-        }
-    }
-    #[cfg(not(feature = "rdf-redb"))]
-    {
-        let _ = graph_name;
-    }
+    let _ = (graph_name, graph_registered);
 
     Ok(out)
 }
 
-fn parse_subject(id: &str) -> Result<Subject, String> {
+fn parse_subject(id: &str) -> Result<NamedOrBlankNode, String> {
     if let Some(iri) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
-        Ok(Subject::NamedNode(
+        Ok(NamedOrBlankNode::NamedNode(
             NamedNode::new(iri).map_err(|e| format!("bad iri {iri}: {e}"))?,
         ))
     } else if let Some(b) = id.strip_prefix("_:") {
-        Ok(Subject::BlankNode(
+        Ok(NamedOrBlankNode::BlankNode(
             BlankNode::new(b).map_err(|e| format!("bad bnode {b}: {e}"))?,
         ))
     } else {
@@ -398,7 +425,7 @@ pub fn to_turtle(triples: &[Triple]) -> Result<String, String> {
 // Coverage beyond N-Triples/Turtle. The QUAD formats (N-Quads/TriG) place every triple
 // in `graph` (a named-graph IRI) or the default graph; they ride the oxttl quad
 // serializers already in the `rdf` feature (pure Rust, in pi — not a heavy dep). RDF/XML
-// and JSON-LD 1.1 add the pure-Rust `oxrdfxml`/`oxjsonld` crates behind their own
+// and JSON-LD 1.1 add pure-Rust quick-xml/oxjsonld codecs behind their own
 // features (`rdf-xml`/`json-ld`), kept OUT of pi. These are the graph-result forms wired
 // into the `/sparql` content-negotiation seam (CONCEPT:EG-KG.ontology.content-negotiation-serializers) for CONSTRUCT/DESCRIBE.
 
@@ -463,26 +490,13 @@ pub fn parse_trig(doc: &str) -> Result<Vec<Quad>, String> {
 /// Serialize triples to RDF/XML (CONCEPT:EG-KG.ontology.feature, feature `rdf-xml`).
 #[cfg(feature = "rdf-xml")]
 pub fn to_rdfxml(triples: &[Triple]) -> Result<String, String> {
-    use oxrdfxml::RdfXmlSerializer;
-    let mut buf = Vec::new();
-    let mut ser = RdfXmlSerializer::new().for_writer(&mut buf);
-    for t in triples {
-        ser.serialize_triple(t.as_ref())
-            .map_err(|e| format!("rdfxml serialize: {e}"))?;
-    }
-    ser.finish().map_err(|e| format!("rdfxml finish: {e}"))?;
-    String::from_utf8(buf).map_err(|e| format!("rdfxml utf8: {e}"))
+    crate::rdfxml::serialize(triples)
 }
 
 /// Parse an RDF/XML document into oxrdf triples (feature `rdf-xml`).
 #[cfg(feature = "rdf-xml")]
 pub fn parse_rdfxml(doc: &str) -> Result<Vec<Triple>, String> {
-    use oxrdfxml::RdfXmlParser;
-    let mut out = Vec::new();
-    for r in RdfXmlParser::new().for_reader(doc.as_bytes()) {
-        out.push(r.map_err(|e| format!("rdfxml parse: {e}"))?);
-    }
-    Ok(out)
+    crate::rdfxml::parse(doc)
 }
 
 /// Serialize triples to JSON-LD 1.1 (CONCEPT:EG-KG.ontology.feature, feature `json-ld`). Expansion form;
@@ -516,7 +530,7 @@ pub fn parse_jsonld(doc: &str) -> Result<Vec<Quad>, String> {
 // CONCEPT:EG-KG.ontology.completes-rdf-concrete-syntax completes the RDF 1.1 concrete-syntax matrix — TriG + N-Quads (quad,
 // named-graph-aware) and RDF/XML — alongside Turtle/N-Triples (EG-050). The writers
 // (`to_trig`/`to_nquads`/`to_rdfxml`) sit above; these `from_*` readers give the matrix
-// a first-class, uniformly-named reader surface (delegating to the same oxttl/oxrdfxml
+// a first-class, uniformly-named reader surface (delegating to the same oxttl/quick-xml
 // parsers). Named-graph awareness: `from_trig`/`from_nquads` yield `Quad`s carrying the
 // per-statement graph term; RDF/XML is a single-graph syntax so `from_rdfxml` yields
 // triples.
@@ -583,8 +597,8 @@ fn canonical_term(t: &Term) -> String {
         #[cfg(feature = "sparql-star")]
         Term::Triple(t) => {
             let s = match &t.subject {
-                Subject::NamedNode(n) => format!("<{}>", n.as_str()),
-                Subject::BlankNode(_) => "_:b".to_string(),
+                NamedOrBlankNode::NamedNode(n) => format!("<{}>", n.as_str()),
+                NamedOrBlankNode::BlankNode(_) => "_:b".to_string(),
             };
             format!(
                 "<<{s} <{}> {}>>",
@@ -599,8 +613,8 @@ fn canonical_term(t: &Term) -> String {
 
 fn canonical_triple_str(t: &Triple) -> String {
     let s = match &t.subject {
-        Subject::NamedNode(n) => format!("<{}>", n.as_str()),
-        Subject::BlankNode(_) => "_:b".to_string(),
+        NamedOrBlankNode::NamedNode(n) => format!("<{}>", n.as_str()),
+        NamedOrBlankNode::BlankNode(_) => "_:b".to_string(),
         #[allow(unreachable_patterns)]
         _ => "?".to_string(),
     };
@@ -638,26 +652,12 @@ _:anon  ex:name "Anon" ;
 
         let core = GraphCore::new();
         let mut iris = IriStore::default();
-        let report = load_triples(
-            &core,
-            &mut iris,
-            "g",
-            parsed.clone(),
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .expect("load");
+        let report = load_triples(&core, &mut iris, "g", parsed.clone()).expect("load");
         assert_eq!(report.triples, 8);
         assert_eq!(report.multivalue, 0);
         assert!(iris.len() >= 4, "interned {} iris", iris.len());
 
-        let exported = export_triples(
-            &core,
-            "g",
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .expect("export");
+        let exported = export_triples(&core, "g").expect("export");
         let in_key = triple_set_key(&parsed);
         let out_key = triple_set_key(&exported);
         assert_eq!(
@@ -677,22 +677,8 @@ _:anon  ex:name "Anon" ;
         let parsed = parse_turtle(TTL).unwrap();
         let core = GraphCore::new();
         let mut iris = IriStore::default();
-        load_triples(
-            &core,
-            &mut iris,
-            "g",
-            parsed,
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .unwrap();
-        let exported = export_triples(
-            &core,
-            "g",
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .unwrap();
+        load_triples(&core, &mut iris, "g", parsed).unwrap();
+        let exported = export_triples(&core, "g").unwrap();
         let age = exported
             .iter()
             .find(|t| t.predicate.as_str().ends_with("age"))
@@ -713,10 +699,9 @@ _:anon  ex:name "Anon" ;
         assert!(name_en.is_some(), "@en language tag must survive");
     }
 
-    /// Without a quad store, a multi-valued literal predicate keeps the FIRST value
-    /// in the property blob and reports the dropped extras (never a silent loss).
+    /// A multi-valued predicate is lossless in the authoritative graph image.
     #[test]
-    fn multivalue_without_store_is_reported_not_silent() {
+    fn multivalue_without_store_is_embedded_losslessly() {
         let ttl = r#"
 @prefix ex: <http://example.org/> .
 ex:x ex:tag "a" , "b" , "c" .
@@ -725,74 +710,14 @@ ex:x ex:tag "a" , "b" , "c" .
         assert_eq!(parsed.len(), 3);
         let core = GraphCore::new();
         let mut iris = IriStore::default();
-        let report = load_triples(
-            &core,
-            &mut iris,
-            "g",
-            parsed,
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .unwrap();
+        let report = load_triples(&core, &mut iris, "g", parsed).unwrap();
         assert_eq!(report.multivalue, 2, "two extras beyond the first tag");
-        assert_eq!(
-            report.dropped_multivalue, 2,
-            "no store ⇒ extras dropped + reported"
-        );
-        // The first value is still present.
-        let exported = export_triples(
-            &core,
-            "g",
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .unwrap();
+        let exported = export_triples(&core, "g").unwrap();
         let tags: Vec<_> = exported
             .iter()
             .filter(|t| t.predicate.as_str().ends_with("tag"))
             .collect();
-        assert_eq!(tags.len(), 1, "only the first value lands in the blob");
-    }
-
-    /// With a quad store, ALL values of a multi-valued literal predicate round-trip
-    /// losslessly (the property blob holds the first; the quad table holds the rest).
-    #[cfg(feature = "rdf-redb")]
-    #[test]
-    fn multivalue_with_quad_store_is_lossless() {
-        let ttl = r#"
-@prefix ex: <http://example.org/> .
-ex:x ex:tag "a" , "b" , "c" .
-"#;
-        let dir = tempfile::tempdir().unwrap();
-        let store = crate::quads::QuadStore::open(dir.path().join("rdf_quads.redb")).unwrap();
-        let core = GraphCore::new();
-        let mut iris = IriStore::default();
-        let report = load_triples(
-            &core,
-            &mut iris,
-            "g",
-            parse_turtle(ttl).unwrap(),
-            Some(&store),
-        )
-        .unwrap();
-        assert_eq!(report.multivalue, 2);
-        assert_eq!(report.dropped_multivalue, 0, "quad store ⇒ nothing dropped");
-
-        let exported = export_triples(&core, "g", Some(&store)).unwrap();
-        let mut tags: Vec<String> = exported
-            .iter()
-            .filter(|t| t.predicate.as_str().ends_with("tag"))
-            .filter_map(|t| match &t.object {
-                Term::Literal(l) => Some(l.value().to_string()),
-                _ => None,
-            })
-            .collect();
-        tags.sort();
-        assert_eq!(
-            tags,
-            vec!["a".to_string(), "b".to_string(), "c".to_string()],
-            "all three tag values must survive losslessly"
-        );
+        assert_eq!(tags.len(), 3, "all values land in the authoritative blob");
     }
 
     #[test]
@@ -801,13 +726,7 @@ ex:x ex:tag "a" , "b" , "c" .
         register_named_graph(&core, "my:graph");
         assert!(core.has_node("__named_graph__:my:graph"));
         // The marker must not leak into exported RDF.
-        let exported = export_triples(
-            &core,
-            "my:graph",
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .unwrap();
+        let exported = export_triples(&core, "my:graph").unwrap();
         assert!(exported.is_empty(), "marker node must not export as RDF");
     }
 

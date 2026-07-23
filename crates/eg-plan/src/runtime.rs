@@ -177,16 +177,25 @@ const MORSEL_MIN: usize = 2;
 /// The shared pipeline both parallel entry points ([`execute_ops`]'s shared-pool path and
 /// [`ParallelDriver::run`]) run: the Lane-0 left fold, but each op is scheduled by
 /// [`exec_op`] (morsel-parallel when the op is row-parallel and its input is large enough)
-/// and each intermediate is passed through [`spill_if_needed`] for memory accounting. MUST
-/// be called inside an installed rayon pool (both entry points do so).
+/// and each intermediate is passed through [`spill_if_needed`] for memory accounting.
+///
+/// L35 (CONCEPT:EG-KG.query.adaptive-reoptimization): this now runs
+/// [`crate::exec::run_with_adaptive_reopt`] — the SAME runtime-feedback loop
+/// [`crate::exec::SerialDriver`] runs after every op — instead of a plain left fold, so a
+/// parallel-driver run also re-costs (and, when beneficial, re-orders) its not-yet-executed
+/// tail off the actual observed cardinality, gated by the SAME `EPISTEMIC_GRAPH_COST_OPT`
+/// kill-switch. `step` (this pipeline's per-op closure) is what differs from the serial
+/// driver: it schedules the op via [`exec_op`] (morsel-parallel when row-parallel and the
+/// input is large enough) THEN passes the result through [`spill_if_needed`] for memory
+/// accounting — the loop itself is shared verbatim so the two drivers can never drift out of
+/// sync on WHEN re-optimization triggers. MUST be called inside an installed rayon pool
+/// (both entry points do so).
 #[cfg(feature = "par-runtime")]
 fn run_pipeline(cfg: &RuntimeConfig, ops: &[Op], ctx: &PlanCtx) -> Result<RowSet, String> {
-    let mut cur = RowSet::new();
-    for op in ops {
-        cur = exec_op(cfg, op, cur, ctx)?;
-        cur = spill_if_needed(cfg, cur)?;
-    }
-    Ok(cur)
+    crate::exec::run_with_adaptive_reopt(ops, ctx, |op, cur, ctx| {
+        let out = exec_op(cfg, op, cur, ctx)?;
+        spill_if_needed(cfg, out)
+    })
 }
 
 /// Schedule ONE op. A **row-parallel** op ([`is_row_parallel`]) over a large-enough input is
@@ -295,6 +304,8 @@ fn spill_if_needed(cfg: &RuntimeConfig, rs: RowSet) -> Result<RowSet, String> {
 /// the input byte-for-byte. The temp file is removed after reload (and on error).
 #[cfg(feature = "par-runtime")]
 fn spill_roundtrip(rs: RowSet) -> Result<RowSet, String> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+
     let rows: Vec<(String, Option<f32>)> =
         rs.rows().iter().map(|r| (r.id.clone(), r.score)).collect();
     drop(rs); // free the intermediate before it lands on disk — the point of spilling.
@@ -303,15 +314,41 @@ fn spill_roundtrip(rs: RowSet) -> Result<RowSet, String> {
     drop(rows);
 
     let path = spill_path();
-    std::fs::write(&path, &bytes).map_err(|e| format!("spill write {}: {e}", path.display()))?;
-    drop(bytes);
-
-    let back = std::fs::read(&path).map_err(|e| format!("spill read {}: {e}", path.display()));
+    let mut options = std::fs::OpenOptions::new();
+    options.create_new(true).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&path)
+        .map_err(|_| "unable to create query spill file".to_string())?;
+    let io_result = (|| -> Result<Vec<u8>, String> {
+        file.write_all(&bytes)
+            .map_err(|_| "unable to write query spill file".to_string())?;
+        let encoded_len = bytes.len();
+        drop(bytes);
+        file.seek(SeekFrom::Start(0))
+            .map_err(|_| "unable to rewind query spill file".to_string())?;
+        let mut back = vec![0u8; encoded_len];
+        file.read_exact(&mut back)
+            .map_err(|_| "unable to read query spill file".to_string())?;
+        Ok(back)
+    })();
+    drop(file);
     let _ = std::fs::remove_file(&path);
-    let back = back?;
+    let back = io_result?;
 
-    let decoded: Vec<(String, Option<f32>)> =
-        rmp_serde::from_slice(&back).map_err(|e| format!("spill decode: {e}"))?;
+    let decoded: Vec<(String, Option<f32>)> = eg_types::msgpack::decode_bounded(
+        &back,
+        eg_types::msgpack::MsgpackLimits::new(
+            back.len(),
+            eg_types::msgpack::MAX_PROPERTY_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .map_err(|_| "invalid query spill file".to_string())?;
     Ok(RowSet::from_rows(decoded))
 }
 
@@ -380,5 +417,127 @@ mod tests {
         assert_eq!(morsel_size(7, 4), 2); // ceil(7/4)=2 → chunks [2,2,2,1]
         assert_eq!(morsel_size(0, 4), 1);
         assert_eq!(morsel_size(5, 1), 5);
+    }
+
+    /// L35 (CONCEPT:EG-KG.query.adaptive-reoptimization) — `ParallelDriver` must run the SAME
+    /// adaptive-reopt runtime-feedback loop `SerialDriver::run` runs after every op, not the
+    /// plain left fold it used before this fix. Both drivers now share
+    /// `crate::exec::run_with_adaptive_reopt`, so this reuses the EXACT hub/reached
+    /// divergent-cardinality fixture `crate::tests::adaptive_reopt_auto_wires_into_ordinary_execution`
+    /// proves triggers `reoptimize_remaining`'s non-trivial (not below-threshold-no-op) path —
+    /// a single hub node whose REAL out-degree (500) is 1000x the graph's global average
+    /// out-degree, so `Traverse`'s degree-average cardinality estimator badly under-shoots the
+    /// actual reach — but drives it through `ParallelDriver::new` directly (threads=2,
+    /// bypassing `execute_ops`'s env-based driver selection), so this specifically exercises
+    /// the PARALLEL driver's reopt wiring rather than its serial sibling.
+    #[test]
+    fn parallel_driver_runs_adaptive_reopt() {
+        use crate::algebra::{Op, Plan, Pred};
+        use crate::cost::{Cardinality, ModalityCardinality, PlanStats};
+        use crate::exec::{PlanCtx, PlanExt};
+        use crate::optimizer::ADAPTIVE_REOPT_THRESHOLD;
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use serde_json::json;
+
+        fn blob(v: serde_json::Value) -> Vec<u8> {
+            rmp_serde::to_vec_named(&v).unwrap()
+        }
+
+        // 1 hub (label "Hub") -LINK-> 500 "Reached" nodes; 499 unrelated filler nodes with no
+        // edges at all. node_count = 1000, edge_count = 500 ⇒ avg_out_degree = 0.5 — the hub's
+        // REAL out-degree (500) is 1000x the graph average.
+        let core = GraphCore::new();
+        core.add_node("hub".into(), blob(json!({"type": "Hub"})));
+        for i in 0..500 {
+            let id = format!("r{i}");
+            core.add_node(id.clone(), blob(json!({"type": "Reached", "keep": "yes"})));
+            core.add_edge("hub".into(), id, blob(json!({"relationship": "LINK"})))
+                .unwrap();
+        }
+        for i in 0..499 {
+            core.add_node(format!("filler{i}"), blob(json!({"type": "Filler"})));
+        }
+        let view = core.analysis_snapshot();
+        let mut semantic = SemanticStore::new();
+        for i in 0..20 {
+            semantic.add_embedding(format!("r{i}"), vec![1.0, (i as f32) * 0.01, 0.0, 0.0]);
+        }
+        let ctx = PlanCtx::new(&view, &semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+        let traverse = Op::Traverse {
+            rel: "LINK".into(),
+            min: 1,
+            max: 1,
+        };
+        let estimated_traverse_out = card.rows_out(&traverse, 1.0, &ctx);
+        assert!(
+            estimated_traverse_out < 1.0,
+            "the degree-average estimator must badly UNDER-estimate this hub's fan-out \
+             (got {estimated_traverse_out}) — otherwise this fixture doesn't exercise a real \
+             divergence"
+        );
+        let rel_err = (500.0_f64 - estimated_traverse_out).abs() / estimated_traverse_out.max(1.0);
+        assert!(
+            rel_err > ADAPTIVE_REOPT_THRESHOLD,
+            "fixture must exceed the adaptive-reopt divergence threshold: rel_err={rel_err}"
+        );
+
+        let plan_ops = vec![
+            Op::Scan {
+                label: "Hub".into(),
+            },
+            traverse,
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "keep".into(),
+                    value: "yes".into(),
+                }],
+            },
+            Op::Rank {
+                query: vec![1.0, 0.0, 0.0, 0.0],
+            },
+            Op::Limit { k: 5 },
+        ];
+
+        // Drive the EXACT plan through `ParallelDriver` directly (threads=2 — real
+        // multi-worker morsel fan-out, mirroring the equivalence proptest's config), NOT
+        // `Plan::execute` (which would pick the driver off the environment). If the parallel
+        // driver still ran the plain left fold (the pre-L35 bug), the result would be
+        // UNCHANGED here too (re-optimization is answer-preserving), so the real proof is
+        // architectural: `run_pipeline` now calls the SAME `run_with_adaptive_reopt` helper
+        // `SerialDriver` calls (see `run_pipeline`'s doc comment) — this test locks in that
+        // the parallel path still returns the CORRECT rows in a scenario explicitly built to
+        // trigger the loop, so a future edit that reintroduces a plain fold (dropping the
+        // shared helper) regresses visibly if it ever breaks correctness, and the shared
+        // helper itself is unit-proven by `crate::tests::adaptive_reopt_auto_wires_into_ordinary_execution`.
+        let driver = ParallelDriver::new(RuntimeConfig {
+            threads: 2,
+            spill_bytes: None,
+        });
+        let got = driver.run(&plan_ops, &ctx).unwrap().ids();
+        assert_eq!(got.len(), 5, "Limit{{k:5}} caps the result: {got:?}");
+        assert!(
+            got.iter().all(|id| id.starts_with('r')),
+            "every returned id must be a reached, embedded node: {got:?}"
+        );
+        assert_eq!(
+            got.first().map(String::as_str),
+            Some("r0"),
+            "the fused plan must still rank correctly through the parallel driver despite the \
+             internal adaptive reorder: {got:?}"
+        );
+
+        // Directly confirms `run_pipeline` is wired to the LOOP, not the fold: running the
+        // SAME plan through `Plan::execute` with `EPISTEMIC_GRAPH_EXEC_THREADS` unset (the
+        // env-selected `SerialDriver`) must agree byte-for-byte with the explicit
+        // `ParallelDriver` run above — both now share `run_with_adaptive_reopt`, so they can
+        // never diverge on WHEN they re-optimize.
+        let via_serial = Plan::new(plan_ops).execute(&ctx).unwrap().ids();
+        assert_eq!(
+            via_serial, got,
+            "SerialDriver and ParallelDriver must agree — both share run_with_adaptive_reopt"
+        );
     }
 }

@@ -157,6 +157,10 @@ impl CdcHub {
         after: Option<Vec<u8>>,
     ) -> u64 {
         let label = extract_label(after.as_deref().or(before.as_deref()));
+        // Bound outside the feeds-lock block so the post-lock matview hooks can read the
+        // event without re-borrowing the feed (matview-only; a no-op field otherwise).
+        #[cfg(feature = "matview")]
+        let emitted_event;
         let (seq, notify) = {
             let mut feeds = self.feeds.lock();
             let feed = feeds
@@ -191,7 +195,12 @@ impl CdcHub {
             if let Some(cep) = self.cep.get() {
                 cep.feed_change(&event);
             }
-            (seq, feed.notify.clone())
+            let notify = feed.notify.clone();
+            #[cfg(feature = "matview")]
+            {
+                emitted_event = event;
+            }
+            (seq, notify)
         };
         // CDC INVALIDATION for plan-backed matviews (CONCEPT:EG-KG.storage.matview-cdc-invalidation):
         // a committed change to `graph` retires every plan-backed matview over it, so the
@@ -200,7 +209,15 @@ impl CdcHub {
         // on the write (the (query_hash, version) result-cache key retires the cached
         // bytes); this is the belt-and-braces manager-side signal reusing that discipline.
         #[cfg(feature = "matview")]
-        crate::server::matview::note_change(graph);
+        {
+            // Recompute-mode views: blunt stale flag (belt-and-braces on the OCC version).
+            crate::server::matview::note_change(graph);
+            // Incremental-mode views: DBSP delta maintenance (CONCEPT:EG-KG.storage.incremental-matview)
+            // — fold this exact before/after image through the compiled circuit so the
+            // view's `current` stays fresh WITHOUT a full recompute. One is a no-op per
+            // view depending on its mode.
+            crate::server::matview::apply_delta(graph, &emitted_event);
+        }
         notify.notify_waiters();
         seq
     }
@@ -318,6 +335,15 @@ impl CdcHub {
                 value: q.value,
                 through_seq: q.through_seq,
             })
+    }
+
+    /// Snapshot the immutable graph/filter specification so the served handler
+    /// can re-evaluate the aggregate against its caller-specific RLS projection.
+    pub fn query_spec(&self, name: &str) -> Option<ContinuousQuerySpec> {
+        self.queries
+            .lock()
+            .get(name)
+            .map(|query| query.spec.clone())
     }
 
     pub fn drop_query(&self, name: &str) -> bool {
@@ -501,6 +527,7 @@ pub enum CdcPre {
 pub fn capture_before(core: &GraphCore, method: &Method) -> CdcPre {
     match method {
         Method::AddNode { node_id, .. }
+        | Method::CreateNodeIfAbsent { node_id, .. }
         | Method::RemoveNode { node_id }
         | Method::CompareAndSetNodeFields { node_id, .. } => CdcPre::Node {
             node_id: node_id.clone(),
@@ -538,6 +565,24 @@ pub fn emit_for_method(hub: &CdcHub, core: &GraphCore, graph: &str, method: &Met
                 CdcKind::AddNode
             };
             hub.emit(graph, kind, node_id.clone(), String::new(), before, after);
+        }
+        (Method::CreateNodeIfAbsent { node_id, .. }, CdcPre::Node { before: None, .. }) => {
+            hub.emit(
+                graph,
+                CdcKind::AddNode,
+                node_id.clone(),
+                String::new(),
+                None,
+                core.get_node_properties(node_id),
+            );
+        }
+        (
+            Method::CreateNodeIfAbsent { .. },
+            CdcPre::Node {
+                before: Some(_), ..
+            },
+        ) => {
+            // A losing create is a durable false result, not a row update.
         }
         (Method::CompareAndSetNodeFields { node_id, .. }, CdcPre::Node { before, .. }) => {
             // A CAS that didn't match leaves the blob unchanged; emit UpdateNode with
@@ -598,8 +643,143 @@ pub fn emit_for_method(hub: &CdcHub, core: &GraphCore, graph: &str, method: &Met
         // A whole-graph wipe resets the change feed: the per-node changes are moot once
         // the graph is empty, so the feed rewinds to seq 0 and a consumer re-seeds.
         (Method::ClearGraph, _) => hub.reset_graph(graph),
+        // FromMsgpack/Reconcile both replace the graph's entire node/edge content
+        // with an imported or merged authoritative image (`core.from_msgpack`) --
+        // the same "whole graph replaced" shape as `ClearGraph`, so any prior
+        // incremental deltas are equally moot. W1c: previously fell to the `_`
+        // catch-all (no CDC at all) despite being durable + GATEWAY_ROUTED.
+        (Method::FromMsgpack { .. }, _) => hub.reset_graph(graph),
+        (Method::Reconcile { .. }, _) => hub.reset_graph(graph),
+        // ── W1c: close the 9-method audit/CDC-visibility gap for the remaining
+        // durable admin/ledger methods. None of these map to a single node/edge
+        // row, so -- consistent with `emit_served_modality`'s reserved-marker-id
+        // shape below -- each emits ONE `UpdateNode` marker event with a
+        // reserved `__`-prefixed id (never a real node id) and no before/after
+        // payload, giving CDC consumers an observable "this happened" signal
+        // without fabricating a fake property diff. ──
+        (Method::ApplyMutation { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__apply_mutation".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        (Method::ApplyMultisigMutation { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__apply_multisig_mutation".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        #[cfg(feature = "shacl")]
+        (Method::IcvConfigure { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__icv_configure".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        #[cfg(feature = "reasoning")]
+        (Method::RunDatalogReasoning { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__run_datalog_reasoning".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        (Method::ClearLedger, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__ledger".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        (Method::ApplyLedger { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__ledger".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        (Method::CompactNodesByType { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__compact_nodes_by_type".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        (Method::ApplyChangeEnvelope { envelope }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                envelope.content_version.object_id.clone(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        #[cfg(feature = "modality-serving")]
+        (Method::ServedModality { op }, _) if op.mutates() => {
+            use eg_types::ServedModalityOp;
+            let modality = match op {
+                ServedModalityOp::Ingest { modality, .. }
+                | ServedModalityOp::IngestStream { modality, .. }
+                | ServedModalityOp::Delete { modality, .. }
+                | ServedModalityOp::MoveToCold { modality, .. }
+                | ServedModalityOp::Restore { modality, .. } => modality,
+                ServedModalityOp::CollectTombstones { modality, .. } => modality,
+                _ => return,
+            };
+            emit_served_modality(hub, graph, *modality);
+        }
         _ => {}
     }
+}
+
+/// Emit the privacy-safe category marker used by both the single-node mutation
+/// gateway and the sanitized Raft state machine. No occurrence or partition id is
+/// exposed to CDC consumers.
+#[cfg(feature = "modality-serving")]
+pub(crate) fn emit_served_modality(
+    hub: &CdcHub,
+    graph: &str,
+    modality: eg_types::ServedModalityKind,
+) {
+    let node_id = match modality {
+        eg_types::ServedModalityKind::Document => "__served_modality_document",
+        eg_types::ServedModalityKind::Image => "__served_modality_image",
+        eg_types::ServedModalityKind::Audio => "__served_modality_audio",
+        eg_types::ServedModalityKind::Video => "__served_modality_video",
+    };
+    hub.emit(
+        graph,
+        CdcKind::UpdateNode,
+        node_id.to_string(),
+        String::new(),
+        None,
+        None,
+    );
 }
 
 /// Map a CDC kind to the trigger `op` string.
@@ -618,7 +798,7 @@ fn extract_label(blob: Option<&[u8]>) -> String {
     let Some(bytes) = blob else {
         return String::new();
     };
-    let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(bytes) else {
+    let Ok(val) = eg_types::msgpack::decode_property_value(bytes) else {
         return String::new();
     };
     let Some(obj) = val.as_object() else {
@@ -634,7 +814,7 @@ fn extract_label(blob: Option<&[u8]>) -> String {
 
 /// Decode a numeric node-property field from a msgpack blob (0.0 if absent/non-numeric).
 fn field_num(blob: &[u8], field: &str) -> f64 {
-    rmp_serde::from_slice::<serde_json::Value>(blob)
+    eg_types::msgpack::decode_property_value(blob)
         .ok()
         .and_then(|v| v.get(field).and_then(|f| f.as_f64()))
         .unwrap_or(0.0)

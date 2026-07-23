@@ -1,0 +1,286 @@
+//! `ModalityContract` retrofit for [`MergeProposal`] and [`Symbol`] (CONCEPT:E4/X1).
+//!
+//! Behind the crate's own opt-in `contract` feature (default OFF) — `MergeProposal`
+//! and `resolve_candidates` already live in the always-on `algorithms` module, and
+//! `ast::symbol::Symbol` lives in the always-on `ast` module (only `ast::parser` is
+//! gated behind the crate's `ast` feature; the plain `Symbol` DTO is not), so
+//! `contract` needs no other feature implied for either impl.
+//!
+//! `MergeProposal` is the reference non-trivial `provenance()` case, analogous to
+//! `eg-rdf`'s: a real "rule" (`kind` — `"same_as"` or `"extends"`) that produced it
+//! and real "premises" (the member ids it clustered).
+//!
+//! `Symbol` contributes a code-symbol address only when its AST identity is already
+//! a valid opaque token. Raw file paths and symbol display names never cross the
+//! governed evidence boundary.
+
+use eg_modality::{
+    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
+    ModalityContract, ModalitySelfTest, OpaqueRef, Provenance, RowSetShape, StagedWrite,
+    StorageStats, TckPoint,
+};
+
+use crate::algorithms::MergeProposal;
+use crate::ast::symbol::Symbol;
+
+impl ModalityContract for MergeProposal {
+    fn storage_kind(&self) -> &'static str {
+        "compute"
+    }
+
+    /// The proposal's own cosine-similarity score IS a real, natural rank — mirrors
+    /// `eg-rdf::owl::ProofNode` using its own confidence as the row score.
+    fn to_rowset(&self, id: &str) -> RowSetShape {
+        RowSetShape::scored(id, self.score as f32)
+    }
+
+    fn txn_stage(&self, id: &str) -> StagedWrite {
+        StagedWrite::put(id, encode_staged(self))
+    }
+
+    /// A `MergeProposal` is, per its own doc comment, "read/propose only — it never
+    /// mutates the graph" — so it is never itself a write, hence never CDC-observable.
+    /// This is a stronger, architecturally-permanent claim than the usual "not yet
+    /// wired" (compare `eg-tensor`/`eg-geo`'s `None`), similar to how
+    /// `eg-epistemic::BeliefState` is a pure derived view.
+    fn cdc_topic(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Real, non-stub provenance: `kind` names the rule/classification that produced
+    /// this proposal (`"same_as"` or `"extends"`), `detail` lists the clustered
+    /// members plus the chosen canonical, and `confidence` is the proposal's own
+    /// similarity score. Cosine similarity is mathematically bounded to `[-1, 1]`, so
+    /// this clamps into `Provenance::confidence`'s documented `[0, 1]` range rather
+    /// than assuming the score is already there.
+    fn provenance(&self, _id: &str) -> Option<Provenance> {
+        let mut detail: Vec<String> = self.members.iter().map(|m| format!("member:{m}")).collect();
+        detail.push(format!("canonical:{}", self.canonical));
+        Some(Provenance {
+            source: self.kind.clone(),
+            detail,
+            confidence: self.score.clamp(0.0, 1.0),
+        })
+    }
+
+    /// The crate's real entity-resolution entry point that emits `MergeProposal`s.
+    fn analytics_ops(&self) -> Vec<&'static str> {
+        vec!["resolve_candidates"]
+    }
+
+    // ── EG-P1-1 hooks — real, minimal implementations. MergeProposal is a query result. ──
+
+    /// Batch ingest = parse a `MergeProposal` back from serialized form. Streaming N/A.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<MergeProposal>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "a merge proposal is a query result, not an append stream",
+            ),
+        }
+    }
+
+    /// Real storage stats: serialized size; element count is number of members.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        Some(StorageStats {
+            logical_bytes: encode_staged(self).len() as u64,
+            element_count: self.members.len() as u64,
+            has_secondary_index: false,
+        })
+    }
+
+    /// N/A: proposals are query results, not durable values.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "a merge proposal is a query result; backup/restore/migrate is not a modality concern",
+        )
+    }
+
+    /// Simulated crash-and-recover through txn staging.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<MergeProposal>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// Proposals have no CDC or policy of their own.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "a proposal is a query result; CDC applies only to mutations, not recommendations",
+            ),
+            TckPoint::TenantRowRegionPolicy => {
+                Some("policy is at the graph-node layer, not per-proposal")
+            }
+            _ => None,
+        }
+    }
+}
+
+impl ConformanceTestable for MergeProposal {
+    fn conformance_sample() -> Self {
+        MergeProposal {
+            canonical: "entity-1".to_string(),
+            members: vec!["entity-1".to_string(), "entity-2".to_string()],
+            score: 0.93,
+            kind: "same_as".to_string(),
+        }
+    }
+}
+
+eg_modality::modality_conformance_tests!(MergeProposal);
+
+// Direct tests of the real provenance() mapping, beyond the generic "never panics"
+// conformance check — mirrors eg-epistemic's `overrides` module.
+#[cfg(test)]
+mod overrides {
+    use super::*;
+    use eg_modality::ModalityContract;
+
+    #[test]
+    fn kind_maps_to_source() {
+        let p = MergeProposal::conformance_sample();
+        let prov = p
+            .provenance("x")
+            .expect("a MergeProposal always has provenance");
+        assert_eq!(prov.source, "same_as");
+    }
+
+    #[test]
+    fn score_maps_to_clamped_confidence() {
+        let p = MergeProposal::conformance_sample();
+        let prov = p.provenance("x").unwrap();
+        assert_eq!(prov.confidence, 0.93);
+
+        // A score outside [0, 1] (cosine similarity can dip negative, or a
+        // caller-supplied score could exceed 1.0) must be clamped defensively.
+        let negative = MergeProposal {
+            canonical: "entity-3".to_string(),
+            members: vec!["entity-3".to_string(), "entity-4".to_string()],
+            score: -0.2,
+            kind: "extends".to_string(),
+        };
+        assert_eq!(negative.provenance("x").unwrap().confidence, 0.0);
+
+        let over_one = MergeProposal {
+            canonical: "entity-5".to_string(),
+            members: vec!["entity-5".to_string(), "entity-6".to_string()],
+            score: 1.5,
+            kind: "extends".to_string(),
+        };
+        assert_eq!(over_one.provenance("x").unwrap().confidence, 1.0);
+    }
+
+    #[test]
+    fn detail_contains_canonical_and_members() {
+        let p = MergeProposal::conformance_sample();
+        let prov = p.provenance("x").unwrap();
+        assert!(prov.detail.contains(&"canonical:entity-1".to_string()));
+        assert!(prov.detail.contains(&"member:entity-2".to_string()));
+    }
+}
+
+impl ModalityContract for Symbol {
+    fn storage_kind(&self) -> &'static str {
+        "code"
+    }
+
+    /// A parsed symbol is a SOURCE-shaped candidate (keyed by `Symbol::id`), not
+    /// intrinsically ranked — unranked, exactly like `eg-tsdb::SeriesMeta`/
+    /// `eg-geo::Geometry`.
+    fn to_rowset(&self, id: &str) -> RowSetShape {
+        RowSetShape::unranked(id)
+    }
+
+    fn txn_stage(&self, id: &str) -> StagedWrite {
+        StagedWrite::put(id, encode_staged(self))
+    }
+
+    /// A parsed symbol lands via a batch AST-parse pass (`ast::parser`), not a live
+    /// transactional write path today — not (yet) on the CDC/streaming surface,
+    /// mirroring `MergeProposal`'s `None`.
+    fn cdc_topic(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
+        let revision_ref = OpaqueRef::scoped("revision", &self.ast_hash).ok()?;
+        let symbol_ref = OpaqueRef::scoped("symbol", &self.ast_hash).ok()?;
+        Some(EvidenceAddress::CodeSymbol {
+            revision_ref,
+            symbol_ref,
+            start_line: self.line_start,
+            end_line: self.line_end,
+        })
+    }
+}
+
+impl ConformanceTestable for Symbol {
+    fn conformance_sample() -> Self {
+        Symbol {
+            id: "sym:deadbeef".to_string(),
+            name: "handle_request".to_string(),
+            qualified_name: "crate::server::handle_request".to_string(),
+            symbol_type: crate::ast::symbol::SymbolType::Function,
+            file_path: "src/server.rs".to_string(),
+            line_start: 42,
+            line_end: 88,
+            column: 0,
+            ast_hash: "deadbeefdeadbeefdeadbeefdeadbeef".to_string(),
+            dependencies: Vec::new(),
+            documentation: "Handles an inbound request.".to_string(),
+            language: "rust".to_string(),
+            is_exported: true,
+            annotations: Vec::new(),
+            byte_start: 900,
+            byte_end: 1500,
+        }
+    }
+}
+
+// `modality_conformance_tests!` expands to a FIXED `mod eg_modality_conformance`
+// name — nested here (rather than invoked a second time at this file's top level,
+// where `MergeProposal`'s invocation already claims that name) so the two batteries
+// don't collide (CONCEPT:E4/X1).
+mod symbol_conformance {
+    // The macro's generated conformance battery is itself `#[cfg(test)]`-gated (it
+    // expands to nothing in a non-test build), so `Symbol` has no real consumer
+    // outside `cfg(test)` here — gate the import the same way to avoid an
+    // "unused import" warning under a plain `cargo build`/`clippy` (no `--tests`).
+    #[cfg(test)]
+    use super::Symbol;
+
+    eg_modality::modality_conformance_tests!(Symbol);
+}
+
+// A direct test of the governed evidence-address mapping itself.
+#[cfg(test)]
+mod symbol_evidence {
+    use super::*;
+
+    #[test]
+    fn maps_file_path_and_line_range_losslessly() {
+        let sym = Symbol::conformance_sample();
+        let address = sym
+            .evidence_address()
+            .expect("a parsed Symbol always has evidence");
+        assert_eq!(
+            address,
+            EvidenceAddress::CodeSymbol {
+                revision_ref: OpaqueRef::scoped("revision", "deadbeefdeadbeefdeadbeefdeadbeef")
+                    .unwrap(),
+                symbol_ref: OpaqueRef::scoped("symbol", "deadbeefdeadbeefdeadbeefdeadbeef")
+                    .unwrap(),
+                start_line: 42,
+                end_line: 88,
+            }
+        );
+    }
+}

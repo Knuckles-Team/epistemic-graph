@@ -2,7 +2,7 @@
 name = "eg-types"
 version = "0.27.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Wire protocol + graph data model for the epistemic-graph engine (bottom of the crate DAG)"
 license = "MIT"
 
@@ -17,6 +17,24 @@ name = "eg_types"
 metrics = ["dep:strum"]
 finance = []
 datascience = []
+# Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): gates the
+# `Method::MineAssociate` variant + its `TransactionSource`/`MineAlgorithm` wire
+# types. PURE serde — no heavy dep — so it folds into the serving tiers; a build
+# without it drops the variant (→ the dispatch "not available in this build"
+# catch-all), exactly like finance/datascience.
+mining = []
+# Graph-learning / neuro-symbolic domain (CONCEPT:EG-KG.graphlearn.link-predictor):
+# gates the `Method::GraphLearnFit`/`GraphLearnPredict` variants + their
+# `GraphSource`/`GraphLearnParams` wire types. PURE serde (the model blob rides an
+# opaque `serde_json::Value`, so no KAN type leaks into the wire) — folds into the
+# serving tiers exactly like mining; a build without it drops the variants.
+graphlearn = []
+# Engine-native epistemic layer (CONCEPT:EG-KG.epistemic.epistemic-substrate, E6):
+# gates the additive epistemic fields and citation DTOs. Citations reuse the governed
+# `EvidenceLocusWire` query DTO, so `epistemic` must imply `query`; keeping the
+# dependency here makes every direct crate feature combination compile instead of
+# relying on the facade's full feature union to mask a missing type.
+epistemic = ["query"]
 # Unified cross-modal query plan AST (CONCEPT:KG-2.208) — the wire DTO embedded in
 # `Method::UnifiedQuery`. Gated so a build without the query surface drops the AST
 # (and the Method variant) from the enum, exactly like finance/datascience.
@@ -50,8 +68,8 @@ blob = []
 kv = []
 # SQLite `.db` FILE import/export (CONCEPT:EG-331/EG-332): gates the two `// ── SQLite
 # .db file ──` Method variants (`ImportSqliteFile`/`ExportSqliteFile`). PURE serde — no
-# dep here (the C `rusqlite` leg lives in the facade behind its own `sqlite-file` gate);
-# this only adds the two wire variants. A build without it drops them from the enum.
+# dep here (the pure-Rust `eg-sqlite-format` reader/writer lives in the facade behind its
+# own `sqlite-file` gate); this only adds the two wire variants. A build without it drops them.
 sqlite-file = []
 # Streaming / CDC / subscriptions (CONCEPT:KG-2.229/230): gates the `// ── Streaming
 # ──` Method variants + the CDC/continuous-query/watch/trigger wire DTOs. PURE serde
@@ -63,7 +81,7 @@ streaming = []
 # pi/node/cluster/full; a build without it drops the variant (→ the dispatch "not
 # available in this build" catch-all).
 cost = []
-# Native RDF surface (CONCEPT:KG-2.217): gates the `AddTriples`/`GetTriples` Method
+# Native RDF surface (CONCEPT:KG-2.217): gates the `AddTriples`/`GetRdf` Method
 # variants so a build without `rdf` drops them from the enum.
 rdf = []
 # Native SPARQL surface (CONCEPT:KG-2.218): gates the `Sparql` Method variant +
@@ -79,6 +97,13 @@ owl = ["sparql"]
 # SPLIT from `owl` because the unified-plan executor needs DataFusion (`query`) which
 # the Pi tier omits — the bare OWL reasoner (`owl`) stays Pi-safe.
 owl-plan = ["owl", "query"]
+# OBDA / R2RML virtual graphs (CONCEPT:EG-KG.query.r2rml-virtual-graph): gates the
+# `SparqlVirtual` Method variant. The OBDA engine (`eg_rdf::obda`) lives behind
+# `sparql`; the foreign-source seam this Method wires it to is the engine's OWN SQL
+# user-table store (`eg_query::TableStore`, behind `query`) — so this implies BOTH,
+# same split rationale as `owl-plan` (the bare `sparql`/`owl` surfaces stay Pi-safe;
+# OBDA over user tables needs DataFusion via `query`).
+obda = ["sparql", "query"]
 # WASM-sandboxed UDF surface (CONCEPT:KG-2.228): gates the `RegisterUdf`/`RunUdf`
 # Method variants AND the `Op::Udf { id }` variant of the cross-modal plan AST. The
 # `Udf` op lives inside the `query`-gated `Op` enum, so this implies `query`. Pure
@@ -145,6 +170,29 @@ timeseries = ["query"]
 # (Pi-safe wire data, no dep). Mirrors `tensor`/`stream`.
 # FOLD: opt-in; deliberately NOT added to any facade tier aggregate (node/full/pi).
 probabilistic = ["query"]
+# CONCEPT:INT-P2-1 — the durable analytics-job plane: gates the `jobs` wire module
+# (`JobOp`/`SubmitJobSpec`/`JobKind`) + the `Method::AnalyticsJob` variant. PURE
+# serde — no dep (mirrors `acl`, which is unconditional; this is feature-gated only
+# because the Method variant itself is opt-in, unlike `RbacAdmin`). The actual
+# durable state machine + redb store + claim-commit live in `eg-jobs` (ABOVE this
+# crate in the DAG); the facade wires it through `jobs`, included in the main
+# `full` deployment while remaining absent from small leaf builds unless selected.
+jobs = []
+# CONCEPT:INT-P2-2 — the native statechart engine: gates the `statechart` wire module
+# (`StatechartOp`) + the `Method::Statechart` variant. Pure serde/enum-variant gate,
+# same shape as `jobs`; the durable engine (typed model + redb store + pure transition
+# function) lives in `eg-statechart` (ABOVE this crate in the DAG) and the facade wires
+# it through `statechart`, included in the main `full` build.
+statechart = []
+# Graph-native program optimization extends the jobs wire contract with its one
+# typed job kind. A jobs-only build does not expose a non-executable variant.
+program-optimization = ["jobs"]
+# Pure-serde request/cursor/response DTOs for the shared governed KnowledgeBatch
+# pull protocol. The Arrow runtime remains in eg-plan/facade.
+knowledge-batch = []
+# Governed document/image/audio/video serving. This adds only pure-serde wire
+# operations; concrete runtimes and persistence remain above `eg-types`.
+modality-serving = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }

@@ -28,7 +28,7 @@
 //!    the introduced (and resolved / pre-existing) violations. This is the pure check
 //!    that a constraint-enforced transaction sits on; the write-path enforcement wiring
 //!    (a per-graph [`crate::policy::IcvPolicy`] + [`crate::policy::IcvPolicyRegistry`]
-//!    implementing eg-rdf's `WriteGuard`, so `eg_rdf::update::execute_guarded` REJECTS a
+//!    implementing eg-rdf's `WriteGuard`, so `eg_rdf::update::execute` REJECTS a
 //!    commit that would introduce a violation) is CONCEPT:EG-KG.ontology.rdf-update-guard — see [`crate::policy`].
 //!
 //! Surpassing Stardog: ICV can run over the **OWL-reasoned view** — pass the
@@ -157,7 +157,7 @@ pub fn validate_icv_turtle(shapes_ttl: &str, data_ttl: &str) -> Result<IcvReport
 /// engine write path can call `check_write` on the staged change set and refuse the
 /// commit when `accepted` is false. The actual write/commit-path wiring is CONCEPT:EG-KG.ontology.rdf-update-guard
 /// — [`crate::policy::IcvPolicyRegistry`] implements eg-rdf's `WriteGuard` so
-/// `eg_rdf::update::execute_guarded` enforces this per graph.
+/// `eg_rdf::update::execute` enforces this per graph.
 pub fn check_write(
     shapes_graph: &Graph,
     base: &Graph,

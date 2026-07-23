@@ -1,4 +1,15 @@
 # The release image (docker/Dockerfile) INSTALLS THE PUBLISHED WHEEL via `uv` — it
+# Security boundary: never send VCS metadata or local credentials to the build daemon.
+.git
+.env
+.env.*
+.venv
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
 # does NOT compile from source, so it needs (almost) NOTHING from the build context.
 # Excluding the heavy build/VCS/artifact dirs keeps the buildx context tiny and the
 # multi-arch build fast. A local pre-publish sanity build points EG_INSTALL_SPEC at a
@@ -19,3 +30,8 @@ venv/
 .mypy_cache/
 .ruff_cache/
 node_modules/
+
+# Exact release input admits only wheels and the hash-locked requirements file.
+release-wheelhouse/*
+!release-wheelhouse/*.whl
+!release-wheelhouse/*.txt

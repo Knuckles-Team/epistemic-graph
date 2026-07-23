@@ -10,6 +10,67 @@ is verified against the source, not against intent. Legend:
 The **Feature** column is the Cargo feature that gates the surface; the
 [tiers page](architecture/tiers.md) shows which prebuilt binary carries it.
 
+> **Machine-checked ledger available (EG-P0-1).** [`docs/capabilities.generated.md`](capabilities.generated.md)
+> is generated from an exhaustive, compiler-enforced `MethodPolicy` match over every wire-protocol
+> `Method` variant (`crates/eg-capabilities`, regenerate via `cargo run -p eg-capabilities --bin
+> gen_ledger`) and is the **authoritative** machine-checked source for per-method
+> mutates/durability-domain/authz-action/idempotent/audited/emits-CDC/txn-participation facts. This
+> page answers the coarser question of which query surface supports which operation.
+> The generated ledger is authoritative where the two overlap. Its consistency gate
+> requires every state-changing method to name an explicit domain. User-data writes
+> route through the canonical commit gateway or an explicit domain-specific transactional
+> gateway; process/session-only transitions use `VolatileControl`, and a mutating
+> `DurabilityDomain::None` entry is rejected.
+
+## Native governed external ingestion
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| `ApplyChangeEnvelope` | ✅ | `redb` | One redb transaction commits graph operations, immutable envelope/batch status, blobs/features/evidence/policy/lineage, typed content version and cursor, and projection/CDC outbox rows |
+| `GetChangeEnvelope` | ✅ | `redb` | Verified tenant-scoped reconciliation read of the immutable committed envelope |
+| `GetContentVersion` | ✅ | `redb` | Typed sequence, millisecond timestamp, or provider-opaque version; opaque values are never lexically ordered |
+| `GetChangeCursor` | ✅ | `redb` | Typed, tenant/graph/source/partition-scoped cursor with compare-and-advance fencing |
+| Cluster replication and recovery | ✅ | `raft` | The whole envelope is one Raft command; snapshots, backup/restore, offline migration, and online reshard preserve all auxiliary authority |
+| Verified request binding | ✅ | service auth | The sole `eg2.` context binds tenant, pseudonymous principal, policy version, request id, and idempotency key; Python clients support task-local `use_verified_context(...)` overrides |
+
+See [Governed ChangeEnvelope](architecture/change_envelope.md) for the contract and failure model.
+
+## Native governed modality service
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| `ServedModality::Authority` | ✅ | `modality-serving` | HMAC-derived tenant/policy/purpose references come only from a verified RequestContext; raw identity and deployment values remain in request memory; strict Python binding: `client.modalities.authority()` |
+| Native ingest | ✅ | `modality-serving` | Bounded UTF-8, strict 8-bit PNG, strict 8/16-bit PCM/WAV, and strict ISOBMFF inputs execute concrete native decoding/extraction and SHA-256-bind the certified artifact before commit |
+| Native typed query | ✅ | `modality-serving` | Authority-keyed document lexemes, normalized image regions, exact pHash distance, audio time/RMS windows, and video frame/keyframe windows use rebuilt native postings plus exact filtering |
+| Query, events, lifecycle, delete | ✅ | `modality-serving` | Exact tenant/policy/purpose/classification checks, bounded paging, OCC, legal hold, cold/restore, tombstone, and policy-filtered event replay; current-only Python operations are covered by `tests/test_modality_stream_clients.py` |
+| Durable privacy boundary | ✅ | `modality-serving` | A state-backed MutationBatch commits an AEAD-sealed runtime snapshot; clustered writes replicate a bounded HMAC-authenticated encrypted-state command, while source bytes and their direct hash never enter Raft, audit, CDC, status, or outbox rows |
+| Resource and TCK gate | ✅ | `modality-serving` | Pre-allocation transport ceiling, format-specific structural caps, 4,096-record posting-selectivity/recovery test; every advertised leaf must report 12 PASS, zero N/A, and a passing native codec/index/query/resource probe |
+
+See [Governed modality serving](architecture/modality_serving.md#live-graph-service) for the
+wire, policy, durability, and resource contracts.
+
+## Native governed result stream
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| `KnowledgeStream` | ✅ | `knowledge-batch` | One cursor-driven served method for graph, SQL, RDF, vector, time-series, analytics-job, and cross-modal query families; strict Python binding: `client.knowledge.pull(...)` |
+| Bounded Arrow pull | ✅ | `knowledge-batch` | Every family routes through its named `KnowledgeBatchStream` adapter and returns at most the requested/clamped batch size; the Python binding exposes only `arrow_ipc_v1` and validates the complete response/cursor shape |
+| Cursor fencing | ✅ | `knowledge-batch` | Cursor binds schema, family, keyed tenant/policy authority, placement epoch/fence, complete result snapshot, query, derivation/evidence set, and batch size |
+| RLS and placement | ✅ | `security` / `raft` | Dispatch occurs after verified RequestContext scope, graph ACL, RLS filtering, materialization readiness, and authoritative placement resolution |
+
+See [Governed modality serving](architecture/modality_serving.md#native-streaming-result-currency)
+for the wire contract and failure model.
+
+## Atomic graph and vector batches
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| `BatchUpdate` canonical `id`/`source`/`target` schema | ✅ | `redb` | One shared typed decoder drives RAM and durable rows; malformed or unknown operations fail the whole batch |
+| Node/edge upsert plus vector write | ✅ | `redb` | `upsert_node`, `upsert_edge`, and `add_embedding`; vectors commit in the same redb transaction as graph rows |
+| Referential cleanup | ✅ | `redb` | Node removal tombstones every incoming/outgoing durable edge and the owned semantic vector across restart/replay |
+
+See [Atomic Batch Updates](interfaces/batch_update.md) for the complete operation and response schema.
+
 ## SQL (`eg-query/sql` + pgwire)
 
 | Operation | Status | Feature | Evidence |
@@ -27,8 +88,8 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | `CREATE FUNCTION … LANGUAGE sql` (scalar + table UDFs, durable catalog) | ✅ | `query` | CONCEPT:EG-KG.query.create-drop-function |
 | `CREATE FUNCTION … LANGUAGE plpgsql` procedural bodies (`DECLARE`/`IF`/`LOOP`/`WHILE`/`FOR`/`RETURN`/`RAISE`/`SELECT … INTO`) | ✅ | `query` | pure interpreter, `crates/eg-query/src/sql/plpgsql.rs` (CONCEPT:EG-KG.query.eg-validate-procedural-body/EG-KG.query.concept-7); set-returning `RETURN NEXT/QUERY`, cursors, exception handlers + DML-in-body are documented out of scope |
 | Columnar (struct-of-arrays) segments + SQL window frames (`ROW_NUMBER`/`RANK`/`DENSE_RANK`/`LAG`/`LEAD`/`OVER(PARTITION BY … ROWS/RANGE …)`) | ✅ | `query` | CONCEPT:EG-KG.temporal.columnar-schema-inference |
-| DML on arbitrary user tables (`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`, `COPY`) | ✅ | `query` | durable redb `TableStore` (EG-KG.query.register-user-tables-alongside/EG-KG.query.register-each-user-table); `run_insert_table`/`run_update_table`/`run_delete_table` |
-| `CREATE` / `ALTER ADD COLUMN` / `DROP TABLE`, arbitrary user tables, DDL | ✅ | `query` | `crates/eg-query/src/tables/` durable catalog (EG-KG.query.register-user-tables-alongside); JOINable to the graph |
+| DML on arbitrary user tables (`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`, `COPY`) | ✅ | `query` | verified tenant+actor-scoped durable redb `TableStore`; RPC SQL rows/catalog + MutationBatch status/fence/idempotency/outbox share one commit, while connection transactions remain one redb table transaction (EG-KG.query.register-user-tables-alongside/EG-KG.query.register-each-user-table) |
+| `CREATE` / `ALTER ADD COLUMN` / `DROP TABLE`, arbitrary user tables, DDL | ✅ | `query` | `crates/eg-query/src/tables/` owner-scoped durable catalog with opaque filenames; JOINable to that owner's graph projection |
 | `ALTER TABLE` beyond ADD COLUMN — `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO`, `ALTER COLUMN TYPE` (data migration), `DROP CONSTRAINT` | ✅ | `query` | durable user-table catalog rewrite (CONCEPT:EG-KG.query.rename-table-moves-catalog) |
 
 ### Postgres wire (`pgwire`, in the main build — CONCEPT:EG-KG.compute.capability-reference/EG-KG.sharding.deployment-tiers)
@@ -39,7 +100,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Simple query protocol | ✅ | `SimpleQueryHandler` |
 | Extended / prepared protocol (Parse/Bind/Describe/Execute, `$N` params) | ✅ | `ExtendedQueryHandler`, `substitute_params` |
 | SCRAM-SHA-256 auth (pg user → engine ACL actor) | ✅ | `auth.rs` `PgWireAuthMode::Scram` (EG-KG.query.concept-13) |
-| Trust auth (dev) | ✅ | `auth.rs` `PgWireAuthMode::Trust` |
+| Authentication bypass | ❌ rejected | Mandatory SCRAM; missing key material or any non-`scram` mode fails startup |
 | `pg_catalog` / `information_schema` introspection | ✅ | `register_pg_catalog` + DataFusion `with_information_schema` (EG-KG.query.datafusion) |
 | `pg_catalog.pg_class/pg_namespace/pg_attribute/pg_type/pg_index/pg_proc` + `information_schema.tables/columns/schemata/views/routines` so `psql \d`/`\dt`/`\l`, ORMs + BI tools introspect | ✅ | synthesized from live table/view/function catalogs incl. `pg_table_is_visible`/`format_type`/`current_schema` (CONCEPT:EG-KG.query.route-create-view-create) |
 | `SET graph = '<name>'` connection switch | ✅ | `mod.rs` |
@@ -115,9 +176,11 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | `REMOVE` (property delete + label removal) | ✅ | `WriteOp::Remove` → `apply_remove` (CONCEPT:EG-KG.query.cypher-execution) |
 | `ORDER BY` / `SKIP` / `WITH` / `OPTIONAL MATCH` / `OR`+`IN`/`STARTS WITH`/`CONTAINS`/`IS NULL`, aggregation (`count`/`collect`/`sum`/`avg`/`min`/`max`), `RETURN DISTINCT`/`*` | ✅ | parser + executor (CONCEPT:EG-KG.query.eg-extend-read-side) |
 | Variable-length hop combined with fixed hops + path-variable binding | ✅ | relaxes the single-hop guard (CONCEPT:EG-KG.query.concept-2) |
+| Quantified path patterns `((a)-[:REL]->(b)){m,n}` (Cypher 25) | ✅ | path-preserving whole-subpattern expansion (`walk_hops`/`quantified_group_matches`) with ordered node/relationship group-variable lists, zero-repetition empty lists, bounded expansion, and deterministic native CREATE expansion (CONCEPT:EG-KG.query.quantified-path-pattern) |
 | `UNWIND expr AS var` | ✅ | composes with WITH/MATCH pipeline (CONCEPT:EG-KG.query.param-list-drives-unwind) |
 | `CALL { subquery }` + `CALL proc(args) YIELD …` procedure framework | ✅ | invocation registry → native/WASM procedures (CONCEPT:EG-KG.query.cypher-planning) |
-| APOC-equivalent + GDS surface via `CALL gds.*` (PageRank, WCC/SCC, Louvain, betweenness/degree centrality, Dijkstra, node similarity) | ✅ | pure-Rust eg-compute (CONCEPT:EG-KG.query.eg-2 / EG-144); `CALL gds.<algo>(…) YIELD …` projects the live graph into the eg-compute adjacency + streams results as Cypher rows (CONCEPT:EG-KG.query.gds-call-procedures) |
+| APOC-equivalent + GDS surface via `CALL gds.*` (PageRank, WCC/SCC, Louvain, Label Propagation, betweenness/degree centrality, Dijkstra, node similarity + top-k KNN) | ✅ | pure-Rust eg-compute (CONCEPT:EG-KG.query.eg-2 / EG-144); `CALL gds.<algo>(…) YIELD …` projects the live graph into the eg-compute adjacency + streams results as Cypher rows (CONCEPT:EG-KG.query.gds-call-procedures) |
+| `gds.dbscan` (density clustering) + `gds.linkPrediction` (KAN link-predictor) | ✅ | routes to `mining::cluster::dbscan` / `graphlearn::link_predict` behind the `cypher-mining`/`cypher-graphlearn` features included by Cargo `full` (CONCEPT:EG-KG.query.gds-procedure-routing) |
 
 ## GraphQL (`eg-graphql`)
 
@@ -127,7 +190,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Mutations (`createNode`/`updateNode`/`deleteNode`/`addEdge`/`removeEdge`) | ✅ | `mutation.rs` `execute` over eg-core mutations; OCC bumped once per batch |
 | Apollo Federation v2 subgraph: `_service { sdl }` + `_entities(representations:[_Any!]!)`, `@key`/`@shareable`/`@external` directives | ✅ | so the engine is a federated subgraph in an Apollo supergraph (CONCEPT:EG-KG.query.apollo-federation-subgraph) |
 | Enterprise hardening: automatic persisted queries (APQ), query depth + complexity/cost limits, field/node caps, introspection toggle | ✅ | protects the federated subgraph in production (CONCEPT:EG-KG.domains.graphql-enterprise-hardening) |
-| Subscriptions | ✅ | real CDC push: a `LiveQuery` over a `tokio::sync::broadcast` change-stream fed by `GraphCore` `mark_dirty`, WS/SSE carrier (CONCEPT:EG-KG.compute.cdc-event-emit) |
+| Subscriptions | ✅ | real CDC push: `LiveQuery` over the graph change stream, exposed only through the authenticated loopback SSE carrier; a current eg2 envelope binds request id + graph + subscription and every publication rechecks graph ACL and default-deny RLS (CONCEPT:EG-KG.compute.cdc-event-emit) |
 | Fragments / variables / directives / relay pagination | ✅ | `$`/`@` lexer, fragment-spread + inline fragments, variable defs/refs, `@skip`/`@include`, relay `edges`/`node`/`cursor`/`pageInfo` (CONCEPT:EG-KG.query.fragments-variables-directives/066) |
 
 ## Vector / ANN (`eg-ann` + `eg-core`)
@@ -190,17 +253,17 @@ for per-wire connect+query recipes and the full env-var/port table.
 | MSSQL TDS wire (hand-rolled TDS) | ✅ | `mssql-wire` | `src/server/mssql_wire`; `EPISTEMIC_GRAPH_MSSQL_ADDR` (EG-KG.query.hand-rolled-tds-server) |
 | SQLite-dialect NDJSON-over-TCP endpoint | ✅ | `sqlite-wire` | `src/server/sqlite_wire`; `EPISTEMIC_GRAPH_SQLITE_ADDR` (EG-KG.query.concept-3) |
 | On-disk `sqlite3` `.db` file import/export (`Method::ImportSqliteFile`/`ExportSqliteFile`) | ✅ | `sqlite-file` | pulls `rusqlite` (bundled C sqlite3), in the main build (CONCEPT:EG-KG.query.eg-feature/EG-KG.query.full-protocol) |
-| Neo4j Bolt v4.4 wire (PackStream v2, native Cypher) | ✅ | `bolt-wire` | `src/server/bolt_wire`; `EPISTEMIC_GRAPH_BOLT_ADDR` (EG-KG.query.bolt-wire-protocol) |
-| AMQP 0.9.1 broker wire (exchanges/queues over the EG-KG.compute.atomically-claim-oldest-pending work-queue) | ✅ | `amqp-wire` (impl `broker`) | `src/server/amqp_wire`; `EPISTEMIC_GRAPH_AMQP_ADDR` (EG-275) |
-| MQTT 3.1.1/5.0 broker wire (CONNECT/PUBLISH/SUBSCRIBE, QoS 0/1) | ✅ | `mqtt-wire` (impl `broker`) | `src/server/mqtt_wire`; `EPISTEMIC_GRAPH_MQTT_ADDR` (EG-281) |
-| STOMP 1.2 broker wire (CONNECT/SEND/SUBSCRIBE/ACK) | ✅ | `stomp-wire` (impl `broker`) | `src/server/stomp_wire`; `EPISTEMIC_GRAPH_STOMP_ADDR` (EG-KG.ontology.stomp-frame-codec-unit) |
-| Redis RESP2/RESP3 wire (GET/SET/DEL/EXPIRE/INCR, HSET/HGET, LPUSH/LRANGE, SADD/SMEMBERS, ZADD/ZRANGE, scan) over the KV surface | ✅ | `redis-wire` | `src/server/redis_wire`; `EPISTEMIC_GRAPH_REDIS_ADDR` (EG-KG.ontology.resp2-resp3-codec-round); **pub/sub** (`SUBSCRIBE`/`PSUBSCRIBE`/`PUBLISH`/`UNSUBSCRIBE`) + `MULTI`/`EXEC` transactions (CONCEPT:EG-KG.txn.pubsub-transactions) |
+| Neo4j Bolt v4.4 wire (PackStream v2, native Cypher) | ✅ | `bolt-wire` | `src/server/bolt_wire`; current signed session + ACL/RLS + atomic staged MutationBatch transactions; `EPISTEMIC_GRAPH_BOLT_ADDR` (EG-KG.query.bolt-wire-protocol) |
+| AMQP 0.9.1 broker wire (exchanges/queues over the EG-KG.compute.atomically-claim-oldest-pending work-queue) | ✅ | `amqp-wire` (impl `broker`) | Mandatory HMAC-derived SASL PLAIN; verified principal → secret-keyed pseudonymous actor reference; authenticated loopback listener (EG-275) |
+| MQTT 3.1.1/5.0 broker wire (CONNECT/PUBLISH/SUBSCRIBE, QoS 0/1) | ✅ | `mqtt-wire` (impl `broker`) | Mandatory HMAC-derived CONNECT password; verified username → secret-keyed pseudonymous actor reference; authenticated loopback listener (EG-281) |
+| STOMP 1.2 broker wire (CONNECT/SEND/SUBSCRIBE/ACK) | ✅ | `stomp-wire` (impl `broker`) | Mandatory HMAC-derived CONNECT passcode; verified login → secret-keyed pseudonymous actor reference; authenticated loopback listener (EG-KG.ontology.stomp-frame-codec-unit) |
+| Redis RESP2/RESP3 wire (GET/SET/DEL/EXPIRE/INCR, HSET/HGET, LPUSH/LRANGE, SADD/SMEMBERS, ZADD/ZRANGE, scan) over the KV surface | ✅ | `redis-wire` | `src/server/redis_wire`; authenticated loopback `EPISTEMIC_GRAPH_REDIS_ADDR` (EG-KG.ontology.resp2-resp3-codec-round); HMAC-bound principal becomes a pseudonymous isolated keyspace/pub-sub scope; **pub/sub** (`SUBSCRIBE`/`PSUBSCRIBE`/`PUBLISH`/`UNSUBSCRIBE`) + `MULTI`/`EXEC` transactions (CONCEPT:EG-KG.txn.pubsub-transactions) |
 | S3-compatible REST (bucket + object PUT/GET/DELETE/HEAD/List, SigV4-lite) over the blob CAS | ✅ | `s3-api` | `src/server/s3` (EG-KG.ontology.object-put-get-head); **multipart upload** (Create/Upload-Part/Complete/Abort) + **range GET** (CONCEPT:EG-KG.txn.pubsub-transactions) |
-| GraphQL SSE subscription carrier | ✅ | `graphql` | `EPISTEMIC_GRAPH_GRAPHQL_ADDR`; real CDC push over WS/SSE (CONCEPT:EG-KG.compute.cdc-event-emit) |
+| GraphQL SSE subscription carrier | ✅ | `graphql` | `EPISTEMIC_GRAPH_GRAPHQL_ADDR`; loopback-only HTTP, current eg2 `Authorization` + signed request-id/graph/query binding, tenant policy + graph ACL + RLS on every visible frame, hidden-row payload deduplication, locked-down query-cost/syntax/frame/write bounds, bounded connections/session lifetime; remote exposure requires a same-host TLS proxy (CONCEPT:EG-KG.compute.cdc-event-emit) |
 
 ## Message broker (`broker` — surpasses RabbitMQ)
 
-Built on the EG-KG.compute.atomically-claim-oldest-pending native engine task queue (`ClaimNext`): durable exchanges/queues live as `__control__` graph nodes, drive additive `Method::*` ops, and are Raft/WAL-safe.
+Built on the EG-KG.compute.atomically-claim-oldest-pending native engine task queue (`ClaimNext`): durable exchanges/queues live as `__control__` graph nodes, drive current `Method::*` ops, and are Raft-safe and redb-durable.
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
@@ -251,7 +314,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
 | CRS registry + affine/Helmert reprojection | ✅ | `eg-geo` (EG-KG.domains.geo-registry) |
-| Durable STR-packed R-tree spatial index | ✅ | `eg-geo` (EG-KG.domains.spatial-strtree-index) |
+| Durable STR-packed R-tree spatial index | ✅ | `eg-geo` (EG-KG.domains.spatial-strtree-index); recovered graphs are backfilled before planner availability, and paged lazy-open keeps snapshot fallback until the final-page backfill completes |
 | GeoJSON / WKB / GPX / WKT I/O | ✅ | `eg-geo` (EG-KG.domains.geo-registry/264, `geo-io`) |
 | ESRI Shapefile (.shp/.dbf/.shx) / KML/KMZ / GeoParquet I/O | ✅ | round-trips geometries + attributes, completing the map-data ingest/export matrix (CONCEPT:EG-KG.domains.geo-formats) |
 | `Op::SpatialScan` + `SpatialWithin`/`SpatialDWithin` predicates in a UnifiedQuery | ✅ | `geo` feature (EG-KG.ontology.singles-concept) |
@@ -260,7 +323,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Geodesic ops (Haversine/Vincenty distance + geodesic area; CRS tag selects planar vs geodesic) | ✅ | CONCEPT:EG-KG.ontology.concept-8 |
 | Full geometry model (Multi*/GeometryCollection + polygon holes + EWKT) | ✅ | CONCEPT:EG-KG.domains.geometry-collections |
 | Map tiling: XYZ/TMS addressing + Mapbox Vector Tiles (MVT) clipped to a tile | ✅ | web-map render (CONCEPT:EG-KG.domains.map-tiles) |
-| Raster tile pyramids (georeferenced coverage grid → XYZ raster tiles + full pyramid, dependency-free PNG codec) | ✅ | `crates/eg-geo/src/raster.rs` (CONCEPT:EG-KG.domains.raster-build/EG-KG.domains.raster-fetch); no `image`/`png`/`flate2` — Pi contract holds |
+| Raster tile pyramids (georeferenced coverage grid → XYZ raster tiles + full pyramid, dependency-free PNG codec) | ✅ | `crates/eg-geo/src/raster.rs` (CONCEPT:EG-KG.domains.raster-build/EG-KG.domains.raster-fetch); no `image`/`png`/`flate2` dependencies |
 | Weighted routing (Dijkstra/A* geo-heuristic) + isochrones + nearest-neighbour/2-opt TSP | ✅ | logistics primitives (CONCEPT:EG-KG.domains.geo-routing); turn-restriction penalties + time-window/time-dependent edge weights (CONCEPT:EG-KG.domains.geo-partitioning) |
 | Map-based task tracking (`:GeoTask` location/status/service-area; within-bbox/polygon, nearest-N, along-route, nearest-resource assignment) | ✅ | field-ops layer (CONCEPT:EG-KG.domains.geo-task) |
 | OGC GeoSPARQL `geo:`/`geof:` vocabulary + spatial FILTER functions over SPARQL | ✅ | `geosparql` feature (EG-KG.ontology.concept-10); reuses eg-geo (no GEOS/PROJ) |
@@ -278,7 +341,26 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | LeanRAG hierarchical retrieval (vector-retrieve at summary level → drill down SUMMARIZES/CONSOLIDATES edges) | ✅ | bottom-up aggregation + top-down traversal (CONCEPT:EG-KG.retrieval.bounded-drill) |
 | Natural-language → query (`Method::NlQuery`, `/nl`, `nl_query()` UDF) | ✅ | `nl-query` (CONCEPT:EG-KG.query.core-query-input/080); complete LLM-optional seam, inert until an OpenAI-compatible endpoint is set; AU-provider integration tracked on the agent-utilities side |
 | Uncertainty-distribution-valued properties (Gaussian/Beta/Categorical/empirical) | ✅ | `graph.rs` `Distribution` accessors + Bayesian update/sampling (CONCEPT:EG-KG.compute.uncertainty-values) |
-| Memory/scene/trajectory driven over the wire (additive `Method`s: CreateSummary/Consolidate/Maintain/SceneObject/Trajectory + dispatch + WAL replay) | ✅ | AU/MCP drive them remotely, no longer in-process only (CONCEPT:EG-KG.memory.eg-batch-decay-caller, exposing EG-087/099/220/221/222) |
+| Memory/scene/trajectory driven over the wire (current `Method`s: CreateSummary/Consolidate/Maintain/SceneObject/Trajectory + dispatch + redb persistence) | ✅ | AU/MCP drive them remotely, no longer in-process only (CONCEPT:EG-KG.memory.eg-batch-decay-caller, exposing EG-087/099/220/221/222) |
+
+## Epistemic substrate (`eg-epistemic` — CONCEPT:EG-KG.epistemic.epistemic-substrate)
+
+Claims/Evidence/Sources are ordinary `type`-tagged nodes (no new persistence); Support/
+Contradict/Attack are ordinary edges. `epistemic` (implies `query`) wires the base surface.
+WS-1b (2026-07-12) folded the LIGHT `epistemic-redaction`/`evidence-graph` features into the
+`full` tier line (no new dependency, no expensive recompute — see `Cargo.toml`'s WS-1b note
+above the `full` definition); the HEAVY `epistemic-tms`/`epistemic-causal` features remain
+opt-in on top of `full`, each reachable via its own explicit `--features` build.
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| Belief state + confidence propagation over support/contradiction/attack edges | ✅ | `epistemic` (in `full`) | `eg_epistemic::propagate_confidence`; `Method::ExplainBelief` returns the full justification tree |
+| Bitemporal acceptance query (`why`/`why_not`/`what_changed`/`what_would_invalidate`, `epistemic_status` capstone) | ✅ | `epistemic-tms` (in `full`) | `Method::EpistemicStatus`/`Method::WhatChanged` (EPI-P3-5, L53) |
+| Policy-aware proof redaction + selective disclosure (`Full`/`Skeleton`/`ExistenceOnly`) | ✅ | `epistemic-redaction` (in `full`) | `Method::ExplainBelief`'s `disclosure_level` (EPI-P3-4, L51) |
+| Multimodal-evidence citation resolver — resolve a claim's cited evidence to its located locus (PDF page+box, audio/video interval, SQL row version, code range, trace span, …) + `AssetOccurrence`/`Blob` identity chain | ✅ | `evidence-graph` (in `full`) | `Method::ExplainEvidence` (CONCEPT:EG-X1); facade-reachable, part of `full` since WS-1b |
+| Calibrated causal reasoning — do-calculus intervention (graph surgery) OR observational conditioning over a request-carried linear-Gaussian SCM | ✅ | `epistemic-causal` (in `full`) | `Method::CausalEstimate`'s `mode` (EPI-P3-3/P3-6: `Intervene`/`Observe`) |
+| Pearl point-counterfactual — "what would Y have been had X been x', given unit U actually happened" (abduction/action/prediction over a fully-observed unit) | ✅ | `epistemic-causal` (in `full`) | `Method::CausalCounterfactual` (EPI-P3-6) |
+| Provenance-aware retrieval ranking — rank candidates by evidence quality/provenance (reliability, corroboration, calibration precision, freshness) in addition to similarity | ✅ | `epistemic-causal` (in `full`) | `Method::RankByProvenance` (EPI-P3-3) |
 
 ## New data modalities (`eg-core` + leaf crates)
 
@@ -288,6 +370,24 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Array/tensor store: dense/chunked N-D arrays CAS-backed + `Op::TensorScan`/`Op::TensorOp` (slice/reduce/elementwise) | ✅ | pure-Rust `eg-tensor`, feature `tensor` (CONCEPT:EG-KG.storage.content-addressed-dedup); derived tensors from `Op::TensorOp`/`Op::TensorScan` **write back** into the content-addressed store on the exec path — durable + dedup-shared (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink) |
 | Scene-graph / 3D world model: `:SceneObject` pose + transform hierarchy + spatial relations + bounding volumes | ✅ | robotics/AR/urban-3D substrate (CONCEPT:EG-KG.compute.scene-graph-primitives) |
 | Event-stream + CEP: windowed high-velocity ingest + `Op::Cep` bounded-NFA (sequence/within/absence) over sliding/tumbling windows | ✅ | `eg-stream`, feature `stream` (CONCEPT:EG-KG.query.pipelined-execution) |
+
+### Document & media modalities (`eg-document` / `eg-image` / `eg-audio` / `eg-video` / `eg-alignment` — EG-P1-3)
+
+Four dependency-light leaf crates share the universal governed artifact protocol and the
+`ServedModalityRuntime` ingest/query/lifecycle/restart state machine. They are pulled into the main
+build through `eg-plan/epistemic`; their component TCKs require 12/12 PASS and permit no N/A core
+dimension. That component result is necessary but not sufficient for release readiness,
+which is established by the G-14 exact-binary campaign plus same-artifact G-37 evidence.
+See [governed modality serving](architecture/modality_serving.md).
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| Universal Artifact/Occurrence/Rendition/Segment/Feature/EvidenceLocus protocol | ✅ | `eg-modality` | opaque references, policy/derivation/privacy envelope, structural + certified validation |
+| Governed document/image/audio/video serving | ✅ | `serving` (included by the main build) | atomic batch/stream ingest, update/delete/replay, policy paging, lifecycle, snapshot/reindex, mandatory leaf-level payload privacy validation |
+| Concrete native document/image/audio/video runtimes | ✅ | crate-local `runtime`/`serving` | UTF-8 layout/private lexemes; full PNG pixels/pHash; PCM waveform/spectral windows; ISOBMFF sample tables/24-bit raw-RGB frames |
+| Native modality posting/query plane | ✅ | `eg-modality` + `ServedModality::NativeQuery` | lexical, 16×16 spatial, 1-second temporal, and bounded multi-probe signature postings are rebuilt on recovery and exact-filtered under policy without pHash false negatives in the supported radius |
+| Modality component TCK | ✅ | crate-local `contract` | document/image/audio/video each assert 12 PASS, zero N/A, plus an executed native probe; the wire reports component fields only |
+| Native KnowledgeBatch streaming across graph/SQL/RDF/vector/time-series/jobs/cross-modal | ✅ | `knowledge-batch` (in `full`) | bounded pull stream, stable Arrow schema, governed context, snapshot-bound cursor |
 
 ## Robotics (`eg-core` + `eg-tensor` + `eg-tsdb`)
 
@@ -332,6 +432,37 @@ Databricks-LTAP-interoperable: external lakehouse engines read the engine's own 
 | Iceberg-REST catalog + Iceberg snapshot metadata (Trino / Spark catalog resolution) | ✅ | CONCEPT:EG-KG.storage.lsn-as-snapshot-returns |
 | Real Iceberg v2 **Avro** manifest + manifest-list writer (Spark/Trino/DuckDB read the tables) | ✅ | CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest/EG-KG.storage.iceberg-manifest-list; `crates/eg-lake/src/iceberg_avro.rs`, `lake` feature (pure-Rust `apache-avro`); per-column stats (`value_counts`/`null_value_counts`/`lower_bounds`/`upper_bounds` by field-id) for predicate pushdown / file skipping (EG-KG.storage.iceberg-avro-manifest-carries); partition `field_summary` null by design (unpartitioned spec) |
 | LSN-style as-of / time-travel snapshots (reusing versioned snapshots + `Op::AsOf`) | ✅ | a lake snapshot pins an exact engine LSN (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns) |
+| OpenLineage `RunEvent` emission (job/run/input-dataset/output-dataset + schema/datasource/output-statistics facets + an engine-specific LSN/Iceberg-snapshot custom facet) on every materialize/compact/delete run; optional HTTP push | ✅ | CONCEPT:EG-317/INT-P2-3; `src/server/lake/lineage.rs`; push target `EPISTEMIC_GRAPH_OPENLINEAGE_URL`, unset ⇒ silent no-op (never blocks/fails the run) |
+
+## Distributed placement & analytics jobs (Phase 2 — `cluster`/`raft` + opt-in `jobs`)
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| `PlacementCatalog` — epoch'd placement authority (online split/merge/move via prepare-then-fenced-cutover; a stale-epoch caller is redirected, never served stale) | ✅ | `raft`/`cluster` | `src/raft/placement.rs` (CONCEPT:DIST-P2-1/EG-KG.sharding.placement-catalog); takes priority over the hash-ring router for any graph with an explicit placement entry |
+| Multi-group production startup (`EPISTEMIC_GRAPH_RAFT_GROUPS`) + bounded cross-shard read pages routed to each current leader over authenticated `GroupRpc`; placement ReadIndex/epoch fences, deterministic cursors, deadlines/fan-out caps, and explicit require-complete vs partial policy | ✅ | `raft`/`cluster` | `src/raft/xread.rs`/`network.rs`/`node.rs` (CONCEPT:DIST-P2-2); live harnesses cover routing, merge, and completion policy |
+| Lazy graph lifecycle: catalog-only boot, source-bounded paging, immutable incarnation/version fences, cancellation on delete/evict, per-graph lifecycle serialization, and maintained-index manifests. Operations return `PARTIAL_MATERIALIZATION` until the source view and all indexes are valid; health/list responses expose completeness/freshness. Served mode always uses positive resident and page bounds; eager/unbounded profiles do not exist. | ✅ | `redb` | `eg-core::registry`, `eg-core::index`, `src/server/persistence/{read_through,cold_offload,redb_backend}.rs`, `src/server/{dispatch,secondary_indexes}.rs` (CONCEPT:DIST-P2-3/EG-KG.sharding.lazy-graph-catalog) |
+| Durable analytics-job plane: `Method::AnalyticsJob` async submit/status/cancel/resume over a redb-backed state machine, with an immutable input-snapshot handle (graph + pinned OCC version) and a `:Claim`/`:Evidence` result-commit path | ✅ | `jobs` (in `full`) | `eg-jobs`, `src/server/handlers/jobs.rs` (CONCEPT:INT-P2-1); facade-reachable via the Python client's `client.jobs.{submit,status,cancel,resume}` sub-client (+ the general `client.cancel_request` for an in-flight RPC) |
+| Graph-native typed LM-program contract: typed signatures/modules/adapters, opaque tools/content/traces, privacy attestation, all-modality located evidence, evaluator evidence, and `ChangeEnvelope`-only promotion | ✅ | `program-optimization` (in `full`) | `eg-program`; [native program optimization](architecture/native-program-optimization.md) |
+| Native program-optimization surface: labeled/bootstrap/random/KNN selection, ensemble composition, COPRO/MIPRO instruction search, SIMBA/GEPA reflection, rule inference, BetterTogether, and bootstrap finetuning | ✅ | `program-optimization` (in `full`) | Pure Rust kernels execute selection/composition; provider-dependent work emits bounded governed plan-step rows for the existing graph-similarity/model/evaluator/trainer runtimes, then materializes evidence-backed artifacts without a second provider client; all 14 modalities are preserved |
+| Governed external compute: stream an authority-, snapshot-, and placement-bound `KnowledgeBatch` over the signed `Method::KnowledgeStream` protocol, submit durable native `AnalyticsJob` work, then retrieve its evidence-bearing result through the same stream | ✅ | `jobs`/`knowledge-batch` (in `full`) | `src/server/handlers/{knowledge_stream,jobs}.rs` (CONCEPT:INT-P2-2) |
+
+## Epistemic reasoning (`eg-epistemic` — features `epistemic`/`epistemic-tms`/`epistemic-redaction`; see also 2.16.0's epistemic substrate)
+
+`epistemic`, `epistemic-redaction`, `evidence-graph`, `epistemic-tms`, and
+`epistemic-causal` are all part of the default `full` build. Expensive argumentation and
+causal operations remain request-bounded; steady-state maintenance is incremental and
+driven from the durable mutation outbox.
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| Claim/Evidence/Source/BeliefState + cycle-guarded confidence propagation (Bayesian conjugate update), `EVIDENCE FOR`/`CONTRADICTS`/`SUPPORTED BY`/`BELIEF AS OF`/`SOURCE RELIABILITY`/`CONFIDENCE` UQL ops | ✅ | `epistemic` (in `full`) | 2.16.0 epistemic substrate; `eg-epistemic`, `eg-plan/epistemic` |
+| Paraconsistent truth-maintenance + Dung argumentation (grounded/preferred/stable extensions, dependency-directed retraction) | ✅ | `epistemic-tms` (in `full`) | `eg-epistemic::tms`; standalone conflict resolution is facade-reachable via `Method::ResolveConflict` and `client.query.resolve_conflict(...)` |
+| Incremental truth-maintenance, contradiction, and causal materialization from the durable mutation outbox | ✅ | `epistemic-tms` (in `full`) | `eg-epistemic::incremental`, `src/server/reasoning_projection.rs`; projection state is persisted before its cursor advances, so restart resumes without losing an invalidation |
+| Bitemporal why/why-not/what-changed + the `epistemic_status` capstone (`Method::EpistemicStatus`/`Method::WhatChanged`) | ✅ | `epistemic-tms` (in `full`) | CONCEPT:EPI-P3-5 |
+| Policy-aware proof redaction: `Method::ExplainBelief`'s `disclosure_level` masks (never silently drops) an evidence node the caller's RLS context can't see, reusing the same `RowVisibility`/`can_see_row` check every other read path enforces | ✅ | `epistemic-redaction` (in `full`) | CONCEPT:EPI-P3-4; `eg-epistemic::redact`, `src/server/handlers/query.rs`. Requesting `disclosure_level` without the feature is an explicit error, never silently ignored; facade-reachable via `client.query.explain_belief(node_id, disclosure_level=...)` |
+| Calibrated causal reasoning — linear-Gaussian SCM with genuine Pearl do-calculus (`observe`/`intervene`/`counterfactual`, each returning a calibrated credible interval or, for `counterfactual`, a deterministic point value) + provenance-aware retrieval ranking | ✅ | facade `epistemic-causal` (in `full`) | CONCEPT:EPI-P3-3/P3-6; `eg-epistemic::{causal,ranking}`. Facade-reachable via `Method::CausalEstimate`, `Method::CausalCounterfactual`, and `Method::RankByProvenance`, with matching Python client calls |
+| Multimodal evidence-graph spine: `EvidenceLocus` with governed addresses spanning text, table, image, audio, video, metric, row, code, and trace sources | ✅ | `epistemic` (type reachable via `dep:eg-modality`) | CONCEPT:EG-X1; `eg-modality::artifact` |
+| Evidence citation resolver (`evidence_citations`/`resolve_locus`/`justification_citations`) | ✅ | facade `evidence-graph` (in `full`) | CONCEPT:EG-X1. `Method::ExplainEvidence` and the blob-CAS `CasEvidenceResolver` consume the same `EvidenceLocus` identity/address contract. |
 
 ## Request scheduling & QoS
 
@@ -350,13 +481,13 @@ The Analytics-Program kernel: one BLAS/LAPACK-free Rust kernel, two surfaces
 | Element-wise (`sqrt/log/exp/abs/tanh/clip/maximum/minimum/where/nan_to_num/isnan`) | ✅ | `crates/eg-numeric/src/elementwise.rs`; nan/inf edge-cased |
 | LAPACK-class linalg (`norm/dot/matmul/solve/svd/eigh/pinv/lstsq/qr/cholesky/det/inv/matrix_power`) — pure-Rust faer, **no system BLAS/LAPACK** | ✅ | `crates/eg-numeric/src/linalg.rs`; singular → LinAlgError (numpy parity) |
 | Random (`normal/uniform/integers`, seedable, deterministic) | ✅ | `crates/eg-numeric/src/random.rs`; distributional parity |
-| Surface A — Python extension `epistemic_graph.numeric` (zero-copy rust-numpy + `allow_threads`) → `agent_utilities.numeric.xp` | ✅ | feature `python` (separate maturin build), **folded into the one `epistemic-graph` wheel** — `pip install epistemic-graph[numeric]`, no separate `eg-numeric` package (AU-KG.compute.is-installed-kernel-discovery/EG-KG.compute.tensor-gpu-distance); consumed by AU-KG.backend.lmcache-native-connector shim |
+| Surface A — Python extension `epistemic_graph.numeric` (zero-copy rust-numpy + `allow_threads`) → `agent_utilities.numeric.xp` | ✅ | compiled as a wheel-composition component and **folded into the one `epistemic-graph` wheel**; Agent Utilities requires `epistemic-graph[full]`, whose Python extra includes numeric interoperability dependencies; there is no second published numeric package or missing-kernel fallback (AU-KG.compute.is-installed-kernel-discovery/EG-KG.compute.tensor-gpu-distance) |
 | Surface B — SQL analytics UDFs/UDAFs over the kernel: `cosine_sim`/`l2_normalize`/`zscore` scalars + `covariance` UDAF (in-engine over resident columns) | ✅ | CONCEPT:EG-KG.query.surface-b-numeric-operators; `crates/eg-query/src/sql/numeric.rs`; `crates/eg-query/tests/numeric_udfs.rs` |
 | Surface B — kernel-backed batch vector op via the client/Method path (`BatchL2Normalize`) | ✅ | CONCEPT:EG-KG.compute.l2-normalize-batch-vectors; `src/server/handlers/graph_ops.rs`; `client.batch_l2_normalize()` |
 | Surface B — `svd(vec_col)`/`pca(vec_col,k)` column→matrix SQL UDAFs (aggregate a vector column into a dense matrix → faer `svdvals`/`eigh`; singular values / top-k principal-component directions) | ✅ | CONCEPT:EG-KG.query.svd-eg-pca-column/EG-KG.query.concept-6; `crates/eg-query/src/sql/numeric.rs`; `crates/eg-query/tests/numeric_udfs.rs` |
 | Surface B — `kmeans(vec_col,k)` column→matrix clustering UDAF (one `List<Int64>` cluster label per row; pure-Rust Lloyd + k-means++ kernel, **no linfa/BLAS**, deterministic seed) | ✅ | CONCEPT:EG-KG.query.kmeans-clustering-half-one; `crates/eg-numeric/src/cluster.rs`; `crates/eg-query/src/sql/numeric.rs` |
 | Surface B — **cross-modal join → analytics in-engine**: join graph ⋈ vector ⋈ timeseries, then `pca`/`kmeans`/`covariance` over the joined result set (the numpy-surpassing differentiator — no fetch-to-Python) | ✅ | CONCEPT:EG-KG.query.eg-3; `crates/eg-query/tests/cross_modal_analytics.rs` |
-| Surface B — graph-algo/timeseries unification via native `Method` surfaces (beyond SQL) | 🗺 | next P4 increment |
+| Surface B — native Method plus graph/vector/time-series unification | ✅ | `BatchL2Normalize` is the native kernel Method; the unified planner feeds engine-resident graph/vector/time-series rows into the shipped SQL UDF/UDAF and cross-modal analytics path |
 
 ## Durability & distribution
 
@@ -364,12 +495,32 @@ The Analytics-Program kernel: one BLAS/LAPACK-free Rust kernel, two surfaces
 |-----------|:------:|----------|
 | redb-authoritative, commit-before-ack (`kill -9`-safe) | ✅ | `redb_backend.rs` `record_durable` |
 | Cross-modal ACID (graph + vector + blob in one WriteTransaction) | ✅ | shared redb transaction |
+| Cross-modal ACID, time-series measurements included | ✅ (precise boundary below) | `graph`+`vector`+`blob-ref`+`measurement` (+ lowered axiom/CONSTRUCT/plan-writeback) land in ONE authoritative-shard `WriteTransaction` — that set, and only that set, is the atomic boundary (`redb_store.rs::commit_crossmodal`). Measurements use the same canonical `(tenant, graph, series)` key as public reads, then replay into the SERVED `series.redb` immediately after commit, so `TsRange`/`TsAsofJoin`/`TsWindow`/`TsGapFill`/UQL `Op::TsScan` see them post-commit and post-restart. The replay remains a separate write on a different file; startup reconciliation closes a crash between commits using a durable `(count,min_ts,max_ts)` projection cursor plus an exact multiset diff, so replay is idempotent and duplicate-free. Ambiguous pre-v2 global keys are marked degraded and require explicit owner migration. |
 | openraft replication + automatic failover (`raft`/`cluster`) | ✅ | `src/raft/mod.rs` |
+| Authenticated cross-group paged reads | ✅ | `src/raft/xread.rs`: placement ReadIndex, typed bounded fan-out/deadline/partial policy, epoch retry, per-leg durable version, deterministic keyset merge over the existing Raft `PeerPool`; the contract is per-group linearizability, not a global snapshot |
 | Cross-shard 2PC (presumed-abort, crash-recoverable) | ✅ | `src/raft/cross_shard_txn.rs` |
-| Multi-Raft groups (N-group ring, online reshard, hibernate/rehydrate) | ✅ | `src/raft/multi.rs` `MultiRaft`/`GroupRouter` (KG-2.266/267/268); `reshard.rs` online ownership move |
+| Multi-Raft groups (N-group ring, crash-safe online reshard, hibernate/rehydrate) | ✅ | `src/raft/multi.rs` `MultiRaft`/`GroupRouter` (KG-2.266/267/268); `reshard.rs` + `placement.rs` use a replicated, integrity-checked, monotonic move journal with leader-only reconcile and pre-fence abort/post-fence roll-forward |
 | Parallel-commit + read-only-participant fast path + non-blocking (Raft-replicated decision) commit | ✅ | parallel prepare + empty-write-set skip (CONCEPT:EG-KG.txn.cross-shard) and the Paxos-Commit-lite Raft-replicated commit decision (CONCEPT:EG-KG.txn.harness-crash) over the working 2PC |
 | Full Calvin deterministic-ordering commit | ✅ | a global `CalvinSequencer` total order + Raft-replicated input log + vote-free deterministic execution + crash-replay recovery — a third commit branch opt-in via `calvin` alongside 2PC + Paxos-Commit-lite (CONCEPT:EG-KG.txn.calvin-deterministic-ordering). OLLP distributed read-lock + multi-node sequencer fan-in remain (see [roadmap](roadmap.md)) |
 | Cross-region async read-replica tier + capacity guardrails | ✅ | bounded-LSN replication log + `/replicate` serve + async follower apply (CONCEPT:EG-KG.sharding.follower-pull-loop); circuit-breaker + per-tenant quota + backpressure guards (CONCEPT:EG-KG.coordination.circuit-breaker). `federation-search`, in the main build |
 | Federation (remote/HTTP/external SQL) | ✅ | `federation`(`-sql`), in the main build; activates when a foreign source is registered |
 
 See the [parity roadmap](roadmap.md) for the order in which the 🔶 / 🗺 items are being closed.
+
+## Current enforcement invariants
+
+The generated capability ledger and its consistency tests are the per-`Method`
+source of truth. The current contract is fail-closed:
+
+- Every mutating method routes through `MutationPlan`/`commit_mutation` or a named
+  domain-specific transactional gateway. There is no unassigned mutation bucket.
+- Every acknowledged user-data mutation commits to `GraphRedb`, `SeriesRedb`, `KvRedb`,
+  `JobsRedb`, `BlobRedb`, `Outbox`, or the native control ledger before success is
+  returned. Explicit process/session transitions use non-durable `VolatileControl`;
+  `DurabilityDomain::None` is reserved for methods with no state transition.
+- Runtime-conditional query and mining methods determine read versus write from the
+  parsed request, then apply the corresponding authorization and durability policy.
+- Time-series writes use `SeriesRedb`; public operations and UQL `TsScan` remain
+  graph-policy-scoped with collision-free `(tenant, graph, series)` identities.
+- The ledger, access classifier, audit/CDC policy, and mutation gateway are checked
+  together so contract drift fails validation instead of becoming a runtime mode.

@@ -27,9 +27,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
 services:
   epistemic-graph:
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: ${MCP_CONTAINER_MEMORY_LIMIT:-2g}
+    cpus: ${MCP_CONTAINER_CPU_LIMIT:-1.0}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
     image: ${EG_IMAGE:-epistemic-graph:local}
     # Build the main image locally from the repo. Comment `build` out and set
-    # EG_IMAGE=<registry>/epistemic-graph:<tag> to pull a prebuilt multi-arch image.
+    # EG_IMAGE=<registry>/epistemic-graph@sha256:<digest> to pull a prebuilt image.
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -37,9 +49,18 @@ services:
       # REQUIRED — HMAC-SHA256 secret for the RPC transport. The server refuses to
       # start without it. `openssl rand -hex 32` is a good value.
       - GRAPH_SERVICE_AUTH_SECRET=${GRAPH_SERVICE_AUTH_SECRET:?set a secret, e.g. openssl rand -hex 32}
+      # Safe only because ports below publish on host loopback. Replace both
+      # settings with native TLS/mTLS for a routable deployment.
+      - GRAPH_SERVICE_TCP_ADDR=0.0.0.0:9100
+      - EPISTEMIC_GRAPH_ALLOW_PLAINTEXT_TCP=true
       # Turn ON the Postgres wire listener inside the container (0.0.0.0 so the
       # published port reaches it). Unset ⇒ no pgwire listener.
       - EPISTEMIC_GRAPH_PGWIRE_ADDR=0.0.0.0:5433
+      - GRAPH_SERVICE_METRICS_ADDR=0.0.0.0:9101
+      # Required two-key acknowledgement for container-interface auxiliary
+      # binds. Safe here only because every published host port stays loopback-only.
+      - EPISTEMIC_GRAPH_ALLOW_NONLOOPBACK_AUXILIARY=true
+      - EPISTEMIC_GRAPH_AUXILIARY_INGRESS_ACKNOWLEDGED=true
       # pgwire auth. DEFAULT (unset) = scram because a secret is set above; the
       # per-user password is hex(HMAC-SHA256(secret, "pgwire:"+user)). Set to
       # `trust` for a password-less DEV instance (localhost only!).

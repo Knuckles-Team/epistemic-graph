@@ -70,7 +70,7 @@ A gated HTTP surface over the `SharedKvBackend`:
 ```bash
 EPISTEMIC_GRAPH_KVCACHE_ADDR=127.0.0.1:9130 \
 EPISTEMIC_GRAPH_KVCACHE_TOKEN=$SECRET \
-  epistemic-graph-server --persist-dir /var/lib/eg   # --features "kvcache-server server"
+  epistemic-graph-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "kvcache-server server"
 ```
 
 | Route | Behaviour |
@@ -81,14 +81,21 @@ EPISTEMIC_GRAPH_KVCACHE_TOKEN=$SECRET \
 | `GET /kv/stats` | `200` JSON occupancy + dedup stats |
 
 ```bash
-curl -s -XPUT --data-binary @block.bin http://127.0.0.1:9130/kv/<token-hash>
-curl -s http://127.0.0.1:9130/kv/<token-hash>
-curl -s http://127.0.0.1:9130/kv/<token-hash>/exists
-curl -s http://127.0.0.1:9130/kv/stats
+auth_header="Authorization: Bearer ${EPISTEMIC_GRAPH_KVCACHE_TOKEN:?}"
+curl -s -H "$auth_header" -XPUT --data-binary @block.bin http://127.0.0.1:9130/kv/<token-hash>
+curl -s -H "$auth_header" http://127.0.0.1:9130/kv/<token-hash>
+curl -s -H "$auth_header" http://127.0.0.1:9130/kv/<token-hash>/exists
+curl -s -H "$auth_header" http://127.0.0.1:9130/kv/stats
 ```
 
-- **Auth**: bearer `EPISTEMIC_GRAPH_KVCACHE_TOKEN` when set (`Authorization: Bearer …`); unset ⇒ no auth
-  (dev / loopback).
+- **Auth**: mandatory verified JWT or runtime-injected bearer
+  `EPISTEMIC_GRAPH_KVCACHE_TOKEN` (`Authorization: Bearer …`). The listener fails
+  closed when neither mode is configured.
+- **TLS client trust**: plain HTTP is accepted only for explicit loopback URLs.
+  Non-loopback endpoints require HTTPS. Configure trust through standard
+  `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, or `SSL_CERT_DIR`; the optional
+  `EPISTEMIC_GRAPH_KVCACHE_CLIENT_CERT` / `_CLIENT_KEY` pair supplies mTLS
+  identity. Peer verification is mandatory and has no runtime bypass.
 
 ## LMCache remote-backend contract
 

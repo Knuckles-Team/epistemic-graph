@@ -125,11 +125,10 @@ impl Capacity {
         (self.max_inflight() / 8).clamp(8, 1024)
     }
 
-    /// Off-reactor WAL channel depth (default for `EPISTEMIC_GRAPH_WAL_QUEUE`). The
-    /// bounded channel sheds — loudly — rather than stalling the reactor on a saturated
-    /// disk, so it should hold little on a Pi (1024) and absorb bursts on a big box
-    /// (up to 65 536). Scales with cores.
-    pub fn wal_queue(&self) -> usize {
+    /// Authoritative writer queue depth. The bounded channel applies backpressure
+    /// instead of dropping acknowledged work. It stays small on a Pi and absorbs
+    /// larger bursts on high-core hosts.
+    pub fn writer_queue(&self) -> usize {
         (self.cpus * 256).clamp(1024, 65_536)
     }
 
@@ -217,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn wal_queue_scales_with_cpus() {
+    fn writer_queue_scales_with_cpus() {
         let pi = Capacity {
             cpus: 4,
             total_ram_bytes: GIB,
@@ -228,9 +227,9 @@ mod tests {
             total_ram_bytes: 247 * GIB,
             tier: Tier::BigBox,
         };
-        assert_eq!(pi.wal_queue(), 1024); // floor — lean on the Pi
-        assert_eq!(big.wal_queue(), 16_384); // absorbs bursts on the big box
-        assert!(big.wal_queue() > pi.wal_queue());
+        assert_eq!(pi.writer_queue(), 1024); // floor — lean on the Pi
+        assert_eq!(big.writer_queue(), 16_384); // absorbs bursts on the big box
+        assert!(big.writer_queue() > pi.writer_queue());
     }
 
     #[test]
@@ -239,6 +238,6 @@ mod tests {
         let c = detect_capacity();
         assert!(c.cpus >= 1);
         assert!(c.max_inflight() >= 256);
-        assert!(c.wal_queue() >= 1024);
+        assert!(c.writer_queue() >= 1024);
     }
 }

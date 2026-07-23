@@ -1,5 +1,6 @@
 ---
 name: epistemic-graph-migrations
+skill_type: skill
 description: >
   Upgrade and migrate a live epistemic-graph engine (the AI-native database): binary
   version flips, the one-time snapshot/.mp -> redb authoritative migration, config/env

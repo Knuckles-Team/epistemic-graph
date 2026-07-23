@@ -86,7 +86,14 @@ fn result_cache_on_vs_off_identical() {
     let cache = SqlCache::new();
     let sql = "SELECT id, rank FROM nodes ORDER BY id";
 
-    let off = rows(&exec_sql(&core.analysis_snapshot(), sql).unwrap());
+    let off = rows(
+        &exec_sql(
+            &core.analysis_snapshot(),
+            sql,
+            &eg_query::CancellationToken::new(),
+        )
+        .unwrap(),
+    );
     let on =
         rows(&exec_sql_cached(&core.analysis_snapshot(), core.version(), &cache, sql).unwrap());
     assert_eq!(on, off, "cache ON must equal cache OFF (stable state)");
@@ -97,7 +104,14 @@ fn result_cache_on_vs_off_identical() {
         rmp_serde::to_vec_named(&json!({"type":"Agent","rank":4})).unwrap(),
     );
     core.mark_dirty();
-    let off2 = rows(&exec_sql(&core.analysis_snapshot(), sql).unwrap());
+    let off2 = rows(
+        &exec_sql(
+            &core.analysis_snapshot(),
+            sql,
+            &eg_query::CancellationToken::new(),
+        )
+        .unwrap(),
+    );
     let on2 =
         rows(&exec_sql_cached(&core.analysis_snapshot(), core.version(), &cache, sql).unwrap());
     assert_eq!(on2, off2, "cache ON must equal cache OFF (post-mutation)");

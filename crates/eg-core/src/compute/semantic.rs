@@ -2,7 +2,7 @@
 //
 // `compute::semantic::SemanticStore` is the embedding store the graph holds. Two
 // interchangeable backends share one public API and one on-disk serde shape:
-//   * DEFAULT — `semantic_hnsw`: the hnsw_rs index (rebuilt from raw vectors on
+//   * DEFAULT — `semantic_hnsw`: the native eg-ann HNSW index (rebuilt from raw vectors on
 //     first search after load).
 //   * feature `ann` — `semantic_store_ann`: the native eg-ann IVF-PQ+OPQ+SQ8
 //     index that reopens a persisted index WITHOUT rebuilding from raw vectors.

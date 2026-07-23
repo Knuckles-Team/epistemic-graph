@@ -7,11 +7,15 @@
 //! stage      := ('OPTIONAL')? 'MATCH' (var '=')? pattern ('WHERE' expr)?
 //!             | 'WITH' withitems ('WHERE' expr)?
 //! retbody    := ('DISTINCT')? ('*' | items) ('ORDER' 'BY' keys)? ('SKIP' int)? ('LIMIT' int)?
-//! pattern    := node (edge node)*
+//! pattern    := node (edge node | group)*
 //! node       := '(' var? (':' label)? ('{' propmap '}')? ')'
 //! edge       := '-' '[' (var)? (':' reltype)? ('*' range)? ']' '->'
 //!             | '<-' '[' (var)? (':' reltype)? ('*' range)? ']' '-'
 //! range      := int ('..' int)?
+//! group      := '(' pattern ')' quantifier node?     -- Cypher 25 QPP, e.g.
+//!                                                     -- `((a)-[:REL]->(b)){1,3}`
+//!                                                     -- (CONCEPT:EG-KG.query.quantified-path-pattern)
+//! quantifier := '{' int (',' int?)? '}'
 //! expr       := or
 //! or         := and ('OR' and)*
 //! and        := primary ('AND' primary)*
@@ -34,8 +38,8 @@ use serde_json::Value;
 
 use super::plan::{
     AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr,
-    NodePat, OrderKey, Pattern, PropVal, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem,
-    Statement, Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
+    NodePat, OrderKey, Pattern, PropVal, QuantifiedGroup, ReadStage, RemoveItem, ReturnItem,
+    ReturnSpec, SetItem, Statement, Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
 };
 
 /// A flat token. The tokenizer is whitespace-insensitive; punctuation is matched
@@ -282,12 +286,105 @@ impl Parser {
     fn parse_pattern(&mut self) -> Result<Pattern, String> {
         let start = self.parse_node()?;
         let mut hops = Vec::new();
-        while matches!(self.peek(), Some(Tok::Dash) | Some(Tok::ArrowLeft)) {
-            let edge = self.parse_edge()?;
-            let node = self.parse_node()?;
-            hops.push((edge, node));
+        loop {
+            if matches!(self.peek(), Some(Tok::Dash) | Some(Tok::ArrowLeft)) {
+                let edge = self.parse_edge()?;
+                let node = self.parse_node()?;
+                hops.push((edge, node));
+            } else if self.at_quantified_group_start() {
+                hops.push(self.parse_quantified_group()?);
+            } else {
+                break;
+            }
         }
         Ok(Pattern { start, hops })
+    }
+
+    /// A quantified-path-pattern GROUP is disambiguated from a plain node purely
+    /// by lookahead: a plain node's `(` is followed by a var/`:`/`{`/`)`, never by
+    /// another `(` — only a group's outer paren wraps an inner pattern that itself
+    /// opens with the inner start node's `(` (CONCEPT:EG-KG.query.quantified-path-pattern).
+    fn at_quantified_group_start(&self) -> bool {
+        matches!(self.peek(), Some(Tok::LParen)) && matches!(self.peek2(), Some(Tok::LParen))
+    }
+
+    /// `((inner-pattern)){min,max} node?` — a Cypher 25 quantified path pattern
+    /// (CONCEPT:EG-KG.query.quantified-path-pattern), e.g. `((a)-[:REL]->(b)){1,3}`. Compiles
+    /// to a synthetic `(EdgePat, NodePat)` hop whose `EdgePat.group` carries the
+    /// inner sub-pattern + quantifier; matched in `exec.rs` by repeated
+    /// whole-subpattern expansion (`quantified_group_matches`), a generalization of the
+    /// single-relationship `*min..max` BFS. The optional trailing `node` (e.g.
+    /// `(y:Person)`) constrains the LAST repetition's end position, exactly like
+    /// an ordinary hop's end node.
+    fn parse_quantified_group(&mut self) -> Result<(EdgePat, NodePat), String> {
+        self.expect(&Tok::LParen)?; // the group's own outer paren
+        let inner = self.parse_pattern()?; // e.g. (a)-[:REL]->(b)
+        self.expect(&Tok::RParen)?; // closes the group
+        if inner.hops.is_empty() {
+            return Err(
+                "a quantified path pattern group must contain at least one relationship hop".into(),
+            );
+        }
+        let quantifier = self.parse_quantifier()?;
+        let group = QuantifiedGroup {
+            start: inner.start,
+            hops: inner.hops,
+            quantifier,
+        };
+        let edge = EdgePat {
+            rel_type: None,
+            direction: Direction::Right, // unused: `group` drives matching, not this field
+            var_len: None,
+            var: None,
+            props: None,
+            group: Some(Box::new(group)),
+        };
+        // An explicit trailing node constrains the final repetition's end
+        // position (`(y:Label)`). A following group-start `((` is NOT consumed
+        // here — it chains onto the NEXT hop in the outer loop instead.
+        let node = if matches!(self.peek(), Some(Tok::LParen)) && !self.at_quantified_group_start()
+        {
+            self.parse_node()?
+        } else {
+            NodePat {
+                var: None,
+                label: None,
+                props: None,
+            }
+        };
+        Ok((edge, node))
+    }
+
+    /// `{min,max}` / `{min,}` / `{n}` — a QPP repetition quantifier
+    /// (CONCEPT:EG-KG.query.quantified-path-pattern). Mirrors [`Self::parse_range`]'s bound
+    /// handling (open-max defaults to the same `OPEN_MAX`).
+    fn parse_quantifier(&mut self) -> Result<(usize, usize), String> {
+        const OPEN_MAX: usize = 16;
+        self.expect(&Tok::LBrace)?;
+        let lo = match self.next() {
+            Some(Tok::Num(n)) => n as usize,
+            other => return Err(format!("expected quantifier lower bound, found {other:?}")),
+        };
+        let hi = if matches!(self.peek(), Some(Tok::Comma)) {
+            self.next();
+            match self.peek() {
+                Some(Tok::Num(n)) => {
+                    let n = *n;
+                    self.next();
+                    n as usize
+                }
+                _ => OPEN_MAX,
+            }
+        } else {
+            lo
+        };
+        self.expect(&Tok::RBrace)?;
+        if hi < lo {
+            return Err(format!(
+                "quantifier upper bound {hi} is smaller than lower bound {lo}"
+            ));
+        }
+        Ok((lo, hi))
     }
 
     fn parse_node(&mut self) -> Result<NodePat, String> {
@@ -359,11 +456,14 @@ impl Parser {
         }
     }
 
-    /// Edge forms: `-[:REL]->`, `-[:REL*1..3]->`, `<-[:REL]-`. Direction is set by
-    /// whether the leading token is `-` (right) or `<-` (left), and the trailing
-    /// token closes it (`->` for right, `-` for left).
+    /// Edge forms: `-[:REL]->` (right), `<-[:REL]-` (left), `-[:REL]-` (undirected —
+    /// CONCEPT:EG-KG.query.undirected-relationship-pattern), each optionally carrying a
+    /// `*min..max` var-length quantifier (`-[:REL*1..3]->`, `-[*1..2]-`). Direction is
+    /// set by the LEADING token (`-` opens right-or-undirected, `<-` opens left); a
+    /// leading `-` is disambiguated by the CLOSING token — `->` confirms `Right`, a
+    /// bare `-` (no arrowhead) means `Both` (undirected, matches either direction).
     fn parse_edge(&mut self) -> Result<EdgePat, String> {
-        let direction = match self.next() {
+        let mut direction = match self.next() {
             Some(Tok::Dash) => Direction::Right,
             Some(Tok::ArrowLeft) => Direction::Left,
             other => return Err(format!("expected edge start, found {other:?}")),
@@ -391,10 +491,20 @@ impl Parser {
             None
         };
         self.expect(&Tok::RBracket)?;
-        // closing arrow
+        // closing arrow: `<-[...]-` always closes on Dash (Left, unambiguous). A
+        // pattern that OPENED on Dash closes either on `->` (confirms Right) or a
+        // bare `-` (no arrowhead ⇒ undirected, Both).
         match direction {
-            Direction::Right => self.expect(&Tok::ArrowRight)?,
+            Direction::Right => {
+                if matches!(self.peek(), Some(Tok::ArrowRight)) {
+                    self.next();
+                } else {
+                    self.expect(&Tok::Dash)?;
+                    direction = Direction::Both;
+                }
+            }
             Direction::Left => self.expect(&Tok::Dash)?,
+            Direction::Both => unreachable!("Both is never the opening direction"),
         }
         Ok(EdgePat {
             rel_type,
@@ -402,6 +512,7 @@ impl Parser {
             var_len,
             var,
             props,
+            group: None,
         })
     }
 
@@ -605,7 +716,8 @@ impl Parser {
         Ok(ReturnItem { expr, alias })
     }
 
-    /// A projection expression: an aggregate (`count(*)`, `sum(a.p)`, …) or a bare
+    /// A projection expression: an aggregate (`count(*)`, `sum(a.p)`, …), the
+    /// `type(r)` relationship-type accessor (CONCEPT:EG-KG.query.rel-type-projection), or a bare
     /// `var` / `var.prop` (CONCEPT:EG-KG.query.eg-extend-read-side).
     fn parse_proj_expr(&mut self) -> Result<Expr, String> {
         // Aggregate: an agg-func ident immediately followed by `(`.
@@ -623,6 +735,14 @@ impl Parser {
                     let arg = self.parse_agg_arg()?;
                     self.expect(&Tok::RParen)?;
                     return Ok(Expr::Aggregate(func, arg));
+                }
+                // `type(r)` — the relationship-type accessor over an edge variable.
+                if name.eq_ignore_ascii_case("type") {
+                    self.next(); // `type`
+                    self.expect(&Tok::LParen)?;
+                    let var = self.ident()?;
+                    self.expect(&Tok::RParen)?;
+                    return Ok(Expr::RelType(var));
                 }
             }
         }
@@ -1263,6 +1383,99 @@ mod tests {
         assert_eq!(pat.hops[0].0.var_len, Some((1, 3)));
     }
 
+    /// CONCEPT:EG-KG.query.undirected-relationship-pattern regression: `-[...]-` (no arrowhead on
+    /// either side) is undirected, matching an edge in either direction — previously
+    /// rejected with a raw "expected ArrowRight, found Some(Dash)" parse error
+    /// because the parser only recognized `->` (right) and `<-...-` (left).
+    #[test]
+    fn parses_undirected_relationship() {
+        let q = parse("MATCH (a:Person)-[:KNOWS]-(b:Person) RETURN b").unwrap();
+        let (pat, _) = first_match(&q);
+        assert_eq!(pat.hops[0].0.direction, Direction::Both);
+        assert_eq!(pat.hops[0].0.rel_type.as_deref(), Some("KNOWS"));
+    }
+
+    /// The exact failing shape from the bug report: an untyped, undirected,
+    /// bounded var-length hop `[*1..2]` off a property-anchored start node.
+    #[test]
+    fn parses_undirected_variable_length_path() {
+        let q = parse("MATCH (n {id:$id})-[*1..2]-(m) RETURN m").unwrap();
+        let (pat, _) = first_match(&q);
+        assert_eq!(pat.hops[0].0.direction, Direction::Both);
+        assert_eq!(pat.hops[0].0.var_len, Some((1, 2)));
+        assert_eq!(pat.hops[0].0.rel_type, None);
+    }
+
+    // ── CONCEPT:EG-KG.query.quantified-path-pattern — Cypher 25 QPP parsing ─────────────────────────
+
+    #[test]
+    fn parses_quantified_group_single_hop() {
+        let q = parse("MATCH (a:Person)((x)-[:KNOWS]->(y)){1,3}(b:Person) RETURN b").unwrap();
+        let (pat, _) = first_match(&q);
+        assert_eq!(pat.hops.len(), 1);
+        let group = pat.hops[0]
+            .0
+            .group
+            .as_ref()
+            .expect("hop should be a quantified group");
+        assert_eq!(group.quantifier, (1, 3));
+        assert_eq!(group.hops.len(), 1);
+        assert_eq!(group.hops[0].0.rel_type.as_deref(), Some("KNOWS"));
+        assert_eq!(group.start.var.as_deref(), Some("x"));
+        assert_eq!(group.hops[0].1.var.as_deref(), Some("y"));
+        // The trailing node constrains the LAST repetition's end position.
+        assert_eq!(pat.hops[0].1.label.as_deref(), Some("Person"));
+        assert_eq!(pat.hops[0].1.var.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn parses_quantified_group_without_trailing_node() {
+        let q = parse("MATCH (a)((x)-[:KNOWS]->(y)){2,} RETURN a").unwrap();
+        let (pat, _) = first_match(&q);
+        let group = pat.hops[0].0.group.as_ref().unwrap();
+        assert_eq!(group.quantifier, (2, 16)); // open max mirrors *m.. OPEN_MAX
+        assert!(pat.hops[0].1.var.is_none());
+    }
+
+    #[test]
+    fn parses_quantified_group_multi_hop_inner_pattern() {
+        // The inner group pattern is itself a two-hop chain — not just one relationship.
+        let q = parse("MATCH (a)((x)-[:LIKES]->()-[:KNOWS]->(y)){1,2}(b) RETURN b").unwrap();
+        let (pat, _) = first_match(&q);
+        let group = pat.hops[0].0.group.as_ref().unwrap();
+        assert_eq!(group.hops.len(), 2);
+        assert_eq!(group.hops[0].0.rel_type.as_deref(), Some("LIKES"));
+        assert_eq!(group.hops[1].0.rel_type.as_deref(), Some("KNOWS"));
+    }
+
+    #[test]
+    fn quantified_group_requires_at_least_one_inner_hop() {
+        let err = parse("MATCH (a)((x)){1,3}(b) RETURN b").unwrap_err();
+        assert!(err.contains("at least one relationship hop"), "{err}");
+    }
+
+    #[test]
+    fn quantified_group_rejects_descending_bounds() {
+        let err = parse("MATCH (a)((x)-[:R]->(y)){3,1}(b) RETURN b").unwrap_err();
+        assert!(err.contains("upper bound"), "{err}");
+    }
+
+    #[test]
+    fn parses_quantified_group_in_create() {
+        let statement =
+            parse_statement("CREATE (a)((x)-[r:KNOWS]->(y)){1,3}(b) RETURN x, y, type(r), b")
+                .unwrap();
+        let Statement::Write(write) = statement else {
+            panic!("expected a write statement")
+        };
+        let WriteOp::Create(pattern) = &write.ops[0] else {
+            panic!("expected CREATE")
+        };
+        let group = pattern.hops[0].0.group.as_deref().unwrap();
+        assert_eq!(group.quantifier, (1, 3));
+        assert_eq!(group.hops[0].0.var.as_deref(), Some("r"));
+    }
+
     #[test]
     fn parses_property_return_and_comparison() {
         let q = parse("MATCH (a:Doc) WHERE a.size > 10 RETURN a.size").unwrap();
@@ -1384,13 +1597,13 @@ mod tests {
     #[test]
     fn parses_call_proc_yield() {
         // CONCEPT:EG-KG.query.cypher-planning/EG-143
-        let q = parse("CALL gds.pageRank() YIELD node, score RETURN node, score").unwrap();
+        let q = parse("CALL gds.pageRank() YIELD nodeId, score RETURN nodeId, score").unwrap();
         match &q.stages[0] {
             ReadStage::CallProc { name, args, yields } => {
                 assert_eq!(name, "gds.pageRank");
                 assert!(args.is_empty());
                 assert_eq!(yields.len(), 2);
-                assert_eq!(yields[0].col, "node");
+                assert_eq!(yields[0].col, "nodeId");
             }
             _ => panic!("expected CALL proc"),
         }

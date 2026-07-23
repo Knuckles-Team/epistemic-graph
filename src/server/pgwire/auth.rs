@@ -1,9 +1,8 @@
 //! pg-wire authentication bridged to the engine identity (CONCEPT:EG-KG.query.concept-13).
 //!
-//! The first pgwire increment was TRUST (`NoopStartupHandler`) — anyone who could
-//! reach the loopback listener could run SQL as anonymous. This module adds real
-//! auth, opt-in via `EPISTEMIC_GRAPH_PGWIRE_AUTH`, bridged to the engine's existing
-//! shared secret (`GRAPH_SERVICE_AUTH_SECRET`) and ACL identity model.
+//! Authentication is mandatory SCRAM-SHA-256, bridged to the engine's existing
+//! shared secret (`GRAPH_SERVICE_AUTH_SECRET`) and ACL identity model. There is no
+//! anonymous fallback.
 //!
 //! ## How a pg user maps to an engine identity
 //! A pg connection's `user` IS an engine `agent_id`. The connection's password is a
@@ -17,13 +16,13 @@
 //! actor is set to `user`, so every subsequent query runs under that
 //! `AgentIdentity` against the engine ACL (`IsolationLayer::check_access`).
 //!
-//! ## Modes (`EPISTEMIC_GRAPH_PGWIRE_AUTH`)
-//!   * `trust` — no authentication (`NoopHandler`); the zero-infra/dev path. This
-//!     is the DEFAULT only when no engine secret is configured.
-//!   * `scram` — SCRAM-SHA-256 (what modern drivers negotiate). The DEFAULT when a
-//!     non-empty `GRAPH_SERVICE_AUTH_SECRET` is set: a deployment that bothered to
-//!     set an engine secret gets an authenticated wire surface by default, while a
-//!     bare dev run (no secret) stays trust so `psql` just connects.
+//! ## Mode (`EPISTEMIC_GRAPH_PGWIRE_AUTH`)
+//!   * `scram` — SCRAM-SHA-256 (what modern drivers negotiate). This is the only
+//!     accepted mode and requires a non-empty `GRAPH_SERVICE_AUTH_SECRET`.
+//!
+//! The direct listener never terminates TLS and is therefore always loopback-only.
+//! A remote client must traverse an authenticated TLS/mTLS gateway whose backend is
+//! this loopback socket; the SCRAM proof still binds the pg user to the ACL actor.
 //!
 //! The mode is resolved ONCE at `serve()` startup and logged.
 
@@ -38,45 +37,52 @@ use pgwire::api::auth::sasl::SASLAuthStartupHandler;
 use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
 };
-use pgwire::api::{ClientInfo, NoopHandler};
+use pgwire::api::ClientInfo;
 use pgwire::error::PgWireResult;
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
-/// Env var selecting the pgwire auth mode: `trust` | `scram`. Unset ⇒ the safe
-/// default (scram when an engine secret is configured, else trust).
+/// Env var selecting the pgwire auth mode. Only `scram` is accepted; unset also
+/// selects SCRAM.
 pub const PGWIRE_AUTH_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_AUTH";
 
 /// The resolved pgwire auth mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PgWireAuthMode {
-    /// No authentication — `NoopHandler` (dev / zero-infra).
-    Trust,
     /// SCRAM-SHA-256 bridged to the engine secret.
     Scram,
 }
 
 impl PgWireAuthMode {
-    /// Resolve the mode from `EPISTEMIC_GRAPH_PGWIRE_AUTH` and the engine secret.
-    /// Explicit env wins; otherwise default to SCRAM when a non-empty secret is
-    /// present (an authenticated deployment), else TRUST (a bare dev run).
-    pub fn resolve(auth_secret: &str) -> Self {
-        match std::env::var(PGWIRE_AUTH_ENV)
-            .ok()
-            .map(|s| s.trim().to_ascii_lowercase())
-            .as_deref()
-        {
-            Some("scram") => PgWireAuthMode::Scram,
-            Some("trust") => PgWireAuthMode::Trust,
-            _ if !auth_secret.is_empty() => PgWireAuthMode::Scram,
-            _ => PgWireAuthMode::Trust,
+    /// Resolve the sole secure mode. Empty key material and every legacy or
+    /// unknown value are startup errors rather than compatibility fallbacks.
+    pub fn resolve(auth_secret: &str) -> std::io::Result<Self> {
+        if auth_secret.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "pgwire requires non-empty authentication key material",
+            ));
+        }
+        match std::env::var(PGWIRE_AUTH_ENV) {
+            Err(std::env::VarError::NotPresent) => Ok(Self::Scram),
+            Ok(value) if value.trim().eq_ignore_ascii_case("scram") => Ok(Self::Scram),
+            Ok(_) | Err(std::env::VarError::NotUnicode(_)) => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "pgwire authentication mode must be scram",
+            )),
         }
     }
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            PgWireAuthMode::Trust => "trust",
             PgWireAuthMode::Scram => "scram",
         }
+    }
+
+    /// Whether this mode and secret cryptographically bind a successful login's
+    /// user to the ACL actor. SCRAM with an empty root secret is not a verified
+    /// deployment, even though the protocol exchange itself can run.
+    pub fn verified_identity_binding(self, auth_secret: &str) -> bool {
+        matches!(self, PgWireAuthMode::Scram) && !auth_secret.is_empty()
     }
 }
 
@@ -125,22 +131,19 @@ impl AuthSource for EngineAuthSource {
     }
 }
 
-/// The per-connection startup handler: TRUST (`NoopHandler`) or SCRAM
-/// (`SASLAuthStartupHandler`). One enum so the `PgWireServerHandlers::startup_handler`
+/// The per-connection SCRAM startup handler. One wrapper keeps the
+/// `PgWireServerHandlers::startup_handler`
 /// return type (`Arc<impl StartupHandler>`) is a single concrete type that dispatches
 /// internally — pgwire builds a fresh SASL state machine per connection, so the SCRAM
 /// variant is constructed per accepted connection (see `EngineBackendFactory`).
 pub enum EngineStartupHandler {
-    Trust(NoopHandler),
     Scram(Box<SASLAuthStartupHandler<DefaultServerParameterProvider>>),
 }
 
 impl EngineStartupHandler {
-    /// Build the startup handler for `mode`. SCRAM wires an `EngineAuthSource` over
-    /// the engine secret; TRUST is a bare `NoopHandler`.
+    /// Build the SCRAM startup handler over the engine key material.
     pub fn new(mode: PgWireAuthMode, auth_secret: &str) -> Self {
         match mode {
-            PgWireAuthMode::Trust => EngineStartupHandler::Trust(NoopHandler),
             PgWireAuthMode::Scram => {
                 let source = Arc::new(EngineAuthSource {
                     secret: auth_secret.to_string(),
@@ -169,7 +172,6 @@ impl StartupHandler for EngineStartupHandler {
         pgwire::error::PgWireError: From<<C as futures::Sink<PgWireBackendMessage>>::Error>,
     {
         match self {
-            EngineStartupHandler::Trust(h) => h.on_startup(client, message).await,
             EngineStartupHandler::Scram(h) => h.on_startup(client, message).await,
         }
     }
@@ -198,16 +200,26 @@ mod tests {
     }
 
     #[test]
-    fn mode_resolution_default_is_secret_driven() {
-        // No env: secret present ⇒ scram; absent ⇒ trust.
+    fn mode_resolution_is_scram_only_and_fail_closed() {
         std::env::remove_var(PGWIRE_AUTH_ENV);
-        assert_eq!(PgWireAuthMode::resolve("s3cret"), PgWireAuthMode::Scram);
-        assert_eq!(PgWireAuthMode::resolve(""), PgWireAuthMode::Trust);
-        // Explicit env overrides the secret-driven default both ways.
+        assert_eq!(
+            PgWireAuthMode::resolve("s3cret").unwrap(),
+            PgWireAuthMode::Scram
+        );
+        assert!(PgWireAuthMode::resolve("").is_err());
         std::env::set_var(PGWIRE_AUTH_ENV, "trust");
-        assert_eq!(PgWireAuthMode::resolve("s3cret"), PgWireAuthMode::Trust);
+        assert!(PgWireAuthMode::resolve("s3cret").is_err());
         std::env::set_var(PGWIRE_AUTH_ENV, "scram");
-        assert_eq!(PgWireAuthMode::resolve(""), PgWireAuthMode::Scram);
+        assert_eq!(
+            PgWireAuthMode::resolve("s3cret").unwrap(),
+            PgWireAuthMode::Scram
+        );
         std::env::remove_var(PGWIRE_AUTH_ENV);
+    }
+
+    #[test]
+    fn only_scram_with_nonempty_secret_is_verified_identity_binding() {
+        assert!(PgWireAuthMode::Scram.verified_identity_binding("secret"));
+        assert!(!PgWireAuthMode::Scram.verified_identity_binding(""));
     }
 }

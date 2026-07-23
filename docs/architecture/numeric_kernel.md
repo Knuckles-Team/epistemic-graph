@@ -1,15 +1,15 @@
 # Numeric kernel — one kernel, two surfaces (CONCEPT:AU-KG.compute.numeric-kernel)
 
-> **P1 of the Analytics Program** (`plans/epistemic-graph-analytics_program.md`,
-> design `reports/epistemic-graph-numeric-kernel-handoff.md`). A slim, **BLAS/LAPACK-free**
+> **Kernel foundation of the Analytics Program.** A slim, **BLAS/LAPACK-free**
 > Rust numeric kernel that serves **both** Python-side array math (replacing numpy in
-> agent-utilities) **and** — in later phases — in-database analytics over engine-resident
-> data. This doc covers the shipped P1 kernel; P2–P5 are on the [roadmap](../roadmap.md).
+> agent-utilities) **and** in-database analytics over engine-resident data. The
+> compiled kernel, Agent Utilities numeric surface, and native engine operators
+> described here are the current contract.
 
 ## Thesis
 
 epistemic-graph already does **compute-near-data** for vectors
-(`batch_cosine_similarity`, `semantic_search` run server-side in Rust, zero numpy).
+(`semantic_search` and `batch_l2_normalize` run server-side in Rust, zero numpy).
 The Analytics Program generalizes that proven pattern into **one numeric kernel**
 (`crates/eg-numeric`) exposed on **two surfaces**.
 
@@ -28,11 +28,11 @@ flowchart TD
 
     subgraph SA["Surface A — in-process Python"]
         M1["epistemic_graph.numeric<br/>(extension module)"]
-        M2["agent_utilities.numeric.xp<br/>(np-shim, numpy fallback) — AU-KG.compute.surface-analytics-program"]
+        M2["agent_utilities.numeric.xp<br/>(kernel required; kernel-owned numpy tail) — AU-KG.compute.surface-analytics-program"]
         M1 --> M2
     end
 
-    subgraph SB["Surface B — engine operators (P4, 🗺)"]
+    subgraph SB["Surface B — engine operators"]
         D1["DataFusion SQL UDFs/UDAFs<br/>pca · covariance · zscore · svd"]
         D2["graph / vector / timeseries analytics"]
         D3["cross-modal join → PCA/cluster in-engine"]
@@ -43,8 +43,7 @@ flowchart TD
 
     classDef done fill:#d5f5e3,stroke:#1e8449;
     classDef todo fill:#fdebd0,stroke:#b9770e;
-    class K,SA done;
-    class SB todo;
+    class K,SA,SB done;
 ```
 
 **Decision rule (which surface):** data **already in the engine** → Surface B
@@ -61,24 +60,24 @@ compute (anti-pattern).
 - **`cdylib`** — the Surface-A Python extension, built only with `--features python`
   (pulls `pyo3` + `numpy`/`rust-numpy`).
 
-Feature discipline (the Pi contract):
+Feature boundaries:
 
 | build | pulls eg-numeric? | faer/ndarray? | pyo3? |
 |-------|:---:|:---:|:---:|
 | `--no-default-features --features server` (lib/minimal) | ❌ | ❌ | ❌ |
 | default / `--features full` (→ `numeric`) | ✅ (rlib) | ✅ | ❌ |
-| `maturin ... -m crates/eg-numeric/Cargo.toml --features python` | ✅ (cdylib) | ✅ | ✅ |
+| numeric extension component compiled for wheel composition | ✅ (cdylib) | ✅ | ✅ |
 
 - The top-level `numeric` cargo feature (`numeric = ["dep:eg-numeric"]`) is part of the
   one main build (`default`/`full`), so a full-featured engine links the pure faer/ndarray
   kernel. A minimal `--no-default-features --features server` build links **no**
   eg-numeric/faer/ndarray.
-- pyo3 is behind eg-numeric's **own** `python` feature (off in every engine build), so a
-  `numeric` engine build links the kernel rlib but **no Python extension** — the Plan-01
-  "no Python extension in the engine binary" contract holds (`scripts/check_no_pyo3.sh`
+- pyo3 is behind the kernel crate's **own** `python` feature (off in every engine build), so a
+  `numeric` engine build links the kernel rlib but **no Python extension**. The
+  server no-extension contract holds (`scripts/check_no_pyo3.sh`
   stays green; the main wheel remains `bindings = "bin"`).
 
-## Op-surface (P1)
+## Operation surface
 
 Curated from the real audit (`grep np\.` over `agent_utilities/`) — **not** "all of numpy":
 
@@ -95,46 +94,46 @@ Curated from the real audit (`grep np\.` over `agent_utilities/`) — **not** "a
 ## Parity
 
 Every op is asserted `np.allclose` vs numpy on randomized inputs, with mandatory edge
-cases (nan/inf, singular matrices, empty arrays). P1 landed **847 parity checks, 0
-failures**. The corpus lives in agent-utilities (`tests/test_numeric_parity.py`, AU-KG.compute.surface-analytics-program)
-and runs against the compiled kernel when present, else the numpy fallback. A **second,
+cases (nan/inf, singular matrices, empty arrays). The corpus contains **847 parity
+checks with 0 failures**. It lives in agent-utilities (`tests/test_numeric_parity.py`, AU-KG.compute.surface-analytics-program)
+and requires the compiled kernel; a missing kernel is an import failure. A **second,
 engine-side** corpus (`crates/eg-numeric/tests/test_kernel_parity.py`, CONCEPT:AU-KG.compute.is-installed-kernel-discovery)
 tests the compiled kernel DIRECTLY (not the shim) and is what the CI gate runs — see below.
 
-## Packaging: ONE published package — `epistemic-graph[numeric]` (CONCEPT:AU-KG.compute.is-installed-kernel-discovery / AU-KG.compute.shim-goes-kernel-live)
+## Packaging: one published package — `epistemic-graph[full]` (CONCEPT:AU-KG.compute.is-installed-kernel-discovery / AU-KG.compute.shim-goes-kernel-live)
 
-The Surface-A kernel ships as **package data folded into the single `epistemic-graph`
-wheel** — there is **NO separate `eg-numeric` package on PyPI**. `pip install
-epistemic-graph` gets the server; `pip install epistemic-graph[numeric]` additionally
-provides the compiled kernel importable as **`epistemic_graph.numeric`**, so
-`agent_utilities.numeric.xp` runs **kernel-LIVE** (`HAVE_KERNEL == True`) instead of the
-numpy fallback (AU-KG.compute.shim-goes-kernel-live). The `[numeric]` extra only pulls `numpy` (for the kernel's
-zero-copy interop); the `.so` itself is self-contained (pure-Rust, BLAS/LAPACK-free).
+The Surface-A kernel ships as package data folded into the single `epistemic-graph`
+wheel. The approved Agent Utilities runtime requires `epistemic-graph[full]`, which provides
+the compiled kernel importable as **`epistemic_graph.numeric`**.
+`agent_utilities.numeric.xp` is therefore **kernel-LIVE** (`HAVE_KERNEL == True`)
+or fails to import; it has no missing-kernel fallback
+(AU-KG.compute.shim-goes-kernel-live). Python `[full]` includes `[numeric]`, which
+pulls `numpy` for the kernel's zero-copy interop; the extension itself is
+self-contained and BLAS/LAPACK-free.
 
-**How the fold works (release build).** The kernel is still a distinct maturin target — a
-pyo3 cdylib built from `crates/eg-numeric --features python` — so the engine binary stays
-pyo3-free. The `wheels` job in `.github/workflows/release-build.yml` builds the `node`
-server wheel, then builds the kernel cdylib for the same target and **injects its compiled
+**How release composition works.** The build compiles the kernel crate's pyo3
+cdylib with its `python` feature while the server binary stays pyo3-free. The
+`wheels` job in `.github/workflows/release-build.yml` builds the main server wheel,
+then compiles the kernel component for the same target and **injects its compiled
 `.so` into the server wheel** as `epistemic_graph/numeric.abi3.so`
 (`scripts/inject_numeric_kernel.py`, which recomputes `RECORD`). The result is one
 `epistemic_graph-<ver>` wheel carrying both the server binary and the numeric kernel.
 
-**Dev / parity build it standalone** (editable, non-publishing) with maturin — the kernel
-crate compiles fast and this is what the parity CI gate uses:
+The parity job compiles the same intermediate component and injects it into the
+main wheel before installation. The component is never installed or published as
+another package:
 
 ```bash
 # On CPython ≤ 3.13 (pyo3 0.22's supported range) no flag is needed.
 # On a newer interpreter (e.g. 3.14) pyo3 0.22 refuses to build unless you opt in:
 export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out target/wheels
-pip install --no-index --find-links target/wheels eg-numeric   # dev-only local wheel
+python scripts/inject_numeric_kernel.py <server-wheel> <numeric-component-wheel>
 ```
 
 The `#[pymodule]` is named `numeric` with `m.add("__kernel__", "eg-numeric")`. The folded
-product build homes the raw extension at `epistemic_graph.numeric` (the `xp` shim's primary
-probe); a standalone crate build installs it as a top-level `numeric` package. The `xp` shim
-probes **both** names and checks the `__kernel__` marker, so either layout activates the
-kernel. With the kernel present:
+product build homes the extension at `epistemic_graph.numeric`; the `xp` shim
+checks that import and its `__kernel__` marker. With the kernel present:
 
 ```python
 >>> from agent_utilities.numeric import xp, HAVE_KERNEL, KERNEL_SOURCE
@@ -142,12 +141,12 @@ kernel. With the kernel present:
 (True, 'epistemic_graph.numeric')   # every routed 1-D/2-D float64 op now hits faer/ndarray
 ```
 
-**The kernel is a SEPARATE maturin build target from the engine facade** (`bindings = "bin"`
-— the server binary, no pyo3) even though both ship in one wheel.
+The server facade uses `bindings = "bin"` and does not link pyo3 even though the
+composed wheel also carries the numeric extension.
 `scripts/check_no_pyo3.sh` guards the *facade* (`src/`, `epistemic_graph/`, top-level
-`Cargo.toml`/`pyproject.toml`) and never scans `crates/`, and the Pi contract holds unchanged
-— `cargo tree | grep -ci pyo3` = 0 (pyo3 is only ever pulled by eg-numeric's own
-`python` feature, which no engine build enables). The folded `.so` is named `numeric.abi3.so`,
+`Cargo.toml`/`pyproject.toml`) and never scans `crates/`; `cargo tree | grep -ci pyo3`
+remains 0 because pyo3 is only pulled by the kernel crate's own
+`python` feature, which no engine build enables. The folded `.so` is named `numeric.abi3.so`,
 which the guard's `epistemic_graph/epistemic_graph*.so` / `_epistemic_graph*.so` patterns do
 not match, and it exists only in the built wheel, never in the source tree.
 
@@ -159,22 +158,22 @@ corpus that asserts **every** compiled-kernel op equals its numpy reference (`np
 across the full op-surface, including the mandatory edge cases (nan/inf, singular matrix,
 empty). The job **FAILS CI if the Rust kernel ever diverges from numpy**, which is what
 makes it safe to run the `xp` shim kernel-live in production. CI uses Python 3.12 (inside
-pyo3-0.22's native range, so no forward-compat flag is needed there).
+pyo3-0.22's supported interpreter range).
 
-## Surfaces in later phases
+## Current surfaces
 
-- **Surface A migration (P2–P3):** mechanical `import numpy as np` →
-  `from agent_utilities.numeric import xp as np` across the 32 light-op files then the 6
-  linalg files.
-- **Surface B (P4):** the SAME rlib exposed as DataFusion UDFs/UDAFs + graph/vector/
+- **Surface A:** `from agent_utilities.numeric import xp as np` is the supported
+  import across Agent Utilities. A missing compiled kernel raises immediately.
+- **Surface B:** the same rlib is exposed as DataFusion UDFs/UDAFs + graph/vector/
   timeseries operators, re-homing KG-resident numerics (spectral_navigator, world_model)
-  to compute-near-data; cross-modal joins then PCA/cluster in-engine. **First increment
-  shipped — see below.**
-- **P5:** drop numpy/scipy from agent-utilities; the kernel is the dep, shipped as
-  `epistemic-graph[numeric]` (folded into the one engine wheel — no separate `eg-numeric`
-  package). The `xp` shim stays so future backend swaps remain mechanical.
+  to compute-near-data; cross-modal joins then PCA/cluster in-engine. See the
+  operator inventory below.
+- **Agent Utilities:** contains no direct numpy/scipy dependency or
+  import. The approved dependency is `epistemic-graph[full]`; its Python `full`
+  extra includes numeric interoperability dependencies. Long-tail operations use the
+  numpy module already loaded inside the kernel boundary.
 
-## Surface B — in-database analytics operators (P4, CONCEPT:EG-KG.query.surface-b-numeric-operators/EG-KG.compute.l2-normalize-batch-vectors/EG-KG.query.concept-6/EG-KG.query.svd-eg-pca-column/EG-KG.query.kmeans-clustering-half-one/EG-KG.query.eg-3)
+## Surface B — in-database analytics operators (CONCEPT:EG-KG.query.surface-b-numeric-operators/EG-KG.compute.l2-normalize-batch-vectors/EG-KG.query.concept-6/EG-KG.query.svd-eg-pca-column/EG-KG.query.kmeans-clustering-half-one/EG-KG.query.eg-3)
 
 The pure kernel rlib is wired into the engine's query surface so analytics run **where the
 data lives** — no fetch-to-Python, no FFI. Two reach paths:
@@ -200,7 +199,7 @@ flowchart TD
     SQL["SELECT zscore(price) …\nSELECT svd(emb) …\nSELECT pca(emb,3) …\nSELECT kmeans(emb,2) …"] --> U1 & U2 & U3 & U4 & U5 & U6 & U7
     U1 & U2 & U3 & U4 & U5 & U6 & U7 --> kernel
     client["client.batch_l2_normalize(vectors)"] --> M1 --> kernel
-    kernel --> pi{{"Pi-contract: numeric ∉ pi\n→ no eg-numeric/faer in the pi tree"}}
+    kernel --> boundary{{"server binary remains pyo3-free"}}
 ```
 
 **SQL operators** (registered on the graph-exec AND obs-tables `SessionContext`, gated
@@ -217,7 +216,7 @@ implemented in `crates/eg-query/src/sql/numeric.rs`):
 | `pca(vec_col, k)` (EG-KG.query.concept-6) | UDAF → `List<List<Float64>>` | `reductions::mean` + `linalg::eigh` | **column→matrix**: mean-centers the `n×d` matrix, eigendecomposes the `d×d` sample covariance (`ddof=1`), and returns the top-`k` principal-component DIRECTIONS as `k` unit vectors of length `d`, **descending by explained variance** (sign arbitrary; `k` clamped to `d`; projected coords = `X_centered·componentsᵀ` downstream). |
 | `kmeans(vec_col, k)` (EG-KG.query.kmeans-clustering-half-one) | UDAF → `List<Int64>` | `cluster::kmeans_labels` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix and returns **one hard cluster label (`0..k`) per row, in ingestion order**. Pure-Rust Lloyd + k-means++ (`eg-numeric`'s ChaCha20 RNG, seeded → deterministic; **no linfa/BLAS**); `k` clamped to `n`, empty clusters re-seeded to the farthest point. |
 
-**Column→matrix marshalling** (the deferred-in-P4 bridge, `svd`/`pca`/`kmeans`): all three
+**Column→matrix marshalling** (`svd`/`pca`/`kmeans`): all three
 are UDAFs whose `Accumulator` (`MatrixAcc`) decodes each ingested row via `row_to_vector` (the
 same operand forms `cosine_sim` accepts) and buffers it row-major into a flat `Vec<f64>` +
 fixed `dim` (ragged rows skipped, NULL-safe); `evaluate()` reshapes to a dense
@@ -239,20 +238,18 @@ SELECT kmeans(emb, 4) AS cluster_labels FROM nodes;  -- 4-way clustering, one la
 
 **Batch Method** — `Method::BatchL2Normalize { vectors }` (`src/server/handlers/graph_ops.rs`,
 handler `#[cfg(feature = "numeric")]`) L2-normalizes a batch in-engine via
-`eg_numeric::linalg::batch_l2_normalize`; the kernel-backed successor to the deprecated
-`BatchCosineSimilarity` on the same client path (`client.batch_l2_normalize()`).
+`eg_numeric::linalg::batch_l2_normalize` through the sole current client method,
+`client.batch_l2_normalize()`.
 
-**Feature wiring & Pi-contract.** eg-query gains a `numeric` feature (`["sql", "dep:eg-numeric",
+**Feature wiring and server boundary.** eg-query gains a `numeric` feature (`["sql", "dep:eg-numeric",
 "dep:ndarray"]`); the engine's top-level `numeric = ["dep:eg-numeric", "eg-query?/numeric"]`
 turns the SQL operators on whenever the query surface is also built (i.e. the main build).
 eg-numeric's pyo3 (`python`) feature is off in every engine build, so a `numeric` engine links
 faer/ndarray but **no Python extension**. Verified: `cargo tree | grep -ci pyo3` = 0.
 
-**Shipped this increment:** `kmeans(vec_col, k)` (EG-KG.query.kmeans-clustering-half-one) — the clustering column→matrix UDAF,
-backed by a new pure-Rust `eg-numeric::cluster` k-means kernel (Lloyd + k-means++, NO linfa) —
-and **cross-modal join→analytics** (EG-KG.query.eg-3, below). Prior increment: `svd`/`pca` (EG-KG.query.svd-eg-pca-column/335).
-**Still deferred (later P4):** graph-algo/timeseries unification under the one kernel (native
-`Method` surfaces beyond SQL).
+The current native surface includes `BatchL2Normalize`, `svd`, `pca`, `kmeans`,
+and cross-modal graph/vector/time-series analytics through the shared query path.
+The capability matrix is authoritative for any additional operator.
 
 ---
 

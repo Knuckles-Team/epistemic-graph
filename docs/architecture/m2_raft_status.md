@@ -51,8 +51,10 @@ All file:line references are against this branch's tree.
   - `src/raft/multi.rs:62` `GroupRouter.ring` field + `fnv1a` helper.
   - `src/raft/multi.rs:86` `group_of`, `multi.rs:101` `set_group_ring`,
     `multi.rs:110` `group_ring`.
-  - `src/raft/multi.rs:273` `MultiRaft::configure_group_ring(n)` — brings up groups
-    `0..n` on this node and installs the ring; `n<=1` is a no-op (single-group).
+  - `src/raft/multi.rs` `MultiRaft::configure_group_ring(n, peers, bootstrap)` —
+    brings up groups `0..n` with the complete configured peer set and installs the
+    ring; `n<=1` is a no-op (single-group). Every non-default group therefore has the
+    same quorum replication and failover contract as the default group.
 - **Proven by:** `src/raft/tests.rs:678` `group_router_distributes_tenants_across_ring`
   — empty ring ⇒ all to `DEFAULT_GROUP`; a 4-group ring spreads 200 tenants across
   ≥2 groups; deterministic on repeat; `assign` override beats the ring;
@@ -61,6 +63,13 @@ All file:line references are against this branch's tree.
 ### 3. Per-group snapshot scoping — `CONCEPT:AU-KG.ingest.staged`
 - **What:** a group's snapshot dump is SCOPED to the graphs whose tenant range resolves
   to THIS group, so a large tenant in one group never bloats another group's snapshot.
+  Snapshot membership is enumerated from the complete graph catalog, not the resident
+  cache, so cold/evicted graphs remain recoverable. In Raft snapshot schema 4, each graph
+  is serialized once as its complete raw durable row set; decoded node/edge/semantic copies are forbidden
+  because they duplicate memory/wire cost, expose plaintext beside encrypted rows, and can
+  disagree with durable authority. Install validates the durable `graph_meta` identity,
+  rejects cross-group rows, reconstructs and atomically publishes the serving projection
+  with its exact durable incarnation, and removes stale same-group graphs absent from the snapshot.
   A store opened WITHOUT a router (the direct/single-store path) dumps the whole
   registry, preserving the scaffold behavior.
 - **Where:**
@@ -68,16 +77,15 @@ All file:line references are against this branch's tree.
     through every `AppCtx` construction (node/harnesses/tests = `None`;
     `MultiRaft::create_group` builds a `store_ctx` carrying `Some(self.router)` at
     `src/raft/multi.rs:311`).
-  - `src/raft/store.rs:224` `dump_graphs` filters `all_entries()` by
+  - `src/raft/store.rs` `dump_graphs` filters the full `registry.list()` catalog by
     `router.group_of(name) == self.group_id` when a router is present.
-  - `src/raft/store.rs:247` `scoped_snapshot_graph_names` (`#[cfg(test)]`) — the
+  - `src/raft/store.rs` `scoped_snapshot_graph_names` (`#[cfg(test)]`) — the
     test seam.
-- **Proven by:** `src/raft/tests.rs:725` `group_snapshot_is_scoped_to_its_tenant_range`
+- **Proven by:** `src/raft/tests.rs` `group_snapshot_is_scoped_to_its_tenant_range`
   — two graphs pinned to non-default groups 3 and 5; group 3's snapshot carries ONLY
-  `graphA`, group 5's ONLY `graphB`, and the DEFAULT group (0) carries ONLY the
-  un-pinned bootstrap `__commons__` (no bleed across any of them); a router-less store
-  dumps the WHOLE registry (`__commons__` + both graphs), proving the unscoped path is
-  intact.
+  resident `graphA`, group 5's ONLY catalog-only/evicted `graphB`, and the DEFAULT group
+  (0) carries ONLY the un-pinned bootstrap `__commons__` (no bleed or cold-graph loss);
+  a router-less store dumps the WHOLE catalog (`__commons__` + both graphs).
 
 **Build:** `cargo build --release --features "full,cluster" -j8` → clean (exit 0).
 **Tests:** `cargo test --release --features "full,cluster" --lib raft` → see REPORT

@@ -1,5 +1,6 @@
 ---
 name: kg-modality-sql
+skill_type: skill
 description: >-
   Run SQL against the engine over real database wire protocols — Postgres (pgwire), MySQL,
   MSSQL/TDS, and the SQLite NDJSON endpoint — so psql/DBeaver/BI/ORMs connect to the engine as

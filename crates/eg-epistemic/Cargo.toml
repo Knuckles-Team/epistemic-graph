@@ -1,0 +1,85 @@
+[package]
+name = "eg-epistemic"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Engine-native epistemic layer (claims, evidence, belief-state, contradiction, confidence propagation, justification) for the epistemic-graph engine"
+license = "MIT"
+
+[lib]
+name = "eg_epistemic"
+
+[dependencies]
+# Bottom of the DAG: the stored typed model + Distribution value.
+eg-types = { path = "../eg-types" }
+# The GraphView snapshot the propagation walk runs over (read-only, off-lock).
+eg-core = { path = "../eg-core" }
+# The conjugate Bayesian backend — `probabilistic::bayesian_update` IS the
+# ConfidenceModel numeric core (rides eg-compute's pure `reasoning` feature, no heavy dep).
+eg-compute = { path = "../eg-compute", features = ["reasoning"] }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+sha2 = "0.10"
+hex = "0.4"
+
+# Only pulled in behind the `epistemic-tms` feature — logs when the preferred/stable
+# extension search hits its documented argument-count or branch-node cap (see
+# `src/tms.rs`). No-op without a subscriber installed, same pattern as eg-core/eg-compute.
+tracing = { version = "0.1", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default build links none of it and `BeliefState` carries no new required
+# trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []
+# X2 — paraconsistent justification-based TMS + Dung-style abstract argumentation
+# semantics (grounded/preferred/stable extensions) over the bipolar support/attack
+# BeliefGraph, plus dependency-directed retraction. Opt-in and heavier (NP-hard-in-the-
+# worst-case preferred/stable search) than the default confidence-propagation core.
+epistemic-tms = ["dep:tracing", "eg-types/epistemic"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for BeliefState` +
+# the `modality_conformance_tests!` battery — the reference "does everything"
+# implementation (real provenance/policy_labels/analytics_ops overrides). OFF by
+# default, deliberately NOT folded into any tier aggregate (pi/node/full) — it is a
+# capability-discovery/testing seam, not a serving feature. `cargo test -p
+# eg-epistemic --features contract` runs the suite.
+contract = ["dep:eg-modality"]
+# EPI-P3-3 — calibrated probabilistic + causal reasoning: a linear structural
+# causal model (SCM) over named variables supporting genuine do-calculus
+# interventions (graph surgery — cut incoming edges, don't just condition),
+# Pearl-style point counterfactuals (abduction/action/prediction), and
+# calibrated Gaussian intervals (`src/causal.rs`); plus provenance-aware
+# retrieval ranking over the SAME `Calibration` signal (`src/ranking.rs`). Pure
+# Rust — only uses `eg_types::Distribution` (already an unconditional
+# dependency), so this feature adds NO new crate dependency; it is gated purely
+# to keep the always-on core lean and opt-in, same posture as
+# `epistemic-tms`/`contract`.
+epistemic-causal = []
+# EPI-P3-4 — policy-aware proof redaction + selective disclosure: reuses eg-core's
+# per-agent Row-Level Security (`isolation::row_visibility`/`can_see_row` — the SAME
+# check `filter_view` enforces on every other read path) to mask, rather than drop,
+# an evidence node inside an `explain_belief` proof tree the actor cannot see. Pulls
+# in `eg-core/security` (where `RowVisibility`/`can_see_row` live); OFF by default so
+# a plain build links neither. See `src/redact.rs`.
+epistemic-redaction = ["eg-core/security"]
+# X-1 (CONCEPT:EG-X1) — the multimodal evidence-graph spine + citation resolver:
+# lets an `:Evidence` node (the SAME typed-node-by-convention `:Claim`/`:Evidence`
+# shape this crate's own module docs describe) carry one complete, governed
+# `eg_modality::EvidenceLocus` (`evidence_locus` property). The locus contains its
+# opaque identity, typed subject, validated address, policy, and derivation refs and
+# is decoded off the SAME per-node msgpack blob
+# `BeliefGraph::from_graph_view` already reads `confidence`/bitemporal from (one
+# decode pass, no second graph walk). `evidence_citations`/`resolve_locus`/
+# `justification_citations` (`src/evidence.rs`) turn that into the citation list
+# an answer quoting a claim can present: "here is exactly where in the source this
+# evidence came from." Reuses `eg-modality` — the SAME optional dependency
+# `contract` already pulls (no new dependency CLASS at all). OFF by default and
+# deliberately NOT folded into any tier aggregate — the same capability-discovery/
+# testing-seam status as `contract`/`epistemic-causal` above.
+evidence-graph = ["dep:eg-modality"]

@@ -163,5 +163,46 @@ fn sql_source_unsupported_scheme_errors() {
         score_field: None,
     };
     let err = crate::federation::source_for(&spec).fetch().unwrap_err();
-    assert!(err.contains("unsupported SQL dsn scheme"), "got: {err}");
+    assert!(
+        err.contains("unsupported SQL connection scheme"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn sql_source_rejects_mutation_stacking_and_locking_before_connect() {
+    for query in [
+        "DELETE FROM t RETURNING id",
+        "SELECT id FROM t; DROP TABLE t",
+        "WITH changed AS (DELETE FROM t RETURNING id) SELECT id FROM changed",
+        "SELECT id INTO copied FROM t",
+        "SELECT id FROM t FOR UPDATE",
+    ] {
+        let spec = ForeignSourceSpec::Sql {
+            dsn: "postgres://user:pw@127.0.0.1:1/nodb".into(),
+            query: query.into(),
+            id_field: "id".into(),
+            score_field: None,
+        };
+        let err = crate::federation::source_for(&spec).fetch().unwrap_err();
+        assert!(
+            err.contains("read") || err.contains("exactly one"),
+            "unsafe query must fail at the parser boundary: {err}"
+        );
+    }
+}
+
+#[test]
+fn sql_source_errors_never_reflect_connection_secrets_or_query_text() {
+    let secret = "test-do-not-reflect-secret";
+    let query_marker = "do_not_reflect_query_text";
+    let spec = ForeignSourceSpec::Sql {
+        dsn: format!("postgres://user:{secret}@127.0.0.1:1/nodb"),
+        query: format!("DELETE FROM {query_marker}"),
+        id_field: "id".into(),
+        score_field: None,
+    };
+    let err = crate::federation::source_for(&spec).fetch().unwrap_err();
+    assert!(!err.contains(secret));
+    assert!(!err.contains(query_marker));
 }

@@ -1,8 +1,8 @@
 # Vector / ANN interface
 
 The `ann` feature gives a native, pure-Rust approximate-nearest-neighbour index (`eg-ann`) as the
-`SemanticStore` backend — no faiss, no GPU at serve time, no rebuild-on-load. It is Pi-lean and folded
-into every durable serving tier.
+`SemanticStore` backend — no faiss, no GPU at serve time, no rebuild-on-load. Cargo
+`full` includes it in the main durable server.
 
 > Status snapshot: single-shard ANN is production-grade. An **HNSW** index (EG-KG.retrieval.hnsw-vector-index), **cross-shard kNN
 > scatter-gather** (EG-319, completing the EG-KG.retrieval.scatter-gather gather leaf), hybrid metadata pre-filtering pushed into the
@@ -88,8 +88,7 @@ MATCH (:Doc) WHERE year > 2024
 Over pgwire, the same index answers pgvector `ORDER BY emb <-> $1 LIMIT k` (L2 `<->` / cosine `<=>` /
 neg-inner `<#>`), pushed down to the ANN index by `CREATE INDEX … USING hnsw/ivfflat` — a **real ANN top-k**
 (HNSW/IVF) with an exact re-rank tier, not the brute-force fallback (EG-115/116/313) — see
-[sql](sql.md#postgres-extensions--create-extension-eg-102).
-</content>
+[sql](sql.md#create-extension).
 
 ---
 

@@ -6,12 +6,12 @@
 #
 # Pi-gating discipline: every semantic-web dep is behind a feature, OFF by default,
 # so a default/pi build links NONE of oxrdf/oxttl/spargebra (all pure-Rust — proven
-# by `cargo tree`). The `rdf-redb` opt-in lossless quad table rides the engine redb.
+# by `cargo tree`). Multi-valued literals remain in the authoritative graph image.
 [package]
 name = "eg-rdf"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Native RDF/SPARQL surface for the epistemic-graph engine: RDF<->property-graph mapping (oxrdf/oxttl) + SPARQL 1.1 compiled to GraphView scans (spargebra)"
 license = "MIT"
 
@@ -25,9 +25,6 @@ rdf = ["dep:oxrdf", "dep:oxttl"]
 # W2 — SPARQL 1.1 algebra (spargebra). Parser + algebra ONLY; we provide the
 # evaluator (compile, not embed). Pure Rust (peg is a build-time PEG generator).
 sparql = ["rdf", "dep:spargebra", "dep:regex"]
-# Opt-in lossless redb `quads` table for multi-valued-literal predicates that the
-# key-unique property-graph blob would collapse. Rides the engine's redb tier.
-rdf-redb = ["rdf", "dep:redb"]
 # W3 — native OWL 2 (EL⁺ completion + RL property rules) reasoner (CONCEPT:KG-2.219).
 # Parses OWL axioms from the SAME oxttl-parsed RDF as `rdf`, so it adds NO dep beyond
 # the RDF stack: implies `rdf`, links ZERO native/C crate (pure Rust — no horned-owl,
@@ -52,21 +49,19 @@ sparql-hash = ["sparql", "dep:md-5", "dep:sha1", "dep:sha2"]
 # `rdf-12` / spargebra `sparql-12` feature (pure Rust — NO new crate). Widens the
 # `oxrdf::Term` enum with `Triple(Box<Triple>)`; the mapping/eval match arms cfg-in
 # first-class handling only when this is on. OUT of `pi` (a Pi node stays RDF-1.1).
-# Weak `oxrdfxml?`/`oxjsonld?` propagation keeps rdf-12 CONSISTENT across the oxrdf
-# family when RDF/XML or JSON-LD is ALSO enabled (feature unification would otherwise
-# give oxrdfxml a rdf-12 `oxrdf::Term` its own match can't cover) — without pulling
-# those crates in when they are off.
+# Weak JSON-LD propagation keeps rdf-12 consistent across the oxrdf family when
+# JSON-LD is also enabled. RDF/XML is implemented locally over quick-xml and uses
+# the already-unified oxrdf term model directly.
 sparql-star = [
     "sparql",
     "oxrdf/rdf-12",
     "oxttl/rdf-12",
     "spargebra/sparql-12",
-    "oxrdfxml?/rdf-12",
     "oxjsonld?/rdf-12",
 ]
-# W6c — RDF/XML reader+writer (CONCEPT:EG-131) via pure-Rust `oxrdfxml`. Implies `rdf`.
+# W6c — RDF/XML reader+writer (CONCEPT:EG-131) via maintained quick-xml. Implies `rdf`.
 # OUT of `pi` (RDF/XML is a heavier serialization; N-Quads/TriG ride the in-`rdf` oxttl).
-rdf-xml = ["rdf", "dep:oxrdfxml"]
+rdf-xml = ["rdf", "dep:quick-xml"]
 # W6c — JSON-LD 1.1 reader+writer (CONCEPT:EG-131) via pure-Rust `oxjsonld`. Implies
 # `rdf`. OUT of `pi`. Expansion/compaction only; framing is a documented follow-up.
 json-ld = ["rdf", "dep:oxjsonld"]
@@ -77,6 +72,16 @@ json-ld = ["rdf", "dep:oxjsonld"]
 # Implies `sparql` and pulls `eg-geo` (REUSE — adds NO external dep). OUT of `pi` (spatial
 # is not a Pi requirement); folded into node/full at the aggregate-feature layer.
 geosparql = ["sparql", "dep:eg-geo"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+# owl::ProofNode` + the `modality_conformance_tests!` battery — the reference
+# non-trivial `provenance()` (maps `owl::Justification` losslessly). OFF by
+# default, deliberately NOT folded into any tier aggregate (pi/node/full) — it is
+# a capability-discovery/testing seam, not a serving feature. Implies `owl` since
+# `ProofNode` lives there; ALSO implies `sparql` — pre-existing (unrelated to this
+# retrofit) `tests/icv_enforce_eg300.rs` is an unconditional integration test that
+# needs `sparql`'s `update`/`sparql` modules to build at all, so `cargo test -p
+# eg-rdf --features contract` needs it too to build the crate's full test set.
+contract = ["dep:eg-modality", "owl", "sparql"]
 
 [dependencies]
 eg-core = { path = "../eg-core" }
@@ -88,6 +93,9 @@ eg-geo = { path = "../eg-geo", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rmp-serde = "1.3"
+# Shared allocation-free MessagePack preflight for property blobs. Keeping this
+# policy in eg-types avoids a second parser in the RDF/SPARQL projection layer.
+eg-types = { path = "../eg-types" }
 
 # RDF term model + parsers/serializers (feature `rdf`). Pure Rust, no native deps.
 oxrdf = { version = "0.3", optional = true }
@@ -97,20 +105,21 @@ oxttl = { version = "0.2", optional = true }
 spargebra = { version = "0.4", optional = true }
 # SPARQL 1.1 REGEX built-in (feature `sparql`, CONCEPT:EG-053). Pure Rust, no native deps.
 regex = { version = "1", optional = true }
-# Durable lossless quad table (feature `rdf-redb`). Same pin as the engine.
-redb = { version = "4.1", optional = true }
 # SPARQL 1.1 hash builtins (feature `sparql-hash`, CONCEPT:EG-127). Pure-Rust RustCrypto,
 # no native deps. Kept OUT of `pi` via the dedicated feature (see [features]).
 md-5 = { version = "0.10", optional = true }
 sha1 = { version = "0.10", optional = true }
 sha2 = { version = "0.10", optional = true }
 # RDF/XML + JSON-LD 1.1 serializations (features `rdf-xml` / `json-ld`, CONCEPT:EG-131).
-# Pure-Rust oxrdf-family crates pinned to the same oxrdf 0.3.3; OUT of `pi`.
-oxrdfxml = { version = "0.2", optional = true }
+# RDF/XML uses quick-xml 0.41 directly to avoid the obsolete oxrdfxml parser pin.
+quick-xml = { version = "0.41", optional = true }
 oxjsonld = { version = "0.2", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/node/full build links none of it and `owl::ProofNode` carries no
+# new required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
 
 [dev-dependencies]
-tempfile = "3"
 # ICV integration test (CONCEPT:EG-146). eg-shacl sits ABOVE eg-rdf in the DAG (it
 # depends on eg-rdf `rdf`); using it as a DEV-dependency here is a dev-dep cycle, which
 # Cargo permits — it affects ONLY the eg-rdf test build, never `cargo check`/`pi`/`full`

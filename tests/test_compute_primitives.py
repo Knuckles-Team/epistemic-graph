@@ -7,7 +7,6 @@ Uses the session-scoped server + `clean_graph` sync client from conftest.py.
 
 import math
 
-
 # ── Data science primitives ───────────────────────────────────────────────
 
 
@@ -75,7 +74,7 @@ def test_ridge_fit_predict_roundtrip(clean_graph):
     )
     assert model["kind"] == "Linear"
     preds = clean_graph.datascience.predict_estimator(model, x)
-    err = max(abs(p - t) for p, t in zip(preds, y))
+    err = max(abs(p - t) for p, t in zip(preds, y, strict=True))
     assert err < 1e-2
 
 
@@ -85,7 +84,7 @@ def test_decisiontree_fit_predict_roundtrip(clean_graph):
     model = clean_graph.datascience.fit_estimator("decisiontree", x, y)
     assert model["kind"] == "Tree"
     preds = clean_graph.datascience.predict_estimator(model, x)
-    assert max(abs(p - t) for p, t in zip(preds, y)) < 1e-6
+    assert max(abs(p - t) for p, t in zip(preds, y, strict=True)) < 1e-6
 
 
 def test_randomforest_fit_predict_roundtrip(clean_graph):
@@ -96,7 +95,9 @@ def test_randomforest_fit_predict_roundtrip(clean_graph):
     )
     assert model["kind"] == "Forest"
     preds = clean_graph.datascience.predict_estimator(model, x)
-    rmse = (sum((p - t) ** 2 for p, t in zip(preds, y)) / len(y)) ** 0.5
+    rmse = (
+        sum((p - t) ** 2 for p, t in zip(preds, y, strict=True)) / len(y)
+    ) ** 0.5
     assert rmse < 1.5
 
 
@@ -109,7 +110,9 @@ def test_svr_fit_predict_roundtrip(clean_graph):
     )
     assert model["kind"] == "Svr"
     preds = clean_graph.datascience.predict_estimator(model, x)
-    rmse = (sum((p - t) ** 2 for p, t in zip(preds, y)) / len(y)) ** 0.5
+    rmse = (
+        sum((p - t) ** 2 for p, t in zip(preds, y, strict=True)) / len(y)
+    ) ** 0.5
     assert rmse < 0.4
 
 

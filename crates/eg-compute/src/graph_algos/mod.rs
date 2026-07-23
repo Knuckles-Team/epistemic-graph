@@ -15,6 +15,8 @@
 //! | [`betweenness_centrality`] | `gds.betweenness` | `O(V·E)` |
 //! | [`dijkstra`] / [`all_pairs_shortest_paths`] | `gds.shortestPath.dijkstra` | `O((V+E)logV)` |
 //! | [`jaccard_similarity`] / [`cosine_similarity`] | `gds.nodeSimilarity` | `O(deg)` |
+//! | [`knn_similarity`] | `gds.knn` | `O(V²·d̄)` (exact top-`k`, not sampled KNN-descent) |
+//! | [`label_propagation::label_propagation`] | `gds.labelPropagation` | `O(iters·(V+E))` |
 //!
 //! **Determinism.** No RNG anywhere except Louvain's *optional, seeded* visit
 //! shuffle; all tie-breaks fall back to ascending node index (which is sorted
@@ -27,6 +29,7 @@
 pub mod centrality;
 pub mod components;
 pub mod graph;
+pub mod label_propagation;
 pub mod louvain;
 pub mod pagerank;
 pub mod shortest_path;
@@ -35,9 +38,11 @@ pub mod similarity;
 pub use centrality::{betweenness_centrality, degree_centrality, DegreeKind};
 pub use components::{strongly_connected_components, weakly_connected_components};
 pub use graph::AdjacencyGraph;
+pub use label_propagation::{label_propagation, LabelPropagationConfig, LabelPropagationResult};
 pub use louvain::{louvain, LouvainConfig, LouvainResult};
 pub use pagerank::{pagerank, PageRankConfig, PageRankResult};
 pub use shortest_path::{all_pairs_shortest_paths, dijkstra, shortest_path, DijkstraResult};
 pub use similarity::{
-    all_pairs_similarity, cosine_similarity, jaccard_similarity, Direction, Metric, SimilarityPair,
+    all_pairs_similarity, cosine_similarity, jaccard_similarity, knn_similarity, Direction, Metric,
+    SimilarityPair,
 };

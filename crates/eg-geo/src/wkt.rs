@@ -144,7 +144,7 @@ fn parse_polygon_body(body: &str) -> Result<Polygon, String> {
         parsed.push(LineString::new(pts));
     }
     let exterior = parsed.remove(0);
-    Ok(Polygon::with_interiors(exterior, parsed))
+    Ok(Polygon::new(exterior, parsed))
 }
 
 /// The substring of the ORIGINAL (mixed-case) `s` corresponding to the uppercased

@@ -70,7 +70,7 @@
 
 ### `types.rs` — Typed Data Model
 - `NodeData`: id, type, embedding, lifecycle state, timestamps, metadata
-- `EdgeData`: relationship type, weight, provenance, metadata
+- `EdgeData`: canonical `relationship`, weight, provenance, metadata
 - `LifecycleState`: Active → Compacted → Archived → PendingDeletion
 - `GraphMetrics`: node/edge counts, mutation tracking, lifecycle breakdowns
 - `PruneStats`: pruning operation results
@@ -148,8 +148,8 @@ stats = json.loads(stats_json)
 
 # Batch operations (single epistemic-graph crossing)
 ops = json.dumps([
-    {"op": "add_node", "node_id": "concept:auth", "properties": "{}"},
-    {"op": "add_edge", "source": "agent:planner", "target": "concept:auth", "properties": "{}"},
+    {"op": "add_node", "id": "concept:auth", "properties": {}},
+    {"op": "add_edge", "source": "agent:planner", "target": "concept:auth", "properties": {}},
 ])
 result = g.batch_update(ops)
 

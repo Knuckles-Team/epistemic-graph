@@ -7,60 +7,38 @@
 //! hook (eg-rdf defines the hook; eg-shacl — which sits ABOVE eg-rdf — implements it, so
 //! there is no dependency cycle).
 //!
-//! A graph carries an [`IcvPolicy`]: the registered shapes graph plus a [`IcvMode`]:
-//!
-//! * [`IcvMode::Off`] (default) — the guard is inert; the write path is unchanged and
-//!   backward-compatible.
-//! * [`IcvMode::Warn`] — a change that would introduce a violation is LOGGED (to stderr)
-//!   but still applied.
-//! * [`IcvMode::Enforce`] — a change that would introduce a violation ABORTS the commit
-//!   with a structured [`eg_rdf::guard::GuardRejection`] listing the introduced violations
-//!   (each with its SPARQL witness); a clean change commits normally.
+//! A graph carries an [`IcvPolicy`]: its registered shapes graph. Every registered
+//! policy enforces. An absent policy is itself a hard rejection, so a caller cannot
+//! turn integrity off or convert a violation into an advisory write.
 //!
 //! [`IcvPolicyRegistry`] maps graph names → policies and implements [`eg_rdf::guard::WriteGuard`],
-//! so `eg_rdf::update::execute_guarded` enforces ICV over any registered graph.
+//! so `eg_rdf::update::execute` enforces ICV over every write.
 
 use std::collections::HashMap;
 
-use eg_rdf::guard::{GuardRejection, WriteGuard};
-use eg_rdf::oxrdf::{Graph, Triple};
-use serde::{Deserialize, Serialize};
-
 use crate::icv::{check_write, WriteCheck};
 use crate::validate::graph_from_turtle;
+use eg_rdf::guard::{GuardRejection, WriteGuard};
+use eg_rdf::oxrdf::{Graph, Triple};
 
-/// How strictly a graph's ICV shapes are enforced on write (CONCEPT:EG-KG.ontology.rdf-update-guard).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum IcvMode {
-    /// The guard is inert — the write path is unchanged (the default, backward-compatible).
-    #[default]
-    Off,
-    /// A violating change is logged (stderr) but still applied.
-    Warn,
-    /// A violating change aborts the commit with a structured rejection.
-    Enforce,
-}
-
-/// A per-graph ICV policy (CONCEPT:EG-KG.ontology.rdf-update-guard): the registered shapes + the enforcement mode.
+/// A per-graph ICV policy (CONCEPT:EG-KG.ontology.rdf-update-guard): the mandatory
+/// registered integrity shapes.
 #[derive(Debug, Clone)]
 pub struct IcvPolicy {
-    /// The enforcement mode.
-    pub mode: IcvMode,
     /// The SHACL shapes read as closed-world integrity constraints for this graph.
     pub shapes: Graph,
 }
 
 impl IcvPolicy {
     /// A policy over an already-parsed shapes graph.
-    pub fn new(mode: IcvMode, shapes: Graph) -> Self {
-        IcvPolicy { mode, shapes }
+    pub fn new(shapes: Graph) -> Self {
+        IcvPolicy { shapes }
     }
 
     /// A policy whose shapes are parsed from a Turtle document. Returns a parse-error
     /// string if the shapes fail to parse.
-    pub fn from_turtle(mode: IcvMode, shapes_ttl: &str) -> Result<Self, String> {
+    pub fn from_turtle(shapes_ttl: &str) -> Result<Self, String> {
         Ok(IcvPolicy {
-            mode,
             shapes: graph_from_turtle(shapes_ttl)?,
         })
     }
@@ -73,7 +51,7 @@ impl IcvPolicy {
 
 /// A registry of per-graph ICV policies (CONCEPT:EG-KG.ontology.rdf-update-guard) that implements the eg-rdf
 /// [`WriteGuard`] hook. Register a policy for the default graph and/or named graphs, then
-/// pass it to `eg_rdf::update::execute_guarded` to enforce ICV on commit.
+/// pass it to `eg_rdf::update::execute` to enforce ICV on commit.
 #[derive(Debug, Clone, Default)]
 pub struct IcvPolicyRegistry {
     /// Policy for the default graph, if any.
@@ -83,7 +61,8 @@ pub struct IcvPolicyRegistry {
 }
 
 impl IcvPolicyRegistry {
-    /// An empty registry (no policies — an inactive guard).
+    /// A new fail-closed registry. Graph writes remain unavailable until the graph or
+    /// default policy is explicitly registered.
     pub fn new() -> Self {
         Self::default()
     }
@@ -112,21 +91,9 @@ impl IcvPolicyRegistry {
             Some(g) => self.named.get(g),
         }
     }
-
-    /// Whether any registered policy is `Warn` or `Enforce` (an active guard).
-    pub fn is_active(&self) -> bool {
-        self.default
-            .iter()
-            .chain(self.named.values())
-            .any(|p| p.mode != IcvMode::Off)
-    }
 }
 
 impl WriteGuard for IcvPolicyRegistry {
-    fn active(&self) -> bool {
-        self.is_active()
-    }
-
     fn check_graph(
         &self,
         graph: Option<&str>,
@@ -135,38 +102,26 @@ impl WriteGuard for IcvPolicyRegistry {
         removals: &[Triple],
     ) -> Result<(), GuardRejection> {
         let Some(policy) = self.policy(graph) else {
-            return Ok(()); // no policy for this graph — nothing to enforce.
+            return Err(GuardRejection {
+                graph: graph.map(str::to_string),
+                message: "EG-KG.ontology.rdf-update-guard: no integrity policy is registered"
+                    .to_string(),
+                details: serde_json::json!({"reason": "integrity_policy_required"}),
+            });
         };
-        match policy.mode {
-            IcvMode::Off => Ok(()),
-            IcvMode::Warn => {
-                let check = policy.check(base, additions, removals);
-                if !check.accepted {
-                    let g = graph.unwrap_or("(default)");
-                    eprintln!(
-                        "[EG-300 ICV warn] graph {g}: change would introduce {} integrity \
-                         violation(s) — applied anyway (mode=Warn)",
-                        check.introduced.len(),
-                    );
-                }
-                Ok(())
-            }
-            IcvMode::Enforce => {
-                let check = policy.check(base, additions, removals);
-                if check.accepted {
-                    Ok(())
-                } else {
-                    Err(GuardRejection {
-                        graph: graph.map(|g| g.to_string()),
-                        message: format!(
-                            "EG-300 ICV: change introduces {} integrity constraint violation(s)",
-                            check.introduced.len()
-                        ),
-                        details: serde_json::to_value(&check.introduced)
-                            .unwrap_or(serde_json::Value::Null),
-                    })
-                }
-            }
+        let check = policy.check(base, additions, removals);
+        if check.accepted {
+            Ok(())
+        } else {
+            Err(GuardRejection {
+                graph: graph.map(|g| g.to_string()),
+                message: format!(
+                    "EG-KG.ontology.rdf-update-guard: change introduces {} integrity constraint violation(s)",
+                    check.introduced.len()
+                ),
+                details: serde_json::to_value(&check.introduced)
+                    .unwrap_or(serde_json::Value::Null),
+            })
         }
     }
 }
@@ -211,8 +166,7 @@ ex:PersonShape a sh:NodeShape ;
 
     #[test]
     fn enforce_rejects_violating_change() {
-        let registry =
-            IcvPolicyRegistry::new().with(None, IcvPolicy::new(IcvMode::Enforce, shapes_graph()));
+        let registry = IcvPolicyRegistry::new().with(None, IcvPolicy::new(shapes_graph()));
         let base = base_graph();
         // A SECOND manager breaks sh:maxCount 1.
         let add = triples("ex:a ex:manager ex:m2 .");
@@ -229,8 +183,7 @@ ex:PersonShape a sh:NodeShape ;
 
     #[test]
     fn enforce_accepts_clean_change() {
-        let registry =
-            IcvPolicyRegistry::new().with(None, IcvPolicy::new(IcvMode::Enforce, shapes_graph()));
+        let registry = IcvPolicyRegistry::new().with(None, IcvPolicy::new(shapes_graph()));
         let base = base_graph();
         // An unrelated fact introduces no violation.
         let add = triples("ex:a ex:nickname \"Ay\" .");
@@ -238,29 +191,17 @@ ex:PersonShape a sh:NodeShape ;
     }
 
     #[test]
-    fn warn_applies_but_signals_via_ok() {
-        let registry =
-            IcvPolicyRegistry::new().with(None, IcvPolicy::new(IcvMode::Warn, shapes_graph()));
+    fn absent_policy_rejects_the_write() {
+        let registry = IcvPolicyRegistry::new();
         let base = base_graph();
         let add = triples("ex:a ex:manager ex:m2 .");
-        // Warn NEVER aborts — the guard returns Ok so the commit proceeds (it logs instead).
-        assert!(registry.check_graph(None, &base, &add, &[]).is_ok());
-    }
-
-    #[test]
-    fn off_is_inactive_and_permits_everything() {
-        let registry =
-            IcvPolicyRegistry::new().with(None, IcvPolicy::new(IcvMode::Off, shapes_graph()));
-        assert!(!registry.is_active(), "an all-Off registry is inactive");
-        let base = base_graph();
-        let add = triples("ex:a ex:manager ex:m2 .");
-        assert!(registry.check_graph(None, &base, &add, &[]).is_ok());
+        let error = registry.check_graph(None, &base, &add, &[]).unwrap_err();
+        assert_eq!(error.details["reason"], "integrity_policy_required");
     }
 
     #[test]
     fn from_turtle_parses_shapes() {
-        let policy =
-            IcvPolicy::from_turtle(IcvMode::Enforce, &format!("{PREFIXES}{SHAPES}")).unwrap();
-        assert_eq!(policy.mode, IcvMode::Enforce);
+        let policy = IcvPolicy::from_turtle(&format!("{PREFIXES}{SHAPES}")).unwrap();
+        assert!(!policy.shapes.is_empty());
     }
 }

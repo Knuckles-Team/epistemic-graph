@@ -36,6 +36,8 @@ pub struct ChannelImprint {
 #[derive(Debug, Clone)]
 pub struct Channel {
     pub id: String,
+    /// Opaque verified tenant owner.
+    pub tenant_scope: String,
     pub channel_type: ChannelType,
     pub creator: String,
     pub members: HashSet<String>,
@@ -46,18 +48,17 @@ pub struct Channel {
 impl Channel {
     pub fn new(
         id: String,
+        tenant_scope: String,
         channel_type: ChannelType,
         creator: String,
         initial_members: Vec<String>,
     ) -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = crate::server::authoritative_now_secs();
         let mut members: HashSet<String> = initial_members.into_iter().collect();
         members.insert(creator.clone());
         Channel {
             id,
+            tenant_scope,
             channel_type,
             creator,
             members,
@@ -88,14 +89,18 @@ impl ChannelManager {
         }
     }
 
-    /// Create a new channel.
-    pub fn create_channel(
+    /// Create a channel owned by a verified tenant.
+    pub fn create_channel_scoped(
         &mut self,
         channel_id: &str,
+        tenant_scope: &str,
         channel_type: ChannelType,
         creator: &str,
         initial_members: Vec<String>,
     ) -> Result<(), String> {
+        if tenant_scope.trim().is_empty() {
+            return Err("Channel tenant scope is required".to_string());
+        }
         if self.channels.contains_key(channel_id) {
             return Err(format!("Channel '{}' already exists", channel_id));
         }
@@ -111,12 +116,58 @@ impl ChannelManager {
             channel_id.to_string(),
             Channel::new(
                 channel_id.to_string(),
+                tenant_scope.to_string(),
                 channel_type,
                 creator.to_string(),
                 initial_members,
             ),
         );
         Ok(())
+    }
+
+    /// Uniform non-enumerating membership check for served channel operations.
+    pub fn authorize_member(
+        &self,
+        channel_id: &str,
+        tenant_scope: &str,
+        agent_id: &str,
+    ) -> Result<(), String> {
+        let authorized = self.channels.get(channel_id).is_some_and(|channel| {
+            channel.tenant_scope == tenant_scope && channel.members.contains(agent_id)
+        });
+        if authorized {
+            Ok(())
+        } else {
+            Err("Channel not found or access denied".to_string())
+        }
+    }
+
+    pub fn authorize_tenant(&self, channel_id: &str, tenant_scope: &str) -> Result<(), String> {
+        if self
+            .channels
+            .get(channel_id)
+            .is_some_and(|channel| channel.tenant_scope == tenant_scope)
+        {
+            Ok(())
+        } else {
+            Err("Channel not found or access denied".to_string())
+        }
+    }
+
+    pub fn authorize_creator(
+        &self,
+        channel_id: &str,
+        tenant_scope: &str,
+        agent_id: &str,
+    ) -> Result<(), String> {
+        let authorized = self.channels.get(channel_id).is_some_and(|channel| {
+            channel.tenant_scope == tenant_scope && channel.creator == agent_id
+        });
+        if authorized {
+            Ok(())
+        } else {
+            Err("Channel not found or access denied".to_string())
+        }
     }
 
     /// Join an existing channel.
@@ -161,10 +212,7 @@ impl ChannelManager {
             .channels
             .remove(channel_id)
             .ok_or_else(|| format!("Channel '{}' not found", channel_id))?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = crate::server::authoritative_now_secs();
         let imprint = ChannelImprint {
             channel_id: channel.id,
             channel_type: channel.channel_type,
@@ -197,10 +245,7 @@ impl ChannelManager {
                 sender, channel_id
             ));
         }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = crate::server::authoritative_now_secs();
         channel.messages.push(ChannelMessage {
             sender: sender.to_string(),
             payload: payload.to_string(),
@@ -242,6 +287,27 @@ impl ChannelManager {
             .collect()
     }
 
+    /// List only channels the verified actor is a member of in its tenant.
+    pub fn list_channels_for(
+        &self,
+        tenant_scope: &str,
+        agent_id: &str,
+    ) -> Vec<(String, ChannelType, usize)> {
+        self.channels
+            .values()
+            .filter(|channel| {
+                channel.tenant_scope == tenant_scope && channel.members.contains(agent_id)
+            })
+            .map(|channel| {
+                (
+                    channel.id.clone(),
+                    channel.channel_type,
+                    channel.members.len(),
+                )
+            })
+            .collect()
+    }
+
     /// Get members of a channel.
     pub fn get_members(&self, channel_id: &str) -> Result<Vec<String>, String> {
         let channel = self
@@ -264,8 +330,9 @@ mod tests {
     #[test]
     fn test_create_p2p_channel() {
         let mut mgr = ChannelManager::new();
-        mgr.create_channel(
+        mgr.create_channel_scoped(
             "channel:p2p:a:b",
+            "tenant-test",
             ChannelType::PeerToPeer,
             "agent:a",
             vec!["agent:b".to_string()],
@@ -277,10 +344,38 @@ mod tests {
     }
 
     #[test]
+    fn scoped_channel_reads_require_same_tenant_membership() {
+        let mut mgr = ChannelManager::new();
+        mgr.create_channel_scoped(
+            "shared-name",
+            "tenant-a",
+            ChannelType::Group,
+            "alice",
+            vec!["bob".to_string()],
+        )
+        .unwrap();
+        assert!(mgr
+            .authorize_member("shared-name", "tenant-a", "alice")
+            .is_ok());
+        assert!(mgr
+            .authorize_member("shared-name", "tenant-a", "bob")
+            .is_ok());
+        assert!(mgr
+            .authorize_member("shared-name", "tenant-a", "mallory")
+            .is_err());
+        assert!(mgr
+            .authorize_member("shared-name", "tenant-b", "alice")
+            .is_err());
+        assert_eq!(mgr.list_channels_for("tenant-a", "bob").len(), 1);
+        assert!(mgr.list_channels_for("tenant-b", "alice").is_empty());
+    }
+
+    #[test]
     fn test_p2p_rejects_three_members() {
         let mut mgr = ChannelManager::new();
-        let result = mgr.create_channel(
+        let result = mgr.create_channel_scoped(
             "bad",
+            "tenant-test",
             ChannelType::PeerToPeer,
             "a",
             vec!["b".to_string(), "c".to_string()],
@@ -291,7 +386,7 @@ mod tests {
     #[test]
     fn test_group_channel_join_leave() {
         let mut mgr = ChannelManager::new();
-        mgr.create_channel("group:1", ChannelType::Group, "a", vec![])
+        mgr.create_channel_scoped("group:1", "tenant-test", ChannelType::Group, "a", vec![])
             .unwrap();
         mgr.join_channel("group:1", "b").unwrap();
         mgr.join_channel("group:1", "c").unwrap();
@@ -304,8 +399,14 @@ mod tests {
     #[test]
     fn test_send_and_get_messages() {
         let mut mgr = ChannelManager::new();
-        mgr.create_channel("ch", ChannelType::Group, "a", vec!["b".to_string()])
-            .unwrap();
+        mgr.create_channel_scoped(
+            "ch",
+            "tenant-test",
+            ChannelType::Group,
+            "a",
+            vec!["b".to_string()],
+        )
+        .unwrap();
         mgr.send_message("ch", "a", "hello").unwrap();
         mgr.send_message("ch", "b", "world").unwrap();
 
@@ -317,7 +418,7 @@ mod tests {
     #[test]
     fn test_non_member_send_denied() {
         let mut mgr = ChannelManager::new();
-        mgr.create_channel("ch", ChannelType::Group, "a", vec![])
+        mgr.create_channel_scoped("ch", "tenant-test", ChannelType::Group, "a", vec![])
             .unwrap();
         assert!(mgr.send_message("ch", "outsider", "nope").is_err());
     }
@@ -325,8 +426,14 @@ mod tests {
     #[test]
     fn test_close_creates_imprint() {
         let mut mgr = ChannelManager::new();
-        mgr.create_channel("ch", ChannelType::Group, "a", vec!["b".to_string()])
-            .unwrap();
+        mgr.create_channel_scoped(
+            "ch",
+            "tenant-test",
+            ChannelType::Group,
+            "a",
+            vec!["b".to_string()],
+        )
+        .unwrap();
         mgr.send_message("ch", "a", "msg1").unwrap();
 
         let imprint = mgr
@@ -341,7 +448,7 @@ mod tests {
     #[test]
     fn test_auto_close_on_all_leave() {
         let mut mgr = ChannelManager::new();
-        mgr.create_channel("ch", ChannelType::Group, "a", vec![])
+        mgr.create_channel_scoped("ch", "tenant-test", ChannelType::Group, "a", vec![])
             .unwrap();
         let imprint = mgr.leave_channel("ch", "a").unwrap();
         assert!(imprint.is_some());
@@ -351,7 +458,7 @@ mod tests {
     #[test]
     fn test_drain_imprints() {
         let mut mgr = ChannelManager::new();
-        mgr.create_channel("ch", ChannelType::Group, "a", vec![])
+        mgr.create_channel_scoped("ch", "tenant-test", ChannelType::Group, "a", vec![])
             .unwrap();
         mgr.close_channel("ch", None, None).unwrap();
         let imprints = mgr.drain_imprints();

@@ -7,17 +7,15 @@
 //! `rdf:type` ⇒ the engine `type` label, a named graph ⇒ the target registry graph).
 //! So they route through the normal `dispatch_graph_op` chain like Sql/Cypher.
 //!
-//! * `AddTriples` is a DURABLE MUTATION (it writes nodes + edges). The dispatch
-//!   shell records the `AddTriples` Method into the WAL/Raft like any other durable
-//!   write; replay re-parses the source text (deterministic) via `crate::wal::apply`.
-//!   The in-RAM apply happens HERE.
+//! * `AddTriples` is a DURABLE MUTATION (it writes nodes + edges). The mutation
+//!   gateway runs it against an isolated graph image, commits that complete image
+//!   through `MutationBatch`, then publishes it to RAM.
 //! * `GetRdf` serializes the graph back OUT to N-Triples (read-only).
 //! * `Sparql` evaluates a SPARQL 1.1 SELECT over an off-lock GraphView snapshot
 //!   (read-only), same idiom as the SQL/Cypher handlers.
 //!
-//! The optional lossless quad store (`rdf-redb`) lives on `ServerState`; the handler
-//! reads it under a brief lock to preserve the one lossy edge (multi-valued literal
-//! predicates) and to union those extras back on export.
+//! Multi-valued literals live inside the authoritative node blob, so RDF has no
+//! secondary persistence or read authority.
 
 #![allow(clippy::result_large_err)]
 
@@ -25,10 +23,15 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+#[cfg(feature = "owl")]
+use super::super::access::check_graph_access;
+use super::super::access::GraphReadAuthority;
 #[cfg(any(feature = "rdf", feature = "sparql", feature = "owl"))]
 use super::super::compute::compute_off_lock;
 use super::super::state::ServerState;
 use crate::graph::GraphCore;
+#[cfg(feature = "owl")]
+use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
 
 /// Handle the RDF/SPARQL methods. `Err(method)` hands a non-RDF method back to the
@@ -39,9 +42,12 @@ pub(crate) async fn try_handle(
     graph_name: &str,
     core: Arc<GraphCore>,
     method: Method,
-    #[cfg(feature = "security")] caller: Option<&str>,
+    read_authority: Option<&GraphReadAuthority>,
+    caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<Response, Method> {
+    #[cfg(not(feature = "security"))]
+    let _ = caller;
     // `caller`/`rls` are consumed only by the `sparql`-gated read path below; in a
     // `security`-but-no-`sparql` build keep them referenced (no dead-param warning).
     #[cfg(all(feature = "security", not(feature = "sparql")))]
@@ -49,18 +55,29 @@ pub(crate) async fn try_handle(
     match method {
         #[cfg(feature = "rdf")]
         Method::AddTriples { turtle, ntriples } => {
-            Ok(handle_add_triples(state, req_id, graph_name, &core, turtle, ntriples).await)
+            Ok(handle_add_triples(req_id, graph_name, &core, turtle, ntriples).await)
         }
         #[cfg(feature = "rdf")]
-        Method::GetRdf => Ok(handle_get_rdf(state, req_id, graph_name, &core).await),
-        #[cfg(feature = "rdf")]
-        Method::RemoveTriples { turtle, ntriples } => {
-            Ok(handle_remove_triples(req_id, &core, turtle, ntriples).await)
+        Method::GetRdf => {
+            let authority =
+                read_authority.expect("GetRdf must carry the universal served-read authority");
+            let core = authority.project_core(&core);
+            Ok(handle_get_rdf(req_id, graph_name, &core).await)
         }
         #[cfg(feature = "rdf")]
-        Method::DropNamedGraph => {
-            Ok(handle_drop_named_graph(state, req_id, graph_name, &core).await)
-        }
+        Method::RemoveTriples { turtle, ntriples } => Ok(handle_remove_triples(
+            #[cfg(feature = "shacl")]
+            state,
+            req_id,
+            #[cfg(feature = "shacl")]
+            graph_name,
+            &core,
+            turtle,
+            ntriples,
+        )
+        .await),
+        #[cfg(feature = "rdf")]
+        Method::DropNamedGraph => Ok(handle_drop_named_graph(req_id, graph_name, &core).await),
         #[cfg(feature = "sparql")]
         Method::Sparql {
             query,
@@ -87,11 +104,7 @@ pub(crate) async fn try_handle(
             let (snap, version, hash) = {
                 #[cfg(feature = "security")]
                 let hash = {
-                    let kind = if rls.has_rules() {
-                        format!("rls:{}:sparql", caller.unwrap_or(""))
-                    } else {
-                        "sparql".to_string()
-                    };
+                    let kind = format!("rls:{caller}:sparql");
                     eg_core::result_cache::ResultCache::hash_query(&kind, cache_key.as_bytes())
                 };
                 #[cfg(not(feature = "security"))]
@@ -102,7 +115,7 @@ pub(crate) async fn try_handle(
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
                 #[cfg(feature = "security")]
-                rls.filter_view(caller.unwrap_or(""), &mut snap);
+                rls.filter_view(caller, &mut snap);
                 (snap, version, hash)
             };
             #[cfg(not(feature = "result-cache"))]
@@ -110,11 +123,17 @@ pub(crate) async fn try_handle(
             let snap = {
                 let mut snap = core.analysis_snapshot();
                 #[cfg(feature = "security")]
-                rls.filter_view(caller.unwrap_or(""), &mut snap);
+                rls.filter_view(caller, &mut snap);
                 snap
             };
             let resp = match compute_off_lock(req_id, move || {
-                eg_rdf::sparql::run_projected(&snap, &query, &proj)
+                eg_rdf::sparql::execute(
+                    &eg_rdf::sparql::Dataset::new(&snap, Vec::new()),
+                    &query,
+                    &proj,
+                    None,
+                )
+                .map(eg_rdf::sparql::QueryOutcome::into_table)
             })
             .await
             {
@@ -136,7 +155,44 @@ pub(crate) async fn try_handle(
             ontology,
             target_class,
             min_confidence,
-        } => Ok(handle_owl_reason(req_id, &core, ontology, target_class, min_confidence).await),
+        } => {
+            let authority =
+                read_authority.expect("OwlReason must carry the universal served-read authority");
+            let core = authority.project_core(&core);
+            Ok(handle_owl_reason(req_id, &core, ontology, target_class, min_confidence).await)
+        }
+        #[cfg(feature = "owl")]
+        Method::OwlExplain { ontology, sub, sup } => {
+            let authority =
+                read_authority.expect("OwlExplain must carry the universal served-read authority");
+            let core = authority.project_core(&core);
+            Ok(handle_owl_explain(req_id, &core, ontology, sub, sup).await)
+        }
+        // OBDA / R2RML virtual graph query (CONCEPT:EG-KG.query.r2rml-virtual-graph). NOT
+        // graph-scoped in any meaningful way (the virtual triples come from the OBDA
+        // registry, not the request's graph core) — it matches here anyway (like
+        // Sparql/OwlReason) so it rides the SAME dispatch chain / ACL / result-cache
+        // plumbing with no new top-level routing. A build without `obda` drops the arm
+        // and the variant isn't in the enum.
+        #[cfg(feature = "obda")]
+        Method::SparqlVirtual {
+            query,
+            mapping,
+            tables,
+        } => {
+            let authority = read_authority
+                .and_then(GraphReadAuthority::carrier)
+                .expect("SparqlVirtual must carry verified tenant authority");
+            let persist_dir = state.read().await.persist_dir.clone();
+            let store = match crate::server::sql_tables::user_table_store(
+                authority,
+                persist_dir.as_deref().map(std::path::Path::new),
+            ) {
+                Ok(store) => store,
+                Err(error) => return Ok(Response::err(req_id, error)),
+            };
+            Ok(handle_sparql_virtual(req_id, store, query, mapping, tables).await)
+        }
         #[cfg(feature = "rdf")]
         Method::RunRules {
             ontology_ttl,
@@ -163,8 +219,20 @@ pub(crate) async fn try_handle(
         // catch-all (the variant is unconditional in the enum, like Backup/EG-090).
         #[cfg(feature = "shacl")]
         Method::ShaclValidate { shapes, data_graph } => {
-            Ok(handle_shacl_validate(state, req_id, graph_name, &core, shapes, data_graph).await)
+            let authority = read_authority
+                .expect("ShaclValidate must carry the universal served-read authority");
+            let core = authority.project_core(&core);
+            Ok(handle_shacl_validate(req_id, graph_name, &core, shapes, data_graph).await)
         }
+        // IcvConfigure (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED —
+        // `dispatch_graph_op` routes it through `graph_ops::try_handle_gateway`
+        // BEFORE this handler is ever reached, so this arm is structurally
+        // unreachable here now, not merely undocumented.
+        #[cfg(feature = "shacl")]
+        Method::IcvConfigure { .. } => unreachable!(
+            "IcvConfigure is mutation::GATEWAY_ROUTED; dispatch_graph_op must route \
+             it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
         // ShEx Core validation (CONCEPT:EG-KG.compute.concept-2). Read-only. Gated `shex`; a build without
         // it drops this arm → `other => Err(other)` → the dispatch not-available catch-all
         // (the variant is unconditional in the enum, like ShaclValidate/EG-132).
@@ -173,10 +241,15 @@ pub(crate) async fn try_handle(
             schema,
             data_graph,
             shape_map,
-        } => Ok(handle_shex_validate(
-            state, req_id, graph_name, &core, schema, data_graph, shape_map,
-        )
-        .await),
+        } => {
+            let authority = read_authority
+                .expect("ShexValidate must carry the universal served-read authority");
+            let core = authority.project_core(&core);
+            Ok(
+                handle_shex_validate(req_id, graph_name, &core, schema, data_graph, shape_map)
+                    .await,
+            )
+        }
         other => Err(other),
     }
 }
@@ -187,7 +260,6 @@ pub(crate) async fn try_handle(
 /// (the same triples `GetRdf` serializes) and validates that.
 #[cfg(feature = "shacl")]
 async fn handle_shacl_validate(
-    state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     graph_name: &str,
     core: &Arc<GraphCore>,
@@ -200,16 +272,7 @@ async fn handle_shacl_validate(
     };
     // Data graph: an inline Turtle document, else the live graph's exported RDF.
     let data = if data_graph.trim().is_empty() {
-        #[cfg(feature = "rdf-redb")]
-        let quads = state.read().await.rdf_quads.clone();
-        #[cfg(not(feature = "rdf-redb"))]
-        let _ = state;
-        let exported = eg_rdf::mapping::export_triples(
-            core,
-            graph_name,
-            #[cfg(feature = "rdf-redb")]
-            quads.as_deref(),
-        );
+        let exported = eg_rdf::mapping::export_triples(core, graph_name);
         match exported {
             Ok(triples) => {
                 let mut g = eg_shacl::Graph::new();
@@ -241,7 +304,6 @@ async fn handle_shacl_validate(
 /// graph's RDF (the same triples `GetRdf` serializes) and validates that.
 #[cfg(feature = "shex")]
 async fn handle_shex_validate(
-    state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     graph_name: &str,
     core: &Arc<GraphCore>,
@@ -255,16 +317,7 @@ async fn handle_shex_validate(
     };
     // Data graph: an inline Turtle document, else the live graph's exported RDF.
     let data = if data_graph.trim().is_empty() {
-        #[cfg(feature = "rdf-redb")]
-        let quads = state.read().await.rdf_quads.clone();
-        #[cfg(not(feature = "rdf-redb"))]
-        let _ = state;
-        let exported = eg_rdf::mapping::export_triples(
-            core,
-            graph_name,
-            #[cfg(feature = "rdf-redb")]
-            quads.as_deref(),
-        );
+        let exported = eg_rdf::mapping::export_triples(core, graph_name);
         match exported {
             Ok(triples) => {
                 let mut g = eg_shex::Graph::new();
@@ -311,13 +364,13 @@ async fn handle_run_rules(
     query_predicate: Option<String>,
     min_confidence: f64,
     derived_only: bool,
-    #[cfg(feature = "security")] caller: Option<&str>,
+    #[cfg(feature = "security")] caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Response {
     #[cfg_attr(not(feature = "security"), allow(unused_mut))]
     let mut snap = core.analysis_snapshot();
     #[cfg(feature = "security")]
-    rls.filter_view(caller.unwrap_or(""), &mut snap);
+    rls.filter_view(caller, &mut snap);
     let req = eg_rdf::rules::RuleReasonRequest {
         ontology_ttl,
         rules,
@@ -343,6 +396,7 @@ async fn handle_run_rules(
 pub(crate) async fn try_handle_distributed(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    read_authority: &GraphReadAuthority,
     method: Method,
 ) -> Result<Response, Method> {
     match method {
@@ -354,6 +408,7 @@ pub(crate) async fn try_handle_distributed(
         } => Ok(handle_owl_reason_distributed(
             state,
             req_id,
+            read_authority,
             graphs,
             ontology,
             target_class,
@@ -420,19 +475,39 @@ async fn handle_owl_reason(
 async fn handle_owl_reason_distributed(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    read_authority: &GraphReadAuthority,
     graphs: Vec<String>,
     ontology: String,
     target_class: String,
     min_confidence: f64,
 ) -> Response {
-    // Gather each shard's snapshot under the registry lock, release before compute.
-    let snaps: Vec<crate::graph::GraphView> = {
+    // Resolve and ACL-check every shard under the registry lock, then project each
+    // core after releasing it. No graph in the union can become an RLS bypass.
+    let cores = {
         let s = state.read().await;
-        graphs
-            .iter()
-            .filter_map(|name| s.registry.get(name).map(|e| e.core.analysis_snapshot()))
-            .collect()
+        let mut cores = Vec::with_capacity(graphs.len());
+        for name in &graphs {
+            let Some(entry) = s.registry.get(name) else {
+                continue;
+            };
+            if let Err(denied) = check_graph_access(
+                &s.isolation,
+                read_authority.actor(),
+                name,
+                entry.graph_type,
+                entry.owner.as_deref(),
+                AccessLevel::Read,
+            ) {
+                return Response::err(req_id, denied);
+            }
+            cores.push(entry.core.clone());
+        }
+        cores
     };
+    let snaps: Vec<crate::graph::GraphView> = cores
+        .iter()
+        .map(|core| read_authority.project_core(core).analysis_snapshot())
+        .collect();
     let now = now_secs();
     let hl = decay_half_life_secs();
     let resp = match compute_off_lock(req_id, move || {
@@ -465,14 +540,18 @@ fn owl_reason(
     } else {
         eg_rdf::mapping::parse_turtle(ontology)?
     };
+    let class_base = eg_rdf::owl::class_namespace(target_class).ok_or_else(|| {
+        "OwlReason requires an absolute target class with a current class namespace".to_string()
+    })?;
     let res = eg_rdf::owl::reason_distributed_weighted(
         views,
         &extra,
         now,
         half_life,
+        &class_base,
         target_class,
         min_confidence,
-    );
+    )?;
 
     let mut subclasses = Vec::with_capacity(res.subclasses.len());
     let mut subclass_conf = Vec::with_capacity(res.subclasses.len());
@@ -497,39 +576,275 @@ fn owl_reason(
     })
 }
 
+/// Run the native OWL 2 reasoner over an off-lock snapshot and reconstruct the PROOF
+/// TREE for one named-class subsumption `sub ⊑ sup` (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation —
+/// Stardog's flagship "explanation" feature, native here). Classifies the graph's own
+/// TBox axioms (+ any extra `ontology` Turtle) WITH confidence propagation (the same
+/// classifier `OwlReason` uses), then reconstructs
+/// [`eg_rdf::owl::Classification::explain`]'s recursive justification tree and projects
+/// it to the wire [`crate::protocol::OwlExplainResult`]. Read-only. Gated `owl`.
+#[cfg(feature = "owl")]
+async fn handle_owl_explain(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    ontology: String,
+    sub: String,
+    sup: String,
+) -> Response {
+    let snap = core.analysis_snapshot();
+    let resp =
+        match compute_off_lock(req_id, move || owl_explain(&snap, &ontology, &sub, &sup)).await {
+            Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+            Ok(Err(msg)) => Response::err(req_id, format!("OwlExplain error: {msg}")),
+            Err(resp) => resp,
+        };
+    resp
+}
+
+/// Classify `view` (+ optional extra `ontology` Turtle axioms) with confidence
+/// propagation, canonicalize `sub`/`sup` into the reasoner's `<iri>` node-id form, and
+/// project [`eg_rdf::owl::Classification::explain`]'s proof tree to the wire shape.
+#[cfg(feature = "owl")]
+fn owl_explain(
+    view: &crate::graph::GraphView,
+    ontology: &str,
+    sub: &str,
+    sup: &str,
+) -> Result<crate::protocol::OwlExplainResult, String> {
+    let extra = if ontology.trim().is_empty() {
+        Vec::new()
+    } else {
+        eg_rdf::mapping::parse_turtle(ontology)?
+    };
+    let mut triples = eg_rdf::owl::tbox_triples_from_view(view);
+    triples.extend(extra);
+
+    let mut reasoner = eg_rdf::owl::Reasoner::from_triples(&triples);
+    let cls = reasoner.classify_weighted();
+
+    let canon = |s: &str| -> String {
+        if s.starts_with('<') {
+            s.to_string()
+        } else {
+            format!("<{}>", s.trim_start_matches('<').trim_end_matches('>'))
+        }
+    };
+    let sub = canon(sub);
+    let sup = canon(sup);
+
+    let tree = cls.explain(&sub, &sup).map(proof_node_to_wire);
+    Ok(crate::protocol::OwlExplainResult {
+        found: tree.is_some(),
+        tree,
+        consistent: cls.consistent,
+        unsatisfiable: cls.unsatisfiable.into_iter().collect(),
+    })
+}
+
+/// Recursively project an `eg_rdf::owl::ProofNode` into its wire twin
+/// (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation). A plain field-for-field walk — the tree shape is
+/// identical on both sides, this only crosses the eg-rdf → eg-types boundary.
+#[cfg(feature = "owl")]
+fn proof_node_to_wire(node: eg_rdf::owl::ProofNode) -> crate::protocol::ProofNodeWire {
+    crate::protocol::ProofNodeWire {
+        sub: node.sub,
+        sup: node.sup,
+        rule: node.rule,
+        axioms: node.axioms,
+        confidence: node.confidence,
+        premises: node.premises.into_iter().map(proof_node_to_wire).collect(),
+    }
+}
+
+/// OBDA / R2RML virtual-graph query (CONCEPT:EG-KG.query.r2rml-virtual-graph /
+/// CONCEPT:EG-KG.query.obda-query-rewrite). Registers each of `tables` as a foreign
+/// [`eg_rdf::obda::ObdaSource`] backed by the engine's own SQL user-table store
+/// ([`crate::server::sql_tables::user_table_store`]), parses `mapping` (auto-detecting
+/// standard R2RML Turtle vs. the compact EG-101 textual form), and runs `query` through
+/// the OBDA query-rewrite path: only the query-relevant columns are scanned from the
+/// table(s), only the query-relevant triples are materialized into a TRANSIENT view —
+/// the user table itself is never mutated, and nothing is persisted into any graph.
+/// Read-only. Gated `obda` (implies `sparql` + `query`).
+#[cfg(feature = "obda")]
+async fn handle_sparql_virtual(
+    req_id: u64,
+    store: eg_query::TableStore,
+    query: String,
+    mapping: String,
+    tables: Vec<String>,
+) -> Response {
+    let out =
+        tokio::task::spawn_blocking(move || sparql_virtual(&store, &query, &mapping, &tables))
+            .await;
+    match out {
+        Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+        Ok(Err(msg)) => Response::err(req_id, format!("SparqlVirtual error: {msg}")),
+        Err(e) => Response::err(req_id, format!("SparqlVirtual task join error: {e}")),
+    }
+}
+
+/// A [`eg_rdf::obda::ObdaSource`] backed by one table of the verified caller's owner-scoped
+/// [`eg_query::TableStore`] (CONCEPT:EG-KG.query.r2rml-virtual-graph). Bridges the
+/// SQL-side typed [`eg_query::Cell`] to the OBDA seam's lexical `String` columns (R2RML
+/// templates/literal object maps consume the lexical form; typed SQL round-tripping
+/// through a `rr:datatype` object map is a documented follow-up, mirrored from the
+/// EG-101 `ObdaSource` contract). The full row is always scanned from the table (the
+/// store's `scan` has no column-projection API); THIS layer still applies the
+/// `needed`-column projection when handing rows back, so the OBDA-side pushdown
+/// contract (only query-relevant columns end up in a materialized triple) still holds
+/// even though the underlying store scan itself is not column-pushed.
+#[cfg(feature = "obda")]
+struct TableStoreSource {
+    schema: eg_query::TableSchema,
+    rows: Vec<Vec<eg_query::Cell>>,
+}
+
+#[cfg(feature = "obda")]
+impl TableStoreSource {
+    fn load(store: &eg_query::TableStore, table: &str) -> Result<Self, String> {
+        let schema = store
+            .get_schema(table)?
+            .ok_or_else(|| format!("obda: unknown user table `{table}`"))?;
+        let rows = store.scan(table)?;
+        Ok(Self { schema, rows })
+    }
+
+    /// The lexical form of one cell (R2RML templates/literal object maps consume a
+    /// string; `Null` yields no lexical value so a template/column referencing it
+    /// correctly omits the triple, per the OBDA `expand_template`/`term_for` contract).
+    fn lexical(cell: &eg_query::Cell) -> Option<String> {
+        use eg_query::Cell;
+        match cell {
+            Cell::Null => None,
+            Cell::Int(i) => Some(i.to_string()),
+            Cell::Float(f) => Some(f.to_string()),
+            Cell::Text(s) => Some(s.clone()),
+            Cell::Bool(b) => Some(b.to_string()),
+            Cell::Timestamp(t) => Some(t.to_string()),
+            Cell::Bytes(b) => Some(hex_lexical(b)),
+            Cell::Json(v) => Some(v.to_string()),
+            Cell::Vector(v) => Some(format!("{v:?}")),
+        }
+    }
+}
+
+/// Hex-encode bytes for a lexical fallback (a `Bytes` cell has no natural R2RML lexical
+/// form; hex is a stable, unambiguous rendering). No new dependency — a tiny hand-rolled
+/// encoder, mirroring the idiom the rest of this crate uses to avoid pulling `hex` where
+/// a two-line loop suffices.
+#[cfg(feature = "obda")]
+fn hex_lexical(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+#[cfg(feature = "obda")]
+impl eg_rdf::obda::ObdaSource for TableStoreSource {
+    fn columns(&self) -> Vec<String> {
+        self.schema
+            .columns()
+            .iter()
+            .map(|c| c.name.clone())
+            .collect()
+    }
+
+    fn scan(
+        &self,
+        needed: &std::collections::BTreeSet<String>,
+    ) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
+        let mut out = Vec::with_capacity(self.rows.len());
+        for row in &self.rows {
+            let mut fr = eg_rdf::obda::ForeignRow::new();
+            for (col, cell) in self.schema.columns().iter().zip(row.iter()) {
+                if !needed.is_empty() && !needed.contains(&col.name) {
+                    continue;
+                }
+                if let Some(v) = Self::lexical(cell) {
+                    fr.insert(col.name.clone(), v);
+                }
+            }
+            out.push(fr);
+        }
+        Ok(out)
+    }
+}
+
+/// The blocking half of [`handle_sparql_virtual`]: build the [`eg_rdf::obda::ObdaSourceRegistry`]
+/// from `tables`, parse `mapping`, run the OBDA query-rewrite, and project the SPARQL
+/// result to the wire shape. Split out (not `async`) so it runs on the blocking pool —
+/// the table scan + SPARQL evaluation are both synchronous CPU/redb-read work.
+#[cfg(feature = "obda")]
+fn sparql_virtual(
+    store: &eg_query::TableStore,
+    query: &str,
+    mapping: &str,
+    tables: &[String],
+) -> Result<crate::protocol::SparqlResult, String> {
+    let mut reg = eg_rdf::obda::ObdaSourceRegistry::new();
+    for table in tables {
+        let src = TableStoreSource::load(store, table)?;
+        reg.register(table.clone(), std::sync::Arc::new(src));
+    }
+
+    // Auto-detect standard R2RML Turtle (carries the `rr:` namespace) vs. the compact
+    // EG-101 textual mapping form (`SOURCE`/`SUBJECT`/… directives).
+    let vg = if mapping.contains("r2rml#") || mapping.contains("TriplesMap") {
+        eg_rdf::obda::parse_r2rml_turtle(mapping)?
+    } else {
+        eg_rdf::obda::parse_mapping(mapping)?
+    };
+
+    let proj = eg_rdf::sparql::Projection::raw();
+    let outcome = eg_rdf::obda::run_outcome_virtual(&vg, &reg, query, &proj)?;
+    let (vars, rows) = match outcome {
+        eg_rdf::sparql::QueryOutcome::Solutions(res) => res.to_rows(),
+        eg_rdf::sparql::QueryOutcome::Boolean(b) => {
+            (vec!["_ask".to_string()], vec![vec![Some(b.to_string())]])
+        }
+        #[cfg(feature = "rdf")]
+        eg_rdf::sparql::QueryOutcome::Graph(_) => (Vec::new(), Vec::new()),
+    };
+    Ok(crate::protocol::SparqlResult { vars, rows })
+}
+
 /// Parse Turtle/N-Triples and store into the target graph; route multi-valued
 /// literal extras to the lossless quad store when configured.
 #[cfg(feature = "rdf")]
 async fn handle_add_triples(
-    state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     graph_name: &str,
     core: &Arc<GraphCore>,
     turtle: String,
     ntriples: String,
 ) -> Response {
+    #[cfg(not(feature = "shacl"))]
+    return Response::err(
+        req_id,
+        "AddTriples requires the shacl integrity-guard feature",
+    );
+
     let triples = match parse_either(&turtle, &ntriples) {
         Ok(t) => t,
         Err(e) => return Response::err(req_id, e),
     };
 
-    #[cfg(feature = "rdf-redb")]
-    let quads = state.read().await.rdf_quads.clone();
-    #[cfg(not(feature = "rdf-redb"))]
-    let _ = state;
+    // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): reject BEFORE the write
+    // lands. Missing feature, policy, or invalid policy all fail closed.
+    #[cfg(feature = "shacl")]
+    if let Err(rej) = crate::server::icv_guard::check_before_write(core, graph_name, &triples, &[])
+    {
+        return Response::err(req_id, format!("AddTriples rejected: {rej}"));
+    }
 
     // Record the named-graph marker linking this RDF dataset to its registry graph.
     eg_rdf::mapping::register_named_graph(core, graph_name);
 
     let mut iris = eg_rdf::mapping::IriStore::default();
-    let report = eg_rdf::mapping::load_triples(
-        core,
-        &mut iris,
-        graph_name,
-        triples,
-        #[cfg(feature = "rdf-redb")]
-        quads.as_deref(),
-    );
+    let report = eg_rdf::mapping::load_triples(core, &mut iris, graph_name, triples);
     match report {
         Ok(r) => Response::ok(req_id, ResultPayload::raw(&r)),
         Err(e) => Response::err(req_id, format!("AddTriples error: {e}")),
@@ -538,23 +853,8 @@ async fn handle_add_triples(
 
 /// Serialize the target graph back OUT to N-Triples (unioning the lossless extras).
 #[cfg(feature = "rdf")]
-async fn handle_get_rdf(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    graph_name: &str,
-    core: &Arc<GraphCore>,
-) -> Response {
-    #[cfg(feature = "rdf-redb")]
-    let quads = state.read().await.rdf_quads.clone();
-    #[cfg(not(feature = "rdf-redb"))]
-    let _ = state;
-
-    let exported = eg_rdf::mapping::export_triples(
-        core,
-        graph_name,
-        #[cfg(feature = "rdf-redb")]
-        quads.as_deref(),
-    );
+async fn handle_get_rdf(req_id: u64, graph_name: &str, core: &Arc<GraphCore>) -> Response {
+    let exported = eg_rdf::mapping::export_triples(core, graph_name);
     match exported.and_then(|t| eg_rdf::mapping::to_ntriples(&t)) {
         Ok(nt) => Response::ok(req_id, ResultPayload::raw(&nt)),
         Err(e) => Response::err(req_id, format!("GetRdf error: {e}")),
@@ -566,41 +866,63 @@ async fn handle_get_rdf(
 /// engine op (surgical: literal cells + the one matching typed edge). Returns the count.
 #[cfg(feature = "rdf")]
 async fn handle_remove_triples(
+    #[cfg(feature = "shacl")] _state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    graph_name: &str,
     core: &Arc<GraphCore>,
     turtle: String,
     ntriples: String,
 ) -> Response {
+    #[cfg(not(feature = "shacl"))]
+    return Response::err(
+        req_id,
+        "RemoveTriples requires the shacl integrity-guard feature",
+    );
+
     let triples = match parse_either(&turtle, &ntriples) {
         Ok(t) => t,
         Err(e) => return Response::err(req_id, e),
     };
+
+    // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): reject BEFORE the
+    // removal lands — see `handle_add_triples`.
+    #[cfg(feature = "shacl")]
+    {
+        if let Err(rej) =
+            crate::server::icv_guard::check_before_write(core, graph_name, &[], &triples)
+        {
+            return Response::err(req_id, format!("RemoveTriples rejected: {rej}"));
+        }
+    }
+
     let removed = eg_rdf::update::remove_triples(core, &triples);
     Response::ok(req_id, ResultPayload::Count(removed as u64))
 }
 
-/// DROP the target named graph's RDF content (CONCEPT:EG-KG.query.named-graph-support): clear the property-graph
-/// nodes/edges AND the lossless multi-valued-literal quad-store rows for this graph. The
-/// graph stays addressable (distinct from `DeleteGraph` evicting the registry entry).
+/// DROP the target named graph's RDF content (CONCEPT:EG-KG.query.named-graph-support).
+/// The lossless dataset lives inside the authoritative graph snapshot, so this
+/// one clear is staged and committed atomically.
 #[cfg(feature = "rdf")]
-async fn handle_drop_named_graph(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    graph_name: &str,
-    core: &Arc<GraphCore>,
-) -> Response {
-    core.clear();
-    #[cfg(feature = "rdf-redb")]
+async fn handle_drop_named_graph(req_id: u64, graph_name: &str, core: &Arc<GraphCore>) -> Response {
+    #[cfg(not(feature = "shacl"))]
+    return Response::err(
+        req_id,
+        "DropNamedGraph requires the shacl integrity-guard feature",
+    );
+
+    #[cfg(feature = "shacl")]
     {
-        let quads = state.read().await.rdf_quads.clone();
-        if let Some(store) = quads {
-            if let Err(e) = store.clear_graph(graph_name) {
-                return Response::err(req_id, format!("DropNamedGraph quad-store clear: {e}"));
-            }
+        let removals = match eg_rdf::mapping::export_triples(core, graph_name) {
+            Ok(removals) => removals,
+            Err(error) => return Response::err(req_id, error),
+        };
+        if let Err(rejection) =
+            crate::server::icv_guard::check_before_write(core, graph_name, &[], &removals)
+        {
+            return Response::err(req_id, format!("DropNamedGraph rejected: {rejection}"));
         }
     }
-    #[cfg(not(feature = "rdf-redb"))]
-    let _ = (state, graph_name);
+    core.clear();
     Response::ok(req_id, ResultPayload::String("ok".to_string()))
 }
 
@@ -618,18 +940,34 @@ fn parse_either(turtle: &str, ntriples: &str) -> Result<Vec<eg_rdf::oxrdf::Tripl
 // ── RunRules dispatch wiring (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog / EG-023) ────────────────────────────
 #[cfg(all(test, feature = "rdf"))]
 mod run_rules_dispatch_tests {
+    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
     use crate::channels::ChannelManager;
     use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request, Response, ResultPayload};
     use crate::registry::GraphRegistry;
-    use crate::server::auth::compute_auth_token;
     use crate::server::dispatch;
     use crate::server::state::ServerState;
+    use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
     use dashmap::DashMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::sync::{RwLock, Semaphore};
 
     const SECRET: &str = "run-rules-test-secret";
+    const TEST_AGENT: &str = "unit-test-agent";
+    static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+    fn current_isolation() -> IsolationLayer {
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: TEST_AGENT.to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        isolation
+    }
 
     fn state() -> Arc<RwLock<ServerState>> {
         Arc::new(RwLock::new(ServerState {
@@ -638,17 +976,20 @@ mod run_rules_dispatch_tests {
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            isolation: current_isolation(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
-            persist_dir: None,
+            persist_dir: Some(
+                crate::server::sql_tables::test_persist_dir()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             persistence: None,
-            redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -664,8 +1005,6 @@ mod run_rules_dispatch_tests {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -678,17 +1017,57 @@ mod run_rules_dispatch_tests {
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
     fn req(id: u64, method: Method) -> Request {
-        Request {
+        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+        std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+        std::env::set_var(
+            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+            std::env::temp_dir().join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
+        );
+        let context = RequestContextClaims {
+            principal: TEST_AGENT.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: TEST_AGENT.to_string(),
+            roles: Vec::new(),
+            scopes: vec!["*".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+        };
+        let mut request = Request {
             id,
             graph: "__commons__".into(),
-            auth_token: compute_auth_token(SECRET, id),
-            agent_id: None,
+            auth_token: String::new(),
+            agent_id: Some(TEST_AGENT.to_string()),
             method,
-        }
+        };
+        let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let issued_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the system clock is after the Unix epoch");
+        let nonce = format!(
+            "rdf-rules-{}-{id}-{sequence}-{}",
+            std::process::id(),
+            issued_at.as_nanos()
+        );
+        let idempotency_key = format!("rdf-rules-request-{id}-{sequence}");
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: issued_at.as_secs(),
+                nonce: &nonce,
+                idempotency_key: &idempotency_key,
+            },
+        );
+        request
     }
 
     /// A `RunRules` dispatched over the wire returns the DERIVED facts (CONCEPT:EG-KG.query.mirrors-pgwire):

@@ -810,6 +810,184 @@ impl Classification {
             .copied()
             .unwrap_or(1.0)
     }
+
+    /// CONCEPT:EG-KG.ontology.owl-proof-tree-explanation — reconstruct the PROOF TREE for a derived
+    /// subsumption `sub ⊑ sup` (Stardog's flagship "explanation" feature, native here).
+    /// Walks [`Self::justifications`] RECURSIVELY: each derived subsumption cites the
+    /// completion rule that fired + the axiom(s) it used + the PREMISE subsumption(s) it
+    /// consumed (CONCEPT:EG-KG.ontology.justification-tracking); resolving each premise's own
+    /// justification (recursively) down to a subsumption with NO recorded justification —
+    /// a reflexive seed (`A ⊑ A`/`A ⊑ ⊤`) or a directly-asserted axiom's reflexive premise
+    /// — which is an `asserted` LEAF. Returns `None` when `sub ⊑ sup` does not hold (there
+    /// is nothing to explain). The completion is a monotone acyclic fixpoint (see the
+    /// module docs "DAG home"), so this recursion always terminates; a `visiting` guard is
+    /// kept anyway so a hypothetical cycle degrades to an opaque leaf rather than a stack
+    /// overflow.
+    pub fn explain(&self, sub: &str, sup: &str) -> Option<ProofNode> {
+        if !self.entails_subclass(sub, sup) {
+            return None;
+        }
+        let mut visiting = BTreeSet::new();
+        Some(self.explain_inner(sub, sup, &mut visiting))
+    }
+
+    fn explain_inner(
+        &self,
+        sub: &str,
+        sup: &str,
+        visiting: &mut BTreeSet<(String, String)>,
+    ) -> ProofNode {
+        let confidence = self.subclass_confidence(sub, sup);
+        let key = (sub.to_string(), sup.to_string());
+        match self.justifications.get(&key) {
+            // A CYCLE (should be impossible — the EL⁺/RL closure is an acyclic monotone
+            // fixpoint) — stop recursing rather than overflow the stack.
+            Some(_) if visiting.contains(&key) => ProofNode {
+                sub: sub.to_string(),
+                sup: sup.to_string(),
+                rule: "cycle-guard".to_string(),
+                axioms: Vec::new(),
+                confidence,
+                premises: Vec::new(),
+            },
+            Some(just) => {
+                visiting.insert(key.clone());
+                let premises = just
+                    .premises
+                    .iter()
+                    .map(|(ps, pp)| self.explain_inner(ps, pp, visiting))
+                    .collect();
+                visiting.remove(&key);
+                ProofNode {
+                    sub: sub.to_string(),
+                    sup: sup.to_string(),
+                    rule: just.rule.to_string(),
+                    axioms: just.axioms.clone(),
+                    confidence,
+                    premises,
+                }
+            }
+            // No justification recorded ⇒ a reflexive seed (`A⊑A`/`A⊑⊤`) or a base
+            // fact — an ASSERTED leaf (the proof bottoms out here).
+            None => ProofNode {
+                sub: sub.to_string(),
+                sup: sup.to_string(),
+                rule: "asserted".to_string(),
+                axioms: Vec::new(),
+                confidence,
+                premises: Vec::new(),
+            },
+        }
+    }
+}
+
+/// CONCEPT:EG-KG.ontology.owl-proof-tree-explanation — one node of a reconstructed OWL proof tree: the
+/// subsumption `sub ⊑ sup` it proves, the rule that derived it (`"asserted"` at a LEAF —
+/// a reflexive seed or a base fact with no recorded justification), the human-readable
+/// axiom label(s) the rule cited, this node's confidence (CONCEPT:EG-KG.ontology.concept-13), and the
+/// child proofs for each premise the rule consumed (empty at a leaf). [`Classification::explain`]
+/// builds this recursively from [`Justification`]s already recorded during saturation —
+/// NO re-derivation, just reconstruction of the DAG the closure already built.
+// `Serialize`/`Deserialize` derived (beyond the existing `Clone, Debug, PartialEq`)
+// so `ProofNode` satisfies `eg_modality::ConformanceTestable`'s bounds for the
+// ModalityContract retrofit (CONCEPT:E4, feature `contract`) — serde is already an
+// unconditional base dependency of this crate, so this adds no new dep and no
+// feature gate; a proof tree persisting/riding the wire is a reasonable capability
+// on its own merits (e.g. caching a computed explanation).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ProofNode {
+    pub sub: String,
+    pub sup: String,
+    pub rule: String,
+    pub axioms: Vec<String>,
+    pub confidence: f64,
+    pub premises: Vec<ProofNode>,
+}
+
+impl ProofNode {
+    /// `true` for a LEAF (an asserted/reflexive base fact — no further premises).
+    pub fn is_leaf(&self) -> bool {
+        self.premises.is_empty()
+    }
+
+    /// Every axiom label cited anywhere in the tree (depth-first, may repeat), the flat
+    /// "which axioms does this entailment depend on" view of the proof.
+    pub fn all_axioms(&self) -> Vec<String> {
+        let mut out = self.axioms.clone();
+        for p in &self.premises {
+            out.extend(p.all_axioms());
+        }
+        out
+    }
+
+    /// Tree depth (a leaf is depth 1).
+    pub fn depth(&self) -> usize {
+        1 + self
+            .premises
+            .iter()
+            .map(ProofNode::depth)
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+/// CONCEPT:EG-KG.ontology.owl-proof-tree-explanation — explain an INSTANCE membership `instance rdf:type class`
+/// (as opposed to [`Classification::explain`]'s named-class subsumption): finds the
+/// asserted type(s) of `instance` in `asserted_conf` and, for each `ty` with `ty ⊑ class`,
+/// builds a root proof node `rule = "CR-instance"` whose premises are (1) an `asserted`
+/// leaf for the type fact `instance rdf:type ty` and (2) the TBox subsumption proof
+/// `explain(ty, class)`. When several asserted types reach `class`, the STRONGEST
+/// derivation (by combined confidence `fact_conf * subclass_confidence(ty, class)`) is
+/// returned — mirroring the max/noisy-OR combination [`materialize_instances_weighted`]
+/// uses. Returns `None` when `instance` is not (provably) a `class` member.
+pub fn explain_instance(
+    cls: &Classification,
+    asserted_conf: &HashMap<String, Vec<(String, f64)>>,
+    instance: &str,
+    class: &str,
+) -> Option<ProofNode> {
+    let types = asserted_conf.get(instance)?;
+    let mut best: Option<(f64, String, f64)> = None; // (combined_conf, ty, fact_conf)
+    for (ty, fact_conf) in types {
+        let sub_conf = if ty == class {
+            1.0
+        } else if cls.entails_subclass(ty, class) {
+            cls.subclass_confidence(ty, class)
+        } else {
+            continue;
+        };
+        let combined = fact_conf.clamp(0.0, 1.0) * sub_conf;
+        if best.as_ref().map(|(c, _, _)| combined > *c).unwrap_or(true) {
+            best = Some((combined, ty.clone(), *fact_conf));
+        }
+    }
+    let (combined, ty, fact_conf) = best?;
+
+    let fact_leaf = ProofNode {
+        sub: instance.to_string(),
+        sup: ty.clone(),
+        rule: "asserted".to_string(),
+        axioms: vec![format!("{instance} rdf:type {ty}")],
+        confidence: fact_conf.clamp(0.0, 1.0),
+        premises: Vec::new(),
+    };
+    let mut premises = vec![fact_leaf];
+    if ty != class {
+        // The TBox chain `ty ⊑ class` — recurse into the SAME subsumption explain used
+        // for named-class subsumptions, so the two proof shapes compose seamlessly.
+        if let Some(sub_proof) = cls.explain(&ty, class) {
+            premises.push(sub_proof);
+        }
+    }
+
+    Some(ProofNode {
+        sub: instance.to_string(),
+        sup: class.to_string(),
+        rule: "CR-instance".to_string(),
+        axioms: Vec::new(),
+        confidence: combined,
+        premises,
+    })
 }
 
 /// A subsumption-RHS axiom indexed by its trigger conjunct: `(consequent, label, conf)`
@@ -1506,33 +1684,51 @@ pub fn instances_of_weighted(
 
 /// Bridge a node's string `type` to an OWL class KEY (CONCEPT:EG-KG.ontology.string-type-iri-class) — the string-type
 /// ↔ IRI-class bridge. An already-IRI `t` (`<...>` or `http…`) is returned in canonical
-/// `<iri>` form; a BARE local name (`Widget`) is mapped to `<class_base + t>` when a
-/// `class_base` is supplied (the `REASON` target's namespace), else returned as-is (the
-/// prior bare-string behavior — `class_base = None` is byte-for-byte backward compatible).
+/// `<iri>` form; a local name (`Widget`) is mapped to `<class_base + t>`. The current
+/// class base is mandatory and must be an absolute namespace ending in `/`, `#`, or
+/// `:`; there is no bare-string class key.
 /// Keeps the class key in the SAME canonical form the reasoner/ontology signature uses,
 /// so a `{"type":"Sensor"}` node becomes a member of `<base/Sensor>` and — through the
 /// TBox subclass closure — of any superclass the ontology declares.
-pub fn bridge_type_to_class(t: &str, class_base: Option<&str>) -> String {
-    if t.starts_with('<') || t.starts_with("http") {
-        iri(t.trim_start_matches('<').trim_end_matches('>'))
-    } else if let Some(base) = class_base {
-        iri(&format!("{base}{t}"))
+pub fn bridge_type_to_class(t: &str, class_base: &str) -> Result<String, String> {
+    let class_base = class_base.trim();
+    if class_base.is_empty()
+        || !(class_base.ends_with('/') || class_base.ends_with('#') || class_base.ends_with(':'))
+        || oxrdf::NamedNode::new(format!("{class_base}Class")).is_err()
+    {
+        return Err(
+            "OWL class bridge requires an absolute current class base namespace".to_string(),
+        );
+    }
+    let t = t.trim();
+    if t.is_empty() {
+        return Err("OWL class bridge received an empty type".to_string());
+    }
+    if t.starts_with('<') != t.ends_with('>') {
+        return Err("OWL class bridge received a malformed bracketed IRI".to_string());
+    }
+    let bare = t.trim_start_matches('<').trim_end_matches('>');
+    if oxrdf::NamedNode::new(bare).is_ok() {
+        Ok(iri(bare))
     } else {
-        t.to_string()
+        let candidate = format!("{class_base}{t}");
+        oxrdf::NamedNode::new(&candidate)
+            .map_err(|_| "OWL class bridge produced an invalid class IRI".to_string())?;
+        Ok(iri(&candidate))
     }
 }
 
 /// The NAMESPACE of a class IRI (CONCEPT:EG-KG.ontology.string-type-iri-class) — everything up to and INCLUDING the
-/// last `/` or `#`, the base the string-type↔IRI-class bridge maps a bare local name
+/// last `/`, `#`, or `:`, the base the string-type↔IRI-class bridge maps a bare local name
 /// into. `<http://ex/Device>` → `http://ex/`; `<http://ex#Device>` → `http://ex#`.
 /// `None` when `iri` is not an IRI (a bare label has no namespace to inherit) or carries
-/// no `/`/`#` separator.
+/// no namespace separator.
 pub fn class_namespace(iri: &str) -> Option<String> {
     let bare = iri.trim().trim_start_matches('<').trim_end_matches('>');
-    if !(bare.starts_with("http") || bare.contains(':')) {
+    if oxrdf::NamedNode::new(bare).is_err() {
         return None;
     }
-    let cut = bare.rfind(['/', '#'])?;
+    let cut = bare.rfind(['/', '#', ':'])?;
     Some(bare[..=cut].to_string())
 }
 
@@ -1540,19 +1736,18 @@ pub fn class_namespace(iri: &str) -> Option<String> {
 /// blobs (the folded `type` property + any explicit `rdf:type` edges) so a `Reason`
 /// Op can classify the live graph. The class ids are canonical `<iri>` form to match
 /// the ontology signature. `class_base` (CONCEPT:EG-KG.ontology.string-type-iri-class) bridges a BARE string `type`
-/// into that namespace so a string-typed node participates in `REASON <iri>`; `None`
-/// keeps a bare type as-is (the prior behavior).
+/// into that mandatory namespace so a string-typed node participates in `REASON <iri>`.
 pub fn asserted_types_from_view(
     view: &eg_core::graph::GraphView,
-    class_base: Option<&str>,
-) -> HashMap<String, HashSet<String>> {
+    class_base: &str,
+) -> Result<HashMap<String, HashSet<String>>, String> {
     let mut out: HashMap<String, HashSet<String>> = HashMap::new();
     for (id, blob) in &view.node_properties {
-        if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
+        if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
                 // A folded `type` may be a bare IRI string, a bare local label (bridged
                 // to `class_base` when supplied), or already canonical `<iri>`.
-                let class = bridge_type_to_class(t, class_base);
+                let class = bridge_type_to_class(t, class_base)?;
                 out.entry(id.clone()).or_default().insert(class);
             }
         }
@@ -1562,15 +1757,15 @@ pub fn asserted_types_from_view(
     let rdf_type_edge = iri(RDF_TYPE);
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
-            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
-                let pred = v.get("type").and_then(|x| x.as_str());
+            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
+                let pred = v.get("relationship").and_then(|x| x.as_str());
                 if pred == Some(RDF_TYPE) || pred == Some(rdf_type_edge.as_str()) {
                     out.entry(s.clone()).or_default().insert(o.clone());
                 }
             }
         }
     }
-    out
+    Ok(out)
 }
 
 /// Like [`asserted_types_from_view`] but ALSO reads each fact's confidence
@@ -1586,8 +1781,8 @@ pub fn asserted_types_with_confidence_from_view(
     view: &eg_core::graph::GraphView,
     now: u64,
     default_half_life: f64,
-    class_base: Option<&str>,
-) -> HashMap<String, Vec<(String, f64)>> {
+    class_base: &str,
+) -> Result<HashMap<String, Vec<(String, f64)>>, String> {
     fn fact_conf_of(v: &serde_json::Value, now: u64, default_half_life: f64) -> f64 {
         let confidence = v.get("confidence").and_then(|x| x.as_f64()).unwrap_or(1.0);
         let last_access = v
@@ -1609,10 +1804,10 @@ pub fn asserted_types_with_confidence_from_view(
 
     let mut out: HashMap<String, Vec<(String, f64)>> = HashMap::new();
     for (id, blob) in &view.node_properties {
-        if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
+        if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
                 // Bridge a bare string type into `class_base` (CONCEPT:EG-KG.ontology.string-type-iri-class) when given.
-                let class = bridge_type_to_class(t, class_base);
+                let class = bridge_type_to_class(t, class_base)?;
                 let c = fact_conf_of(&v, now, default_half_life);
                 out.entry(id.clone()).or_default().push((class, c));
             }
@@ -1622,8 +1817,8 @@ pub fn asserted_types_with_confidence_from_view(
     let rdf_type_edge = iri(RDF_TYPE);
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
-            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
-                let pred = v.get("type").and_then(|x| x.as_str());
+            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
+                let pred = v.get("relationship").and_then(|x| x.as_str());
                 if pred == Some(RDF_TYPE) || pred == Some(rdf_type_edge.as_str()) {
                     let c = fact_conf_of(&v, now, default_half_life);
                     out.entry(s.clone()).or_default().push((o.clone(), c));
@@ -1631,24 +1826,24 @@ pub fn asserted_types_with_confidence_from_view(
             }
         }
     }
-    out
+    Ok(out)
 }
 
 /// Extract the OWL/RDF triples (the TBox axioms + folded `rdf:type` facts) directly
 /// from a live `GraphView`, WITHOUT the lossless-literal quad table (TBox axioms are
 /// resource triples — `subClassOf`/`onProperty`/`someValuesFrom`/etc. — so the quad
 /// table, which only holds multi-valued LITERALS, is irrelevant). Each edge becomes
-/// `(s, edge-type, o)`; each node `type` cell becomes `(node, rdf:type, type)`. This
+/// `(s, relationship, o)`; each node `type` cell becomes `(node, rdf:type, type)`. This
 /// is what a `Reason` Op classifies when no explicit ontology document is supplied —
 /// it reasons over the axioms already loaded into the graph via `AddTriples`.
 pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
-    use oxrdf::{BlankNode, NamedNode, Subject};
+    use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode};
 
-    fn subj(id: &str) -> Option<Subject> {
+    fn subj(id: &str) -> Option<NamedOrBlankNode> {
         if let Some(i) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
-            NamedNode::new(i).ok().map(Subject::NamedNode)
+            NamedNode::new(i).ok().map(NamedOrBlankNode::NamedNode)
         } else if let Some(b) = id.strip_prefix("_:") {
-            BlankNode::new(b).ok().map(Subject::BlankNode)
+            BlankNode::new(b).ok().map(NamedOrBlankNode::BlankNode)
         } else {
             None
         }
@@ -1665,11 +1860,11 @@ pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
     }
 
     let mut out = Vec::new();
-    // Edges → object triples (predicate is the edge `type`).
+    // Edges → object triples (predicate is the edge `relationship`).
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
-            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
-                if let Some(pred) = v.get("type").and_then(|x| x.as_str()) {
+            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
+                if let Some(pred) = v.get("relationship").and_then(|x| x.as_str()) {
                     if let (Some(su), Some(pr), Some(ob)) =
                         (subj(s), NamedNode::new(pred).ok(), obj(o))
                     {
@@ -1681,7 +1876,7 @@ pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
     }
     // Node `type` cells → folded rdf:type triples.
     for (id, blob) in &view.node_properties {
-        if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
+        if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
                 if let (Some(su), Some(ob)) = (subj(id), obj(t)) {
                     if let Ok(rt) = NamedNode::new(RDF_TYPE) {
@@ -1726,9 +1921,10 @@ pub fn reason_distributed_weighted(
     extra_ontology_triples: &[Triple],
     now: u64,
     half_life: f64,
+    class_base: &str,
     target_class: &str,
     min_confidence: f64,
-) -> WeightedReasonResult {
+) -> Result<WeightedReasonResult, String> {
     // 1. Gather + UNION the TBox axioms across every shard (+ the explicit ontology).
     let mut triples: Vec<Triple> = Vec::new();
     for v in views {
@@ -1742,13 +1938,11 @@ pub fn reason_distributed_weighted(
 
     // 3. Gather + UNION the asserted (decayed-confidence) facts across every shard.
     //    A fact for the same instance asserted on two shards keeps the STRONGER.
-    // Bridge bare string types into the target class's namespace (CONCEPT:EG-KG.ontology.string-type-iri-class) so a
-    // string-typed node participates in a distributed `REASON <iri>` too.
-    let class_base = class_namespace(target_class);
+    // Bridge local string types into the caller's explicit current class namespace.
     let mut asserted: HashMap<String, Vec<(String, f64)>> = HashMap::new();
     for v in views {
         for (inst, facts) in
-            asserted_types_with_confidence_from_view(v, now, half_life, class_base.as_deref())
+            asserted_types_with_confidence_from_view(v, now, half_life, class_base)?
         {
             asserted.entry(inst).or_default().extend(facts);
         }
@@ -1794,12 +1988,12 @@ pub fn reason_distributed_weighted(
             .collect()
     };
 
-    WeightedReasonResult {
+    Ok(WeightedReasonResult {
         subclasses,
         instances,
         consistent: cls.consistent,
         unsatisfiable: cls.unsatisfiable.into_iter().collect(),
-    }
+    })
 }
 
 #[cfg(test)]
@@ -1966,6 +2160,116 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
             "<http://example.org/Dog>",
             "<http://example.org/LivingThing>"
         ));
+    }
+
+    /// CONCEPT:EG-KG.ontology.owl-proof-tree-explanation — `explain` reconstructs the FULL proof tree for the
+    /// classic transitive-subClassOf entailment `Dog ⊑ Animal ⊑ LivingThing ⇒ Dog ⊑
+    /// LivingThing`, recursively down to the ASSERTED axiom leaves. The root cites the
+    /// `Animal ⊑ LivingThing` axiom over a premise `Dog ⊑ Animal`, which itself resolves
+    /// to the `Dog ⊑ Animal` axiom over a REFLEXIVE (asserted) leaf `Dog ⊑ Dog`.
+    #[test]
+    fn explain_reconstructs_transitive_subclass_proof_tree() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Dog rdfs:subClassOf ex:Animal .
+ex:Animal rdfs:subClassOf ex:LivingThing .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+        const DOG: &str = "<http://example.org/Dog>";
+        const ANIMAL: &str = "<http://example.org/Animal>";
+        const LIVING: &str = "<http://example.org/LivingThing>";
+        assert!(cls.entails_subclass(DOG, LIVING));
+
+        let tree = cls.explain(DOG, LIVING).expect("Dog ⊑ LivingThing holds");
+        assert_eq!(tree.sub, DOG);
+        assert_eq!(tree.sup, LIVING);
+        assert_eq!(tree.rule, "CR-sub");
+        assert!(!tree.is_leaf(), "the root is derived, not asserted");
+        assert_eq!(tree.premises.len(), 1, "CR-sub has exactly one premise");
+
+        // The one premise is the intermediate subsumption Dog ⊑ Animal.
+        let mid = &tree.premises[0];
+        assert_eq!((mid.sub.as_str(), mid.sup.as_str()), (DOG, ANIMAL));
+        assert_eq!(mid.rule, "CR-sub");
+        assert!(!mid.is_leaf());
+        assert_eq!(mid.premises.len(), 1);
+
+        // Which bottoms out at the REFLEXIVE asserted leaf Dog ⊑ Dog.
+        let leaf = &mid.premises[0];
+        assert_eq!((leaf.sub.as_str(), leaf.sup.as_str()), (DOG, DOG));
+        assert_eq!(leaf.rule, "asserted");
+        assert!(
+            leaf.is_leaf(),
+            "a reflexive base fact has no further premises"
+        );
+
+        // Depth is 3 (root → mid → leaf); every axiom label is reachable via all_axioms.
+        assert_eq!(tree.depth(), 3);
+        let axioms = tree.all_axioms();
+        assert!(axioms.iter().any(|a| a.contains("LivingThing")));
+        assert!(axioms.iter().any(|a| a.contains("Animal")));
+    }
+
+    /// `explain` returns `None` when the subsumption does not hold (nothing to explain).
+    #[test]
+    fn explain_returns_none_for_non_entailed_subsumption() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Dog rdfs:subClassOf ex:Animal .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+        assert!(cls
+            .explain("<http://example.org/Cat>", "<http://example.org/Animal>")
+            .is_none());
+    }
+
+    /// CONCEPT:EG-KG.ontology.owl-proof-tree-explanation — `explain_instance` composes an asserted type fact with
+    /// the TBox subsumption proof: `rex rdf:type Dog`, `Dog ⊑ Animal` ⇒ `rex : Animal`,
+    /// with a proof tree citing BOTH the asserted fact and the `Dog ⊑ Animal` axiom.
+    #[test]
+    fn explain_instance_composes_asserted_fact_and_subclass_proof() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Dog rdfs:subClassOf ex:Animal .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+
+        let mut asserted: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+        asserted.insert(
+            "<http://example.org/rex>".to_string(),
+            vec![("<http://example.org/Dog>".to_string(), 1.0)],
+        );
+
+        let tree = explain_instance(
+            &cls,
+            &asserted,
+            "<http://example.org/rex>",
+            "<http://example.org/Animal>",
+        )
+        .expect("rex is a Dog, Dog ⊑ Animal ⇒ rex : Animal");
+        assert_eq!(tree.rule, "CR-instance");
+        assert_eq!(tree.premises.len(), 2, "asserted fact + TBox subsumption");
+        assert!(tree.premises[0].axioms[0].contains("rdf:type"));
+        assert_eq!(tree.premises[1].sub, "<http://example.org/Dog>");
+        assert_eq!(tree.premises[1].sup, "<http://example.org/Animal>");
+
+        // No membership when there is no path from any asserted type to the class.
+        assert!(explain_instance(
+            &cls,
+            &asserted,
+            "<http://example.org/rex>",
+            "<http://example.org/Plant>",
+        )
+        .is_none());
     }
 
     /// Incremental materialization: classify, then ADD an axiom and re-saturate —
@@ -2278,7 +2582,9 @@ ex:Article eg:confidence "0.8" .
                 now,
             ),
         ]);
-        let single_res = reason_distributed_weighted(&[&single], &onto, now, hl, "", 0.0);
+        let single_res =
+            reason_distributed_weighted(&[&single], &onto, now, hl, "http://example.org/", "", 0.0)
+                .unwrap();
 
         // The SAME ABox SPLIT across two shards: p1 on shard A, p2+p3 on shard B.
         let shard_a = view_with_individuals(&[(
@@ -2301,7 +2607,16 @@ ex:Article eg:confidence "0.8" .
                 now,
             ),
         ]);
-        let dist_res = reason_distributed_weighted(&[&shard_a, &shard_b], &onto, now, hl, "", 0.0);
+        let dist_res = reason_distributed_weighted(
+            &[&shard_a, &shard_b],
+            &onto,
+            now,
+            hl,
+            "http://example.org/",
+            "",
+            0.0,
+        )
+        .unwrap();
 
         // Identical entailments + confidences.
         assert_eq!(
@@ -2454,5 +2769,25 @@ ex:HumanHeart rdfs:subClassOf ex:Heart .
         );
         let members = instances_of(&cls, &asserted, "<http://example.org/HumanComponent>");
         assert_eq!(members, vec!["<http://example.org/myHeart>".to_string()]);
+    }
+
+    #[test]
+    fn class_bridge_requires_current_absolute_base() {
+        assert!(bridge_type_to_class("Widget", "").is_err());
+        assert!(bridge_type_to_class("Widget", "local/").is_err());
+        assert_eq!(
+            bridge_type_to_class("Widget", "http://example.org/").unwrap(),
+            "<http://example.org/Widget>"
+        );
+        assert_eq!(
+            bridge_type_to_class("urn:example:Widget", "http://example.org/").unwrap(),
+            "<urn:example:Widget>"
+        );
+        assert_eq!(
+            class_namespace("<urn:example:Widget>").as_deref(),
+            Some("urn:example:")
+        );
+        assert!(bridge_type_to_class("<urn:example:Widget", "urn:classes:").is_err());
+        assert!(bridge_type_to_class("bad type", "urn:classes:").is_err());
     }
 }

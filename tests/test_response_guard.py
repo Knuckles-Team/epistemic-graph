@@ -17,17 +17,25 @@ import subprocess
 import time
 
 import pytest
+from conftest import (
+    TEST_AGENT_ID,
+    TEST_SIGNER_KEY,
+    bootstrap_context,
+    request_context,
+    strict_server_env,
+)
 
 from epistemic_graph.client import ResultTooLargeError, SyncEpistemicGraphClient
 
-_SECRET = "epistemic-graph-test-secret"  # sanitizer:ignore — test-only value
+_SECRET = "test-epistemic-graph-secret"
 _CAP = 2
 
 
 @pytest.fixture(scope="module")
 def capped_server(tmp_path_factory: pytest.TempPathFactory):
     rust_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    sock = str(tmp_path_factory.mktemp("eg-guard") / "capped.sock")
+    runtime = tmp_path_factory.mktemp("eg-guard")
+    sock = str(runtime / "capped.sock")
 
     proc = subprocess.Popen(
         [
@@ -44,7 +52,7 @@ def capped_server(tmp_path_factory: pytest.TempPathFactory):
         cwd=rust_dir,
         env={
             **os.environ,
-            "GRAPH_SERVICE_AUTH_SECRET": _SECRET,
+            **strict_server_env(str(runtime / "security"), auth_secret=_SECRET),
             "EPISTEMIC_GRAPH_MAX_RESPONSE_NODES": str(_CAP),
         },
         stdout=subprocess.PIPE,
@@ -57,6 +65,19 @@ def capped_server(tmp_path_factory: pytest.TempPathFactory):
             time.sleep(0.5)
         else:
             pytest.fail("capped epistemic-graph-server did not come up")
+        bootstrap = SyncEpistemicGraphClient.connect(
+            socket_path=sock,
+            auth_secret=_SECRET,
+            verified_context=bootstrap_context(),
+        )
+        try:
+            bootstrap.consensus.bootstrap_system_identity(
+                agent_id=TEST_AGENT_ID,
+                signer_id=TEST_AGENT_ID,
+                signer_key=TEST_SIGNER_KEY,
+            )
+        finally:
+            bootstrap.close()
         yield sock
     finally:
         proc.terminate()
@@ -68,6 +89,7 @@ def test_under_cap_returns_data(capped_server: str) -> None:
         socket_path=capped_server,
         graph_name="guard:under",
         auth_secret=_SECRET,
+        verified_context=request_context(),
     )
     client.tenants.create("guard:under")
     client.nodes.add("a", {"type": "X"})
@@ -81,6 +103,7 @@ def test_over_cap_raises_result_too_large(capped_server: str) -> None:
         socket_path=capped_server,
         graph_name="guard:over",
         auth_secret=_SECRET,
+        verified_context=request_context(),
     )
     client.tenants.create("guard:over")
     for i in range(_CAP + 1):  # one past the cap

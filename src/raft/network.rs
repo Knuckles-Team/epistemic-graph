@@ -1,13 +1,15 @@
 //! Raft network (CONCEPT:AU-KG.ingest.source-sync-canonical + KG-2.205 + KG-2.273) — a group-multiplexed Raft
 //! TCP channel on openraft 0.10's [`RaftNetworkV2`] API.
 //!
-//! A small purpose-built TCP channel rather than reusing the engine's auth'd
+//! A small purpose-built TCP channel rather than reusing the engine's authenticated
 //! MessagePack RPC, because the Raft RPC payloads are openraft's own request/
 //! response types (append-entries / vote / snapshot / transfer-leader) and routing
 //! them through the engine's `Method` enum would mean embedding consensus types into
-//! the client-facing protocol — a layering violation. The framing convention is
-//! IDENTICAL to the engine transport (4-byte big-endian length prefix + a
-//! MessagePack body), so binary payloads survive intact.
+//! the client-facing protocol — a layering violation. A nonce challenge authenticates
+//! both peer ids with a runtime pre-shared key, derives a unique per-connection
+//! XChaCha20-Poly1305 key, and every length-prefixed frame is then encrypted and bound
+//! to a strictly monotonic sequence number. Recorded handshakes or frames therefore
+//! cannot be replayed on either the same connection or a later connection.
 //!
 //! Every RPC frame is TAGGED with its [`GroupId`] ([`GroupRpc`]) so ONE listener per
 //! node ([`super::multi::MultiRaft`]) serves ALL groups, demuxing by id — the
@@ -53,6 +55,9 @@ use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
+use hmac::{Hmac, Mac};
 use openraft::error::{NetworkError, RPCError, ReplicationClosed, StreamingError, Unreachable};
 use openraft::network::RaftNetworkFactory;
 use openraft::network::{RPCOption, RaftNetworkV2};
@@ -63,7 +68,9 @@ use openraft::raft::{
 use openraft::storage::Snapshot;
 use openraft::type_config::alias::{SnapshotMetaOf, SnapshotOf, VoteOf};
 use openraft::BasicNode;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -94,13 +101,445 @@ impl std::error::Error for StrErr {}
 
 /// Default warm connections kept idle PER PEER address.
 const DEFAULT_MAX_IDLE_PER_PEER: usize = 4;
+pub(crate) const MAX_RAFT_FRAME_BYTES: usize = 256 * 1024 * 1024;
+const SECURE_FRAME_HEADER_BYTES: usize = 4 + 1 + 8;
+const AEAD_TAG_BYTES: usize = 16;
+pub(crate) const MAX_RAFT_PAYLOAD_BYTES: usize =
+    MAX_RAFT_FRAME_BYTES - SECURE_FRAME_HEADER_BYTES - AEAD_TAG_BYTES;
+const MAX_RAFT_FRAME_ITEMS: usize = 4_000_000;
+pub(crate) const MAX_RAFT_BATCH_RPCS: usize = 1_024;
+pub(crate) const RAFT_FRAME_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+const RAFT_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const RAFT_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const MAX_RAFT_POOL_PEERS: usize = 1_024;
+const MAX_RAFT_PEER_ADDRESS_BYTES: usize = 1_024;
+const RAFT_FRAME_BUDGET_UNIT_BYTES: usize = 64 * 1024;
+pub(crate) const RAFT_FRAME_BUDGET_UNITS: usize =
+    MAX_RAFT_FRAME_BYTES / RAFT_FRAME_BUDGET_UNIT_BYTES;
+const CLIENT_HELLO_MAGIC: &[u8; 4] = b"EGRC";
+const SERVER_HELLO_MAGIC: &[u8; 4] = b"EGRS";
+const SECURE_FRAME_MAGIC: &[u8; 4] = b"EGRF";
+const RAFT_WIRE_VERSION: u8 = 1;
+const HANDSHAKE_NONCE_BYTES: usize = 32;
+const AUTH_TAG_BYTES: usize = 32;
+const CLIENT_HELLO_BYTES: usize = 4 + 1 + 8 + 8 + HANDSHAKE_NONCE_BYTES + AUTH_TAG_BYTES;
+const SERVER_HELLO_BYTES: usize = 4 + 1 + 8 + 8 + HANDSHAKE_NONCE_BYTES * 2 + AUTH_TAG_BYTES;
+
+type HmacSha256 = Hmac<Sha256>;
+
+fn invalid_data(message: &'static str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+pub(crate) fn decode_wire<T: serde::de::DeserializeOwned>(body: &[u8]) -> io::Result<T> {
+    eg_types::msgpack::decode_bounded(
+        body,
+        eg_types::msgpack::MsgpackLimits::new(MAX_RAFT_FRAME_BYTES, MAX_RAFT_FRAME_ITEMS, 64),
+    )
+    .map_err(|_| invalid_data("invalid raft frame"))
+}
+
+/// Runtime-only peer registry and pre-shared key for Raft transport security.
+/// Debug output never exposes key material or endpoint configuration.
+pub(crate) struct RaftTransportAuth {
+    local_node: NodeId,
+    key: [u8; 32],
+    peers_by_addr: std::sync::RwLock<HashMap<String, NodeId>>,
+    allowed_peers: std::sync::RwLock<std::collections::HashSet<NodeId>>,
+}
+
+impl std::fmt::Debug for RaftTransportAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RaftTransportAuth(<redacted>)")
+    }
+}
+
+impl Drop for RaftTransportAuth {
+    fn drop(&mut self) {
+        self.key.fill(0);
+    }
+}
+
+impl RaftTransportAuth {
+    pub(crate) fn new(
+        local_node: NodeId,
+        key: &[u8; 32],
+        peers: impl IntoIterator<Item = (NodeId, String)>,
+    ) -> io::Result<Arc<Self>> {
+        let auth = Arc::new(Self {
+            local_node,
+            key: *key,
+            peers_by_addr: std::sync::RwLock::new(HashMap::new()),
+            allowed_peers: std::sync::RwLock::new(std::collections::HashSet::new()),
+        });
+        for (node, addr) in peers {
+            auth.register_peer(node, &addr)?;
+        }
+        if !auth.is_allowed(local_node) {
+            return Err(invalid_data("raft peer registry excludes the local node"));
+        }
+        Ok(auth)
+    }
+
+    pub(crate) fn register_peer(&self, node: NodeId, addr: &str) -> io::Result<()> {
+        if addr.is_empty() || addr.len() > MAX_RAFT_PEER_ADDRESS_BYTES {
+            return Err(invalid_data("invalid raft peer address"));
+        }
+        let mut by_addr = self.peers_by_addr.write().unwrap();
+        let mut allowed = self.allowed_peers.write().unwrap();
+        if !allowed.contains(&node) && allowed.len() >= MAX_RAFT_POOL_PEERS {
+            return Err(invalid_data("raft peer registry exceeds limit"));
+        }
+        if let Some(existing) = by_addr.get(addr) {
+            if *existing != node {
+                return Err(invalid_data(
+                    "raft peer address is assigned to another node",
+                ));
+            }
+        } else if by_addr.len() >= MAX_RAFT_POOL_PEERS {
+            return Err(invalid_data("raft peer address registry exceeds limit"));
+        }
+        allowed.insert(node);
+        by_addr.insert(addr.to_string(), node);
+        Ok(())
+    }
+
+    fn is_allowed(&self, node: NodeId) -> bool {
+        self.allowed_peers.read().unwrap().contains(&node)
+    }
+
+    fn peer_for_addr(&self, addr: &str) -> io::Result<NodeId> {
+        self.peers_by_addr
+            .read()
+            .unwrap()
+            .get(addr)
+            .copied()
+            .ok_or_else(|| invalid_data("raft peer address is not authorized"))
+    }
+
+    fn tag(&self, body: &[u8]) -> io::Result<[u8; AUTH_TAG_BYTES]> {
+        let mut mac = <HmacSha256 as Mac>::new_from_slice(&self.key)
+            .map_err(|_| invalid_data("invalid raft transport key"))?;
+        mac.update(body);
+        let mut out = [0u8; AUTH_TAG_BYTES];
+        out.copy_from_slice(&mac.finalize().into_bytes());
+        Ok(out)
+    }
+
+    fn verify_tag(&self, body: &[u8], tag: &[u8]) -> io::Result<()> {
+        let mut mac = <HmacSha256 as Mac>::new_from_slice(&self.key)
+            .map_err(|_| invalid_data("invalid raft transport key"))?;
+        mac.update(body);
+        mac.verify_slice(tag)
+            .map_err(|_| invalid_data("raft peer authentication failed"))
+    }
+
+    fn session_key(
+        &self,
+        client: NodeId,
+        server: NodeId,
+        client_nonce: &[u8; HANDSHAKE_NONCE_BYTES],
+        server_nonce: &[u8; HANDSHAKE_NONCE_BYTES],
+    ) -> io::Result<[u8; 32]> {
+        let mut mac = <HmacSha256 as Mac>::new_from_slice(&self.key)
+            .map_err(|_| invalid_data("invalid raft transport key"))?;
+        mac.update(b"epistemic-graph/raft-session/v1\0");
+        mac.update(&client.to_be_bytes());
+        mac.update(&server.to_be_bytes());
+        mac.update(client_nonce);
+        mac.update(server_nonce);
+        let mut digest = mac.finalize().into_bytes();
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&digest);
+        digest.fill(0);
+        Ok(out)
+    }
+}
+
+pub(crate) struct SecureRaftConnection {
+    stream: TcpStream,
+    cipher: XChaCha20Poly1305,
+    write_nonce_prefix: [u8; 16],
+    read_nonce_prefix: [u8; 16],
+    write_sequence: u64,
+    read_sequence: u64,
+    read_budget: Option<Arc<tokio::sync::Semaphore>>,
+}
+
+impl SecureRaftConnection {
+    async fn connect(
+        mut stream: TcpStream,
+        auth: &RaftTransportAuth,
+        expected_peer: NodeId,
+    ) -> io::Result<Self> {
+        tokio::time::timeout(RAFT_HANDSHAKE_TIMEOUT, async {
+            let mut client_nonce = [0u8; HANDSHAKE_NONCE_BYTES];
+            rand::rngs::OsRng.fill_bytes(&mut client_nonce);
+            let mut hello = [0u8; CLIENT_HELLO_BYTES];
+            hello[0..4].copy_from_slice(CLIENT_HELLO_MAGIC);
+            hello[4] = RAFT_WIRE_VERSION;
+            hello[5..13].copy_from_slice(&auth.local_node.to_be_bytes());
+            hello[13..21].copy_from_slice(&expected_peer.to_be_bytes());
+            hello[21..21 + HANDSHAKE_NONCE_BYTES].copy_from_slice(&client_nonce);
+            let tag_offset = CLIENT_HELLO_BYTES - AUTH_TAG_BYTES;
+            let tag = auth.tag(&hello[..tag_offset])?;
+            hello[tag_offset..].copy_from_slice(&tag);
+            stream.write_all(&hello).await?;
+            stream.flush().await?;
+
+            let mut response = [0u8; SERVER_HELLO_BYTES];
+            stream.read_exact(&mut response).await?;
+            let response_tag_offset = SERVER_HELLO_BYTES - AUTH_TAG_BYTES;
+            if &response[0..4] != SERVER_HELLO_MAGIC
+                || response[4] != RAFT_WIRE_VERSION
+                || read_u64(&response[5..13])? != expected_peer
+                || read_u64(&response[13..21])? != auth.local_node
+                || response[21..21 + HANDSHAKE_NONCE_BYTES] != client_nonce
+            {
+                return Err(invalid_data("invalid raft server handshake"));
+            }
+            auth.verify_tag(
+                &response[..response_tag_offset],
+                &response[response_tag_offset..],
+            )?;
+            let mut server_nonce = [0u8; HANDSHAKE_NONCE_BYTES];
+            server_nonce.copy_from_slice(
+                &response[21 + HANDSHAKE_NONCE_BYTES..21 + HANDSHAKE_NONCE_BYTES * 2],
+            );
+            let session_key =
+                auth.session_key(auth.local_node, expected_peer, &client_nonce, &server_nonce)?;
+            Self::from_session(stream, session_key, true, None)
+        })
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "raft handshake timed out"))?
+    }
+
+    async fn accept(
+        mut stream: TcpStream,
+        auth: &RaftTransportAuth,
+        read_budget: Option<Arc<tokio::sync::Semaphore>>,
+    ) -> io::Result<Self> {
+        tokio::time::timeout(RAFT_HANDSHAKE_TIMEOUT, async {
+            let mut hello = [0u8; CLIENT_HELLO_BYTES];
+            stream.read_exact(&mut hello).await?;
+            let tag_offset = CLIENT_HELLO_BYTES - AUTH_TAG_BYTES;
+            let client = read_u64(&hello[5..13])?;
+            let target = read_u64(&hello[13..21])?;
+            if &hello[0..4] != CLIENT_HELLO_MAGIC
+                || hello[4] != RAFT_WIRE_VERSION
+                || target != auth.local_node
+                || !auth.is_allowed(client)
+            {
+                return Err(invalid_data("invalid raft client handshake"));
+            }
+            auth.verify_tag(&hello[..tag_offset], &hello[tag_offset..])?;
+            let mut client_nonce = [0u8; HANDSHAKE_NONCE_BYTES];
+            client_nonce.copy_from_slice(&hello[21..21 + HANDSHAKE_NONCE_BYTES]);
+            let mut server_nonce = [0u8; HANDSHAKE_NONCE_BYTES];
+            rand::rngs::OsRng.fill_bytes(&mut server_nonce);
+
+            let mut response = [0u8; SERVER_HELLO_BYTES];
+            response[0..4].copy_from_slice(SERVER_HELLO_MAGIC);
+            response[4] = RAFT_WIRE_VERSION;
+            response[5..13].copy_from_slice(&auth.local_node.to_be_bytes());
+            response[13..21].copy_from_slice(&client.to_be_bytes());
+            response[21..21 + HANDSHAKE_NONCE_BYTES].copy_from_slice(&client_nonce);
+            response[21 + HANDSHAKE_NONCE_BYTES..21 + HANDSHAKE_NONCE_BYTES * 2]
+                .copy_from_slice(&server_nonce);
+            let response_tag_offset = SERVER_HELLO_BYTES - AUTH_TAG_BYTES;
+            let tag = auth.tag(&response[..response_tag_offset])?;
+            response[response_tag_offset..].copy_from_slice(&tag);
+            stream.write_all(&response).await?;
+            stream.flush().await?;
+            let session_key =
+                auth.session_key(client, auth.local_node, &client_nonce, &server_nonce)?;
+            Self::from_session(stream, session_key, false, read_budget)
+        })
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "raft handshake timed out"))?
+    }
+
+    fn from_session(
+        stream: TcpStream,
+        mut session_key: [u8; 32],
+        client: bool,
+        read_budget: Option<Arc<tokio::sync::Semaphore>>,
+    ) -> io::Result<Self> {
+        let cipher = XChaCha20Poly1305::new(Key::from_slice(&session_key));
+        let client_to_server = nonce_prefix(&session_key, b"client-to-server")?;
+        let server_to_client = nonce_prefix(&session_key, b"server-to-client")?;
+        session_key.fill(0);
+        let (write_nonce_prefix, read_nonce_prefix) = if client {
+            (client_to_server, server_to_client)
+        } else {
+            (server_to_client, client_to_server)
+        };
+        Ok(Self {
+            stream,
+            cipher,
+            write_nonce_prefix,
+            read_nonce_prefix,
+            write_sequence: 0,
+            read_sequence: 0,
+            read_budget,
+        })
+    }
+
+    async fn write_payload(&mut self, plaintext: &[u8]) -> io::Result<()> {
+        if plaintext.is_empty() || plaintext.len() > MAX_RAFT_PAYLOAD_BYTES {
+            return Err(invalid_data("invalid raft payload length"));
+        }
+        let sequence = self
+            .write_sequence
+            .checked_add(1)
+            .ok_or_else(|| invalid_data("raft frame sequence exhausted"))?;
+        let mut header = [0u8; SECURE_FRAME_HEADER_BYTES];
+        header[0..4].copy_from_slice(SECURE_FRAME_MAGIC);
+        header[4] = RAFT_WIRE_VERSION;
+        header[5..13].copy_from_slice(&sequence.to_be_bytes());
+        let nonce = frame_nonce(&self.write_nonce_prefix, sequence);
+        let ciphertext = self
+            .cipher
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: plaintext,
+                    aad: &header,
+                },
+            )
+            .map_err(|_| invalid_data("raft frame encryption failed"))?;
+        let mut wire = Vec::with_capacity(header.len() + ciphertext.len());
+        wire.extend_from_slice(&header);
+        wire.extend_from_slice(&ciphertext);
+        self.write_sequence = sequence;
+        write_frame(&mut self.stream, &wire).await
+    }
+
+    async fn read_payload(&mut self) -> io::Result<RaftPayload> {
+        let guarded = read_frame_guarded(&mut self.stream, self.read_budget.as_ref()).await?;
+        let GuardedFrame {
+            bytes: wire,
+            _permit: permit,
+        } = guarded;
+        if wire.len() <= SECURE_FRAME_HEADER_BYTES + AEAD_TAG_BYTES
+            || &wire[0..4] != SECURE_FRAME_MAGIC
+            || wire[4] != RAFT_WIRE_VERSION
+        {
+            return Err(invalid_data("invalid encrypted raft frame"));
+        }
+        let sequence = read_u64(&wire[5..13])?;
+        let expected = self
+            .read_sequence
+            .checked_add(1)
+            .ok_or_else(|| invalid_data("raft frame sequence exhausted"))?;
+        if sequence != expected {
+            return Err(invalid_data("replayed or out-of-order raft frame"));
+        }
+        let nonce = frame_nonce(&self.read_nonce_prefix, sequence);
+        let plaintext = self
+            .cipher
+            .decrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &wire[SECURE_FRAME_HEADER_BYTES..],
+                    aad: &wire[..SECURE_FRAME_HEADER_BYTES],
+                },
+            )
+            .map_err(|_| invalid_data("raft frame authentication failed"))?;
+        if plaintext.is_empty() || plaintext.len() > MAX_RAFT_PAYLOAD_BYTES {
+            return Err(invalid_data("invalid raft payload length"));
+        }
+        self.read_sequence = sequence;
+        Ok(RaftPayload {
+            bytes: plaintext,
+            _permit: permit,
+        })
+    }
+}
+
+fn read_u64(bytes: &[u8]) -> io::Result<u64> {
+    let raw: [u8; 8] = bytes
+        .try_into()
+        .map_err(|_| invalid_data("invalid raft handshake integer"))?;
+    Ok(u64::from_be_bytes(raw))
+}
+
+fn nonce_prefix(key: &[u8; 32], direction: &[u8]) -> io::Result<[u8; 16]> {
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(key)
+        .map_err(|_| invalid_data("invalid raft session key"))?;
+    mac.update(b"epistemic-graph/raft-nonce/v1\0");
+    mac.update(direction);
+    let mut digest = mac.finalize().into_bytes();
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&digest[..16]);
+    digest.fill(0);
+    Ok(out)
+}
+
+fn frame_nonce(prefix: &[u8; 16], sequence: u64) -> [u8; 24] {
+    let mut nonce = [0u8; 24];
+    nonce[..16].copy_from_slice(prefix);
+    nonce[16..].copy_from_slice(&sequence.to_be_bytes());
+    nonce
+}
+
+pub(crate) enum RaftConnection {
+    Plain(TcpStream, Option<Arc<tokio::sync::Semaphore>>),
+    Secure(SecureRaftConnection),
+}
+
+impl RaftConnection {
+    async fn connect(
+        stream: TcpStream,
+        auth: Option<&RaftTransportAuth>,
+        expected_peer: Option<NodeId>,
+    ) -> io::Result<Self> {
+        match (auth, expected_peer) {
+            (Some(auth), Some(peer)) => SecureRaftConnection::connect(stream, auth, peer)
+                .await
+                .map(Self::Secure),
+            (None, None) => Ok(Self::Plain(stream, None)),
+            _ => Err(invalid_data("incomplete raft transport security context")),
+        }
+    }
+
+    pub(crate) async fn accept(
+        stream: TcpStream,
+        auth: Option<&RaftTransportAuth>,
+        read_budget: Arc<tokio::sync::Semaphore>,
+    ) -> io::Result<Self> {
+        match auth {
+            Some(auth) => SecureRaftConnection::accept(stream, auth, Some(read_budget))
+                .await
+                .map(Self::Secure),
+            None => Ok(Self::Plain(stream, Some(read_budget))),
+        }
+    }
+
+    pub(crate) async fn write_payload(&mut self, body: &[u8]) -> io::Result<()> {
+        match self {
+            Self::Plain(stream, _) => write_frame(stream, body).await,
+            Self::Secure(stream) => stream.write_payload(body).await,
+        }
+    }
+
+    pub(crate) async fn read_payload(&mut self) -> io::Result<RaftPayload> {
+        match self {
+            Self::Plain(stream, budget) => read_frame_guarded(stream, budget.as_ref())
+                .await
+                .map(GuardedFrame::into_payload),
+            Self::Secure(stream) => stream.read_payload().await,
+        }
+    }
+}
 
 /// A per-peer pool of idle Raft-RPC connections (CONCEPT:AU-KG.ontology.manage-arbitrary). Keyed by the
 /// peer's `host:port`, shared by every group on the node (one pool per
 /// [`super::multi::MultiRaft`]).
 pub struct PeerPool {
-    idle: std::sync::Mutex<HashMap<String, Vec<TcpStream>>>,
+    idle: std::sync::Mutex<HashMap<String, Vec<RaftConnection>>>,
     max_idle_per_peer: usize,
+    auth: Option<Arc<RaftTransportAuth>>,
     /// Brand-new TCP connections opened (a connect cost actually paid).
     opens: AtomicU64,
     /// Round-trips served on a reused warm connection (a connect cost AVOIDED).
@@ -118,9 +557,27 @@ impl PeerPool {
         Arc::new(Self {
             idle: std::sync::Mutex::new(HashMap::new()),
             max_idle_per_peer: max_idle_per_peer.max(1),
+            auth: None,
             opens: AtomicU64::new(0),
             reuses: AtomicU64::new(0),
         })
+    }
+
+    pub(crate) fn with_auth(auth: Arc<RaftTransportAuth>) -> Arc<Self> {
+        Arc::new(Self {
+            idle: std::sync::Mutex::new(HashMap::new()),
+            max_idle_per_peer: DEFAULT_MAX_IDLE_PER_PEER,
+            auth: Some(auth),
+            opens: AtomicU64::new(0),
+            reuses: AtomicU64::new(0),
+        })
+    }
+
+    pub(crate) fn register_peer(&self, node: NodeId, addr: &str) -> io::Result<()> {
+        match &self.auth {
+            Some(auth) => auth.register_peer(node, addr),
+            None => Ok(()),
+        }
     }
 
     /// Count of brand-new connections opened (test/metrics visibility).
@@ -134,15 +591,21 @@ impl PeerPool {
     }
 
     /// Take a warm connection for `addr` if one is idle.
-    fn take(&self, addr: &str) -> Option<TcpStream> {
+    fn take(&self, addr: &str) -> Option<RaftConnection> {
         let mut idle = self.idle.lock().unwrap();
         idle.get_mut(addr).and_then(Vec::pop)
     }
 
     /// Return a healthy connection to the idle set (dropped if the peer is at cap, so
     /// the idle set stays bounded).
-    fn put(&self, addr: &str, stream: TcpStream) {
+    fn put(&self, addr: &str, stream: RaftConnection) {
         let mut idle = self.idle.lock().unwrap();
+        if addr.is_empty()
+            || addr.len() > MAX_RAFT_PEER_ADDRESS_BYTES
+            || (!idle.contains_key(addr) && idle.len() >= MAX_RAFT_POOL_PEERS)
+        {
+            return;
+        }
         let v = idle.entry(addr.to_string()).or_default();
         if v.len() < self.max_idle_per_peer {
             v.push(stream);
@@ -153,6 +616,17 @@ impl PeerPool {
     /// when possible. A reused connection that fails is discarded and the call retries
     /// ONCE on a fresh connection, so a stale idle entry never surfaces to openraft.
     pub(crate) async fn round_trip(&self, addr: &str, body: &[u8]) -> Result<Vec<u8>, io::Error> {
+        if addr.is_empty()
+            || addr.len() > MAX_RAFT_PEER_ADDRESS_BYTES
+            || body.is_empty()
+            || body.len() > MAX_RAFT_PAYLOAD_BYTES
+        {
+            return Err(invalid_data("invalid raft peer or frame"));
+        }
+        let expected_peer = match &self.auth {
+            Some(auth) => Some(auth.peer_for_addr(addr)?),
+            None => None,
+        };
         // 1) Try a warm connection first.
         if let Some(mut stream) = self.take(addr) {
             if let Ok(resp) = Self::exchange(&mut stream, body).await {
@@ -163,7 +637,11 @@ impl PeerPool {
             // Stale/broken idle connection — drop it and fall through to a fresh one.
         }
         // 2) Fresh connection (first use, or after a stale reuse).
-        let mut stream = TcpStream::connect(addr).await?;
+        let stream = tokio::time::timeout(RAFT_CONNECT_TIMEOUT, TcpStream::connect(addr))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "raft connect timed out"))??;
+        let mut stream =
+            RaftConnection::connect(stream, self.auth.as_deref(), expected_peer).await?;
         self.opens.fetch_add(1, Ordering::Relaxed);
         let resp = Self::exchange(&mut stream, body).await?;
         self.put(addr, stream);
@@ -171,9 +649,13 @@ impl PeerPool {
     }
 
     /// Write a framed body and read its framed reply on `stream`.
-    async fn exchange(stream: &mut TcpStream, body: &[u8]) -> Result<Vec<u8>, io::Error> {
-        write_frame(stream, body).await?;
-        read_frame(stream).await
+    async fn exchange(stream: &mut RaftConnection, body: &[u8]) -> Result<Vec<u8>, io::Error> {
+        tokio::time::timeout(RAFT_FRAME_IO_TIMEOUT, async {
+            stream.write_payload(body).await?;
+            stream.read_payload().await.map(RaftPayload::into_vec)
+        })
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "raft exchange timed out"))?
     }
 }
 
@@ -182,6 +664,7 @@ impl Default for PeerPool {
         Self {
             idle: std::sync::Mutex::new(HashMap::new()),
             max_idle_per_peer: DEFAULT_MAX_IDLE_PER_PEER,
+            auth: None,
             opens: AtomicU64::new(0),
             reuses: AtomicU64::new(0),
         }
@@ -209,6 +692,15 @@ pub enum GroupRpc {
         Vec<u8>,
     ),
     TransferLeader(GroupId, TransferLeaderRequest<TypeConfig>),
+    /// Authenticated engine-internal client write forwarded to another group's
+    /// current leader. Public clients cannot construct this transport frame.
+    ClientWrite(GroupId, super::RaftRequest),
+    /// Per-group ReadIndex barrier.  This is also used against the placement group
+    /// before resolving a cross-graph route vector.
+    ReadBarrier(GroupId),
+    /// Bounded durable graph page, served only after a ReadIndex barrier and an
+    /// epoch/fencing-token check on the destination leader.
+    ReadPage(GroupId, super::xread::ReadPageRequest),
 }
 
 impl GroupRpc {
@@ -217,7 +709,10 @@ impl GroupRpc {
             GroupRpc::Append(g, _)
             | GroupRpc::Vote(g, _)
             | GroupRpc::Snapshot(g, _, _, _)
-            | GroupRpc::TransferLeader(g, _) => *g,
+            | GroupRpc::TransferLeader(g, _)
+            | GroupRpc::ClientWrite(g, _)
+            | GroupRpc::ReadBarrier(g)
+            | GroupRpc::ReadPage(g, _) => *g,
         }
     }
 }
@@ -231,6 +726,9 @@ pub enum GroupRpcReply {
     Snapshot(Result<SnapshotResponse<TypeConfig>, String>),
     /// Best-effort transfer-leader ack — `Ok(())` accepted, `Err(msg)` rejected/failed.
     TransferLeader(Result<(), String>),
+    ClientWrite(Result<super::RaftResponse, String>),
+    ReadBarrier(Result<u64, super::xread::ReadPageError>),
+    ReadPage(Result<super::xread::ReadPageReply, super::xread::ReadPageError>),
 }
 
 // ── heartbeat coalescing wire envelope (CONCEPT:EG-KG.storage.concept-2) ──────────────────
@@ -287,15 +785,19 @@ impl HeartbeatCoalescer {
     /// heartbeat and is now BUFFERED for the next flush; `false` if it is not a
     /// heartbeat and the caller must send it directly.
     pub fn offer(&self, addr: &str, rpc: GroupRpc) -> bool {
-        if !Self::is_heartbeat(&rpc) {
+        if !Self::is_heartbeat(&rpc) || addr.is_empty() || addr.len() > MAX_RAFT_PEER_ADDRESS_BYTES
+        {
             return false;
         }
-        self.pending
-            .lock()
-            .unwrap()
-            .entry(addr.to_string())
-            .or_default()
-            .push(rpc);
+        let mut pending = self.pending.lock().unwrap();
+        if !pending.contains_key(addr) && pending.len() >= MAX_RAFT_POOL_PEERS {
+            return false;
+        }
+        let peer = pending.entry(addr.to_string()).or_default();
+        if peer.len() >= MAX_RAFT_BATCH_RPCS {
+            return false;
+        }
+        peer.push(rpc);
         true
     }
 
@@ -333,14 +835,19 @@ impl HeartbeatCoalescer {
         addr: &str,
         batch: Vec<GroupRpc>,
     ) -> Result<Vec<GroupRpcReply>, io::Error> {
+        if batch.is_empty()
+            || batch.len() > MAX_RAFT_BATCH_RPCS
+            || batch.iter().any(|rpc| !Self::is_heartbeat(rpc))
+        {
+            return Err(invalid_data("invalid raft heartbeat batch"));
+        }
         let body = rmp_serde::to_vec_named(&RaftFrame::Batch(batch))
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         let resp = pool.round_trip(addr, &body).await?;
-        match rmp_serde::from_slice::<RaftFrameReply>(&resp)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
-        {
-            RaftFrameReply::Batch(replies) => Ok(replies),
+        match decode_wire::<RaftFrameReply>(&resp)? {
+            RaftFrameReply::Batch(replies) if replies.len() <= MAX_RAFT_BATCH_RPCS => Ok(replies),
             RaftFrameReply::One(reply) => Ok(vec![reply]),
+            RaftFrameReply::Batch(_) => Err(invalid_data("raft reply batch exceeds limits")),
         }
     }
 }
@@ -412,9 +919,7 @@ impl GroupNetworkClient {
         let body = rmp_serde::to_vec_named(&RaftFrame::One(rpc))
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         let resp = self.pool.round_trip(&self.addr, &body).await?;
-        match rmp_serde::from_slice::<RaftFrameReply>(&resp)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
-        {
+        match decode_wire::<RaftFrameReply>(&resp)? {
             RaftFrameReply::One(reply) => Ok(reply),
             RaftFrameReply::Batch(_) => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -462,6 +967,11 @@ impl RaftNetworkV2<TypeConfig> for GroupNetworkClient {
         // (vote + meta + the MessagePack body). The follower calls
         // `install_full_snapshot` and replies with its current vote.
         let data = snapshot.snapshot.into_inner();
+        if data.len() > MAX_RAFT_FRAME_BYTES.saturating_sub(1024 * 1024) {
+            return Err(StreamingError::Network(NetworkError::new(&StrErr(
+                "raft snapshot exceeds the wire limit".to_string(),
+            ))));
+        }
         let rpc = GroupRpc::Snapshot(self.gid, vote, snapshot.meta, data);
         match self.round_trip(rpc).await {
             Ok(GroupRpcReply::Snapshot(Ok(r))) => Ok(r),
@@ -497,7 +1007,12 @@ impl RaftNetworkV2<TypeConfig> for GroupNetworkClient {
 
 /// Dispatch one demuxed group RPC into the local group's [`EgRaft`] (or an error
 /// reply if this node doesn't run the group). Used by `super::multi`'s listener.
-pub async fn dispatch_group(raft: Option<EgRaft>, gid: GroupId, rpc: GroupRpc) -> GroupRpcReply {
+pub(crate) async fn dispatch_group(
+    raft: Option<EgRaft>,
+    gid: GroupId,
+    rpc: GroupRpc,
+    read_service: &super::xread::ReadPageService,
+) -> GroupRpcReply {
     match raft {
         None => match rpc {
             GroupRpc::Append(..) => GroupRpcReply::Append(Err(format!("no group {gid} here"))),
@@ -506,6 +1021,15 @@ pub async fn dispatch_group(raft: Option<EgRaft>, gid: GroupId, rpc: GroupRpc) -
             GroupRpc::TransferLeader(..) => {
                 GroupRpcReply::TransferLeader(Err(format!("no group {gid} here")))
             }
+            GroupRpc::ClientWrite(..) => {
+                GroupRpcReply::ClientWrite(Err(format!("no group {gid} here")))
+            }
+            GroupRpc::ReadBarrier(..) => GroupRpcReply::ReadBarrier(Err(
+                super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::GroupUnavailable),
+            )),
+            GroupRpc::ReadPage(..) => GroupRpcReply::ReadPage(Err(
+                super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::GroupUnavailable),
+            )),
         },
         Some(raft) => match rpc {
             GroupRpc::Append(_, req) => {
@@ -515,6 +1039,11 @@ pub async fn dispatch_group(raft: Option<EgRaft>, gid: GroupId, rpc: GroupRpc) -
                 GroupRpcReply::Vote(raft.vote(req).await.map_err(|e| e.to_string()))
             }
             GroupRpc::Snapshot(_, vote, meta, data) => {
+                if data.len() > MAX_RAFT_FRAME_BYTES.saturating_sub(1024 * 1024) {
+                    return GroupRpcReply::Snapshot(Err(
+                        "raft snapshot exceeds the wire limit".to_string()
+                    ));
+                }
                 let snap = Snapshot {
                     meta,
                     snapshot: std::io::Cursor::new(data),
@@ -535,33 +1064,246 @@ pub async fn dispatch_group(raft: Option<EgRaft>, gid: GroupId, rpc: GroupRpc) -
                 };
                 GroupRpcReply::TransferLeader(reply)
             }
+            GroupRpc::ClientWrite(_, req) => {
+                let reply = match req.validate() {
+                    Ok(()) => raft
+                        .client_write(req)
+                        .await
+                        .map(|response| response.data)
+                        .map_err(|error| error.to_string()),
+                    Err(error) => Err(error),
+                };
+                GroupRpcReply::ClientWrite(reply)
+            }
+            GroupRpc::ReadBarrier(_) => {
+                GroupRpcReply::ReadBarrier(super::xread::linearizable_barrier(&raft).await)
+            }
+            GroupRpc::ReadPage(_, request) => {
+                GroupRpcReply::ReadPage(read_service.read_page(raft, gid, request).await)
+            }
         },
     }
 }
 
-// ── framing: 4-byte big-endian length prefix + MessagePack body ───────────
+/// Forward one engine-internal client write over the authenticated Raft peer
+/// channel. The caller resolves the leader and address from committed membership;
+/// a stale leader answer fails closed and is retried by the outer transaction.
+pub(crate) async fn forward_client_write(
+    pool: &PeerPool,
+    addr: &str,
+    group_id: GroupId,
+    request: super::RaftRequest,
+) -> Result<super::RaftResponse, String> {
+    request.validate()?;
+    let body = rmp_serde::to_vec_named(&RaftFrame::One(GroupRpc::ClientWrite(group_id, request)))
+        .map_err(|_| "unable to encode internal Raft client write".to_string())?;
+    let response = pool
+        .round_trip(addr, &body)
+        .await
+        .map_err(|error| format!("internal Raft client write transport failed: {error}"))?;
+    match decode_wire::<RaftFrameReply>(&response)
+        .map_err(|error| format!("internal Raft client write reply is invalid: {error}"))?
+    {
+        RaftFrameReply::One(GroupRpcReply::ClientWrite(Ok(response))) => {
+            response.validate()?;
+            Ok(response)
+        }
+        RaftFrameReply::One(GroupRpcReply::ClientWrite(Err(error))) => Err(error),
+        _ => Err("internal Raft client write returned an unexpected reply".to_string()),
+    }
+}
+
+/// Forward a per-group linearizable barrier over the authenticated Raft channel.
+pub(crate) async fn forward_read_barrier(
+    pool: &PeerPool,
+    addr: &str,
+    group_id: GroupId,
+) -> Result<u64, super::xread::ReadPageError> {
+    let body = rmp_serde::to_vec_named(&RaftFrame::One(GroupRpc::ReadBarrier(group_id))).map_err(
+        |_| super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::InvalidRequest),
+    )?;
+    let response = pool.round_trip(addr, &body).await.map_err(|_| {
+        super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::TransportFailed)
+    })?;
+    match decode_wire::<RaftFrameReply>(&response) {
+        Ok(RaftFrameReply::One(GroupRpcReply::ReadBarrier(result))) => result,
+        _ => Err(super::xread::ReadPageError::new(
+            super::xread::ReadPageErrorCode::InvalidResponse,
+        )),
+    }
+}
+
+/// Forward a bounded graph page over the authenticated Raft channel.
+pub(crate) async fn forward_read_page(
+    pool: &PeerPool,
+    addr: &str,
+    group_id: GroupId,
+    request: super::xread::ReadPageRequest,
+) -> Result<super::xread::ReadPageReply, super::xread::ReadPageError> {
+    request.validate(group_id)?;
+    let expected = request.clone();
+    let body = rmp_serde::to_vec_named(&RaftFrame::One(GroupRpc::ReadPage(group_id, request)))
+        .map_err(|_| {
+            super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::InvalidRequest)
+        })?;
+    let response = pool.round_trip(addr, &body).await.map_err(|_| {
+        super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::TransportFailed)
+    })?;
+    match decode_wire::<RaftFrameReply>(&response) {
+        Ok(RaftFrameReply::One(GroupRpcReply::ReadPage(Ok(reply)))) => {
+            reply.validate_for(&expected, group_id)?;
+            Ok(reply)
+        }
+        Ok(RaftFrameReply::One(GroupRpcReply::ReadPage(Err(error)))) => Err(error),
+        _ => Err(super::xread::ReadPageError::new(
+            super::xread::ReadPageErrorCode::InvalidResponse,
+        )),
+    }
+}
+
+// ── outer framing: 4-byte big-endian length prefix + opaque body ─────────
+//
+// In production the opaque body is an authenticated ciphertext emitted by
+// `SecureRaftConnection`; plaintext framing exists only for one-member loopback mode
+// and the in-process fault-injection harnesses.
+
+pub(crate) struct RaftPayload {
+    bytes: Vec<u8>,
+    _permit: Option<tokio::sync::OwnedSemaphorePermit>,
+}
+
+impl RaftPayload {
+    fn into_vec(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+impl std::ops::Deref for RaftPayload {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.bytes
+    }
+}
+
+struct GuardedFrame {
+    bytes: Vec<u8>,
+    _permit: Option<tokio::sync::OwnedSemaphorePermit>,
+}
+
+impl GuardedFrame {
+    fn into_payload(self) -> RaftPayload {
+        RaftPayload {
+            bytes: self.bytes,
+            _permit: self._permit,
+        }
+    }
+}
 
 pub async fn write_frame(stream: &mut TcpStream, body: &[u8]) -> io::Result<()> {
-    let len = (body.len() as u32).to_be_bytes();
+    if body.is_empty() || body.len() > MAX_RAFT_FRAME_BYTES {
+        return Err(invalid_data("invalid raft frame length"));
+    }
+    let len = u32::try_from(body.len())
+        .map_err(|_| invalid_data("invalid raft frame length"))?
+        .to_be_bytes();
     stream.write_all(&len).await?;
     stream.write_all(body).await?;
     stream.flush().await
 }
 
 pub async fn read_frame(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
+    read_frame_guarded(stream, None)
+        .await
+        .map(|frame| frame.bytes)
+}
+
+async fn read_frame_guarded(
+    stream: &mut TcpStream,
+    budget: Option<&Arc<tokio::sync::Semaphore>>,
+) -> io::Result<GuardedFrame> {
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).await?;
     let len = u32::from_be_bytes(len_buf) as usize;
     // Bound the frame the same way the engine transport does (defensive cap).
-    if len > 256 * 1024 * 1024 {
+    if len == 0 || len > MAX_RAFT_FRAME_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "raft frame too large",
         ));
     }
+    let permit = match budget {
+        Some(budget) => {
+            let units = len
+                .checked_add(RAFT_FRAME_BUDGET_UNIT_BYTES - 1)
+                .ok_or_else(|| invalid_data("invalid raft frame length"))?
+                / RAFT_FRAME_BUDGET_UNIT_BYTES;
+            Some(
+                budget
+                    .clone()
+                    .acquire_many_owned(
+                        u32::try_from(units)
+                            .map_err(|_| invalid_data("invalid raft frame length"))?,
+                    )
+                    .await
+                    .map_err(|_| {
+                        io::Error::new(io::ErrorKind::BrokenPipe, "raft frame budget closed")
+                    })?,
+            )
+        }
+        None => None,
+    };
     let mut buf = vec![0u8; len];
     stream.read_exact(&mut buf).await?;
-    Ok(buf)
+    Ok(GuardedFrame {
+        bytes: buf,
+        _permit: permit,
+    })
+}
+
+#[cfg(test)]
+mod wire_limit_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_declared_messagepack_allocation_bomb_before_decode() {
+        let array32_bomb = [0xdd, 0xff, 0xff, 0xff, 0xff];
+        assert!(decode_wire::<RaftFrame>(&array32_bomb).is_err());
+    }
+
+    #[tokio::test]
+    async fn authenticated_encrypted_connection_round_trips() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let key = [0x5au8; 32];
+        let server_auth = RaftTransportAuth::new(
+            2,
+            &key,
+            [(1, "127.0.0.1:1".to_string()), (2, address.clone())],
+        )
+        .unwrap();
+        let client_auth = RaftTransportAuth::new(
+            1,
+            &key,
+            [(1, "127.0.0.1:1".to_string()), (2, address.clone())],
+        )
+        .unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut secure = SecureRaftConnection::accept(stream, &server_auth, None)
+                .await
+                .unwrap();
+            assert_eq!(&*secure.read_payload().await.unwrap(), b"request");
+            secure.write_payload(b"response").await.unwrap();
+        });
+        let stream = TcpStream::connect(&address).await.unwrap();
+        let mut secure = SecureRaftConnection::connect(stream, &client_auth, 2)
+            .await
+            .unwrap();
+        secure.write_payload(b"request").await.unwrap();
+        assert_eq!(&*secure.read_payload().await.unwrap(), b"response");
+        server.await.unwrap();
+    }
 }
 
 // ── harness partition gate (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) ─────────────────────────────────

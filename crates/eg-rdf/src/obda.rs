@@ -63,7 +63,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use oxrdf::{Literal, NamedNode, Subject, Term, Triple};
+use oxrdf::{Literal, NamedNode, NamedOrBlankNode, Term, Triple};
 
 use crate::sparql::{Projection, QueryOutcome, SparqlResult};
 
@@ -564,21 +564,19 @@ pub fn run_outcome_virtual(
 
     // (4) load into a TRANSIENT view and run the existing evaluator (joins/filters/…).
     let view = build_view(triples)?;
-    crate::sparql::run_outcome(&view, query_str, proj)
+    crate::sparql::execute(
+        &crate::sparql::Dataset::new(&view, Vec::new()),
+        query_str,
+        proj,
+        None,
+    )
 }
 
 /// Build a transient [`GraphView`] from materialized triples (nothing persisted).
 fn build_view(triples: Vec<Triple>) -> Result<eg_core::graph::GraphView, String> {
     let core = eg_core::graph::GraphCore::new();
     let mut iris = crate::mapping::IriStore::default();
-    crate::mapping::load_triples(
-        &core,
-        &mut iris,
-        "__obda_virtual__",
-        triples,
-        #[cfg(feature = "rdf-redb")]
-        None,
-    )?;
+    crate::mapping::load_triples(&core, &mut iris, "__obda_virtual__", triples)?;
     Ok(core.analysis_snapshot())
 }
 
@@ -905,10 +903,10 @@ impl R2rmlDoc {
 }
 
 /// Canonical node key for an RDF subject (`<iri>` or `_:bnode`).
-fn subject_key(s: &Subject) -> String {
+fn subject_key(s: &NamedOrBlankNode) -> String {
     match s {
-        Subject::NamedNode(n) => format!("<{}>", n.as_str()),
-        Subject::BlankNode(b) => format!("_:{}", b.as_str()),
+        NamedOrBlankNode::NamedNode(n) => format!("<{}>", n.as_str()),
+        NamedOrBlankNode::BlankNode(b) => format!("_:{}", b.as_str()),
         #[allow(unreachable_patterns)]
         _ => String::new(), // RDF-star quoted-triple subject — not an R2RML node.
     }

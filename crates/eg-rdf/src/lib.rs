@@ -1,7 +1,3 @@
-// oxrdf 0.3 renamed `Subject` -> `NamedOrBlankNode`; the legible `Subject` alias
-// is still re-exported (deprecated). Keep using it for readability.
-#![allow(deprecated)]
-
 //! eg-rdf — native RDF/SPARQL surface over the epistemic-graph property-graph
 //! (Lane W increment 1: W1 `CONCEPT:EG-KG.ontology.kg-native-rdf-sparql`, W2 `CONCEPT:EG-KG.ontology.concept-11`).
 //!
@@ -11,14 +7,11 @@
 //!
 //!   * `mapping` (W1) — the RDF dataset ⇄ property-graph mapping plus Turtle /
 //!     N-Triples parse + serialize round-trip. A resource object becomes a typed
-//!     edge `{type: predicate}`; a literal object becomes a typed JSON property
+//!     edge `{relationship: predicate}`; a literal object becomes a typed JSON property
 //!     cell preserving its xsd datatype + `@lang`; `rdf:type` folds into the engine
 //!     `type` label; a named graph is a graph in the registry.
-//!   * `quads` (W1, feature `rdf-redb`) — an OPT-IN lossless redb `quads` table for
-//!     the ONE lossy edge of the property-graph mapping: a subject holding two
-//!     different literals for the SAME predicate (the property blob is key-unique).
-//!     Used only when a predicate is multi-valued; the property-graph stays the
-//!     query-fast default.
+//!   * multi-valued literals live in the same authoritative node image under a
+//!     reserved typed property, so RDF has no secondary commit authority.
 //!   * `sparql` (W2) — `spargebra`'s SPARQL 1.1 algebra COMPILED to scans over the
 //!     engine's `GraphView` (BGP + FILTER + OPTIONAL + UNION + basic property
 //!     paths). No second copy of the graph, no embedded oxigraph store.
@@ -34,9 +27,12 @@ pub use oxrdf;
 #[cfg(feature = "rdf")]
 pub mod mapping;
 
+#[cfg(feature = "rdf-xml")]
+mod rdfxml;
+
 /// EG-300 — the write-time constraint-guard hook the commit path invokes. Defined here
 /// (below the SHACL/ICV engine in the DAG) so an upper layer — eg-shacl's ICV policy —
-/// can IMPLEMENT it without a dependency cycle. See [`update::execute_guarded`].
+/// can IMPLEMENT it without a dependency cycle. See [`update::execute`].
 #[cfg(feature = "rdf")]
 pub mod guard;
 
@@ -47,9 +43,6 @@ pub mod guard;
 /// unlike the `oxjsonld`-backed [`mapping::to_jsonld`] (out-of-pi `json-ld` feature).
 #[cfg(feature = "rdf")]
 pub mod jsonld;
-
-#[cfg(feature = "rdf-redb")]
-pub mod quads;
 
 /// Re-export the spargebra SPARQL algebra/term/update model so the engine (the
 /// `/sparql` HTTP endpoint) can name `Update` / `GraphUpdateOperation` without taking
@@ -86,6 +79,14 @@ pub mod geosparql;
 /// oxttl-parsed ontology. Pure Rust; behind `owl` (implies `rdf`).
 #[cfg(feature = "owl")]
 pub mod owl;
+
+/// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+/// owl::ProofNode` — the reference non-trivial `provenance()`, mapping
+/// `owl::Justification` (reconstructed as a `ProofNode`) losslessly. Behind the
+/// crate's own opt-in `contract` feature (default OFF, implying `owl` since
+/// `ProofNode` lives there). See `src/contract.rs` module docs.
+#[cfg(feature = "contract")]
+mod contract;
 
 /// EG-021 — user-defined custom rules + instance-level (ABox) OWL 2 RL / Datalog
 /// reasoning with `owl:sameAs` equality, run in one confidence-propagating

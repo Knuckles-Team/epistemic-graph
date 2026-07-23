@@ -1,0 +1,68 @@
+{
+  "version": 2,
+  "hooks": {
+    "fuzz": {
+      "argv": [
+        "python3",
+        "-I",
+        ".security/repository_fuzz.py",
+        "security-results/fuzz.json"
+      ],
+      "timeout_seconds": 120,
+      "evidence": "security-results/fuzz.json",
+      "min_cases": 64
+    },
+    "authenticated_negative": {
+      "argv": [
+        "python3",
+        "-I",
+        ".security/authenticated_negative.py",
+        "security-results/authenticated-negative.json"
+      ],
+      "timeout_seconds": 120,
+      "evidence": "security-results/authenticated-negative.json",
+      "min_cases": 4
+    }
+  },
+  "license_policy": {
+    "allowed": [
+      "0BSD",
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "BSL-1.0",
+      "CC0-1.0",
+      "CDLA-Permissive-2.0",
+      "ISC",
+      "LGPL-3.0-only",
+      "LGPL-3.0-or-later",
+      "MIT",
+      "MIT-0",
+      "MIT-CMU",
+      "MPL-2.0",
+      "OpenSSL",
+      "PSF-2.0",
+      "Python-2.0",
+      "Unicode-3.0",
+      "Unlicense",
+      "W3C-20150513",
+      "Zlib",
+      "zlib-acknowledgement"
+    ],
+    "allowed_exceptions": [
+      "LLVM-exception"
+    ],
+    "denied": [
+      "AGPL-1.0-only",
+      "AGPL-1.0-or-later",
+      "AGPL-3.0-only",
+      "AGPL-3.0-or-later",
+      "GPL-1.0-only",
+      "GPL-1.0-or-later",
+      "GPL-2.0-only",
+      "GPL-2.0-or-later",
+      "GPL-3.0-only",
+      "GPL-3.0-or-later"
+    ]
+  }
+}

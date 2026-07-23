@@ -2,7 +2,7 @@
 name = "eg-text"
 version = "0.33.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Embedded BM25 full-text inverted index over node text fields (CONCEPT:KG-2.215). Tantivy-backed, persistent-no-rebuild, incremental add/delete. HARD feature-gated OUT of the Pi/default build — Tantivy (zstd-sys etc.) is heavy."
 license = "MIT"
 
@@ -22,12 +22,22 @@ default = []
 # so it is OPT-IN and folded by the facade ONLY into text/node/cluster/full — never
 # pi/default.
 tantivy = ["dep:tantivy"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for TextHit` + the
+# `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded into
+# any tier aggregate (pi/node/full) — it is a capability-discovery/testing seam, not
+# a serving feature. `TextHit` itself is dep-free, so this does NOT need to imply
+# `tantivy`. `cargo test -p eg-text --features contract` runs the suite.
+contract = ["dep:eg-modality"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 # The Rust Lucene. OPTIONAL + only referenced under #[cfg(feature = "tantivy")], so a
 # default/pi build links no tantivy / zstd-sys / fst (verified by `cargo tree`).
 tantivy = { version = "0.26", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/pi/node/full build links none of it and `TextHit` carries no new
+# required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
 
 [dev-dependencies]
 tempfile = "3.10"

@@ -18,8 +18,10 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use super::super::state::ServerState;
+use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
-use crate::wire::{ContinuousAgg, ContinuousQuerySpec};
+use crate::server::access::{check_graph_access, CarrierAuthority, GraphReadAuthority};
+use crate::wire::{CdcEvent, ContinuousAgg, ContinuousQuerySpec, WatchBatch};
 
 /// Pull the CDC hub, or an ERROR response if the engine booted without one (only if a
 /// future build path leaves it `None` — `streaming` builds always construct it).
@@ -37,7 +39,11 @@ async fn hub_of(
 /// Compute the seed value for a continuous query from the graph's CURRENT state, so
 /// the view is correct at registration (then deltas maintain it). `count` = matching
 /// node count; `sum:<field>` = sum of the numeric field over matching nodes.
-async fn seed_value(state: &Arc<RwLock<ServerState>>, spec: &ContinuousQuerySpec) -> f64 {
+async fn seed_value(
+    state: &Arc<RwLock<ServerState>>,
+    authority: &GraphReadAuthority,
+    spec: &ContinuousQuerySpec,
+) -> f64 {
     let core = {
         let s = state.read().await;
         match s.registry.get(&spec.graph).map(|e| e.core.clone()) {
@@ -45,7 +51,8 @@ async fn seed_value(state: &Arc<RwLock<ServerState>>, spec: &ContinuousQuerySpec
             None => return 0.0,
         }
     };
-    // Matching node rows: by label if set, else every node.
+    let core = authority.project_core(&core);
+    // Matching node rows: by label if set, else every visible node.
     let rows: Vec<(String, Vec<u8>)> = if spec.label.is_empty() {
         core.get_nodes()
     } else {
@@ -56,7 +63,7 @@ async fn seed_value(state: &Arc<RwLock<ServerState>>, spec: &ContinuousQuerySpec
         ContinuousAgg::Sum { field } => rows
             .iter()
             .map(|(_, blob)| {
-                rmp_serde::from_slice::<serde_json::Value>(blob)
+                eg_types::msgpack::decode_property_value(blob)
                     .ok()
                     .and_then(|v| v.get(field).and_then(|f| f.as_f64()))
                     .unwrap_or(0.0)
@@ -65,40 +72,131 @@ async fn seed_value(state: &Arc<RwLock<ServerState>>, spec: &ContinuousQuerySpec
     }
 }
 
+async fn authorize_graph(
+    state: &Arc<RwLock<ServerState>>,
+    authority: &CarrierAuthority,
+    graph: &str,
+    access: AccessLevel,
+) -> Result<(), String> {
+    let s = state.read().await;
+    let entry = s
+        .registry
+        .get(graph)
+        .ok_or_else(|| format!("Graph '{graph}' not found"))?;
+    check_graph_access(
+        &s.isolation,
+        Some(authority.agent_id()),
+        graph,
+        entry.graph_type,
+        entry.owner.as_deref(),
+        access,
+    )
+}
+
+fn owned_name(authority: &CarrierAuthority, domain: &str, name: &str) -> String {
+    format!("{domain}:{}:{name}", authority.owner_scope())
+}
+
+fn owned_prefix(authority: &CarrierAuthority, domain: &str) -> String {
+    format!("{domain}:{}:", authority.owner_scope())
+}
+
+/// Keep only an event image visible to this actor. Ownership-changing updates may
+/// expose the before image to the old owner and the after image to the new owner,
+/// never both merely because one side was authorized.
+fn sanitize_event(authority: &GraphReadAuthority, mut event: CdcEvent) -> Option<CdcEvent> {
+    let before_visible = event.had_before && authority.can_see_blob(&event.before);
+    let after_visible = event.had_after && authority.can_see_blob(&event.after);
+    if !before_visible {
+        event.had_before = false;
+        event.before.clear();
+    }
+    if !after_visible {
+        event.had_after = false;
+        event.after.clear();
+    }
+    (before_visible || after_visible).then_some(event)
+}
+
+fn sanitize_watch(authority: &GraphReadAuthority, batch: WatchBatch) -> WatchBatch {
+    WatchBatch {
+        events: batch
+            .events
+            .into_iter()
+            .filter_map(|event| sanitize_event(authority, event))
+            .collect(),
+        next_seq: batch.next_seq,
+    }
+}
+
 /// Handle the streaming methods. Returns `Err(method)` for any non-streaming method so
 /// the dispatch chain falls through — though dispatch only routes streaming methods here.
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    carrier: &CarrierAuthority,
+    read_authority: &GraphReadAuthority,
     method: Method,
 ) -> Result<Response, Method> {
+    // Raw hub sequence numbers, long-poll wakeups and aggregate through-seq
+    // cursors reveal the existence/rate of filtered rows even when their payloads
+    // are projected away.  The hub has no per-event actor-stable cursor ownership,
+    // so active RLS fails this whole carrier closed except for an explicit admin.
+    if read_authority.is_active() && !carrier.is_admin() {
+        return Ok(Response::err(
+            req_id,
+            "ACCESS_DENIED: streaming cursors have no actor-stable ownership under active RLS",
+        ));
+    }
     match method {
         Method::CdcRead {
             graph,
             from_seq,
             limit,
         } => {
+            if let Err(error) = authorize_graph(state, carrier, &graph, AccessLevel::Read).await {
+                return Ok(Response::err(req_id, error));
+            }
             let hub = match hub_of(state, req_id).await {
                 Ok(h) => h,
                 Err(r) => return Ok(r),
             };
             Ok(match hub.read(&graph, from_seq, limit) {
-                Ok(events) => Response::ok(req_id, ResultPayload::raw(&events)),
+                Ok(events) => {
+                    let events: Vec<CdcEvent> = events
+                        .into_iter()
+                        .filter_map(|event| sanitize_event(read_authority, event))
+                        .collect();
+                    Response::ok(req_id, ResultPayload::raw(&events))
+                }
                 Err(e) => Response::err(req_id, e),
             })
         }
 
         Method::RegisterContinuousQuery { name, spec_msgpack } => {
-            let spec: ContinuousQuerySpec = match rmp_serde::from_slice(&spec_msgpack) {
+            let spec: ContinuousQuerySpec = match eg_types::msgpack::decode_bounded(
+                &spec_msgpack,
+                eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 50_000, 64),
+            ) {
                 Ok(s) => s,
-                Err(e) => return Ok(Response::err(req_id, format!("invalid spec_msgpack: {e}"))),
+                Err(_) => {
+                    return Ok(Response::err(
+                        req_id,
+                        "invalid or over-complex continuous query specification",
+                    ))
+                }
             };
-            let initial = seed_value(state, &spec).await;
+            if let Err(error) =
+                authorize_graph(state, carrier, &spec.graph, AccessLevel::Read).await
+            {
+                return Ok(Response::err(req_id, error));
+            }
+            let initial = seed_value(state, read_authority, &spec).await;
             let hub = match hub_of(state, req_id).await {
                 Ok(h) => h,
                 Err(r) => return Ok(r),
             };
-            hub.register_query(name.clone(), spec, initial);
+            hub.register_query(owned_name(carrier, "cq", &name), spec, initial);
             Ok(Response::ok(req_id, ResultPayload::String(name)))
         }
 
@@ -107,8 +205,25 @@ pub(crate) async fn try_handle(
                 Ok(h) => h,
                 Err(r) => return Ok(r),
             };
-            Ok(match hub.read_query(&name) {
-                Some(r) => Response::ok(req_id, ResultPayload::raw(&r)),
+            let storage_name = owned_name(carrier, "cq", &name);
+            let Some(spec) = hub.query_spec(&storage_name) else {
+                return Ok(Response::err(
+                    req_id,
+                    format!("continuous query '{name}' not found"),
+                ));
+            };
+            if let Err(error) =
+                authorize_graph(state, carrier, &spec.graph, AccessLevel::Read).await
+            {
+                return Ok(Response::err(req_id, error));
+            }
+            let value = seed_value(state, read_authority, &spec).await;
+            Ok(match hub.read_query(&storage_name) {
+                Some(mut result) => {
+                    result.name = name;
+                    result.value = value;
+                    Response::ok(req_id, ResultPayload::raw(&result))
+                }
                 None => Response::err(req_id, format!("continuous query '{name}' not found")),
             })
         }
@@ -120,7 +235,7 @@ pub(crate) async fn try_handle(
             };
             Ok(Response::ok(
                 req_id,
-                ResultPayload::Bool(hub.drop_query(&name)),
+                ResultPayload::Bool(hub.drop_query(&owned_name(carrier, "cq", &name))),
             ))
         }
 
@@ -130,6 +245,9 @@ pub(crate) async fn try_handle(
             label,
             timeout_ms,
         } => {
+            if let Err(error) = authorize_graph(state, carrier, &graph, AccessLevel::Read).await {
+                return Ok(Response::err(req_id, error));
+            }
             let hub = match hub_of(state, req_id).await {
                 Ok(h) => h,
                 Err(r) => return Ok(r),
@@ -145,7 +263,7 @@ pub(crate) async fn try_handle(
             notified.as_mut().enable();
             // First pass: anything already pending since the cursor?
             let batch = match hub.watch_batch(&graph, from_seq, &label, 0) {
-                Ok(b) => b,
+                Ok(batch) => sanitize_watch(read_authority, batch),
                 Err(e) => return Ok(Response::err(req_id, e)),
             };
             if !batch.events.is_empty() {
@@ -159,7 +277,7 @@ pub(crate) async fn try_handle(
                 let _ = tokio::time::timeout(wait, notified).await;
             }
             let batch = match hub.watch_batch(&graph, from_seq, &label, 0) {
-                Ok(b) => b,
+                Ok(batch) => sanitize_watch(read_authority, batch),
                 Err(e) => return Ok(Response::err(req_id, e)),
             };
             Ok(Response::ok(req_id, ResultPayload::raw(&batch)))
@@ -172,11 +290,20 @@ pub(crate) async fn try_handle(
             op,
             action_msgpack,
         } => {
+            if let Err(error) = authorize_graph(state, carrier, &graph, AccessLevel::Read).await {
+                return Ok(Response::err(req_id, error));
+            }
             let hub = match hub_of(state, req_id).await {
                 Ok(h) => h,
                 Err(r) => return Ok(r),
             };
-            hub.register_trigger(name.clone(), graph, label, op, action_msgpack);
+            hub.register_trigger(
+                owned_name(carrier, "trigger", &name),
+                graph,
+                label,
+                op,
+                action_msgpack,
+            );
             Ok(Response::ok(req_id, ResultPayload::String(name)))
         }
 
@@ -187,19 +314,30 @@ pub(crate) async fn try_handle(
             };
             Ok(Response::ok(
                 req_id,
-                ResultPayload::Bool(hub.drop_trigger(&name)),
+                ResultPayload::Bool(hub.drop_trigger(&owned_name(carrier, "trigger", &name))),
             ))
         }
 
         Method::ListTriggers { graph } => {
+            if let Err(error) = authorize_graph(state, carrier, &graph, AccessLevel::Read).await {
+                return Ok(Response::err(req_id, error));
+            }
             let hub = match hub_of(state, req_id).await {
                 Ok(h) => h,
                 Err(r) => return Ok(r),
             };
-            Ok(Response::ok(
-                req_id,
-                ResultPayload::raw(&hub.list_triggers(&graph)),
-            ))
+            let prefix = owned_prefix(carrier, "trigger");
+            let mut triggers = hub.list_triggers(&graph);
+            triggers.retain_mut(|trigger| {
+                let Some(display) = trigger.name.strip_prefix(&prefix) else {
+                    return false;
+                };
+                trigger.name = display.to_string();
+                // The hub's raw counter includes invisible events; never expose it.
+                trigger.fire_count = 0;
+                true
+            });
+            Ok(Response::ok(req_id, ResultPayload::raw(&triggers)))
         }
 
         Method::FiredTriggers {
@@ -207,14 +345,31 @@ pub(crate) async fn try_handle(
             from_seq,
             limit,
         } => {
+            if let Err(error) = authorize_graph(state, carrier, &graph, AccessLevel::Read).await {
+                return Ok(Response::err(req_id, error));
+            }
             let hub = match hub_of(state, req_id).await {
                 Ok(h) => h,
                 Err(r) => return Ok(r),
             };
-            Ok(Response::ok(
-                req_id,
-                ResultPayload::raw(&hub.fired(&graph, from_seq, limit)),
-            ))
+            let prefix = owned_prefix(carrier, "trigger");
+            let mut fired = hub.fired(&graph, from_seq, limit);
+            fired.retain_mut(|action| {
+                let Some(display) = action.trigger.strip_prefix(&prefix) else {
+                    return false;
+                };
+                let visible = hub
+                    .read(&graph, action.change_seq, 1)
+                    .ok()
+                    .and_then(|events| events.into_iter().next())
+                    .and_then(|event| sanitize_event(read_authority, event))
+                    .is_some();
+                if visible {
+                    action.trigger = display.to_string();
+                }
+                visible
+            });
+            Ok(Response::ok(req_id, ResultPayload::raw(&fired)))
         }
 
         other => Err(other),

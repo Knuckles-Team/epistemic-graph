@@ -1,6 +1,7 @@
-import pytest
 import re
 from pathlib import Path
+
+import pytest
 
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")

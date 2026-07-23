@@ -43,7 +43,7 @@ pub fn arrow_type(ty: ColumnType) -> DataType {
 /// The Arrow [`SchemaRef`] for a user table's catalog schema.
 pub fn arrow_schema(schema: &TableSchema) -> SchemaRef {
     let fields: Vec<Field> = schema
-        .columns
+        .columns()
         .iter()
         .map(|c| Field::new(&c.name, arrow_type(c.ty), c.nullable))
         .collect();
@@ -58,9 +58,9 @@ pub fn materialize(
     rows: &[Vec<Cell>],
 ) -> Result<(SchemaRef, RecordBatch), String> {
     let arrow = arrow_schema(schema);
-    let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.columns.len());
+    let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.columns().len());
 
-    for (ci, col) in schema.columns.iter().enumerate() {
+    for (ci, col) in schema.columns().iter().enumerate() {
         let array: ArrayRef = match arrow_type(col.ty) {
             DataType::Int64 => {
                 let mut b = Int64Builder::new();

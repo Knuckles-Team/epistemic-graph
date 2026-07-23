@@ -5,7 +5,7 @@
 
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{Bfs, EdgeRef, IntoEdgeReferences};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use crate::graph::{GraphCore, GraphView};
@@ -303,58 +303,61 @@ pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
         .collect()
 }
 
-/// PageRank via power iteration method.
+/// PageRank via power iteration (CONCEPT:EG-KG.compute.pagerank-sparse-csr).
+///
+/// Delegates to the sparse, CSR-adjacency-list, memory-bounded implementation in
+/// [`crate::graph_algos::pagerank`] (the same engine `CALL gds.pageRank` in
+/// Cypher already uses) instead of maintaining a second, independently-written
+/// implementation directly over the live petgraph structure.
+///
+/// **Why this changed.** The prior version allocated a fresh
+/// `HashMap<NodeIndex, f64>` of size `n` on EVERY iteration (`new_scores`) and
+/// resolved each node's in/out edges via per-node `edges_directed` lookups. On a
+/// large graph (~139k nodes) that per-iteration HashMap churn — hashing +
+/// rehashing + heap allocation, repeated `iterations` times, never reused — OOM-
+/// killed the engine on an unbounded whole-graph PageRank call. The sparse path
+/// here builds ONE flat CSR-style adjacency (`Vec<Vec<(usize, f64)>>`, via
+/// [`crate::graph_algos::graph::AdjacencyGraph`]) once, up front, and reuses TWO
+/// `Vec<f64>` score buffers across every iteration (swapped, never reallocated) —
+/// `O(V+E)` working memory, bounded regardless of `iterations`, with no per-
+/// iteration allocation at all. It also converges early once the L1 tolerance is
+/// reached, rather than always spending the full iteration budget.
+///
+/// **Correctness parity, one intentional improvement.** The computation itself —
+/// distributing each node's rank across its out-edges, weighted by damping, plus
+/// a uniform teleport term — is the SAME power iteration the prior
+/// implementation ran (pull-from-incoming vs. push-to-outgoing are the same
+/// arithmetic, just iterated from opposite ends: see
+/// `pagerank_matches_prior_dense_implementation_on_a_small_graph` for the
+/// differential proof on a small graph with no dangling nodes). Every node
+/// (including one with zero edges) is still scored: `node_indices()` seeds the
+/// adjacency with an explicit empty out-list rather than only registering nodes
+/// that appear in an edge. Unlike the prior version, a dangling node (no
+/// out-edges) now redistributes its rank uniformly instead of leaking it, so
+/// total rank mass is properly conserved at 1.0 — the prior implementation did
+/// not conserve mass on a graph with dangling nodes, which is a correctness
+/// improvement, not a behavior this delegation is obligated to reproduce.
 pub fn pagerank(core: &GraphView, damping: f64, iterations: usize) -> Vec<(String, f64)> {
-    let nodes: Vec<NodeIndex> = core.graph.node_indices().collect();
-    let n = nodes.len();
-    if n == 0 {
-        return Vec::new();
-    }
-
-    let initial = 1.0 / n as f64;
-    let mut scores: HashMap<NodeIndex, f64> = HashMap::new();
-    for &node in &nodes {
-        scores.insert(node, initial);
-    }
-
-    // Pre-compute out-degree for each node
-    let mut out_degree: HashMap<NodeIndex, usize> = HashMap::new();
-    for &node in &nodes {
-        out_degree.insert(
-            node,
-            core.graph
-                .edges_directed(node, petgraph::Direction::Outgoing)
-                .count(),
-        );
-    }
-
-    for _ in 0..iterations {
-        let mut new_scores: HashMap<NodeIndex, f64> = HashMap::new();
-        let teleport = (1.0 - damping) / n as f64;
-
-        for &node in &nodes {
-            let mut rank_sum = 0.0;
-            // Sum contributions from all predecessors
-            for edge in core
+    let adjacency: Vec<(String, Vec<(String, f64)>)> = core
+        .graph
+        .node_indices()
+        .map(|idx| {
+            let id = core.graph[idx].clone();
+            let out_neighbors: Vec<(String, f64)> = core
                 .graph
-                .edges_directed(node, petgraph::Direction::Incoming)
-            {
-                let src = edge.source();
-                let src_out = *out_degree.get(&src).unwrap_or(&1);
-                if src_out > 0 {
-                    rank_sum += scores[&src] / src_out as f64;
-                }
-            }
-            new_scores.insert(node, teleport + damping * rank_sum);
-        }
-
-        scores = new_scores;
-    }
-
-    scores
-        .into_iter()
-        .map(|(idx, score)| (core.graph[idx].clone(), score))
-        .collect()
+                .edges_directed(idx, petgraph::Direction::Outgoing)
+                .map(|e| (core.graph[e.target()].clone(), 1.0))
+                .collect();
+            (id, out_neighbors)
+        })
+        .collect();
+    let adj = crate::graph_algos::graph::AdjacencyGraph::from_adjacency(adjacency);
+    let config = crate::graph_algos::pagerank::PageRankConfig {
+        damping,
+        tolerance: 1e-10,
+        max_iterations: iterations.max(1),
+    };
+    crate::graph_algos::pagerank::pagerank(&adj, &config).scores
 }
 
 // ── Component / Community Algorithms ─────────────────────────────────────
@@ -994,7 +997,7 @@ pub fn compute_similarity_edges(core: &GraphView, threshold: f64) -> Vec<(String
 /// `canonical`) or `"extends"` (a subtype/version relationship between distinct
 /// entities — link, don't merge). The op is **read/propose only**: it never
 /// mutates the graph, so the client decides whether to apply via `BatchUpdate`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MergeProposal {
     pub canonical: String,
     pub members: Vec<String>,
@@ -1309,94 +1312,429 @@ pub fn get_context_view(
     }
 }
 
-/// Batch update: apply multiple graph operations in a single epistemic-graph crossing.
+/// One validated operation in the public `BatchUpdate` wire contract.
 ///
-/// Accepts a JSON array of operations:
-/// - {"op": "add_node", "id": "...", "properties": "..."}
-/// - {"op": "remove_node", "id": "..."}
-/// - {"op": "add_edge", "source": "...", "target": "...", "properties": "..."}
-/// - {"op": "remove_edge", "source": "...", "target": "..."}
-pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u8>, String> {
-    let ops: Vec<serde_json::Value> = rmp_serde::from_slice(operations_msgpack)
-        .map_err(|e| format!("[EpistemicGraph::batch_update] invalid MsgPack: {e}"))?;
+/// This type is shared with the redb row adapter so RAM execution, WAL replay,
+/// embedded mode, and authoritative persistence cannot drift onto different field
+/// names. The public keys are deliberately `id`, `source`, and `target`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BatchOperation {
+    AddNode {
+        id: String,
+        properties_msgpack: Vec<u8>,
+        upsert: bool,
+    },
+    RemoveNode {
+        id: String,
+    },
+    AddEdge {
+        source: String,
+        target: String,
+        properties_msgpack: Vec<u8>,
+        upsert: bool,
+    },
+    RemoveEdge {
+        source: String,
+        target: String,
+    },
+    AddEmbedding {
+        id: String,
+        embedding: Vec<f32>,
+    },
+}
 
-    // The whole batch runs under ONE write transaction so it is atomic w.r.t.
-    // concurrent readers/writers — no other operation observes a half-applied
-    // batch (CONCEPT:EG-KG.compute.graph-compute-engine, Phase C-B).
-    let mut txn = core.txn();
+const MAX_BATCH_UPDATE_BYTES: usize = 32 * 1024 * 1024;
+const MAX_BATCH_UPDATE_ITEMS: usize = 500_000;
+const MAX_BATCH_OPERATIONS: usize = 50_000;
+const MAX_BATCH_ID_BYTES: usize = 4_096;
+const MAX_BATCH_PROPERTIES_BYTES: usize = 4 * 1024 * 1024;
+const MAX_BATCH_EMBEDDING_DIMENSIONS: usize = 65_536;
 
-    let mut added_nodes = 0u32;
-    let mut removed_nodes = 0u32;
-    let mut added_edges = 0u32;
-    let mut removed_edges = 0u32;
-    let mut errors = Vec::new();
+#[derive(Debug, Clone, Default, serde::Serialize)]
+struct BatchUpdateSummary {
+    added_nodes: u32,
+    upserted_nodes: u32,
+    removed_nodes: u32,
+    added_edges: u32,
+    upserted_edges: u32,
+    removed_edges: u32,
+    added_embeddings: u32,
+    errors: Vec<String>,
+}
 
-    for (i, op) in ops.iter().enumerate() {
-        let op_type = op.get("op").and_then(|v| v.as_str()).unwrap_or("");
-        match op_type {
-            "add_node" => {
-                let id = op.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                if !id.is_empty() {
-                    // Store properties as MsgPack (NOT json.to_string().into_bytes()).
-                    // GraphCore stores raw property bytes and the Python client reads
-                    // them with `msgpack.unpackb` — JSON-string bytes were unreadable,
-                    // so batch-written nodes looked empty/absent. Match the single
-                    // `AddNode` op, which stores `properties_msgpack`.
-                    let props_val = op
-                        .get("properties")
-                        .cloned()
-                        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
-                    let props_mp = rmp_serde::to_vec_named(&props_val).unwrap_or_default();
-                    txn.add_node(id.to_string(), props_mp);
-                    added_nodes += 1;
+fn required_batch_id(
+    operation: &serde_json::Value,
+    index: usize,
+    key: &str,
+) -> Result<String, String> {
+    let value = operation
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("BatchUpdate op[{index}] requires a non-empty string '{key}'"))?;
+    if value.len() > MAX_BATCH_ID_BYTES || value.chars().any(char::is_control) {
+        return Err(format!(
+            "BatchUpdate op[{index}] '{key}' exceeds the identifier policy"
+        ));
+    }
+    Ok(value.to_owned())
+}
+
+fn batch_properties(operation: &serde_json::Value, index: usize) -> Result<Vec<u8>, String> {
+    let value = operation
+        .get("properties")
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+    if !value.is_object() {
+        return Err(format!(
+            "BatchUpdate op[{index}] 'properties' must be an object"
+        ));
+    }
+    let encoded = rmp_serde::to_vec_named(&value)
+        .map_err(|_| format!("BatchUpdate op[{index}] properties encode failed"))?;
+    if encoded.len() > MAX_BATCH_PROPERTIES_BYTES {
+        return Err(format!(
+            "BatchUpdate op[{index}] properties exceed the resource limit"
+        ));
+    }
+    Ok(encoded)
+}
+
+/// Merge the supplied top-level fields into one existing node property object.
+///
+/// Both the RAM executor and the authoritative redb row adapter call this exact
+/// routine so `upsert_node` cannot drift between resident and durable state.
+/// Nested values are replaced as complete top-level fields; this is deliberately
+/// not a recursive JSON merge.
+pub fn merge_batch_node_properties(current: &[u8], updates: &[u8]) -> Result<Vec<u8>, String> {
+    let current = eg_types::msgpack::decode_property_value(current)
+        .map_err(|_| "existing node properties are not a valid object".to_string())?;
+    let updates = eg_types::msgpack::decode_property_value(updates)
+        .map_err(|_| "upsert properties are not a valid object".to_string())?;
+    let serde_json::Value::Object(mut current) = current else {
+        return Err("existing node properties are not a valid object".to_string());
+    };
+    let serde_json::Value::Object(updates) = updates else {
+        return Err("upsert properties are not a valid object".to_string());
+    };
+    current.extend(updates);
+    rmp_serde::to_vec_named(&serde_json::Value::Object(current)).map_err(|error| error.to_string())
+}
+
+/// Decode and validate the public `BatchUpdate` schema without mutating state.
+///
+/// Malformed MessagePack, missing fields, unknown operations, non-object properties,
+/// and invalid embeddings are terminal errors. Callers must never reinterpret an
+/// opaque or partially decoded payload as an empty successful batch.
+pub fn decode_batch_operations(operations_msgpack: &[u8]) -> Result<Vec<BatchOperation>, String> {
+    let operations: Vec<serde_json::Value> = eg_types::msgpack::decode_bounded(
+        operations_msgpack,
+        eg_types::msgpack::MsgpackLimits::new(MAX_BATCH_UPDATE_BYTES, MAX_BATCH_UPDATE_ITEMS, 64),
+    )
+    .map_err(|_| "[EpistemicGraph::batch_update] invalid or over-complex MsgPack".to_string())?;
+    if operations.len() > MAX_BATCH_OPERATIONS {
+        return Err("BatchUpdate operation count exceeds the resource limit".to_string());
+    }
+    let mut decoded = Vec::with_capacity(operations.len());
+    for (index, operation) in operations.iter().enumerate() {
+        let kind = operation
+            .get("op")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| format!("BatchUpdate op[{index}] requires string 'op'"))?;
+        let decoded_operation = match kind {
+            "add_node" | "upsert_node" => BatchOperation::AddNode {
+                id: required_batch_id(operation, index, "id")?,
+                properties_msgpack: batch_properties(operation, index)?,
+                upsert: kind == "upsert_node",
+            },
+            "remove_node" => BatchOperation::RemoveNode {
+                id: required_batch_id(operation, index, "id")?,
+            },
+            "add_edge" | "upsert_edge" => BatchOperation::AddEdge {
+                source: required_batch_id(operation, index, "source")?,
+                target: required_batch_id(operation, index, "target")?,
+                properties_msgpack: batch_properties(operation, index)?,
+                upsert: kind == "upsert_edge",
+            },
+            "remove_edge" => BatchOperation::RemoveEdge {
+                source: required_batch_id(operation, index, "source")?,
+                target: required_batch_id(operation, index, "target")?,
+            },
+            "add_embedding" => {
+                let id = required_batch_id(operation, index, "id")?;
+                let values = operation
+                    .get("embedding")
+                    .and_then(serde_json::Value::as_array)
+                    .filter(|values| !values.is_empty())
+                    .ok_or_else(|| {
+                        format!(
+                            "BatchUpdate op[{index}] 'embedding' must be a non-empty number array"
+                        )
+                    })?;
+                if values.len() > MAX_BATCH_EMBEDDING_DIMENSIONS {
+                    return Err(format!(
+                        "BatchUpdate op[{index}] embedding exceeds the dimension limit"
+                    ));
                 }
-            }
-            "remove_node" => {
-                let id = op.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                if !id.is_empty() {
-                    txn.remove_node(id.to_string());
-                    removed_nodes += 1;
+                let mut embedding = Vec::with_capacity(values.len());
+                for value in values {
+                    let number = value.as_f64().ok_or_else(|| {
+                        format!("BatchUpdate op[{index}] embedding contains a non-number")
+                    })?;
+                    let component = number as f32;
+                    if !number.is_finite() || !component.is_finite() {
+                        return Err(format!(
+                            "BatchUpdate op[{index}] embedding contains a non-finite component"
+                        ));
+                    }
+                    embedding.push(component);
                 }
+                BatchOperation::AddEmbedding { id, embedding }
             }
-            "add_edge" => {
-                let src = op.get("source").and_then(|v| v.as_str()).unwrap_or("");
-                let tgt = op.get("target").and_then(|v| v.as_str()).unwrap_or("");
-                if !src.is_empty() && !tgt.is_empty() {
-                    // MsgPack props — same read-compatibility fix as add_node above.
-                    let props_val = op
-                        .get("properties")
-                        .cloned()
-                        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
-                    let props_mp = rmp_serde::to_vec_named(&props_val).unwrap_or_default();
-                    if let Err(e) = txn.add_edge(src.to_string(), tgt.to_string(), props_mp) {
-                        errors.push(format!("op[{i}]: {e}"));
-                    } else {
-                        added_edges += 1;
+            _ => return Err(format!("BatchUpdate op[{index}] has an unknown operation")),
+        };
+        decoded.push(decoded_operation);
+    }
+    Ok(decoded)
+}
+
+fn prepare_batch_operations_with(
+    operations: &mut [BatchOperation],
+    mut node_exists: impl FnMut(&str) -> bool,
+    mut node_properties: impl FnMut(&str) -> Option<Vec<u8>>,
+) -> Result<(), String> {
+    // Track only ids touched by this batch. The property image is needed so two
+    // ordered upserts merge cumulatively before the first RAM mutation occurs.
+    let mut node_state = HashMap::<String, Option<Vec<u8>>>::new();
+    for (index, operation) in operations.iter_mut().enumerate() {
+        match operation {
+            BatchOperation::AddNode {
+                id,
+                properties_msgpack,
+                upsert,
+            } => {
+                if *upsert {
+                    let current = match node_state.get(id) {
+                        Some(properties) => properties.clone(),
+                        None => match node_properties(id) {
+                            Some(properties) => Some(properties),
+                            None if node_exists(id) => {
+                                return Err(format!(
+                                    "BatchUpdate op[{index}] node '{id}' has no property document"
+                                ));
+                            }
+                            None => None,
+                        },
+                    };
+                    if let Some(current) = current {
+                        *properties_msgpack = merge_batch_node_properties(
+                            &current,
+                            properties_msgpack,
+                        )
+                        .map_err(|reason| {
+                            format!("BatchUpdate op[{index}] cannot upsert node '{id}': {reason}")
+                        })?;
                     }
                 }
+                node_state.insert(id.clone(), Some(properties_msgpack.clone()));
             }
-            "remove_edge" => {
-                let src = op.get("source").and_then(|v| v.as_str()).unwrap_or("");
-                let tgt = op.get("target").and_then(|v| v.as_str()).unwrap_or("");
-                if !src.is_empty() && !tgt.is_empty() {
-                    txn.remove_edge(src.to_string(), tgt.to_string());
-                    removed_edges += 1;
+            BatchOperation::RemoveNode { id } => {
+                node_state.insert(id.clone(), None);
+            }
+            BatchOperation::AddEdge { source, target, .. } => {
+                let source_exists = node_state
+                    .get(source)
+                    .map(Option::is_some)
+                    .unwrap_or_else(|| node_exists(source));
+                let target_exists = node_state
+                    .get(target)
+                    .map(Option::is_some)
+                    .unwrap_or_else(|| node_exists(target));
+                if !source_exists || !target_exists {
+                    return Err(format!(
+                        "BatchUpdate op[{index}] edge endpoints must exist at that point in the batch"
+                    ));
                 }
             }
-            _ => {
-                errors.push(format!("op[{i}]: unknown operation '{op_type}'"));
+            BatchOperation::RemoveEdge { .. } => {}
+            BatchOperation::AddEmbedding { id, .. } => {
+                let node_exists = node_state
+                    .get(id)
+                    .map(Option::is_some)
+                    .unwrap_or_else(|| node_exists(id));
+                if !node_exists {
+                    return Err(format!(
+                        "BatchUpdate op[{index}] embedding node '{id}' does not exist"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn prepare_batch_operations(
+    core: &GraphCore,
+    operations: &mut [BatchOperation],
+) -> Result<(), String> {
+    prepare_batch_operations_with(
+        operations,
+        |id| core.has_node(id),
+        |id| core.get_node_properties(id),
+    )
+}
+
+fn batch_summary(operations: &[BatchOperation]) -> BatchUpdateSummary {
+    let mut summary = BatchUpdateSummary::default();
+    for operation in operations {
+        match operation {
+            BatchOperation::AddNode { upsert, .. } => {
+                summary.added_nodes += 1;
+                summary.upserted_nodes += u32::from(*upsert);
+            }
+            BatchOperation::RemoveNode { .. } => summary.removed_nodes += 1,
+            BatchOperation::AddEdge { upsert, .. } => {
+                summary.added_edges += 1;
+                summary.upserted_edges += u32::from(*upsert);
+            }
+            BatchOperation::RemoveEdge { .. } => summary.removed_edges += 1,
+            BatchOperation::AddEmbedding { .. } => summary.added_embeddings += 1,
+        }
+    }
+    summary
+}
+
+fn encode_batch_summary(summary: &BatchUpdateSummary) -> Result<Vec<u8>, String> {
+    rmp_serde::to_vec_named(summary).map_err(|error| error.to_string())
+}
+
+/// Validate a batch against the current graph and return its deterministic success
+/// payload without applying it. The authoritative mutation gateway uses this to put
+/// valid batches on the durable-before-RAM row path.
+pub fn batch_update_preview(
+    core: &GraphCore,
+    operations_msgpack: &[u8],
+) -> Result<Vec<u8>, String> {
+    let mut operations = decode_batch_operations(operations_msgpack)?;
+    prepare_batch_operations(core, &mut operations)?;
+    encode_batch_summary(&batch_summary(&operations))
+}
+
+/// Apply a validated collection of graph/vector operations atomically from the
+/// caller's perspective. Structural rows share one topology transaction; semantic
+/// actions execute in wire order while that topology guard is still held. The same
+/// decoded operations are used by redb, so replay and restart preserve RAM behavior.
+///
+/// Supported operations are `add_node`, `upsert_node`, `remove_node`, `add_edge`,
+/// `upsert_edge`, `remove_edge`, and `add_embedding`. Nodes use `id`; edges use
+/// `source` and `target`; embeddings use `id` plus a non-empty `embedding` array.
+pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u8>, String> {
+    let mut operations = decode_batch_operations(operations_msgpack)?;
+    let summary = batch_summary(&operations);
+    let capture_content = core.wants_change_content();
+    let mut node_upserts = BTreeMap::<String, Vec<u8>>::new();
+    let mut node_removals = BTreeSet::<String>::new();
+    let mut change = eg_core::index::ChangeSet::new();
+
+    enum SemanticAction {
+        Upsert(String, Vec<f32>),
+        Remove(String),
+    }
+    let mut semantic_actions = Vec::new();
+
+    // ONE topology guard makes every structural operation atomic to graph readers.
+    let mut txn = core.txn();
+    // Revalidate against the state protected by this exact guard. Validation must
+    // finish before the first mutation so a concurrent removal between preview and
+    // execution cannot turn an otherwise valid batch into a partial write.
+    prepare_batch_operations_with(
+        &mut operations,
+        |id| txn.has_node(id),
+        |id| txn.get_node_properties(id),
+    )?;
+    let source_version = core.version();
+    for operation in operations {
+        match operation {
+            BatchOperation::AddNode {
+                id,
+                properties_msgpack,
+                ..
+            } => {
+                if capture_content {
+                    node_removals.remove(&id);
+                    node_upserts.insert(id.clone(), properties_msgpack.clone());
+                } else {
+                    node_removals.remove(&id);
+                    node_upserts.insert(id.clone(), Vec::new());
+                }
+                txn.add_node(id, properties_msgpack);
+            }
+            BatchOperation::RemoveNode { id } => {
+                node_upserts.remove(&id);
+                node_removals.insert(id.clone());
+                txn.remove_node(id.clone());
+                semantic_actions.push(SemanticAction::Remove(id));
+            }
+            BatchOperation::AddEdge {
+                source,
+                target,
+                properties_msgpack,
+                upsert,
+            } => {
+                if upsert {
+                    txn.remove_edge(source.clone(), target.clone());
+                    change.record_remove_edge(source.clone(), target.clone());
+                }
+                txn.add_edge(source.clone(), target.clone(), properties_msgpack)?;
+                change.record_add_edge(source, target);
+            }
+            BatchOperation::RemoveEdge { source, target } => {
+                txn.remove_edge(source.clone(), target.clone());
+                change.record_remove_edge(source, target);
+            }
+            BatchOperation::AddEmbedding { id, embedding } => {
+                semantic_actions.push(SemanticAction::Upsert(id, embedding));
             }
         }
     }
 
-    let result = serde_json::json!({
-        "added_nodes": added_nodes,
-        "removed_nodes": removed_nodes,
-        "added_edges": added_edges,
-        "removed_edges": removed_edges,
-        "errors": errors,
-    });
-    rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())
+    // Preserve operation order: remove→re-add→embedding and embedding→remove
+    // reach the same final semantic state after RAM execution and durable replay.
+    if !semantic_actions.is_empty() {
+        let mut semantic = core.semantic_store.write();
+        for action in semantic_actions {
+            match action {
+                SemanticAction::Upsert(id, embedding) => semantic.add_embedding(id, embedding),
+                SemanticAction::Remove(id) => {
+                    semantic.remove_embedding(&id);
+                }
+            }
+        }
+    }
+
+    for (id, properties) in node_upserts {
+        if capture_content {
+            change
+                .added_nodes
+                .push(eg_core::index::NodeChange::with_properties(id, properties));
+        } else {
+            change.record_add_node(id);
+        }
+    }
+    for id in node_removals {
+        change.record_remove_node(id);
+    }
+    let node_count = txn.node_count();
+    let edge_count = txn.edge_count();
+    core.maintain_indexes_at(
+        &change,
+        source_version.saturating_add(1),
+        node_count,
+        edge_count,
+    );
+    drop(txn);
+
+    encode_batch_summary(&summary)
 }
 
 /// Compute runtime metrics for observability.
@@ -1648,7 +1986,7 @@ mod community_tests {
         let ops = serde_json::json!([
             {"op": "add_node", "id": "code:A", "properties": {"type": "Code", "language": "java", "name": "Widget"}},
             {"op": "add_node", "id": "code:B", "properties": {"type": "Code", "language": "rust"}},
-            {"op": "add_edge", "source": "code:A", "target": "code:B", "properties": {"rel_type": "CALLS"}},
+            {"op": "add_edge", "source": "code:A", "target": "code:B", "properties": {"relationship": "CALLS"}},
         ]);
         let ops_mp = rmp_serde::to_vec_named(&ops).unwrap();
         let res_mp = batch_update(&g, &ops_mp).unwrap();
@@ -1663,6 +2001,133 @@ mod community_tests {
         let props: serde_json::Value = rmp_serde::from_slice(&raw).expect("props are msgpack");
         assert_eq!(props["language"], "java");
         assert_eq!(props["name"], "Widget");
+    }
+
+    #[test]
+    fn upsert_node_merges_top_level_fields_and_creates_missing_node() {
+        let g = GraphCore::new();
+        g.add_node(
+            "existing".to_string(),
+            rmp_serde::to_vec_named(&serde_json::json!({
+                "retained": "yes",
+                "overwritten": "old",
+                "nested": {"left": 1, "right": 2}
+            }))
+            .unwrap(),
+        );
+        let operations = rmp_serde::to_vec_named(&serde_json::json!([
+            {
+                "op": "upsert_node",
+                "id": "existing",
+                "properties": {
+                    "overwritten": "new",
+                    "added": true,
+                    "nested": {"left": 9}
+                }
+            },
+            {"op": "upsert_node", "id": "existing", "properties": {"last": true}},
+            {"op": "upsert_node", "id": "created", "properties": {"created": true}}
+        ]))
+        .unwrap();
+
+        let preview = batch_update_preview(&g, &operations).unwrap();
+        let applied = batch_update(&g, &operations).unwrap();
+
+        assert_eq!(preview, applied);
+        let existing: serde_json::Value =
+            rmp_serde::from_slice(&g.get_node_properties("existing").unwrap()).unwrap();
+        assert_eq!(existing["retained"], "yes");
+        assert_eq!(existing["overwritten"], "new");
+        assert_eq!(existing["added"], true);
+        assert_eq!(existing["last"], true);
+        assert_eq!(existing["nested"], serde_json::json!({"left": 9}));
+        let created: serde_json::Value =
+            rmp_serde::from_slice(&g.get_node_properties("created").unwrap()).unwrap();
+        assert_eq!(created, serde_json::json!({"created": true}));
+    }
+
+    #[test]
+    fn invalid_existing_upsert_fails_before_any_ram_mutation() {
+        let g = GraphCore::new();
+        let invalid = rmp_serde::to_vec_named(&serde_json::json!("not-an-object")).unwrap();
+        g.add_node("invalid".to_string(), invalid.clone());
+        let operations = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "add_node", "id": "would-have-been-partial", "properties": {}},
+            {"op": "upsert_node", "id": "invalid", "properties": {"field": "value"}}
+        ]))
+        .unwrap();
+
+        let error = batch_update(&g, &operations).unwrap_err();
+
+        assert!(error.contains("cannot upsert"));
+        assert!(!g.has_node("would-have-been-partial"));
+        assert_eq!(g.get_node_properties("invalid"), Some(invalid));
+    }
+
+    #[test]
+    fn batch_update_preview_matches_ram_upsert_vector_and_tombstone() {
+        let g = GraphCore::new();
+        let operations = serde_json::json!([
+            {"op": "add_node", "id": "a", "properties": {"text": "old body"}},
+            {"op": "add_node", "id": "b", "properties": {"text": "peer"}},
+            {"op": "add_edge", "source": "a", "target": "b", "properties": {"kind": "old"}},
+            {"op": "add_edge", "source": "a", "target": "b", "properties": {"kind": "also old"}},
+            {"op": "upsert_edge", "source": "a", "target": "b", "properties": {"kind": "new"}},
+            {"op": "add_embedding", "id": "a", "embedding": [0.25, 0.75]}
+        ]);
+        let bytes = rmp_serde::to_vec_named(&operations).unwrap();
+        let preview = batch_update_preview(&g, &bytes).unwrap();
+        let applied = batch_update(&g, &bytes).unwrap();
+        assert_eq!(
+            preview, applied,
+            "durable prediction and RAM result drifted"
+        );
+        assert_eq!(g.edge_count(), 1, "upsert_edge must replace parallel rows");
+        let edge: serde_json::Value =
+            rmp_serde::from_slice(&g.get_edges()[0].2).expect("edge properties");
+        assert_eq!(edge["kind"], "new");
+        assert_eq!(
+            g.semantic_store.read().get_embedding("a"),
+            Some(vec![0.25, 0.75])
+        );
+
+        let remove = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "remove_node", "id": "a"}
+        ]))
+        .unwrap();
+        batch_update(&g, &remove).unwrap();
+        assert!(!g.has_node("a"));
+        assert_eq!(g.edge_count(), 0, "node removal must drop incident edges");
+        assert_eq!(g.semantic_store.read().get_embedding("a"), None);
+    }
+
+    #[test]
+    fn malformed_batch_fails_before_any_ram_mutation() {
+        let g = GraphCore::new();
+        let operations = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "add_node", "id": "would-have-been-partial", "properties": {}},
+            {"op": "add_edge", "source": "would-have-been-partial"}
+        ]))
+        .unwrap();
+        let error = batch_update(&g, &operations).unwrap_err();
+        assert!(error.contains("target"));
+        assert_eq!(g.node_count(), 0, "validation must precede the write txn");
+        assert!(
+            batch_update(&g, &[0xc1]).is_err(),
+            "opaque MsgPack must fail"
+        );
+    }
+
+    #[test]
+    fn batch_decode_rejects_nested_allocation_bombs_and_oversized_ids() {
+        assert!(decode_batch_operations(&[0xdd, 0xff, 0xff, 0xff, 0xff]).is_err());
+        let oversized = rmp_serde::to_vec_named(&serde_json::json!([{
+            "op": "add_node",
+            "id": "x".repeat(MAX_BATCH_ID_BYTES + 1),
+            "properties": {}
+        }]))
+        .unwrap();
+        assert!(decode_batch_operations(&oversized).is_err());
     }
 
     #[test]
@@ -1808,5 +2273,159 @@ mod resolve_candidates_tests {
         g.add_node("only".into(), pe(&[1.0, 0.0], "Concept"));
         let snap = g.analysis_snapshot();
         assert!(resolve_candidates(&snap, 0.8, 0.95, None).is_empty());
+    }
+}
+
+/// Engine follow-up B (CONCEPT:EG-KG.compute.pagerank-sparse-csr): proves the new sparse-CSR
+/// `pagerank` (delegating to `graph_algos::pagerank`) is numerically equivalent
+/// to the PRIOR dense, per-iteration-`HashMap` implementation it replaced — not
+/// just "produces *a* score", but the same score, to floating-point tolerance.
+#[cfg(test)]
+mod pagerank_tests {
+    use super::*;
+    use crate::graph::GraphCore;
+
+    fn p() -> Vec<u8> {
+        rmp_serde::to_vec_named(&serde_json::json!({"type": "Doc"})).unwrap()
+    }
+
+    fn build(nodes: &[&str], edges: &[(&str, &str)]) -> GraphView {
+        let g = GraphCore::new();
+        for n in nodes {
+            g.add_node((*n).to_string(), p());
+        }
+        for (s, t) in edges {
+            g.add_edge((*s).to_string(), (*t).to_string(), p()).unwrap();
+        }
+        g.topology_snapshot()
+    }
+
+    /// The EXACT prior implementation (verbatim, kept ONLY here as the oracle for
+    /// this differential test) — HashMap-per-iteration, pull-from-incoming-edges.
+    /// Always runs the full `iterations` count (no early-convergence exit), which
+    /// is why the real `pagerank` under test is driven with a tolerance tight
+    /// enough (`1e-10`) that it won't converge early either, over the fixed
+    /// iteration count used below — an apples-to-apples comparison.
+    fn dense_pagerank_oracle(
+        core: &GraphView,
+        damping: f64,
+        iterations: usize,
+    ) -> Vec<(String, f64)> {
+        use petgraph::stable_graph::NodeIndex;
+        let nodes: Vec<NodeIndex> = core.graph.node_indices().collect();
+        let n = nodes.len();
+        if n == 0 {
+            return Vec::new();
+        }
+        let initial = 1.0 / n as f64;
+        let mut scores: HashMap<NodeIndex, f64> = HashMap::new();
+        for &node in &nodes {
+            scores.insert(node, initial);
+        }
+        let mut out_degree: HashMap<NodeIndex, usize> = HashMap::new();
+        for &node in &nodes {
+            out_degree.insert(
+                node,
+                core.graph
+                    .edges_directed(node, petgraph::Direction::Outgoing)
+                    .count(),
+            );
+        }
+        for _ in 0..iterations {
+            let mut new_scores: HashMap<NodeIndex, f64> = HashMap::new();
+            let teleport = (1.0 - damping) / n as f64;
+            for &node in &nodes {
+                let mut rank_sum = 0.0;
+                for edge in core
+                    .graph
+                    .edges_directed(node, petgraph::Direction::Incoming)
+                {
+                    let src = edge.source();
+                    let src_out = *out_degree.get(&src).unwrap_or(&1);
+                    if src_out > 0 {
+                        rank_sum += scores[&src] / src_out as f64;
+                    }
+                }
+                new_scores.insert(node, teleport + damping * rank_sum);
+            }
+            scores = new_scores;
+        }
+        scores
+            .into_iter()
+            .map(|(idx, score)| (core.graph[idx].clone(), score))
+            .collect()
+    }
+
+    /// A small graph with NO dangling nodes (every node has ≥1 out-edge — a
+    /// directed cycle plus a chord) so the two implementations' only difference
+    /// (dangling-mass redistribution) never triggers: this isolates the proof to
+    /// "same core power-iteration arithmetic, same answer".
+    fn no_dangling_fixture() -> GraphView {
+        build(
+            &["a", "b", "c", "d"],
+            &[("a", "b"), ("b", "c"), ("c", "d"), ("d", "a"), ("a", "c")],
+        )
+    }
+
+    #[test]
+    fn pagerank_matches_prior_dense_implementation_on_a_small_graph() {
+        let g = no_dangling_fixture();
+        let iterations = 50;
+        let damping = 0.85;
+
+        let oracle = dense_pagerank_oracle(&g, damping, iterations);
+        let sparse = pagerank(&g, damping, iterations);
+
+        let oracle_map: HashMap<&str, f64> = oracle.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        let sparse_map: HashMap<&str, f64> = sparse.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+
+        assert_eq!(oracle_map.len(), sparse_map.len(), "same node set scored");
+        for (id, oracle_score) in &oracle_map {
+            let sparse_score = sparse_map
+                .get(id)
+                .unwrap_or_else(|| panic!("sparse pagerank missing node {id}"));
+            assert!(
+                (oracle_score - sparse_score).abs() < 1e-6,
+                "node {id}: oracle={oracle_score} sparse={sparse_score} — must match \
+                 the prior dense implementation to floating-point tolerance"
+            );
+        }
+    }
+
+    /// A node with zero edges (neither source nor target of any edge) must still
+    /// be scored — the sparse rewrite must not silently drop isolated nodes just
+    /// because they never appear in an edge list.
+    #[test]
+    fn pagerank_scores_isolated_nodes() {
+        let g = build(&["a", "b", "isolated"], &[("a", "b")]);
+        let scores = pagerank(&g, 0.85, 20);
+        assert_eq!(scores.len(), 3, "isolated node must still be scored");
+        let map: HashMap<&str, f64> = scores.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        assert!(map.contains_key("isolated"));
+        assert!(
+            map["isolated"] > 0.0,
+            "isolated node still gets teleport mass"
+        );
+    }
+
+    /// Mass conservation on a graph WITH a dangling node (b has no out-edges) —
+    /// the one place the sparse implementation is intentionally MORE correct than
+    /// the prior dense one (which leaked dangling mass instead of redistributing
+    /// it). Total rank must still sum to ~1.0.
+    #[test]
+    fn pagerank_conserves_mass_with_a_dangling_node() {
+        let g = build(&["a", "b"], &[("a", "b")]); // b is dangling (no out-edges)
+        let scores = pagerank(&g, 0.85, 50);
+        let total: f64 = scores.iter().map(|(_, v)| v).sum();
+        assert!(
+            (total - 1.0).abs() < 1e-6,
+            "rank mass must be conserved at 1.0, got {total}"
+        );
+    }
+
+    #[test]
+    fn pagerank_empty_graph_returns_empty() {
+        let g = GraphCore::new().topology_snapshot();
+        assert!(pagerank(&g, 0.85, 20).is_empty());
     }
 }

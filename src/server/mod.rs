@@ -3,8 +3,201 @@
 // Long-running Tokio server that holds the GraphRegistry in memory
 // and serves requests over UDS or TCP with HMAC-SHA256 authentication.
 
-mod access;
-mod auth;
+use hmac::Mac as _;
+
+pub(crate) mod access;
+pub(crate) mod auth;
+
+/// Verified minimum stack for engine Tokio workers.
+///
+/// Full multimodal/job publication dispatch can exceed Tokio's 2 MiB default in
+/// debug and instrumented builds. Keep one explicit product value shared by the
+/// production runtime and exact integration runtimes; environment variables are
+/// not part of this safety contract.
+pub const ENGINE_WORKER_STACK_BYTES: usize = 4 * 1024 * 1024;
+
+const _: () = assert!(ENGINE_WORKER_STACK_BYTES >= 4 * 1024 * 1024);
+
+/// Start the engine's async driver on an explicitly sized stack.
+///
+/// Tokio's `thread_stack_size` applies only to runtime-owned workers; calling
+/// `Runtime::block_on` from a default-sized launcher would still execute the
+/// outer driver future on that launcher's stack. Production and exact tests use
+/// this helper so both the outer driver and Tokio workers share the same verified
+/// minimum. Spawn diagnostics are deliberately normalized and contain no host,
+/// path, or identity data.
+pub fn spawn_engine_driver<F, T>(driver: F) -> std::io::Result<std::thread::JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    std::thread::Builder::new()
+        .name("epistemic-graph-runtime-driver".to_string())
+        .stack_size(ENGINE_WORKER_STACK_BYTES)
+        .spawn(driver)
+        .map_err(|error| {
+            std::io::Error::new(error.kind(), "engine runtime driver thread could not start")
+        })
+}
+
+/// Join the engine driver without reflecting a panic payload into logs or errors.
+pub fn join_engine_driver<T>(driver: std::thread::JoinHandle<T>) -> std::io::Result<T> {
+    driver
+        .join()
+        .map_err(|_| std::io::Error::other("engine runtime driver terminated unexpectedly"))
+}
+
+fn direct_wire_addr_is_loopback(addr: &str) -> bool {
+    addr.parse::<std::net::SocketAddr>()
+        .map(|socket| socket.ip().is_loopback())
+        .unwrap_or_else(|_| {
+            addr.rsplit_once(':')
+                .map(|(host, port)| {
+                    host.trim_matches(|character| character == '[' || character == ']')
+                        .eq_ignore_ascii_case("localhost")
+                        && !port.is_empty()
+                        && port.chars().all(|character| character.is_ascii_digit())
+                })
+                .unwrap_or(false)
+        })
+}
+
+/// Validate a plaintext database-compatibility listener before it binds.
+///
+/// PGWire, MySQL, MSSQL TDS, Bolt, AMQP, MQTT and STOMP do not terminate TLS themselves. Their direct
+/// listeners therefore remain loopback-only even when the broader auxiliary
+/// two-key ingress exception is enabled. A routable deployment terminates TLS
+/// (preferably mTLS) in an identity-aware sidecar/gateway and connects that
+/// gateway to this loopback backend. The protocol login must be
+/// cryptographically verified before its principal becomes an engine ACL actor;
+/// there is no anonymous or trust compatibility mode.
+pub fn validate_direct_wire_security(
+    addr: &str,
+    surface: &str,
+    verified_identity_binding: bool,
+) -> std::io::Result<()> {
+    if !direct_wire_addr_is_loopback(addr) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "{surface} direct listener is plaintext and must bind loopback; expose it only through an authenticated TLS identity-binding gateway"
+            ),
+        ));
+    }
+    if !verified_identity_binding {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "{surface} listener requires cryptographically verified login-to-actor binding"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Convert a successfully authenticated broker principal into a stable, bounded,
+/// non-reversible actor reference before it reaches engine authorization or durable
+/// audit state. The same principal maps to the same actor across AMQP/MQTT/STOMP,
+/// while the deployment secret prevents offline recovery of low-entropy usernames.
+pub(crate) fn pseudonymous_broker_actor(secret: &str, principal: &str) -> std::io::Result<String> {
+    if secret.is_empty() || principal.is_empty() || principal.len() > 4 * 1024 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "broker identity cannot be pseudonymized",
+        ));
+    }
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(secret.as_bytes())
+        .expect("HMAC accepts any key length");
+    mac.update(b"broker-actor:");
+    mac.update(principal.as_bytes());
+    Ok(format!(
+        "broker:actor:hmac-sha256:{}",
+        hex::encode(mac.finalize().into_bytes())
+    ))
+}
+
+#[cfg(test)]
+mod direct_wire_security_tests {
+    use super::{
+        join_engine_driver, pseudonymous_broker_actor, spawn_engine_driver,
+        validate_direct_wire_security, ENGINE_WORKER_STACK_BYTES,
+    };
+
+    #[test]
+    fn engine_driver_uses_the_verified_stack_contract_and_joins_exactly() {
+        assert_eq!(ENGINE_WORKER_STACK_BYTES, 4 * 1024 * 1024);
+        let driver = spawn_engine_driver(|| 41_u64).unwrap();
+        assert_eq!(join_engine_driver(driver).unwrap(), 41);
+    }
+
+    #[test]
+    fn engine_driver_join_failure_does_not_reflect_the_panic_payload() {
+        let driver =
+            spawn_engine_driver(|| -> u64 { panic!("opaque-driver-test-failure") }).unwrap();
+        let error = join_engine_driver(driver).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "engine runtime driver terminated unexpectedly"
+        );
+        assert!(!error.to_string().contains("opaque-driver-test-failure"));
+    }
+
+    #[test]
+    fn nonloopback_direct_wire_is_always_rejected() {
+        assert!(validate_direct_wire_security("0.0.0.0:5433", "pgwire", true).is_err());
+        assert!(validate_direct_wire_security("192.0.2.10:3306", "mysql-wire", true).is_err());
+    }
+
+    #[test]
+    fn anonymous_loopback_wire_is_rejected_in_every_profile() {
+        assert!(validate_direct_wire_security("127.0.0.1:5433", "pgwire", false).is_err());
+        assert!(validate_direct_wire_security("localhost:7687", "bolt-wire", false).is_err());
+    }
+
+    #[test]
+    fn verified_loopback_wire_is_accepted() {
+        assert!(validate_direct_wire_security("[::1]:5433", "pgwire", true).is_ok());
+        assert!(validate_direct_wire_security("127.0.0.1:7687", "bolt-wire", true).is_ok());
+    }
+
+    #[test]
+    fn broker_actor_reference_is_stable_opaque_and_secret_bound() {
+        let actor = pseudonymous_broker_actor("secret", "human-readable-name").unwrap();
+        assert_eq!(
+            actor,
+            pseudonymous_broker_actor("secret", "human-readable-name").unwrap()
+        );
+        assert!(!actor.contains("human-readable-name"));
+        assert_ne!(
+            actor,
+            pseudonymous_broker_actor("other", "human-readable-name").unwrap()
+        );
+        assert!(pseudonymous_broker_actor("", "principal").is_err());
+    }
+}
+
+/// Refuse an auxiliary listener that is reachable off-host. Auxiliary HTTP and
+/// database-wire protocols terminate only on loopback; remote deployments place
+/// an authenticated TLS identity-binding gateway in front of that local socket.
+pub fn require_loopback_listener(listener: &tokio::net::TcpListener) -> std::io::Result<()> {
+    let address = listener.local_addr()?;
+    if address.ip().is_loopback() {
+        return Ok(());
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        "auxiliary listeners must bind loopback",
+    ))
+}
+
+/// Validate secure request-context configuration and initialize its durable
+/// replay adapter before listeners are opened.
+pub fn validate_verified_request_context_startup(
+    secret: &str,
+    state_dir: Option<&str>,
+) -> Result<(), String> {
+    auth::validate_verified_context_startup(secret, state_dir)
+}
 // Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace). Facade-only,
 // behind the `blob` cargo feature. Default/server-only builds compile NONE of it;
 // the Blob* methods then fall to the dispatch "not available" catch-all.
@@ -47,6 +240,22 @@ pub mod cold_tier_impl;
 mod compute;
 mod dispatch;
 pub(crate) mod handlers;
+// MutationPlan + the single commit gateway (CONCEPT:EG-P0-2): consumes
+// `eg-capabilities`' MethodPolicy to drive authz + durable-commit + audit + CDC for
+// the GATEWAY_ROUTED mutation set from ONE call site. See its module docs for scope.
+pub(crate) mod mutation;
+pub(crate) mod mutation_batch;
+// Durable incremental reasoning authority. It tails the committed MutationBatch
+// outbox, fsyncs each per-graph projection before cursor acknowledgement, and serves
+// status/recompute directly from that projection.
+#[cfg(feature = "epistemic-tms")]
+pub mod reasoning_projection;
+// X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): wires the EXISTING eg-shacl ICV
+// commit guard onto the live RDF write path (AddTriples/RemoveTriples/ApplyMutation).
+// Pure-Rust (no new dep — `eg-shacl` + `std::sync::OnceLock`), gated `shacl`; a build
+// without it compiles none of it and every write path stays byte-identical.
+#[cfg(feature = "shacl")]
+pub(crate) mod icv_guard;
 pub mod persistence;
 // Wire-agnostic SQL execution core (CONCEPT:EG-KG.compute.subsystems-reference) — the multi-wire keystone. The
 // wire-NEUTRAL `classify → dispatch → exec` pipeline + per-connection session/txn
@@ -121,9 +330,9 @@ pub mod stomp_wire;
 // content-addressed BLOB CAS (bytes) + the durable KV index (listing), with a
 // SigV4-lite auth guard. Behind the `s3-api` cargo feature (pulls `blob` + `kv`).
 // Default/pi builds compile NONE of it.
-/// GraphQL real subscriptions over Server-Sent Events (CONCEPT:EG-KG.compute.cdc-event-emit, feature
-/// `graphql`): a live query re-resolved on every eg-core change and pushed as
-/// `text/event-stream` frames over the same hand-rolled tokio HTTP idiom.
+/// Current GraphQL subscriptions over authenticated Server-Sent Events
+/// (CONCEPT:EG-KG.compute.cdc-event-emit, feature `graphql`): eg2 request binding,
+/// graph ACL, and default-deny RLS guard every caller-visible re-resolution.
 #[cfg(feature = "graphql")]
 pub mod graphql_sub;
 /// Remote KV-cache HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co, feature `kvcache-server`): a
@@ -141,11 +350,25 @@ pub mod kvcache_http;
 /// tied to the graph `ServerState`.
 #[cfg(feature = "obs")]
 pub mod obs;
+/// Shared OIDC/JWKS bearer-token verification core (feature `oidc`, pulled in by
+/// both `security` and `kvcache-server`): one RSA-signature-against-JWKS
+/// verifier reused by the KV-cache HTTP bearer guard AND `auth`'s primary
+/// `eg2.` identity binding. See the module doc for the full split.
+#[cfg(feature = "oidc")]
+pub(crate) mod oidc;
 #[cfg(feature = "s3-api")]
 pub mod s3;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-KG.query.named-graph-support, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
+
+/// LTAP lakehouse materialization tier (CONCEPT:EG-317 engine-side seam, feature
+/// `lake`, INT-P2-3): converts real `eg_tsdb` series into `eg_lake::LakeBatch`es,
+/// materializes them to Parquet on the blob CAS with Delta/Iceberg logs + an
+/// Iceberg-REST catalog + OpenLineage run events. The `rest` submodule (feature
+/// `lake-rest`) serves the standards Iceberg-REST catalog surface over it.
+#[cfg(feature = "lake")]
+pub mod lake;
 
 /// PromQL + the Prometheus-compatible HTTP query API (CONCEPT:EG-KG.query.prometheus-http-query-api, feature
 /// `promql`): `/api/v1/query[_range]` + `/labels` served on the obs listener over the
@@ -159,10 +382,10 @@ pub mod promql;
 /// completing the observability trilogy (logs + metrics + traces).
 #[cfg(feature = "traces")]
 pub mod traces;
-// Process-wide user-defined relational table store (CONCEPT:EG-KG.query.register-user-tables-alongside/EG-023): the ONE
-// `eg_query::TableStore` (redb permits a single handle per file per process) shared by
-// BOTH the wire `Method::Sql` DDL/DML path and the pgwire shim, so a table created via
-// one surface is visible to the other. Behind `query` (TableStore needs eg-query/sql).
+// Owner-scoped user-defined relational catalogs (CONCEPT:EG-KG.query.register-user-tables-alongside/EG-023): one
+// `eg_query::TableStore` per verified tenant+actor, shared across Method::Sql and every
+// native SQL/SQLite/OBDA surface for that owner. Opaque files live under the configured
+// persistence directory; there is no global or temporary fallback.
 #[cfg(feature = "query")]
 pub mod sql_tables;
 // Natural-language query planner resolution (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`): owns
@@ -179,7 +402,7 @@ pub mod nl;
 pub mod federation;
 // Cross-region async read-replica tier (CONCEPT:EG-KG.sharding.follower-pull-loop) + capacity guardrails
 // (CONCEPT:EG-KG.coordination.circuit-breaker): a bounded LSN replication log the primary ships over `/replicate`, an
-// async follower pull-loop that applies the tail via the canonical `wal::apply` path, and
+// async follower pull-loop that applies the tail via the canonical `mutation_apply::apply` path, and
 // the pure circuit-breaker / per-tenant-quota / backpressure guards the transport + the
 // follower consult. Behind `federation-search` (reuses the same pure-Rust `ureq` stack —
 // NO new dep, kept OUT of the Pi tier).
@@ -189,18 +412,19 @@ pub mod replica;
 // CDC events ↔ ROS2 topics by talking `rosbridge_suite` JSON-over-WebSocket to a
 // `rosbridge_server` — NO CycloneDDS/rmw/DDS C stack, just a pure-Rust tokio-tungstenite
 // client. Behind the `ros2-bridge` cargo feature; kept OUT of the Pi tier (a slim build
-// links no tokio-tungstenite). Also compiled behind `ros2-dds` (CONCEPT:EG-KG.ingest.dds-transport), which
-// reuses this module's PURE CDC↔ROS2 message mapping (`cdc_to_publish`/`publish_to_method`)
-// as the shared shaping for the native DDS leg — only the tungstenite driver
+// links no tokio-tungstenite). Also compiled behind `ros2-dds`/`ros2-rmw` (CONCEPT:EG-KG.ingest.dds-transport), which
+// reuse this module's PURE CDC↔ROS2 message mapping (`cdc_to_publish`/`publish_to_method`)
+// as the shared shaping for the native DDS legs — only the tungstenite driver
 // (`run_ros2_bridge`) is `ros2-bridge`-specific.
-#[cfg(any(feature = "ros2-bridge", feature = "ros2-dds"))]
+#[cfg(any(feature = "ros2-bridge", feature = "ros2-dds", feature = "ros2-rmw"))]
 pub mod ros2_bridge;
 // Native DDS/RTPS ROS2 transport seam (CONCEPT:EG-KG.ingest.dds-transport): the `DdsTransport` trait that
-// unifies the EG-325 rosbridge-WebSocket leg and a NATIVE DDS/RTPS leg behind ONE
-// interface, plus the pure-Rust `rustdds`-backed `NativeDdsTransport` impl (feature
-// `ros2-dds`). Kept OUT of pi/default/node/full — only the opt-in `full-extras` bundle
-// (a default/pi/full build links no rustdds).
-#[cfg(any(feature = "ros2-bridge", feature = "ros2-dds"))]
+// unifies the EG-325 rosbridge-WebSocket leg and TWO native DDS legs behind ONE
+// interface — the pure-Rust `rustdds`-backed `NativeDdsTransport` (feature `ros2-dds`)
+// and the CycloneDDS-C-backed `CycloneDdsTransport` (feature `ros2-rmw`, S5). Kept OUT of
+// pi/default/node/full — only the opt-in `full-extras` bundle (a default/pi/full build
+// links no rustdds/cyclonedds).
+#[cfg(any(feature = "ros2-bridge", feature = "ros2-dds", feature = "ros2-rmw"))]
 pub mod dds;
 // Real-time QoS / SLO-aware admission scheduler (CONCEPT:EG-KG.coordination.backpressure-busy-signal). An additive, opt-in
 // gate (enabled by `EPISTEMIC_GRAPH_QOS`) the transport runs BEFORE the baseline
@@ -211,8 +435,16 @@ pub mod qos;
 // Server-layer secondary indexes (text/temporal/derived-OWL) wired into the per-graph
 // IndexManager seam so a committed write batch maintains them incrementally
 // (CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl).
-#[cfg(any(feature = "text", feature = "tsdb", feature = "owl"))]
+#[cfg(any(feature = "text", feature = "tsdb", feature = "owl", feature = "geo"))]
 pub mod secondary_indexes;
+// Request-scoped cancellation registry (CONCEPT:EG-KG.query.streaming-spillable-collect, L36): threads
+// a REAL `CancellationToken` from a served `Method::Sql` down to the SQL streaming
+// collect path, tripped by an explicit `Method::CancelRequest` or a per-request
+// timeout, instead of the always-fresh never-cancelled token the collect path built
+// internally before this. Needs `eg_query::CancellationToken`, gated behind `query`
+// (which implies `eg-query/sql`).
+#[cfg(feature = "query")]
+pub mod request_cancel;
 mod state;
 mod transport;
 // Server-staged OCC ACID transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid). `txn` holds the staged
@@ -220,20 +452,39 @@ mod transport;
 pub mod txn;
 
 // External path surface — `server::ServerState`, `server::MAX_BATCH_IDS`,
-// `server::compute_auth_token`, `server::dispatch`, and
+// `server::dispatch`, and
 // `server::{handle_connection,serve_uds,serve_tcp}` — used by main.rs/persist.rs/tests.
-pub use auth::compute_auth_token;
+pub use auth::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+pub(crate) use dispatch::authoritative_now_secs;
 pub use dispatch::dispatch;
+#[cfg(all(feature = "raft", feature = "jobs"))]
+pub(crate) use dispatch::{
+    apply_replicated_job_publication_commit, apply_replicated_job_publication_finalize,
+};
+#[cfg(feature = "raft")]
+pub(crate) use dispatch::{
+    apply_replicated_native, apply_replicated_transaction_decision,
+    apply_replicated_transaction_finalize, apply_replicated_transaction_participant,
+    apply_replicated_transaction_prepare,
+};
+/// Public binary-facing policy hook for auxiliary carriers that cannot parse the
+/// verified RPC request envelope.
+pub fn unauthenticated_carrier_denied(isolation: &crate::isolation::IsolationLayer) -> bool {
+    access::unauthenticated_carrier_denied(isolation)
+}
 // NL planner injection (CONCEPT:EG-KG.query.fence-stripper): an embedder opts into engine-driven NL→query.
 #[cfg(feature = "nl-query")]
 pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};
 // Distributed-compute materialized-view boot reload (CONCEPT:EG-KG.storage.feature): the binary
 // calls this on startup to repopulate the in-RAM matview index from redb.
-#[cfg(feature = "compute-dist")]
+#[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub use handlers::dist_compute::reload_matviews;
 pub use persistence::PersistenceBackend;
 pub use state::{txn_limits_from_env, ServerState, MAX_BATCH_IDS};
-pub use transport::{handle_connection, run_idle_watcher, serve_tcp, ShutdownCoordinator};
+pub use transport::{
+    handle_connection, run_idle_watcher, serve_tcp, validate_tcp_tls_config, ShutdownCoordinator,
+    TcpTlsConfig,
+};
 // serve_uds is Unix-only (UnixListener); on Windows the server uses serve_tcp,
 // so gate the re-export to keep the windows-msvc wheel building (main.rs already
 // guards its serve_uds call with #[cfg(unix)]).
@@ -244,6 +495,7 @@ pub use transport::serve_uds;
 mod tests {
     use super::compute::weight_semantic_results;
     use super::*;
+    use crate::acl::RequestContextClaims;
     use crate::channels::ChannelManager;
     use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
     use crate::protocol::{GraphType, Method, Request, Response, ResultPayload};
@@ -255,23 +507,36 @@ mod tests {
     const SECRET: &str = "dispatch-test-secret";
 
     fn test_state() -> Arc<RwLock<ServerState>> {
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: "system".into(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
         Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            isolation,
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
+            #[cfg(feature = "query")]
+            persist_dir: Some(
+                crate::server::sql_tables::test_persist_dir()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            #[cfg(not(feature = "query"))]
             persist_dir: None,
             persistence: None,
-            redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -302,8 +567,6 @@ mod tests {
                     )))
                 .expect("open test series store"),
             )),
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -316,6 +579,8 @@ mod tests {
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
@@ -355,13 +620,44 @@ mod tests {
     }
 
     fn request(id: u64, graph: &str, agent_id: Option<&str>, method: Method) -> Request {
-        Request {
+        static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let effective_agent = agent_id.unwrap_or("system");
+        let claims = RequestContextClaims {
+            principal: effective_agent.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: effective_agent.to_string(),
+            roles: vec!["test".to_string()],
+            scopes: vec!["*".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+        };
+        let mut request = Request {
             id,
             graph: graph.to_string(),
-            auth_token: compute_auth_token(SECRET, id),
-            agent_id: agent_id.map(str::to_string),
+            auth_token: String::new(),
+            agent_id: Some(effective_agent.to_string()),
             method,
-        }
+        };
+        let nonce = format!(
+            "server-mod-{}-{}",
+            std::process::id(),
+            NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &claims,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system clock")
+                    .as_secs(),
+                nonce: &nonce,
+                idempotency_key: &format!("server-mod-request-{id}"),
+            },
+        );
+        request
     }
 
     fn add_node(node_id: &str) -> Method {
@@ -684,7 +980,6 @@ mod tests {
                 None,
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
-                    reorder_filter_selectivity: None,
                 },
             ),
         )
@@ -775,7 +1070,6 @@ mod tests {
                 None,
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
-                    reorder_filter_selectivity: None,
                 },
             ),
         )
@@ -794,10 +1088,7 @@ mod tests {
                 301,
                 "__commons__",
                 None,
-                Method::UnifiedQueryText {
-                    text: uql.into(),
-                    reorder_filter_selectivity: None,
-                },
+                Method::UnifiedQueryText { text: uql.into() },
             ),
         )
         .await;
@@ -857,7 +1148,6 @@ mod tests {
                 None,
                 Method::UnifiedQueryText {
                     text: "MATCH (:Doc) |> FROBNICATE".into(),
-                    reorder_filter_selectivity: None,
                 },
             ),
         )
@@ -867,65 +1157,6 @@ mod tests {
             err.contains("UQL parse error") && err.contains("pipeline stage"),
             "expected a clear UQL parse error, got: {err}"
         );
-    }
-
-    /// Cost-reorder e2e (CONCEPT:EG-KG.query.concept-14): the SAME plan with a selective vs a broad
-    /// `reorder_filter_selectivity` (which flip filter-first ↔ vector-first) returns
-    /// the IDENTICAL result set through the served surface — the reorder is cost-only.
-    #[cfg(feature = "query")]
-    #[tokio::test]
-    async fn test_unified_query_cost_reorder_same_result() {
-        use eg_plan::{Op, Pred};
-        let state = test_state();
-        build_unified_fixture(&state).await;
-
-        // Scan'd seed feeding a commuting (Filter, Rank) pair.
-        let plan = vec![
-            Op::Scan {
-                label: "Doc".into(),
-            },
-            Op::Filter {
-                preds: vec![Pred::GtNum {
-                    prop: "year".into(),
-                    n: 2022.0,
-                }],
-            },
-            Op::Rank {
-                query: vec![1.0, 0.0, 0.0, 0.0],
-            },
-        ];
-
-        let run = |sel: f64, rid: u64| {
-            let plan = plan.clone();
-            let state = state.clone();
-            async move {
-                let resp = dispatch(
-                    &state,
-                    request(
-                        rid,
-                        "__commons__",
-                        None,
-                        Method::UnifiedQuery {
-                            plan: eg_plan::Plan::new(plan),
-                            reorder_filter_selectivity: Some(sel),
-                        },
-                    ),
-                )
-                .await;
-                assert_ok(&resp);
-                let mut ids = unified_ids(&resp);
-                ids.sort();
-                ids
-            }
-        };
-
-        let selective = run(0.01, 200).await; // filter-first
-        let broad = run(0.98, 201).await; // vector-first
-        assert_eq!(
-            selective, broad,
-            "cost reorder must not change the result set"
-        );
-        assert!(!selective.is_empty(), "fixture yields a non-empty result");
     }
 
     // ── Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, Lane P) ───────
@@ -967,6 +1198,16 @@ mod tests {
             endpoint: remote_addr,
             graph: "__commons__".into(),
             secret: SECRET.into(),
+            context: eg_types::acl::RequestContextClaims {
+                principal: "agent:federation-test".into(),
+                tenant: "tenant-shared".into(),
+                audience: "epistemic-graph-test".into(),
+                agent_id: "agent:federation-test".into(),
+                roles: vec!["federation-reader".into()],
+                scopes: vec!["kg:read".into()],
+                policy_version: "policy-test".into(),
+                delegation: vec![],
+            },
             uql: "MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]->{1,2}".into(),
             cypher: String::new(),
             id_field: String::new(),
@@ -1000,7 +1241,6 @@ mod tests {
                 None,
                 Method::UnifiedQuery {
                     plan: eg_plan::Plan::new(plan),
-                    reorder_filter_selectivity: None,
                 },
             ),
         )
@@ -1133,6 +1373,7 @@ mod tests {
                 None,
                 Method::CypherQuery {
                     query: "MATCH (a:Person) WHERE a.name = 'Alice' RETURN a".into(),
+                    mode: crate::protocol::CypherMode::Read,
                 },
             ),
         )
@@ -1157,6 +1398,7 @@ mod tests {
                 None,
                 Method::CypherQuery {
                     query: "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b".into(),
+                    mode: crate::protocol::CypherMode::Read,
                 },
             ),
         )
@@ -1185,6 +1427,7 @@ mod tests {
         let state = test_state();
         let method = Method::CypherQuery {
             query: "MATCH (a:Person) RETURN a".into(),
+            mode: crate::protocol::CypherMode::Read,
         };
         let resp = dispatch(&state, request(1, "__commons__", None, method)).await;
         let err = resp.error.as_deref().unwrap_or("");
@@ -1286,6 +1529,7 @@ mod tests {
                         query: "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.name = 'Alice' \
                                 RETURN b.name"
                             .into(),
+                        mode: crate::protocol::CypherMode::Read,
                     },
                 ),
             )
@@ -1373,284 +1617,101 @@ mod tests {
         );
     }
 
+    /// Feature-gating contract for X-1 (CONCEPT:EG-X1): `Method::ExplainEvidence`
+    /// exists in the wire enum whenever `epistemic` is on (see its doc comment), but
+    /// its handler arm additionally requires `evidence-graph` — a build with
+    /// `epistemic` on and `evidence-graph` off must hit the "not available in this
+    /// server build" catch-all, never a panic or mis-route (mirrors
+    /// `test_gated_out_method_returns_not_built` above).
+    #[cfg(all(feature = "epistemic", not(feature = "evidence-graph")))]
     #[tokio::test]
-    async fn incremental_checkpoint_skips_clean_graphs() {
-        // Phase C-C: checkpoint_all rewrites only graphs dirtied since the last
-        // checkpoint. Return value is the number WRITTEN (clean graphs skipped).
-        let dir = std::env::temp_dir().join(format!("eg-cc-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let state = Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
-            channels: ChannelManager::new(),
-            auth_secret: SECRET.to_string(),
-            persist_dir: Some(dir.to_string_lossy().to_string()),
-            persistence: None,
-            redb_authoritative: false,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-        }));
-
-        // __commons__ starts dirty → the first checkpoint writes exactly it.
-        assert_eq!(
-            crate::persist::checkpoint_all(&state, None).await.unwrap(),
-            1
-        );
-        // Nothing changed → the next checkpoint writes nothing (all clean/skipped).
-        assert_eq!(
-            crate::persist::checkpoint_all(&state, None).await.unwrap(),
-            0
-        );
-
-        // A successful write through dispatch marks the graph dirty (no isolation
-        // rules registered → back-compat permits the write).
-        assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
-        assert_eq!(
-            crate::persist::checkpoint_all(&state, None).await.unwrap(),
-            1
-        );
-        assert_eq!(
-            crate::persist::checkpoint_all(&state, None).await.unwrap(),
-            0
-        );
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[tokio::test]
-    async fn wal_service_logs_dispatch_then_checkpoint_truncates() {
-        // Phase B3 end-to-end: a durable mutation dispatched through the server is
-        // appended to the WAL by the OFF-REACTOR writer (no file I/O on this task),
-        // replays into a fresh graph, and a checkpoint truncates the WAL prefix it
-        // supersedes.
-        let dir = std::env::temp_dir().join(format!("eg-b3-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir_s = dir.to_string_lossy().to_string();
-        let svc = crate::wal_service::WalService::spawn(
-            dir_s.clone(),
-            crate::wal_service::FsyncPolicy::Each,
-            64,
-        );
-        // The default backend owns the WAL writer; keep a clone of `svc` here to
-        // assert directly on the off-reactor writer's position/dropped counters.
-        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
-            crate::server::persistence::snapshot_wal::SnapshotWalBackend::new(Some(svc.clone())),
-        );
-        let state = Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
-            channels: ChannelManager::new(),
-            auth_secret: SECRET.to_string(),
-            persist_dir: Some(dir_s.clone()),
-            persistence: Some(backend.clone()),
-            redb_authoritative: false,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-        }));
-
-        assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
-        // position() is processed in-order AFTER the append by the single writer
-        // thread, so a non-zero result proves the off-reactor append landed.
+    async fn explain_evidence_gated_out_returns_not_built() {
+        let state = multi_tenant_state().await;
+        let method = Method::ExplainEvidence {
+            node_id: "claim1".into(),
+        };
+        let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
         assert!(
-            svc.position("__commons__") > 0,
-            "dispatch should have logged to WAL"
-        );
-        assert_eq!(svc.dropped(), 0);
-
-        // The WAL alone recovers the mutation into a fresh graph.
-        let fresh = crate::graph::GraphCore::new();
-        let replayed = crate::wal::replay(&fresh, &crate::wal::wal_path(&dir_s, "__commons__"));
-        assert_eq!(replayed, 1);
-        assert!(fresh.get_node_properties("x").is_some());
-
-        // Checkpoint writes the snapshot and truncates the WAL prefix it covers.
-        assert_eq!(backend.checkpoint_all(&state).await.unwrap(), 1);
-        assert_eq!(
-            svc.position("__commons__"),
-            0,
-            "WAL truncated after checkpoint"
-        );
-        assert!(std::path::Path::new(&dir_s).join("__commons__.mp").exists());
-
-        svc.shutdown();
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[tokio::test]
-    async fn legacy_bus_snapshot_migrates_to_commons() {
-        // C3: an engine that persisted the old `__bus__` commons graph must load it
-        // under the new `__commons__` name via the one-time on-disk migration.
-        let dir = std::env::temp_dir().join(format!("eg-busmig-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir_s = dir.to_string_lossy().to_string();
-
-        // Forge a legacy snapshot: a `__bus__.mp` + a manifest naming it `__bus__`
-        // with the old `"Bus"` graph_type.
-        let legacy = crate::graph::GraphCore::new();
-        legacy.add_node(
-            "legacy_node".into(),
-            rmp_serde::to_vec_named(&serde_json::json!({"type": "Code"})).unwrap(),
-        );
-        let bytes = legacy.snapshot().to_msgpack().unwrap();
-        std::fs::write(dir.join("__bus__.mp"), &bytes).unwrap();
-        std::fs::write(
-            dir.join("manifest.json"),
-            br#"{"__bus__":{"name":"__bus__","graph_type":"Bus"}}"#,
-        )
-        .unwrap();
-
-        let state = Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
-            channels: ChannelManager::new(),
-            auth_secret: SECRET.to_string(),
-            persist_dir: Some(dir_s.clone()),
-            persistence: None,
-            redb_authoritative: false,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-        }));
-
-        crate::persist::load_all(&state, None).await.unwrap();
-
-        // The legacy data now lives under __commons__; the old files are gone.
-        let resp = dispatch(
-            &state,
-            request(
-                1,
-                "__commons__",
-                None,
-                Method::HasNode {
-                    node_id: "legacy_node".into(),
-                },
-            ),
-        )
-        .await;
-        assert!(
-            matches!(resp.result, Some(ResultPayload::Bool(true))),
-            "legacy node must be present under __commons__: {:?}",
+            err.contains("not available in this server build"),
+            "expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
             resp.error
         );
+    }
+
+    /// Feature-gating contract for EPI-P3-7 (gap-fill): `Method::ResolveConflict`
+    /// exists in the wire enum whenever `epistemic` is on, but its handler arm
+    /// additionally requires `epistemic-tms` — a build with `epistemic` on and
+    /// `epistemic-tms` off must hit the "not available in this server build"
+    /// catch-all, never a panic or mis-route (mirrors `explain_evidence_gated_out_returns_not_built`).
+    #[cfg(all(feature = "epistemic", not(feature = "epistemic-tms")))]
+    #[tokio::test]
+    async fn resolve_conflict_gated_out_returns_not_built() {
+        let state = multi_tenant_state().await;
+        let method = Method::ResolveConflict {
+            node_ids: vec!["claim1".into()],
+            semantics: "grounded".into(),
+        };
+        let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
         assert!(
-            !dir.join("__bus__.mp").exists(),
-            "legacy snapshot renamed away"
+            err.contains("not available in this server build"),
+            "expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
         );
+    }
+
+    /// Same feature-gating contract for EPI-P3-3/P3-6: `Method::CausalEstimate`/
+    /// `Method::CausalCounterfactual`/`Method::RankByProvenance` exist whenever
+    /// `epistemic` is on, but their handler arms additionally require
+    /// `epistemic-causal`.
+    #[cfg(all(feature = "epistemic", not(feature = "epistemic-causal")))]
+    #[tokio::test]
+    async fn causal_estimate_and_rank_by_provenance_gated_out_return_not_built() {
+        let state = multi_tenant_state().await;
+
+        let method = Method::CausalEstimate {
+            variables: vec![],
+            do_values: std::collections::BTreeMap::new(),
+            mode: crate::protocol::CausalQueryModeWire::Intervene,
+        };
+        let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
         assert!(
-            dir.join("__commons__.mp").exists(),
-            "migrated snapshot present"
+            err.contains("not available in this server build"),
+            "CausalEstimate: expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
         );
 
-        let _ = std::fs::remove_dir_all(&dir);
+        let method = Method::CausalCounterfactual {
+            variables: vec![],
+            actual: std::collections::BTreeMap::new(),
+            do_values: std::collections::BTreeMap::new(),
+        };
+        let resp = dispatch(&state, request(2, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("not available in this server build"),
+            "CausalCounterfactual: expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+
+        let method = Method::RankByProvenance {
+            candidates: vec![],
+            weights: Default::default(),
+        };
+        let resp = dispatch(&state, request(3, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("not available in this server build"),
+            "RankByProvenance: expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
     }
 
     #[tokio::test]
@@ -1786,12 +1847,11 @@ mod tests {
             auth_secret: SECRET.to_string(),
             persist_dir: None,
             persistence: None,
-            redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(64)), // global: ample
             read_admission: Arc::new(Semaphore::new(64)),
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 1, // any one graph: a single slot
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -1807,8 +1867,6 @@ mod tests {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -1821,6 +1879,8 @@ mod tests {
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating
@@ -1864,27 +1924,6 @@ mod tests {
 
         drop(client);
         let _ = handle.await;
-    }
-
-    #[tokio::test]
-    async fn test_no_isolation_rules_is_back_compat() {
-        // No identities registered → no rules → any caller (even anonymous)
-        // can write to any graph, exactly as before enforcement existed.
-        let state = test_state();
-        {
-            let mut s = state.write().await;
-            s.registry
-                .create_graph("agent:worker1", GraphType::Agent, Some("worker1".into()))
-                .unwrap();
-        }
-        let resp = dispatch(&state, request(1, "agent:worker1", None, add_node("n1"))).await;
-        assert_ok(&resp);
-        let resp = dispatch(
-            &state,
-            request(2, "agent:worker1", Some("worker2"), add_node("n2")),
-        )
-        .await;
-        assert_ok(&resp);
     }
 
     #[tokio::test]
@@ -2075,10 +2114,8 @@ mod tests {
 
     // ── Lock-free compute (CONCEPT:EG-KG.txn.per-graph-write-isolation) ─────────────────────────────
 
-    fn json_props(val: serde_json::Value) -> Option<Vec<u8>> {
-        // SemanticSearch's decay path reads properties as a UTF-8 JSON string
-        // (NodeData::from_json_props), so encode candidates the same way.
-        Some(val.to_string().into_bytes())
+    fn msgpack_props(val: serde_json::Value) -> Option<Vec<u8>> {
+        Some(rmp_serde::to_vec_named(&val).expect("encode property object"))
     }
 
     #[test]
@@ -2090,19 +2127,19 @@ mod tests {
             (
                 "fresh".to_string(),
                 0.8f32,
-                json_props(serde_json::json!({"type": "Fact", "valid_from": now})),
+                msgpack_props(serde_json::json!({"type": "Fact", "valid_from": now})),
             ),
             // One half-life old: 0.9 similarity decays to ~0.45 → ranks below.
             (
                 "aged".to_string(),
                 0.9f32,
-                json_props(serde_json::json!({"type": "Fact", "valid_from": now - thirty_days})),
+                msgpack_props(serde_json::json!({"type": "Fact", "valid_from": now - thirty_days})),
             ),
             // Validity window closed → filtered out entirely.
             (
                 "stale".to_string(),
                 0.99f32,
-                json_props(serde_json::json!({"type": "Fact", "valid_until": now - 1})),
+                msgpack_props(serde_json::json!({"type": "Fact", "valid_until": now - 1})),
             ),
             // No properties → similarity passes through unweighted.
             ("bare".to_string(), 0.5f32, None),
@@ -2504,10 +2541,7 @@ mod tests {
         // The win: the coalescer applied them in fewer lock acquisitions than ops.
         let (batches, ops) = {
             let s = state.read().await;
-            let w = s
-                .write_coalescer
-                .writer_for("__commons__", &core)
-                .expect("commons writer");
+            let w = s.write_coalescer.writer_for("__commons__", &core);
             (w.stats().batches(), w.stats().ops())
         };
         assert_eq!(ops, N, "stats account for every dispatched write");
@@ -2538,9 +2572,20 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 let conditions_msgpack =
                     rmp_serde::to_vec_named(&serde_json::json!({"owner": null})).unwrap();
-                let updates_msgpack =
-                    rmp_serde::to_vec_named(&serde_json::json!({"owner": format!("w{i}")}))
-                        .unwrap();
+                // Distinct owner label prefix (not "w{i}") so this test's per-`i`
+                // CAS payloads never collide with another test's literal
+                // `CompareAndSetNodeFields` payload on the SAME `node_id`/graph name
+                // under `mutation`'s process-global idempotency-replay cache
+                // (CONCEPT:EG-P0-2) -- `CompareAndSetNodeFields` is policy-idempotent,
+                // so an identical (graph_name, method) tuple from a DIFFERENT test
+                // sharing this process would otherwise return THIS test's cached
+                // response instead of really executing (see
+                // `standalone_cas_still_works`, which used to collide with `w1`/`w2`
+                // here before this rename).
+                let updates_msgpack = rmp_serde::to_vec_named(
+                    &serde_json::json!({"owner": format!("coalescing-claimer-{i}")}),
+                )
+                .unwrap();
                 let m = Method::CompareAndSetNodeFields {
                     node_id: "task".into(),
                     conditions_msgpack,
@@ -3499,6 +3544,206 @@ ex:myHeart a ex:HumanHeart .
             "<http://example.org/myHeart>".into(),
             "<http://example.org/HumanComponent>".into()
         )));
+    }
+
+    /// OwlExplain Method round-trips through dispatch (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation): the
+    /// classic transitive-subClassOf chain `Dog ⊑ Animal ⊑ LivingThing` reconstructs a
+    /// FULL proof tree down to the asserted leaf, over the wire exactly like the
+    /// in-process `eg_rdf::owl` unit test proves.
+    #[cfg(feature = "owl")]
+    #[tokio::test]
+    async fn test_owl_explain_method_round_trips() {
+        let state = test_state();
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Dog rdfs:subClassOf ex:Animal .
+ex:Animal rdfs:subClassOf ex:LivingThing .
+"#;
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::AddTriples {
+                        turtle: ttl.into(),
+                        ntriples: String::new(),
+                    },
+                ),
+            )
+            .await,
+        );
+        let r = dispatch(
+            &state,
+            request(
+                2,
+                "__commons__",
+                None,
+                Method::OwlExplain {
+                    ontology: String::new(),
+                    sub: "http://example.org/Dog".into(),
+                    sup: "http://example.org/LivingThing".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r);
+        let res: crate::protocol::OwlExplainResult = match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(OwlExplainResult), got {other:?}"),
+        };
+        assert!(res.found, "Dog ⊑ LivingThing must be entailed");
+        assert!(res.consistent);
+        let tree = res.tree.expect("found ⇒ a tree");
+        assert_eq!(tree.sub, "<http://example.org/Dog>");
+        assert_eq!(tree.sup, "<http://example.org/LivingThing>");
+        assert_ne!(tree.rule, "asserted", "the root is derived");
+        assert_eq!(tree.premises.len(), 1);
+        let mid = &tree.premises[0];
+        assert_eq!(mid.sub, "<http://example.org/Dog>");
+        assert_eq!(mid.sup, "<http://example.org/Animal>");
+        assert_eq!(mid.premises.len(), 1);
+        let leaf = &mid.premises[0];
+        assert_eq!(leaf.rule, "asserted");
+        assert!(leaf.premises.is_empty());
+
+        // A non-entailed pair explains to `found: false`, no tree.
+        let r2 = dispatch(
+            &state,
+            request(
+                3,
+                "__commons__",
+                None,
+                Method::OwlExplain {
+                    ontology: String::new(),
+                    sub: "http://example.org/Cat".into(),
+                    sup: "http://example.org/LivingThing".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r2);
+        let res2: crate::protocol::OwlExplainResult = match r2.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(OwlExplainResult), got {other:?}"),
+        };
+        assert!(!res2.found);
+        assert!(res2.tree.is_none());
+    }
+
+    /// SparqlVirtual Method round-trips through dispatch (CONCEPT:EG-KG.query.r2rml-virtual-graph /
+    /// CONCEPT:EG-KG.query.obda-query-rewrite): a real user SQL table (created via
+    /// `Method::Sql` DDL/DML — the SAME owner-scoped `eg_query::TableStore`
+    /// `ImportSqliteFile` and the pgwire shim resolve for this caller) is exposed as RDF via a compact R2RML-style mapping and queried
+    /// with SPARQL — WITHOUT any `AddTriples`/materialize step ever touching this graph.
+    #[cfg(feature = "obda")]
+    #[tokio::test]
+    async fn test_sparql_virtual_method_round_trips() {
+        let state = test_state();
+        let table = format!("eg_obda_people_{}", std::process::id());
+        let sql = |q: String| Method::Sql {
+            query: q,
+            params_msgpack: Vec::new(),
+        };
+
+        let d = dispatch(
+            &state,
+            request(
+                1,
+                "__commons__",
+                None,
+                sql(format!("DROP TABLE IF EXISTS {table}")),
+            ),
+        )
+        .await;
+        assert!(d.error.is_none(), "DROP failed: {:?}", d.error);
+
+        let c = dispatch(
+            &state,
+            request(
+                2,
+                "__commons__",
+                None,
+                sql(format!(
+                    "CREATE TABLE {table} (id TEXT, name TEXT, age BIGINT)"
+                )),
+            ),
+        )
+        .await;
+        assert!(c.error.is_none(), "CREATE TABLE failed: {:?}", c.error);
+
+        let i = dispatch(
+            &state,
+            request(
+                3,
+                "__commons__",
+                None,
+                sql(format!(
+                    "INSERT INTO {table} (id, name, age) VALUES ('1', 'Alice', 30), ('2', 'Bob', 25)"
+                )),
+            ),
+        )
+        .await;
+        assert!(i.error.is_none(), "INSERT failed: {:?}", i.error);
+
+        let mapping = format!(
+            "SOURCE  {table}\nSUBJECT http://example.org/person/{{id}}\nCLASS   http://example.org/Person\nCOLUMN  http://example.org/name name\nCOLUMN  http://example.org/age  age\n"
+        );
+        let r = dispatch(
+            &state,
+            request(
+                4,
+                "__commons__",
+                None,
+                Method::SparqlVirtual {
+                    query: "PREFIX ex: <http://example.org/> SELECT ?name WHERE { ?p a ex:Person ; ex:name ?name }".into(),
+                    mapping,
+                    tables: vec![table.clone()],
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r);
+        let res: crate::protocol::SparqlResult = match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(SparqlResult), got {other:?}"),
+        };
+        assert_eq!(res.vars, vec!["name".to_string()]);
+        let name_idx = 0;
+        let mut names: Vec<Option<String>> =
+            res.rows.iter().map(|row| row[name_idx].clone()).collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![Some("Alice".to_string()), Some("Bob".to_string())],
+            "the virtual graph's rows came from the SQL table, not from AddTriples"
+        );
+
+        // The request's OWN graph (__commons__) stays untouched — GetRdf sees no triples
+        // from the virtual query (proves it never materialized into a real graph).
+        let get = dispatch(&state, request(5, "__commons__", None, Method::GetRdf)).await;
+        assert_ok(&get);
+        let nt: String = match get.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(String), got {other:?}"),
+        };
+        assert!(
+            !nt.contains("Alice") && !nt.contains("Bob"),
+            "the virtual query must not have materialized into the request's graph"
+        );
+
+        let _ = dispatch(
+            &state,
+            request(
+                6,
+                "__commons__",
+                None,
+                sql(format!("DROP TABLE IF EXISTS {table}")),
+            ),
+        )
+        .await;
     }
 
     /// DISTRIBUTED OwlReason over TWO graphs derives the SAME entailment a single graph

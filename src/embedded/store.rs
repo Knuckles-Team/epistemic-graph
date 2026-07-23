@@ -18,7 +18,7 @@ use redb::Database;
 use crate::protocol::{GraphType, Method};
 use crate::redb_store::{self, GraphDump};
 
-/// Owns `{persist_dir}/graph.redb` and commits synchronously.
+/// Owns the canonical single shard `{persist_dir}/graph-0.redb` and commits synchronously.
 pub(super) struct EmbeddedRedbStore {
     db: Database,
     /// Encryption-at-rest cipher (CONCEPT:EG-KG.sharding.row-level-security), resolved once from
@@ -47,23 +47,17 @@ impl EmbeddedRedbStore {
     /// table) — identical bootstrap to the server's `RedbBackend::open`.
     pub(super) fn open(persist_dir: &std::path::Path) -> Result<Self, String> {
         std::fs::create_dir_all(persist_dir).map_err(|e| e.to_string())?;
-        let db_path = persist_dir.join("graph.redb");
+        let shards = crate::redb_layout::reconcile_shard_layout(persist_dir, 1)?;
+        if shards != 1 {
+            return Err(format!(
+                "embedded mode requires one canonical redb shard, found {shards}; run migrate-shards offline"
+            ));
+        }
+        let db_path = persist_dir.join(crate::redb_layout::shard_filename(0));
         let db = Database::create(&db_path).map_err(|e| e.to_string())?;
         {
             let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            wtx.open_table(redb_store::NODES)
-                .map_err(|e| e.to_string())?;
-            wtx.open_table(redb_store::EDGES)
-                .map_err(|e| e.to_string())?;
-            wtx.open_table(redb_store::LEDGER)
-                .map_err(|e| e.to_string())?;
-            wtx.open_table(redb_store::SEMANTIC)
-                .map_err(|e| e.to_string())?;
-            wtx.open_table(redb_store::GRAPH_META)
-                .map_err(|e| e.to_string())?;
-            #[cfg(feature = "security")]
-            wtx.open_table(redb_store::AUDIT)
-                .map_err(|e| e.to_string())?;
+            redb_store::initialize_canonical_tables(&wtx)?;
             wtx.commit().map_err(|e| e.to_string())?;
         }
         Ok(Self {
@@ -78,7 +72,7 @@ impl EmbeddedRedbStore {
     /// byte-identical to the server's group-commit writer. The embedded path never
     /// appends Raft log ops, so that vector is always empty.
     pub(super) fn commit(&self, graph_fname: &str, method: &Method) -> Result<(), String> {
-        if !crate::wal::is_durable_mutation(method) {
+        if !crate::mutation_apply::is_durable_mutation(method) {
             return Ok(());
         }
         let mut ops = vec![(graph_fname.to_string(), method.clone())];
@@ -107,8 +101,15 @@ impl EmbeddedRedbStore {
         graph_fname: &str,
         name: &str,
         graph_type: GraphType,
+        incarnation_id: &str,
     ) -> Result<(), String> {
-        redb_store::write_graph_meta(&self.db, graph_fname, name, graph_type)
+        redb_store::write_graph_meta_with_incarnation(
+            &self.db,
+            graph_fname,
+            name,
+            graph_type,
+            incarnation_id,
+        )
     }
 
     /// Snapshot the whole registry dump into redb in one durable transaction.

@@ -98,7 +98,7 @@ fn create_node(core: &GraphCore, field: &Field) -> Result<Value, String> {
 
     let blob = rmp_serde::to_vec_named(&Value::Object(obj)).map_err(|e| e.to_string())?;
     core.add_node(id.clone(), blob);
-    Ok(shape_node(core, &id, &field.selection))
+    shape_node(core, &id, &field.selection)
 }
 
 /// `updateNode(id, props)` → read-merge-write the node blob. Each `props` key is merged
@@ -108,8 +108,9 @@ fn update_node(core: &GraphCore, field: &Field) -> Result<Value, String> {
     let existing = core
         .get_node_properties(&id)
         .ok_or_else(|| format!("GraphQL: updateNode: node `{id}` not found"))?;
-    let mut obj = decode(&existing)
-        .and_then(|v| v.as_object().cloned())
+    let mut obj = decode(&existing)?
+        .as_object()
+        .cloned()
         .ok_or_else(|| format!("GraphQL: updateNode: node `{id}` blob is not a JSON object"))?;
 
     for (k, v) in props_map(field)? {
@@ -119,7 +120,7 @@ fn update_node(core: &GraphCore, field: &Field) -> Result<Value, String> {
     let blob = rmp_serde::to_vec_named(&Value::Object(obj)).map_err(|e| e.to_string())?;
     // `add_node` on an existing id keeps the topology index and overwrites properties.
     core.add_node(id.clone(), blob);
-    Ok(shape_node(core, &id, &field.selection))
+    shape_node(core, &id, &field.selection)
 }
 
 /// `deleteNode(id)` → `remove_node`. Returns `{ id, deleted }` (the node is gone, so its
@@ -161,12 +162,14 @@ fn remove_edge(core: &GraphCore, field: &Field) -> Result<Value, String> {
 
 /// Materialize a written node's selection using the SAME selection-resolution as the
 /// query path, over a fresh post-write snapshot. `null` if the node is absent.
-fn shape_node(core: &GraphCore, id: &str, selection: &[Field]) -> Value {
+fn shape_node(core: &GraphCore, id: &str, selection: &[Field]) -> Result<Value, String> {
     let view = core.analysis_snapshot();
-    match view.node_properties.get(id).and_then(|b| decode(b)) {
-        Some(val) => resolve_selection(&view, id, &val, selection).unwrap_or(Value::Null),
-        None => Value::Null,
-    }
+    let blob = view
+        .node_properties
+        .get(id)
+        .ok_or_else(|| format!("GraphQL: written node `{id}` is missing"))?;
+    let val = decode(blob)?;
+    resolve_selection(&view, id, &val, selection)
 }
 
 /// Build the `{from, to, type?, <status>: true}` descriptor an edge mutation returns.

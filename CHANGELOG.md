@@ -8,6 +8,475 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+- **Raft cluster-membership admin RPC** (CONCEPT:EG-KG.storage.kg-kg-2 —
+  `cluster_deployment.md` §5 item 2). `MultiRaft::add_group_learner` /
+  `change_group_voters` (the openraft add-learner / change-membership primitives,
+  split out of the pre-existing `add_group_member`) are now reachable at runtime
+  as `Method::RaftAddLearner` / `Method::RaftChangeMembership`, gated
+  `admin:cluster` and leader-only (a follower answers `OPERATION_REDIRECTED`
+  naming the current leader). Closes the gap where a fresh node could never
+  actually be attached to a live cluster outside the in-process test harness.
+  New `epistemic_graph.client.RaftAdminClient` (`client.raft_admin.add_learner` /
+  `.change_membership`).
+
+---
+
+## [2.23.1] - 2026-07-18 — Exact certification and protocol hardening
+
+Includes the ecosystem-utilization gap-fill, exact mutation fault/restart and
+performance certification harnesses, canonical typed-float signing, stricter
+time-series validation, release privacy controls, and the pinned Rust toolchain.
+
+**Ecosystem-utilization gap-fill (Python client wire-first gaps).**
+
+Closes wire-first gaps the synergy-skills audit found: real, server-tested engine
+capabilities with no Python-client caller. All additive; no default/small-footprint
+build affected.
+
+### Added
+- **Epistemic Operations Protocol v1 engine projection.** `eg-types` now owns
+  generated strict serde DTOs for the twelve shared agent/engine operations
+  contracts and
+  pins the authoritative catalog through a generated digest/ordered-field
+  manifest. A source-only CI gate verifies all 23 bound objects and rejects
+  unknown-field drift without compiling the engine or adding a runtime package.
+  Placement, ClaimWorkItem, provenance evidence, and placement redirects now
+  serialize those DTOs instead of independent JSON shapes.
+- **One served KnowledgeBatch protocol across all seven query families.**
+  `Method::KnowledgeStream` now opens/resumes graph, SQL, RDF, vector, time-series,
+  analytics-job, and cross-modal results through the same bounded Arrow adapter. Its cursor is
+  bound to verified authority, query, complete result snapshot, schema, and batch size and is
+  routed only after graph ACL/RLS/materialization/placement checks. Arrow is the
+  sole result projection; every client uses one native result plane.
+- **`ExplainBelief.disclosure_level` reachable from the client.** `QueryClient.explain_belief`
+  gains a `disclosure_level` param (`"Full"`/`"Skeleton"`/`"ExistenceOnly"`) — the wire field
+  and server handler already existed (EPI-P3-4/L51); only the client had no way to set it.
+- **The durable analytics-job plane reachable from the client.** New `JobsClient` sub-client
+  (`client.jobs.submit/status/cancel/resume`, feature `jobs`) plus the general
+  `client.cancel_request` (`Method::CancelRequest`) — both were server-implemented but had no
+  Python sender, baselined in `tests/protocol_unbound_baseline.txt`.
+- **Causal `observe`/`counterfactual` wired end to end (EPI-P3-6).** `Method::CausalEstimate`
+  gains a `mode` field (`Intervene`/`Observe`, `#[serde(default)]` `Intervene` — byte-for-byte
+  the pre-`mode` behavior) reaching `eg_epistemic::CausalGraph::observe`; a new
+  `Method::CausalCounterfactual` reaches `CausalGraph::counterfactual` (Pearl's point-
+  counterfactual recipe). Both gated `epistemic-causal` at the handler, `epistemic` at the wire
+  level (same build-tier fallback convention as `CausalEstimate`'s existing do-intervention).
+  Client methods `QueryClient.causal_estimate(..., mode=...)` / `causal_counterfactual`.
+- **Standalone Dung argumentation conflict resolution (EPI-P3-7).** New
+  `Method::ResolveConflict { node_ids, semantics }` (`"grounded"`|`"preferred"`|`"stable"`)
+  reuses `eg_epistemic::tms::{grounded_extension,preferred_extensions,stable_extensions}` —
+  previously reachable only COMPOSED inside `Method::EpistemicStatus` — to report, for each
+  requested id, whether it survives/is defeated/stays undecided under the chosen semantics,
+  plus the raw extension set(s). Gated `epistemic-tms` at the handler, `epistemic` at the wire
+  level (same build-tier fallback convention as `EpistemicStatus`/`WhatChanged`). Client method
+  `QueryClient.resolve_conflict(node_ids, semantics=...)`.
+
+### Changed (WS-1b — 2026-07-12)
+- **One current redb shard layout.** Every shard count now uses indexed
+  `graph-<n>.redb` files, including `graph-0.redb` for K=1. Server and embedded
+  startup reject the retired unindexed filename, mixed layouts, sparse indices,
+  non-canonical names, and non-regular shard files. The bounded offline
+  `migrate-shards --shards 1` path is the sole reader that converts retired K=1
+  state, and portable backup format 4 records only the canonical layout.
+- **Verified request authority is a single strict contract.** `eg2.` is the sole
+  served envelope. Startup requires the `security` feature, a non-empty secret,
+  exact audience/tenant/policy values, durable replay state, and a trusted signer
+  registry. Native federation signs the same complete context and requires TLS
+  for routable targets. Auxiliary listeners are loopback-only.
+- **Fresh-store RBAC bootstrap is explicit and narrow.** An empty durable policy
+  permits only signer-backed `eg2.` self-registration in `__commons__` as
+  `System`, with no teams, roles, or delegation and exactly the
+  `security:bootstrap` scope. Normal durable RBAC applies after the first rule.
+- **`epistemic-redaction` and `evidence-graph` folded into the default `full` build.**
+  Neither pulls a new heavy dependency nor runs expensive recompute (both ride
+  `epistemic`/`security`, already in `full`), so a standard build now serves
+  `Method::ExplainBelief`'s `disclosure_level` (policy-aware proof redaction) and
+  `Method::ExplainEvidence` (multimodal evidence citation resolver) with no extra build
+  flags. `epistemic-tms` (paraconsistent TMS + Dung argumentation — NP-hard-in-the-worst-
+  case extension search) and `epistemic-causal` (genuine Pearl do-calculus) were
+  originally left opt-in/HEAVY, reachable via `--features epistemic-tms` /
+  `--features epistemic-causal`, but have since been folded into the default `full`
+  build alongside the other epistemic-substrate surfaces.
+- **RLS is unconditionally default-deny (EG-P0-6).** Every served read filters
+  before query execution. Unowned, undecodable, and untagged rows are hidden
+  unless explicitly public or authorized by owner/grant policy. The runtime
+  posture toggle and permissive builder path were removed.
+- **EG-side OTEL epistemic span attributes.** No span previously wrapped the epistemic query
+  handlers, so `src/server/handlers/query.rs`'s `explain_belief`/`explain_belief_redacted_wire`/
+  `epistemic_status_wire`/`explain_evidence_wire` each now open a
+  `tracing::debug_span!("epistemic.<op>", ...)` (the exact same `debug_span!(...).entered()`
+  idiom `write_coalescer.apply_batch`/`ann_index_build` already use) carrying
+  `epistemic.confidence`, `epistemic.status`, `epistemic.contradiction_count`, and
+  `epistemic.policy_labels` — sourced from the already-computed proof tree/`EpistemicStatus`/
+  redaction result (a new `eg_epistemic::classify_policy_labels` free function, extracted from
+  `contract.rs`'s existing `policy_labels()` logic, derives the label; no new epistemic
+  computation). Additive only: a build without `otel`, or a process with no
+  `EPISTEMIC_GRAPH_OTLP_ENDPOINT` configured, is unaffected — these are ordinary `tracing`
+  spans exported by the SAME OTLP layer `otel.rs` installs, matching the existing
+  `tracing::` idiom exactly).
+
+---
+
+## [2.20.0] - 2026-07-11 — Universal Modality, Distributed Planes & Epistemic Differentiation
+
+Closes out the Epistemic OS Hardening program's Phases 1-3 plus two "exceed" tracks on top
+of 2.19.0's trustworthy core. Phase 1 gives every data modality a mandatory conformance
+contract and wires the served planner directly to its persistent indexes; Phase 2 adds a
+real multi-group distributed plane (placement authority, durable analytics jobs, lakehouse
+lineage); Phase 3 makes the engine's `RowSet` result surface epistemically self-aware
+(universal claim/evidence writeback, truth maintenance, calibrated causal reasoning, policy
+redaction, bitemporal explainability). All of it is additive and feature-gated — the
+default `full` build is unchanged; every new surface here needs an explicit opt-in feature.
+Also closes out 2.19.0's EG-P0-2 mutation-gateway rollout in full.
+
+### Fixed — EG-P0-2 mutation-gateway rollout closeout (Phase 0 loose end)
+- **Every mutating `Method` is now either gateway-routed or documented `JUSTIFIED_NA`
+  (0 open/unjustified).** The L11 rollout batches (`src/server/mutation.rs`) grew
+  `MutationPlan::GATEWAY_ROUTED` from the initial 7 methods to ~80 (plain graph-core CRUD,
+  the broker/stream family, both runtime-conditional families —
+  `GraphLearnFit`/`GraphLearnPredict` and every writeback-capable `Mine*` — plus, in the
+  final batch, `Sql`/`CypherQuery`/`GraphQl` via a new `commit_conditional_mutation_async`
+  and `AddTriples`/`RemoveTriples`/`DropNamedGraph` at the RDF dispatch site). Every
+  remaining mutating method is triaged into `JUSTIFIED_NA` with a real architectural reason
+  (registry-lifecycle op, cross-shard/cluster admin action, process-global registry, OCC
+  txn self-routing, a separate durability domain such as `series.redb`/`blob.redb`/
+  `kv.redb`) — `RunRules` was found to be genuinely read-only and corrected in the policy
+  table itself rather than routed. `OPEN_NOT_JUSTIFIED` is now a machine-checked-empty
+  const (`mutation::tests::gateway_routed_set_matches_mutating_policy_surface`), so a
+  future mutating method that is routable-but-unrouted is a hard test failure, not a silent
+  gap.
+- **`docs/capabilities.generated.md` regenerated** off the above: the WAL-durability-gap
+  count drops from 18 to **9 remaining** (`FromMsgpack`, `ClearLedger`, `ApplyLedger`,
+  `CompactNodesByType`, `RunDatalogReasoning`, `Reconcile`, `ApplyMutation`,
+  `ApplyMultisigMutation`, `IcvConfigure` — each already documented as recomputable/
+  bulk-restore/CRDT-merge and not lost data in practice, but still open WAL-log gaps).
+
+### Added — Phase 1: universal modality/work contracts
+- **`eg-modality` mandatory runtime registry + 12-point TCK (EG-P1-1).** Every
+  `ModalityContract` implementer now self-registers (`register_modality`/
+  `registered_modalities`) via the `modality_conformance_tests!` macro, and the new
+  `TckReport`/`tck_report`/`render_fleet_table` machinery scores each one Pass/N-A/
+  Not-Implemented against all 12 contract points — no silently-green gaps. Retrofitted
+  across 16 existing modality-shaped crates (`eg-tensor`, `eg-geo`, `eg-tsdb`, `eg-stream`,
+  `eg-rdf`, `eg-epistemic`, `eg-ann`, `eg-text`, `eg-shacl`, `eg-shex`, `eg-lake`,
+  `eg-kvcache`, `eg-numeric`, `eg-image`, `eg-audio`, `eg-video`, `eg-compute`, `eg-core`),
+  each behind its own opt-in `contract` feature (default off — a conformance/testing seam,
+  not a serving-tier feature).
+- **Arrow-columnar `KnowledgeBatch` (EG-P1-2).** A third, still-opt-in `RowSet` projection
+  (behind `knowledge-batch`, implies `query`) that lays a `KnowledgeSet` out as a real
+  `arrow::RecordBatch` — id/kind/per-named-score/confidence/`evidence_kind` (a filterable
+  summary of the row's evidence, covering all 12 `EvidenceAddress` variants)/
+  `evidence_refs_json`/bitemporal columns/provenance/policy labels/a lazy `blob_handle` —
+  for callers that want to hand results to DataFusion/Parquet/Polars/pandas over Arrow
+  instead of iterating rows. `RowSet` and `KnowledgeSet` themselves are unchanged.
+- **`eg-document` + `eg-image`/`eg-audio`/`eg-video` + `eg-alignment` (EG-P1-3).** Four new
+  leaf crates (a typed document → pages → layout-blocks → tables → spans model, plus
+  image/audio/video header-parse + region/segment/shot evidence types, plus a shared
+  `EvidenceResolver` alignment seam) exist, compile, and are unit-tested, each behind its
+  own opt-in `contract`/crate feature. **Not yet folded into any serving tier** (pi/node/
+  cluster/full) — a capability-discovery/testing seam today, referenced by
+  `src/server/blob/cas_resolver.rs`'s `CasEvidenceResolver` (feature `alignment`, off by
+  default) which resolves a `CharacterRange`/`TableCellRange` locus to a real UTF-8 excerpt
+  off the blob CAS, and every other locus kind (image/audio/video/code/trace, no in-tree
+  codec) to a real CAS-digest reference rather than a fabricated excerpt.
+- **Persistent index pushdown in the served planner (EG-P1-4).** The served planner now
+  binds directly to the maintained persistent **BM25 text index** and the live
+  **SemanticStore** (vector) instead of rebuilding/cloning a snapshot copy per query
+  (`ServedTextIndex` downcast seam over `IndexManager`; the whole-`SemanticStore` clone on
+  every `UnifiedQuery`/`NlQuery` request is gone). Adaptive cardinality re-optimization now
+  runs automatically mid-execution (same `EPISTEMIC_GRAPH_COST_OPT` kill-switch as plan-time
+  optimization), a streaming/spillable/cancellable SQL collect path replaces eager
+  whole-result buffering, and the governed `KnowledgeBatchStream` pulls bounded batches
+  directly from result iterators. **Documented rollout backlog, not done here:** no
+  spatial/R-tree index pushdown (vector was the one index type wired this pass, not both);
+  `ExplainPlan`/`ExplainProvenance`/`ExplainPolicy` diagnostics still clone `SemanticStore`
+  per call; the mining `RankText` leg still falls back to the snapshot text index; the
+  opt-in `par-runtime` driver doesn't run adaptive-reopt yet; SQL cancellation isn't wired
+  end-to-end from the wire protocol.
+
+### Added — Phase 2: distributed planes
+- **`PlacementCatalog` — one placement authority (DIST-P2-1, `cluster`/`raft` feature).**
+  An epoch'd catalog (`src/raft/placement.rs`) tracking which `(group, epoch)` a graph or
+  a split partition-key range currently belongs to; online split/merge/move runs a
+  prepare-then-fenced-cutover sequence (`MultiRaft::placement_fence_cutover` bumps the
+  epoch so any caller still presenting a pre-cutover epoch is redirected, never served
+  stale) — the catalog takes priority over the hash-ring router for any graph with an
+  explicit placement entry.
+- **Multi-group production startup + cross-shard read fan-out (DIST-P2-2).**
+  `EPISTEMIC_GRAPH_RAFT_GROUPS` (default `1`, unset ⇒ byte-for-byte the pre-existing
+  single-group path) stands up `1..groups` additional Raft groups at boot and spreads
+  un-pinned graphs across the ring; `CrossShardReader::read_cross_shard` fans a read across
+  every group a query's graphs resolve to (each leg routed via `PlacementCatalog` ahead of
+  the ring, mirroring the write side) and merges the result, while a single-group read is
+  correctly never flagged cross-shard. Proven by a live one-node/two-group harness
+  (`src/raft/xread_harness.rs`, `xshard_harness.rs`, `placement_harness.rs`).
+- **Lazy graph lifecycle + bounded hot-context cache (DIST-P2-3).**
+  `EPISTEMIC_GRAPH_LAZY_STARTUP=1` swaps the eager `load_all` boot recovery for a
+  catalog-only scan — a graph's identity is known at boot but its node/edge data doesn't
+  hydrate until first access; `EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS` (default `0` =
+  unbounded, byte-for-byte unchanged) caps how many graphs are simultaneously RESIDENT,
+  evicting the coldest by last-access recency through the same durability-gated
+  cold-offload hibernate path R6 already uses; `__commons__` is never evicted. Both default
+  off/unbounded, so a small deployment is unaffected.
+- **Durable analytics-job plane (INT-P2-1, opt-in `jobs` feature).** `Method::AnalyticsJob`
+  (async submit/status/cancel/resume) over a redb-backed `AnalyticsJob` state machine
+  (`eg-jobs`): an immutable input-snapshot handle (`graph` + pinned OCC version, re-readable
+  later via `AS OF`, never a row copy), algorithm/params/code-version lineage, and a result
+  commit path that writes the same `:Claim`/`:Evidence` convention `eg-epistemic` reads.
+  Off by default, not folded into any tier.
+- **Arrow dataset-handle seam for external heavy compute (INT-P2-2).** A `KnowledgeBatch`-
+  backed handle a job/foreign-compute leg can hand off (Arrow IPC) without re-serializing
+  through the wire protocol row-by-row.
+- **WAL → lake materialization + Iceberg-REST catalog + OpenLineage (INT-P2-3, `lake`
+  feature).** Every `LakeManager` materialize/compact/delete run now emits a real
+  OpenLineage `RunEvent` (job/run/input-dataset/output-dataset with schema/datasource/
+  output-statistics facets + an engine-specific LSN/Iceberg-snapshot custom facet),
+  optionally pushed over HTTP to `EPISTEMIC_GRAPH_OPENLINEAGE_URL` (unset ⇒ silent no-op —
+  lineage export never blocks or fails a materialization run).
+
+### Added — Phase 3: epistemic differentiation
+- **Universal `Observation`/`Claim`/`Evidence` across results + writebacks.** The
+  opt-in mining-family `as_claim` write-back convention (introduced in 2.16.0) now spans
+  the full mining catalog (224 call sites materialize a `:Claim`+`:Evidence` pair,
+  SUPPORTS-linked for `eg-epistemic` propagation), and `AnalyticsJob` result-commits use the
+  same convention — so a derived fact from a mining run, a job, or a query result all read
+  as the same claim/evidence shape.
+- **Durable truth-maintenance projection (X-6/EPI-P3-2, feature
+  `epistemic-tms`).** The original process-local committed-mutation hook is superseded
+  by the per-graph incremental projection. It consumes ordered authoritative
+  MutationBatch records, persists before cursor acknowledgement, supports explicit
+  policy/model/ontology invalidations, and fences recompute against both graph and
+  projection versions.
+- **Calibrated causal reasoning (EPI-P3-3) — engine-native library, not yet wire-exposed.**
+  `eg-epistemic::causal` implements a linear-Gaussian structural causal model with genuine
+  Pearl do-calculus: `observe` (conditional, backward-inference-aware), `intervene` (graph
+  surgery — cuts incoming edges, doesn't just condition), and `counterfactual`
+  (abduction/action/prediction), every query returning a calibrated credible interval.
+  Gated by `eg-epistemic`'s own `epistemic-causal` feature — **this feature is not
+  currently passed through the facade `Cargo.toml`**, so it is exercised by
+  `cargo test -p eg-epistemic --features epistemic-causal` today, not by any server build
+  or wire `Method`; wiring it onto the facade/protocol is open follow-on work.
+- **Policy-aware proof redaction (EPI-P3-4, feature `epistemic-redaction`).**
+  `Method::ExplainBelief`'s new `disclosure_level` masks (never silently drops) an evidence
+  node inside a proof tree the caller's per-agent RLS context can't see, reusing the exact
+  `RowVisibility`/`can_see_row` check every other read path enforces. A build without the
+  feature answers a `disclosure_level: Some(_)` request with an explicit error rather than
+  ignoring the parameter.
+- **Bitemporal why/why-not/what-changed + the `epistemic_status` capstone (EPI-P3-5,
+  feature `epistemic-tms`).** New `Method::EpistemicStatus`/`Method::WhatChanged` wire ops
+  answer "is this still believed, as of when, and why" and "what changed between two
+  points" over the bitemporal `AsOf` axis, layered on the paraconsistent TMS.
+
+### Added — Exceed
+- **X-1: multimodal evidence-graph spine.** `eg_modality::EvidenceLocus` carries one
+  governed subject plus one of **12** `EvidenceAddress` kinds — `CharacterRange`,
+  `TableCellRange`, `ImageRegion`, `PageRegion`, `AudioRange`, `VideoTimeRange`,
+  `FrameRange`, `MetricWindow`, `Point`, `RowVersion`, `CodeSymbol`, `TraceSpan`
+  (the wire shape is reachable under the facade `epistemic` feature; the page/frame/
+  metric/row address families completed the set in
+  this release). The citation-resolver logic (`evidence_citations`/`resolve_locus`/
+  `justification_citations` in `eg-epistemic::evidence`) is gated by `eg-epistemic`'s own
+  `evidence-graph` feature, which — like `epistemic-causal` — **is not passed through the
+  facade `Cargo.toml`**; the parallel, facade-reachable resolution path is the `alignment`
+  feature's `CasEvidenceResolver` described under Phase 1 above.
+- **X-6: reversible intelligence, via the TMS recompute engine.** Realized by the
+  truth-maintenance + live CDC hook above: a retraction propagates `Stale` along real
+  dependency edges (never across an unrelated contradiction, preserving paraconsistency),
+  and `TruthMaintenance::recompute` re-derives a stale id to `Fresh` or `Retracted` —
+  reversible, not just forward-append, derived-knowledge maintenance.
+
+### Historical security note
+
+This release preceded the current single-envelope, mandatory-security cutover.
+Its transitional request-auth and row-filtering postures were removed in the
+Unreleased changes above and are not supported configuration paths.
+
+## [2.19.0] - 2026-07-11 — Trustworthy Core (Phase 0)
+
+Assimilates the P0 audit findings: acknowledged-write durability, one commit path,
+canonical time-series visibility, an enterprise request envelope, default-deny row security,
+exhaustive audit, and ledger-driven admin scoping. Staged locally (not yet pushed).
+
+### Added (Phase-0 Wave 2)
+- **`MutationPlan` + single commit gateway (EG-P0-2)** — new `src/server/mutation.rs`.
+  `MutationPlan::for_method` is populated straight from `eg_capabilities::policy` (a test asserts the
+  plan never diverges from the ledger), and `commit_mutation` is the one place where authz → idempotency
+  dedup → CDC pre-image → `eg-core` apply → `mark_dirty` → WAL/redb durable commit → CDC emit happen
+  together, declared by policy. Coalescable routed writes (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`)
+  flow through the per-graph write-coalescer so hot-path batching is preserved. 7 methods routed (their
+  direct `eg-core` bypass arms were deleted); the remaining 131 mutating methods
+  are enumerated machine-visibly by the bypass-guard test as the rollout backlog.
+- **Default-deny RLS + ledger-driven admin scopes + exhaustive audit (EG-P0-6).**
+  `crates/eg-core/src/isolation.rs` introduced the default-deny row-filtering
+  posture that the current server now enforces unconditionally. Admin methods
+  (identity/RBAC/reshard/consensus/backup-restore
+  and any future admin-tier method) are gated once in `dispatch_inner` off
+  `eg_capabilities::policy(m).authz_action` — no parallel table. `src/audit.rs::audit_line` extended
+  from ~7 CRUD arms to the full 64-method durable surface, so every acknowledged mutation emits an
+  immutable audit entry.
+
+### Fixed (Phase-0 Wave 2)
+- **Time-series unification (EG-P0-4).** Cross-modal-committed measurements (written into `graph.redb`
+  SERIES tables) are now materialized into the served `SeriesStore` so they are visible through the
+  public `TsRange`/`TsScan`/UQL read path immediately after commit **and after a full restart**
+  (previously durable-but-unreachable). A narrow crash window between the two redb commits is documented
+  (no reconciliation pass yet).
+- **Time-series startup reconciliation (L16, CONCEPT:EG-KG.backend.ts-startup-reconcile).** Closes the EG-P0-4 crash
+  window above: `RedbBackend::reconcile_time_series` runs once at boot (after both stores are open,
+  before the server accepts traffic), scans every shard's `graph.redb` SERIES tables, and replays into
+  the served `series.redb` any series whose durable point count hasn't yet converged. An exact multiset
+  point-diff (not a positional "skip the first N" heuristic, which is unsafe when interleaved batches
+  share a time bucket) makes the pass idempotent and duplicate-free — a converged series is skipped with
+  no I/O, so running it twice in a row is a true no-op.
+- **L10 privilege gap (EG-P0-6).** Eight mutating broker/stream ops (`StreamDeclare`/`StreamPublish`/
+  `StreamTrim`/`StreamCommitOffset`/`PublishConfirmed`/`PublishIdempotent`/`BrokerAckTag`/`BrokerNackTag`)
+  were classified as Read in `access::requires_write` while durable-logging in `wal.rs` — a caller with
+  only READ access could invoke them. Now correctly require write access.
+- **Capability ledger reconciliation (EG-P0-6).** Regenerated `docs/capabilities.generated.md` and the
+  `eg-capabilities` divergence snapshot so the five EG-P0-3-fixed methods are no longer counted as open
+  WAL gaps (23 → 18).
+
+### Added (Phase-0 Wave 1)
+- **`crates/eg-capabilities` (EG-P0-1)** — a new leaf crate (dependency: `eg-types` only) declaring an
+  exhaustive, compiler-enforced `MethodPolicy` (mutates / `DurabilityDomain` /
+  authz action / idempotent / audited / emits-CDC / txn-participation) for every one of the 337
+  `Method` wire-protocol variants — adding a new variant without declaring its policy is now a
+  compile error. Generates the machine-authoritative `docs/capabilities.generated.md` ledger
+  (`cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving --bin gen_ledger`) plus a consistency test cross-checking the policy
+  table against `access.rs`/`wal.rs`/`audit.rs`/`cdc.rs`, currently reporting 106 documented
+  `KNOWN_DIVERGENCE` findings (22 runtime-conditional, 23 WAL-durability gaps, 61 access.rs coverage
+  gaps — see `docs/capabilities.md`'s new "Known limitations" section). Workspace member only, not
+  linked by default builds; handlers are not yet refactored to consume this table (EG-P0-2/EG-P0-6).
+- **Signed request-envelope groundwork (EG-P0-5)** — introduced canonical
+  audience, tenant, principal, graph, method/body digest, timestamp, nonce, and
+  idempotency binding under HMAC-SHA256 with constant-time verification. The
+  transitional format from this release was subsequently deleted; the current
+  `eg2.` authority contract adds complete policy context and durable replay.
+
+### Fixed
+- **WAL durability closure (EG-P0-3)** — `access::requires_write` classified `MineSequence` /
+  `MineForecast` / `MineText` (non-`tfidf` writeback) / `MineSubgraph` (`gspan` writeback) /
+  `AddEmbedding` as mutations (Write ACL + implied durability), but `wal::is_durable_mutation` never
+  returned `true` for them: an acknowledged write could be silently lost on crash, and the
+  `MineSequence`/`MineForecast`/`MineText`/`MineSubgraph` replay arms in `apply()` were dead code.
+  Closed by adding all five to the durable-mutation set (mirroring `access.rs`'s exact conditions) and
+  adding the missing `AddEmbedding` replay arm. Also fixes a related post-restart bug: `replay()` now
+  calls `core.mark_dirty()` after a non-empty replay so the lazy label-index cache doesn't hide
+  nodes written by a graph-derived mining replay from `get_nodes_by_label` until an unrelated write.
+  18 other write-classified-but-not-WAL-logged methods remain open per the new capability ledger
+  (`ApplyMutation`, the ledger ops, `Reconcile`, `RunDatalogReasoning`, etc.) — **not** addressed by
+  this fix; see `docs/capabilities.md`'s "Known limitations".
+
+### Added — dependency-driven truth maintenance (X-6 / EPI-P3-2)
+- **`eg-epistemic::recompute` (feature `epistemic-tms`)** — a live recompute/truth-maintenance
+  engine layered on top of the shipped paraconsistent TMS + Dung argumentation (2.16.0): tracks
+  every derived materialization (an inferred edge/cluster/summary/classification/agent-fact) as
+  a `Materialization` with an explicit `depends_on` set (the invalidation-dependency edges) and
+  optional `generating_activity` (model/job/ontology version). `TruthMaintenance::on_change`
+  takes a `ChangeEvent` (`Deleted`/`Updated`/`PolicyChanged`/`ModelRetired`/`OntologyEvolved`),
+  walks the reverse dependency index to find every materialization transitively depending on the
+  changed id (or generator), and marks it `Stale` — never silently leaving stale truth behind.
+  `TruthMaintenance::recompute` re-derives a stale id against a (possibly new) dependency set,
+  landing `Fresh` or `Retracted` (never resting at `Stale`). `TruthMaintenance::retract_and_propagate`
+  wires the existing `tms::retract` dependency-directed retraction straight into the same index:
+  retracting a claim in the argumentation graph marks its dependents `Stale` one tracking level up.
+  `TruthMaintenance::dependents_of` answers "what depends on X"; `TruthMaintenance::stale` answers
+  "what's stale". Paraconsistency is preserved end-to-end — two materializations built from
+  directly contradicting claims coexist independently, and a retraction only propagates along real
+  dependency edges, never across an unrelated contradiction. Reuses the shipped TMS/`JustificationGraph`
+  verbatim (no reimplementation); no new persistence — an in-memory index, same feature gate.
+  Coordinates with the invalidation-dependency edges EPI-P3-1 adds onto the stored graph (not yet
+  landed in this repo): `register` currently takes explicit dependency ids and is meant to be
+  populated from those real `:DerivedFrom`/`:GeneratedBy` edges once they exist; a server-side CDC
+  hook mapping `CdcKind::RemoveNode`/`UpdateNode` onto `ChangeEvent::Deleted`/`Updated` is the
+  other open wiring point (`eg-epistemic` has no `streaming` dependency by design).
+
+## [2.17.0] - 2026-07-10 — Semi-naive reasoning + GPU transitive-closure
+
+Re-architects the compiled semantic reasoner (`CONCEPT:EG-KG.compute.compiled-semantic-reasoner`)
+into a **semi-naive** evaluator and adds the GPU offload the S4 deferral note identified as
+the natural target (`CONCEPT:EG-KG.compute.reasoning-closure-gpu`).
+
+### Added
+- **`crates/eg-compute/src/reasoning_closure.rs`** — the five OWL/RDFS rules evaluated
+  semi-naively over **integer-interned** relations (each round derives only from the prior
+  round's delta rather than re-scanning the whole accumulated fact set), with Rule 5
+  (transitive closure) — the one sparse-matrix-shaped rule — factored behind a
+  `ClosureBackend` seam: an always-compiled `CpuBackend` (hash-join) plus a feature-gated
+  `cuda::CudaBackend` that NVRTC-compiles a two-pass CSR-join kernel (binary-search count →
+  host exclusive-scan → scatter) and degrades to CPU on any device/compile/launch failure.
+  Mirrors the `eg-ann::kmeans_gpu` `AssignBackend` seam.
+- New `eg-compute` `gpu`/`gpu-cuda` features (+ optional `cudarc`, dynamic-loading so a
+  `gpu-cuda` build needs no CUDA toolkit); facade `gpu`/`gpu-cuda` pass them through. Kept
+  **out of `pi`/`default`/`full`** — a `pi` build links no `cudarc`.
+- Tests: a differential oracle proving the semi-naive evaluator derives the SAME fact set
+  as the prior naive fixpoint over 40 randomized ontologies, and a `#[cfg(feature =
+  "gpu-cuda")]` GPU↔CPU parity test that SKIPs cleanly on a GPU-less host and auto-validates
+  on a compatible CUDA device.
+
+### Changed
+- `reasoning.rs::run_datalog_reasoning` now extracts base facts and delegates inference to
+  the semi-naive evaluator on the active backend, keeping the identical write-back tail.
+  The prior string-keyed naive fixpoint is removed (No-Legacy) — the `full` build's
+  reasoning path is now the semi-naive evaluator (same results, less repeated work).
+
+## [2.16.0] - 2026-07-10 — Epistemic Substrate
+
+Turns the engine's `RowSet` multimodal center into an explicitly **epistemic** substrate
+(claims, evidence, belief, provenance, contradiction, confidence, validity, agent-action
+history as engine-native concepts), addressing + exceeding the external functional review.
+
+### Added — epistemic core & planner
+- **`eg-epistemic` crate** — engine-native Claim/Evidence/Source/BeliefState/Contradiction/
+  Support-Attack + cycle-guarded confidence propagation (reuses the `Beta` conjugate
+  `bayesian_update`), `JustificationGraph`, and (feature `epistemic-tms`) **paraconsistent
+  truth-maintenance + Dung argumentation** (grounded/preferred/stable extensions,
+  dependency-directed retraction).
+- **Belief/evidence UQL + wire ops** — `EVIDENCE FOR`/`CONTRADICTS`/`SUPPORTED BY`/
+  `BELIEF AS OF`/`VALID AS OF`/`SOURCE RELIABILITY`/`CONFIDENCE`/`EXPLAIN BELIEF`
+  (feature `epistemic`); `VALID AS OF` is a strict-superset alias of `AS OF`.
+- **`KnowledgeSet` (RowSet v2)** — additive typed frame carrying kind/projection/bitemporal/
+  confidence/**source/evidence/policy refs** with located multimodal `EvidenceLocus`s
+  (`CharacterRange`/`TableCellRange`/`ImageRegion`/`PageRegion`/`AudioRange`/
+  `VideoTimeRange`/`FrameRange`/`MetricWindow`/`Point`/`RowVersion`/`CodeSymbol`/
+  `TraceSpan`);
+  bare `RowSet` unchanged.
+- **Planner v2 typed DAG** — `PlanDag`/`dag_exec` alongside the untouched linear path, proven
+  byte-identical by a **differential oracle**; DAG-aware optimizer (narrowed EG-405 guard),
+  multi-branch joins, `EXPLAIN PLAN/PROVENANCE/POLICY/BELIEF`, `stage_plan_writeback` ACID
+  seam, and a cluster-gated cross-shard **exchange operator** (X4).
+- **`eg-modality` Modality Contract** trait + conformance harness, retrofitted across the
+  crate fleet.
+- **Mining → epistemic objects** — every mined result (incl. new families:
+  entity-resolution, record-linkage, causal-impact, process-mining, root-cause,
+  risk-propagation, ontology-gap, retrieval-quality, community) materializes a candidate
+  Claim + Evidence + confidence + validation-state (opt-in `as_claim`).
+- **New modality engines** — `eg-image`/`eg-audio`/`eg-video` (pure-Rust header parse +
+  region/segment/shot evidence; heavy codecs gated); modality-depth analytics (vector drift/
+  versioning, TS change-point, code call-graph, text table/layout spans).
+- **GPU ANN-build offload** (`gpu-cuda`), **Calvin multi-node epoch routing** (`calvin`),
+  and materialize-belief + ICV SHACL/RLS enforcement.
+
+### Added — CycloneDDS-C `rmw` ROS2 leg (S5, follow-on to EG-347/EG-349)
+- **`ros2-rmw` feature** — a THIRD `DdsTransport` impl (`CycloneDdsTransport`,
+  `src/server/dds.rs`), alongside the WS bridge (`ros2-bridge`) and the pure-Rust
+  `rustdds` leg (`ros2-dds`). Links the REAL `rmw_cyclonedds`/CycloneDDS-C stack via the
+  safe `cyclonedds` Rust crate (`cyclonedds` → `cyclonedds-rust-sys` → `cyclonedds-src`,
+  which vendors the CycloneDDS C sources IN the crate — no network fetch at build time;
+  `cmake`-built static lib + prebuilt bindgen output, no libclang needed). Genuine
+  zero-config live-`ros2` interop: a real `ros2` node discovers/pubs/subs with no bridge.
+- Reuses the SAME `mangle_topic_name`/`mangle_type_name` rmw mangling as the `ros2-dds`
+  leg (no forked shaping) and the SAME `std_msgs/String` CDC↔ROS2 payload convention. A
+  hand-written `DdsType` impl for the single-string sample type (no IDL compiler needed)
+  with a `clone_out` override to avoid a double-free across the DDS loan boundary.
+  Exercised by a real RTPS loopback pub/sub test over the CycloneDDS-C wire
+  (`eg347_cyclone_dds_loopback_pub_sub_roundtrip`), mirroring the `ros2-dds` leg's test.
+- Toolchain-gated (needs `cc`/`cmake`) + heavy — kept OUT of `pi`/`default`/`node`/`full`,
+  folded ONLY into the opt-in `full-extras` bundle alongside `ros2-dds`/`gpu-cuda`
+  (a `pi`/`full` build links no cyclonedds/cyclonedds-rust-sys/cyclonedds-src, asserted
+  by `cargo tree`).
+
 ## [2.11.0] - 2026-07-04
 
 > **Minor, additive.** Closes **handoff-1** in full — the cross-modal query engine gains a
@@ -312,7 +781,7 @@ numpy/scipy parity verified (13/13).
 
 ## [Unreleased — Program B]
 
-> **Minor, additive, backward-compatible.** Program B (waves B-1..B-6) turns the previously-deferred
+> **Minor, additive.** Program B (waves B-1..B-6) turns the previously-deferred
 > roadmap tail from stubs into real implementations and pushes a fresh batch of "master of all databases"
 > depth: an **LTAP lakehouse-interop tier** (Databricks-interoperable), real pgvector ANN pushdown,
 > GDS-over-Cypher, real ParadeDB BM25 ranking, exactly-once broker delivery, OTel/remote-write egress,
@@ -403,7 +872,7 @@ numpy/scipy parity verified (13/13).
 
 ## [2.2.0] - 2026-07-02
 
-> **Minor, additive, backward-compatible.** The "Universal-DB parity" session (waves 18–22,
+> **Minor, additive.** The "Universal-DB parity" session (waves 18–22,
 > ~115 shipped concepts). Every feature below is behind its own Cargo feature and its own
 > opt-in listener/env — a default/`pi`/`node`/`full` build that sets no new address is
 > byte-for-byte the 2.1.0 engine. All pre-commit gates green. New surfaces fold into the
@@ -522,8 +991,6 @@ numpy/scipy parity verified (13/13).
   acquisitions, ~2× wall-clock**. See `docs/architecture/write-coalescer.md`.
 
 ### Added (prior, unreleased)
-- **`GetTriples` bulk RDF export op** — exports a graph as RDF triples in one round-trip, the
-  fast path backing local SPARQL over any durable backend (eliminates the per-node export loop).
 - **Per-graph memory cap (E1/E3)** — `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` (0=off): a periodic
   sweep (`EPISTEMIC_GRAPH_MEMCAP_INTERVAL`, default 10s) evicts any over-cap graph back to the cap
   via the existing LRU, so a shard **degrades instead of OOM-killing every tenant on it** (evicted

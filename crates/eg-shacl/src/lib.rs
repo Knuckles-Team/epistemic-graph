@@ -34,11 +34,16 @@ pub mod shapes;
 pub mod validate;
 pub mod vocab;
 
+/// `ModalityContract` retrofit for [`report::ValidationResult`] (CONCEPT:E4). Behind
+/// the crate's own opt-in `contract` feature (default OFF) — see `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
+
 pub use icv::{
     check_write, validate_icv, validate_icv_turtle, validate_icv_with_inferences, IcvReport,
     IcvViolation, WriteCheck,
 };
-pub use policy::{IcvMode, IcvPolicy, IcvPolicyRegistry};
+pub use policy::{IcvPolicy, IcvPolicyRegistry};
 pub use report::{Severity, ValidationReport, ValidationResult};
 pub use validate::{graph_from_turtle, validate, validate_turtle};
 

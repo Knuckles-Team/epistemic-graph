@@ -72,13 +72,13 @@ honest about how strong and how fresh each inference is.
   completion (EG-KG.ontology.owl-reasoning).
 - **Full DL**: the `owl-dl` feature adds a pure-Rust DL **tableau** (cardinality, `allValuesFrom`,
   nominals, negation) run consistency → classification → instance, plus **SWRL** user rules with the
-  `swrlb:` built-in library (EG-KG.ontology.concept-2/060). These are opt-in beyond the EL/RL default.
+  `swrlb:` built-in library (EG-KG.ontology.concept-2/060). Cargo `full` includes this surface.
 
-## Tier note
+## Feature composition
 
-The lean **pi** tier carries SPARQL `SELECT` + OWL reasoning via the `Method::Owl*` RPCs, but the
-SQL-backed `Op::Reason` planner op needs `owl-plan` (which pulls DataFusion) and lands in the **node**
-tier. See [tiers & binaries](../architecture/tiers.md).
+The main build includes SPARQL `SELECT`, OWL reasoning through `Method::Owl*`, and
+the SQL-backed `Op::Reason` planner operation through `owl-plan` and DataFusion.
+See [build feature composition](../architecture/tiers.md).
 </content>
 
 ---

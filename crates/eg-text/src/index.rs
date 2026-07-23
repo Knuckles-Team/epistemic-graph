@@ -126,6 +126,15 @@ impl TextIndex {
         self.writer.delete_term(term);
     }
 
+    /// Remove every indexed document. Recovery rebuilds use this before replaying
+    /// the authoritative source snapshot so documents deleted while this process
+    /// was offline cannot survive merely because their ids are absent from the
+    /// recovered graph.
+    pub fn clear(&mut self) -> tantivy::Result<()> {
+        self.writer.delete_all_documents()?;
+        Ok(())
+    }
+
     /// Commit pending adds/deletes durably (a new segment + tombstones) and reload the
     /// reader so subsequent [`Self::search`] sees them. One round-trip-amortized commit
     /// after a batch of upserts is the intended usage.

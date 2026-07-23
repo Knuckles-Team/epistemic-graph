@@ -1,0 +1,74 @@
+[package]
+name = "eg-capabilities"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Machine-checked MethodPolicy capability ledger for the epistemic-graph wire protocol (CONCEPT:EG-P0-1)"
+license = "MIT"
+
+[lib]
+name = "eg_capabilities"
+
+# A leaf crate BELOW eg-core/eg-plan in the DAG (deps = eg-types ONLY, mirroring the
+# eg-modality precedent) so it can be built + tested in isolation without pulling in
+# the server, redb, raft, or any compute domain. It is NOT added as a normal
+# As of CONCEPT:EG-P0-2 the root `epistemic-graph` package DOES depend on this crate
+# (optional, behind its `server` feature) so the mutation gateway can consume
+# `policy()`; see the root Cargo.toml. Default (non-`server`) builds still link none
+# of it.
+#
+# Every eg-types optional feature that gates a `Method` VARIANT is enabled
+# unconditionally below. That is deliberate, not an oversight: `policy()` is an
+# EXHAUSTIVE match over `Method` with NO wildcard arm (the whole point of this crate
+# -- see `lib.rs`), so it must see every variant that can ever exist, regardless of
+# which serving tier a given build of the main engine happens to compile. All of
+# these features are PURE serde / enum-variant gates on eg-types' side (no heavy
+# transitive dependency), so turning them all on here does not pull in
+# redb/tokio/raft/rayon/etc.
+#
+# EG-P0-2: `timeseries` and `probabilistic` are DELIBERATELY OMITTED. They gate ONLY
+# wire `Op`/DTO items on eg-types' side -- ZERO `Method` variants (the `Ts*` Method
+# variants are ungated; there is no probabilistic `Method`), so `policy()`'s Method
+# match neither needs nor references them. Crucially, they are the ONLY two eg-types
+# features that the main engine's `full` build does NOT already enable, so force-
+# enabling them here (now that `epistemic-graph` links this crate) would, via Cargo
+# feature unification, turn on `eg-types/{timeseries,probabilistic}` across the WHOLE
+# engine build and expose latent non-exhaustive `Op` matches (e.g. eg-plan's
+# `exec.rs` `Op::Probabilistic`) that a shipped `full` build never compiles. Omitting
+# them keeps this crate's Method coverage 1:1 (still 337 variants) while leaving the
+# engine's feature set byte-for-byte what it was pre-EG-P0-2.
+#
+# CONCEPT:INT-P2-1: `jobs` (the `Method::AnalyticsJob` durable-job-plane variant) is
+# ALSO deliberately omitted from the forced-on list above, for the SAME reason as
+# `timeseries`/`probabilistic` -- but this time it DOES gate a real `Method` variant,
+# so simply omitting it would leave `policy()` non-exhaustive whenever a build
+# elsewhere in the graph turns `eg-types/jobs` on. Instead this crate carries its OWN
+# mirrored `jobs` feature (below) that both turns on `eg-types/jobs` AND cfg-gates
+# `policy()`'s one `Method::AnalyticsJob` arm together, so the two can never drift
+# out of sync -- the root `epistemic-graph` package's `jobs` facade feature enables
+# BOTH `eg-types/jobs` and `eg-capabilities/jobs` in lockstep (see root Cargo.toml).
+[dependencies.eg-types]
+path = "../eg-types"
+features = [
+    "metrics", "finance", "datascience", "mining", "graphlearn", "epistemic",
+    "query", "graphql", "broker", "text", "blob", "kv", "sqlite-file",
+    "streaming", "cost", "rdf", "sparql", "owl", "owl-plan", "obda",
+    "wasm-udf", "compute-dist", "matview", "security", "federation",
+    "geo", "tensor", "stream",
+]
+
+[features]
+default = []
+# CONCEPT:INT-P2-1 -- see the module doc above. Mirrors `eg-types/jobs` 1:1: NEVER
+# enable one without the other (this feature enables `eg-types/jobs` itself, so a
+# caller only ever needs to request THIS one).
+jobs = ["eg-types/jobs"]
+# CONCEPT:INT-P2-2 -- see the module doc above. Mirrors `eg-types/statechart` 1:1 (same
+# lockstep contract as `jobs`): this feature enables `eg-types/statechart` AND cfg-gates
+# `policy()`'s one `Method::Statechart` arm together, so the two can never drift.
+statechart = ["eg-types/statechart"]
+# Mirrors the facade/eg-types native governed KnowledgeBatch wire contract.
+knowledge-batch = ["eg-types/knowledge-batch"]
+# Mirrors the facade/eg-types governed modality feature so the exhaustive policy
+# match sees `Method::ServedModality` exactly when that wire surface exists.
+modality-serving = ["eg-types/modality-serving"]

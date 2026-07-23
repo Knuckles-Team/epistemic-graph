@@ -1,23 +1,68 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric"]
-# EG-185/186: fold eg-kvcache into node/full (the tiered + shared KV-cache leaf crate,
-# a sibling of eg-ann/eg-tensor). Added as a workspace member only; the tier aggregate
-# feature lists (node/full) and the path-dep + server-endpoint wiring are folded in by
-# the orchestrator / a follow-up, NOT edited here (avoids a tier-line merge conflict).
-# CONCEPT:EG-317: fold eg-lake (the LTAP lakehouse-interop leaf crate — Parquet
+members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format"]
+# CONCEPT:INT-P2-1 -- eg-jobs: the durable analytics-job plane (async submit/status/
+# progress/cancel/resume over a redb-backed `AnalyticsJob` state machine, committing
+# results as provenance'd epistemic claims via `eg-core::GraphCore` +  the SAME
+# typed-node convention `eg-epistemic` reads). A leaf crate ALONG the DAG (deps =
+# eg-types + eg-core), added as a workspace member ONLY -- mirroring the eg-document/
+# eg-alignment/eg-image/eg-audio/eg-video precedent above. The root package exposes
+# it behind the composable `jobs` feature and includes that feature in the one main
+# `full`/default build (CONCEPT:EG-371), wiring `Method::AnalyticsJob` and the bounded
+# distributed worker runtime.
+# CONCEPT:EG-P0-1 -- eg-capabilities: the machine-checked MethodPolicy capability-ledger
+# crate (exhaustive, no-wildcard `policy()` over eg-types::protocol::Method, generated
+# docs/capabilities.generated.md, a consistency test cross-checking access.rs/wal.rs/
+# audit.rs/cdc.rs). A leaf crate (deps = eg-types ONLY, all its optional features on --
+# see eg-capabilities/Cargo.toml). Build/test it targeted:
+# `cargo build -p eg-capabilities` / `cargo test -p eg-capabilities` /
+# `cargo clippy -p eg-capabilities -- -D warnings`.
+# CONCEPT:EG-P0-2 -- as of the mutation-gateway workstream, eg-capabilities IS also an
+# optional dependency of the root `epistemic-graph` package (see `[dependencies]` +
+# the `server` feature below): `src/server/mutation.rs`'s `MutationPlan` calls
+# `eg_capabilities::policy(&method)` as its ONE source of per-method authz/durability/
+# audit/CDC/idempotency truth, so the server binary linking it is the point.
+# eg-types' optional features that eg-capabilities forces on are pure serde/enum-variant
+# gates, confirmed to add no heavy transitive dependency. The one main build includes
+# `server`, and therefore this ledger.
+# EG-185/186: eg-kvcache is the tiered + shared KV-cache leaf crate, a sibling of
+# eg-ann/eg-tensor. Its path dependency and server endpoint are included through the
+# main build's `kvcache-server` feature.
+# CONCEPT:EG-317: eg-lake is the LTAP lakehouse-interop leaf crate — Parquet
 # materialization + Delta/Iceberg logs + LSN as-of snapshots + Iceberg-REST catalog)
-# into node/full behind a `lake` feature. Added as a workspace member ONLY; the tier
-# aggregate feature lists (node/full) and the server-endpoint wiring (the async
-# materialization tier onto the WAL) are folded in by the orchestrator / a follow-up,
-# NOT edited here (avoids a tier-line merge conflict). eg-lake is OUT of pi — its
-# heavy arrow/parquet deps live behind `lake`.
+# behind the composable `lake` feature. Its heavy Arrow/Parquet dependencies remain
+# isolated to that explicit source feature; `lake` is not another deployment tier.
+# CONCEPT:E4 — eg-modality: the ModalityContract trait + conformance harness. A tiny
+# leaf crate BELOW eg-plan/eg-core in the DAG (deps = eg-types ONLY — see its own
+# Cargo.toml/lib.rs docs for why). The contract/TCK is adopted across the modality
+# fleet; the universal governed artifact protocol and served state machine now live
+# here as well. Tensor/geo remain value-level contract implementations, while
+# document/media are production served modalities through the facade's
+# `modality-serving` feature.
+# CONCEPT:E4 / EG-P1-3 — document/image/audio/video are governed served modality
+# leaves. Native runtimes extract bounded UTF-8 structure + private lexical postings,
+# decode PNG pixels + pHash, decode PCM/WAV + waveform/spectral windows, and parse
+# ISOBMFF tracks/sample tables + raw RGB frames. Every leaf persists SHA-256 content
+# identity and normalized source-free features, maintains native posting indexes, and
+# executes exact typed predicates through the universal artifact/evidence protocol.
+# eg-alignment is the shared alignment graph:
+#   * eg-alignment -- the shared alignment graph (CONCEPT:EG-P1-3): a typed
+#     structure connecting document spans <-> image regions <-> audio intervals <->
+#     video frames/shots <-> extracted entities <-> claims <-> source blobs (nodes
+#     wrap `eg_modality::EvidenceLocus` plus bare entity/claim/blob ids; edges are a
+#     typed `AlignmentRelation`), plus an `EvidenceResolver` seam that resolves an
+#     `EvidenceLocus` to its located artifact. Depends on `eg-modality` ONLY in its
+#     default build (no heavy artifact-crate dependency); its integration test pulls
+#     eg-document/eg-image/eg-audio/eg-video as DEV-dependencies only (does not
+#     affect what a consumer of the published `eg-alignment` library links).
+# Runtime modules remain feature boundaries at the leaf and are enabled by the main
+# `modality-serving` facade feature.
 
 [package]
 name = "epistemic-graph"
-version = "2.11.0"
+version = "2.23.1"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
-description = "High-performance Rust graph compute engine for AI agents"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Rust-native durable multimodal and epistemic database for governed AI systems"
 license = "MIT"
 
 [lib]
@@ -70,10 +115,10 @@ required-features = ["embedded"]
 #   * `cluster`     — openraft HA replication + distributed compute (multi-node).
 #   * `full-extras` — the real CUDA + ROS2/DDS backends (need a GPU/robotics toolchain
 #                     to RUN; build clean everywhere via dynamic-loading).
-# INVARIANTS still enforced (the retired-DataFusion Pi contract, now Pi-4+): NO Python
-# extension bindings in any build (`bindings="bin"`, gated by the no-extension source/binary
-# CI check), NO openraft in the default build (cluster-only), NO cudarc/rustdds in the
-# default build (full-extras-only) — asserted by `cargo tree`.
+# INVARIANTS: NO Python extension bindings in the server build (`bindings="bin"`, gated
+# by the no-extension source/binary CI check), NO openraft in the main build
+# (`cluster`-only), and NO cudarc/Dust-DDS/CycloneDDS in the main build
+# (`full-extras`-only) — asserted by `cargo tree`.
 default = ["graph", "algorithms", "metrics", "full"]
 
 graph = []
@@ -86,13 +131,10 @@ metrics = ["dep:prometheus", "eg-types/metrics"]
 # batch OTLP exporter ON TOP of the existing `tracing` subscriber, additively: it
 # installs ONLY when built with this feature AND `EPISTEMIC_GRAPH_OTLP_ENDPOINT` is
 # set, exporting the spans the engine already emits — no new spans, no behavior
-# change when off/unset. All four deps are OPTIONAL + referenced only under
-# `#[cfg(feature = "otel")]`, so a default/pi/full build links NONE of them
-# (asserted by `cargo tree`). Implies `server` (the subscriber init lives there +
-# tracing-subscriber is server-gated). Pulls tonic/prost/network, so it is kept OUT
-# of `pi` — and deliberately NOT folded into `node`/`full` here: the orchestrator
-# folds `otel` into node/full at merge time (avoids a tier-line merge conflict with
-# concurrent waves).
+# change when off/unset. All four dependencies remain isolated behind
+# `#[cfg(feature = "otel")]`; the default `full` artifact enables the feature while
+# an explicitly slim, no-default-feature build can omit it. Implies `server` because
+# subscriber initialization lives in the served process.
 otel = [
     "dep:opentelemetry",
     "dep:opentelemetry_sdk",
@@ -105,83 +147,238 @@ ast = ["eg-compute/ast"]
 # Extended-language grammar tier (CONCEPT:KG-2.106), folded into `full`.
 ast-extended = ["eg-compute/ast-extended"]
 datascience = ["eg-compute/datascience", "eg-types/datascience"]
+# Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): association-rule
+# mining (Apriori/FP-Growth/Eclat) + the `graph_mine` surface. Pure-Rust, no heavy
+# dep, folded into `full`. Gates eg-compute/mining + eg-types/mining + the
+# handlers/mining.rs dispatch arm.
+mining = ["eg-compute/mining", "eg-types/mining"]
+# Graph-learning / neuro-symbolic domain (CONCEPT:EG-KG.graphlearn.link-predictor): a
+# pure-Rust KAN link-predictor over the resident graph + the `graph_learn` surface,
+# whose learned per-feature edge functions are queryable `:EdgeFunction` KG nodes.
+# Pure-Rust (no torch — heavy training is delegated to data-science-mcp), folded into
+# `full` via `compute`. Gates eg-compute/graphlearn + eg-types/graphlearn + the
+# handlers/graphlearn.rs dispatch arm. Implies datascience (shared Adam kernels).
+graphlearn = ["datascience", "eg-compute/graphlearn", "eg-types/graphlearn"]
 reasoning = ["eg-compute/reasoning"]
-# CONCEPT:EG-321 — the Analytics-Program numeric kernel (eg-numeric: faer + ndarray,
+# Engine-native epistemic layer (CONCEPT:EG-KG.epistemic.epistemic-substrate, E6+E2): the
+# eg-epistemic leaf crate (claims/evidence/belief-state + confidence propagation) over
+# the EXISTING NodeData/EdgeData fields (no new persistence). Pulls eg-epistemic (pure
+# Rust: eg-types + eg-core + eg-compute/reasoning — no heavy dep) + eg-types/epistemic
+# (the pure-serde `as_claim` wire gate, E6) + eg-plan/epistemic (E2: the
+# `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,SourceReliability,ConfidenceOp,
+# ExplainBelief}` UQL/plan surface + its `BELIEF AS OF`/`VALID AS OF`/… keywords — IMPLIES
+# `query` because those ops live inside the `query`-gated `Op` enum, beside `owl`/
+# `probabilistic`/`tensor`). Gates the ADDITIVE mining→epistemic-object write-back (E6): with
+# `mining` ALSO on, `MineAssociate`/`MineCluster`/`MineAnomaly`/`MineSequence`/`MineForecast`/
+# `MineSubgraph` accept `as_claim=true` and materialize a `:Claim` (+ `:Evidence`) per
+# finding, SUPPORTS-linked so `eg_epistemic` can propagate belief over them. Additive: with
+# `as_claim` unset the write-back is byte-identical, and a build without `query` simply lacks
+# the E2 plan ops (the E6 mining write-back is unaffected either way). The default
+# `full` artifact enables this feature.
+epistemic = [
+    "query",
+    "dep:eg-epistemic",
+    "eg-types/epistemic",
+    "dep:eg-plan",
+    "eg-plan/epistemic",
+    # X1 (CONCEPT:E4): `dep:eg-modality` makes `eg_modality::EvidenceLocus` nameable in
+    # `explain_provenance`'s `evidence_locus_wire` mapper (see that dep's own comment —
+    # `eg-plan/epistemic` above already links `eg-modality` transitively; this adds no
+    # new weight, only visibility).
+    "dep:eg-modality",
+]
+# L51 — policy-aware proof redaction + selective disclosure wired onto the
+# `Method::ExplainBelief` facade surface (`disclosure_level`): turns on
+# `eg-epistemic`'s own `epistemic-redaction` feature (which pulls `eg-core/security`
+# for the SAME `IsolationLayer`/`RowVisibility` every other RLS-aware read path
+# already links) and requires `epistemic` + `security` so the handler's
+# `caller`/`rls` context is always present alongside it. WS-1b: included in the one
+# main `full` build — LIGHT (no new dep, no
+# expensive recompute, reuses the always-linked RLS check). The formerly
+# opt-in TMS/causal siblings are also in the one main build as of P2 closure.
+# `--all-features` still enables it (redundantly, once `full` already does).
+epistemic-redaction = ["epistemic", "security", "eg-epistemic/epistemic-redaction"]
+# L53 + L46 — the bitemporal/paraconsistent-TMS query family
+# (`why`/`why_not`/`what_changed`/`what_evidence_would_change_this`/`is_believed`/the
+# `epistemic_status` acceptance capstone) wired onto the facade as
+# `Method::EpistemicStatus`/`Method::WhatChanged`, AND EPI-P3-2's server-side
+# durable incremental projection that consumes committed base-fact
+# `RemoveNode`/`RemoveEdge`/`CompareAndSetNodeFields` from the write path
+# (`mutation::commit_finalize`'s post-commit hook) into
+# eg-epistemic's `TruthMaintenance` index (`ChangeEvent`/`on_change`). Turns on
+# `eg-epistemic`'s own `epistemic-tms` feature; implies `epistemic` (the wire `Method`
+# variants + facade `eg-epistemic` dep, which also satisfies the write-path hook's bare
+# `eg-epistemic` need). HEAVY (paraconsistent Dung argumentation grounded/preferred/
+# stable extension search is NP-hard in the worst case). It is included in the
+# one main `full` build; expensive searches remain request-bounded and the
+# incremental projection worker avoids full-graph steady-state recomputation.
+epistemic-tms = ["epistemic", "eg-epistemic/epistemic-tms"]
+# X-1 (CONCEPT:EG-X1) — the multimodal-evidence citation resolver wired onto the
+# facade as `Method::ExplainEvidence`: given a claim/evidence node id, walk the
+# SAME support/contradiction/attack `BeliefGraph` topology `ExplainBelief` walks
+# and return every transitively-cited node's complete governed `EvidenceLocus`
+# (page region, audio/video interval, row version, code range, trace span, …).
+# Turns on `eg-epistemic`'s own
+# `evidence-graph` feature (no new dependency — it reuses the SAME optional
+# `eg-modality` dep `epistemic` already links for `EvidenceLocusWire`); implies
+# `epistemic` (the wire `Method` variant + facade `eg-epistemic` dep). WS-1b: included
+# in the one main `full` build — LIGHT,
+# same posture as `epistemic-redaction` above. `--all-features` still enables it
+# (redundantly, once `full` already does).
+evidence-graph = ["epistemic", "eg-epistemic/evidence-graph"]
+# EPI-P3-3 — calibrated causal reasoning + provenance-aware retrieval ranking
+# wired onto the facade as `Method::CausalEstimate` (do-calculus intervention
+# over a request-carried linear-Gaussian structural causal model) and
+# `Method::RankByProvenance` (rank request-carried retrieval candidates by
+# evidence quality/provenance, not similarity alone). Turns on `eg-epistemic`'s
+# own `epistemic-causal` feature (pure Rust, no new dependency — see that
+# crate's `Cargo.toml`); implies `epistemic` (the wire `Method` variants +
+# facade `eg-epistemic` dep). HEAVY (genuine Pearl do-calculus intervention/
+# counterfactual computation). It is included in the one main `full` build.
+epistemic-causal = ["epistemic", "eg-epistemic/epistemic-causal"]
+# CONCEPT:EG-321 — the Analytics-Program numeric kernel (eg-numeric: nalgebra + ndarray,
 # BLAS/LAPACK-free). Links the PURE Rust kernel (rlib) for Surface B in-database
 # analytics — the Python-extension FFI layer is behind eg-numeric's OWN `python`
-# feature (OFF here), so a `numeric` engine build pulls faer/ndarray but NO Python
+# feature (OFF here), so the engine's `numeric` feature pulls nalgebra/ndarray but NO Python
 # FFI (the Plan-01 no-Python-extension-in-engine contract + its `scripts/`
-# CI gate stay green). Folded into `full` only;
-# kept OUT of `pi`/`pi-max`/`node` and the size-optimized `release-tiny` profile so
-# faer/ndarray never bloat the lean Raspberry-Pi tier (verified: `cargo tree --features
-# pi` links no eg-numeric/faer/ndarray). Surface A (the Python wheel) is a SEPARATE
-# maturin build of eg-numeric with `--features python`; see crates/eg-numeric.
-# CONCEPT:EG-329 — when the SQL query surface is ALSO built (`eg-query` present, i.e.
-# `full`), turn on its `numeric` feature so the eg-numeric-backed Surface-B SQL
-# UDFs/UDAFs (`cosine_sim`/`l2_normalize`/`zscore`/`covariance`) register on the
-# DataFusion context. `eg-query?/numeric` is a no-op when eg-query is absent (pi/node),
-# so `numeric` still links the pure kernel for future engine-side (non-SQL) ops without
-# forcing DataFusion in.
+# CI gate stay green). It is included in the one main `full` build and therefore in
+# both source-built layers. Surface A is compiled from eg-numeric with `--features
+# python` and injected into the SAME published epistemic-graph wheel; it is not a
+# separate published package.
+# CONCEPT:EG-329 — the main build also includes the SQL query surface, so turn on its
+# `numeric` feature so the eg-numeric-backed Surface-B SQL UDFs/UDAFs
+# (`cosine_sim`/`l2_normalize`/`zscore`/`covariance`) register on the
+# DataFusion context. The weak `eg-query?/numeric` edge keeps the feature composable
+# for targeted crate checks; it does not define another supported product build.
 numeric = ["dep:eg-numeric", "eg-query?/numeric"]
 # Native eg-ann IVF-PQ + OPQ + SQ8-refine vector index (CONCEPT:KG-2.207) as the
-# SemanticStore backend, replacing the rebuild-on-load hnsw_rs index. Pure-Rust,
-# CPU integer-table serving (no GPU/native-ML/faiss in the tree) so it is Pi-lean
-# and folded into the durable serving tiers (pi/node/cluster/full). A persisted
-# index reopens WITHOUT rebuilding from raw vectors.
-ann = ["eg-core/ann"]
+# SemanticStore compression backend alongside the in-tree native HNSW index. Pure-Rust,
+# CPU integer-table serving (no GPU/native-ML/faiss in the tree). It is included in
+# the one main build; a persisted index reopens WITHOUT rebuilding from raw vectors.
+ann = ["eg-core/ann", "dep:eg-ann"]
 # Persist the ANN codes into the redb durable tier too (needs `redb`).
 ann-redb = ["ann", "redb", "eg-core/ann-redb"]
-server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber", "dep:async-trait"]
+# CONCEPT:EG-P0-2 -- `dep:eg-capabilities` folded in here (not a standalone feature):
+# the mutation gateway (`src/server/mutation.rs`) is server-only, so the binary
+# linking the MethodPolicy ledger is exactly the `server` build, matching every other
+# server-only dependency in this list.
+server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber", "dep:async-trait", "dep:eg-capabilities"]
+# Pure-Rust TLS/mTLS for the native MessagePack TCP service. The one main build
+# includes it so remote-engine deployments can terminate TLS in the binary.
+server-tls = ["server", "dep:rustls", "dep:tokio-rustls"]
 # Durable redb store (CONCEPT:KG-2.177 / KG-2.195). Pulls the redb crate + the
 # PURE durable-row machinery (`redb_store` — table layout, Method→rows apply,
 # checkpoint/load, group-commit) which is server-INDEPENDENT (no Tokio). The
 # server's write-through/authoritative `PersistenceBackend` impl (`redb_backend`)
 # is layered ON TOP and is itself gated on `server` (it talks to `ServerState`
 # + the Tokio dispatch). So `redb` alone (no `server`) compiles a usable durable
-# store — exactly what the EMBEDDED API drives on the Pi/edge with no Tokio.
-redb = ["dep:redb"]
+# store — exactly what the EMBEDDED API drives on an edge host with no Tokio.
+redb = ["dep:redb", "dep:eg-mutation-store"]
 # Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206): the bytes tier
 # under multimodal `:Media`/`:Blob`. Pulls `redb` (the native CAS lives in
 # `blob.redb`) + `server` (the streaming protocol rides the Tokio transport). The
-# native redb-CAS links NO object-store SDK — that is a SEPARATE `blob-s3` feature
-# below, so a `blob`/`pi`/default build stays lean (the Pi contract). Folded into
-# node/cluster/full so the standard build carries the media substrate; kept OUT of
-# bare default + server-only.
+# native redb-CAS links NO object-store SDK — that remains isolated behind the
+# explicit `blob-s3` source feature below. `blob` is included in the one main build.
 blob = ["server", "redb", "eg-types/blob"]
 # Generic namespaced Key→Value surface (CONCEPT:EG-022): the `Method::Kv*` ops over a
 # redb-backed `(namespace, key) -> bytes` store, so the engine is a drop-in KV store.
 # Pulls `server` (the handler routes through the Tokio dispatch) + `redb` (the durable
-# `kv.redb` tier; no persist dir ⇒ in-memory scratch). PURE-RUST, Pi-lean (no new dep
-# beyond redb, which the durable tiers already carry), so it folds into node/full;
-# kept OUT of bare default + server-only. A build without it drops the Kv* arm.
+# `kv.redb` substrate; no persist dir ⇒ in-memory scratch). It adds no dependency
+# beyond redb and is included in the one main build. A targeted feature build without
+# it drops the Kv* arm.
 kv = ["server", "redb", "eg-types/kv"]
 # S3/MinIO object-store chunk backend behind the SAME `ChunkStore` trait
-# (CONCEPT:KG-2.206). SEPARATE from `blob` and NOT folded into any tier bundle, so
-# only an explicit `--features blob-s3` build links the `object_store` SDK — the
-# Pi/default/full build links no AWS/object-store crate (asserted by cargo tree).
+# (CONCEPT:KG-2.206). It is separate from `blob` and absent from the main, `cluster`,
+# and `full-extras` bundles, so only an explicit source build selecting `blob-s3`
+# links the `object_store` SDK (asserted by cargo tree).
 blob-s3 = ["blob", "dep:object_store"]
+# L21 (CONCEPT:EG-P1-3 follow-up) — a REAL `eg_alignment::EvidenceResolver` backed by
+# the engine's own blob CAS: `src/server/blob/cas_resolver.rs`'s `CasEvidenceResolver`
+# looks a locus's opaque subject up in a `GraphView` snapshot's stored `blob_ref` property,
+# then reads the actual bytes back off the SAME content-addressed `ChunkStore` the
+# `blob` feature already wires (`stream_blob_get`) — a `CharacterRange` or
+# `CodeSymbol` resolves to a real UTF-8 excerpt; every other address kind yields
+# a `ResolvedArtifact::Blob` naming the real CAS digest, never a fabricated excerpt.
+# `eg-alignment` cannot reach the blob CAS itself by design (a leaf crate BELOW the
+# server, deps = eg-modality ONLY — see its own crate docs on why it ships only the
+# dependency-free `InMemoryResolver`), so the resolver lives HERE instead: the one
+# place that already links both `eg-alignment` (for the `EvidenceResolver` trait) and
+# the blob CAS (`blob`, for `ChunkStore`). Pulls `blob` + `dep:eg-alignment` +
+# `dep:eg-modality` (the `EvidenceLocus` type, already nameable under `epistemic` — this
+# makes it nameable standalone too, with no new dependency CLASS). Included in
+# the one main `full` serving build.
+alignment = ["blob", "dep:eg-alignment", "dep:eg-modality"]
+# CONCEPT:INT-P2-1 — the durable analytics-job plane: `Method::AnalyticsJob` (async
+# submit/status/cancel/resume over a redb-backed `AnalyticsJob` state machine) +
+# `src/server/handlers/jobs.rs`. Pulls `server` (Tokio dispatch) + `mining` (the
+# reference job kind reuses `eg_compute::mining::association`) + `epistemic` (the
+# result-commit path writes the SAME `:Claim`/`:Evidence` convention `eg-epistemic`
+# reads) + `dep:eg-jobs` (the durable store + state machine) + the matching
+# `eg-types/jobs` and `eg-capabilities/jobs` wire/policy features (kept in LOCKSTEP —
+# see both crates' own docs on why `eg-types/jobs` can never be forced on
+# unconditionally by `eg-capabilities`). Included in the one main `full` build.
+jobs = [
+    "server", "mining", "epistemic",
+    "dep:eg-jobs", "eg-types/jobs", "eg-capabilities/jobs",
+]
+# CONCEPT:INT-P2-2 -- the native finite-state-machine / statechart engine:
+# `Method::Statechart` (define/instantiate/send_event/get_state/list over a durable,
+# rehydratable `(state, context)` machine-instance record in `statecharts.redb`) +
+# `src/server/handlers/statechart.rs`. Pulls `server` (Tokio dispatch + ServerState) +
+# `dep:eg-statechart` (the typed model + pure transition fn + redb store) + the matching
+# `eg-types/statechart` and `eg-capabilities/statechart` wire/policy features (kept in
+# LOCKSTEP, exactly like `jobs`). Unlike `jobs` it needs neither `mining` nor `epistemic`
+# -- phase-1 does not reuse a compute kernel or write claims. Included in the main `full`
+# build.
+statechart = [
+    "server",
+    "dep:eg-statechart", "eg-types/statechart", "eg-capabilities/statechart",
+]
+# Graph-native, provider-neutral LM programs and governed self-improvement. This
+# extends the one analytics-job authority; it does not introduce another network,
+# cache, provider, or graph-mutation path.
+program-optimization = ["jobs", "dep:eg-program", "eg-types/program-optimization"]
+# Concrete governed document/image/audio/video service. The dependency-light native
+# decoders feed the shared ServedModalityRuntime; graph snapshots and the universal
+# MutationBatch gateway provide the authoritative restart/idempotency boundary.
+modality-serving = [
+    "server", "redb", "security", "streaming",
+    "dep:eg-modality",
+    "dep:eg-document", "eg-document/serving",
+    "dep:eg-image", "eg-image/runtime",
+    "dep:eg-audio", "eg-audio/runtime",
+    "dep:eg-video", "eg-video/runtime",
+    "eg-types/modality-serving", "eg-capabilities/modality-serving",
+]
 # Read-only SQL query surface (CONCEPT:KG-2.178). Pulls eg-query + DataFusion/Arrow
-# — heavy, so it is OFF by default and folded only into full/all (never the slim
-# Raspberry-Pi build). A default build links no DataFusion.
+# and is included in the one main build.
 query = ["dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query", "eg-tsdb?/arrow-seg"]
+# The one native streaming query/job result currency. Every served family adapts to
+# governed, bounded KnowledgeBatch envelopes with stable Arrow schemas.
+knowledge-batch = [
+    "query",
+    "dep:eg-plan",
+    "dep:eg-modality",
+    "eg-plan/knowledge-batch",
+    "eg-types/knowledge-batch",
+    "eg-capabilities/knowledge-batch",
+]
 # Cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer, handoff-1
-# Lane A). Facade tier selector for `eg-plan/cost-opt`; implies `query`. The optimizer
+# Lane A). Facade feature selector for `eg-plan/cost-opt`; implies `query`. The optimizer
 # body already runs whenever `query` is linked (its runtime kill-switch is
 # `EPISTEMIC_GRAPH_COST_OPT=0` → identity), so this feature simply makes the optimizer an
-# explicit, default-on part of the `full` tier. Cheap (no extra deps — cost-opt = query).
+# explicit part of the one main `full` build. Cheap (no extra deps — cost-opt = query).
 cost-opt = ["query", "dep:eg-plan", "eg-plan/cost-opt"]
 # Physical parallel runtime (CONCEPT:EG-KG.query.parallel-runtime, handoff-1 Lane B): the
 # opt-in rayon-morsel `ParallelDriver` behind the Lane-0 `Driver` seam (pool width /
 # spill budget from `EPISTEMIC_GRAPH_EXEC_THREADS` / `_SPILL_MB`). Pulls rayon via
-# `eg-plan/par-runtime`, so it is OPT-IN — NOT in default/pi/full. A default build routes
-# through the byte-identical `SerialDriver`.
+# `eg-plan/par-runtime`. It is an explicit source feature outside the supported product
+# bundles; the one main build routes through the byte-identical `SerialDriver`.
 par-runtime = ["query", "dep:eg-plan", "eg-plan/par-runtime"]
 # Embedded BM25 full-text search + the lexical `RankText` op + the RRF `FuseRrf`
 # hybrid (CONCEPT:KG-2.215). Pulls eg-text's Tantivy index (the Rust Lucene —
 # zstd-sys etc.) via eg-plan's `text`, which IMPLIES `query`. HEAVY (≈140 transitive
-# crates incl. zstd-sys's C build), so it is OFF by default and folded ONLY into
-# node/cluster/full — NEVER the slim Raspberry-Pi build. A default/pi build links NO
-# Tantivy (asserted by `cargo tree -e normal | grep -i tantivy` ⇒ none). It pulls
+# crates incl. zstd-sys's C build). It is included in the one main build and pulls
 # eg-plan (the planner that hosts the op) just as `query` does.
 text = ["dep:eg-plan", "eg-plan/text", "eg-types/text", "query"]
 # Query federation / foreign sources (CONCEPT:KG-2.232, Lane P): the `Op::ForeignScan`
@@ -189,49 +386,44 @@ text = ["dep:eg-plan", "eg-plan/text", "eg-types/text", "query"]
 # EXTERNAL source (a REMOTE epistemic-graph engine over the same transport, OR a generic
 # HTTP/JSON API) as a RowSet and composes it with the local graph/vector/SQL ops in ONE
 # plan. Pulls eg-plan's `federation` (the `ForeignSource` trait + the rustls HTTP client
-# `ureq` + hmac/sha2/hex), which IMPLIES `query`. HEAVY-ish (a rustls/ring TLS stack),
-# so it is OFF by default and folded into node/cluster/full — NEVER `pi`. A default/pi
-# build links NO ureq/rustls/ring (asserted by `cargo tree`); the Pi contract holds.
+# `ureq` + hmac/sha2/hex), which IMPLIES `query`. The rustls/ring TLS stack is included
+# in the one main build.
 federation = ["dep:eg-plan", "eg-plan/federation", "eg-types/federation", "query", "server"]
 # External relational-SQL federation (CONCEPT:KG-2.239): the THIRD `ForeignSource` kind
 # — `ForeignSourceSpec::Sql` — so a federated UnifiedQuery JOINS an external Postgres/MySQL
 # table with the LOCAL graph/vector in ONE plan (the "engine federates external SQL" half
 # sql-mcp alone cannot give). Pulls eg-plan's `federation-sql` (a `sqlx` client on the
 # PURE-RUST `runtime-tokio-rustls` backend — NEVER openssl), which IMPLIES `federation`.
-# HEAVY (a SQL driver + a TLS stack), so it is OFF by default and folded into
-# node/cluster/full — NEVER `pi`. A default/pi build links NO sqlx/postgres/mysql/openssl
-# (asserted by `cargo tree`); the Pi contract holds.
+# The SQL driver uses the pure-Rust rustls backend and is included in the one main build;
+# no OpenSSL dependency is introduced.
 federation-sql = ["dep:eg-plan", "eg-plan/federation-sql", "federation"]
 # Spatial / geospatial modality (CONCEPT:EG-083): the `Op::SpatialScan { layer, bbox }`
 # SOURCE op + the `Pred::SpatialWithin`/`SpatialDWithin` FILTER predicates, so a spatial
 # filter composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls eg-plan's
 # `geo` (the executor + the pure-Rust eg-geo leaf crate: geometry + WKT + planar
 # predicates + a packed Hilbert R-tree — only serde, NO GEOS/PROJ/C dep), which IMPLIES
-# `query` (the ops live inside the `query`-gated `Op`/`Pred` enums). PURE-RUST so it is
-# Pi-SAFE by construction, but spatial is NOT a Pi requirement, so it is OFF by default
-# and folded into node/full — kept OUT of `pi` (which stays the lean minimal tier). A
-# default/pi build links NO eg-geo (asserted by `cargo tree`).
-geo = ["query", "dep:eg-plan", "eg-plan/geo", "eg-types/geo"]
+# `query` (the ops live inside the `query`-gated `Op`/`Pred` enums). It is pure Rust and
+# included in the one main build.
+geo = ["query", "dep:eg-plan", "eg-plan/geo", "eg-types/geo", "dep:eg-geo"]
 # Array / tensor modality (CONCEPT:EG-085): the `Op::TensorScan { layer }` SOURCE op +
 # the `Op::TensorOp { kind }` TRANSFORM op (slice/reduce/elementwise), so an array
 # modality composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls eg-plan's
 # `tensor` (the executor + the pure-Rust eg-tensor leaf crate: dense N-D array + ops +
 # byte-blob codec — only serde, NO BLAS/LAPACK/C dep), which IMPLIES `query` (the ops
-# live inside the `query`-gated `Op` enum). PURE-RUST so it is Pi-SAFE by construction,
-# but tensors are NOT a Pi requirement, so it is OFF by default and folded into node/
-# full — kept OUT of `pi` (which stays the lean minimal tier). A default/pi build links
-# NO eg-tensor (asserted by `cargo tree`).
-tensor = ["query", "dep:eg-plan", "eg-plan/tensor", "eg-types/tensor"]
+# live inside the `query`-gated `Op` enum). Also pulls `dep:eg-tensor` directly (mirrors
+# `geo`'s `dep:eg-geo`): the served `run_unified` binds the process-lifetime
+# `TensorStore` write-back sink itself (`src/server/handlers/query.rs`), so the facade
+# needs the leaf crate's type, not just eg-plan's internal use of it. It is pure Rust
+# and included in the one main build.
+tensor = ["query", "dep:eg-plan", "eg-plan/tensor", "eg-types/tensor", "dep:eg-tensor"]
 # Event-stream + complex-event-processing (CEP) modality (CONCEPT:EG-088): the
 # `Op::Cep { pattern }` TRANSFORM op — interpret a RowSet as a time-ordered event stream
 # and run a bounded NFA (Sequence/Within/Absence over sliding/tumbling windows) — so a
 # CEP match composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls eg-plan's
 # `stream` (the executor + the pure-Rust eg-stream leaf crate: bounded NFA CEP engine +
 # per-event attribute predicates — serde + serde_json only, NO tokio/async/C dep), which
-# IMPLIES `query` (the op lives inside the `query`-gated `Op` enum). PURE-RUST so it is
-# Pi-SAFE by construction, but streaming CEP is NOT a Pi requirement, so it is OFF by
-# default and folded into node/full — kept OUT of `pi` (which stays the lean minimal
-# tier). A default/pi build links NO eg-stream (asserted by `cargo tree`). EG-067
+# IMPLIES `query` (the op lives inside the `query`-gated `Op` enum). It is pure Rust and
+# included in the one main build. EG-067
 # `Op::Window` is the windowing primitive; the live standing-query loop fed by the EG-064
 # CDC bus is a documented follow-up.
 stream = ["query", "dep:eg-plan", "eg-plan/stream", "eg-types/stream", "dep:eg-stream", "eg-stream/stream"]
@@ -243,45 +435,40 @@ stream = ["query", "dep:eg-plan", "eg-plan/stream", "eg-types/stream", "dep:eg-s
 # the engine core stays pure-Rust + LLM-optional. Pulls eg-plan's `nl-query` (the SAME
 # pure-Rust rustls `ureq` client the federation sources use — NO new HTTP dep, NO
 # openssl), which IMPLIES `query`. Needs `server` (the handler + route live in the
-# facade). HEAVY-ish (the rustls stack), so it is OFF by default and folded into
-# node/full — NEVER `pi` (the Pi contract: a `pi` build links no ureq/rustls/ring).
-# EG-078/080: fold nl-query into node/full.
+# facade) and is included in the one main build.
 nl-query = ["query", "dep:eg-plan", "eg-plan/nl-query", "server"]
 # Dep-free Cypher query surface (CONCEPT:KG-2.179): `MATCH … RETURN …` compiled to
-# the engine's own primitives (label index / VF2 / BFS) — NO DataFusion, so it is a
-# HARD requirement of the lean Pi tier. A `cypher`-only build links no DataFusion
-# (the Pi proof).
+# the engine's own primitives (label index / VF2 / BFS). It is included in the one main
+# build; a targeted `cypher`-only feature check links no DataFusion.
 cypher = ["dep:eg-query", "eg-query/cypher"]
 # Native GraphQL READ surface (CONCEPT:KG-2.235): a GraphQL query compiled to scans +
 # BFS over the GraphView via the eg-graphql crate (schema-from-graph + a hand-written
 # parser + resolver). PURE-RUST — NO async-graphql (evaluated: ~80+ transitive crates +
-# a proc-macro schema-derive, too heavy for Pi) — so the Pi contract holds. But GraphQL
-# is NOT a Pi requirement, so it is kept OUT of pi/default and folded into node/cluster/
-# full. `eg-types/graphql` carries the `Method::GraphQl` variant. Needs `server` (the
-# handler routes through dispatch).
-graphql = ["dep:eg-graphql", "eg-types/graphql", "server"]
+# a proc-macro schema-derive). GraphQL is included in the one main build;
+# `eg-types/graphql` carries the `Method::GraphQl` variant. Needs `server` (the
+# handler routes through dispatch) and `security`: both the RPC surface and the SSE
+# carrier require the current verified request context, graph ACL, and default-deny
+# row projection. There is no unfiltered GraphQL build or listener fallback.
+graphql = ["dep:eg-graphql", "eg-graphql/hardening", "eg-types/graphql", "server", "security"]
 # Native time-series store + TS primitives (CONCEPT:KG-2.210/211). Pulls eg-tsdb's
-# redb chunk store + the native ASOF/gap-fill/time_bucket/OHLC/decay primitives —
-# NO DataFusion (the Pi contract holds: a `tsdb`-only build links no DataFusion).
-# Requires `redb` (the durable series store sits beside graph.redb) + `server` (the
-# series handler routes through dispatch). Folded into node/cluster/full; OUT of the
-# bare default. When `query` is ALSO on, eg-tsdb's `arrow-seg` lights up the
+# redb chunk store + the native ASOF/gap-fill/time_bucket/OHLC/decay primitives.
+# A targeted `tsdb`-only feature check links no DataFusion.
+# Requires `redb` (the durable series store sits beside the graph shards) + `server` (the
+# series handler routes through dispatch) and is included in the one main build. With
+# `query`, eg-tsdb's `arrow-seg` lights up the
 # DataFusion `time_bucket = GROUP BY (ts/w)*w` leg (see the `query` feature below).
 tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store", "dep:eg-plan", "eg-plan/timeseries"]
 # Observability log ingestion front door + Parquet-on-blob-CAS segments
 # (CONCEPT:EG-160/161) — the first slice of Phase T ("surpass OpenObserve"). A
 # hand-rolled HTTP listener (the SAME dep-free idiom as `metrics`/`sparql-http` — NO
-# axum/hyper, so the Pi contract holds) accepting OTLP/HTTP, Elasticsearch
+# axum/hyper) accepting OTLP/HTTP, Elasticsearch
 # `_bulk`/`_doc` and JSON-lines log records, landing them in an eg-tsdb series (time
 # range + retention) + a per-stream eg-text Tantivy index (full-text), and rolling
 # Parquet columnar segments into the blob CAS (S3 when `blob-s3` is on). IMPLIES
 # `tsdb` (series) + `text` (Tantivy full-text — which itself implies `query`) +
-# `blob` (the CAS). Pulls the `parquet` crate (+ `arrow`/`bytes` — arrow is already
-# in the tree via `query`) for the Arrow→Parquet segment encode. HEAVY (tsdb+Tantivy+
-# DataFusion+parquet), so it is OFF by default and — per the Pi contract — kept OUT of
-# `pi` (tsdb+Tantivy are already out of pi). DEFINED here but deliberately NOT folded
-# into `node`/`full`: the orchestrator folds `obs` into the deployment tiers at merge
-# time (avoids a tier-line merge conflict with the concurrent WireProtocol/GIS waves).
+# `blob` (the CAS). Pulls the maintained Polars Parquet codec (+ `arrow`, which is
+# already in the tree via `query`) for columnar segment encode. The complete
+# observability surface is included in the one main build.
 obs = [
     "server",
     "tsdb",
@@ -290,27 +477,21 @@ obs = [
     "dep:eg-text",
     "eg-text/tantivy",
     "dep:arrow",
-    "dep:parquet",
-    "dep:bytes",
+    "dep:polars-core",
+    "dep:polars-io",
 ]
 # CONCEPT:EG-172 — PromQL + the Prometheus HTTP query API (`/api/v1/query[_range]`,
 # `/labels`) served on the obs listener over the durable eg-tsdb series. Pure-Rust
 # parser + evaluator (`eg-tsdb/promql`) + the facade glue in `src/server/promql`; NO
-# new heavy dep (the Pi contract holds). Implies `obs` (needs the listener + the
-# durable SeriesStore + tsdb). DEFINED here but deliberately NOT auto-included by
-# `obs`, and NOT folded into node/full/cluster/pi — the orchestrator folds it at
-# merge time to avoid a tier-line conflict with the concurrent wave-18 work.
-# EG-172: fold promql into obs/node/full
+# new heavy dep. Implies `obs` (needs the listener + the durable SeriesStore + tsdb)
+# and is included in the one main build.
 promql = ["obs", "eg-tsdb/promql"]
 # CONCEPT:EG-163 — distributed traces: OTLP-JSON span ingest + a Jaeger/OpenObserve
 # trace-search / assembly / service-dependency-graph HTTP API served on the obs
 # listener, over the pure-Rust `eg-tsdb/traces` span store + the facade glue in
 # `src/server/traces`. Completes the observability trilogy (logs + metrics + traces).
-# NO new heavy dep (the Pi contract holds). Implies `obs` (needs the listener +
-# ObsState). DEFINED here but deliberately NOT auto-included by `obs`, and NOT folded
-# into node/full/cluster/pi — the orchestrator folds it at merge time to avoid a
-# tier-line conflict with the concurrent wave-18 work.
-# EG-163: fold traces into obs/node/full
+# NO new heavy dep. Implies `obs` (needs the listener + ObsState) and is included in
+# the one main build.
 traces = ["obs", "eg-tsdb/traces"]
 # CONCEPT:EG-316 — the OBSERVABILITY EGRESS half + a Prometheus push receiver. Two
 # additive, feature-gated capabilities that close the obs loop the engine already
@@ -325,10 +506,7 @@ traces = ["obs", "eg-tsdb/traces"]
 # Prometheus registry to export) and `traces` (the span store to export). Pulls
 # `prost` (protobuf codec for the remote-write WriteRequest) + `snap` (snappy block
 # decompression) — BOTH pure-Rust, NO C/tonic/network-codegen — plus the already-linked
-# `ureq`. DELIBERATELY kept OUT of `pi` (no prost/protobuf in a pi build) and NOT folded
-# into node/full/cluster here — the orchestrator folds it at merge time to avoid a
-# tier-line conflict with the concurrent wave.
-# EG-316: fold otel-export into node/full
+# `ureq`. It is included in the one main build.
 otel-export = ["obs", "metrics", "traces", "dep:prost", "dep:snap", "dep:ureq"]
 # Streaming / CDC / continuous queries / subscriptions / triggers (CONCEPT:KG-2.229/
 # 230, Lane L). Reactivity layered over the existing per-graph durable change record
@@ -336,16 +514,16 @@ otel-export = ["obs", "metrics", "traces", "dep:prost", "dep:snap", "dep:ureq"]
 # ordered, cursor-addressable change into a per-graph in-memory feed, from which the
 # CDC read / incremental continuous-query / watch+trigger surfaces are driven over the
 # SAME one-Response-per-Request transport (cursor / long-poll — no side-channel). The
-# core is a bounded VecDeque ring + a tokio Notify: PURE-RUST, NO heavy dep, so it is
-# Pi-lean and folded into pi/node/cluster/full. Needs `server` (the handler routes
+# core is a bounded VecDeque ring + a tokio Notify: PURE-RUST, NO heavy dep, and is
+# included in the one main build. Needs `server` (the handler routes
 # through dispatch); `eg-types/streaming` carries the Method variants + wire DTOs.
 streaming = ["server", "eg-types/streaming"]
 # Version-keyed query-RESULT cache (CONCEPT:KG-2.233): caches the serialized bytes
 # of a read query (Sql/Cypher/Sparql/UnifiedQuery) on `GraphCore`, keyed by
 # `(query-hash, version())`. A repeated identical query on an UNCHANGED graph hits;
 # any write bumps the version → miss → recompute (staleness impossible). Pure-Rust
-# bounded LRU + hash (NO new dep, NO DataFusion/openraft/object_store), so it is
-# Pi-safe and folded into pi/node/cluster/full. The CDC feed (feature `streaming`)
+# bounded LRU + hash (NO new dep, NO DataFusion/openraft/object_store), included in
+# the one main build. The CDC feed (feature `streaming`)
 # drives cross-replica invalidation when both are present.
 result-cache = ["eg-core/result-cache"]
 # Plan-backed materialized views (CONCEPT:EG-KG.storage.plan-backed-matview): a NAMED,
@@ -353,13 +531,14 @@ result-cache = ["eg-core/result-cache"]
 # result cache. Defining it executes the plan once (via the eg-plan runtime) and caches
 # the bytes; a committed write bumps the graph version — and the CDC hub marks the view
 # stale (`src/server/matview/`) — so the next Get recomputes, never serving stale rows.
-# GENERALIZES the algo-only distributed-compute matview: its Method variants route
-# through the `compute-dist` dispatch line, so `matview` IMPLIES `compute-dist`; it needs
-# `query` (the Plan AST + runtime), `result-cache` (the result store) and `streaming`
-# (the CDC invalidation hook). NOT in `full` (it pulls `compute-dist`/raft, out of the
-# node tier) — lives with `cluster`; the reconcile folds it into the tier lines.
+# It generalizes the algo-only distributed-compute matview, but that kinship is only a
+# DISPATCH-ROUTING accident: `manager.rs`/`lifecycle.rs`/`incremental.rs` reference ZERO
+# raft/compute-dist symbols. So `matview` needs only `query` (the Plan AST + runtime +
+# the DBSP `incremental` circuit), `result-cache` (the result store) and `streaming` (the
+# CDC delta source) — ALL THREE already in the single-node `full` build. It no longer
+# implies `compute-dist`/`raft`, so PLAN-BACKED incremental matviews are native to the
+# single-node main build; only the UNRELATED algo-only Pregel matview stays cluster-gated.
 matview = [
-    "compute-dist",
     "query",
     "result-cache",
     "streaming",
@@ -368,12 +547,13 @@ matview = [
 # Cold object-store tier seam (CONCEPT:KG-2.233): a `ColdTier` trait (RAM→redb→
 # object-store) + an in-memory/redb default impl so a cold graph offloads its whole
 # serialized state and rehydrates on access (extends hibernation, CONCEPT:KG-2.224).
-# The trait + default are pure-Rust (Pi-safe), folded into pi/node/cluster/full. An
-# S3-backed impl lives behind the SEPARATE `cold-tier-s3` feature so the lean build
-# links NO object-store SDK.
+# The trait + default are pure Rust and included in the one main build. An S3-backed
+# implementation lives behind the separate `cold-tier-s3` source feature so the
+# product bundles link no object-store SDK.
 cold-tier = ["eg-core/cold-tier"]
-# S3/object-store ColdTier impl — reuses the blob `ChunkStore` S3 seam. SEPARATE,
-# NOT in any tier bundle, so only an explicit build links the object_store SDK.
+# S3/object-store ColdTier impl — reuses the blob `ChunkStore` S3 seam. It is absent
+# from the main, `cluster`, and `full-extras` bundles; only an explicit source feature
+# selection links the object_store SDK.
 cold-tier-s3 = ["cold-tier", "blob-s3"]
 # Per-tenant memory budget + autoscale signals (CONCEPT:KG-2.234, Lane V —
 # cost/efficiency). Tracks an approximate resident-RAM estimate per tenant/graph and
@@ -384,26 +564,35 @@ cold-tier-s3 = ["cold-tier", "blob-s3"]
 # autoscaler (agent-utilities OS-5.27) consumes via a `ResourceStats` Method + the
 # Prometheus metrics endpoint. PURE-RUST (no DataFusion/openraft/object_store — the
 # enforcer is a periodic sweep over the registry + the existing evict/hibernate ops),
-# so it folds into pi/node/cluster/full and the Pi contract holds. Needs `server` (the
+# included in the one main build. Needs `server` (the
 # budget enforcer + ResourceStats handler live on ServerState + the dispatch path);
 # `eg-types/cost` carries the `ResourceStats` Method + the snapshot wire DTOs.
 cost = ["server", "eg-types/cost"]
 # In-engine Raft replication (CONCEPT:KG-2.188): runs the engine as a multi-node
-# HA cluster replicating its AUTHORITATIVE state via openraft. CLUSTER-TIER ONLY —
-# OFF by default and NOT in `full`/`all`, so a default / `pi` / `full` build links
-# NO openraft. The Pi contract is sacred: no DataFusion AND no openraft in the tree.
+# HA cluster replicating its AUTHORITATIVE state via openraft. It is included only in
+# the source-built `cluster` layer; the mandatory single-node main build links no openraft.
 # It pulls `redb` because Raft replicates the redb-AUTHORITATIVE store (M2): a
 # committed log entry applies through the same PersistenceBackend/GraphCore path.
 # Activates only when built `--features raft` AND configured at runtime
 # (EPISTEMIC_GRAPH_RAFT_NODE_ID + EPISTEMIC_GRAPH_RAFT_PEERS); off → single-node.
-raft = ["server", "redb", "dep:openraft", "dep:futures"]
+raft = [
+    "server",
+    "redb",
+    "dep:openraft",
+    "dep:futures",
+    # Raft's native TCP transport is authenticated and encrypted independently of
+    # the client-facing TLS listener. Keep the pure-Rust AEAD available even for a
+    # deliberately minimal `--features raft` check (the `cluster` layer already pulls
+    # it through `full`/`security`).
+    "dep:chacha20poly1305",
+]
 # Distributed graph compute (CONCEPT:KG-2.227): a Pregel/GAS vertex-centric engine
 # that runs PageRank / connected-components / BFS ACROSS graphs spanning multiple
 # Raft groups/shards (gather-apply-scatter supersteps, cross-shard messages via the
 # existing group RPC), plus incremental/streaming recompute on a delta and named,
 # incrementally-maintained MATERIALIZED VIEWS. It needs the multi-Raft groups, so it
-# pulls `raft` (cluster-tier) — and is therefore OUT of `pi`/`default`/`full`/`node`,
-# folded only into `cluster`. The single-shard fast path is unchanged (always-on
+# pulls `raft` and is included only in the source-built `cluster` layer. The
+# single-shard fast path is unchanged (always-on
 # `algorithms`); this adds the cross-shard superstep coordinator on top.
 compute-dist = ["raft", "eg-types/compute-dist"]
 # Non-blocking cross-shard commit (CONCEPT:EG-082) — Paxos-Commit-lite. ADDITIVE: the
@@ -416,12 +605,10 @@ compute-dist = ["raft", "eg-types/compute-dist"]
 # `client_write`), so ANY surviving replica/participant can LEARN the outcome from the
 # replicated state machine — no dependency on the (possibly-crashed) coordinator's
 # private store. Prepare (durable, commit-before-vote), presumed-abort recovery, and
-# commit-before-ack are all preserved unchanged. It pulls `raft` and is deliberately
-# kept OUT of every deployment tier (pi/node/full/cluster/all) — the orchestrator folds
-# it where wanted; a tier build links NOTHING from it. The proof gauntlet compiles it
+# commit-before-ack are all preserved unchanged. It pulls `raft` and is included in the
+# source-built `cluster` layer. The proof gauntlet compiles it
 # under `test`/`harness` too (the new code is `cfg(any(feature="nonblocking", test,
-# feature="harness"))`), so `cargo test --features harness` exercises it WITHOUT adding
-# it to `harness`'s (or any tier's) feature list.
+# feature="harness"))`), so `cargo test --features harness` also exercises it.
 nonblocking = ["raft"]
 # FULL Calvin deterministic-ordering cross-shard commit (CONCEPT:EG-324). ADDITIVE: a
 # THIRD commit path alongside 2PC and Paxos-Commit-lite. Instead of an OCC prepare +
@@ -432,16 +619,14 @@ nonblocking = ["raft"]
 # is resolved by any node replaying the replicated sequence. Reuses the EG-082 replicated
 # decision-graph machinery (hence `implies nonblocking`); the new code is
 # `cfg(any(feature="calvin", test, feature="harness"))`, so `cargo test --features
-# harness` exercises it. Pure-Rust, NO new dep. Deliberately OUT of every deployment tier
-# (pi/node/full/cluster/all) — opt-in per call; the default path is unchanged.
+# harness` exercises it. Pure-Rust, NO new dep. It is an explicit source feature outside
+# all product bundles; the main and `cluster` paths are unchanged unless it is selected.
 calvin = ["nonblocking"]
 # WASM-sandboxed UDF/extension model (CONCEPT:KG-2.228): an agent pushes a safe custom
 # compute function (a WebAssembly module) the engine runs SANDBOXED over a RowSet —
 # wasmtime with fuel-metering + a hard memory limit + NO host capabilities (pure
-# compute, no fs/net). Pulls eg-wasm → wasmtime + cranelift, which is HEAVY and has a
-# C-ish build, so it is OFF by `default`/`pi` (the Pi contract: no wasmtime/cranelift
-# in the tree) and folded only into node/cluster/full. The `Udf{id}` plan op + the
-# RegisterUdf/RunUdf methods light up with it.
+# compute, no fs/net). Pulls eg-wasm → wasmtime + cranelift and is included in the one
+# main build. The `Udf{id}` plan op + the RegisterUdf/RunUdf methods light up with it.
 wasm-udf = ["dep:eg-wasm", "eg-wasm/wasm-udf", "server", "eg-types/wasm-udf", "eg-plan?/wasm-udf"]
 # Correctness + load harness (CONCEPT:KG-2.212 / KG-2.222) — the standing proof-engine
 # that gates every distributed/durability claim (multi-raft, M2 durability, distributed
@@ -449,9 +634,9 @@ wasm-udf = ["dep:eg-wasm", "eg-wasm/wasm-udf", "server", "eg-types/wasm-udf", "e
 # it pulls `raft` (the cluster it exercises) and compiles BOTH gauntlets — T1's nemesis
 # fault-injector + load-gen + linearizability checker + the `nemesis` soak bin
 # (`src/raft/harness/*`) AND Lane N's cross-shard 2PC gauntlet (`src/raft/xshard_harness.rs`).
-# It is NEVER folded into any deployment tier (pi/node/cluster/full), so a production
-# `cargo build`/`--features pi`/`--features full` build links NOTHING from it (verified by
-# `cargo tree` in the gate). The partition hook it needs in the raft network is
+# It is test/dev-only and is absent from the mandatory main build and both source-built
+# product layers unless selected explicitly (verified by `cargo tree` in the gate). The
+# partition hook it needs in the raft network is
 # `#[cfg(any(test, feature = "harness"))]`, so a non-harness build has byte-for-byte the
 # production network path.
 harness = ["raft"]
@@ -459,18 +644,15 @@ harness = ["raft"]
 # psql / BI tools / ORMs run SQL against a graph, reusing the eg-query DataFusion
 # path (so it IMPLIES `query`) over the Tokio server (`server`) via the wire-neutral
 # `wire` core (CONCEPT:EG-074). The `pgwire` + `futures` crates are pure-Rust, and the
-# SINGLE-NODE `node` tier already carries `query`/DataFusion (plus ring via
-# `federation`), so pgwire adds no new heavy/C dep CLASS to node — it is therefore
-# folded into node/cluster/full (CONCEPT:EG-352). A stock `node` wheel is a COMPLETE
-# pgwire-capable single-node DB (Postgres protocol, no raft). Kept OUT of bare default +
-# the lean `pi`/`pi-max` tiers: pgwire IMPLIES `query` (DataFusion) and pulls the `_ring`
-# crypto backend, both of which the Pi contract forbids, so it can never enter a Pi
-# build. The listener only starts when ALSO configured via EPISTEMIC_GRAPH_PGWIRE_ADDR.
+# mandatory main build already carries `query`/DataFusion plus the `_ring` crypto
+# backend. PGWire is therefore part of the one full main build (CONCEPT:EG-352) and
+# remains present in both source-built layers. The listener starts only when configured
+# via EPISTEMIC_GRAPH_PGWIRE_ADDR.
 # Wire-agnostic SQL execution core (CONCEPT:EG-074) — the multi-wire keystone. The
 # wire-NEUTRAL `classify → dispatch → exec` pipeline + session/txn state that EVERY
 # wire reuses (`WireProtocol`/`WireSession`). Pure engine (needs `query` + `server`);
-# NO pgwire/postgres-types. `pgwire` pulls it in; a future wire's feature (Phase J/Y)
-# pulls it in too. DELIBERATELY kept OUT of `node`/`full` — the orchestrator folds it.
+# NO pgwire/postgres-types. `pgwire` and the other SQL adapters reuse it; those adapters
+# are collected by the one main `full` build.
 wire = ["query", "server"]
 pgwire = ["dep:pgwire", "dep:futures", "query", "server", "wire"]
 # SQLite-compatible served surface (CONCEPT:EG-075) — Phase J of the multi-wire program.
@@ -479,97 +661,79 @@ pgwire = ["dep:pgwire", "dep:futures", "query", "server", "wire"]
 # as `sparql-http`/`metrics`) that accepts SQLite-dialect SQL, rewrites the SQLite-isms
 # (AUTOINCREMENT / INTEGER PRIMARY KEY / PRAGMA no-ops) and runs them through the shared
 # `WireProtocol`/`WireSession` core (CONCEPT:EG-074) — NO reimplemented SQL. PURE-RUST:
-# links NO C sqlite (no rusqlite/bundled), so it stays out of the Pi contract's forbidden
-# set. Needs `wire` (which implies `query` + `server`). DEFINED here but DELIBERATELY kept
-# OUT of node/full/cluster — the orchestrator folds it. (`.db` file export/import is the
-# SEPARATE `sqlite-file` feature below — a gated C leg, kept out of pi.)
+# links NO C sqlite (no rusqlite/bundled). Needs `wire` (which implies `query` +
+# `server`) and is included in the one main build. Real `.db` file import/export is
+# the separate `sqlite-file` feature below.
 sqlite-wire = ["wire"]
 # SQLite `.db` FILE import/export (CONCEPT:EG-331/EG-332) — reading/writing a real
 # on-disk `sqlite3` `.db` file (the documented EG-075 follow-up), DISTINCT from the
 # `sqlite-wire` NDJSON dialect surface above. Import reads a `.db`'s tables+rows into
 # the engine's user-table store (the SAME `eg_query::TableStore` the `Method::Sql`
 # DDL/DML + pgwire paths write); export writes selected user tables OUT to a valid
-# `.db` a `sqlite3` CLI can open. Producing a spec-correct SQLite b-tree file WITHOUT
-# a C dependency is infeasible (a pure-Rust writer would have to reimplement the page
-# format — the documented blocker in `src/server/sqlite_wire/mod.rs`), so this ONE
-# feature pulls `rusqlite` with the BUNDLED C sqlite3 (libsqlite3-sys). It is therefore
-# kept OUT of `pi`/`default` — the Pi contract holds: `cargo tree --features pi` links
-# NO rusqlite/libsqlite3-sys — and folded ONLY into `full`/`node` (which already carry
-# C deps via `text`→zstd-sys). Needs `query` (the TableStore) + `server` (the dispatch
-# handler); `eg-types/sqlite-file` gates the two `Method` variants onto the wire.
-sqlite-file = ["query", "server", "dep:rusqlite", "eg-types/sqlite-file"]
+# `.db` a `sqlite3` CLI can open. PURE-RUST (CONCEPT:EG-KG.query.eg-feature): both
+# directions go through `eg-sqlite-format`, a from-scratch SQLite page-format reader +
+# bulk-load writer — no rusqlite, no libsqlite3-sys, no C toolchain (falsifying the old
+# "a spec-correct pure-Rust writer is infeasible" blocker; proved by a real-`sqlite3`
+# `PRAGMA integrity_check` differential test). Needs `query` (the TableStore) + `server`
+# (the dispatch handler); `eg-types/sqlite-file` gates the two `Method` variants.
+sqlite-file = ["query", "server", "dep:eg-sqlite-format", "eg-types/sqlite-file"]
 # MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) — the SECOND `WireProtocol`
 # adapter (CONCEPT:EG-074), a HAND-ROLLED MySQL client/server protocol (handshake v10,
 # `mysql_native_password` auth, `COM_QUERY`/`COM_PING`/`COM_QUIT`/`COM_INIT_DB`,
 # text-protocol result-set + OK/ERR packets) framed directly over `tokio::net`. Links
 # NO server-side mysql protocol crate — only `sha1` (the mysql_native_password digest),
 # gated behind this feature. Reuses the shared `wire::WireSession` classify→exec→txn
-# core (needs `query` + `server` + `wire`). Kept OUT of pi; DELIBERATELY NOT folded
-# into `node`/`full` here — the orchestrator folds it at merge time (avoids a tier-line
-# merge conflict with the concurrent SQLite/MSSQL waves). The listener only starts when
-# ALSO configured via EPISTEMIC_GRAPH_MYSQL_ADDR.
+# core (needs `query` + `server` + `wire`) and is included in the one main build. The
+# listener starts only when configured via EPISTEMIC_GRAPH_MYSQL_ADDR.
 mysql-wire = ["dep:sha1", "query", "server", "wire"]
 # Message broker (CONCEPT:EG-275): RabbitMQ-class exchanges/bindings/topic-routing on
 # top of the KG-2.303 work-queue. Turns on `eg-core/broker` (the pure `broker` module
 # + `GraphCore::broker_enqueue`) + `eg-types/broker` (the broker `Method` variants).
-# PURE-RUST — NO new dependency (only serde/serde_json/rmp already linked) — so it is
-# Pi-safe. DEFINED here but DELIBERATELY kept OUT of node/full/cluster/pi — the
-# orchestrator folds it (see fold note below).
+# PURE-RUST — NO new dependency (only serde/serde_json/rmp already linked) — and
+# included in the one main build.
 broker = ["eg-core/broker", "eg-types/broker"]
-# AMQP 0.9.1 wire listener (CONCEPT:EG-275): a HAND-ROLLED AMQP 0.9.1 server (no heavy
-# AMQP crate — the Pi contract) that maps connection/channel/exchange/queue/basic.*
+# AMQP 0.9.1 wire listener (CONCEPT:EG-275): a HAND-ROLLED AMQP 0.9.1 server with no
+# third-party AMQP crate that maps connection/channel/exchange/queue/basic.*
 # frames onto the `broker` primitives via the engine dispatch. Needs `broker` + `server`
-# (the listener rides the Tokio transport). The listener only starts when ALSO
-# configured via EPISTEMIC_GRAPH_AMQP_ADDR. Kept OUT of pi (a network listener) and NOT
-# folded into node/full/cluster here — the orchestrator folds it at merge time.
+# (the listener rides the Tokio transport), is included in the one main build, and
+# starts only when configured via EPISTEMIC_GRAPH_AMQP_ADDR.
 amqp-wire = ["broker", "server"]
-# EG-275: fold broker/amqp-wire into cluster
 # MQTT 3.1.1 (+ basic 5.0) wire listener (CONCEPT:EG-281): a HAND-ROLLED MQTT server (no
-# heavy MQTT crate — the Pi contract) that maps CONNECT/PUBLISH/SUBSCRIBE/… onto the
+# third-party MQTT crate) that maps CONNECT/PUBLISH/SUBSCRIBE/… onto the
 # `broker` TOPIC exchange + per-session queues via the engine dispatch (MQTT `+`/`#`
 # filters → broker topic bindings). Needs `broker` + `server` (the listener rides the
-# Tokio transport). The listener only starts when ALSO configured via
-# EPISTEMIC_GRAPH_MQTT_ADDR. Kept OUT of pi (a network listener) and NOT folded into
-# node/full/cluster here — the orchestrator folds it at merge time.
-# EG-281: fold mqtt-wire into node/full/cluster
+# Tokio transport), is included in the one main build, and starts only when configured
+# via EPISTEMIC_GRAPH_MQTT_ADDR.
 mqtt-wire = ["broker", "server"]
-# STOMP 1.2 wire listener (CONCEPT:EG-282): a HAND-ROLLED STOMP text-frame server (no
-# heavy STOMP crate — the Pi contract) that maps CONNECT/SEND/SUBSCRIBE/ACK/… onto the
+# STOMP 1.2 wire listener (CONCEPT:EG-282): a HAND-ROLLED STOMP text-frame server with
+# no third-party STOMP crate that maps CONNECT/SEND/SUBSCRIBE/ACK/… onto the
 # `broker` primitives (STOMP destinations → a broker exchange + per-subscription queues)
 # via the engine dispatch. Needs `broker` + `server` (the listener rides the Tokio
-# transport). The listener only starts when ALSO configured via
-# EPISTEMIC_GRAPH_STOMP_ADDR. Kept OUT of pi (a network listener) and NOT folded into
-# node/full/cluster here — the orchestrator folds it at merge time.
-# EG-282: fold stomp-wire into node/full/cluster
+# transport), is included in the one main build, and starts only when configured via
+# EPISTEMIC_GRAPH_STOMP_ADDR.
 stomp-wire = ["broker", "server"]
 # MSSQL TDS wire-protocol listener (CONCEPT:EG-077) — the MSSQL `WireProtocol` adapter
-# (CONCEPT:EG-074), sibling of `pgwire`. A HAND-ROLLED TDS server over `tokio` (the Pi
-# contract: NO server-side `tiberius`/`tds` crate), so it adds NO new dependency —
-# only `query` + `server` + the shared `wire` core. DELIBERATELY kept OUT of
-# `node`/`full`/`pi`/`cluster` — the orchestrator folds it into a tier. The listener
-# only starts when ALSO configured via EPISTEMIC_GRAPH_MSSQL_ADDR.
+# (CONCEPT:EG-074), sibling of `pgwire`. A HAND-ROLLED TDS server over `tokio` with
+# no server-side `tiberius`/`tds` crate, so it adds NO new dependency — only `query` +
+# `server` + the shared `wire` core. It is included in the one main build and starts
+# only when configured via EPISTEMIC_GRAPH_MSSQL_ADDR.
 mssql-wire = ["query", "server", "wire"]
 # Neo4j Bolt wire-protocol listener (CONCEPT:EG-159) — a native Bolt v4.4 server so
 # Neo4j drivers/tools connect DIRECTLY to the engine's Cypher surface. HAND-ROLLED,
 # pure-Rust: a PackStream v2 codec + Bolt chunked framing + the message state machine
-# framed over `tokio::net` — links NO third-party bolt/packstream crate (the Pi-contract
-# idiom pgwire/mysql-wire follow). Routes RUN's Cypher straight to the eg-query cypher
+# framed over `tokio::net` — links NO third-party bolt/packstream crate. Routes RUN's Cypher straight to the eg-query cypher
 # engine (so it IMPLIES `cypher`) over the Tokio server (`server`); it does NOT use the
-# SQL `wire`/`WireSession` core (Bolt speaks Cypher, not SQL). Kept OUT of pi (no listener
-# there). The listener only starts when ALSO configured via EPISTEMIC_GRAPH_BOLT_ADDR.
-# EG-159: fold bolt-wire into node/full/cluster
+# SQL `wire`/`WireSession` core (Bolt speaks Cypher, not SQL). It is included in the one
+# main build and starts only when configured via EPISTEMIC_GRAPH_BOLT_ADDR.
 bolt-wire = ["cypher", "server"]
 # Redis RESP wire-protocol listener (CONCEPT:EG-174) — a native, HAND-ROLLED Redis
 # server so a Redis client / ORM cache / `redis-cli` connects DIRECTLY to the engine.
 # A pure-Rust RESP2 + RESP3 codec + the core command set (string/list/hash/set/zset,
 # GET/SET/DEL/EXPIRE/TTL/INCR/SCAN/TYPE/HELLO/…), framed over `tokio::net`. Redis
 # values are stored on the engine's own durable KV surface (CONCEPT:EG-022), so this
-# pulls `kv` (⇒ `server` + `redb`). Links NO server-side redis crate (the Pi-contract
-# idiom pgwire/mysql-wire/bolt-wire follow) — PURE-RUST, no new dependency. Kept OUT
-# of pi (a network listener). The listener only starts when ALSO configured via
-# EPISTEMIC_GRAPH_REDIS_ADDR. DELIBERATELY NOT folded into node/full/cluster here —
-# the orchestrator folds it at merge time (avoids a tier-line merge conflict).
-# EG-174: fold redis-wire into node/full/cluster
+# pulls `kv` (⇒ `server` + `redb`). Links NO server-side redis crate — PURE-RUST, no
+# new dependency. It is included in the one main build and starts only when configured
+# via EPISTEMIC_GRAPH_REDIS_ADDR.
 redis-wire = ["kv", "server"]
 # S3-compatible object-storage REST surface (CONCEPT:EG-176) — an Amazon-S3/MinIO-
 # shaped HTTP API so any S3 SDK / `aws s3` CLI / `mc` talks to the engine directly.
@@ -577,53 +741,81 @@ redis-wire = ["kv", "server"]
 # listing index lives on the durable KV surface (⇒ `kv`), and a SigV4-lite auth guard
 # gates writes when credentials are configured. A HAND-ROLLED HTTP/1.1 listener (the
 # same dependency-free tokio idiom as `obs`/`sparql-http`) — links NO aws/object-store
-# SDK, no XML crate (hand-built XML), so it adds NO new dependency. Kept OUT of pi (a
-# network listener). The listener only starts when ALSO configured via
-# EPISTEMIC_GRAPH_S3_ADDR. DELIBERATELY NOT folded into node/full here — the
-# orchestrator folds it at merge time.
-# EG-176: fold s3-api into node/full
+# SDK, no XML crate (hand-built XML), so it adds NO new dependency. It is included in
+# the one main build and starts only when configured via EPISTEMIC_GRAPH_S3_ADDR.
 s3-api = ["blob", "kv", "server"]
+# LTAP lakehouse materialization (INT-P2-3, CONCEPT:EG-317 engine-side seam): wires the
+# `eg-lake` leaf crate onto the engine's OWN durable data. `src/server/lake::LakeManager`
+# converts real `eg_tsdb::store::SeriesStore` series (the WAL-backed table/series data
+# source) into `eg_lake::LakeBatch`es, materializes them to real Parquet (via eg-lake's
+# OWN `lake` sub-feature — arrow/apache-avro), stores the bytes in the SAME
+# content-addressed blob CAS `obs`'s Parquet log segments already write through
+# (`crate::server::blob::store::ChunkStore` — CONCEPT:EG-KG.retrieval.observability-search), and renders/persists a
+# Delta `_delta_log` + a real Iceberg `metadata.json` + real Iceberg Avro manifests
+# describing the live file set, registering each table into an in-process Iceberg-REST
+# catalog. Supports append, compaction (rewrite-all-live-files-into-one) and row-level
+# delete-via-rewrite (both reuse the SAME read-back + re-materialize path), plus
+# best-effort additive-only schema evolution (new nullable columns on FUTURE writes;
+# historical Parquet files are read with the columns absent, per the engine's existing
+# schema-on-read tolerance — full per-snapshot Iceberg schema-id tracking across a
+# rewrite is a documented follow-up, as is Iceberg partition-spec evolution). Every
+# materialize/compact/delete run also builds + keeps (bounded ring, `lake-rest`-servable)
+# an OpenLineage `RunEvent` (job/run/input-dataset/output-dataset + `schema` /
+# `dataSource` / `outputStatistics` / `lifecycleStateChange` facets), optionally pushed
+# to `EPISTEMIC_GRAPH_OPENLINEAGE_URL` over the SAME pure-Rust `ureq` client
+# `sparql-service`/`federation-search` already link (no new HTTP dep). Needs `server`
+# (the manager + the periodic drain sweep live on `ServerState`) + `blob` (the CAS) +
+# `tsdb` (the series source). It is an explicit source feature outside the main,
+# `cluster`, and `full-extras` product bundles.
+lake = ["server", "blob", "tsdb", "dep:eg-lake", "eg-lake/lake", "dep:ureq"]
+# Iceberg-REST catalog HTTP surface (INT-P2-3, `iceberg.apache.org/rest-catalog-spec`)
+# over the `lake` materialization tier: a hand-rolled, DEPENDENCY-FREE HTTP/1.1
+# listener (the SAME idiom as `--metrics-addr`/`--sparql-addr`/`--obs-addr`/`--s3-addr`
+# — NO axum/hyper) serving `GET /v1/config`, `GET /v1/namespaces`,
+# `GET /v1/namespaces/{ns}/tables` (ListTables), `GET .../tables/{table}` (LoadTable,
+# inline `metadata` so a client needs no second fetch) and `POST .../tables/{table}`
+# (CommitTable — accepted per the spec's request/response envelope; triggers the
+# engine's own compaction pass rather than ingesting externally-authored manifests, a
+# documented scope note), so a standard Iceberg REST client (PyIceberg/Spark/Trino) can
+# list + load the engine's materialized tables. The listener only starts when ALSO
+# configured via --iceberg-addr / EPISTEMIC_GRAPH_ICEBERG_ADDR. It is an explicit source
+# feature atop `lake`, outside the three product bundles.
+lake-rest = ["lake"]
 # Remote KV-cache HTTP surface (CONCEPT:EG-187) — exposes the `eg-kvcache` shared,
 # content-addressed backend (EG-186) over HTTP so parallel vLLM/LMCache instances SHARE
 # KV blocks by token-hash (GET/PUT/HEAD /kv/<hash> + /kv/stats, bearer-token guard). A
 # HAND-ROLLED HTTP/1.1 listener (the same dependency-free tokio idiom as `s3-api`/`obs`)
 # — links NO axum/hyper, so it adds NO new HTTP dependency; it pulls only the pure-Rust
-# `eg-kvcache` leaf crate. Kept OUT of pi (a network listener + the shared backend). The
-# listener only starts when ALSO configured via EPISTEMIC_GRAPH_KVCACHE_ADDR.
-# EG-187: fold kvcache-server into node/full (orchestrator folds the tier lines at merge)
-kvcache-server = ["server", "dep:eg-kvcache"]
+# `eg-kvcache` leaf crate plus `oidc` (its bearer-token guard's JWT validation, shared
+# with the primary protocol's identity binding). It is included in the one main build
+# and starts only when configured via EPISTEMIC_GRAPH_KVCACHE_ADDR.
+kvcache-server = ["server", "oidc", "dep:eg-kvcache"]
 # Real WARM-tier KV-cache codec (CONCEPT:EG-315): turns on `eg-kvcache/compression`
 # (zstd) so the KV-cache warm tier can compress with a production-grade codec instead of
-# the built-in RLE. Pulls zstd ONLY through this feature, so a default/pi build links no
-# zstd (eg-kvcache is itself only linked behind `kvcache-server`, out of pi). DELIBERATELY
-# NOT folded into node/full here — like the kvcache-server line, the orchestrator folds
-# the tier aggregate lists at merge time (avoids a tier-line merge conflict).
-# EG-315: fold kvcache-compression into node/full (orchestrator folds the tier lines at merge)
+# the built-in RLE. It is included in the one main build; zstd is reached only through
+# this feature.
 kvcache-compression = ["kvcache-server", "eg-kvcache/compression"]
 # Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
 # that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
 # NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open
 # a persist dir, call core ops as plain methods. It drives the SAME GraphCore +
 # redb-authoritative durable rows the socket dispatch does (via `wal::apply` +
-# `redb_store`), so there is ONE core, two transports. Pulls only `redb` (the
-# durable tier) — deliberately NOT `server`, so `--features "embedded redb"` builds
-# with no Tokio server runtime (the Pi/edge "100M agents, a local engine each"
-# story). Gated query/tsdb surfaces light up when those features are ALSO on.
+# `redb_store`), so there is ONE core, two transports. The feature itself pulls only
+# `redb`, allowing targeted embedded checks without a Tokio server runtime; the one
+# main build includes the embedded API alongside the served transport.
 embedded = ["redb"]
 # Native RDF surface (CONCEPT:KG-2.217, Lane W): maps an RDF dataset onto the
 # property-graph + serializes it back (Turtle/N-Triples via oxrdf/oxttl in the
-# eg-rdf crate). PURE-RUST — links NO C/native dep (proven by cargo tree) — so it is
-# safe to fold into the serving tiers but kept OUT of bare default/`pi` (the Pi
-# build stays lean; RDF is not a Pi requirement). Needs `server` (the handler routes
-# through dispatch) + `eg-types/rdf` (the Method variants).
+# eg-rdf crate). PURE-RUST — links NO C/native dep (proven by cargo tree) — and is
+# included in the one main build. Needs `server` (the handler routes through dispatch)
+# + `eg-types/rdf` (the Method variants).
 rdf = ["server", "dep:eg-rdf", "eg-rdf/rdf", "eg-types/rdf"]
 # Native SPARQL 1.1 surface (CONCEPT:KG-2.218): compiles spargebra's algebra to
 # GraphView scans (eg-rdf). IMPLIES `rdf`; pure-Rust (spargebra), no native dep.
 sparql = ["rdf", "eg-rdf/sparql", "eg-types/sparql"]
 # SPARQL standards completeness (CONCEPT:EG-127/130/131) forwarded from eg-rdf. All
-# pure-Rust (RustCrypto hashes; oxrdfxml/oxjsonld; oxrdf/oxttl/spargebra rdf-12 flags),
-# gated OUT of `pi` (the Pi contract requires sha1/md-5/oxrdfxml/oxjsonld = 0) and folded
-# into node/full so deployment ships the full builtin/serialization/RDF-star surface.
+# pure-Rust (RustCrypto hashes; quick-xml/oxjsonld; oxrdf/oxttl/spargebra rdf-12 flags)
+# and included in the one main build.
 sparql-hash = ["sparql", "eg-rdf/sparql-hash"]     # MD5/SHA1/SHA2 SPARQL hash builtins
 rdf-xml = ["rdf", "eg-rdf/rdf-xml"]                 # RDF/XML reader+writer
 json-ld = ["rdf", "eg-rdf/json-ld"]                 # JSON-LD 1.1 (expansion form)
@@ -633,103 +825,121 @@ sparql-star = ["sparql", "eg-rdf/sparql-star"]      # RDF-star / SPARQL-star quo
 # sfEquals/distance/buffer) over the SPARQL surface, forwarded from eg-rdf's `geosparql`.
 # Composes the RDF/SPARQL surface with the existing spatial modality: IMPLIES both `sparql`
 # and `geo` (CONCEPT:EG-083 — the eg-geo executor/leaf crate), reusing eg-geo for ALL
-# geometry math (NO new external dep — the Pi contract holds). OUT of `pi`.
-# EG-261: fold geosparql into node/full
+# geometry math (NO new external dep). Included in the one main build.
 geosparql = ["sparql", "geo", "eg-rdf/geosparql"]
 # W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017): a minimal hand-rolled
 # HTTP/1.1 listener (the SAME dep-free idiom as the Prometheus `--metrics-addr`
 # exposition — NO axum/hyper/warp) so existing Stardog/Jena/rdflib SPARQL clients can
 # query + update the engine unchanged via `--sparql-addr`. IMPLIES `sparql` (+ `server`
-# for the Tokio listener). Pure-Rust; no new native dep. Folded into node/full.
-sparql-http = ["sparql", "server"]
+# for the Tokio listener). Pure-Rust, no new native dep, and included in the main build.
+sparql-http = ["sparql", "server", "shacl", "security"]
 # SPARQL SERVICE federation (CONCEPT:EG-052): the `/sparql` endpoint's SELECT path binds a
 # `ureq`-backed `RemoteSparql` client so a `SERVICE <ep> { … }` clause evaluates against a
 # remote endpoint (SILENT semantics, SSRF allowlist `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW`,
-# default fail-closed). REUSES the SAME `ureq`/rustls stack `federation` already links (NO
-# new crate enters the tree), so it IMPLIES both `sparql-http` and `federation`. HEAVY-ish
-# (rustls/ring) → kept OUT of `pi`; folded into node/full.
+# default fail-closed). REUSES the SAME `ureq`/rustls stack `federation` already links
+# (NO new crate enters the tree), so it IMPLIES both `sparql-http` and `federation` and
+# is included in the one main build.
 sparql-service = ["sparql-http", "federation", "dep:ureq"]
 # Super-cluster federated search (CONCEPT:EG-243): a `/federated` POST surface that fans a
 # read query across a registry of peer engine instances AND the local store, then unions /
 # de-dups + RRF-re-ranks the partials (a slow/dead peer degrades to `partial: true` +
 # `failed_peers` instead of failing). REUSES the SAME pure-Rust `ureq`/rustls stack the
 # other federation surfaces link (NO new HTTP crate enters the tree); SSRF-vetted with the
-# SAME allowlist/internal-range guard as EG-052. HEAVY-ish (rustls/ring) → kept OUT of
-# `pi`; folded into node/full by the orchestrator (NOT edited into the tier lists here).
+# SAME allowlist/internal-range guard as EG-052. Included in the one main build.
 federation-search = ["server", "dep:ureq"]
 # ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-325). Bridges engine
 # CDC events ↔ ROS2 topics by talking the standard `rosbridge_suite` JSON-over-WebSocket
 # protocol (advertise/subscribe/publish/unsubscribe) to a `rosbridge_server` — so NO
 # CycloneDDS/rmw/DDS C stack, NO `ros` toolchain, just a pure-Rust `tokio-tungstenite`
-# client. HEAVY-ish (a WebSocket stack) + robotics is NOT a Pi requirement → kept OUT of
-# `pi`/`default`/`node`; the orchestrator folds it into an extras bundle. A default/pi
-# build links NO tokio-tungstenite (asserted by `cargo tree`).
+# client. It is included only in the source-built `full-extras` layer; the main and
+# `cluster` builds link no tokio-tungstenite (asserted by `cargo tree`).
 ros2-bridge = ["server", "streaming", "dep:tokio-tungstenite", "dep:futures"]
 # Native DDS/RTPS ROS2 wire (CONCEPT:EG-347) — the native leg of the ROS2 transport seam
 # (`src/server/dds.rs`, the `DdsTransport` trait). Where `ros2-bridge` (EG-325) tunnels
 # ROS2 topics through a `rosbridge_server` over WebSocket JSON, this leg speaks REAL
 # DDS/RTPS on the wire so the engine's CDC↔ROS2 topic path can publish/subscribe to a
 # ROS2 graph DIRECTLY — behind the SAME `DdsTransport` interface, so the path targets
-# EITHER transport. It uses the PURE-RUST `rustdds` crate (a native Rust DDS + RTPS impl:
-# mio/pnet/speedy/cdr-encoding — NO CycloneDDS/rmw/`ros` C toolchain), so, unlike a
-# `cyclonedds-rs`/`rmw` leg, it ACTUALLY builds in CI everywhere (no C dep). But robotics
-# is NOT a Pi requirement and DDS pulls a large transitive tree, so it is kept OUT of
-# `pi`/`default`/`node`/`full` — folded ONLY into the opt-in `full-extras` bundle. A
-# default/pi/node/full build links NO rustdds (asserted by `cargo tree`). The
+# EITHER transport. It uses the PURE-RUST Dust DDS crate (a native Rust DDS + RTPS
+# implementation with NO CycloneDDS/rmw/`ros` C toolchain), so, unlike a
+# `cyclonedds-rs`/`rmw` leg, it builds in CI everywhere (no C dep). DDS pulls a large
+# transitive tree, so it is included only in the source-built `full-extras` layer; the
+# main and `cluster` builds link no Dust DDS (asserted by `cargo tree`). The
 # CycloneDDS-C-backed `rmw` leg stays a documented, toolchain-gated future option.
-ros2-dds = ["server", "streaming", "dep:rustdds", "dep:futures"]
+ros2-dds = ["server", "streaming", "dep:dust_dds", "dep:futures"]
+# CycloneDDS-C-backed `rmw` ROS2 wire (CONCEPT:EG-347 follow-on, S5) — the SECOND native
+# leg of the ROS2 transport seam (`src/server/dds.rs`, `DdsTransport` trait), implementing
+# the SAME interface as `ros2-dds` (`NativeDdsTransport`/Dust DDS) so the CDC↔ROS2 path
+# targets EITHER pure-Rust RTPS or the real CycloneDDS-C `rmw` wire behind one choice.
+# Unlike `ros2-dds`, this leg links the ACTUAL `rmw_cyclonedds` C stack (via the
+# `cyclonedds` Rust crate — a safe wrapper over `cyclonedds-rust-sys`/`cyclonedds-src`,
+# the vendored CycloneDDS C sources), so it is REAL zero-config ros2 interop, not merely
+# wire-compatible: a live `ros2` daemon discovers/pubs/subs the topic with no bridge.
+# `cyclonedds-src` VENDORS the CycloneDDS C sources IN the crate tarball (no network
+# fetch at build time) and `cyclonedds-rust-sys`'s build.rs configures+builds it with
+# `cmake` (found via the CMake Rust crate machinery) and ships PREBUILT bindgen output
+# (`prebuilt_bindings.rs`), so the build needs a C toolchain (cc/cmake — the same
+# toolchain gate as `gpu-cuda`) but NOT libclang/bindgen at build time and NOT network
+# access beyond the initial crates.io fetch. This toolchain-gated, vendored C DDS stack
+# is included only in the source-built `full-extras` layer; the main and `cluster`
+# builds link no cyclonedds/cyclonedds-rust-sys/cyclonedds-src (asserted by `cargo tree`).
+ros2-rmw = ["server", "streaming", "dep:cyclonedds", "dep:futures"]
 # GPU-accelerated distance/tensor (CONCEPT:EG-326 seam / EG-327 CUDA). `gpu` opts the
 # eg-ann distance + eg-tensor elementwise kernels into the `DistanceBackend`/`TensorBackend`
 # dispatch seam (the pure-Rust CPU backend stays the compiled-in fallback). `gpu-cuda` adds
 # the REAL cudarc-backed CUDA backends — `dynamic-loading`, so the leg BUILDS with no CUDA
-# toolkit (libcuda/libnvrtc are dlopen'd at runtime) and runs on a GPU host, else falls back
-# to CPU. HEAVY + not a Pi requirement → kept OUT of pi/default/node/full; the orchestrator
-# folds them into an extras bundle. A default/pi build links NO cudarc (Pi contract, asserted
-# by `cargo tree --features pi`).
-gpu = ["ann", "eg-core/ann-gpu", "tensor", "eg-plan/tensor-gpu"]
-gpu-cuda = ["gpu", "eg-core/ann-gpu-cuda", "eg-plan/tensor-gpu-cuda"]
+# toolkit (libcuda/libnvrtc are dlopen'd at runtime) and runs on a GPU host, else falls
+# back to CPU. The real CUDA backends are included only in the source-built
+# `full-extras` layer; the main and `cluster` builds link no cudarc (asserted by
+# `cargo tree`).
+gpu = ["ann", "eg-core/ann-gpu", "tensor", "eg-plan/tensor-gpu", "reasoning", "eg-compute/gpu"]
+gpu-cuda = ["gpu", "eg-core/ann-gpu-cuda", "eg-plan/tensor-gpu-cuda", "eg-compute/gpu-cuda"]
 # Opt-in umbrella (CONCEPT:EG-371) = the ONE main build (`full`) PLUS the heavy extras that
 # require an external toolchain/GPU to actually RUN (but build clean everywhere via
-# dynamic-loading): the real CUDA backends + the rosbridge ROS2 bridge + native DDS/RTPS.
+# dynamic-loading, or a vendored cmake C build for `ros2-rmw`): the real CUDA backends +
+# the rosbridge ROS2 bridge + native DDS/RTPS (Dust DDS) + the CycloneDDS-C `rmw` leg.
 # This is a build LAYER on top of the main build for a GPU/robotics deployment — NOT folded
 # into `default`/`full` and NOT published as its own wheel. The default/main build links NO
-# cudarc/rustdds (asserted by `cargo tree`).
-full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds"]
+# cudarc/dust_dds/cyclonedds (asserted by `cargo tree`).
+full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds", "ros2-rmw"]
 # Native OWL 2 reasoner (CONCEPT:KG-2.219): EL⁺ completion + RL property rules,
 # classification / consistency / incremental materialization + justifications. The
 # `OwlReason` Method surface. PURE-RUST — it parses OWL from the SAME oxttl as `rdf`,
-# links NO C/native crate (no horned-owl/whelk-rs) — so it folds into pi/node/full
-# beside rdf/sparql with NO Pi-contract breach (no DataFusion). IMPLIES `sparql`.
+# links NO C/native crate (no horned-owl/whelk-rs), IMPLIES `sparql`, and is included
+# in the one main build.
 owl = ["sparql", "eg-rdf/owl", "eg-types/owl"]
 # OWL-DL tableau reasoner (CONCEPT:EG-059) — the complete-but-worst-case-harder DL
 # path (full cardinality/negation/nominals/reasoning-by-cases) that the tractable `owl`
-# EL⁺/RL path cannot decide. Pure Rust, no new dep. IMPLIES `owl`. Pi contract: OUT of
-# `pi` (a Pi node runs only the tractable fast path); folded into node/full.
+# EL⁺/RL path cannot decide. Pure Rust, no new dep, IMPLIES `owl`, and is included in
+# the one main build.
 owl-dl = ["owl", "eg-rdf/owl-dl"]
 # The OWL/SPARQL cross-modal plan SOURCE ops `Op::Reason` / `Op::SparqlBgp`
 # (CONCEPT:KG-2.220) inside a UnifiedQuery plan. The unified-plan executor needs
-# DataFusion, so this IMPLIES `query` (it is NOT Pi-safe) — kept OUT of `pi`, folded
-# into node/full where `query` already lives. Pulls eg-plan's `owl` (the op exec).
+# DataFusion, so this IMPLIES `query` and is included in the one main build. Pulls
+# eg-plan's `owl` (the op exec).
 owl-plan = ["owl", "query", "eg-plan/owl", "eg-types/owl-plan"]
-# Opt-in lossless redb `quads` table for multi-valued-literal predicates the
-# property blob can't hold (CONCEPT:KG-2.217). Rides the engine `redb` tier.
-rdf-redb = ["rdf", "redb", "eg-rdf/rdf-redb", "eg-plan?/rdf-redb"]
+# OBDA / R2RML virtual graphs (CONCEPT:EG-KG.query.r2rml-virtual-graph / EG-KG.query.obda-query-rewrite,
+# Track J): expose the engine's OWN SQL user-tables (`eg_query::TableStore`, behind
+# `query`) as a virtual RDF graph via an R2RML-style mapping (`eg_rdf::obda`, behind
+# `sparql`) — a `Method::SparqlVirtual` query rewrites to a projection-pushed scan of
+# the table and evaluates SPARQL over a TRANSIENT view, never materializing the whole
+# dataset. IMPLIES `sparql` + `query` (the bare OBDA library in eg-rdf is pure Rust;
+# wiring it to user tables needs DataFusion). No new external dependency; included in
+# the one main build.
+obda = ["sparql", "query", "eg-types/obda"]
 # SHACL Core validation (CONCEPT:EG-132) — the pure-Rust eg-shacl engine over the
 # RDF term/graph model. IMPLIES `rdf` (it validates RDF data against an RDF shapes
 # graph); the `Method::ShaclValidate` handler is gated on this feature. Pure Rust —
-# links NO C/native dep (regex rides eg-rdf's sparql stack) — so it folds into
-# node/full alongside rdf/sparql. Kept OUT of `pi`.
+# links NO C/native dep (regex rides eg-rdf's sparql stack) — and is included in the
+# one main build alongside rdf/sparql.
 shacl = ["rdf", "dep:eg-shacl"]
 # ShEx (Shape Expressions) Core validation (CONCEPT:EG-133) — the pure-Rust eg-shex
 # engine, the complement to `shacl`. IMPLIES `rdf` (it validates focus nodes of an RDF
 # data graph against a ShExJ schema); the `Method::ShexValidate` handler is gated on this
 # feature. Pure Rust — links NO C/native dep (regex rides eg-rdf's sparql stack,
-# serde_json is workspace-wide) — so it CAN fold into node/full alongside rdf/sparql/shacl.
-# DELIBERATELY NOT folded into `node`/`full` here: the orchestrator folds `shex` into the
-# tier lines at merge time (avoids a tier-line merge conflict with concurrent waves). Kept
-# OUT of `pi`.
+# serde_json is workspace-wide) — and is included in the one main build alongside
+# rdf/sparql/shacl.
 shex = ["rdf", "dep:eg-shex"]
-compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
+compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlearn", "reasoning"]
 # `full`/`all`/`default` = THE ONE MAIN BUILD (CONCEPT:EG-371). It deliberately stays
 # SINGLE-NODE: raft is NOT folded in, so a `full` build links no openraft (replication
 # is the opt-in `cluster` layer). Consequently `compute-dist` (which NEEDS raft for
@@ -748,13 +958,44 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # blobs, and a hash-chained tamper-evident audit log over the ledger. PURE-RUST end
 # to end: RLS + audit chain link only `sha2`/`hmac` (already deps, RustCrypto) — NO
 # C; encryption pulls `chacha20poly1305` (RustCrypto AEAD, pure-Rust, NO ring/openssl).
-# Encryption-at-rest also rides the redb tier, so it implies `redb`. Folded into
-# node/cluster/full; kept OUT of bare default + the lean `pi` tier (encryption is not
-# a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
-# pure-Rust and Pi-safe, but is shipped only where `security` is selected).
-security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file"]
+# Encryption-at-rest also rides the redb substrate, so it implies `redb`. Also pulls
+# `oidc` — the primary `eg2.` protocol's OIDC identity binding is a security-feature
+# capability (verified-identity envelope claims, not just HMAC channel integrity).
+# Security is mandatory in the one main `full` build and remains present in both
+# source-built layers.
+security = ["redb", "oidc", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
+# Shared OIDC/JWKS bearer-token verification core (`src/server/oidc.rs`):
+# RSA-signature-against-JWKS, issuer/audience/expiry, Keycloak-compatible. A small,
+# dependency-bounded feature so the RSA/JWT crates are linked exactly once and reused
+# by every surface that needs OIDC identity verification — `security`'s primary
+# `eg2.` protocol identity binding and `kvcache-server`'s KV-cache HTTP bearer auth —
+# rather than each surface vendoring its own copy.
+oidc = ["dep:jsonwebtoken", "dep:ureq"]
+full = ["compute", "server", "server-tls", "query", "knowledge-batch", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "statechart", "modality-serving", "embedded", "matview"]
 all = ["full"]
+# D4 (CONCEPT:EG-KG.epistemic.epistemic-substrate): `epistemic` (the eg-epistemic
+# claims/evidence/belief-state layer, E6/E2/D3/D5) is folded into `full` above so a
+# default/full build carries it — it was left OUT of the aggregate during development
+# to avoid a merge conflict with concurrent waves (mirroring the temporary aggregate-
+# wiring convention documented at those features' definitions), now closed.
+# The retired `pi`/`pi-max`/`node` deployment tiers (EG-371, just above) no longer
+# exist to fold it into separately — `full` (== `default`) is the one main build. `contract`
+# (eg-tensor/eg-geo's own opt-in `ModalityContract` retrofit feature, `eg-epistemic`'s
+# own `contract` submodule gate) stays OUT of every product build here, confirmed: it is a
+# capability-discovery/testing seam selected per-crate directly (`cargo test -p
+# eg-epistemic --features contract`), never part of the served product surface — `cargo
+# tree --features full | grep -i contract` links no `contract`-gated code.
+#
+# WS-1b (2026-07-12): `epistemic-redaction` (policy-aware proof redaction / selective
+# disclosure, reusing the SAME `IsolationLayer`/`RowVisibility` check every other RLS
+# read path already enforces — no new enforcement point) and `evidence-graph` (the
+# multimodal evidence citation resolver, `Method::ExplainEvidence`) are LIGHT: neither
+# pulls a new heavy dependency (both ride deps `epistemic`/`security` already link) nor
+# runs any expensive recompute — so both are folded into `full` above, closing the
+# "built but opt-in" gap for these two surfaces. P2 subsequently folded
+# `epistemic-tms` and `epistemic-causal` into `full`; steady-state TMS/causal/
+# contradiction maintenance is change-driven from the durable mutation outbox.
+
 
 # ── Opt-in build layers ON TOP of the ONE main build (CONCEPT:EG-371) ──
 # The former `pi` / `pi-max` / `node` deployment tiers are GONE — they existed only to
@@ -770,68 +1011,149 @@ all = ["full"]
 #                     cross-shard commit (`nonblocking`). This is HA / multi-node: it pulls
 #                     openraft, which the single-node main build deliberately does NOT.
 #   * `full-extras` — the main build PLUS the real CUDA (`gpu-cuda`) + ROS2 bridge/DDS
-#                     (`ros2-bridge`/`ros2-dds`) backends. They build clean everywhere via
-#                     dynamic-loading but need a GPU / robotics toolchain to actually RUN.
-#                     (`full-extras` is defined next to `gpu-cuda`/`ros2-dds` above.)
+#                     (`ros2-bridge`/`ros2-dds`/`ros2-rmw`) backends. `gpu-cuda`/
+#                     `ros2-bridge`/`ros2-dds` build clean everywhere via dynamic-loading
+#                     or pure-Rust; `ros2-rmw` builds clean everywhere too (the CycloneDDS
+#                     C sources are vendored + built via `cmake`, no network at build
+#                     time) but needs a GPU / robotics / C toolchain to actually RUN.
+#                     (`full-extras` is defined next to `gpu-cuda`/`ros2-dds`/`ros2-rmw`
+#                     above.)
 #
 # INVARIANTS (asserted by `cargo tree`): the main/default build links NO openraft
-# (cluster-only) and NO cudarc/rustdds (full-extras-only). It DOES link DataFusion now
-# (query is a main feature) — the old "no-DataFusion Pi contract" is retired; the build
-# targets Raspberry Pi 4+, not Pi 3.
+# (cluster-only) and NO cudarc/dust_dds/cyclonedds (full-extras-only). It DOES link
+# DataFusion now (query is a main feature) — the old "no-DataFusion Pi contract" is
+# retired; the build targets Raspberry Pi 4+, not Pi 3.
 cluster = ["full", "raft", "compute-dist", "nonblocking", "matview"]
 
 [dependencies]
 eg-types = { path = "crates/eg-types" }
+eg-mutation-store = { path = "crates/eg-mutation-store", optional = true }
 eg-core = { path = "crates/eg-core" }
+# The exact-performance probe is part of the digest-bound full server binary and
+# exercises the native ANN implementations directly. Keep this edge behind the
+# existing `ann` feature; `eg-core` already links the same crate for ANN serving.
+eg-ann = { path = "crates/eg-ann", optional = true }
 # Compute domains (always linked for `algorithms`, used by the graph-op handlers);
 # the heavy finance/datascience/ast/reasoning code + deps are gated behind the
 # facade features that pass through to eg-compute's matching features.
 eg-compute = { path = "crates/eg-compute" }
-# CONCEPT:EG-321 — Analytics-Program numeric kernel (feature `numeric`, in `full`,
-# out of `pi`). Links only the PURE rlib (faer + ndarray, NO Python-extension FFI —
+# Engine-native epistemic layer (feature `epistemic`, CONCEPT:EG-KG.epistemic.epistemic-substrate,
+# E6). Pure-Rust leaf (eg-types + eg-core + eg-compute/reasoning) — claims/evidence/
+# belief-state + confidence propagation over the EXISTING NodeData/EdgeData fields.
+# Referenced only under `#[cfg(feature = "epistemic")]` (the mining→claim write-back +
+# its tests), so a build without `epistemic` links no eg-epistemic.
+eg-epistemic = { path = "crates/eg-epistemic", optional = true }
+# CONCEPT:EG-321 — Analytics-Program numeric kernel (feature `numeric`, in the one
+# main `full` build). Links only the PURE rlib (nalgebra + ndarray, NO Python-extension FFI —
 # that layer is behind eg-numeric's OWN `python` feature, off here) for Surface B
-# in-database analytics. Referenced only under `#[cfg(feature = "numeric")]`, so a
-# default/pi build links no eg-numeric/faer/ndarray (asserted by `cargo tree --features pi`).
+# in-database analytics. The separately compiled Python component is injected into the
+# same published wheel and does not change the server binary's dependency graph.
 eg-numeric = { path = "crates/eg-numeric", optional = true }
-# Optional SQL query surface (feature `query`); pulls DataFusion only when enabled.
+# SQL query surface dependency (feature `query`, included in the main build); pulls
+# DataFusion when that composable feature is enabled.
 eg-query = { path = "crates/eg-query", optional = true }
-# Optional unified cross-modal planner (feature `query`, CONCEPT:KG-2.208/209). Its
-# DataFusion FILTER leg is gated by eg-plan's own `query`; pulled only with the
-# facade `query`, so a default/Pi build links neither it nor DataFusion.
+# Unified cross-modal planner (feature `query`, CONCEPT:KG-2.208/209). The main build
+# includes the facade `query`, its DataFusion FILTER leg, and both dependencies.
 eg-plan = { path = "crates/eg-plan", optional = true }
-# Optional live CEP standing-query engine (feature `stream`, CONCEPT:EG-088/EG-299). The
+# The `ModalityContract` trait + the `EvidenceLocus` shape (CONCEPT:E4/X1). Referenced
+# only under `#[cfg(feature = "epistemic")]` (`src/server/handlers/query.rs`'s
+# `evidence_locus_wire`, mapping `eg_plan::KnowledgeRow::evidence_refs` onto the wire
+# `EvidenceLocusWire`), so a build without `epistemic` links none of it. `eg-plan`
+# already links it unconditionally (deps = eg-types only, per its own crate docs), so
+# this adds no NEW transitive dependency to the tree — only makes the type nameable
+# here too.
+eg-modality = { path = "crates/eg-modality", optional = true }
+# Concrete governed serving leaves. All remain optional outside the main
+# `modality-serving` feature and link no native codec/toolchain dependency.
+eg-document = { path = "crates/eg-document", optional = true }
+eg-image = { path = "crates/eg-image", optional = true }
+eg-audio = { path = "crates/eg-audio", optional = true }
+eg-video = { path = "crates/eg-video", optional = true }
+# The shared alignment graph + `EvidenceResolver` trait (feature `alignment`, L21,
+# CONCEPT:EG-P1-3 follow-up). `src/server/blob/cas_resolver.rs` implements that trait
+# with a real CAS-backed resolver — see the `alignment` feature's own comment above
+# for why the resolver lives HERE rather than in `eg-alignment` itself. Referenced
+# only under `#[cfg(feature = "alignment")]`; `eg-alignment`'s own default build
+# depends on `eg-modality` ONLY (no heavy artifact crate), so this adds no new
+# dependency CLASS to the tree.
+eg-alignment = { path = "crates/eg-alignment", optional = true }
+# CONCEPT:EG-P0-2 -- the machine-checked MethodPolicy capability ledger (feature
+# `server`, via the `dep:eg-capabilities` requirement folded into that feature below).
+# `src/server/mutation.rs`'s `MutationPlan::for_method` calls `eg_capabilities::policy`
+# as its ONE source of per-method authz-action/durability-domain/idempotent/audited/
+# emits-cdc truth for the gateway-routed mutation set -- see that module's docs. Its
+# OWN Cargo.toml turns on ALL of eg-types' optional features so `policy()`'s
+# exhaustive match sees every `Method` variant regardless of which of THIS crate's
+# features are on; those eg-types features are confirmed pure serde/enum-variant
+# gates (no heavy transitive dependency), so this is safe even though it forces them
+# on unconditionally in any `server` build.
+eg-capabilities = { path = "crates/eg-capabilities", optional = true }
+# CONCEPT:INT-P2-1 -- the durable analytics-job plane (feature `jobs`): the
+# `AnalyticsJob` state machine + its own `jobs.redb` store + the result->claim
+# commit helper (`eg_jobs::claim::commit_result_claim`), consumed by
+# `src/server/handlers/jobs.rs`. See the workspace `[workspace]` comment above for
+# why it is a workspace member with an optional direct edge from the facade.
+eg-jobs = { path = "crates/eg-jobs", optional = true }
+# CONCEPT:INT-P2-2 -- the native statechart engine (feature `statechart`): the typed
+# StatechartDef model + pure transition function + its own `statecharts.redb` instance
+# store (`eg_statechart::StatechartStore`), consumed by
+# `src/server/handlers/statechart.rs`. An optional direct edge from the facade, exactly
+# like `eg-jobs`.
+eg-statechart = { path = "crates/eg-statechart", optional = true }
+# Clean-room graph-native LM-program contracts, deterministic kernels, and governed
+# runtime plans. The crate deliberately has no provider SDK or HTTP client.
+eg-program = { path = "crates/eg-program", optional = true }
+# Live CEP standing-query engine (feature `stream`, included in the main build,
+# CONCEPT:EG-088/EG-299). The
 # BATCH `Op::Cep` executor already pulls eg-stream transitively via `eg-plan/stream`; this
 # DIRECT edge (with eg-stream's own `stream` feature, the ONLY thing that pulls tokio in
 # that leaf crate) makes `eg_stream::live::CepEngine` nameable so the server can own a live
-# standing-query surface (`src/server/cep.rs`) fed by the CDC hub. Pulled ONLY under
-# `stream`; a default/pi build links no eg-stream (and never its tokio bits).
+# standing-query surface (`src/server/cep.rs`) fed by the CDC hub.
 eg-stream = { path = "crates/eg-stream", optional = true }
 # Optional native time-series store + primitives (feature `tsdb`, CONCEPT:KG-2.210/
 # 211); pulls redb only (native primitives), and DataFusion only when `query` is ALSO
 # on (its `arrow-seg` feature, enabled transitively by the facade `query` feature).
 eg-tsdb = { path = "crates/eg-tsdb", optional = true }
-# Optional embedded BM25 full-text index (feature `obs`, CONCEPT:EG-160). Reused
-# DIRECTLY for the per-stream log text index. Pulled (with its `tantivy` backend) only
-# under `obs`; a default/pi build links neither eg-text-directly nor Tantivy. NOTE:
+# LTAP lakehouse-interop leaf crate (feature `lake`, CONCEPT:EG-317 / INT-P2-3): Parquet
+# materialization + Delta/Iceberg transaction logs + LSN as-of snapshots + the
+# Iceberg-REST catalog contents. Pulled only behind the explicit `lake` source feature
+# (with its own `lake` sub-feature, which uses the maintained Polars native Parquet
+# codec); none of the product bundles select it. The
+# engine-side seam (`src/server/lake/`) converts real `eg_tsdb::store::SeriesStore`
+# series into `eg_lake::LakeBatch`es and drives the materialize/compact/delete +
+# catalog-registration + OpenLineage-event calls this crate does not (and, per its own
+# docs, deliberately should not) own.
+eg-lake = { path = "crates/eg-lake", optional = true }
+# Embedded BM25 full-text index (feature `obs`, included in the main build,
+# CONCEPT:EG-160). Reused DIRECTLY for the per-stream log text index. NOTE:
 # eg-text is ALSO pulled transitively via eg-plan's `text` (the facade `text` feature),
 # so this direct edge adds no NEW crate — it only makes `eg_text::TextIndex` nameable.
 eg-text = { path = "crates/eg-text", optional = true }
-# Arrow + Parquet columnar segment encode for observability logs (feature `obs`,
-# CONCEPT:EG-161). `arrow` 53 is ALREADY in the tree via `query`/DataFusion (no new
-# crate); `parquet` IS a new dependency (DataFusion here is built default-features=off,
-# so parquet was absent) — pinned to arrow 53's matching line, default-features off so
-# only the `arrow` integration is linked (NO compression codecs / C deps). Both are
-# OPTIONAL + referenced only under `#[cfg(feature = "obs")]`, so a default/pi/full build
-# (obs off) links NO parquet (asserted by `cargo tree --features pi | grep -c parquet` = 0).
-arrow = { version = "53", optional = true }
-parquet = { version = "53", optional = true, default-features = false, features = ["arrow"] }
-# Zero-copy byte buffer for the Parquet reader's `ChunkReader` (feature `obs`). Already
-# in the tree (tokio); optional + obs-gated so a default/pi build is unaffected.
-bytes = { version = "1", optional = true }
-# Optional native RDF/SPARQL surface (features `rdf`/`sparql`, CONCEPT:KG-2.217/218).
-# Pulls oxrdf/oxttl/spargebra — ALL pure-Rust — only when enabled, so a default/pi
-# build links none of them (asserted by cargo tree). Its `rdf-redb` quad table rides
-# the facade `redb` feature.
+# Optional pure-Rust geometry/WKT/planar-predicates/packed-Hilbert-R-tree crate (feature
+# `geo`, CONCEPT:EG-083). Pulled transitively via eg-plan's `geo` feature already (the
+# `Op::SpatialScan`/`Pred::Spatial*` executor); this direct edge adds NO new crate — it
+# only makes `eg_geo::{Bbox, RTree, parse_wkt}` nameable here, for the server-layer
+# maintained `GraphSpatialIndex` (L37, CONCEPT:EG-KG.storage.incremental-spatial) —
+# mirroring eg-text's identical direct-edge precedent above.
+eg-geo = { path = "crates/eg-geo", optional = true }
+# Array/tensor leaf crate (feature `tensor`, CONCEPT:EG-085). Pulled transitively via
+# eg-plan's `tensor` feature already (the `Op::TensorScan`/`Op::TensorOp` executor);
+# this direct edge adds NO new crate — it only makes `eg_tensor::TensorStore` nameable
+# here, so the served `run_unified` (`src/server/handlers/query.rs`) can bind the
+# process-lifetime write-back sink `Op::TensorOp` requires — mirroring eg-geo's
+# identical direct-edge precedent above.
+eg-tensor = { path = "crates/eg-tensor", optional = true }
+# Arrow + maintained Polars Parquet columnar segment encode for observability logs
+# (feature `obs`, CONCEPT:EG-161). Apache `parquet` is deliberately not used: its
+# metadata codec still carries the unmaintained `thrift` and `paste` crates. Polars
+# uses its safe native Parquet-format implementation. These edges are optional and
+# `obs`-gated; the writer explicitly chooses uncompressed pages.
+arrow = { version = "58.3", optional = true }
+polars-core = { version = "0.54.4", optional = true, default-features = false }
+polars-io = { version = "0.54.4", optional = true, default-features = false, features = ["parquet"] }
+# Native RDF/SPARQL surface (features `rdf`/`sparql`, included in the main build,
+# CONCEPT:KG-2.217/218). Pulls pure-Rust oxrdf/oxttl/spargebra. Multi-valued literals
+# remain inside the authoritative graph image.
 eg-rdf = { path = "crates/eg-rdf", optional = true }
 # Optional pure-Rust SHACL Core validator (feature `shacl`, CONCEPT:EG-132). Sits above
 # eg-rdf (reuses its oxrdf term/graph model); pulled only when `shacl` is on.
@@ -840,24 +1162,31 @@ eg-shacl = { path = "crates/eg-shacl", optional = true }
 # to eg-shacl; sits above eg-rdf (reuses its oxrdf term/graph model); pulled only when
 # `shex` is on.
 eg-shex = { path = "crates/eg-shex", optional = true }
-# Optional native GraphQL read surface (feature `graphql`, CONCEPT:KG-2.235). Pure-Rust
-# (schema-from-graph + hand-written parser/resolver, NO async-graphql), pulled only when
-# enabled so a default/pi build links none of it.
+# Native GraphQL read surface (feature `graphql`, included in the main build,
+# CONCEPT:KG-2.235). Pure-Rust: schema-from-graph plus a hand-written parser/resolver,
+# with no async-graphql dependency.
 eg-graphql = { path = "crates/eg-graphql", optional = true }
 # EG-187: the tiered + shared content-addressed KV-cache leaf crate (EG-185/186). Pulled
-# ONLY behind `kvcache-server` (the KV-cache agent left it un-wired as a workspace member
-# only), so a default/pi build links none of it (no eg-kvcache/ureq in pi). Pure-Rust; its
-# shared backend is exposed over HTTP by `src/server/kvcache_http/` for vLLM/LMCache.
+# behind `kvcache-server`, which the main build includes. Pure-Rust; its shared backend
+# is exposed over HTTP by `src/server/kvcache_http/` for vLLM/LMCache.
 eg-kvcache = { path = "crates/eg-kvcache", optional = true }
-# Optional WASM-sandboxed UDF runtime (feature `wasm-udf`, CONCEPT:KG-2.228). Pulls
-# wasmtime + cranelift only when enabled, so a default/pi build links neither
-# (asserted by cargo tree). The sandboxed `UdfRegistry` lives on ServerState.
+# WASM-sandboxed UDF runtime (feature `wasm-udf`, included in the main build,
+# CONCEPT:KG-2.228). Pulls wasmtime + cranelift. The sandboxed `UdfRegistry` lives on
+# ServerState.
 eg-wasm = { path = "crates/eg-wasm", optional = true }
 # SPARQL SERVICE federation client (feature `sparql-service`, CONCEPT:EG-052). The SAME
 # pure-Rust rustls HTTP client `federation` already links via eg-plan — pinned to the
-# same 2.x, so activating it here adds a direct edge but NO new crate to the tree (a
-# `--features pi` build still links no ureq). Gated so default/Pi builds link none of it.
+# same 2.x, so activating it here adds a direct edge but no new crate to the tree. The
+# main build includes both federation features. Also the JWKS-fetch transport for
+# `oidc` (`src/server/oidc.rs::JwtValidator::refresh`).
 ureq = { version = "2.10", optional = true }
+# Keycloak JWT validation, feature `oidc` (`src/server/oidc.rs`): verifies an OIDC
+# bearer against the realm JWKS — issuer/audience/expiry, RSA-signature-only (never
+# `none`/HMAC). Shared by the KV-cache HTTP surface's bearer guard (`kvcache-server`)
+# and the primary `eg2.` protocol's identity binding (`security`). Uses the maintained
+# aws-lc-rs JWT backend. Transport TLS remains supplied by the existing `ureq`/rustls
+# path.
+jsonwebtoken = { version = "10.4", optional = true, default-features = false, features = ["aws_lc_rs"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
@@ -885,48 +1214,67 @@ tokio = { version = "1.38", features = [
     "signal",
     "macros",
 ], optional = true }
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+    "logging",
+], optional = true }
+tokio-rustls = { version = "0.26", optional = true }
 clap = { version = "4.5", features = ["derive", "env"], optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
 # `dyn PersistenceBackend` needs object-safe async methods (CONCEPT:KG-2.177);
 # matches the existing async persist.rs style without a runtime bridge.
 async-trait = { version = "0.1", optional = true }
-# Durable embedded KV for the redb write-through tier (feature `redb`).
+# Durable embedded KV for the redb write-through substrate (feature `redb`).
 redb = { version = "4.1", optional = true }
 # Encryption-at-rest AEAD for the redb durable value blobs (feature `security`,
-# CONCEPT:KG-2.231). RustCrypto ChaCha20-Poly1305 — PURE-RUST, links NO ring/openssl
-# or any C crate (the Pi contract holds for the crypto path); optional + only
-# referenced under #[cfg(feature = "security")].
+# included in the main build, CONCEPT:KG-2.231). RustCrypto ChaCha20-Poly1305 is
+# pure Rust and links no ring, OpenSSL, or C crate. Cluster builds also use the
+# security feature for authenticated Raft transport.
 chacha20poly1305 = { version = "0.10", optional = true }
-# SQLite `.db` FILE import/export (feature `sqlite-file`, CONCEPT:EG-331/EG-332). The
-# `bundled` feature compiles the vendored C sqlite3 amalgamation (libsqlite3-sys) — the
-# ONLY C-linked leg gated behind `sqlite-file`, which is kept OUT of `pi`/`default` so
-# the Pi contract holds (`cargo tree --features pi` links no rusqlite/libsqlite3-sys).
-# A pure-Rust SQLite-file writer producing a `sqlite3`-CLI-readable `.db` is infeasible
-# (it would reimplement the b-tree page format), so the C sqlite is used ONLY in the
-# non-Pi `full`/`node` tiers. Referenced only under `#[cfg(feature = "sqlite-file")]`.
-rusqlite = { version = "0.32", optional = true, features = ["bundled"] }
+# SQLite `.db` FILE import/export (feature `sqlite-file`, CONCEPT:EG-331/EG-332).
+# Pure-Rust page-format reader + bulk-load writer — no C dependency.
+eg-sqlite-format = { path = "crates/eg-sqlite-format", optional = true }
 # S3/MinIO object-store chunk backend (feature `blob-s3`, CONCEPT:KG-2.206). The
 # ONLY dep that pulls an object-store/AWS SDK, gated behind `blob-s3` (NOT `blob`),
-# so a default/pi/full build links no object_store/aws crate — verified by the
-# `cargo tree -e normal | grep -iE 'aws|s3|object_store'` Pi-contract gate.
-object_store = { version = "0.11", optional = true, features = ["aws"] }
+# so the main, cluster, and full-extras bundles link no object_store/AWS crate. Select
+# this explicit source feature only when the S3/MinIO backend is required.
+# 0.14.1 is pinned to the upstream Apache revision that raises quick-xml to
+# 0.41.0 (RUSTSEC-2026-0194/0195). Replace the revision with the crates.io
+# release once that exact version is published; never relax this to a branch.
+object_store = { git = "https://github.com/apache/arrow-rs-object-store.git", rev = "c7316d29face118e7409eead0cda098f38589428", optional = true, features = ["aws"] }
 # rosbridge-WebSocket client for the CONCEPT:EG-325 ROS2 bridge. No-TLS pure-Rust build
 # (ws:// to a local rosbridge_server); `connect`+`handshake` only — links NO native-tls/
-# openssl. OPTIONAL + only under `feature = "ros2-bridge"`, so pi/default/node link none.
+# openssl. This dependency is selected only by the `full-extras` source-build layer.
 tokio-tungstenite = { version = "0.24", optional = true, default-features = false, features = ["connect", "handshake"] }
 # Native pure-Rust DDS/RTPS stack for the CONCEPT:EG-347 native ROS2 wire (feature
-# `ros2-dds`). rustdds is 100% Rust (mio/pnet/speedy/cdr-encoding) — it links NO
+# `ros2-dds`). Dust DDS is 100% Rust — it links NO
 # CycloneDDS/rmw/`ros` C toolchain, so unlike a `cyclonedds-rs` leg it builds in CI
-# everywhere. OPTIONAL + referenced ONLY under `#[cfg(feature = "ros2-dds")]`, so a
-# default/pi/node/full build links none of it (asserted by `cargo tree`).
-rustdds = { version = "0.13", optional = true }
+# everywhere. It is selected only by the `full-extras` source-build layer.
+dust_dds = { version = "0.15", optional = true }
+# CycloneDDS-C-backed `rmw` stack for the S5 ROS2-rmw leg (feature `ros2-rmw`,
+# CONCEPT:EG-347 follow-on). `cyclonedds` (a safe Rust wrapper, mzet97/cyclonedds-rust)
+# pulls `cyclonedds-rust-sys` (FFI) → `cyclonedds-src` (the CycloneDDS C sources VENDORED
+# inside the crate tarball). `cyclonedds-rust-sys`'s build.rs configures+builds the
+# vendored source with `cmake` (static lib, BUILD_SHARED_LIBS=OFF, security/SSL/IDLC/
+# examples all OFF) and links prebuilt bindgen output shipped in the crate — NO libclang/
+# bindgen invocation and NO network fetch at build time (unlike the older `cyclonedds-
+# sys`/`cyclonedds-rs` crates, which `git clone` CycloneDDS from GitHub in build.rs and
+# do NOT reliably CI-build offline). `default-features = false` + `features = ["std"]`
+# only — the crate's own `default`/`async` features would additionally pull `tokio`,
+# which this leg does not need (its `DdsTransport` methods are `async fn` wrappers over
+# synchronous DDS calls, exactly like the `ros2-dds` Dust DDS leg). OPTIONAL + referenced
+# only under `#[cfg(feature = "ros2-rmw")]` in the `full-extras` source-build layer.
+# Needs a C toolchain (cc/cmake) to build and a CycloneDDS-compatible ROS2 rmw at
+# runtime to interoperate with a live `ros2` daemon.
+cyclonedds = { version = "1.8.0", optional = true, default-features = false, features = ["std"] }
 # In-engine Raft consensus (feature `raft`, CONCEPT:KG-2.188 / KG-2.272). Bumped to
 # openraft 0.10 (the v2 split-storage API + NATIVE `trigger().transfer_leader()` for
 # graceful leader handoff — the M2 remainder). `serde` is required because the app
 # data (a durable `Method` for a graph) + the log entries cross the wire
-# MessagePack-encoded. CLUSTER-TIER ONLY: optional + only referenced under
-# #[cfg(feature = "raft")], so a default/pi/full build links no openraft (verified by
-# `cargo tree`). NOTE: 0.10 ships only as a pre-release (0.10.0-alpha.26) upstream; it
+# MessagePack-encoded. Selected only by the `cluster` source-build layer. NOTE: 0.10
+# ships only as a pre-release (0.10.0-alpha.26) upstream; it
 # is the line that carries `transfer_leader`, so we pin the alpha exactly.
 openraft = { version = "=0.10.0-alpha.26", features = ["serde"], optional = true }
 # Postgres wire-protocol shim (feature `pgwire`, CONCEPT:KG-2.189). `server-api`
@@ -940,30 +1288,25 @@ pgwire = { version = "0.40", optional = true, default-features = false, features
 # Stream/sink combinators for the pgwire DataRow result stream (feature `pgwire`).
 futures = { version = "0.3", optional = true }
 # SHA-1 digest for the hand-rolled MySQL `mysql_native_password` auth exchange
-# (feature `mysql-wire`, CONCEPT:EG-076). OPTIONAL + referenced ONLY under
-# #[cfg(feature = "mysql-wire")], so a default/pi/node/full build links no sha1 via
-# this crate (the mysql wire ships only when the orchestrator folds the feature into a
-# tier). Pure-Rust; the mysql_native_password spec mandates SHA-1 specifically.
+# (feature `mysql-wire`, included in the main build, CONCEPT:EG-076). Pure Rust; the
+# mysql_native_password specification mandates SHA-1 specifically.
 sha1 = { version = "0.10", optional = true }
 
 # Optional Prometheus observability (feature `metrics`, on by default).
 # default-features = false drops the protobuf encoder — text exposition only.
 prometheus = { version = "0.14", optional = true, default-features = false }
-# Optional OpenTelemetry OTLP span export (feature `otel`, CONCEPT:EG-091). All
-# four are OPTIONAL + referenced ONLY under #[cfg(feature = "otel")], so a
-# default/pi/full build links none of them (nor tonic/prost/network) — asserted
-# by `cargo tree`. The batch span processor runs on the tokio runtime
+# OpenTelemetry OTLP span export (feature `otel`, included in the main build,
+# CONCEPT:EG-091). The batch span processor runs on the tokio runtime
 # (`opentelemetry_sdk` `rt-tokio`); `grpc-tonic` is the OTLP transport.
-opentelemetry = { version = "0.31", optional = true }
-opentelemetry_sdk = { version = "0.31", optional = true, features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.31", optional = true, features = ["grpc-tonic"] }
-tracing-opentelemetry = { version = "0.32", optional = true }
+opentelemetry = { version = "0.32", optional = true }
+opentelemetry_sdk = { version = "0.32.1", optional = true, features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.32", optional = true, features = ["grpc-tonic"] }
+tracing-opentelemetry = { version = "0.33", optional = true }
 # CONCEPT:EG-316 — protobuf codec for the Prometheus `remote_write` WriteRequest, and
 # snappy block decompression for its wire framing. BOTH are pure-Rust (NO C, NO
 # tonic/grpc, NO build.rs codegen — the WriteRequest schema is hand-declared with the
-# `prost::Message` derive), OPTIONAL + referenced ONLY under #[cfg(feature =
-# "otel-export")], so a default/pi/full build links NEITHER (asserted by `cargo tree`;
-# the Pi contract holds — a `--features pi` build has no prost/protobuf).
+# `prost::Message` derive). Both are selected through `otel-export`, which is included
+# in the main build.
 prost = { version = "0.13", optional = true }
 snap = { version = "1.1", optional = true }
 hmac = "0.12"
@@ -972,7 +1315,6 @@ rmp-serde = "1.3"
 lazy_static = "1.4"
 sha2 = "0.10"
 rand = "0.8"
-hnsw_rs = "0.3"
 # Advisory file locking for the single-writer persist-dir guard (Phase B1):
 # exactly one engine may own a persist dir, closing the split-brain/orphan class
 # at the engine level (complements the Python-side spawn guard).
@@ -982,6 +1324,7 @@ serde_bytes = "0.11.19"
 
 [dev-dependencies]
 tokio = { version = "1.38", features = ["full", "test-util"] }
+tempfile = "3"
 clap = { version = "4.5", features = ["derive", "env"] }
 tracing-subscriber = "0.3"
 # Real Postgres client for the pgwire wire round-trip integration test
@@ -994,7 +1337,7 @@ wat = "1"
 # they must be able to name the crates behind the feature-gated fields the lib's own
 # (`crate::`-pathed) test literals use: `parking_lot::Mutex` for the `compute-dist`
 # matview store and `eg_wasm::UdfRegistry` for the `wasm-udf` registry. Already linked
-# by the lib under node/cluster — declaring them here only makes the names resolvable
+# by the relevant facade features — declaring them here only makes the names resolvable
 # from an integration test (e.g. `tests/pgwire_roundtrip.rs` under `--features cluster`).
 parking_lot = "0.12"
 eg-wasm = { path = "crates/eg-wasm", features = ["wasm-udf"] }
@@ -1002,11 +1345,6 @@ eg-wasm = { path = "crates/eg-wasm", features = ["wasm-udf"] }
 # and the massive-scale core harness (CONCEPT:EG-096). DEV-only — never linked
 # into the engine binary; zero release-build impact.
 criterion = "0.5"
-# Native IVF-PQ index (eg-ann), pulled DIRECTLY only so the EG-096 ANN kNN
-# latency bench can name it in-process. It is ALREADY in the tree transitively
-# (eg-core/ann); this dev-only edge adds no new crate to any release build.
-eg-ann = { path = "crates/eg-ann" }
-
 # Write-coalescer `__commons__` contention reproduction (CONCEPT:EG-012): N
 # concurrent producers fan single-op writes into ONE graph, swept across the batch
 # window so the lock-acquisition / throughput contention curve is visible. The
@@ -1040,6 +1378,16 @@ required-features = ["full"]
 name = "eg096_massive_scale_bench"
 path = "benches/eg096_massive_scale_bench.rs"
 harness = false
+
+# ── Cold-open vs warm-read of the redb durable tier (Phase-2 T-E1) ──────────────
+# Times a fresh `RedbBackend` reopen + first point-read vs a subsequent warm read, so
+# the cold/warm p50 delta (the reopen amortization cost) is measurable. Needs the redb
+# backend + tokio server runtime, so `required-features = ["full"]`.
+[[bench]]
+name = "cold_warm_reopen"
+path = "benches/cold_warm_reopen.rs"
+harness = false
+required-features = ["full"]
 
 [profile.release]
 opt-level = 3

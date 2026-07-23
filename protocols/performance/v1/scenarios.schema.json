@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-graph:g37:performance-scenarios:v1",
+  "title": "Epistemic Graph G-37 exact performance scenarios",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "ledger",
+    "probe_protocol",
+    "scenarios"
+  ],
+  "properties": {
+    "schema_version": {"const": "1"},
+    "manifest_id": {"const": "g37-performance-scenarios-v1"},
+    "ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document", "registry_heading", "implemented_heading", "expected_rows"],
+      "properties": {
+        "document": {"const": "docs/architecture/hot-path-complexity.md"},
+        "registry_heading": {"const": "Implemented row identities"},
+        "implemented_heading": {"const": "Implemented bounds"},
+        "expected_rows": {"const": 54}
+      }
+    },
+    "probe_protocol": {"const": "g37.performance-probe.v1"},
+    "scenarios": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 30,
+      "items": {"$ref": "#/$defs/scenario"}
+    }
+  },
+  "$defs": {
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario_id",
+        "driver",
+        "scales",
+        "repetitions",
+        "resource_bounds",
+        "implementation_refs",
+        "rows"
+      ],
+      "properties": {
+        "scenario_id": {
+          "type": "string",
+          "pattern": "^g37-s[0-9]{2}-[a-z0-9-]+$"
+        },
+        "driver": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{2,63}$"
+        },
+        "scales": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 1, "maximum": 1000000}
+        },
+        "repetitions": {"type": "integer", "minimum": 3, "maximum": 1000},
+        "resource_bounds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maximum_elapsed_ms", "maximum_peak_rss_mib", "maximum_output_bytes"],
+          "properties": {
+            "maximum_elapsed_ms": {"type": "integer", "minimum": 100, "maximum": 600000},
+            "maximum_peak_rss_mib": {"type": "integer", "minimum": 16, "maximum": 16384},
+            "maximum_output_bytes": {"type": "integer", "minimum": 1024, "maximum": 8388608}
+          }
+        },
+        "implementation_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(src|crates|benches|tests|scripts)/[A-Za-z0-9_./-]+(::[A-Za-z0-9_:]+)?$"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/row"}
+        }
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["row_id", "equivalence_checks", "thresholds"],
+      "properties": {
+        "row_id": {"type": "string", "pattern": "^G37-HP-[0-9]{3}$"},
+        "equivalence_checks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}
+        },
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maximum_work_units",
+            "maximum_work_growth_ratio",
+            "maximum_peak_memory_bytes",
+            "maximum_memory_growth_ratio",
+            "maximum_latency_p99_ms",
+            "maximum_latency_growth_ratio"
+          ],
+          "properties": {
+            "maximum_work_units": {"type": "integer", "minimum": 1, "maximum": 1000000000000},
+            "maximum_work_growth_ratio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000000},
+            "maximum_peak_memory_bytes": {"type": "integer", "minimum": 1, "maximum": 17179869184},
+            "maximum_memory_growth_ratio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000000},
+            "maximum_latency_p99_ms": {"type": "number", "exclusiveMinimum": 0, "maximum": 600000},
+            "maximum_latency_growth_ratio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000000}
+          }
+        }
+      }
+    }
+  }
+}

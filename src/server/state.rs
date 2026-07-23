@@ -32,9 +32,8 @@ pub const DEFAULT_MAX_RESPONSE_NODES: usize = 50_000;
 /// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES` (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). Cached in a
 /// `OnceLock` so the env var is parsed a single time at first use, matching the
 /// "read once at startup" discipline without threading a new field through every
-/// `ServerState` construction site. A value of `0` disables the guard (no cap —
-/// for an operator who knowingly wants the old unbounded behavior); any other
-/// absent/non-parsable value falls back to [`DEFAULT_MAX_RESPONSE_NODES`].
+/// `ServerState` construction site. Zero, absent, and non-parsable values resolve
+/// to [`DEFAULT_MAX_RESPONSE_NODES`]; the served response bound cannot be disabled.
 pub fn max_response_nodes() -> usize {
     use std::sync::OnceLock;
     static CAP: OnceLock<usize> = OnceLock::new();
@@ -42,6 +41,7 @@ pub fn max_response_nodes() -> usize {
         std::env::var("EPISTEMIC_GRAPH_MAX_RESPONSE_NODES")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
+            .filter(|value| *value > 0)
             .unwrap_or(DEFAULT_MAX_RESPONSE_NODES)
     })
 }
@@ -77,24 +77,11 @@ pub struct ServerState {
     pub channels: ChannelManager,
     pub auth_secret: String,
     pub persist_dir: Option<String>,
-    /// Pluggable durable persistence tier (CONCEPT:EG-KG.storage.kg-kg). `Some` when a
-    /// persist dir is configured. The dispatch write-side-effect block calls
-    /// `record` after every successful durable mutation; the chosen backend
-    /// (snapshot+WAL by default, redb write-through when selected) owns its own
-    /// off-reactor writer internally, so the WAL type no longer leaks here.
+    /// Authoritative durable persistence tier (CONCEPT:EG-KG.storage.kg-kg).
+    /// Served startup supplies this backend and every durable mutation awaits its
+    /// commit barrier before acknowledgement. `None` is retained only for embedded
+    /// read-only/test construction; mutation paths fail closed without a backend.
     pub persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    /// redb-authoritative mode (CONCEPT:EG-KG.backend.authoritative-dispatch), read ONCE at startup from
-    /// `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` (default `false`). When `false` the
-    /// engine behaves EXACTLY as before: redb (if selected) is an opt-in
-    /// write-through cache tier and Postgres remains the system-of-record, with
-    /// fire-and-forget `record()` durability. When `true` redb becomes the
-    /// authoritative store: durable mutations are committed-before-ack (dispatch
-    /// awaits `record_durable`), LRU eviction is gated so no node is dropped
-    /// before it is durable + readable, and the writer applies backpressure rather
-    /// than dropping. ONLY meaningful when the redb backend is selected; a
-    /// non-redb backend treats it as a no-op (its `record_durable` default falls
-    /// back to `record`).
-    pub redb_authoritative: bool,
     /// Cold-tenant access tracker (CONCEPT:EG-KG.sharding.eg-r6/EG-040, R6), feature `redb`. The
     /// dispatch read+write path calls `touch(graph)` on every graph access so the
     /// periodic cold-offload sweep (`offload_cold_tenants`) can hibernate graphs idle
@@ -130,7 +117,7 @@ pub struct ServerState {
     /// concurrent single-op writes to ONE hot graph (the `__commons__` ingestion
     /// firehose) collapse into one topology-lock acquisition per batch instead of
     /// serializing one-op-at-a-time. A new graph/connector gets a writer
-    /// automatically. Default ON; opt out with `EPISTEMIC_GRAPH_WRITE_COALESCE=0`.
+    /// automatically with a bounded hardware-sized queue.
     pub write_coalescer: Arc<crate::write_coalescer::WriteCoalescerRegistry>,
     /// Open server-staged OCC transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid), keyed by the
     /// server-issued `txn_id`. A staged txn holds its write-set + read-set off the
@@ -148,8 +135,10 @@ pub struct ServerState {
     /// default 256). `BeginTxn` over the cap is rejected — bounds memory the same
     /// way `per_graph_inflight` bounds request concurrency.
     pub txn_max_per_graph: usize,
-    /// Cap on concurrently-open txns per agent (`EPISTEMIC_GRAPH_TXN_MAX_PER_AGENT`,
-    /// default 256). Anonymous callers (`agent_id` absent) share the `""` bucket.
+    /// Cap on concurrently-open txns per verified opaque owner scope
+    /// (`EPISTEMIC_GRAPH_TXN_MAX_PER_AGENT`, default 256). Transaction creation
+    /// rejects an absent identity before this accounting map is reached; there is
+    /// no shared empty or unauthenticated bucket.
     pub txn_max_per_agent: usize,
     /// Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace), feature `blob`.
     /// Holds the CAS chunk store + the open upload/fetch cursors (DashMap keyed by a
@@ -180,22 +169,14 @@ pub struct ServerState {
     #[cfg(feature = "raft")]
     pub multi_raft: Option<std::sync::Arc<crate::raft::multi::MultiRaft>>,
     /// Native time-series store (CONCEPT:AU-KG.retrieval.god-nodes-communities, feature `tsdb`). `Some` when the
-    /// engine booted with a series store: a durable `series.redb` beside `graph.redb`
+    /// engine booted with a series store: a durable `series.redb` beside the graph shards
     /// when a persist dir is set, else a process-temp file (in-memory deployments).
-    /// The `Ts*` handlers append/scan/query through it; it is independent of the
-    /// graph registry + the graph write-coalescer (series are keyed by `series_id`,
-    /// not a graph). redb holds an exclusive per-process file lock, so this is its
-    /// OWN file — NOT a second handle on `graph.redb`.
+    /// The `Ts*` handlers append/scan/query through it after graph ACL + placement
+    /// routing; served keys are canonical `(tenant, graph, series_id)` identities.
+    /// redb holds an exclusive per-process file lock, so this is its
+    /// OWN file — NOT a second handle on an authoritative graph shard.
     #[cfg(feature = "tsdb")]
     pub tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
-    /// Opt-in lossless RDF quad table (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql, feature `rdf-redb`). `Some`
-    /// when a persist dir is set (a durable `rdf_quads.redb` beside `graph.redb`):
-    /// the `AddTriples` handler routes multi-valued literal predicates here (the one
-    /// lossy edge of the property-graph mapping), and `GetRdf` unions them back.
-    /// `None` ⇒ the property-graph mapping alone (the extras are reported, not lost
-    /// silently). Its OWN redb file — NOT a second handle on `graph.redb`.
-    #[cfg(feature = "rdf-redb")]
-    pub rdf_quads: Option<Arc<eg_rdf::quads::QuadStore>>,
     /// Change-Data-Capture hub (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230, feature `streaming`). `Some` on
     /// any `streaming` build (constructed unconditionally — it needs no persist dir,
     /// the in-memory ring IS the cursor surface). The dispatch write-side-effect block
@@ -230,8 +211,18 @@ pub struct ServerState {
     /// in-memory scratch map. The `Kv*` handlers get/put/delete/scan/cas through it; it
     /// is independent of the graph registry + the write-coalescer (KV pairs are keyed by
     /// `(namespace, key)`, not a graph). Its OWN redb file — NOT a second handle on
-    /// `graph.redb`. `None` ⇒ the Kv* variants fall to the dispatch "not available"
+    /// graph shards. `None` ⇒ the Kv* variants fall to the dispatch "not available"
     /// catch-all.
     #[cfg(feature = "kv")]
     pub kv: Option<Arc<crate::server::kv::KvStore>>,
+    /// LTAP lakehouse materialization manager (CONCEPT:EG-317 engine-side seam, feature
+    /// `lake`, INT-P2-3). Owns the in-process Iceberg-REST catalog + every table's
+    /// [`eg_lake::LakeTable`] (schema + durable LSN snapshot), the blob-CAS path index
+    /// for the Parquet/Delta/Iceberg bytes it writes, and the bounded OpenLineage event
+    /// ring. Always present (empty) on a `lake` build — process-global, like
+    /// `udf_registry`/`foreign_sources` (a lake table is not per-graph). The periodic
+    /// drain sweep (`EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS`) and the
+    /// `lake-rest` Iceberg-REST listener both share this ONE handle.
+    #[cfg(feature = "lake")]
+    pub lake: Arc<crate::server::lake::LakeManager>,
 }

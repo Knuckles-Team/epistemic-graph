@@ -84,14 +84,15 @@ byte-for-byte the prior engine.
 ## Reaching it
 
 - **Feature:** build with `--features "lake server"`; the catalog + materialization surface activate behind
-  their own opt-in env/flag. Out of `pi`.
+  their own opt-in environment or flag. `lake` is an explicit Rust build feature
+  and is not selected by a Python installation extra.
 - **Delta readers** point at the `_delta_log` table path on the object store.
 - **Iceberg readers** point a catalog at the Iceberg-REST endpoint.
 - **Time-travel** reads pin a snapshot that corresponds to an engine LSN (`Op::AsOf`).
 
 See the [capability matrix](../capabilities.md#lakehouse-interop-eg-lake-ltap) row and
 [concepts](../concepts.md) `CONCEPT:EG-KG.storage.lsn-as-snapshot-returns` for the authoritative definition, and
-[subsystems](subsystems.md#lakehouse-interop-eg-lake-ltap-eg-317) for how it composes on the one store.
+[subsystems](subsystems.md#lakehouse-interop) for how it composes on the one store.
 
 ---
 

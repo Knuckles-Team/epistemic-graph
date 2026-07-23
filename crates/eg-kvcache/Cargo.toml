@@ -2,7 +2,7 @@
 name = "eg-kvcache"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Tiered (hot/warm/cold) KV-cache store (CONCEPT:EG-185) + a content-addressed shared multi-instance KV-cache backend (CONCEPT:EG-186) for the epistemic-graph engine — the vLLM/LMCache shared-KV / OOM-offload substrate. Pure-Rust, Pi-lean; the durable cold tier is behind the optional `durable` feature (redb)."
 license = "MIT"
 
@@ -25,6 +25,16 @@ redb = { version = "4.1", optional = true }
 zstd = { version = "0.13", optional = true }
 # CONCEPT:EG-315 — an OPTIONAL faster/lighter pure-Rust codec alternative to zstd.
 lz4_flex = { version = "0.13", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional (the base Pi-lean build must stay
+# dependency-free) — only `contract` pulls serde in, so `StoredBlock`/`Codec` carry no
+# derive at all outside that feature. See `src/compress.rs` / `src/contract.rs`.
+serde = { version = "1.0", features = ["derive"], optional = true }
+eg-modality = { path = "../eg-modality", optional = true }
+# Graph-guided paging (CONCEPT:EG-KG.memory.graph-guided-paging): the ONLY dependency the
+# optional `graph` feature pulls, for the `graph_importance` adapter that computes
+# PageRank/centrality over an `eg-compute::GraphView`. OFF by default — the base/pi build
+# and the core `TieredCache::set_importance` mechanism it feeds stay dependency-free.
+eg-compute = { path = "../eg-compute", optional = true }
 
 [features]
 default = []
@@ -39,6 +49,18 @@ compression = ["dep:zstd"]
 # OPTIONAL alternative WARM codec (CONCEPT:EG-315): enables `Codec::Lz4` (pure-Rust
 # `lz4_flex`) — faster/lighter than zstd. OFF by default.
 lz4 = ["dep:lz4_flex"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for StoredBlock` +
+# the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
+# into any tier aggregate (pi/durable/compression/lz4) — a base/pi build must stay
+# dependency-free (no serde). `cargo test -p eg-kvcache --features contract` runs the
+# suite; only this feature pulls serde in.
+contract = ["dep:eg-modality", "dep:serde"]
+# Graph-guided KV/context paging (CONCEPT:EG-KG.memory.graph-guided-paging): the
+# `graph_importance` adapter module, computing PageRank/centrality importance over an
+# `eg-compute::GraphView` for `TieredCache::apply_importance_scores`. OFF by default so
+# the base/pi build stays dependency-free (`TieredCache::set_importance` itself needs no
+# feature — it takes a caller-supplied `f64` either way). Pulls `eg-compute`.
+graph = ["dep:eg-compute"]
 
 [dev-dependencies]
 # Only the `durable` redb cold-tier test touches the filesystem.

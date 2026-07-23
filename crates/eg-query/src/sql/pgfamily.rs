@@ -27,8 +27,8 @@
 //! `src/server/wire`.
 
 use datafusion::sql::sqlparser::ast::{
-    BinaryOperator, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, SelectItem, SetExpr,
-    Statement, TableFactor, UnaryOperator, Value as SqlValue,
+    BinaryOperator, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, LimitClause,
+    OrderByKind, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value as SqlValue,
 };
 use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser;
@@ -96,9 +96,8 @@ pub struct AnnIndexPlan {
 }
 
 /// A decoded `SELECT create_hypertable('t','ts'[, …])` (CONCEPT:EG-KG.query.continuous-aggregate-lowering) — the
-/// time-partitioning declaration. Extra chunk-interval args are accepted but not
-/// required (recorded as metadata; chunk sizing is a documented follow-up).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// time-partitioning declaration persisted in the native SQL catalog.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HypertablePlan {
     pub table: String,
     pub time_column: String,
@@ -341,8 +340,15 @@ pub fn project_cypher_rows(
 
     let mut rows = Vec::with_capacity(cypher_result.rows.len());
     for raw in &cypher_result.rows {
-        let cells: Vec<Value> =
-            rmp_serde::from_slice(raw).map_err(|e| format!("cypher(): decode row: {e}"))?;
+        let cells: Vec<Value> = eg_types::msgpack::decode_bounded(
+            raw,
+            eg_types::msgpack::MsgpackLimits::new(
+                eg_types::msgpack::MAX_PROPERTY_BYTES,
+                eg_types::msgpack::MAX_PROPERTY_ITEMS,
+                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            ),
+        )
+        .map_err(|_| "cypher(): decode row failed".to_string())?;
         let mut out_row = Vec::with_capacity(out_idx.len());
         for &i in &out_idx {
             let v = cells.get(i).cloned().unwrap_or(Value::Null);
@@ -649,7 +655,12 @@ pub fn parse_continuous_aggregate(sql: &str) -> Option<ContinuousAggPlan> {
 /// The last identifier of a function name (`paradedb.score` → `score`,
 /// `create_hypertable` → `create_hypertable`).
 fn last_fn_ident(f: &datafusion::sql::sqlparser::ast::Function) -> String {
-    f.name.0.last().map(|i| i.value.clone()).unwrap_or_default()
+    f.name
+        .0
+        .last()
+        .and_then(|part| part.as_ident())
+        .map(|ident| ident.value.clone())
+        .unwrap_or_default()
 }
 
 /// A function argument that is a single-quoted string literal ⇒ its contents.
@@ -663,7 +674,10 @@ fn arg_as_string(arg: &FunctionArg) -> Option<String> {
         _ => return None,
     };
     match expr {
-        Expr::Value(SqlValue::SingleQuotedString(s)) => Some(s.clone()),
+        Expr::Value(value) => match &value.value {
+            SqlValue::SingleQuotedString(s) => Some(s.clone()),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -685,13 +699,26 @@ pub fn plan_ann_search(sql: &str, indexes: &[AnnIndexPlan]) -> Option<AnnSearchP
         return None;
     };
     // LIMIT k (required — ANN is a top-k search).
-    let k = match q.limit.as_ref()? {
-        Expr::Value(SqlValue::Number(n, _)) => n.parse::<usize>().ok()?,
+    let limit = match q.limit_clause.as_ref()? {
+        LimitClause::LimitOffset {
+            limit: Some(limit), ..
+        }
+        | LimitClause::OffsetCommaLimit { limit, .. } => limit,
+        LimitClause::LimitOffset { limit: None, .. } => return None,
+    };
+    let k = match limit {
+        Expr::Value(value) => match &value.value {
+            SqlValue::Number(n, _) => n.parse::<usize>().ok()?,
+            _ => return None,
+        },
         _ => return None,
     };
     // ORDER BY column <op> query.
     let order_by = q.order_by.as_ref()?;
-    let [ob] = order_by.exprs.as_slice() else {
+    let OrderByKind::Expressions(order_by) = &order_by.kind else {
+        return None;
+    };
+    let [ob] = order_by.as_slice() else {
         return None;
     };
     let (column, metric, query) = vector_order_key(&ob.expr)?;
@@ -705,7 +732,7 @@ pub fn plan_ann_search(sql: &str, indexes: &[AnnIndexPlan]) -> Option<AnnSearchP
     let TableFactor::Table { name, .. } = &twj.relation else {
         return None;
     };
-    let table = name.0.last()?.value.clone();
+    let table = name.0.last()?.as_ident()?.value.clone();
     // "Choose ANN" only when an index covers (table, column, metric).
     let covered = indexes.iter().any(|ix| {
         ix.table.eq_ignore_ascii_case(&table)
@@ -765,10 +792,20 @@ pub fn plan_bm25_search(sql: &str) -> Option<Bm25SearchPlan> {
     let TableFactor::Table { name, .. } = &twj.relation else {
         return None;
     };
-    let table = name.0.last()?.value.clone();
+    let table = name.0.last()?.as_ident()?.value.clone();
     let (column, query) = find_bm25_match(select.selection.as_ref()?)?;
-    let k = match q.limit.as_ref() {
-        Some(Expr::Value(SqlValue::Number(n, _))) => n.parse::<usize>().ok(),
+    let limit = match q.limit_clause.as_ref() {
+        Some(LimitClause::LimitOffset {
+            limit: Some(limit), ..
+        })
+        | Some(LimitClause::OffsetCommaLimit { limit, .. }) => Some(limit),
+        _ => None,
+    };
+    let k = match limit {
+        Some(Expr::Value(value)) => match &value.value {
+            SqlValue::Number(n, _) => n.parse::<usize>().ok(),
+            _ => None,
+        },
         _ => None,
     };
     Some(Bm25SearchPlan {
@@ -802,7 +839,10 @@ fn find_bm25_match(expr: &Expr) -> Option<(String, String)> {
                 _ => return None,
             };
             let query = match inner {
-                Expr::Value(SqlValue::SingleQuotedString(s)) => s.clone(),
+                Expr::Value(value) => match &value.value {
+                    SqlValue::SingleQuotedString(s) => s.clone(),
+                    _ => inner.to_string(),
+                },
                 other => other.to_string(),
             };
             Some((column, query))

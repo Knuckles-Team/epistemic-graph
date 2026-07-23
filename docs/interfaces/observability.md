@@ -18,7 +18,7 @@ All the HTTP surfaces below share **one** obs listener: `EPISTEMIC_GRAPH_OBS_ADD
 
 ## Log ingestion (AU-KG.ingest.self-ingest)
 
-A hand-rolled HTTP ingestion listener (no axum/hyper — the Pi contract) accepting **OTLP/HTTP**
+A hand-rolled HTTP ingestion listener with no axum/hyper dependency accepting **OTLP/HTTP**
 (`/v1/logs`), Elasticsearch-**`_bulk`**/`_doc`, syslog, and JSON-lines records. Records land as
 schema-on-read streams: an eg-tsdb time-series **and** an eg-text full-text index, with rolling Parquet
 columnar segments persisted into the blob CAS / S3 backend (EG-KG.retrieval.observability-search) — the "140× cheaper storage"
@@ -26,7 +26,7 @@ object-store architecture, still DataFusion-queryable.
 
 ```bash
 EPISTEMIC_GRAPH_OBS_ADDR=127.0.0.1:5080 \
-  epistemic-graph-server --persist-dir /var/lib/eg   # --features "obs server"
+  epistemic-graph-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "obs server"
 
 curl -s -XPOST 'http://127.0.0.1:5080/v1/logs' \
   -H 'content-type: application/json' --data-binary @otlp-logs.json
@@ -77,7 +77,7 @@ curl -s 'http://127.0.0.1:5080/api/v1/query?query=topk(5, avg_over_time(cpu[10m]
 ```
 
 Point a Grafana **Prometheus** data source at the obs listener. (Feature `promql`, implies `obs`.) See
-also [time-series](timeseries.md#promql--prometheus-http-api-eg-172-feature-promql-on-the-obs-listener).
+also [time-series](timeseries.md#promql-api).
 
 ## Traces (EG-163)
 
@@ -109,7 +109,7 @@ correctly (EG-KG.query.schema-typed-fusion-sql). This is its **own** listener (`
 EPISTEMIC_GRAPH_FEDERATED_ADDR=127.0.0.1:7900 \
 EPISTEMIC_GRAPH_FEDERATION_PEERS='http://peer-b:7900,http://peer-c:7900' \
 EPISTEMIC_GRAPH_FEDERATION_ALLOW='peer-b,peer-c' \
-  epistemic-graph-server --persist-dir /var/lib/eg   # --features "federation-search server"
+  epistemic-graph-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "federation-search server"
 
 curl -s -XPOST 'http://127.0.0.1:7900/federated' \
   -H 'content-type: application/json' \
@@ -129,9 +129,8 @@ See the [runbook](../operations/runbook.md#8-observability-of-the-engine-itself)
 
 ### OTel export + Prometheus remote-write (EG-316)
 
-Program B closes the observability loop — the engine both **ingests** other systems' telemetry (above) and
-**emits** its own to external collectors. The `otel-export` feature (adds a protobuf/`prost` dep, out of
-`pi`) turns on:
+The engine both **ingests** other systems' telemetry (above) and **emits** its own
+to external collectors. The `otel-export` feature turns on:
 
 - **OTLP push** of the engine's metrics + traces to an external OpenTelemetry collector (endpoint via env),
   so the engine is a first-class OTLP producer, not only a `/v1/traces` sink.

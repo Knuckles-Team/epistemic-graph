@@ -11,7 +11,7 @@
 //! 5. EVERY committed write survives on the new leader (no data loss, no
 //!    split-brain — the survivors form a quorum of 2/3).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,18 +22,19 @@ use super::config::RaftClusterConfig;
 use super::node::{self, StartedNode};
 use super::{NodeId, RaftRequest};
 use crate::channels::ChannelManager;
+use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
 use crate::registry::GraphRegistry;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
-use crate::wal_service::FsyncPolicy;
 
 /// Build a ServerState with a redb-AUTHORITATIVE backend rooted at `dir`.
 async fn make_state(dir: &str) -> Arc<RwLock<ServerState>> {
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.to_string(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir.to_string(), DurabilityPolicy::Each, 4096).expect("open redb"),
+    );
     make_state_with_backend(dir, backend).await
 }
 
@@ -44,6 +45,10 @@ async fn make_state_with_backend(
     dir: &str,
     backend: Arc<dyn PersistenceBackend>,
 ) -> Arc<RwLock<ServerState>> {
+    backend
+        .register_graph("__commons__", "__commons__", GraphType::Commons)
+        .await
+        .expect("register mandatory commons graph");
     Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
         cold_tracker: std::sync::Arc::new(
@@ -55,12 +60,11 @@ async fn make_state_with_backend(
         auth_secret: "raft-test".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend),
-        redb_authoritative: true,
         max_in_flight: Arc::new(tokio::sync::Semaphore::new(64)),
         read_admission: Arc::new(tokio::sync::Semaphore::new(64)),
         per_graph_inflight: Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit: 16,
-        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
         txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -75,8 +79,6 @@ async fn make_state_with_backend(
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -89,6 +91,8 @@ async fn make_state_with_backend(
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }))
 }
 
@@ -101,6 +105,11 @@ fn peer_map(ports: &[u16]) -> BTreeMap<NodeId, BasicNode> {
 }
 
 fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
+    cluster_cfg_with_groups(node_id, ports, 1)
+}
+
+/// [`cluster_cfg`] with an explicit group count (DIST-P2-2 multi-group startup test).
+fn cluster_cfg_with_groups(node_id: NodeId, ports: &[u16], groups: u64) -> RaftClusterConfig {
     let peers = peer_map(ports);
     let bind_addr = peers.get(&node_id).unwrap().addr.clone();
     RaftClusterConfig {
@@ -108,6 +117,10 @@ fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
         peers: peers.clone(),
         bind_addr,
         is_bootstrap: peers.keys().next() == Some(&node_id),
+        groups,
+        transport_secret: Some(
+            super::config::RaftTransportSecret::from_material(&[0x5a; 32]).unwrap(),
+        ),
     }
 }
 
@@ -175,10 +188,23 @@ async fn three_node_cluster_replicates_and_survives_leader_failover() {
             graph_fname: crate::persist::sanitize(graph),
             graph_name: graph.to_string(),
             graph_type: GraphType::Commons,
-            method: Method::AddNode {
-                node_id: format!("n{k}"),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"k": k})).unwrap(),
-            },
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-test",
+                graph,
+                &format!("cluster-write-{k}"),
+                k,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: format!("n{k}"),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"k": k}))
+                        .unwrap(),
+                },
+                "raft-test",
+            )
+            .unwrap(),
         };
         leader
             .client_write(req)
@@ -221,11 +247,23 @@ async fn three_node_cluster_replicates_and_survives_leader_failover() {
         graph_fname: crate::persist::sanitize(graph),
         graph_name: graph.to_string(),
         graph_type: GraphType::Commons,
-        method: Method::AddNode {
-            node_id: "after-failover".to_string(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"post": true}))
-                .unwrap(),
-        },
+        committed_at_ms: 0,
+        mutation: super::RaftMutationContext::internal(
+            "raft-test",
+            graph,
+            "after-failover",
+            n_writes,
+            0,
+        ),
+        command: super::ReplicatedMutation::graph(
+            Method::AddNode {
+                node_id: "after-failover".to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"post": true}))
+                    .unwrap(),
+            },
+            "raft-test",
+        )
+        .unwrap(),
     };
     nodes
         .get(&new_leader)
@@ -301,6 +339,540 @@ where
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// DIST-P2-2: multi-group PRODUCTION startup — `node::start` stands up N groups
+// from config (not just a test harness's manual `create_group` calls), and a
+// default (unconfigured) deploy stays single-group, byte-for-byte.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// `cfg.groups > 1` (DIST-P2-2, `EPISTEMIC_GRAPH_RAFT_GROUPS`) makes PRODUCTION
+/// `node::start` stand up every group `0..groups` on this node and configure the
+/// tenant-range ring across all of them — the same [`super::multi::MultiRaft`]
+/// machinery the placement/xshard test harnesses already exercise, now reachable from
+/// the real boot path instead of only from a test's manual `create_group` calls.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn multi_group_startup_creates_n_groups_from_config() {
+    let dir = fresh_dir("multigroup-startup");
+    let state = make_state(&dir).await;
+    let ports = free_ports(1);
+    let cfg = cluster_cfg_with_groups(1, &ports, 4);
+
+    let started = node::start(cfg, state.clone())
+        .await
+        .expect("start raft node with 4 groups");
+
+    // The tenant-range ring now spans all 4 groups, and each is actually running.
+    assert_eq!(started.multi.router().group_ring(), vec![0, 1, 2, 3]);
+    for gid in 0..4u64 {
+        assert!(
+            started.multi.group(gid).await.is_some(),
+            "group {gid} must be running on this node after multi-group startup"
+        );
+    }
+
+    started.multi.stop_listener();
+    let _ = started.handle.raft.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A graph with no explicit [`super::placement::PlacementCatalog`] entry hash-spreads
+/// across the configured ring (DIST-P2-2) — deterministically, so the SAME graph name
+/// always lands on the SAME group.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn graph_routes_to_its_ring_assigned_group_after_multi_group_startup() {
+    let dir = fresh_dir("multigroup-routing");
+    let state = make_state(&dir).await;
+    let ports = free_ports(1);
+    let cfg = cluster_cfg_with_groups(1, &ports, 3);
+
+    let started = node::start(cfg, state.clone())
+        .await
+        .expect("start raft node with 3 groups");
+
+    let route = started.multi.route_graph("acme:ws1").await;
+    assert!(
+        (0..3).contains(&route.group),
+        "graph must route into the ring"
+    );
+    assert_eq!(route.epoch, 0, "an unplaced route has epoch 0");
+    assert!(!route.placed);
+    // Deterministic: routing the same graph again resolves to the SAME group.
+    let route_again = started.multi.route_graph("acme:ws1").await;
+    assert_eq!(route.group, route_again.group);
+
+    started.multi.stop_listener();
+    let _ = started.handle.raft.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The DEFAULT (unconfigured, `groups <= 1`) production boot is BYTE-FOR-BYTE the
+/// pre-existing single-group path: no extra group, an empty ring, every graph on
+/// [`super::DEFAULT_GROUP`] — the guardrail this whole feature must not regress.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn default_startup_stays_single_group_unchanged() {
+    let dir = fresh_dir("multigroup-default");
+    let state = make_state(&dir).await;
+    let ports = free_ports(1);
+    let cfg = cluster_cfg(1, &ports); // groups: 1 — the unconfigured default.
+
+    let started = node::start(cfg, state.clone())
+        .await
+        .expect("start raft node with the default (single-group) config");
+
+    assert!(
+        started.multi.router().group_ring().is_empty(),
+        "no ring configured by default"
+    );
+    assert!(started.multi.group(super::DEFAULT_GROUP).await.is_some());
+    assert!(
+        started.multi.group(1).await.is_none(),
+        "no extra group should exist without EPISTEMIC_GRAPH_RAFT_GROUPS"
+    );
+    let route = started.multi.route_graph("any-tenant:ws1").await;
+    assert_eq!(
+        route.group,
+        super::DEFAULT_GROUP,
+        "every unplaced graph must be authoritatively routed to the default group"
+    );
+    assert_eq!(route.epoch, 0);
+
+    started.multi.stop_listener();
+    let _ = started.handle.raft.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// DIST-P2-5: the placement-catalog ADMIN wire RPC (`Method::PlacementAdmin`,
+// ops `assign`/`move`/`abort_move`), proven end-to-end against a REAL
+// three-node cluster (three independent tokio-spawned nodes on three
+// independent TCP ports + persist dirs, real openraft consensus — the SAME
+// topology `three_node_cluster_replicates_and_survives_leader_failover`
+// above proves HA with) rather than the single-node/two-group simplification
+// the `placement_harness` (harness-feature-gated) suite uses. This is the
+// external-caller seam: before this `Method` variant existed, the
+// `PlacementCatalog`/`TenantManager` admin machinery was reachable ONLY from
+// in-process Rust, even on a real multi-node cluster — there was no wire RPC
+// to trigger a placement decision or an online move from outside the engine.
+//
+// Proves, through the REAL served `dispatch()` entrypoint (signed `eg2.`
+// envelopes, not a raw `client_write`), driven from a DIFFERENT physical node
+// at each step to rule out any same-process shortcut:
+//   1. The `assign` op (the placement DECISION) lands and is visible from
+//      every node.
+//   2. Data written after the decision replicates to a genuinely different
+//      node and is read back over the wire (`GetNodeProperties`).
+//   3. The `move` op (PLAN -> EXECUTE -> CATALOG UPDATE) relocates the
+//      tenant's partition to the other group; the SAME data is still present
+//      and wire-readable from yet another node after the move — proving
+//      placement, not merely a function returning `Ok`.
+//   4. `PlacementRoute`, queried from a third node with the PRE-move epoch,
+//      is flagged stale and redirected to the new group/epoch — the fenced
+//      cutover is cluster-wide, not node-local.
+//   5. A post-move write lands and is readable, proving the new owner truly
+//      serves the partition going forward.
+// ─────────────────────────────────────────────────────────────────────────
+
+mod placement_admin_wire_rpc {
+    use super::*;
+    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
+    use crate::protocol::{Response, ResultPayload};
+    use crate::server::{compute_verified_envelope_token, dispatch, VerifiedEnvelopeParams};
+
+    const TEST_AGENT: &str = "placement-admin-wire-test-agent";
+    const SECRET: &str = "raft-test"; // matches `make_state`'s `auth_secret`.
+    const TENANT: &str = "acme";
+    static NONCE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+    async fn register_admin_agent(state: &Arc<RwLock<ServerState>>) {
+        // Called right after `make_state`, before any node is started, so
+        // every node's isolation layer trusts the SAME test identity.
+        state.write().await.isolation.register_agent(AgentIdentity {
+            agent_id: TEST_AGENT.to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+    }
+
+    fn signed_request(id: u64, method: Method) -> crate::protocol::Request {
+        signed_request_for_graph(id, "__commons__", method)
+    }
+
+    /// Like [`signed_request`], but signs the envelope over the REAL target
+    /// `graph` from the start. The envelope token covers the whole `Request`
+    /// (including `graph`), so setting `req.graph` AFTER signing invalidates the
+    /// signature ("Authentication failed") — this is the one constructor path
+    /// for a non-`__commons__` request.
+    fn signed_request_for_graph(id: u64, graph: &str, method: Method) -> crate::protocol::Request {
+        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+        std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+        std::env::set_var(
+            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+            std::env::temp_dir().join(format!(
+                "epistemic-graph-placement-wire-auth-{}",
+                std::process::id()
+            )),
+        );
+        let context = RequestContextClaims {
+            principal: TEST_AGENT.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: TEST_AGENT.to_string(),
+            roles: Vec::new(),
+            scopes: vec!["*".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+        };
+        let mut request = crate::protocol::Request {
+            id,
+            graph: graph.to_string(),
+            auth_token: String::new(),
+            agent_id: Some(TEST_AGENT.to_string()),
+            method,
+        };
+        let sequence = NONCE_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let issued_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("the system clock is after the Unix epoch");
+        let nonce = format!(
+            "placement-wire-{}-{id}-{sequence}-{}",
+            std::process::id(),
+            issued_at.as_nanos()
+        );
+        let idempotency_key = format!("placement-wire-request-{id}-{sequence}");
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: issued_at.as_secs(),
+                nonce: &nonce,
+                idempotency_key: &idempotency_key,
+            },
+        );
+        request
+    }
+
+    async fn add_node_via(
+        state: &Arc<RwLock<ServerState>>,
+        req_id: u64,
+        graph: &str,
+        node_id: &str,
+    ) -> Response {
+        let req = signed_request_for_graph(
+            req_id,
+            graph,
+            Method::AddNode {
+                node_id: node_id.to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"id": node_id}))
+                    .unwrap(),
+            },
+        );
+        dispatch(state, req).await
+    }
+
+    async fn read_node_via(
+        state: &Arc<RwLock<ServerState>>,
+        req_id: u64,
+        graph: &str,
+        node_id: &str,
+    ) -> Option<serde_json::Value> {
+        let req = signed_request_for_graph(
+            req_id,
+            graph,
+            Method::GetNodeProperties {
+                node_id: node_id.to_string(),
+            },
+        );
+        let resp = dispatch(state, req).await;
+        assert!(resp.error.is_none(), "GetNodeProperties failed: {:?}", resp.error);
+        match resp.result {
+            Some(ResultPayload::PropertiesMsgpack(bytes)) => {
+                Some(rmp_serde::from_slice(&bytes).expect("typed node properties"))
+            }
+            _ => None,
+        }
+    }
+
+    async fn wait_for_group_leader(
+        nodes: &BTreeMap<NodeId, StartedNode>,
+        gid: super::super::GroupId,
+        timeout: Duration,
+    ) -> Option<NodeId> {
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            for n in nodes.values() {
+                if let Some(group) = n.multi.group(gid).await {
+                    if let Some(l) = group.current_leader().await {
+                        return Some(l);
+                    }
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        None
+    }
+
+    /// A plain `#[test]` (not `#[tokio::test]`) driving its own runtime on an
+    /// explicitly sized worker stack via `crate::server::spawn_engine_driver` +
+    /// `ENGINE_WORKER_STACK_BYTES` — the SAME established pattern
+    /// `tests/external_compute_e2e.rs` uses for any test that calls the real served
+    /// `dispatch()` entrypoint. `dispatch()`/`dispatch_graph_op_inner` are themselves
+    /// enormous async state machines (matching over the whole `Method` enum), and
+    /// three concurrent two-group Raft nodes plus that call depth overflows Tokio's
+    /// 2 MiB default test-worker stack; `#[tokio::test]`'s default runtime does not
+    /// apply the engine's own `thread_stack_size`, so this test builds its own.
+    #[test]
+    fn placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster() {
+        let driver = crate::server::spawn_engine_driver(|| {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .thread_stack_size(crate::server::ENGINE_WORKER_STACK_BYTES)
+                .enable_all()
+                .build()
+                .expect("build engine-contract runtime");
+            runtime.block_on(placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster_body());
+        });
+        driver
+            .expect("spawn the engine test driver thread")
+            .join()
+            .expect("engine driver thread must not panic");
+    }
+
+    async fn placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster_body() {
+        use super::super::DEFAULT_GROUP;
+        const TARGET_GROUP: super::super::GroupId = 1;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "eg-placement-wire-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let dirs: Vec<String> = (1..=3)
+            .map(|i| {
+                let d = tmp.join(format!("node{i}"));
+                std::fs::create_dir_all(&d).unwrap();
+                d.to_string_lossy().to_string()
+            })
+            .collect();
+        let ports = free_ports(3);
+
+        // ── Start three REAL, independent nodes with a 2-group ring ─────────
+        let mut states: Vec<Arc<RwLock<ServerState>>> = Vec::new();
+        let mut nodes: BTreeMap<NodeId, StartedNode> = BTreeMap::new();
+        for i in 1..=3u64 {
+            let state = make_state(&dirs[(i - 1) as usize]).await;
+            register_admin_agent(&state).await;
+            let started = node::start(cluster_cfg_with_groups(i, &ports, 2), state.clone())
+                .await
+                .expect("start raft node");
+            {
+                let mut s = state.write().await;
+                s.raft = Some(started.handle.clone());
+                s.multi_raft = Some(started.multi.clone());
+            }
+            states.push(state);
+            nodes.insert(i, started);
+        }
+        let node_state = |id: NodeId| states[(id - 1) as usize].clone();
+
+        wait_for_group_leader(&nodes, DEFAULT_GROUP, Duration::from_secs(15))
+            .await
+            .expect("the DEFAULT (placement-control) group must elect a leader");
+        wait_for_group_leader(&nodes, TARGET_GROUP, Duration::from_secs(15))
+            .await
+            .expect("the target group must elect a leader");
+
+        // ── 1. The `assign` op (the DECISION leg), dispatched via the wire ──
+        let control_leader = wait_for_group_leader(&nodes, DEFAULT_GROUP, Duration::from_secs(5))
+            .await
+            .unwrap();
+        let control_state = node_state(control_leader);
+        let assign_resp = dispatch(
+            &control_state,
+            signed_request(
+                1,
+                Method::PlacementAdmin {
+                    op: crate::protocol::PlacementAdminOp::Assign {
+                        tenant: TENANT.to_string(),
+                        group: DEFAULT_GROUP,
+                    },
+                },
+            ),
+        )
+        .await;
+        assert!(assign_resp.error.is_none(), "PlacementAdmin assign failed: {:?}", assign_resp.error);
+        let epoch0 = match assign_resp.result {
+            Some(ResultPayload::Json(v)) => v["epoch"].as_u64().expect("epoch in response"),
+            other => panic!("expected a JSON epoch payload, got {other:?}"),
+        };
+        assert_eq!(epoch0, 1, "the first placement decision is epoch 1");
+
+        // ── 2. Write data, then read it back from a DIFFERENT physical node ─
+        let graph = format!("{TENANT}:ws1");
+        let create_resp = dispatch(
+            &control_state,
+            signed_request(
+                5,
+                Method::CreateGraph {
+                    graph_name: graph.clone(),
+                    graph_type: GraphType::Global,
+                },
+            ),
+        )
+        .await;
+        assert!(create_resp.error.is_none(), "CreateGraph failed: {:?}", create_resp.error);
+        let n_nodes = 6usize;
+        for k in 0..n_nodes {
+            let resp = add_node_via(&control_state, 10 + k as u64, &graph, &format!("m{k}")).await;
+            assert!(resp.error.is_none(), "AddNode m{k} failed: {:?}", resp.error);
+        }
+        // Pick a node that is NOT the one we wrote through, to prove real
+        // cross-node replication (not a same-process shortcut).
+        let reader_id = (1..=3u64).find(|&i| i != control_leader).unwrap();
+        let reader_state = node_state(reader_id);
+        wait_until(Duration::from_secs(10), || {
+            let state = reader_state.clone();
+            let graph = graph.clone();
+            async move { node_count(&state, &graph).await == n_nodes }
+        })
+        .await
+        .expect("all 6 pre-move nodes must replicate to a follower node");
+        for k in 0..n_nodes {
+            let val = read_node_via(&reader_state, 100 + k as u64, &graph, &format!("m{k}"))
+                .await
+                .unwrap_or_else(|| panic!("m{k} must be wire-readable from node {reader_id}"));
+            assert_eq!(val["id"], serde_json::json!(format!("m{k}")));
+        }
+
+        // ── 3. The `move` op (PLAN -> EXECUTE -> CATALOG UPDATE) over the wire ──
+        let move_resp = dispatch(
+            &control_state,
+            signed_request(
+                2,
+                Method::PlacementAdmin {
+                    op: crate::protocol::PlacementAdminOp::Move {
+                        tenant: TENANT.to_string(),
+                        range_start: 0,
+                        range_end: u64::MAX,
+                        target: TARGET_GROUP,
+                    },
+                },
+            ),
+        )
+        .await;
+        assert!(move_resp.error.is_none(), "PlacementAdmin move failed: {:?}", move_resp.error);
+        let (moved_epoch, moved_nodes_transferred) = match move_resp.result {
+            Some(ResultPayload::Json(v)) => (
+                v["epoch"].as_u64().expect("epoch in move report"),
+                v["graphs"][0]["nodes_transferred"]
+                    .as_u64()
+                    .expect("nodes_transferred in move report"),
+            ),
+            other => panic!("expected a JSON PlacementMoveReport payload, got {other:?}"),
+        };
+        assert!(moved_epoch > epoch0, "the fenced cutover strictly bumps the epoch");
+        assert_eq!(
+            moved_nodes_transferred, n_nodes as u64,
+            "the move report must account for every pre-move node"
+        );
+
+        // ── 4a. PlacementRoute is a placement-CONTROL-group-leader-only read
+        //      (`handlers::placement::handle_route`, unchanged by this seam's
+        //      work): a THIRD, non-leader node must redirect, not answer locally
+        //      — proving the "only the leader answers" invariant is enforced
+        //      cluster-wide, not merely present. ──
+        let route_checker_id = (1..=3u64)
+            .find(|&i| i != control_leader && i != reader_id)
+            .unwrap();
+        let placement_route_request = |client_epoch: u64| Method::PlacementRoute {
+            request: crate::epistemic_operations::PlacementRouteRequest {
+                schema_version: crate::epistemic_operations::PlacementRouteRequestSchemaVersion::V1,
+                tenant_ref: TENANT.to_string(),
+                partition_ref: "ws1".to_string(),
+                client_epoch,
+            },
+        };
+        let non_leader_resp = dispatch(
+            &node_state(route_checker_id),
+            signed_request(3, placement_route_request(epoch0)),
+        )
+        .await;
+        assert_eq!(
+            non_leader_resp.error.as_deref(),
+            Some("OPERATION_REDIRECTED"),
+            "a non-leader node must redirect a PlacementRoute query, not answer it locally"
+        );
+        let redirect: crate::epistemic_operations::OperationResult = match non_leader_resp.result {
+            Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+            other => panic!("expected a structured redirect, got {other:?}"),
+        };
+        assert!(
+            redirect.redirect.is_some(),
+            "the redirect must carry a target for the caller to retry against"
+        );
+
+        // ── 4b. PlacementRoute from the ACTUAL placement-control leader,
+        //      presenting the PRE-move epoch, must be flagged stale and
+        //      redirected to the new group. ──
+        let route_resp = dispatch(&control_state, signed_request(4, placement_route_request(epoch0)))
+            .await;
+        assert!(route_resp.error.is_none(), "PlacementRoute failed: {:?}", route_resp.error);
+        let route: crate::epistemic_operations::PlacementRoute = match route_resp.result {
+            Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+            other => panic!("expected a typed PlacementRoute, got {other:?}"),
+        };
+        assert!(route.placed);
+        assert_eq!(route.group, TARGET_GROUP, "the cutover is visible cluster-wide");
+        assert_eq!(route.epoch, moved_epoch);
+        assert!(route.stale, "a caller on the pre-move epoch must be redirected");
+
+        // ── 5. Post-move: the SAME data is still wire-readable, and a NEW
+        //      write through the target group's leader lands. Data is placed
+        //      AND readable after the reshard — not merely `Ok`. ──
+        let post_move_leader =
+            wait_for_group_leader(&nodes, TARGET_GROUP, Duration::from_secs(10))
+                .await
+                .expect("the target group must have a leader after cutover");
+        let post_move_state = node_state(post_move_leader);
+        for k in 0..n_nodes {
+            let val = read_node_via(
+                &post_move_state,
+                200 + k as u64,
+                &graph,
+                &format!("m{k}"),
+            )
+            .await
+            .unwrap_or_else(|| panic!("m{k} must survive the move and be wire-readable"));
+            assert_eq!(val["id"], serde_json::json!(format!("m{k}")));
+        }
+        let post_resp = add_node_via(&post_move_state, 300, &graph, "post-move").await;
+        assert!(post_resp.error.is_none(), "post-move AddNode failed: {:?}", post_resp.error);
+        // Read the post-move write back from yet another node to prove it
+        // replicated on the NEW owning group, not merely landed locally.
+        let final_reader = node_state(reader_id);
+        wait_until(Duration::from_secs(10), || {
+            let state = final_reader.clone();
+            let graph = graph.clone();
+            async move { node_count(&state, &graph).await == n_nodes + 1 }
+        })
+        .await
+        .expect("the post-move write must replicate under the NEW owning group");
+        let val = read_node_via(&final_reader, 301, &graph, "post-move")
+            .await
+            .expect("post-move node must be wire-readable from a third node");
+        assert_eq!(val["id"], serde_json::json!("post-move"));
+
+        // ── Cleanup ───────────────────────────────────────────────────────
+        for (_, n) in nodes {
+            n.multi.stop_listener();
+            let _ = n.handle.raft.shutdown().await;
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // KG-2.204: durable redb Raft log — replay after restart + fault injection
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -344,11 +916,25 @@ fn make_log_entry(index: u64, term: u64, node_id: &str) -> EntryOf<super::TypeCo
             graph_fname: crate::persist::sanitize("__commons__"),
             graph_name: "__commons__".to_string(),
             graph_type: GraphType::Commons,
-            method: Method::AddNode {
-                node_id: node_id.to_string(),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"id": node_id}))
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-log-test",
+                "__commons__",
+                &format!("{term}:{index}:{node_id}"),
+                index,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: node_id.to_string(),
+                    properties_msgpack: rmp_serde::to_vec_named(
+                        &serde_json::json!({"id": node_id}),
+                    )
                     .unwrap(),
-            },
+                },
+                "raft-test",
+            )
+            .unwrap(),
         },
     )
 }
@@ -359,7 +945,7 @@ fn make_log_entry(index: u64, term: u64, node_id: &str) -> EntryOf<super::TypeCo
 async fn durable_log_replays_from_redb_after_restart() {
     let dir = fresh_dir("logreplay");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state,
@@ -409,10 +995,10 @@ async fn durable_log_replays_from_redb_after_restart() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fault_injection_no_committed_log_entry_lost_on_restart() {
     let dir = fresh_dir("faultlog");
-    // FsyncPolicy::Each = a committed (awaited) append is fsynced before the await
+    // DurabilityPolicy::Each = a committed (awaited) append is fsynced before the await
     // returns, so anything we observe as Ok IS on disk.
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state: state.clone(),
@@ -444,8 +1030,9 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
 
     // Restart: brand-new backend + store over the SAME files. Every fsynced entry
     // must still be present — no lost committed entry.
-    let backend2: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("reopen redb"));
+    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen redb"),
+    );
     let mut store2 = EgStore::open(super::DEFAULT_GROUP, backend2.clone(), ctx).unwrap();
     let entries = store2
         .try_get_log_entries(1..=8)
@@ -473,7 +1060,7 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
 async fn multi_group_logs_isolate_on_shared_redb() {
     let dir = fresh_dir("multigroup");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state,
@@ -550,7 +1137,7 @@ async fn two_groups_one_node_commit_independently() {
 
     let dir = fresh_dir("twogroups");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state: state.clone(),
@@ -589,11 +1176,23 @@ async fn two_groups_one_node_commit_independently() {
             graph_fname: crate::persist::sanitize(graph),
             graph_name: graph.to_string(),
             graph_type: GraphType::Global,
-            method: Method::AddNode {
-                node_id: format!("{graph}-n1"),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"g": graph}))
-                    .unwrap(),
-            },
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-group-test",
+                graph,
+                "first-write",
+                gid,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: format!("{graph}-n1"),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"g": graph}))
+                        .unwrap(),
+                },
+                "raft-test",
+            )
+            .unwrap(),
         };
         g.client_write(req)
             .await
@@ -760,7 +1359,7 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
 
     let dir = fresh_dir("scopedsnap");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
 
     // Two graphs, pinned to two DIFFERENT non-default groups via the router. Neither
@@ -770,17 +1369,21 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
     router.assign("graphA", 3);
     router.assign("graphB", 5);
 
-    // Materialize both graphs (one node each) in the shared registry.
+    // Snapshot membership comes from the durable graph identity authority. The
+    // registry is only the resident projection used to select this group's rows.
+    backend
+        .register_graph("graphA", "graphA", GraphType::Global)
+        .await
+        .unwrap();
+    backend
+        .register_graph("graphB", "graphB", GraphType::Global)
+        .await
+        .unwrap();
     {
         let mut s = state.write().await;
         let _ = s.registry.create_graph("graphA", GraphType::Global, None);
         let _ = s.registry.create_graph("graphB", GraphType::Global, None);
-        if let Some(e) = s.registry.get("graphA") {
-            e.core.add_node("a1".to_string(), Vec::new());
-        }
-        if let Some(e) = s.registry.get("graphB") {
-            e.core.add_node("b1".to_string(), Vec::new());
-        }
+        assert!(s.registry.evict_resident("graphB"));
     }
 
     let ctx = AppCtx {
@@ -791,9 +1394,9 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
     let g3 = EgStore::open(3, backend.clone(), ctx.clone()).unwrap();
     let g5 = EgStore::open(5, backend.clone(), ctx.clone()).unwrap();
 
-    // Group 3's snapshot carries ONLY graphA; group 5's ONLY graphB — no bleed, and
-    // neither catches the un-pinned `__commons__`. The DEFAULT group (0) owns ONLY the
-    // un-pinned bootstrap tenant, never the graphs pinned elsewhere.
+    // Group 3's snapshot carries ONLY resident graphA; group 5's ONLY catalog-only
+    // graphB — proving eviction cannot remove durable authority from a snapshot. No
+    // graph bleeds across groups, and the DEFAULT group (0) owns only `__commons__`.
     assert_eq!(
         g3.scoped_snapshot_graph_names().await,
         vec!["graphA".to_string()]
@@ -937,7 +1540,7 @@ async fn coalesced_batch_round_trips_on_one_connection() {
 
     let dir = fresh_dir("hbbatch");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state,
@@ -986,6 +1589,7 @@ async fn coalesced_batch_round_trips_on_one_connection() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn multi_node_group_join_then_leader_rebalance() {
     use super::multi::{desired_leader, MultiRaft};
+    use super::xread::{ReadPageRequest, RouteToken};
 
     let root = std::env::temp_dir().join(format!("eg-mnjoin-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -999,8 +1603,9 @@ async fn multi_node_group_join_then_leader_rebalance() {
         let dir = root.join(format!("node{i}"));
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.to_string_lossy().to_string();
-        let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"),
+        );
         let state = make_state_with_backend(&dir, backend.clone()).await;
         let ctx = AppCtx {
             state: state.clone(),
@@ -1034,6 +1639,9 @@ async fn multi_node_group_join_then_leader_rebalance() {
     // ── R3: add nodes 2 and 3 as VOTERS from the leader (add_learner → change_membership).
     leader.add_group_member(gid, 2, addr(2)).await.unwrap();
     leader.add_group_member(gid, 3, addr(3)).await.unwrap();
+    for (_, multi, _) in &multis {
+        multi.router().assign("graph7", gid);
+    }
     assert_eq!(
         leader.group_membership(gid).await,
         Some(vec![1, 2, 3]),
@@ -1042,7 +1650,6 @@ async fn multi_node_group_join_then_leader_rebalance() {
 
     // ── A write through the leader replicates to the freshly-joined voters.
     {
-        leader.router().assign("graph7", gid);
         let g = leader
             .group_for_graph("graph7")
             .await
@@ -1051,11 +1658,23 @@ async fn multi_node_group_join_then_leader_rebalance() {
             graph_fname: crate::persist::sanitize("graph7"),
             graph_name: "graph7".to_string(),
             graph_type: GraphType::Global,
-            method: Method::AddNode {
-                node_id: "joined-write".to_string(),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"ok": true}))
-                    .unwrap(),
-            },
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-membership-test",
+                "graph7",
+                "joined-write",
+                gid,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: "joined-write".to_string(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"ok": true}))
+                        .unwrap(),
+                },
+                "raft-test",
+            )
+            .unwrap(),
         };
         g.client_write(req).await.expect("write via leader");
     }
@@ -1115,6 +1734,29 @@ async fn multi_node_group_join_then_leader_rebalance() {
         "leadership must converge to the round-robin target (node 2) via transfer_leader"
     );
 
+    // A request initiated on node 1 now routes to node 2's leader over the same
+    // authenticated/group-multiplexed PeerPool as Raft consensus traffic.
+    let page = node1
+        .read_page_group(
+            gid,
+            ReadPageRequest {
+                graph_name: "graph7".to_string(),
+                route: RouteToken {
+                    group: gid,
+                    epoch: 0,
+                },
+                after_node_id: None,
+                expected_snapshot_version: None,
+                limit: 16,
+                max_bytes: 1024 * 1024,
+            },
+        )
+        .await
+        .expect("remote leader read page");
+    assert_eq!(page.nodes.len(), 1);
+    assert_eq!(page.nodes[0].0, "joined-write");
+    assert!(page.raft_barrier_index > 0);
+
     // Already balanced → an extra pass anywhere transfers nothing (idempotent): node 2
     // now leads (target==self, no-op) and node 1 no longer leads group 7.
     let report2 = node2.rebalance_leaders().await;
@@ -1132,6 +1774,416 @@ async fn multi_node_group_join_then_leader_rebalance() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// CONCEPT:EG-KG.storage.kg-kg-2 — `cluster_deployment.md` §5 item 2: a learner can be
+/// attached to a LIVE Raft group WITHOUT changing the voter set (the gap the M2 soak
+/// found — `MultiRaft::add_group_learner`/`change_group_voters`, split out of the
+/// pre-existing bundled `add_group_member`, had no external caller). Proves the split
+/// end-to-end at the `MultiRaft` API level: node 2 joins group 8 as a non-voting
+/// learner, is OBSERVED in the leader's committed membership as a learner (not a
+/// voter) via `group_learners`, then is promoted via `change_group_voters` and
+/// observed moving into the voter set via `group_membership`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
+    use super::multi::MultiRaft;
+
+    let root = std::env::temp_dir().join(format!("eg-mnlearner-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let ports = free_ports(2);
+    let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
+    let gid = 8u64;
+
+    let mut multis: Vec<(NodeId, Arc<MultiRaft>)> = Vec::new();
+    for i in 1..=2u64 {
+        let dir = root.join(format!("node{i}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"),
+        );
+        let state = make_state_with_backend(&dir, backend.clone()).await;
+        let ctx = super::AppCtx {
+            state,
+            router: None,
+        };
+        let multi = MultiRaft::start(i, addr(i as usize), backend, ctx)
+            .await
+            .expect("start multi");
+        if i == 1 {
+            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
+            multi.create_group(gid, peers, true).await.unwrap();
+        } else {
+            // Empty, non-bootstrapping member ready to receive replication — exactly
+            // the "boots straight into learner-ready" state a real node 2 reaches
+            // with `EPISTEMIC_GRAPH_RAFT_NODE_ID`/`_PEERS` set but `is_bootstrap`
+            // false (see `cluster_deployment.md` §2b/§5).
+            multi.join_group(gid, BTreeMap::new()).await.unwrap();
+        }
+        multis.push((i, multi));
+    }
+
+    let leader = multis[0].1.clone();
+    let follower = multis[1].1.clone();
+    {
+        let g = leader.group(gid).await.expect("group on node 1");
+        wait_until(Duration::from_secs(15), || {
+            let g = g.clone();
+            async move { g.current_leader().await == Some(1) }
+        })
+        .await
+        .expect("node 1 must lead the single-member group 8");
+    }
+
+    // Before the learner is attached, membership is just the bootstrap voter and
+    // there are no learners on either side.
+    assert_eq!(leader.group_membership(gid).await, Some(vec![1]));
+    assert_eq!(leader.group_learners(gid).await, Some(vec![]));
+
+    // ── Attach node 2 as a NON-VOTING LEARNER. Real openraft add_learner: it blocks
+    // until node 2's log is caught up, so this is a genuine catch-up, not a stub.
+    leader
+        .add_group_learner(gid, 2, addr(2))
+        .await
+        .expect("add_group_learner must succeed against the leader");
+
+    // ── Observe the REAL committed membership: node 2 is a learner, NOT a voter.
+    assert_eq!(
+        leader.group_membership(gid).await,
+        Some(vec![1]),
+        "attaching a learner must NOT change the voter set"
+    );
+    assert_eq!(
+        leader.group_learners(gid).await,
+        Some(vec![2]),
+        "node 2 must appear as a non-voting learner in the leader's committed membership"
+    );
+    // The follower's own view (once it has applied the membership entry) agrees —
+    // this is REPLICATED state, not a leader-local fiction.
+    wait_until(Duration::from_secs(10), || {
+        let follower = follower.clone();
+        async move { follower.group_learners(gid).await == Some(vec![2]) }
+    })
+    .await
+    .expect("node 2 must observe itself as a learner in the replicated membership");
+
+    // A second `add_group_learner` for the SAME node is idempotent (re-confirms the
+    // same membership, does not error).
+    leader
+        .add_group_learner(gid, 2, addr(2))
+        .await
+        .expect("re-adding an existing learner must be idempotent");
+    assert_eq!(leader.group_learners(gid).await, Some(vec![2]));
+
+    // ── Promote the learner to a voter via change_group_voters (a SEPARATE admin
+    // step from add_group_learner — the whole point of the split).
+    let mut voters: BTreeSet<NodeId> = BTreeSet::new();
+    voters.insert(1);
+    voters.insert(2);
+    leader
+        .change_group_voters(gid, voters)
+        .await
+        .expect("change_group_voters must promote the caught-up learner");
+    assert_eq!(
+        leader.group_membership(gid).await,
+        Some(vec![1, 2]),
+        "node 2 must now be a voter"
+    );
+    assert_eq!(
+        leader.group_learners(gid).await,
+        Some(vec![]),
+        "a promoted node is no longer listed as a learner"
+    );
+
+    // change_group_voters refuses to produce an empty voter set.
+    let err = leader
+        .change_group_voters(gid, BTreeSet::new())
+        .await
+        .expect_err("an empty voter set must be refused");
+    assert!(err.contains("empty voter set"), "unexpected error: {err}");
+
+    // ── Cleanup.
+    for (_, multi) in &multis {
+        multi.stop_listener();
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// CONCEPT:EG-KG.storage.kg-kg-2 — the SAME gap, exercised through the REAL served
+/// dispatch path (`Method::RaftAddLearner`/`Method::RaftChangeMembership`,
+/// `src/server/handlers/raft_admin.rs`), not just the in-process `MultiRaft` API the
+/// test above drives directly. This is the external-caller seam
+/// `epistemic_graph.client`'s `raft_admin` namespace drives. Proves, in order: (a)
+/// a request against the LEADER actually attaches node 2 as a learner (real
+/// execution, not a stub); (b) a `RaftChangeMembership` request against that now
+/// genuinely-attached FOLLOWER is redirected to the leader (`OPERATION_REDIRECTED`
+/// with the real observed `leader_ref`, mirroring `PlacementRoute`'s stale-route
+/// shape) and is NOT silently mis-served or applied locally; (c) the SAME request
+/// against the LEADER actually promotes node 2 to a voter; and (d) an engine with
+/// no live `MultiRaft` answers a clean typed error rather than a silent no-op. (a)
+/// runs before (b) deliberately: openraft's `current_leader()` is honest local
+/// knowledge learned only from real AppendEntries/vote traffic, so the redirect is
+/// proven against a follower that has actually observed the leader through
+/// replication, not one the test simply asserts knows something it was never told.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::multi::MultiRaft;
+    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
+    use crate::protocol::{Request, ResultPayload};
+    use crate::server::dispatch;
+    use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+
+    const TEST_AGENT: &str = "raft-admin-wire-test-agent";
+    const SECRET: &str = "raft-test";
+    static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+    std::env::set_var(
+        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+        std::env::temp_dir().join(format!("eg-raft-admin-wire-auth-{}", std::process::id())),
+    );
+
+    fn signed_request(id: u64, method: Method) -> Request {
+        let context = RequestContextClaims {
+            principal: TEST_AGENT.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: TEST_AGENT.to_string(),
+            roles: Vec::new(),
+            scopes: vec!["*".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+        };
+        let mut request = Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: String::new(),
+            agent_id: Some(TEST_AGENT.to_string()),
+            method,
+        };
+        let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let issued_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the system clock is after the Unix epoch");
+        let nonce = format!(
+            "raft-admin-{}-{id}-{sequence}-{}",
+            std::process::id(),
+            issued_at.as_nanos()
+        );
+        let idempotency_key = format!("raft-admin-request-{id}-{sequence}");
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: issued_at.as_secs(),
+                nonce: &nonce,
+                idempotency_key: &idempotency_key,
+            },
+        );
+        request
+    }
+
+    let root = std::env::temp_dir().join(format!("eg-wire-raft-admin-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let ports = free_ports(2);
+    let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
+    let gid = super::DEFAULT_GROUP;
+
+    let mut multis: Vec<(NodeId, Arc<MultiRaft>, Arc<RwLock<ServerState>>)> = Vec::new();
+    for i in 1..=2u64 {
+        let dir = root.join(format!("node{i}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"),
+        );
+        let state = make_state_with_backend(&dir, backend.clone()).await;
+        state
+            .write()
+            .await
+            .isolation
+            .register_agent(AgentIdentity {
+                agent_id: TEST_AGENT.to_string(),
+                role: AgentRole::System,
+                teams: Vec::new(),
+                roles: Vec::new(),
+            });
+        let ctx = super::AppCtx {
+            state: state.clone(),
+            router: None,
+        };
+        let multi = MultiRaft::start(i, addr(i as usize), backend, ctx)
+            .await
+            .expect("start multi");
+        if i == 1 {
+            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
+            multi.create_group(gid, peers, true).await.unwrap();
+        } else {
+            multi.join_group(gid, BTreeMap::new()).await.unwrap();
+        }
+        // The real served `Method::RaftAddLearner`/`RaftChangeMembership` handler
+        // (`handlers/raft_admin.rs`) resolves `MultiRaft` off `state.multi_raft`,
+        // exactly like `handlers/placement.rs` does — wire it here so this test
+        // exercises the SAME lookup a real server does.
+        state.write().await.multi_raft = Some(multi.clone());
+        multis.push((i, multi, state));
+    }
+
+    let leader_multi = multis[0].1.clone();
+    let leader_state = multis[0].2.clone();
+    let follower_state = multis[1].2.clone();
+    {
+        let g = leader_multi.group(gid).await.expect("group on node 1");
+        wait_until(Duration::from_secs(15), || {
+            let g = g.clone();
+            async move { g.current_leader().await == Some(1) }
+        })
+        .await
+        .expect("node 1 must lead the default group");
+    }
+
+    // (a) A request against the LEADER actually attaches node 2 as a learner.
+    // Deliberately proven FIRST: an openraft node's `current_leader()` is honest
+    // LOCAL knowledge learned only through real AppendEntries/vote traffic — a
+    // node that has never been contacted (like node 2 immediately after its own
+    // empty, non-bootstrapping `join_group`) has no leader to report and no
+    // basis to fabricate one. Attaching it as a learner is the real replication
+    // event that gives it that knowledge, exactly like a real operator's first
+    // admin call against a live cluster would.
+    let resp = dispatch(
+        &leader_state,
+        signed_request(
+            1,
+            Method::RaftAddLearner {
+                group: None,
+                node_id: 2,
+                addr: addr(2),
+            },
+        ),
+    )
+    .await;
+    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
+    assert!(matches!(resp.result, Some(ResultPayload::Bool(true))));
+    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![2]));
+    assert_eq!(leader_multi.group_membership(gid).await, Some(vec![1]));
+
+    // Node 2 is now a genuinely attached, caught-up learner (openraft's
+    // `add_learner(.., blocking=true)` does not return until the learner's log
+    // is caught up) -- it has observed node 1 as leader through REAL replicated
+    // traffic, not a value the test injects. Confirm that before relying on it.
+    let follower_multi = multis[1].1.clone();
+    {
+        let g = follower_multi.group(gid).await.expect("group on node 2");
+        wait_until(Duration::from_secs(15), || {
+            let g = g.clone();
+            async move { g.current_leader().await == Some(1) }
+        })
+        .await
+        .expect("node 2 must observe node 1 as leader after being attached as a learner");
+    }
+
+    // (b) A membership-admin request against this now-attached FOLLOWER is
+    // redirected to the leader, not silently mis-served, mis-applied locally, or
+    // panicking -- proven with the follower's REAL observed leader, not merely
+    // that the `OPERATION_REDIRECTED` constant exists somewhere in the source.
+    let resp = dispatch(
+        &follower_state,
+        signed_request(
+            2,
+            Method::RaftChangeMembership {
+                group: None,
+                voters: vec![1, 2],
+            },
+        ),
+    )
+    .await;
+    assert_eq!(resp.error.as_deref(), Some("OPERATION_REDIRECTED"));
+    match resp.result {
+        Some(ResultPayload::Raw(bytes)) => {
+            let detail: crate::epistemic_operations::OperationResult =
+                rmp_serde::from_slice(&bytes).expect("typed OperationResult");
+            let redirect = detail.redirect.expect("redirect detail present");
+            assert_eq!(redirect.leader_ref.as_deref(), Some("node:1"));
+        }
+        other => panic!("expected a typed redirect result, got {other:?}"),
+    }
+    // The redirected request must NOT have been applied anywhere: membership is
+    // unchanged (still just the learner from step (a), no promotion happened).
+    assert_eq!(leader_multi.group_membership(gid).await, Some(vec![1]));
+    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![2]));
+
+    // (c) The SAME `RaftChangeMembership` issued against the LEADER actually
+    // promotes node 2 -- real execution, not just a redirect-shaped stub.
+    let resp = dispatch(
+        &leader_state,
+        signed_request(
+            3,
+            Method::RaftChangeMembership {
+                group: None,
+                voters: vec![1, 2],
+            },
+        ),
+    )
+    .await;
+    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
+    assert!(matches!(resp.result, Some(ResultPayload::Bool(true))));
+    assert_eq!(leader_multi.group_membership(gid).await, Some(vec![1, 2]));
+    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![]));
+
+    // (c) An engine with no live MultiRaft answers a clean typed error, never a
+    // silent no-op or a panic.
+    let unclustered_dir = root.join("unclustered");
+    std::fs::create_dir_all(&unclustered_dir).unwrap();
+    let unclustered_backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(
+            unclustered_dir.to_string_lossy().to_string(),
+            DurabilityPolicy::Each,
+            4096,
+        )
+        .expect("open redb"),
+    );
+    let unclustered_state =
+        make_state_with_backend(&unclustered_dir.to_string_lossy(), unclustered_backend.clone())
+            .await;
+    unclustered_state
+        .write()
+        .await
+        .isolation
+        .register_agent(AgentIdentity {
+            agent_id: TEST_AGENT.to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+    let resp = dispatch(
+        &unclustered_state,
+        signed_request(
+            4,
+            Method::RaftAddLearner {
+                group: None,
+                node_id: 9,
+                addr: "127.0.0.1:1".to_string(),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(
+        resp.error.as_deref(),
+        Some("RAFT_NOT_CONFIGURED: this node is not running a Raft cluster")
+    );
+    unclustered_backend.shutdown();
+
+    // ── Cleanup.
+    for (_, multi, _) in &multis {
+        multi.stop_listener();
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 // ── Distributed graph compute (CONCEPT:EG-KG.storage.feature) ─────────────────────────────
 //
 // These prove the cross-shard Pregel engine produces the SAME result as the
@@ -1143,8 +2195,10 @@ async fn multi_node_group_join_then_leader_rebalance() {
 #[cfg(feature = "compute-dist")]
 mod dist_compute {
     use super::*;
+    use crate::isolation::{AgentIdentity, AgentRole};
     use crate::protocol::{DistAlgo, GraphType};
     use crate::raft::pregel::{self, DistResult};
+    use crate::server::access::GraphReadAuthority;
 
     fn props(n: &str) -> Vec<u8> {
         rmp_serde::to_vec_named(&serde_json::json!({"type": "N", "id": n})).unwrap()
@@ -1169,12 +2223,22 @@ mod dist_compute {
         ));
         let _ = std::fs::create_dir_all(&dir);
         let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir.to_string_lossy().to_string(), FsyncPolicy::Each, 256)
-                .expect("open redb"),
+            RedbBackend::open(
+                dir.to_string_lossy().to_string(),
+                DurabilityPolicy::Each,
+                256,
+            )
+            .expect("open redb"),
         );
         let state = make_state_with_backend(&dir.to_string_lossy(), backend).await;
         {
             let mut s = state.write().await;
+            s.isolation.register_agent(AgentIdentity {
+                agent_id: "pregel-test-authority".to_string(),
+                role: AgentRole::System,
+                teams: Vec::new(),
+                roles: Vec::new(),
+            });
             s.registry
                 .create_graph("shA", GraphType::Global, None)
                 .unwrap();
@@ -1216,6 +2280,13 @@ mod dist_compute {
         (state, union)
     }
 
+    async fn read_authority(state: &Arc<RwLock<ServerState>>) -> GraphReadAuthority {
+        let context =
+            crate::server::auth::VerifiedRequestContext::verified_for_test("pregel-test-authority");
+        let state = state.read().await;
+        GraphReadAuthority::from_verified(&context, &state.isolation).unwrap()
+    }
+
     /// Round a score map for tolerant float comparison.
     fn score_map(rows: &[(String, f64)]) -> std::collections::BTreeMap<String, i64> {
         rows.iter()
@@ -1245,6 +2316,7 @@ mod dist_compute {
             }
         };
         let (state, union) = two_shard_state(&nodes, &edges, &place).await;
+        let authority = read_authority(&state).await;
 
         let dist = pregel::run_distributed(
             &state,
@@ -1253,6 +2325,7 @@ mod dist_compute {
                 damping: 0.85,
                 iterations: 50,
             },
+            &authority,
         )
         .await
         .unwrap();
@@ -1282,11 +2355,13 @@ mod dist_compute {
             }
         };
         let (state, union) = two_shard_state(&nodes, &edges, &place).await;
+        let authority = read_authority(&state).await;
 
         let dist = pregel::run_distributed(
             &state,
             &["shA".into(), "shB".into()],
             &DistAlgo::ConnectedComponents,
+            &authority,
         )
         .await
         .unwrap();
@@ -1334,11 +2409,17 @@ mod dist_compute {
             }
         };
         let (state, _union) = two_shard_state(&nodes, &edges, &place).await;
+        let authority = read_authority(&state).await;
 
         let graphs = ["shA".to_string(), "shB".to_string()];
-        let prior = match pregel::run_distributed(&state, &graphs, &DistAlgo::ConnectedComponents)
-            .await
-            .unwrap()
+        let prior = match pregel::run_distributed(
+            &state,
+            &graphs,
+            &DistAlgo::ConnectedComponents,
+            &authority,
+        )
+        .await
+        .unwrap()
         {
             DistResult::Labels(l) => l,
             _ => panic!("labels"),
@@ -1358,14 +2439,21 @@ mod dist_compute {
         // Incremental: only b and c are affected by the new edge.
         let affected: std::collections::HashSet<String> =
             ["b".to_string(), "c".to_string()].into_iter().collect();
-        let incr = pregel::incremental_connected_components(&state, &graphs, &prior, &affected)
-            .await
-            .unwrap();
+        let incr = pregel::incremental_connected_components(
+            &state, &graphs, &prior, &affected, &authority,
+        )
+        .await
+        .unwrap();
 
         // From scratch over the same (post-delta) graphs.
-        let scratch = match pregel::run_distributed(&state, &graphs, &DistAlgo::ConnectedComponents)
-            .await
-            .unwrap()
+        let scratch = match pregel::run_distributed(
+            &state,
+            &graphs,
+            &DistAlgo::ConnectedComponents,
+            &authority,
+        )
+        .await
+        .unwrap()
         {
             DistResult::Labels(l) => l,
             _ => panic!("labels"),
@@ -1413,8 +2501,12 @@ mod matview {
             uuid::Uuid::new_v4()
         ));
         let _ = std::fs::create_dir_all(&dir);
-        let backend =
-            RedbBackend::open(dir.to_string_lossy().to_string(), FsyncPolicy::Each, 256).unwrap();
+        let backend = RedbBackend::open(
+            dir.to_string_lossy().to_string(),
+            DurabilityPolicy::Each,
+            256,
+        )
+        .unwrap();
 
         let view = MatView {
             name: "ranks".into(),

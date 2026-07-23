@@ -19,7 +19,7 @@
 //!     builds with the same `seed` and the same insertion order are bit-identical,
 //!     and results sort exactly like the rest of the crate.
 //!   * **serde-serializable** — the whole graph (nodes, per-layer adjacency, entry
-//!     point) round-trips via serde/bincode for a no-rebuild reload, mirroring
+//!     point) round-trips via the crate's strict versioned postcard codec for a no-rebuild reload, mirroring
 //!     [`FlatIndex`]'s persistence story.
 //!
 //! Recall is validated against [`FlatIndex`] ground truth with
@@ -44,7 +44,7 @@ struct Node {
 
 /// A scored candidate during traversal: the EXACT distance to the query, the
 /// internal node index, and the external id used purely for deterministic
-/// tie-breaking. Ordered by `(distance, id)` under a TOTAL order (NaN sorts last),
+/// tie-breaking. Ordered by `(distance, id, node)` under a TOTAL order (NaN sorts last),
 /// so a [`BinaryHeap`] max-pops the farthest / largest-id element and `Reverse`
 /// min-pops the nearest / smallest-id one.
 #[derive(Clone, Copy, Debug)]
@@ -56,17 +56,23 @@ struct Cand {
 
 impl PartialEq for Cand {
     fn eq(&self, other: &Self) -> bool {
-        self.dist.to_bits() == other.dist.to_bits() && self.id == other.id
+        self.dist.to_bits() == other.dist.to_bits()
+            && self.id == other.id
+            && self.node == other.node
     }
 }
 impl Eq for Cand {}
 impl Ord for Cand {
     fn cmp(&self, other: &Self) -> Ordering {
         // total order on the float (NaN last), then ascending id for determinism.
-        self.dist
-            .partial_cmp(&other.dist)
-            .unwrap_or_else(|| self.dist.total_cmp(&other.dist))
-            .then_with(|| self.id.cmp(&other.id))
+        match (self.dist.is_nan(), other.dist.is_nan()) {
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (true, true) => self.dist.to_bits().cmp(&other.dist.to_bits()),
+            (false, false) => self.dist.total_cmp(&other.dist),
+        }
+        .then_with(|| self.id.cmp(&other.id))
+        .then_with(|| self.node.cmp(&other.node))
     }
 }
 impl PartialOrd for Cand {
@@ -257,8 +263,7 @@ impl HnswIndex {
                     node: nb,
                     id: self.nodes[nb].id,
                 };
-                let worst_d = w.peek().map(|x| x.dist);
-                if w.len() < ef || worst_d.is_none_or(|wd| d < wd) {
+                if w.len() < ef || w.peek().is_none_or(|worst| nc < *worst) {
                     candidates.push(Reverse(nc));
                     w.push(nc);
                     if w.len() > ef {
@@ -274,8 +279,7 @@ impl HnswIndex {
     /// deterministic `(distance, id)` ordering, returning their internal indices.
     fn select_neighbors(cands: &[Cand], m: usize) -> Vec<usize> {
         let mut v: Vec<Cand> = cands.to_vec();
-        v.sort_unstable();
-        v.truncate(m);
+        truncate_nearest(&mut v, m);
         v.into_iter().map(|c| c.node).collect()
     }
 
@@ -295,8 +299,7 @@ impl HnswIndex {
                 id: self.nodes[nb].id,
             })
             .collect();
-        scored.sort_unstable();
-        scored.truncate(m);
+        truncate_nearest(&mut scored, m);
         self.nodes[node].neighbors[layer] = scored.into_iter().map(|c| c.node).collect();
     }
 
@@ -384,8 +387,7 @@ impl HnswIndex {
         }
         let ef = ef.max(k);
         let mut found = self.search_layer(query, &[ep], ef, 0);
-        found.sort_unstable();
-        found.truncate(k);
+        truncate_nearest(&mut found, k);
         found
             .into_iter()
             .map(|c| SearchResult {
@@ -394,6 +396,23 @@ impl HnswIndex {
             })
             .collect()
     }
+}
+
+/// Retain the exact nearest `limit` candidates under [`Cand`]'s total
+/// `(distance, id, node)` order. Selection is expected O(N); only the kept prefix is
+/// ordered, reducing the final HNSW/neighbor-selection step to
+/// O(N + limit log limit).
+#[inline]
+fn truncate_nearest(candidates: &mut Vec<Cand>, limit: usize) {
+    if limit == 0 {
+        candidates.clear();
+        return;
+    }
+    if candidates.len() > limit {
+        candidates.select_nth_unstable(limit);
+        candidates.truncate(limit);
+    }
+    candidates.sort_unstable();
 }
 
 #[cfg(test)]
@@ -416,6 +435,35 @@ mod tests {
             (50, vec![2.0, 1.0]),
         ]);
         h
+    }
+
+    #[test]
+    fn partial_candidate_selection_matches_total_full_sort() {
+        let input: Vec<Cand> = (0..257)
+            .map(|node| Cand {
+                // Deliberate ties exercise the external-id tiebreak at the boundary.
+                dist: ((node * 37) % 23) as f32,
+                node,
+                id: (1_000 - node) as u64,
+            })
+            .collect();
+        let mut expected = input.clone();
+        expected.sort_unstable();
+        expected.truncate(17);
+
+        let mut selected = input;
+        truncate_nearest(&mut selected, 17);
+
+        assert_eq!(
+            selected
+                .iter()
+                .map(|candidate| (candidate.dist.to_bits(), candidate.id, candidate.node))
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|candidate| (candidate.dist.to_bits(), candidate.id, candidate.node))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -558,8 +606,8 @@ mod tests {
         let q: Vec<f32> = (0..dim).map(|_| qr.gen::<f32>() * 2.0 - 1.0).collect();
         let before = hnsw.search(&q, 10, 64);
 
-        let bytes = bincode::serialize(&hnsw).expect("serialize HnswIndex");
-        let back: HnswIndex = bincode::deserialize(&bytes).expect("deserialize HnswIndex");
+        let bytes = crate::codec::serialize(&hnsw).expect("serialize HnswIndex");
+        let back: HnswIndex = crate::codec::deserialize(&bytes).expect("deserialize HnswIndex");
         assert_eq!(back.len(), hnsw.len());
         assert_eq!(back.max_level, hnsw.max_level);
         assert_eq!(back.entry_point, hnsw.entry_point);

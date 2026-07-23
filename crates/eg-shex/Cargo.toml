@@ -16,7 +16,7 @@
 name = "eg-shex"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Pure-Rust ShEx (Shape Expressions) Core validation engine for the epistemic-graph engine (CONCEPT:EG-133) — parses a ShExJ schema (node constraints: nodeKind/datatype/string+numeric facets/value sets; triple constraints with cardinality; EachOf/OneOf/AND/OR/NOT combinators; shape references; CLOSED/EXTRA) and validates focus nodes of an RDF data graph against a shape map, producing a serde-serializable ShexReport. Reuses eg-rdf's oxrdf term/graph model; NO C/native deps."
 license = "MIT"
 
@@ -35,3 +35,15 @@ serde_json = "1"
 # `pattern` string-facet regex. Pure-Rust, already pulled by eg-rdf's `sparql` feature
 # (EG-053), so this pins the SAME crate — no new dependency in a `full` build.
 regex = "1"
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/pi/node/full build links none of it and `NodeResult` carries no
+# new required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
+
+[features]
+default = []
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for NodeResult` +
+# the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
+# into any tier aggregate (pi/node/full) — it is a capability-discovery/testing seam,
+# not a serving feature. `cargo test -p eg-shex --features contract` runs the suite.
+contract = ["dep:eg-modality"]

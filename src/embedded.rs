@@ -10,12 +10,12 @@
 //!
 //! This is the *embedded* transport over the SAME engine core the out-of-process
 //! Tokio server drives. The server's `dispatch` → `handlers::graph_ops` arms call
-//! [`GraphCore`] methods; the durable side calls [`crate::wal::apply`] (the
+//! [`GraphCore`] methods; the durable side calls [`crate::mutation_apply::apply`] (the
 //! canonical "durable `Method` → `GraphCore`" applier) + the redb row writers in
 //! [`crate::redb_store`]. The embedded engine calls the **exact same** pieces:
 //!
 //! * in-memory mutations apply through `GraphCore` (and for the durable set,
-//!   `wal::apply`, byte-identical to WAL replay / the Raft state machine); and
+//!   `mutation_apply::apply`, byte-identical to WAL replay / the Raft state machine); and
 //! * durable mutations commit through `crate::redb_store` — the SAME tables, keys,
 //!   and `apply_method_rows`/`apply_checkpoint`/`read_all_dumps` the server's
 //!   `redb_backend` uses. A graph written embedded reopens in the server and
@@ -121,7 +121,7 @@ impl EmbeddedEngine {
     /// Open an embedded engine over an optional persist dir.
     ///
     /// * `Some(dir)` + `options.durable` (and the `redb` feature) ⇒ a durable
-    ///   source of truth: tables are opened/created under `{dir}/graph.redb`, any
+    ///   source of truth: tables are opened/created under `{dir}/graph-0.redb`, any
     ///   prior durable state is replayed into the registry, and every durable
     ///   mutation commits before it returns.
     /// * `None`, or `durable=false`, or built without `redb` ⇒ in-memory only.
@@ -144,9 +144,16 @@ impl EmbeddedEngine {
                         let mut reg = registry.write();
                         for dump in dumps {
                             if !reg.exists(&dump.name) {
-                                let _ = reg.create_graph(&dump.name, dump.graph_type, None);
+                                let _ = reg.create_graph_with_incarnation(
+                                    &dump.name,
+                                    dump.graph_type,
+                                    None,
+                                    dump.incarnation_id.clone(),
+                                    dump.source_snapshot_version,
+                                );
                             }
                             if let Some(core) = reg.get(&dump.name).map(|e| e.core.clone()) {
+                                core.install_integrity_policy(dump.integrity_policy.clone());
                                 for (id, props) in dump.nodes {
                                     core.add_node(id, props);
                                 }
@@ -232,13 +239,22 @@ impl EmbeddedEngine {
 
     /// Create a named graph (durably registering its identity when authoritative).
     pub fn create_graph(&self, name: &str, graph_type: GraphType) -> Result<(), String> {
-        self.inner
-            .registry
-            .write()
-            .create_graph(name, graph_type, None)?;
+        let incarnation_id = {
+            let mut registry = self.inner.registry.write();
+            registry.create_graph(name, graph_type, None)?;
+            registry
+                .catalog_record(name)
+                .map(|record| record.incarnation_id)
+                .ok_or_else(|| "created graph is absent from lifecycle catalog".to_string())?
+        };
         #[cfg(feature = "redb")]
         if let Some(store) = &self.inner.store {
-            store.register_graph(&crate::redb_store::sanitize(name), name, graph_type)?;
+            store.register_graph(
+                &crate::redb_store::sanitize(name),
+                name,
+                graph_type,
+                &incarnation_id,
+            )?;
         }
         Ok(())
     }
@@ -290,14 +306,14 @@ impl EmbeddedEngine {
 
     // ── writes (durable: commit-before-return) ───────────────────────────
 
-    /// Apply a durable mutation to `graph`: in-memory via `wal::apply` (the SAME
+    /// Apply a durable mutation to `graph`: in-memory via `mutation_apply::apply` (the SAME
     /// applier WAL replay + the Raft state machine use), then — when authoritative —
     /// commit it to redb before returning (commit-before-return). The graph is
     /// auto-created if it does not exist (matching the firehose ingestion path).
     fn apply_durable(&self, graph: &str, method: Method) -> Result<(), String> {
         let core = self.core(graph, true)?;
         // 1) In-memory apply — the canonical durable Method → GraphCore path.
-        crate::wal::apply(&core, &method);
+        crate::mutation_apply::apply(&core, &method);
         // 2) Durable commit-before-return.
         #[cfg(feature = "redb")]
         if let Some(store) = &self.inner.store {
@@ -460,7 +476,7 @@ impl EmbeddedEngine {
     #[cfg(feature = "query")]
     pub fn sql(&self, graph: &str, sql: &str) -> Result<crate::protocol::QueryResult, String> {
         let snap = self.core(graph, false)?.analysis_snapshot();
-        eg_query::exec_sql(&snap, sql)
+        eg_query::exec_sql(&snap, sql, &eg_query::CancellationToken::new())
     }
 
     /// Run read-only Cypher (`MATCH … RETURN …`, dep-free) over `graph` via the SAME
@@ -505,10 +521,7 @@ impl EmbeddedEngine {
             }
             StatementKind::CreateTable(plan) => {
                 let columns = to_store_columns(&plan.columns)?;
-                let schema = eg_query::TableSchema {
-                    name: plan.name,
-                    columns,
-                };
+                let schema = eg_query::TableSchema::new(plan.name, columns);
                 store.create_table(&schema, plan.if_not_exists)?;
                 Ok(status_result("CREATE TABLE"))
             }
@@ -559,6 +572,9 @@ impl EmbeddedEngine {
                         graph: crate::redb_store::sanitize(&e.name),
                         name: e.name.clone(),
                         graph_type: e.graph_type,
+                        incarnation_id: e.incarnation_id.clone(),
+                        source_snapshot_version: e.core.version(),
+                        integrity_policy: e.core.integrity_policy(),
                         nodes: e.core.get_nodes(),
                         edges: e.core.get_edges(),
                         ledger: e.core.get_ledger(),

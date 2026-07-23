@@ -2,7 +2,7 @@
 name = "eg-plan"
 version = "0.33.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Unified cross-modal query planner (CONCEPT:KG-2.208/209) — a RowSet closed algebra sequencing the existing SQL (DataFusion), graph (petgraph BFS) and vector (SemanticStore) legs into ONE plan, with a cost-based filter-vs-vector reorder"
 license = "MIT"
 
@@ -36,13 +36,6 @@ text = ["query", "dep:eg-text", "eg-text/tantivy", "eg-types/text"]
 # ops live inside the `query`-gated `Op` enum, beside the DataFusion FILTER leg). A
 # default/Pi build sets neither feature → no eg-rdf reasoner/evaluator linked here.
 owl = ["query", "dep:eg-rdf", "eg-rdf/owl", "eg-rdf/sparql", "eg-types/owl-plan"]
-# Forwards eg-rdf's opt-in lossless redb quad table. eg-rdf's `load_triples` takes a
-# `#[cfg(feature = "rdf-redb")]`-gated trailing `quads` arg; the owl compose-oracle test
-# (which calls it) must add that arg under the SAME cfg, so eg-plan needs a matching
-# feature to stay in lockstep when the workspace `--all-features` build turns rdf-redb on
-# in eg-rdf. Adds NO new dep beyond eg-rdf's own (redb), and only when `owl` already
-# pulled eg-rdf. A default/Pi build (no owl) links nothing here.
-rdf-redb = ["eg-rdf?/rdf-redb"]
 # The WASM `Udf` TRANSFORM op (CONCEPT:KG-2.228): run a registered, sandboxed
 # WebAssembly UDF over the current RowSet inside a UnifiedQuery plan. Pulls eg-wasm's
 # wasmtime runtime + turns on the `wasm-udf` wire variant in eg-types. IMPLIES `query`
@@ -79,12 +72,19 @@ timeseries = ["query", "dep:eg-tsdb", "eg-tsdb/redb-store", "eg-types/timeseries
 # EXTERNAL relational-SQL federation (CONCEPT:KG-2.239): the third `ForeignSource` kind
 # — `ForeignSourceSpec::Sql` — connecting to an external Postgres/MySQL via a DSN and
 # running a SQL query, mapping rows → RowSet. Pulls `sqlx` with the
-# `runtime-tokio-rustls` TLS backend (PURE-RUST rustls — NEVER openssl) + a small
+# `runtime-tokio` + `tls-rustls-ring-native-roots` backend (PURE-RUST rustls —
+# NEVER openssl) + a small
 # current-thread tokio runtime to drive the async driver from the sync `fetch()` (on the
 # blocking pool). IMPLIES `federation`. HEAVY (a SQL driver + a TLS stack), so it is OFF
 # by default and the facade folds it into node/cluster/full but NEVER `pi` — the Pi
 # contract: a `pi` build links no sqlx/postgres/mysql/openssl.
-federation-sql = ["federation", "dep:sqlx", "dep:tokio"]
+federation-sql = [
+    "federation",
+    "dep:sqlx",
+    "dep:tokio",
+    "dep:futures-util",
+    "dep:sqlparser",
+]
 # Spatial / geospatial modality (CONCEPT:EG-083): the `Op::SpatialScan` SOURCE op (an
 # eg-geo packed-Hilbert-R-tree bbox scan over a layer's geometries) + the spatial
 # `Pred::SpatialWithin`/`SpatialDWithin` FILTER predicates (evaluated per-row by eg-geo's
@@ -141,14 +141,47 @@ probabilistic = [
     "dep:eg-compute",
     "eg-compute/reasoning",
 ]
+# Engine-native epistemic query surface (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2): the
+# `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,SourceReliability,ConfidenceOp,
+# ExplainBelief}` ops — belief propagation + justification IN-PLAN, composing with the
+# graph/vector/relational legs in ONE plan. Pulls the eg-epistemic leaf crate (pure Rust:
+# eg-types + eg-core + eg-compute/reasoning — no heavy dep, no cycle: eg-epistemic does NOT
+# depend on eg-plan) and turns on the `epistemic` wire variants in eg-types (the SAME feature
+# name eg-types already uses for the E6 `as_claim` mining gate — this just adds MORE variants
+# under it). IMPLIES `query` (the ops live inside the `query`-gated `Op` enum, beside the
+# probabilistic/tensor/geo legs). OFF by default; the facade folds it in alongside `mining`
+# (mirroring the eg-kvcache/eg-lake tier-wiring convention) — never forced into `pi`.
+#
+# ALSO (X1, CONCEPT:E3/E4): enables governed per-row evidence resolution in
+# `KnowledgeSet::from_rowset`. Query execution accepts only a complete, validated
+# `evidence_locus` committed by ingestion; it never invents identity, policy, lineage,
+# or a location from a raw modality value. `eg-modality` is an unconditional,
+# dependency-light type dependency below, so `KnowledgeRow::evidence_refs` has the
+# same `Vec<EvidenceLocus>` shape in every build. Without `epistemic`, the vector is
+# empty; with it, malformed or incomplete loci are rejected rather than downgraded.
+epistemic = [
+    "query",
+    "eg-types/epistemic",
+    "dep:eg-epistemic",
+]
 # Natural-language → query planning seam (CONCEPT:EG-078) + the concrete standalone
 # `UreqNlPlanner` (CONCEPT:EG-080). The `NlPlanner` trait + `plan_and_execute*` helpers
 # only touch the existing `uql::parse` + `execute`, so this IMPLIES `query`. The concrete
 # planner POSTs to an OpenAI-compatible endpoint over the SAME pure-Rust rustls client
-# `ureq` the `federation` sources already pull — NO new HTTP dep, NO openssl — so it is
-# OFF by default and the facade folds it into node/full but NEVER `pi` (the Pi contract:
-# a `pi` build links no ureq/rustls/ring).
-nl-query = ["query", "dep:ureq"]
+# `ureq` the `federation` sources already pull — NO new HTTP client, NO openssl. It also
+# pulls `rustls` DIRECTLY (pinned to the `ring` provider ureq already uses, for the
+# per-endpoint custom-CA / insecure TLS policy) plus the pure-Rust leaf crates
+# Rustls' maintained PKI types/webpki roots (CA parsing/roots) and `base64` (HTTP-Basic token
+# exchange) — still NO openssl / NO aws-lc / NO C toolchain. OFF by default; the facade
+# folds it into node/full but NEVER `pi` (the Pi contract: a `pi` build links no
+# ureq/rustls/ring).
+nl-query = [
+    "query",
+    "dep:ureq",
+    "dep:rustls",
+    "dep:webpki-roots",
+    "dep:base64",
+]
 # Lane B physical PARALLEL runtime (CONCEPT:EG-KG.query.parallel-runtime): the rayon-morsel,
 # memory-accounted, spilling `ParallelDriver` behind the Lane-0 `Driver` seam. Pulls the
 # pure-Rust `rayon` work-stealing pool (no C dep, same pin as eg-ann/eg-compute). IMPLIES
@@ -158,6 +191,22 @@ nl-query = ["query", "dep:ureq"]
 # fan-out) and `EPISTEMIC_GRAPH_EXEC_SPILL_MB` (per-intermediate spill budget). NEVER folded
 # into `pi`.
 par-runtime = ["query", "dep:rayon"]
+# Arrow-columnar `KnowledgeBatch` (CONCEPT:EG-P1-2, P1 roadmap feedback): a
+# RecordBatch-backed columnar projection of `KnowledgeSet` — entity/artifact id,
+# N named `Float32` score columns, calibrated confidence, typed evidence-ref
+# columns (an `evidence_kind` tag + a real Arrow `List<Utf8>` of per-locus JSON,
+# covering every `EvidenceAddress` granularity: text span, table cell, image pixel
+# region, audio/video interval/frame, code symbol, trace span), bitemporal
+# valid/tx-time columns, provenance (`source_refs`)/policy-label `List<Utf8>`
+# columns (plus transformation/proof/alternative/contradiction id lists), lazy
+# blob-handle columns (an opaque handle, never raw bytes), and native bounded streams
+# for graph, SQL, RDF, vector, time-series, jobs, and cross-modal results. IMPLIES `query`
+# (it builds FROM `KnowledgeSet`, itself `query`-gated). Pulls `arrow`, pinned to
+# the SAME version (`53`) eg-lake's `lake` feature already carries, so this shares
+# the lockfile footprint rather than adding a second Arrow version. OFF by
+# default at this crate layer; facade `full` enables it. A default/Pi build links NO
+# Arrow (verify with `cargo tree -p eg-plan`) — the small-footprint contract stays intact.
+knowledge-batch = ["query", "dep:arrow"]
 
 [dependencies]
 # The plan AST (Op/Pred/Plan) is the wire DTO, defined in eg-types behind its
@@ -166,6 +215,13 @@ par-runtime = ["query", "dep:rayon"]
 # DataFusion FILTER leg (eg-query, below) is gated behind eg-plan's own `query`.
 eg-types = { path = "../eg-types", features = ["query"] }
 eg-core = { path = "../eg-core" }
+# The `ModalityContract` trait + the `EvidenceLocus` shape (CONCEPT:E4/X1). Sits at
+# the SAME DAG level as `eg-types` (its own deps = `eg-types` only, per its crate
+# docs), so an UNCONDITIONAL dep here adds no new transitive weight and lets
+# `KnowledgeRow::evidence_refs` be `Vec<eg_modality::EvidenceLocus>` regardless of
+# feature — only the `epistemic` feature (below) populates it; a default/Pi build's
+# `evidence_refs` stays the empty `Vec` it always was.
+eg-modality = { path = "../eg-modality" }
 # The relational FILTER leg is real DataFusion via eg-query's schema-on-read
 # `nodes` provider — gated behind `query` so a default build links none of it.
 eg-query = { path = "../eg-query", optional = true }
@@ -198,6 +254,13 @@ eg-tensor = { path = "../eg-tensor", optional = true }
 # eg-compute depends only on eg-core/eg-types (no heavy dep, no eg-plan back-edge → no
 # cycle), so a default/Pi build links none of it.
 eg-compute = { path = "../eg-compute", optional = true }
+# The engine-native epistemic layer (claims/evidence/belief-state, confidence propagation,
+# justification) backing the `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,
+# SourceReliability,ConfidenceOp,ExplainBelief}` ops (feature `epistemic`, CONCEPT:EG-KG.epistemic.epistemic-substrate,
+# E2). Optional + only referenced under #[cfg(feature = "epistemic")]; depends only on
+# eg-types/eg-core/eg-compute (no eg-plan back-edge → no cycle), so a default/Pi build
+# links none of it.
+eg-epistemic = { path = "../eg-epistemic", optional = true }
 # The pure-Rust event-stream + CEP modality (bounded NFA over sliding/tumbling windows —
 # Sequence/Within/Absence + per-event attribute predicates) backing the `Cep` op (feature
 # `stream`, CONCEPT:EG-088). Optional + only referenced under #[cfg(feature = "stream")];
@@ -220,6 +283,20 @@ rmp-serde = "1.3"
 # rustls + webpki-roots behind its default `tls` feature; we DON'T disable defaults so
 # https works out of the box, but it is rustls/ring — no openssl in the tree.
 ureq = { version = "2.10", optional = true }
+# Per-endpoint TLS control for the `nl-query` planner (CONCEPT:EG-KG.query.nl-tls-insecure):
+# a custom PEM CA bundle or an insecure no-verify verifier for a trusted internal LLM.
+# Pinned to the SAME `ring` provider ureq already links (NO aws-lc / NO C toolchain — the
+# Pi-tier pure-Rust contract). Rustls' PKI parser and `webpki-roots` are pure Rust.
+# `base64` encodes the HTTP-Basic token-exchange credentials. All OFF by default (only
+# referenced under #[cfg(feature = "nl-query")]).
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+    "logging",
+], optional = true }
+webpki-roots = { version = "0.26", optional = true }
+base64 = { version = "0.22", optional = true }
 # HMAC-SHA256 auth token for the remote-engine source — the SAME scheme src/server/auth.rs
 # computes. Same pins as the facade.
 hmac = { version = "0.12", optional = true }
@@ -228,12 +305,14 @@ hex = { version = "0.4", optional = true }
 # ── external-SQL federation (CONCEPT:KG-2.239, feature `federation-sql`) — optional +
 # only referenced under #[cfg(feature = "federation-sql")], so a default/Pi/`federation`
 # build links NEITHER, and a `pi` tree carries no sqlx/postgres/mysql. ──
-# `sqlx` with the PURE-RUST rustls TLS backend (`runtime-tokio-rustls`) — NEVER openssl.
+# `sqlx` with the rustls ring backend and native trust roots — NEVER OpenSSL. SQLx
+# 0.9 separates runtime and TLS selection, so both features are explicit.
 # `postgres` + `mysql` give two dialects through one async API; `macros`/`migrate` are
 # off (no compile-time DB / no proc-macro). default-features = false drops the native-tls
 # default so the only TLS in the tree is rustls.
-sqlx = { version = "0.8", default-features = false, features = [
-    "runtime-tokio-rustls",
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls-ring-native-roots",
     "postgres",
     "mysql",
 ], optional = true }
@@ -241,6 +320,13 @@ sqlx = { version = "0.8", default-features = false, features = [
 # (which the executor already runs on the blocking pool). Minimal feature set — NOT
 # "full".
 tokio = { version = "1.38", features = ["rt", "net", "time"], optional = true }
+# Stream rows through a hard cardinality bound instead of `fetch_all`-allocating an
+# attacker-controlled result. `sink`/`io` are unnecessary for this read-only source.
+futures-util = { version = "0.3", default-features = false, features = ["std"], optional = true }
+# Parse the complete external statement before SQLx's explicit `AssertSqlSafe` seam.
+# The parser is already present in full/query builds through DataFusion; naming it here
+# makes the security contract direct rather than relying on a transitive dependency.
+sqlparser = { version = "0.62", features = ["visitor"], optional = true }
 # Variable-length-hop TRAVERSE BFS over GraphView's StableDiGraph (EdgeRef). Already
 # linked transitively via eg-core; pin the same minor. NOT a new heavy dep, and the
 # graph leg is dep-free (ships in a default/Pi build).
@@ -250,6 +336,12 @@ petgraph = { version = "0.6.4", features = ["serde-1"] }
 # #[cfg(feature = "par-runtime")]; pure-Rust (no C dep), same pin as eg-ann/eg-compute. A
 # default/Pi build links no rayon.
 rayon = { version = "1.10", optional = true }
+# Arrow columnar backing for `KnowledgeBatch` (feature `knowledge-batch`,
+# CONCEPT:EG-P1-2). Same Arrow 58.3 pin as the query/TSDB surface, so this does
+# not introduce a second Apache Arrow version into the workspace lock. Optional + only
+# referenced under #[cfg(feature = "knowledge-batch")]; a default/Pi build links
+# none of it.
+arrow = { version = "58.3", optional = true }
 
 [dev-dependencies]
 # The oracle/algebra tests build a fixture GraphCore + SemanticStore and run the

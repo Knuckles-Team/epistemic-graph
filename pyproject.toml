@@ -10,11 +10,17 @@ name = "epistemic-graph"
 # v2.6.0 tag built `epistemic_graph-2.2.0` (already on PyPI) which `twine
 # --skip-existing` swallowed as a no-op — a green publish that published nothing.
 dynamic = ["version"]
-description = "Rust-based epistemic graph engine for agent-utilities"
+description = "Rust-native durable multimodal and epistemic database with governed analytics and program optimization"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "msgpack>=1.0.0"
+    "msgpack>=1.2.1",
+    # numeric is a NATIVE core primitive, NOT an extra (CONCEPT:EG-346): the compiled
+    # pure-Rust faer/ndarray kernel ships as always-bundled package data
+    # (`epistemic_graph/numeric.abi3.so`), and numpy — its zero-copy interop boundary — is a
+    # BASE dependency so `import epistemic_graph.numeric` works on a bare `pip install
+    # epistemic-graph` (the module `agent_utilities.numeric`'s `xp` shim binds, CONCEPT:KG-2.315).
+    "numpy>=1.22.0",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -27,8 +33,8 @@ classifiers = [
 ]
 
 [[project.authors]]
-name = "Audel Rouhi"
-email = "knucklessg1@gmail.com"
+name = "Repository Maintainers"
+email = "maintainers@example.invalid"
 
 [project.license]
 text = "MIT"
@@ -52,7 +58,11 @@ ast = []
 datascience = []
 reasoning = []
 server = []
-full = []
+# `full` folds in every optional Python dep so `pip install epistemic-graph[full]` is
+# truly complete — INCLUDING numeric (the compiled kernel `.so` is already wheel-bundled;
+# this pulls the numpy boundary interop so `epistemic_graph.numeric` works out of the box),
+# owl (pyoxigraph) and lmcache (httpx). Previously `full = []` omitted numeric — the gap.
+full = ["epistemic-graph[owl,lmcache,numeric]"]
 # CONCEPT:EG-337 — the Python LMCache/vLLM remote-backend driver for the EG-187
 # KV-cache endpoint (`epistemic_graph.kvcache`). The driver itself imports with
 # STDLIB ONLY (urllib), so this extra only pulls the optional httpx acceleration
@@ -60,28 +70,14 @@ full = []
 lmcache = [
     "httpx>=0.24.0",
 ]
-# CONCEPT:EG-346 — the numeric kernel extra. The compiled faer/ndarray Surface-A
-# kernel (`crates/eg-numeric`, built `--features python`) is FOLDED INTO this wheel as
-# package data `epistemic_graph/numeric.abi3.so` by the release build
-# (`scripts/inject_numeric_kernel.py`), so there is ONE published package — no separate
-# `eg-numeric` on PyPI. The `.so` is self-contained (pure-Rust, BLAS/LAPACK-free); this
-# extra only pulls `numpy` for the zero-copy interop the kernel uses at its boundary.
-# `pip install epistemic-graph[numeric]` therefore makes `import epistemic_graph.numeric`
-# work — the module the `agent_utilities.numeric` `xp` shim binds (CONCEPT:KG-2.315).
-numeric = [
-    "numpy>=1.22.0",
-]
+# CONCEPT:EG-346 — numeric is NATIVE (numpy moved to base `dependencies` above); this extra
+# is retained as a NO-OP alias so existing `epistemic-graph[numeric]`/`[full]` installs and
+# the `all` aggregate keep resolving. The compiled faer/ndarray kernel remains always-bundled
+# as package data `epistemic_graph/numeric.abi3.so` (pure-Rust, BLAS/LAPACK-free).
+numeric = []
 all = [
     "epistemic-graph[test,owl,quant,finance,ast,datascience,reasoning,server,full,lmcache,numeric]",
 ]
-
-# Pre-bundled agent skills for operating the engine (the AI-native database):
-# troubleshooting / deploy / migrations. Discovered via the same
-# ``agent_utilities.skill_providers`` group AU uses, so skill-installer /
-# ``agent-utilities install-skills`` drops them into every agent tool alongside the
-# agent-utilities skills — the engine ships AI knowing how to operate itself.
-[project.entry-points."agent_utilities.skill_providers"]
-epistemic-graph = "epistemic_graph.skills"
 
 [tool.ruff]
 line-length = 88
@@ -104,9 +100,6 @@ min_confidence = 95
 python-source = "."
 bindings = "bin"
 strip = true
-# Ship the pre-bundled operations skills (SKILL.md + any refs) as package data so the
-# entry-point above resolves them in an installed wheel, not just an editable checkout.
-include = ["epistemic_graph/skills/**/*"]
 # THE ONE PUBLISHED WHEEL = the main full-featured build (CONCEPT:EG-371 — tiers
 # collapsed). `full` = every MAIN feature that builds without an external GPU/robotics
 # toolchain: durable redb-authoritative store + cypher + SQL (query/DataFusion) + graphql

@@ -1,0 +1,512 @@
+{
+  "bindings": [
+    {
+      "fields": [
+        "schema_version",
+        "request_id",
+        "subject_id",
+        "tenant_id",
+        "agent_id",
+        "scopes",
+        "audience",
+        "authentication_method",
+        "policy_version",
+        "graph",
+        "placement_epoch",
+        "trace_id",
+        "issued_at_ms",
+        "expires_at_ms"
+      ],
+      "pointer": "#",
+      "python_model": "RequestContext",
+      "rust_type": "RequestContext",
+      "schema": "request_context"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "batch_id",
+        "context",
+        "graph",
+        "placement_epoch",
+        "expected_graph_version",
+        "idempotency_key",
+        "operations",
+        "submitted_at_ms"
+      ],
+      "pointer": "#",
+      "python_model": "MutationBatch",
+      "rust_type": "MutationBatch",
+      "schema": "mutation_batch"
+    },
+    {
+      "fields": [
+        "operation_id",
+        "domain",
+        "action",
+        "target_id",
+        "payload_ref",
+        "payload_digest",
+        "expected_version"
+      ],
+      "pointer": "#/$defs/mutation_operation",
+      "python_model": "MutationOperation",
+      "rust_type": "MutationOperation",
+      "schema": "mutation_batch"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "envelope_id",
+        "context",
+        "connector_kind",
+        "source_instance_id",
+        "source_object_id",
+        "source_version",
+        "operation",
+        "schema_id",
+        "event_time_ms",
+        "valid_time_ms",
+        "observed_time_ms",
+        "artifact_refs",
+        "payload_ref",
+        "payload_digest",
+        "access",
+        "provenance_refs",
+        "checkpoint_ref",
+        "idempotency_key"
+      ],
+      "pointer": "#",
+      "python_model": "ChangeEnvelope",
+      "rust_type": "ChangeEnvelope",
+      "schema": "change_envelope"
+    },
+    {
+      "fields": [
+        "classification",
+        "read_scopes",
+        "purpose_tags",
+        "retention_policy_id",
+        "legal_hold"
+      ],
+      "pointer": "#/$defs/source_access",
+      "python_model": "SourceAccess",
+      "rust_type": "SourceAccess",
+      "schema": "change_envelope"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "work_item_id",
+        "context",
+        "kind",
+        "state",
+        "priority",
+        "depends_on",
+        "input_artifact_refs",
+        "output_artifact_refs",
+        "lease_holder_id",
+        "lease_expires_at_ms",
+        "attempt",
+        "max_attempts",
+        "created_at_ms",
+        "updated_at_ms",
+        "idempotency_key"
+      ],
+      "pointer": "#",
+      "python_model": "WorkItem",
+      "rust_type": "WorkItem",
+      "schema": "work_item"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "artifact_id",
+        "tenant_id",
+        "media_type",
+        "digest",
+        "byte_length",
+        "content_ref",
+        "classification",
+        "provenance_refs",
+        "occurrence_ids",
+        "rendition_ids",
+        "segment_ids",
+        "feature_ids",
+        "derivation_ids",
+        "loci",
+        "created_at_ms"
+      ],
+      "pointer": "#",
+      "python_model": "Artifact",
+      "rust_type": "Artifact",
+      "schema": "artifact"
+    },
+    {
+      "fields": [
+        "kind",
+        "start",
+        "end",
+        "selector"
+      ],
+      "pointer": "#/$defs/artifact_locus",
+      "python_model": "ArtifactLocus",
+      "rust_type": "ArtifactLocus",
+      "schema": "artifact"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "batch_id",
+        "context",
+        "fields",
+        "encoding",
+        "rows",
+        "data_ref",
+        "cursor",
+        "end_of_stream",
+        "source_refs"
+      ],
+      "pointer": "#",
+      "python_model": "KnowledgeBatch",
+      "rust_type": "KnowledgeBatch",
+      "schema": "knowledge_batch"
+    },
+    {
+      "fields": [
+        "name",
+        "data_type",
+        "nullable"
+      ],
+      "pointer": "#/$defs/knowledge_field",
+      "python_model": "KnowledgeField",
+      "rust_type": "KnowledgeField",
+      "schema": "knowledge_batch"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "job_id",
+        "context",
+        "kind",
+        "state",
+        "input_artifact_refs",
+        "parameters_digest",
+        "algorithm",
+        "algorithm_version",
+        "checkpoint_ref",
+        "output_artifact_refs",
+        "progress",
+        "attempt",
+        "max_attempts",
+        "created_at_ms",
+        "updated_at_ms",
+        "error"
+      ],
+      "pointer": "#",
+      "python_model": "AnalyticsJob",
+      "rust_type": "AnalyticsJob",
+      "schema": "analytics_job"
+    },
+    {
+      "fields": [
+        "code",
+        "retryable",
+        "detail_ref"
+      ],
+      "pointer": "#/$defs/analytics_error",
+      "python_model": "AnalyticsError",
+      "rust_type": "AnalyticsError",
+      "schema": "analytics_job"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "outcome_id",
+        "trace_id",
+        "context_id",
+        "operation",
+        "status",
+        "started_at_ms",
+        "ended_at_ms",
+        "input_artifact_refs",
+        "output_artifact_refs",
+        "metrics",
+        "policy_decision",
+        "error_code",
+        "error_detail_ref",
+        "evaluation_scores"
+      ],
+      "pointer": "#",
+      "python_model": "TraceOutcome",
+      "rust_type": "TraceOutcome",
+      "schema": "trace_outcome"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "route_id",
+        "tenant_ref",
+        "partition_ref",
+        "authoritative",
+        "placed",
+        "group",
+        "epoch",
+        "fencing_token",
+        "stale",
+        "leader_ref"
+      ],
+      "pointer": "#",
+      "python_model": "PlacementRoute",
+      "rust_type": "PlacementRoute",
+      "schema": "placement_route"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "tenant_ref",
+        "partition_ref",
+        "client_epoch"
+      ],
+      "pointer": "#/$defs/placement_route_request",
+      "python_model": "PlacementRouteRequest",
+      "rust_type": "PlacementRouteRequest",
+      "schema": "placement_route"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "tenant_ref",
+        "work_item_id",
+        "queue_ref",
+        "resource_class",
+        "fairness_group",
+        "worker_ref",
+        "now_ms",
+        "lease_ms",
+        "max_tenant_in_flight"
+      ],
+      "pointer": "#",
+      "python_model": "ClaimWorkItemRequest",
+      "rust_type": "ClaimWorkItemRequest",
+      "schema": "claim_work_item"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "claimed",
+        "reason",
+        "work_item_id",
+        "kind",
+        "payload_ref",
+        "lease_holder_ref",
+        "lease_epoch",
+        "fencing_token",
+        "lease_expires_at_ms",
+        "attempt",
+        "max_attempts",
+        "tenant_in_flight",
+        "changed_work_item_ids"
+      ],
+      "pointer": "#/$defs/claim_work_item_result",
+      "python_model": "ClaimWorkItemResult",
+      "rust_type": "ClaimWorkItemResult",
+      "schema": "claim_work_item"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "bundle_id",
+        "resolved",
+        "answer_ref",
+        "claims",
+        "policy_exclusions",
+        "next_action_refs"
+      ],
+      "pointer": "#",
+      "python_model": "EvidenceBundle",
+      "rust_type": "EvidenceBundle",
+      "schema": "evidence_bundle"
+    },
+    {
+      "fields": [
+        "claim_ref",
+        "kind",
+        "score",
+        "confidence",
+        "valid_time",
+        "transaction_time",
+        "source_refs",
+        "evidence_locus_refs",
+        "contradiction_refs",
+        "proof_refs",
+        "policy_labels"
+      ],
+      "pointer": "#/$defs/evidence_claim",
+      "python_model": "EvidenceClaim",
+      "rust_type": "EvidenceClaim",
+      "schema": "evidence_bundle"
+    },
+    {
+      "fields": [
+        "start_ms",
+        "end_ms"
+      ],
+      "pointer": "#/$defs/evidence_time_range",
+      "python_model": "EvidenceTimeRange",
+      "rust_type": "EvidenceTimeRange",
+      "schema": "evidence_bundle"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "operation_id",
+        "status",
+        "result_kind",
+        "result_ref",
+        "error",
+        "redirect"
+      ],
+      "pointer": "#",
+      "python_model": "OperationResult",
+      "rust_type": "OperationResult",
+      "schema": "operation_result"
+    },
+    {
+      "fields": [
+        "code",
+        "retryable",
+        "correlation_id",
+        "detail_ref"
+      ],
+      "pointer": "#/$defs/operation_error",
+      "python_model": "OperationError",
+      "rust_type": "OperationError",
+      "schema": "operation_result"
+    },
+    {
+      "fields": [
+        "kind",
+        "target_ref",
+        "group",
+        "epoch",
+        "fencing_token",
+        "leader_ref"
+      ],
+      "pointer": "#/$defs/operation_redirect",
+      "python_model": "OperationRedirect",
+      "rust_type": "OperationRedirect",
+      "schema": "operation_result"
+    }
+  ],
+  "catalog_sha256": "280b7c386bf71e586788bbdaeb72650c6723996f147507c56ab35f96a7c0b98a",
+  "compatibility_policy": "current-only",
+  "privacy_contract": {
+    "content": "content-addressed-reference",
+    "credentials": "forbidden",
+    "environment_endpoints": "forbidden",
+    "identifiers": "opaque",
+    "local_filesystem_paths": "forbidden"
+  },
+  "protocol": "epistemic-operations",
+  "schemas": [
+    {
+      "file": "request-context.schema.json",
+      "id": "urn:epistemic-operations:v2:request-context",
+      "name": "request_context",
+      "sha256": "310b69c8113fd441c99285053e307e84a12e373c32cf56182c5f25273133cd14",
+      "title": "RequestContext",
+      "version": "2"
+    },
+    {
+      "file": "mutation-batch.schema.json",
+      "id": "urn:epistemic-operations:v1:mutation-batch",
+      "name": "mutation_batch",
+      "sha256": "90f32151cbc2df050dbb031c998e6a08468b87fdf4cbd0612c39551db25ed3ce",
+      "title": "MutationBatch",
+      "version": "1"
+    },
+    {
+      "file": "change-envelope.schema.json",
+      "id": "urn:epistemic-operations:v1:change-envelope",
+      "name": "change_envelope",
+      "sha256": "7b12ee69be0d716499c5f5819af12f9f8db9565a0a820bf6d9fd45aa40fdb3fe",
+      "title": "ChangeEnvelope",
+      "version": "1"
+    },
+    {
+      "file": "work-item.schema.json",
+      "id": "urn:epistemic-operations:v1:work-item",
+      "name": "work_item",
+      "sha256": "53a7f6a1b435d554a76acede91e11eb869210eb75884f7d90232b95fcf5dbcb4",
+      "title": "WorkItem",
+      "version": "1"
+    },
+    {
+      "file": "artifact.schema.json",
+      "id": "urn:epistemic-operations:v1:artifact",
+      "name": "artifact",
+      "sha256": "519c760a226ae93ebf346e29e30aeb03f4f6ce4e632bffeb9bf8302b392b6b80",
+      "title": "Artifact",
+      "version": "1"
+    },
+    {
+      "file": "knowledge-batch.schema.json",
+      "id": "urn:epistemic-operations:v1:knowledge-batch",
+      "name": "knowledge_batch",
+      "sha256": "ec2cf5afc5b7fa3ae0469ed394258f2e4176a310095196db993cf4cea11a9e6f",
+      "title": "KnowledgeBatch",
+      "version": "1"
+    },
+    {
+      "file": "analytics-job.schema.json",
+      "id": "urn:epistemic-operations:v1:analytics-job",
+      "name": "analytics_job",
+      "sha256": "d109b74f0fa3013f4cc5b3c6e4df9c82b6fa6e6ce4c32af25b9a4ac0f7ee609c",
+      "title": "AnalyticsJob",
+      "version": "1"
+    },
+    {
+      "file": "trace-outcome.schema.json",
+      "id": "urn:epistemic-operations:v1:trace-outcome",
+      "name": "trace_outcome",
+      "sha256": "34740b30955cebda79ea0c2b5ba5217729ce9e544a7d7264fc6524e7636c5025",
+      "title": "TraceOutcome",
+      "version": "1"
+    },
+    {
+      "file": "placement-route.schema.json",
+      "id": "urn:epistemic-operations:v1:placement-route",
+      "name": "placement_route",
+      "sha256": "0637a2b5ed9631212d5e3b16a6ca3010bd5993ff42336bc995372a163776d16c",
+      "title": "PlacementRoute",
+      "version": "1"
+    },
+    {
+      "file": "claim-work-item.schema.json",
+      "id": "urn:epistemic-operations:v1:claim-work-item",
+      "name": "claim_work_item",
+      "sha256": "e2e045c0784994023ad3c6a6a91a64aa613ad4271149a88dbf5b569ae842b237",
+      "title": "ClaimWorkItemRequest",
+      "version": "1"
+    },
+    {
+      "file": "evidence-bundle.schema.json",
+      "id": "urn:epistemic-operations:v1:evidence-bundle",
+      "name": "evidence_bundle",
+      "sha256": "894fb20b93c3264652c390d0a778527389fe1ada5958e753c7bc80148e24b9d4",
+      "title": "EvidenceBundle",
+      "version": "1"
+    },
+    {
+      "file": "operation-result.schema.json",
+      "id": "urn:epistemic-operations:v1:operation-result",
+      "name": "operation_result",
+      "sha256": "76e3ee6c19843968d7e40d6a56aefc1a595935451c1f5eaee370adc78e9a4966",
+      "title": "OperationResult",
+      "version": "1"
+    }
+  ],
+  "unknown_field_policy": "reject",
+  "version": "1"
+}

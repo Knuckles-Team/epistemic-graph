@@ -17,7 +17,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use eg_plan::{NlPlanner, UreqNlPlanner};
+use eg_plan::{NlPlanner, OAuth2ClientCredentials, TokenAuthStyle, UreqNlPlanner};
 
 /// An operator-injected planner (CONCEPT:EG-KG.query.fence-stripper). Set ONCE, before first use, by an
 /// embedder that wants the engine to drive its own NL→query. Wins over the config default.
@@ -45,18 +45,38 @@ pub fn resolve_planner() -> Option<Arc<dyn NlPlanner>> {
         .clone()
 }
 
+/// OAuth2 client-credentials settings resolved from config (the client secret is carried
+/// as the NAME of an env var, resolved to its value at planner-build time — never a
+/// plaintext secret in config).
+struct OAuth2Settings {
+    token_url: String,
+    client_id: String,
+    /// Name of the env var holding the client secret.
+    client_secret_env: String,
+    scope: Option<String>,
+    /// "basic" ⇒ HTTP Basic at the token endpoint; anything else ⇒ body params.
+    auth_style: TokenAuthStyle,
+}
+
 /// LLM settings resolved from `agent-utilities`' `config.json` (+ env overrides).
 struct NlSettings {
     endpoint: String,
     model: String,
     /// Name of the env var carrying the bearer key (resolved to the key at build time).
     api_key_env: Option<String>,
+    /// Static headers sent on every request (e.g. a gateway client-id header).
+    headers: Vec<(String, String)>,
+    /// Per-endpoint PEM CA bundle path. Verification is always enabled.
+    tls_ca_path: Option<String>,
+    /// OAuth2 client-credentials token source (mints a bearer instead of a static key).
+    oauth2: Option<OAuth2Settings>,
 }
 
 /// Env overrides (take precedence over the config file when set).
 const ENDPOINT_ENV: &str = "EPISTEMIC_GRAPH_NL_ENDPOINT";
 const MODEL_ENV: &str = "EPISTEMIC_GRAPH_NL_MODEL";
 const API_KEY_ENV_ENV: &str = "EPISTEMIC_GRAPH_NL_API_KEY_ENV";
+const TLS_CA_ENV: &str = "EPISTEMIC_GRAPH_NL_TLS_CA";
 
 /// Build the standalone config default planner (CONCEPT:EG-KG.query.fence-stripper). Reads config +
 /// env-overrides; returns `None` (no NL surface) when no endpoint is configured.
@@ -72,7 +92,25 @@ fn build_default_from_config() -> Option<Arc<dyn NlPlanner>> {
         .filter(|s| !s.is_empty())
         .and_then(|e| std::env::var(e).ok())
         .unwrap_or_default();
-    let planner = UreqNlPlanner::new(settings.endpoint, settings.model, api_key);
+    // Resolve the OAuth2 client secret from its env var (config carries only the NAME).
+    // A configured oauth2 block whose secret env var is unset is dropped (falls back to the
+    // static api_key) rather than minting with an empty secret.
+    let oauth2 = settings.oauth2.and_then(|o| {
+        let secret = std::env::var(&o.client_secret_env)
+            .ok()
+            .filter(|s| !s.is_empty())?;
+        Some(OAuth2ClientCredentials {
+            token_url: o.token_url,
+            client_id: o.client_id,
+            client_secret: secret,
+            scope: o.scope,
+            auth_style: o.auth_style,
+        })
+    });
+    let planner = UreqNlPlanner::new(settings.endpoint, settings.model, api_key)
+        .with_headers(settings.headers)
+        .with_tls_ca_path(settings.tls_ca_path)
+        .with_oauth2(oauth2);
     Some(Arc::new(planner) as Arc<dyn NlPlanner>)
 }
 
@@ -96,19 +134,42 @@ fn load_or_scaffold_settings() -> NlSettings {
         scaffold_minimal_config();
     }
 
-    let (f_endpoint, f_model, f_key_env) =
-        from_file.unwrap_or((String::new(), String::new(), None));
+    let env_tls_ca = [TLS_CA_ENV, "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"]
+        .into_iter()
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()));
 
-    NlSettings {
-        endpoint: env_endpoint.unwrap_or(f_endpoint),
-        model: env_model
-            .or(if f_model.is_empty() {
-                None
-            } else {
-                Some(f_model)
-            })
-            .unwrap_or_else(|| "gpt-4o-mini".to_string()),
-        api_key_env: env_key_env.or(f_key_env),
+    let mut settings = from_file.unwrap_or_else(NlSettings::empty);
+
+    // Env overrides win over the file for the fields that carry one.
+    if let Some(e) = env_endpoint {
+        settings.endpoint = e;
+    }
+    if let Some(m) = env_model {
+        settings.model = m;
+    }
+    if env_key_env.is_some() {
+        settings.api_key_env = env_key_env;
+    }
+    if let Some(ca) = env_tls_ca {
+        settings.tls_ca_path = Some(ca);
+    }
+    if settings.model.is_empty() {
+        settings.model = "gpt-4o-mini".to_string();
+    }
+    settings
+}
+
+impl NlSettings {
+    /// Empty settings (no endpoint ⇒ the NL surface stays inert).
+    fn empty() -> Self {
+        Self {
+            endpoint: String::new(),
+            model: String::new(),
+            api_key_env: None,
+            headers: Vec::new(),
+            tls_ca_path: None,
+            oauth2: None,
+        }
     }
 }
 
@@ -137,10 +198,12 @@ fn find_config_file() -> Option<std::path::PathBuf> {
     config_candidates().into_iter().find(|p| p.is_file())
 }
 
-/// Parse the LLM `(endpoint, model, api_key_env)` out of an `agent-utilities`
-/// `config.json`. Tolerant of layout: looks under a top-level `nl_query` or `llm` object
-/// (then the bare top level) for `endpoint`/`model`/`api_key_env` string keys.
-fn parse_config(path: &std::path::Path) -> Option<(String, String, Option<String>)> {
+/// Parse the LLM settings out of an `agent-utilities` `config.json`. Tolerant of layout:
+/// looks under a top-level `nl_query` or `llm` object (then the bare top level) for the
+/// `endpoint`/`model`/`api_key_env` string keys plus the optional `headers` map,
+/// `tls_ca_path`, and `oauth2` client-credentials block. Certificate
+/// verification is always enabled; private roots are supplied through a CA bundle.
+fn parse_config(path: &std::path::Path) -> Option<NlSettings> {
     let text = std::fs::read_to_string(path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&text).ok()?;
     // Search the two conventional sections then the bare root.
@@ -149,10 +212,47 @@ fn parse_config(path: &std::path::Path) -> Option<(String, String, Option<String
         .or_else(|| json.get("llm"))
         .unwrap_or(&json);
     let getstr = |k: &str| section.get(k).and_then(|v| v.as_str()).map(str::to_string);
-    let endpoint = getstr("endpoint").unwrap_or_default();
-    let model = getstr("model").unwrap_or_default();
-    let api_key_env = getstr("api_key_env");
-    Some((endpoint, model, api_key_env))
+
+    // Static headers: an object of string→string; non-string values are skipped.
+    let headers = section
+        .get("headers")
+        .and_then(|v| v.as_object())
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let tls_ca_path = getstr("tls_ca_path").filter(|s| !s.is_empty());
+
+    // OAuth2 client-credentials block — requires token_url + client_id + client_secret_env.
+    let oauth2 = section.get("oauth2").and_then(|o| {
+        let gs = |k: &str| o.get(k).and_then(|v| v.as_str()).map(str::to_string);
+        let token_url = gs("token_url").filter(|s| !s.is_empty())?;
+        let client_id = gs("client_id").filter(|s| !s.is_empty())?;
+        let client_secret_env = gs("client_secret_env").filter(|s| !s.is_empty())?;
+        let auth_style = match o.get("auth_style").and_then(|v| v.as_str()) {
+            Some(s) if s.eq_ignore_ascii_case("basic") => TokenAuthStyle::Basic,
+            _ => TokenAuthStyle::Body,
+        };
+        Some(OAuth2Settings {
+            token_url,
+            client_id,
+            client_secret_env,
+            scope: gs("scope").filter(|s| !s.is_empty()),
+            auth_style,
+        })
+    });
+
+    Some(NlSettings {
+        endpoint: getstr("endpoint").unwrap_or_default(),
+        model: getstr("model").unwrap_or_default(),
+        api_key_env: getstr("api_key_env"),
+        headers,
+        tls_ca_path,
+        oauth2,
+    })
 }
 
 /// Best-effort scaffold of a minimal `config.json` at `~/.config/agent-utilities/` so an
@@ -178,10 +278,90 @@ fn scaffold_minimal_config() {
             "_comment": "epistemic-graph CONCEPT:EG-KG.query.fence-stripper — set `endpoint` to an \
     OpenAI-compatible /chat/completions URL to enable the NL query surface (Method::NlQuery \
     + /nl). `api_key_env` names the env var holding the bearer key (empty for a local \
-    keyless endpoint)."
+    keyless endpoint).",
+            "_headers_comment": "Optional `headers`: a string→string map sent on every request \
+    (e.g. {\"X-Client-Id\": \"my-service\"} for a gateway that requires a static client-id header).",
+            "_tls_comment": "Use `tls_ca_path` (or EPISTEMIC_GRAPH_NL_TLS_CA) for \
+    private trust. Certificate verification is always enabled.",
+            "_oauth2_comment": "Optional `oauth2` client-credentials block minting a short-lived \
+    bearer instead of a static key: {\"token_url\": \"...\", \"client_id\": \"...\", \
+    \"client_secret_env\": \"NL_OAUTH_CLIENT_SECRET\", \"scope\": \"api://x/.default\", \
+    \"auth_style\": \"basic\"}. `auth_style` basic ⇒ HTTP Basic at the token endpoint; the \
+    secret is read from the named env var, never stored in this file."
         }
     });
     if let Ok(body) = serde_json::to_string_pretty(&scaffold) {
         let _ = std::fs::write(&path, body);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_tmp(name: &str, body: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn parse_config_reads_headers_tls_and_oauth2() {
+        let path = write_tmp(
+            "eg_nl_full_config.json",
+            r#"{
+              "nl_query": {
+                "endpoint": "https://gw.arpa/v1/chat/completions",
+                "model": "qwen",
+                "headers": {"X-Client-Id": "svc-42"},
+                "tls_ca_path": "/etc/ssl/internal-ca.pem",
+                "oauth2": {
+                  "token_url": "https://idp/token",
+                  "client_id": "cid",
+                  "client_secret_env": "NL_OAUTH_SECRET",
+                  "scope": "api://x/.default",
+                  "auth_style": "basic"
+                }
+              }
+            }"#,
+        );
+        let s = parse_config(&path).expect("parsed");
+        assert_eq!(s.endpoint, "https://gw.arpa/v1/chat/completions");
+        assert_eq!(
+            s.headers,
+            vec![("X-Client-Id".to_string(), "svc-42".to_string())]
+        );
+        assert_eq!(s.tls_ca_path.as_deref(), Some("/etc/ssl/internal-ca.pem"));
+        let o = s.oauth2.expect("oauth2 parsed");
+        assert_eq!(o.token_url, "https://idp/token");
+        assert_eq!(o.client_secret_env, "NL_OAUTH_SECRET");
+        assert_eq!(o.auth_style, TokenAuthStyle::Basic);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn parse_config_defaults_are_inert() {
+        let path = write_tmp(
+            "eg_nl_minimal_config.json",
+            r#"{"nl_query": {"endpoint": "http://x/v1", "model": "m"}}"#,
+        );
+        let s = parse_config(&path).expect("parsed");
+        assert!(s.headers.is_empty());
+        assert!(s.tls_ca_path.is_none());
+        assert!(s.oauth2.is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn parse_config_drops_incomplete_oauth2_block() {
+        // Missing client_secret_env ⇒ the block is ignored (no half-configured mint).
+        let path = write_tmp(
+            "eg_nl_bad_oauth_config.json",
+            r#"{"nl_query": {"endpoint": "http://x/v1",
+                "oauth2": {"token_url": "https://idp/token", "client_id": "cid"}}}"#,
+        );
+        let s = parse_config(&path).expect("parsed");
+        assert!(s.oauth2.is_none());
+        let _ = std::fs::remove_file(&path);
     }
 }

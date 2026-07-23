@@ -1,0 +1,39 @@
+[package]
+name = "eg-jobs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Durable analytics-job plane (CONCEPT:INT-P2-1): async submit/status/progress/cancel/resume over a redb-backed AnalyticsJob state machine, committing results as provenance'd epistemic claims"
+license = "MIT"
+
+[lib]
+name = "eg_jobs"
+
+# A leaf crate ALONG the DAG (CONCEPT:INT-P2-1): deps = eg-types (wire-shaped value
+# types) + eg-core (the `GraphCore` write primitive the claim-commit step needs — the
+# SAME `add_node`/`add_edge`/`has_node`/`version()` surface `eg-epistemic` reads and
+# `src/server/handlers/mining.rs`'s `materialize_claim` writes through). The facade's
+# self-contained `full` contract includes the `jobs` feature; lean custom builds may
+# still omit it explicitly.
+#
+# Durability is the crate's whole reason to exist, so `redb` is an UNCONDITIONAL
+# dependency here (unlike eg-tsdb/eg-kvcache's optional `redb-store`/`durable`
+# features, which exist to keep THEIR lean/no-store path buildable) — there is no
+# "durable job plane without a durable store" configuration worth shipping.
+[dependencies]
+eg-types = { path = "../eg-types" }
+eg-core = { path = "../eg-core" }
+eg-mutation-store = { path = "../eg-mutation-store" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+redb = "4.1"
+sha2 = "0.10"
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []

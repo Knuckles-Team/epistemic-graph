@@ -24,7 +24,8 @@
 use crate::ivfpq::SearchResult;
 use crate::kmeans::sq_dist;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 /// The distance/similarity metric a [`FlatIndex`] search scores by (CONCEPT:EG-KG.query.concept-5).
 ///
@@ -88,7 +89,7 @@ impl Metric {
 /// tombstone byte per row supports exclude-on-delete without reshuffling. Search is
 /// an O(N·dim) scan — the exact ground truth, not a production ANN. Byte-accounted
 /// via [`FlatIndex::byte_size`] and serde-serializable for a no-recompute reload.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct FlatIndex {
     /// Embedding dimension.
     pub dim: usize,
@@ -98,6 +99,35 @@ pub struct FlatIndex {
     pub vectors: Vec<f32>,
     /// Tombstones: 1 byte/row (1 = deleted, excluded from search).
     pub deleted: Vec<u8>,
+    /// Derived external-id -> row offsets directory. It is intentionally omitted
+    /// from the wire image and rebuilt lazily after a reload. Keeping every row
+    /// offset preserves the historical duplicate-id behavior: `vector_of` returns
+    /// the first live row and `delete` tombstones every live occurrence.
+    #[serde(skip, default)]
+    rows_by_id: OnceLock<HashMap<u64, Vec<usize>>>,
+}
+
+impl Clone for FlatIndex {
+    fn clone(&self) -> Self {
+        Self {
+            dim: self.dim,
+            ids: self.ids.clone(),
+            vectors: self.vectors.clone(),
+            deleted: self.deleted.clone(),
+            // A lookup directory is derived and cheap to rebuild on first use.
+            // Keeping clones cold avoids copying O(N) auxiliary allocations.
+            rows_by_id: OnceLock::new(),
+        }
+    }
+}
+
+impl PartialEq for FlatIndex {
+    fn eq(&self, other: &Self) -> bool {
+        self.dim == other.dim
+            && self.ids == other.ids
+            && self.vectors == other.vectors
+            && self.deleted == other.deleted
+    }
 }
 
 impl FlatIndex {
@@ -109,6 +139,7 @@ impl FlatIndex {
             ids: Vec::new(),
             vectors: Vec::new(),
             deleted: Vec::new(),
+            rows_by_id: OnceLock::new(),
         }
     }
 
@@ -119,9 +150,13 @@ impl FlatIndex {
         self.deleted.reserve(items.len());
         for (id, v) in items {
             assert_eq!(v.len(), self.dim, "vector length must equal dim");
+            let row = self.ids.len();
             self.ids.push(*id);
             self.vectors.extend_from_slice(v);
             self.deleted.push(0);
+            if let Some(index) = self.rows_by_id.get_mut() {
+                index.entry(*id).or_default().push(row);
+            }
         }
     }
 
@@ -143,9 +178,13 @@ impl FlatIndex {
     /// Tombstone every row carrying `id`. Returns the number tombstoned.
     pub fn delete(&mut self, id: u64) -> usize {
         let mut n = 0;
-        for (row, &x) in self.ids.iter().enumerate() {
-            if x == id && self.deleted[row] == 0 {
-                self.deleted[row] = 1;
+        let index = self
+            .rows_by_id
+            .get_or_init(|| build_row_directory(&self.ids));
+        let deleted = &mut self.deleted;
+        for &row in index.get(&id).into_iter().flatten() {
+            if deleted[row] == 0 {
+                deleted[row] = 1;
                 n += 1;
             }
         }
@@ -160,9 +199,20 @@ impl FlatIndex {
 
     /// Look up the FIRST live row's vector for external `id`, if present.
     pub fn vector_of(&self, id: u64) -> Option<&[f32]> {
-        (0..self.ids.len())
-            .find(|&i| self.ids[i] == id && self.deleted[i] == 0)
-            .map(|i| self.row(i))
+        self.rows_by_id()
+            .get(&id)?
+            .iter()
+            .copied()
+            .find(|&row| self.deleted[row] == 0)
+            .map(|row| self.row(row))
+    }
+
+    /// Lazily build the derived external-id directory once. A loaded index pays
+    /// one O(N) pass on its first point lookup/rerank/delete; all later lookups are
+    /// expected O(1) plus the number of duplicate rows for that id.
+    fn rows_by_id(&self) -> &HashMap<u64, Vec<usize>> {
+        self.rows_by_id
+            .get_or_init(|| build_row_directory(&self.ids))
     }
 
     /// EXACT top-k: scan every live row, score by `metric`, return the k nearest as
@@ -186,8 +236,7 @@ impl FlatIndex {
                 distance: dists[i],
             })
             .collect();
-        sort_nearest_first(&mut scored);
-        scored.truncate(k);
+        truncate_nearest_first(&mut scored, k);
         scored
     }
 
@@ -214,29 +263,27 @@ impl FlatIndex {
         if k == 0 {
             return Vec::new();
         }
-        // Map external id → first live row once, so rerank is O(candidates) lookups
-        // plus one O(N) build (cheap next to the exact distance recompute).
-        let mut row_of: HashMap<u64, usize> = HashMap::with_capacity(self.ids.len());
-        for (i, &id) in self.ids.iter().enumerate() {
-            if self.deleted[i] == 0 {
-                row_of.entry(id).or_insert(i);
-            }
-        }
-        let mut seen: HashMap<u64, ()> = HashMap::with_capacity(candidate_ids.len());
+        // Reuse the lazy id directory instead of rebuilding an O(N) map for every
+        // rerank request. Duplicate candidate ids and duplicate stored rows retain
+        // the historical first-live-row semantics.
+        let row_of = self.rows_by_id();
+        let mut seen: HashSet<u64> = HashSet::with_capacity(candidate_ids.len());
         let mut scored: Vec<SearchResult> = Vec::with_capacity(candidate_ids.len());
         for &id in candidate_ids {
-            if seen.insert(id, ()).is_some() {
+            if !seen.insert(id) {
                 continue; // score each distinct candidate once
             }
-            if let Some(&i) = row_of.get(&id) {
+            if let Some(i) = row_of
+                .get(&id)
+                .and_then(|rows| rows.iter().copied().find(|&row| self.deleted[row] == 0))
+            {
                 scored.push(SearchResult {
                     id,
                     distance: metric.distance(query, self.row(i)),
                 });
             }
         }
-        sort_nearest_first(&mut scored);
-        scored.truncate(k);
+        truncate_nearest_first(&mut scored, k);
         scored
     }
 
@@ -261,23 +308,59 @@ impl FlatIndex {
     /// `struct + vectors(4B) + ids(8B) + tombstones(1B)`, counting reserved
     /// capacity (what is actually resident).
     pub fn byte_size(&self) -> usize {
+        let directory_bytes = self.rows_by_id.get().map_or(0, |index| {
+            index.capacity() * (std::mem::size_of::<u64>() + std::mem::size_of::<Vec<usize>>())
+                + index
+                    .values()
+                    .map(|rows| rows.capacity() * std::mem::size_of::<usize>())
+                    .sum::<usize>()
+        });
         std::mem::size_of::<Self>()
             + self.vectors.capacity() * std::mem::size_of::<f32>()
             + self.ids.capacity() * std::mem::size_of::<u64>()
             + self.deleted.capacity()
+            + directory_bytes
     }
 }
 
-/// Sort [`SearchResult`]s nearest-first (ascending distance), breaking ties by id
-/// for a deterministic, reproducible order. NaN distances sort last.
+fn build_row_directory(ids: &[u64]) -> HashMap<u64, Vec<usize>> {
+    let mut index = HashMap::with_capacity(ids.len());
+    for (row, &id) in ids.iter().enumerate() {
+        index.entry(id).or_insert_with(Vec::new).push(row);
+    }
+    index
+}
+
+/// Keep and order the exact nearest `k` without sorting every scored row. Selection
+/// is linear and only the retained prefix is sorted, reducing a flat exact search
+/// from O(N log N) to O(N + k log k), with O(1) selection scratch.
 #[inline]
-fn sort_nearest_first(v: &mut [SearchResult]) {
-    v.sort_by(|a, b| {
-        a.distance
+fn truncate_nearest_first(v: &mut Vec<SearchResult>, k: usize) {
+    if k == 0 {
+        v.clear();
+        return;
+    }
+    if v.len() > k {
+        v.select_nth_unstable_by(k, nearest_cmp);
+        v.truncate(k);
+    }
+    v.sort_unstable_by(nearest_cmp);
+}
+
+/// Total nearest-first order: finite distance ascending, id ascending on ties,
+/// and NaN after every finite/infinite value. A total comparator is required by
+/// partial selection and matches the public deterministic ordering contract.
+#[inline]
+fn nearest_cmp(a: &SearchResult, b: &SearchResult) -> std::cmp::Ordering {
+    match (a.distance.is_nan(), b.distance.is_nan()) {
+        (true, false) => std::cmp::Ordering::Greater,
+        (false, true) => std::cmp::Ordering::Less,
+        _ => a
+            .distance
             .partial_cmp(&b.distance)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.id.cmp(&b.id))
-    });
+            .then_with(|| a.id.cmp(&b.id)),
+    }
 }
 
 #[cfg(test)]
@@ -432,12 +515,81 @@ mod tests {
     }
 
     #[test]
+    fn point_directory_preserves_duplicate_id_semantics_and_warm_adds() {
+        let mut f = FlatIndex::new(2);
+        f.add(&[(7, vec![1.0, 0.0]), (7, vec![2.0, 0.0])]);
+
+        // The first point lookup builds the directory. Appending afterwards must
+        // maintain that warm directory incrementally rather than make it stale.
+        assert_eq!(f.vector_of(7), Some([1.0, 0.0].as_slice()));
+        f.add(&[(9, vec![9.0, 0.0]), (7, vec![3.0, 0.0])]);
+        assert_eq!(f.vector_of(9), Some([9.0, 0.0].as_slice()));
+
+        assert_eq!(f.delete(7), 3, "every duplicate row is tombstoned");
+        assert!(f.vector_of(7).is_none());
+        assert_eq!(f.delete(7), 0, "repeated delete is idempotent");
+    }
+
+    #[test]
+    fn derived_point_directory_is_not_part_of_equality_or_wire_image() {
+        let f = idx();
+        assert!(f.vector_of(20).is_some(), "warm the derived directory");
+        let bytes = crate::codec::serialize(&f).expect("serialize FlatIndex");
+        let back: FlatIndex = crate::codec::deserialize(&bytes).expect("deserialize FlatIndex");
+        assert_eq!(back, f);
+        assert!(back.rows_by_id.get().is_none(), "reload starts cache-cold");
+        assert_eq!(back.vector_of(20), Some([1.0, 0.0].as_slice()));
+    }
+
+    #[test]
     fn eg297_search_k_zero_and_empty_index() {
         let f = idx();
         assert!(f.search(&[0.0, 0.0], 0, Metric::L2).is_empty());
         let empty = FlatIndex::new(2);
         assert!(empty.search(&[0.0, 0.0], 5, Metric::L2).is_empty());
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn partial_topk_matches_total_full_sort_and_places_nan_last() {
+        let input = vec![
+            SearchResult {
+                id: 9,
+                distance: 3.0,
+            },
+            SearchResult {
+                id: 5,
+                distance: f32::NAN,
+            },
+            SearchResult {
+                id: 4,
+                distance: 1.0,
+            },
+            SearchResult {
+                id: 3,
+                distance: 1.0,
+            },
+            SearchResult {
+                id: 2,
+                distance: -1.0,
+            },
+            SearchResult {
+                id: 1,
+                distance: f32::INFINITY,
+            },
+        ];
+        let mut expected = input.clone();
+        expected.sort_unstable_by(nearest_cmp);
+        expected.truncate(4);
+
+        let mut got = input;
+        truncate_nearest_first(&mut got, 4);
+
+        assert_eq!(
+            got.iter().map(|row| row.id).collect::<Vec<_>>(),
+            expected.iter().map(|row| row.id).collect::<Vec<_>>()
+        );
+        assert!(got.iter().all(|row| !row.distance.is_nan()));
     }
 
     #[test]
@@ -459,8 +611,8 @@ mod tests {
     fn eg297_serde_round_trip_preserves_vectors_and_search() {
         let f = idx();
         let before = f.search(&[0.5, 0.5], 4, Metric::L2);
-        let bytes = bincode::serialize(&f).expect("serialize FlatIndex");
-        let back: FlatIndex = bincode::deserialize(&bytes).expect("deserialize FlatIndex");
+        let bytes = crate::codec::serialize(&f).expect("serialize FlatIndex");
+        let back: FlatIndex = crate::codec::deserialize(&bytes).expect("deserialize FlatIndex");
         assert_eq!(back.dim, f.dim);
         assert_eq!(back.ids, f.ids);
         assert_eq!(back.vectors, f.vectors);
@@ -475,8 +627,8 @@ mod tests {
     #[test]
     fn eg297_metric_serde_round_trip() {
         for m in [Metric::L2, Metric::Cosine, Metric::InnerProduct] {
-            let s = bincode::serialize(&m).unwrap();
-            let back: Metric = bincode::deserialize(&s).unwrap();
+            let s = crate::codec::serialize(&m).unwrap();
+            let back: Metric = crate::codec::deserialize(&s).unwrap();
             assert_eq!(m, back);
         }
     }

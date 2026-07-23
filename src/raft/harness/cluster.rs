@@ -19,12 +19,12 @@ use openraft::BasicNode;
 use tokio::sync::RwLock;
 
 use crate::channels::ChannelManager;
+use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::registry::GraphRegistry;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
-use crate::wal_service::FsyncPolicy;
 
 use super::super::config::RaftClusterConfig;
 use super::super::node::{self, StartedNode};
@@ -63,7 +63,7 @@ pub struct Cluster {
 /// make the harness mis-report a durable-but-not-yet-replayed write as "lost".
 async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.to_string(), FsyncPolicy::Each, 4096)
+        RedbBackend::open(dir.to_string(), DurabilityPolicy::Each, 4096)
             .map_err(|e| format!("open redb {dir}: {e}"))?,
     );
     let state = Arc::new(RwLock::new(ServerState {
@@ -77,12 +77,11 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         auth_secret: "harness".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend.clone()),
-        redb_authoritative: true,
         max_in_flight: Arc::new(tokio::sync::Semaphore::new(256)),
         read_admission: Arc::new(tokio::sync::Semaphore::new(256)),
         per_graph_inflight: Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit: 64,
-        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
         txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -97,8 +96,6 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -111,6 +108,8 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }));
     // M2 rehydration: load the durable graph data from redb into the registry before
     // Raft starts (the real boot path's `load_all`). A fresh dir loads 0; a restarted
@@ -138,6 +137,10 @@ fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
         peers: peers.clone(),
         bind_addr,
         is_bootstrap: peers.keys().next() == Some(&node_id),
+        groups: 1,
+        transport_secret: Some(
+            super::super::config::RaftTransportSecret::from_material(&[0x5a; 32]).unwrap(),
+        ),
     }
 }
 
@@ -282,11 +285,23 @@ impl Cluster {
             graph_fname: crate::persist::sanitize(GRAPH),
             graph_name: GRAPH.to_string(),
             graph_type: GraphType::Commons,
-            method: Method::AddNode {
-                node_id: format!("n{seq}"),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"seq": seq}))
-                    .unwrap(),
-            },
+            committed_at_ms: 0,
+            mutation: super::super::RaftMutationContext::internal(
+                "raft-cluster-harness",
+                GRAPH,
+                &format!("write-{seq}"),
+                seq,
+                0,
+            ),
+            command: super::super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: format!("n{seq}"),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"seq": seq}))
+                        .unwrap(),
+                },
+                "harness",
+            )
+            .unwrap(),
         }
     }
 
@@ -301,6 +316,127 @@ impl Cluster {
             .client_write(Self::add_node_req(seq))
             .await
             .map(|_| ())
+    }
+
+    /// The `RaftRequest` for a `CreateGraph` of an ARBITRARY named graph — the
+    /// counterpart to [`Self::add_node_req`] needed to exercise the
+    /// CreateGraph-immediately-followed-by-a-write catch-up/replay sequence
+    /// (`impl/raft-catchup-apply`). Replicates as `NativeMutationCommand::GraphLifecycle`,
+    /// the SAME encoding the real client `Method::CreateGraph` path produces.
+    pub fn create_graph_req(graph_name: &str, graph_type: GraphType, seq: u64) -> RaftRequest {
+        let secret = "harness";
+        let command = super::super::NativeMutationCommand::from_public_method(
+            Method::CreateGraph {
+                graph_name: graph_name.to_string(),
+                graph_type,
+            },
+            secret,
+        )
+        .map_err(|_| "CreateGraph must be an inventoried native domain")
+        .unwrap();
+        RaftRequest {
+            graph_fname: crate::persist::sanitize(graph_name),
+            graph_name: graph_name.to_string(),
+            graph_type,
+            committed_at_ms: 0,
+            mutation: super::super::RaftMutationContext::internal(
+                "raft-cluster-harness",
+                graph_name,
+                &format!("create-{seq}"),
+                seq,
+                0,
+            ),
+            command: super::super::ReplicatedMutation::Native { command },
+        }
+    }
+
+    /// The `RaftRequest` for an AddNode write of `n{seq}` into an ARBITRARY named
+    /// graph (generalizes [`Self::add_node_req`] off the fixed [`GRAPH`] constant).
+    pub fn add_node_req_for(graph_name: &str, graph_type: GraphType, seq: u64) -> RaftRequest {
+        RaftRequest {
+            graph_fname: crate::persist::sanitize(graph_name),
+            graph_name: graph_name.to_string(),
+            graph_type,
+            committed_at_ms: 0,
+            mutation: super::super::RaftMutationContext::internal(
+                "raft-cluster-harness",
+                graph_name,
+                &format!("write-{seq}"),
+                seq,
+                0,
+            ),
+            command: super::super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: format!("n{seq}"),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"seq": seq}))
+                        .unwrap(),
+                },
+                "harness",
+            )
+            .unwrap(),
+        }
+    }
+
+    /// Issue an arbitrary pre-built `RaftRequest` through `leader`'s `client_write`.
+    /// `Ok` ⇒ committed+applied on a quorum (the leader's own apply — NOT proof any
+    /// particular follower has caught up).
+    pub async fn write_req(&self, leader: NodeId, req: RaftRequest) -> Result<(), String> {
+        let m = self
+            .members
+            .get(&leader)
+            .and_then(|m| m.started.as_ref())
+            .ok_or_else(|| format!("node {leader} not running"))?;
+        m.handle.client_write(req).await.map(|_| ())
+    }
+
+    /// Applied node-count for an ARBITRARY graph on node `id` (0 if killed/absent/
+    /// the graph is not yet resident there).
+    pub async fn node_count_in(&self, id: NodeId, graph_name: &str) -> usize {
+        let Some(m) = self.members.get(&id) else {
+            return 0;
+        };
+        let Some(state) = &m.state else { return 0 };
+        let s = state.read().await;
+        s.registry
+            .get(graph_name)
+            .map(|e| e.core.node_count())
+            .unwrap_or(0)
+    }
+
+    /// Does node `id`'s applied state contain `node_id` in `graph_name`?
+    pub async fn has_node_in(&self, id: NodeId, graph_name: &str, node_id: &str) -> bool {
+        let Some(m) = self.members.get(&id) else {
+            return false;
+        };
+        let Some(state) = &m.state else {
+            return false;
+        };
+        let s = state.read().await;
+        s.registry
+            .get(graph_name)
+            .map(|e| e.core.has_node(node_id))
+            .unwrap_or(false)
+    }
+
+    /// Is `graph_name` REGISTERED (resident or catalog-only) on node `id`?
+    pub async fn graph_exists(&self, id: NodeId, graph_name: &str) -> bool {
+        let Some(m) = self.members.get(&id) else {
+            return false;
+        };
+        let Some(state) = &m.state else {
+            return false;
+        };
+        state.read().await.registry.exists(graph_name)
+    }
+
+    /// The applied log index node `id` has reached (`None` if killed/absent or no
+    /// entry has ever applied).
+    pub async fn applied_index(&self, id: NodeId) -> Option<u64> {
+        let m = self.members.get(&id)?;
+        let s = m.started.as_ref()?;
+        let metrics = s.handle.raft.metrics();
+        let last_applied = metrics.borrow_watched().last_applied.clone();
+        last_applied.map(|l| l.index)
     }
 
     /// Applied node-count in `GRAPH` on node `id` (0 if killed/absent).

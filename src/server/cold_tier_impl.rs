@@ -86,7 +86,7 @@ mod s3 {
     use super::ColdTier;
     use object_store::aws::AmazonS3Builder;
     use object_store::path::Path as ObjPath;
-    use object_store::ObjectStore;
+    use object_store::{ObjectStore, ObjectStoreExt};
     use tokio::runtime::Runtime;
 
     /// Object-store-backed cold tier. A cold graph's blob is ONE object at

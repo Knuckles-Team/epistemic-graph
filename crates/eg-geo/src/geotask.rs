@@ -27,6 +27,14 @@ use serde::{Deserialize, Serialize};
 use crate::geometry::{Bbox, Geometry, Point, Polygon};
 use crate::strtree::StrTree;
 
+fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    <Option<T> as serde::Deserialize>::deserialize(deserializer)
+}
+
 /// The lifecycle status of a [`GeoTask`] (CONCEPT:EG-KG.domains.geo-task). `Pending` tasks are the ones the
 /// assignment queries hand out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,11 +62,12 @@ impl TaskStatus {
 /// and an optional `service_area` geometry (the region the task covers — e.g. a delivery
 /// zone). Plain serde so the caller can persist it however it likes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GeoTask {
     pub id: u64,
     pub location: Point,
     pub status: TaskStatus,
-    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_required_option")]
     pub service_area: Option<Geometry>,
 }
 
@@ -321,12 +330,15 @@ mod tests {
     fn eg267_tasks_in_polygon_exact_filter() {
         let idx = GeoTaskIndex::build(sample_tasks());
         // A triangle covering the lower-left tasks but not (10,10).
-        let tri = Polygon::new(LineString::new(vec![
-            Point::new(-1.0, -1.0),
-            Point::new(8.0, -1.0),
-            Point::new(-1.0, 8.0),
-            Point::new(-1.0, -1.0),
-        ]));
+        let tri = Polygon::new(
+            LineString::new(vec![
+                Point::new(-1.0, -1.0),
+                Point::new(8.0, -1.0),
+                Point::new(-1.0, 8.0),
+                Point::new(-1.0, -1.0),
+            ]),
+            Vec::new(),
+        );
         let hits = idx.tasks_in_polygon(&tri);
         // Hypotenuse is x+y=7: (0,0) and (2,3) are inside; (5,5) [x+y=10], (10,10) and
         // (-4,8) are outside.
@@ -393,13 +405,16 @@ mod tests {
     #[test]
     fn eg267_service_area_covering_query() {
         // A task whose service area is a square delivery zone.
-        let zone = Geometry::Polygon(Polygon::new(LineString::new(vec![
-            Point::new(0.0, 0.0),
-            Point::new(10.0, 0.0),
-            Point::new(10.0, 10.0),
-            Point::new(0.0, 10.0),
-            Point::new(0.0, 0.0),
-        ])));
+        let zone = Geometry::Polygon(Polygon::new(
+            LineString::new(vec![
+                Point::new(0.0, 0.0),
+                Point::new(10.0, 0.0),
+                Point::new(10.0, 10.0),
+                Point::new(0.0, 10.0),
+                Point::new(0.0, 0.0),
+            ]),
+            Vec::new(),
+        ));
         let tasks = vec![
             GeoTask::new(1, Point::new(5.0, 5.0)).with_service_area(zone),
             GeoTask::new(2, Point::new(50.0, 50.0)), // no service area
@@ -415,12 +430,15 @@ mod tests {
         // A task persists via serde (the caller owns storage) and reloads identically.
         let t = GeoTask::new(7, Point::new(1.5, -2.5))
             .with_status(TaskStatus::InProgress)
-            .with_service_area(Geometry::Polygon(Polygon::new(LineString::new(vec![
-                Point::new(0.0, 0.0),
-                Point::new(3.0, 0.0),
-                Point::new(3.0, 3.0),
-                Point::new(0.0, 0.0),
-            ]))));
+            .with_service_area(Geometry::Polygon(Polygon::new(
+                LineString::new(vec![
+                    Point::new(0.0, 0.0),
+                    Point::new(3.0, 0.0),
+                    Point::new(3.0, 3.0),
+                    Point::new(0.0, 0.0),
+                ]),
+                Vec::new(),
+            )));
         let s = serde_json::to_string(&t).unwrap();
         let back: GeoTask = serde_json::from_str(&s).unwrap();
         assert_eq!(t, back);
