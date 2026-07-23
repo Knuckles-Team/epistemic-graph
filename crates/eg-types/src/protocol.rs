@@ -1076,6 +1076,18 @@ pub enum Method {
     ApplyChangeEnvelope {
         envelope: Box<crate::change_envelope::ChangeEnvelope>,
     },
+    /// Atomically materialize a BATCH of externally sourced objects. Envelopes are
+    /// grouped by their `mutation.graph` and each graph's envelopes land in ONE
+    /// coalesced redb transaction (the atomic graph-batch); envelopes spanning
+    /// graphs split into independent per-graph sub-batches. Within a graph-batch the
+    /// commit is all-or-nothing — a single failing envelope aborts that graph's
+    /// transaction and every envelope in the graph reports the batch outcome. Across
+    /// graphs the sub-batches are independent (partial success). Per-envelope results
+    /// (applied / idempotent-skip / conflict) are returned in request order. Same
+    /// policy class as `ApplyChangeEnvelope`. Bounded by `MAX_ENVELOPES_PER_BATCH`.
+    ApplyChangeEnvelopes {
+        envelopes: Vec<crate::change_envelope::ChangeEnvelope>,
+    },
     /// Read a committed envelope by stable identity for retry reconciliation.
     GetChangeEnvelope {
         envelope_id: String,

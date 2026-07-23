@@ -328,6 +328,34 @@ def _mark_method_f32(method_wire: dict[str, Any], *, path: str = "method") -> No
                             f".operations[{index}].method"
                         ),
                     )
+    elif method == "ApplyChangeEnvelopes":
+        # Plural of the above: mark f32 in each batched envelope's typed nested
+        # operation methods so the batch's signed body byte-matches the server.
+        envelopes = params.get("envelopes")
+        if isinstance(envelopes, list):
+            for env_index, envelope in enumerate(envelopes):
+                mutation = (
+                    envelope.get("mutation") if isinstance(envelope, dict) else None
+                )
+                operations = (
+                    mutation.get("operations") if isinstance(mutation, dict) else None
+                )
+                if not isinstance(operations, list):
+                    continue
+                for index, operation in enumerate(operations):
+                    nested_method = (
+                        operation.get("method")
+                        if isinstance(operation, dict)
+                        else None
+                    )
+                    if isinstance(nested_method, dict):
+                        _mark_method_f32(
+                            nested_method,
+                            path=(
+                                f"{path}.ApplyChangeEnvelopes.params.envelopes"
+                                f"[{env_index}].mutation.operations[{index}].method"
+                            ),
+                        )
 
 
 def _pack_canonical_msgpack(value: Any) -> bytes:
@@ -1984,6 +2012,51 @@ class ChangeEnvelopeClient:
             graph=mutation["graph"],
             idempotency_key=mutation["idempotency_key"],
         )
+
+    async def apply_batch(
+        self, envelopes: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Commit a batch of envelopes that all target ONE graph in a single
+        ``ApplyChangeEnvelopes`` round-trip (CONCEPT:EG-KG.ingest.batched-change-envelopes).
+
+        The engine lands the whole group in ONE coalesced redb transaction and returns
+        one result per envelope, in the SAME order as ``envelopes``. Each result carries
+        a ``status`` of ``applied`` / ``idempotent_skip`` / ``conflict`` (the same
+        outcome vocabulary the single :meth:`apply` produces), so a caller can advance a
+        watermark through the contiguous success prefix.
+
+        A batch idempotency PRE-read (``get_many``) is deliberately omitted: the engine
+        checks each envelope's idempotency key inside the commit transaction and reports
+        a replay as ``idempotent_skip``, so a client-side pre-read would only add a
+        round-trip without changing the outcome — defeating the point of batching.
+
+        Every envelope must target the same graph (the connector's KG); a mixed-graph
+        call raises. The engine itself supports mixed-graph batches (per-graph
+        sub-transactions), but a single connector page is single-graph by construction.
+        """
+        if not envelopes:
+            return []
+        canonicals = [self._canonical(envelope) for envelope in envelopes]
+        graph = canonicals[0]["mutation"]["graph"]
+        for canonical in canonicals:
+            if canonical["mutation"]["graph"] != graph:
+                raise ValueError(
+                    "changes.apply_batch requires every envelope to target one graph"
+                )
+        # Deterministic transport idempotency key over the batch's per-envelope keys;
+        # per-envelope idempotency is enforced authoritatively server-side.
+        material = "\0".join(
+            sorted(canonical["mutation"]["idempotency_key"] for canonical in canonicals)
+        ).encode("utf-8")
+        batch_key = "change-batch:sha256:" + hashlib.sha256(material).hexdigest()
+        result = await self._client._send(
+            "ApplyChangeEnvelopes",
+            {"envelopes": canonicals},
+            graph=graph,
+            idempotency_key=batch_key,
+        )
+        results = result.get("results") if isinstance(result, dict) else None
+        return results if isinstance(results, list) else []
 
     async def get(self, envelope_id: str) -> dict[str, Any] | None:
         tenant = self._client._verified_tenant()
@@ -8267,6 +8340,47 @@ class EpistemicGraphClient:
             policy["tenant"] = tenant
         return bound
 
+    def _bind_change_envelopes(
+        self,
+        params: dict[str, Any],
+        *,
+        request_id: int,
+        graph: str,
+    ) -> dict[str, Any]:
+        """Stamp the verified request authority into EVERY envelope of a batch — the
+        plural of :meth:`_bind_change_envelope`. All envelopes must target ``graph``."""
+        verified_context = self._effective_verified_context()
+        bound = copy.deepcopy(params)
+        tenant = str(verified_context["tenant"])
+        principal = (
+            "principal:sha256:"
+            + hashlib.sha256(
+                str(verified_context["principal"]).encode("utf-8")
+            ).hexdigest()
+        )
+        policy_version = str(verified_context["policy_version"])
+        for envelope in bound["envelopes"]:
+            mutation = envelope["mutation"]
+            if mutation["graph"] != graph:
+                raise ValueError(
+                    "ChangeEnvelope batch mutation graph does not match the request graph"
+                )
+            mutation["tenant"] = tenant
+            context_in = mutation["context"]
+            context: dict[str, Any] = {
+                "request_id": int(request_id),
+                "principal": principal,
+            }
+            if context_in.get("purpose") is not None:
+                context["purpose"] = context_in["purpose"]
+            context["policy_fingerprint"] = policy_version
+            if context_in.get("trace_id") is not None:
+                context["trace_id"] = context_in["trace_id"]
+            mutation["context"] = context
+            for policy in envelope.get("policies", []):
+                policy["tenant"] = tenant
+        return bound
+
     def _compute_verified_token(
         self, request: dict[str, Any], idempotency_key: str | None
     ) -> str:
@@ -8431,6 +8545,12 @@ class EpistemicGraphClient:
             if params is None:
                 raise ValueError("ApplyChangeEnvelope requires an envelope")
             params = self._bind_change_envelope(
+                params, request_id=req_id, graph=target_graph
+            )
+        elif method == "ApplyChangeEnvelopes":
+            if params is None:
+                raise ValueError("ApplyChangeEnvelopes requires envelopes")
+            params = self._bind_change_envelopes(
                 params, request_id=req_id, graph=target_graph
             )
         request: dict[str, Any] = {

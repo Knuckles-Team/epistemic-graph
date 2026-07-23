@@ -765,7 +765,11 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: true,
             txn_participation: TxnParticipation::Atomic,
         },
-        Method::ApplyChangeEnvelope { .. } => MethodPolicy {
+        // The batch envelope method (`ApplyChangeEnvelopes`) is the SAME policy class
+        // as the single one: a mutating, gateway-external, audited, CDC-emitting
+        // graph-shard write. It is a coordinator that decomposes into per-graph
+        // `ApplyChangeEnvelope`-shaped sub-batches, so it mirrors this policy exactly.
+        Method::ApplyChangeEnvelope { .. } | Method::ApplyChangeEnvelopes { .. } => MethodPolicy {
             mutates: true,
             durability_domain: DurabilityDomain::GraphRedb,
             authz_action: "ingest:write",
@@ -2171,6 +2175,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("CompactNodesByType", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "node:admin", idempotent: false, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
         ("RunDatalogReasoning", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "reasoning:write", idempotent: false, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch commits inferred facts"),
         ("ApplyChangeEnvelope", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "ingest:write", idempotent: true, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "Engine-native object/material/governance/version/cursor/outbox commit; verified context is mandatory"),
+        ("ApplyChangeEnvelopes", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "ingest:write", idempotent: true, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "Batch envelope coordinator: one coalesced graph transaction per shard-partition; same policy class as ApplyChangeEnvelope"),
         ("GetChangeEnvelope", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "ingest:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "Verified tenant-scoped reconciliation read"),
         ("GetContentVersion", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "ingest:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "Typed content versions are never compared lexically"),
         ("GetChangeCursor", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "ingest:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "Typed source cursors are tenant/graph/partition scoped"),

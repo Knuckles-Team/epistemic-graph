@@ -256,6 +256,23 @@ pub trait PersistenceBackend: Send + Sync {
         Err("persistence backend does not support atomic ChangeEnvelope commits".to_string())
     }
 
+    /// Commit a BATCH of engine-native governed ingest units that all target
+    /// `graph_fname`, as ONE coalesced transaction/fsync (CONCEPT:EG-KG.ingest.batched-change-envelopes).
+    /// Returns one `ChangeEnvelopeCommit` per envelope, in order. `Err((index, msg))`
+    /// means the batch aborted at that envelope — because the whole group shares one
+    /// atomic transaction, no envelope in it committed.
+    async fn commit_change_envelopes(
+        &self,
+        _graph_fname: &str,
+        _envelopes: &[ChangeEnvelope],
+        _committed_at_ms: u64,
+    ) -> Result<Vec<ChangeEnvelopeCommit>, (usize, String)> {
+        Err((
+            0,
+            "persistence backend does not support batched ChangeEnvelope commits".to_string(),
+        ))
+    }
+
     async fn read_change_envelope(
         &self,
         _graph_fname: &str,
