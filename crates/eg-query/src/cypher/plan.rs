@@ -108,15 +108,22 @@ pub struct Pattern {
 }
 
 /// `(var:Label)` — both parts optional (`()`, `(a)`, `(:Label)`, `(a:Label)`).
-/// The optional `props` inline-property map (`{k: v, …}`) is used ONLY on the write
-/// path (CREATE/MERGE, CONCEPT:EG-KG.query.register-each-user-table); the read parser always leaves it `None`.
+/// The optional `props` inline-property map (`{k: v, …}`) is parsed identically
+/// whether or not `var`/`label` are present — an ANONYMOUS node (`(:Label {k: v})`,
+/// or fully bare `({k: v})`) carries its `props` exactly like a named one
+/// (CONCEPT:EG-KG.query.anon-propmap-parity) — and is consumed on BOTH paths: the write path (CREATE/MERGE,
+/// CONCEPT:EG-KG.query.register-each-user-table) realizes it on the created/merged node; the read path
+/// (CONCEPT:EG-KG.query.param-list-drives-unwind) constrains the matched node, at every pattern position (start, hop
+/// target, quantified-group interior), independent of whether the node has a
+/// variable name.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodePat {
     pub var: Option<String>,
     pub label: Option<String>,
     /// Inline property map (`(n:L {k: v})`). On the write path these realize the
     /// created/merged node; on the read path (CONCEPT:EG-KG.query.param-list-drives-unwind) they constrain the
-    /// matched node (`(n {id: x})`). Values may reference params/bound vars.
+    /// matched node (`(n {id: x})`), whether or not `n` is named. Values may
+    /// reference params/bound vars.
     pub props: Option<Vec<(String, PropVal)>>,
 }
 
