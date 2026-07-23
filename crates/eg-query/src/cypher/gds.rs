@@ -31,11 +31,12 @@ use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use serde_json::Value;
 
 use eg_compute::graph_algos::{
-    all_pairs_similarity, betweenness_centrality, degree_centrality, dijkstra, k1_coloring, k_core,
+    all_pairs_similarity, article_rank, betweenness_centrality, closeness_centrality,
+    degree_centrality, dijkstra, eigenvector_centrality, harmonic_centrality, k1_coloring, k_core,
     knn_similarity, label_propagation, leiden, local_clustering_coefficient, louvain, pagerank,
     strongly_connected_components, triangle_count, weakly_connected_components, AdjacencyGraph,
-    DegreeKind, Direction, LabelPropagationConfig, LeidenConfig, LouvainConfig, Metric,
-    PageRankConfig,
+    ArticleRankConfig, ClosenessConfig, DegreeKind, Direction, EigenvectorConfig,
+    LabelPropagationConfig, LeidenConfig, LouvainConfig, Metric, PageRankConfig,
 };
 
 use super::proc::{CypherProcedure, ProcRow, YieldValue};
@@ -44,17 +45,21 @@ use super::proc::{CypherProcedure, ProcRow, YieldValue};
 /// (CONCEPT:EG-KG.query.gds-call-procedures / CONCEPT:EG-KG.query.gds-procedure-routing). Consumed
 /// by `proc::build_registry`. The always-on base (EG-298 + `labelPropagation`/
 /// `knn` + the W4.1 GDS-parity expansion — Leiden/triangle-count/
-/// local-clustering-coefficient/k-core/k1-coloring community family) all
-/// route to always-on `graph_algos` kernels; `gds.dbscan` and
-/// `gds.linkPrediction` are gated behind the `cypher-mining`/
-/// `cypher-graphlearn` features (they route to heavier eg-compute domains —
-/// see `Cargo.toml`).
+/// local-clustering-coefficient/k-core/k1-coloring community family,
+/// eigenvector/ArticleRank/closeness/harmonic centrality) all route to
+/// always-on `graph_algos` kernels; `gds.dbscan` and `gds.linkPrediction` are
+/// gated behind the `cypher-mining`/`cypher-graphlearn` features (they route
+/// to heavier eg-compute domains — see `Cargo.toml`).
 pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
     #[allow(unused_mut)]
     let mut v: Vec<Box<dyn CypherProcedure>> = vec![
         Box::new(PageRank),
         Box::new(Betweenness),
         Box::new(Degree),
+        Box::new(Eigenvector),
+        Box::new(ArticleRank),
+        Box::new(Closeness),
+        Box::new(Harmonic),
         Box::new(Louvain),
         Box::new(Leiden),
         Box::new(Wcc),
@@ -281,6 +286,102 @@ impl CypherProcedure for Degree {
             _ => DegreeKind::Out,
         };
         Ok(scored_rows(degree_centrality(&g, kind), "score"))
+    }
+}
+
+/// `gds.eigenvector(config)` — eigenvector centrality via power iteration
+/// (CONCEPT:EG-KG.query.gds-call-procedures). Config: `maxIterations` (20), `tolerance` (1e-7),
+/// `relationshipWeightProperty`. Yields `nodeId` / `node`, `score`. Routes to
+/// `eg_compute::graph_algos::eigenvector_centrality` (CONCEPT:EG-KG.compute.eigenvector-centrality) —
+/// see that kernel's doc for the two honest degenerate cases (pure DAG ⇒ zero;
+/// periodic structure ⇒ `converged` may be false).
+struct Eigenvector;
+impl CypherProcedure for Eigenvector {
+    fn name(&self) -> &'static str {
+        "gds.eigenvector"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "score"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let ec = EigenvectorConfig {
+            tolerance: cfg.f64("tolerance", 1e-7),
+            max_iterations: cfg.usize("maxIterations", 20),
+        };
+        Ok(scored_rows(eigenvector_centrality(&g, &ec).scores, "score"))
+    }
+}
+
+/// `gds.articleRank(config)` — ArticleRank, a PageRank variant that discounts
+/// low-out-degree sources (CONCEPT:EG-KG.query.gds-call-procedures). Config: `dampingFactor`
+/// (0.85), `maxIterations` (20), `tolerance` (1e-7), `relationshipWeightProperty`.
+/// Yields `nodeId` / `node`, `score`. Routes to
+/// `eg_compute::graph_algos::article_rank` (CONCEPT:EG-KG.compute.article-rank) — see that
+/// kernel's doc for why ArticleRank scores do not sum to 1 (documented, expected).
+struct ArticleRank;
+impl CypherProcedure for ArticleRank {
+    fn name(&self) -> &'static str {
+        "gds.articleRank"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "score"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let ac = ArticleRankConfig {
+            damping: cfg.f64("dampingFactor", 0.85),
+            tolerance: cfg.f64("tolerance", 1e-7),
+            max_iterations: cfg.usize("maxIterations", 20),
+        };
+        Ok(scored_rows(article_rank(&g, &ac).scores, "score"))
+    }
+}
+
+/// `gds.closeness(config)` — closeness centrality (Freeman), optionally the
+/// Wasserman–Faust "improved" correction (CONCEPT:EG-KG.query.gds-call-procedures). Config:
+/// `useWassermanFaust` (false, mirrors legacy GDS's own flag name),
+/// `relationshipWeightProperty`. Yields `nodeId` / `node`, `score`. Routes to
+/// `eg_compute::graph_algos::closeness_centrality` (CONCEPT:EG-KG.compute.closeness-centrality).
+struct Closeness;
+impl CypherProcedure for Closeness {
+    fn name(&self) -> &'static str {
+        "gds.closeness"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "score"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let cc = ClosenessConfig {
+            improved: cfg
+                .get("useWassermanFaust")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        };
+        Ok(scored_rows(closeness_centrality(&g, &cc), "score"))
+    }
+}
+
+/// `gds.harmonic(config)` — harmonic centrality (Marchiori & Latora)
+/// (CONCEPT:EG-KG.query.gds-call-procedures). Config: `relationshipWeightProperty`. Yields
+/// `nodeId` / `node`, `score`. Routes to
+/// `eg_compute::graph_algos::harmonic_centrality` (CONCEPT:EG-KG.compute.harmonic-centrality).
+struct Harmonic;
+impl CypherProcedure for Harmonic {
+    fn name(&self) -> &'static str {
+        "gds.harmonic"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "score"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        Ok(scored_rows(harmonic_centrality(&g), "score"))
     }
 }
 
@@ -856,6 +957,120 @@ mod tests {
         assert_eq!(by_node.len(), 4);
         // carol is the chain sink ⇒ outranks alice (chain source).
         assert!(by_node["carol"] > by_node["alice"], "{by_node:?}");
+    }
+
+    #[test]
+    fn call_gds_eigenvector_symmetric_triangle_is_uniform() {
+        // Bidirectional triangle (every pair connected both ways, equal
+        // weight): eigenvector centrality's fixed point is uniform.
+        let core = GraphCore::new();
+        for id in ["a", "b", "c"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for (s, t) in [
+            ("a", "b"),
+            ("b", "a"),
+            ("b", "c"),
+            ("c", "b"),
+            ("a", "c"),
+            ("c", "a"),
+        ] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
+                .unwrap();
+        }
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.eigenvector() YIELD nodeId, score RETURN nodeId, score",
+        )
+        .unwrap();
+        let mut scores: HashMap<String, f64> = HashMap::new();
+        for r in rows(&qr) {
+            scores.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
+        }
+        let vals: Vec<f64> = scores.values().copied().collect();
+        for w in [(vals[0], vals[1]), (vals[1], vals[2])] {
+            assert!((w.0 - w.1).abs() < 1e-6, "{scores:?}");
+        }
+        assert!(vals[0] > 0.0);
+    }
+
+    #[test]
+    fn call_gds_article_rank_ranks_the_chains_sink_highest() {
+        let v = fixture();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.articleRank({dampingFactor: 0.85}) YIELD nodeId, score \
+             RETURN nodeId, score",
+        )
+        .unwrap();
+        let mut by_node: HashMap<String, f64> = HashMap::new();
+        for r in rows(&qr) {
+            by_node.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
+        }
+        assert_eq!(by_node.len(), 4);
+        // carol is the chain sink (bob->carol, plus alice->bob->carol upstream)
+        // ⇒ still outranks alice, same qualitative shape as gds.pageRank.
+        assert!(by_node["carol"] > by_node["alice"], "{by_node:?}");
+    }
+
+    #[test]
+    fn call_gds_closeness_and_harmonic_cross_checked_on_a_path() {
+        let core = GraphCore::new();
+        for id in ["a", "b", "c", "d"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for (s, t) in [
+            ("a", "b"),
+            ("b", "a"),
+            ("b", "c"),
+            ("c", "b"),
+            ("c", "d"),
+            ("d", "c"),
+        ] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
+                .unwrap();
+        }
+        let v = core.analysis_snapshot();
+
+        let closeness = exec_cypher(
+            &v,
+            "CALL gds.closeness() YIELD nodeId, score RETURN nodeId, score",
+        )
+        .unwrap();
+        let mut c: HashMap<String, f64> = HashMap::new();
+        for r in rows(&closeness) {
+            c.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
+        }
+        // From b: reaches a(1),c(1),d(2) ⇒ classic closeness = 3/4.
+        assert!((c["b"] - 0.75).abs() < 1e-9, "{c:?}");
+
+        let improved = exec_cypher(
+            &v,
+            "CALL gds.closeness({useWassermanFaust: true}) YIELD nodeId, score \
+             RETURN nodeId, score",
+        )
+        .unwrap();
+        let mut ci: HashMap<String, f64> = HashMap::new();
+        for r in rows(&improved) {
+            ci.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
+        }
+        // Wasserman-Faust scales by reachable/(N-1) = 3/3 = 1 for b (b reaches
+        // everyone) ⇒ unchanged; cross-checks that the flag actually threads
+        // through the Cypher config parser to the kernel.
+        assert!((ci["b"] - 0.75).abs() < 1e-9, "{ci:?}");
+
+        let harmonic = exec_cypher(
+            &v,
+            "CALL gds.harmonic() YIELD nodeId, score RETURN nodeId, score",
+        )
+        .unwrap();
+        let mut h: HashMap<String, f64> = HashMap::new();
+        for r in rows(&harmonic) {
+            h.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
+        }
+        // From b: (1/1 + 1/1 + 1/2) / 3 = 2.5/3.
+        assert!((h["b"] - 2.5 / 3.0).abs() < 1e-9, "{h:?}");
     }
 
     #[test]
