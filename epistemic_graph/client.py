@@ -95,7 +95,7 @@ def validate_request_context(
         if not isinstance(node, str) or not node.strip():
             raise ValueError("verified_context.node must be a non-empty string when present")
 
-    value = copy.deepcopy(context)
+    value: dict[str, Any] = copy.deepcopy(dict(context))
     for name in ("principal", "tenant", "audience", "agent_id", "policy_version"):
         claim = value[name]
         if not isinstance(claim, str) or not claim.strip():
@@ -7930,7 +7930,7 @@ class EpistemicGraphClient:
         self._node_id = node_id
         self._verified_context = validate_request_context(verified_context)
         self._verified_context_override: contextvars.ContextVar[
-            dict[str, Any] | None
+            RequestContextClaims | None
         ] = contextvars.ContextVar("eg_verified_context_override", default=None)
         self._request_id = 0
         self._closed = False
@@ -8260,7 +8260,7 @@ class EpistemicGraphClient:
             "credentials": msgpack.packb(request, use_bin_type=True).hex(),
         }
 
-    def _effective_verified_context(self) -> dict[str, Any]:
+    def _effective_verified_context(self) -> RequestContextClaims:
         return self._verified_context_override.get() or self._verified_context
 
     @contextlib.contextmanager
