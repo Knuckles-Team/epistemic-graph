@@ -5,20 +5,22 @@ use super::graph::AdjacencyGraph;
 use std::hash::Hash;
 
 /// Union-Find (disjoint-set) with union-by-rank + path compression.
-struct UnionFind {
+/// `pub(crate)` — reused as-is by [`super::steiner`] for its metric-closure and
+/// union-subgraph MST passes (Kruskal's algorithm).
+pub(crate) struct UnionFind {
     parent: Vec<usize>,
     rank: Vec<u32>,
 }
 
 impl UnionFind {
-    fn new(n: usize) -> Self {
+    pub(crate) fn new(n: usize) -> Self {
         Self {
             parent: (0..n).collect(),
             rank: vec![0; n],
         }
     }
 
-    fn find(&mut self, mut x: usize) -> usize {
+    pub(crate) fn find(&mut self, mut x: usize) -> usize {
         while self.parent[x] != x {
             self.parent[x] = self.parent[self.parent[x]]; // path halving
             x = self.parent[x];
@@ -26,7 +28,7 @@ impl UnionFind {
         x
     }
 
-    fn union(&mut self, a: usize, b: usize) {
+    pub(crate) fn union(&mut self, a: usize, b: usize) {
         let (ra, rb) = (self.find(a), self.find(b));
         if ra == rb {
             return;
