@@ -5244,6 +5244,18 @@ mod tests {
     use crate::server::handlers::txn::try_handle as txn_try_handle;
 
     fn cm_dir(tag: &str) -> String {
+        // The cross-modal handler-commit path seals its transaction recovery plan
+        // (`server::handlers::txn::seal_txn_recovery_plan`), which fail-closed REQUIRES
+        // `EPISTEMIC_GRAPH_ENCRYPTION_KEY` to be configured — the same seal requirement
+        // the xshard harness hit. Provision it ONCE before any backend opens. Encryption
+        // is symmetric and transparent to every durable round-trip these tests make, so
+        // a keyed store behaves identically for their assertions. The env var is
+        // process-global (mirrors `xshard_harness::fresh_dir`), so run the cross-modal
+        // tests filtered rather than mixed with the plaintext-on-disk assertions.
+        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+        ENCRYPTION_KEY.call_once(|| {
+            std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, "crossmodal-test-recovery-key")
+        });
         let d = std::env::temp_dir().join(format!("eg-crossmodal-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
@@ -5401,6 +5413,9 @@ mod tests {
         }
         backend.shutdown();
         drop(backend);
+        // `state` holds a clone of the backend Arc; drop it so the LAST handle is gone
+        // and the exclusive per-process redb file lock is released before the reopen.
+        drop(state);
 
         // Reload from redb: every modality is DURABLE (the one WriteTransaction).
         let backend2: Arc<dyn PersistenceBackend> =
@@ -5493,6 +5508,9 @@ mod tests {
         inner.shutdown();
         drop(inner);
         drop(backend);
+        // `state` holds a clone of the wrapper backend (which owns `inner`); drop it so
+        // the last handle is gone and the redb file lock releases before the reopen.
+        drop(state);
         let backend2: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
         let state2 = new_state(Some(dir.clone()));
@@ -5686,6 +5704,9 @@ mod tests {
         }
         backend.shutdown();
         drop(backend);
+        // `state` holds a clone of the backend Arc; drop it so the last handle is gone
+        // and the redb file lock releases before the same-dir reopens below.
+        drop(state);
 
         // Measurements are durable in the authoritative shard's SERIES tables
         // (same wtx, not series.redb).
