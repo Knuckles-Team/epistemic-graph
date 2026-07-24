@@ -45,16 +45,28 @@ class _RequiredRequestContextClaims(TypedDict):
 
 
 class RequestContextClaims(_RequiredRequestContextClaims, total=False):
-    """``_RequiredRequestContextClaims`` plus the optional node-binding claim.
+    """``_RequiredRequestContextClaims`` plus the optional node-binding and
+    QoS-priority claims.
 
     ``node`` (ADR-3 / W1.9 node-bound envelopes) is the target node id this
     envelope is minted for. It is normally supplied by the connection layer
     (``EpistemicGraphClient``/``ConnectionPool``'s ``node_id``), not by the
     caller's identity claims, so it stays optional here rather than joining
     the required base class -- most callers never set it directly.
+
+    ``priority`` (W2.4 engine-native QoS lanes) is the advisory admission class
+    this request declares -- one of the agent-utilities ``PriorityClass`` wire
+    values ``"interactive"``/``"orchestration"``/``"hydration"``/
+    ``"background_ingestion"``. It is MAC-covered exactly like every other claim
+    (appended to the canonical envelope bytes as a distinct tag-``2`` trailer),
+    so a principal cannot forge a higher class than it signed. Normally the
+    agent-utilities carrier layer sets it from the ambient ``PriorityClass``
+    contextvar; absent, the engine treats the request as the orchestration
+    default.
     """
 
     node: str
+    priority: str
 
 
 _REQUIRED_REQUEST_CONTEXT_FIELDS = frozenset(
@@ -95,6 +107,12 @@ def validate_request_context(
         if not isinstance(node, str) or not node.strip():
             raise ValueError(
                 "verified_context.node must be a non-empty string when present"
+            )
+    if "priority" in context:
+        priority = context["priority"]
+        if not isinstance(priority, str) or not priority.strip():
+            raise ValueError(
+                "verified_context.priority must be a non-empty string when present"
             )
 
     value: dict[str, Any] = copy.deepcopy(dict(context))
@@ -8533,6 +8551,17 @@ class EpistemicGraphClient:
         if node_id:
             canonical.append(1)
             _put_v2_text(canonical, node_id)
+        # W2.4 engine-native QoS lanes: the advisory admission-priority claim,
+        # MAC-covered as a SECOND optional trailer with a DISTINCT tag byte
+        # (`2`, vs the node trailer's `1`) so the two trailers stay unambiguous.
+        # Matches the Rust `build_envelope_v2_bytes` encoding byte-for-byte.
+        priority = context.get("priority")
+        if isinstance(priority, str) and priority.strip():
+            priority = priority.strip()
+            canonical.append(2)
+            _put_v2_text(canonical, priority)
+        else:
+            priority = None
         mac = hmac.new(
             self._auth_secret.encode("utf-8"), bytes(canonical), hashlib.sha256
         ).hexdigest()
@@ -8548,6 +8577,8 @@ class EpistemicGraphClient:
         }
         if node_id:
             context_payload["node"] = node_id
+        if priority:
+            context_payload["priority"] = priority
         envelope = {
             "context": context_payload,
             "timestamp": timestamp,

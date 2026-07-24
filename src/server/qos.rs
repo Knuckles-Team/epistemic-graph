@@ -1,26 +1,37 @@
-//! CONCEPT:EG-KG.coordination.backpressure-busy-signal — real-time QoS / SLO-aware admission scheduler.
+//! CONCEPT:EG-KG.coordination.backpressure-busy-signal — engine-native QoS lanes (W2.4, generalizing EG-044).
 //!
 //! The transport's baseline admission (CONCEPT:EG-KG.backend.framed-response/EG-044 in `transport.rs`) is a
 //! try-acquire over a global in-flight pool + a per-graph fairness cap + a reserved
 //! read lane. It is FIFO-ish: once a permit is free ANY waiting request may take it,
 //! regardless of who it belongs to or how urgent it is. Under a mixed workload — an
-//! interactive MCP query racing a bulk-ingestion firehose racing a maintenance sweep —
-//! that lets a low-value bulk tenant consume the slots a latency-sensitive query needs.
+//! interactive MCP query racing an orchestration delegation racing a bulk-ingestion
+//! firehose — that lets a low-value ingest tenant consume the slots a latency-sensitive
+//! query needs (the exact noisy-neighbor SLO break the 2026-07-11 soak recorded).
 //!
 //! [`QosScheduler`] is an ADDITIVE, OPT-IN gate that runs BEFORE the baseline admission
-//! (only when configured; see [`configured`]). It classifies each request by
-//! **priority class** (interactive vs batch vs maintenance) and **tenant** (the
-//! verified request context's opaque principal scope) and then:
+//! (only when configured; see [`configured`]). It classifies each request into one of
+//! four **admission classes** derived from the verified `eg2.` envelope's MAC-covered
+//! **priority claim** (`RequestContextClaims::priority`, mapped by
+//! [`QosClass::from_priority_claim`]) and keys per-**principal** accounting off the
+//! verified opaque principal scope, then:
 //!
-//! * **Priority-based admission / preemption** — each class has a headroom ceiling. A
-//!   lower-priority class is shed (`Backpressure`) once free capacity drops into the band
-//!   reserved for higher-priority work, so an interactive request is admitted *before* a
-//!   batch/maintenance one under contention (the queue is effectively reordered by class).
-//! * **Per-tenant fair-share** — under contention no single bulk tenant may hold more
-//!   than its `capacity / active_tenants` share, so one greedy ingestion tenant cannot
-//!   monopolise the pool. Interactive work is exempt (cheap + latency-critical).
-//! * **Per-tenant hard quota** — a tenant at its absolute in-flight quota is rejected
-//!   (`Quota`) regardless of class, bounding blast radius / memory per tenant.
+//! * **Priority-ordered shedding (shed the LOWEST class first)** — each class has a
+//!   headroom ceiling; `Interactive > Orch > Hydration > Ingest`. As load rises the
+//!   lower classes hit their (lower) ceiling first and are shed (`Backpressure`) while
+//!   headroom remains reserved for the higher classes. The queue is effectively
+//!   reordered by class — an interactive request is admitted *before* an ingest one
+//!   under contention, and an ingest flood is shed before it can touch the interactive
+//!   reserve. Admission ordering, not FIFO.
+//! * **Per-principal token buckets, per class** — a lazily-refilled `(principal, class)`
+//!   token bucket bounds a single noisy principal's SUSTAINED rate *inside its class*,
+//!   not just globally: a principal flooding `Ingest` drains its `Ingest` bucket and is
+//!   shed `RateLimited` while its (untouched) `Interactive` bucket — and every other
+//!   principal's buckets — stay full.
+//! * **Per-principal fair-share** — under contention no single non-interactive principal
+//!   may hold more than its `capacity / active_principals` share, so one greedy ingestion
+//!   principal cannot monopolise the in-flight pool.
+//! * **Per-principal hard quota** — a principal at its absolute in-flight quota is
+//!   rejected (`Quota`) regardless of class, bounding blast radius / memory per principal.
 //! * **Deadline-aware ordering** — [`plan_admissions`] deterministically orders a batch
 //!   of pending requests by (class desc, deadline asc, arrival) for the scheduler seam.
 //! * **Backpressure signalling** — a rejected request is shed with a typed
@@ -30,88 +41,112 @@
 //! Default behaviour is UNCHANGED: with QoS unconfigured ([`configured`] returns `None`)
 //! the transport never calls this module and the baseline admission path is byte-for-byte
 //! what it was. The admission decision ([`QosScheduler::try_admit`]) is a pure function of
-//! the scheduler's live counters + the request, so priority/fair-share/quota/backpressure
-//! are all deterministically unit-testable.
+//! the scheduler's live counters + the request + wall-clock, so priority/fair-share/
+//! quota/token-bucket/backpressure are all deterministically testable.
 
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::Instant;
 
-use crate::protocol::Method;
-
-/// Priority class of a request. `Ord` is derived so higher-priority classes sort
-/// GREATER (`Interactive > Batch > Maintenance`) — [`plan_admissions`] relies on that
+/// One admission class. `Ord` is derived so higher-priority classes sort GREATER
+/// (`Interactive > Orch > Hydration > Ingest`) — [`plan_admissions`] relies on that
 /// ordering, and each class maps to an admission-headroom ceiling in [`QosConfig`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+///
+/// The four classes mirror agent-utilities' `PriorityClass` currency
+/// (`CONCEPT:AU-ORCH.scheduling.resource-priority-edict`) 1:1, so the LLM admission
+/// gate, the host worker reserved lane, and this engine gate all speak the same
+/// vocabulary end to end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum QosClass {
-    /// Background housekeeping (graph clears, full-graph dumps): lowest priority, first
-    /// to be shed under pressure.
-    Maintenance = 0,
-    /// Bulk writes / ingestion: mid priority, throttled to a fair share under contention.
-    Batch = 1,
-    /// Latency-sensitive reads/queries (interactive MCP calls): highest priority, exempt
-    /// from fair-share throttling.
-    Interactive = 2,
+    /// Background ingestion of documents / codebases / research papers: lowest
+    /// priority, FIRST to be shed under pressure, the one class that yields.
+    Ingest = 0,
+    /// Initial skill + MCP hydration — foundational bootstrap. The edict's explicit
+    /// "NOT deprioritised" exception: above ingest, below live orchestration.
+    Hydration = 1,
+    /// Orchestration / delegation (and any untagged context): high priority, never
+    /// starved. The default when a request carries no priority claim.
+    Orch = 2,
+    /// Latency-sensitive interactive reads/queries (live Claude / end-user calls):
+    /// highest priority, exempt from fair-share throttling.
+    Interactive = 3,
 }
 
 impl QosClass {
-    /// Stable, bounded label for stats/metrics.
+    /// Every class, low → high — for metrics iteration and exhaustive sweeps.
+    pub const ALL: [QosClass; 4] = [
+        QosClass::Ingest,
+        QosClass::Hydration,
+        QosClass::Orch,
+        QosClass::Interactive,
+    ];
+
+    /// Stable, bounded label for stats/metrics (bounded cardinality: exactly 4).
     pub fn label(self) -> &'static str {
         match self {
-            QosClass::Maintenance => "maintenance",
-            QosClass::Batch => "batch",
+            QosClass::Ingest => "ingest",
+            QosClass::Hydration => "hydration",
+            QosClass::Orch => "orch",
             QosClass::Interactive => "interactive",
         }
     }
+
     fn idx(self) -> usize {
         self as usize
     }
+
+    /// Map an `eg2.` envelope's priority claim (the agent-utilities `PriorityClass`
+    /// wire value) to an admission class. An ABSENT or unrecognized claim resolves to
+    /// [`QosClass::Orch`] — au's untagged-context semantics (high, never starved), so
+    /// an un-upgraded client that sends no priority claim is treated as orchestration
+    /// rather than deprioritised. Only an explicitly `background_ingestion`-tagged
+    /// request lands in the yielding lane.
+    pub fn from_priority_claim(claim: Option<&str>) -> QosClass {
+        match claim.map(str::trim) {
+            Some("interactive") => QosClass::Interactive,
+            Some("orchestration") => QosClass::Orch,
+            Some("hydration") => QosClass::Hydration,
+            Some("background_ingestion") => QosClass::Ingest,
+            _ => QosClass::Orch,
+        }
+    }
 }
 
-/// A request as the QoS scheduler sees it: its priority class, verified opaque
-/// owner scope, an optional relative deadline (lower micros ⇒ more urgent; used
-/// only by [`plan_admissions`]), and whether it mutates the graph.
+/// A request as the QoS scheduler sees it: its admission class, verified opaque
+/// principal scope, and an optional relative deadline (lower micros ⇒ more urgent;
+/// used only by [`plan_admissions`]).
 #[derive(Clone, Debug)]
 pub struct QosRequest {
     pub class: QosClass,
-    pub tenant: String,
+    /// The verified opaque principal scope — the unit of token-bucket / fair-share /
+    /// quota accounting (`VerifiedRequestContext::principal_persistence_id`).
+    pub principal: String,
     pub deadline_micros: Option<u64>,
-    pub is_write: bool,
 }
 
-/// Classify a wire request into a [`QosRequest`] after its current request
-/// envelope has been verified. The caller supplies the privacy-safe principal
-/// persistence scope derived from [`crate::server::auth::VerifiedRequestContext`],
-/// never the unsigned `Request::agent_id` display field.
+/// Classify a verified wire request into a [`QosRequest`]. The caller supplies the
+/// privacy-safe principal persistence scope derived from
+/// [`crate::server::auth::VerifiedRequestContext`] and the request's MAC-covered
+/// priority claim (`context.claims().priority`). Never the unsigned
+/// `Request::agent_id` display field.
 ///
-/// * **Tenant** = the verified opaque principal scope — the unit of fair-share +
-///   quota accounting. Missing or blank identity is rejected before scheduler
-///   counters are touched; there is no graph-name or empty fallback bucket.
-/// * **Class**: a graph clear or a full-graph dump (`GetNodes`, an expensive whole-graph
-///   materialisation) is `Maintenance`; any other write is `Batch`; any other read is
-///   `Interactive`. `ClearGraph`/`GetNodes` are base (non-feature-gated) variants, so this
-///   classifier compiles on every server build.
+/// * **Principal** = the verified opaque principal scope — the accounting key. Missing
+///   or blank identity is rejected before scheduler counters are touched; there is no
+///   graph-name or empty fallback bucket.
+/// * **Class**: derived from the priority claim by [`QosClass::from_priority_claim`].
 pub fn classify(
-    method: &Method,
     principal_scope: &str,
-    is_write: bool,
+    priority_claim: Option<&str>,
 ) -> Result<QosRequest, &'static str> {
     let principal_scope = principal_scope.trim();
     if principal_scope.is_empty() {
         return Err("AUTHENTICATION_REQUIRED: verified principal is required for admission");
     }
-    let class = if matches!(method, Method::ClearGraph | Method::GetNodes) {
-        QosClass::Maintenance
-    } else if is_write {
-        QosClass::Batch
-    } else {
-        QosClass::Interactive
-    };
     Ok(QosRequest {
-        class,
-        tenant: principal_scope.to_string(),
+        class: QosClass::from_priority_claim(priority_claim),
+        principal: principal_scope.to_string(),
         deadline_micros: None,
-        is_write,
     })
 }
 
@@ -123,53 +158,69 @@ pub struct QosConfig {
     /// Total concurrent admission budget the QoS gate manages (mirrors the baseline
     /// `max_in_flight` capacity).
     pub capacity: usize,
-    /// Absolute per-tenant in-flight quota. A tenant already holding this many is
-    /// rejected (`Quota`) regardless of class — bounds per-tenant memory/blast-radius.
-    pub per_tenant_quota: usize,
-    /// Slots at the top of the pool reserved for `Interactive` only. `Batch` is shed once
-    /// free capacity would dip into this band.
+    /// Absolute per-principal in-flight quota. A principal already holding this many is
+    /// rejected (`Quota`) regardless of class — bounds per-principal memory/blast-radius.
+    pub per_principal_quota: usize,
+    /// Slots at the top of the pool reserved for `Interactive` only.
     pub interactive_reserve: usize,
-    /// Additional slots reserved above `Maintenance` (for Interactive+Batch). `Maintenance`
-    /// is shed once free capacity would dip into `interactive_reserve + batch_reserve`.
-    pub batch_reserve: usize,
+    /// Slots reserved above `Hydration` (for Interactive+Orch).
+    pub orch_reserve: usize,
+    /// Slots reserved above `Ingest` (for Interactive+Orch+Hydration).
+    pub hydration_reserve: usize,
+    /// Per-`(principal, class)` token-bucket burst capacity (max tokens). `0` disables
+    /// the token bucket (leaving quota + ceiling + fair-share).
+    pub bucket_capacity: f64,
+    /// Per-`(principal, class)` sustained refill rate, tokens per second. `0` disables.
+    pub bucket_refill_per_sec: f64,
 }
 
 impl QosConfig {
-    /// Derive a balanced config from a capacity: a quarter of the pool is per-tenant
-    /// quota (≤4 tenants can fill it), an eighth is interactive-only headroom, another
-    /// eighth sits above maintenance. All floored to 1 so a tiny pool still functions.
+    /// Derive a balanced config from a capacity: a quarter of the pool is the
+    /// per-principal in-flight quota (≤4 principals can fill it), and three equal
+    /// eighth-of-pool reserve bands stack above Ingest / Hydration / Orch. All floored
+    /// to 1 so a tiny pool still functions. The token bucket allows a per-principal
+    /// burst of a quarter-pool and a sustained per-class rate of `capacity`/sec — a real
+    /// throttle on a firehose, transparent to normal traffic.
     pub fn auto(capacity: usize) -> Self {
         let capacity = capacity.max(1);
+        let reserve = (capacity / 8).max(1);
         QosConfig {
             capacity,
-            per_tenant_quota: (capacity / 4).max(1),
-            interactive_reserve: (capacity / 8).max(1),
-            batch_reserve: (capacity / 8).max(1),
+            per_principal_quota: (capacity / 4).max(1),
+            interactive_reserve: reserve,
+            orch_reserve: reserve,
+            hydration_reserve: reserve,
+            bucket_capacity: (capacity / 4).max(4) as f64,
+            bucket_refill_per_sec: capacity as f64,
         }
     }
 
     /// The maximum in-flight count at (and above) which a request of `class` is shed as
     /// `Backpressure`. Higher-priority classes have a higher ceiling, so under rising load
-    /// the low-priority classes are shed FIRST — leaving the reserved headroom for the
-    /// high-priority ones (priority preemption without an explicit queue).
+    /// the LOW-priority classes are shed FIRST — leaving the reserved headroom for the
+    /// high-priority ones (priority preemption without an explicit queue). Ingest gets the
+    /// lowest ceiling (all three reserve bands sit above it), Interactive the full pool.
     pub fn class_ceiling(&self, class: QosClass) -> usize {
         match class {
             QosClass::Interactive => self.capacity,
-            QosClass::Batch => self.capacity.saturating_sub(self.interactive_reserve),
-            QosClass::Maintenance => self
+            QosClass::Orch => self.capacity.saturating_sub(self.interactive_reserve),
+            QosClass::Hydration => self
                 .capacity
-                .saturating_sub(self.interactive_reserve + self.batch_reserve),
+                .saturating_sub(self.interactive_reserve + self.orch_reserve),
+            QosClass::Ingest => self.capacity.saturating_sub(
+                self.interactive_reserve + self.orch_reserve + self.hydration_reserve,
+            ),
         }
     }
 
-    /// In-flight count at/above which the pool is deemed CONTENDED, so per-tenant
-    /// fair-share throttling engages (below it the gate is work-conserving — a tenant may
-    /// burst above its share when nobody else needs the slots). Set BELOW every class
-    /// ceiling (past both reserve bands) so a bulk tenant is fair-share throttled while
-    /// there is still ceiling headroom, rather than only once its class ceiling is hit.
+    /// In-flight count at/above which the pool is deemed CONTENDED, so per-principal
+    /// fair-share throttling engages (below it the gate is work-conserving — a principal
+    /// may burst above its share when nobody else needs the slots). Set BELOW every class
+    /// ceiling (past all three reserve bands) so a bulk principal is fair-share throttled
+    /// while there is still ceiling headroom.
     pub fn pressure_band(&self) -> usize {
         self.capacity
-            .saturating_sub(self.interactive_reserve + self.batch_reserve)
+            .saturating_sub(self.interactive_reserve + self.orch_reserve + self.hydration_reserve)
     }
 }
 
@@ -180,7 +231,7 @@ impl QosConfig {
 /// * `EPISTEMIC_GRAPH_QOS` — `1`/`true`/`on`/`yes` to enable (default off).
 /// * `EPISTEMIC_GRAPH_QOS_CAPACITY` — admission budget; defaults to the auto-sized
 ///   `Capacity::max_inflight()`.
-/// * `EPISTEMIC_GRAPH_QOS_TENANT_QUOTA` — per-tenant hard quota override.
+/// * `EPISTEMIC_GRAPH_QOS_PRINCIPAL_QUOTA` — per-principal hard quota override.
 pub fn configured() -> Option<Arc<QosScheduler>> {
     static QOS: OnceLock<Option<Arc<QosScheduler>>> = OnceLock::new();
     QOS.get_or_init(|| {
@@ -193,13 +244,22 @@ pub fn configured() -> Option<Arc<QosScheduler>> {
             .filter(|&n| n > 0)
             .unwrap_or_else(|| crate::autosize::detect_capacity().max_inflight());
         let mut config = QosConfig::auto(capacity);
-        if let Some(q) = std::env::var("EPISTEMIC_GRAPH_QOS_TENANT_QUOTA")
+        if let Some(q) = std::env::var("EPISTEMIC_GRAPH_QOS_PRINCIPAL_QUOTA")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
         {
-            config.per_tenant_quota = q;
+            config.per_principal_quota = q;
         }
+        tracing::info!(
+            target: "epistemic_graph::qos",
+            capacity = config.capacity,
+            per_principal_quota = config.per_principal_quota,
+            interactive_reserve = config.interactive_reserve,
+            orch_reserve = config.orch_reserve,
+            hydration_reserve = config.hydration_reserve,
+            "QoS admission scheduler enabled"
+        );
         Some(Arc::new(QosScheduler::new(config)))
     })
     .clone()
@@ -221,32 +281,49 @@ fn env_truthy(key: &str) -> bool {
 /// backoff) from a quota breach (a persistent over-limit condition).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QosReject {
-    /// The tenant is at its absolute per-tenant in-flight quota.
+    /// The principal is at its absolute per-principal in-flight quota.
     Quota,
-    /// Under contention the tenant already holds its fair share of the pool.
+    /// Under contention the principal already holds its fair share of the pool.
     FairShare,
     /// The pool has no headroom left for this priority class (higher classes reserved it).
     Backpressure,
+    /// The principal is sending faster than its per-class token bucket allows.
+    RateLimited,
 }
 
 impl QosReject {
     /// Human-facing `BUSY` payload (retryable back-pressure signal).
     pub fn busy_message(self) -> &'static str {
         match self {
-            QosReject::Quota => "BUSY: QoS per-tenant quota exhausted, retry with backoff",
+            QosReject::Quota => "BUSY: QoS per-principal quota exhausted, retry with backoff",
             QosReject::FairShare => {
-                "BUSY: QoS tenant fair-share reached under contention, retry with backoff"
+                "BUSY: QoS principal fair-share reached under contention, retry with backoff"
             }
             QosReject::Backpressure => {
                 "BUSY: QoS capacity reserved for higher priority, retry with backoff"
             }
+            QosReject::RateLimited => {
+                "BUSY: QoS per-principal rate limit for this class reached, retry with backoff"
+            }
         }
     }
+
+    /// Stable, bounded label for the shed-reason metric dimension.
+    pub fn label(self) -> &'static str {
+        match self {
+            QosReject::Quota => "quota",
+            QosReject::FairShare => "fair_share",
+            QosReject::Backpressure => "backpressure",
+            QosReject::RateLimited => "rate_limited",
+        }
+    }
+
     fn stat_idx(self) -> usize {
         match self {
             QosReject::Quota => 0,
             QosReject::FairShare => 1,
             QosReject::Backpressure => 2,
+            QosReject::RateLimited => 3,
         }
     }
 }
@@ -258,33 +335,46 @@ pub enum QosDecision {
     Reject(QosReject),
 }
 
+/// A `(principal, class)` token bucket. Refilled lazily on each access from wall-clock
+/// elapsed time; never touched on permit drop (it bounds RATE, not in-flight count).
+struct TokenBucket {
+    tokens: f64,
+    last_refill: Instant,
+}
+
 /// Live scheduler counters shared between the scheduler and its outstanding permits.
 struct QosInner {
     config: QosConfig,
     /// Total in-flight admitted requests.
     in_flight: AtomicUsize,
     /// Per-class in-flight, indexed by [`QosClass::idx`].
-    per_class: [AtomicUsize; 3],
-    /// Per-tenant in-flight count. An entry is removed when it returns to zero so
-    /// `active_tenants` (map length) reflects only tenants with live work.
-    per_tenant: DashMap<String, usize>,
+    per_class: [AtomicUsize; 4],
+    /// Per-principal in-flight count. An entry is removed when it returns to zero so
+    /// `active_principals` (map length) reflects only principals with live work.
+    per_principal: DashMap<String, usize>,
+    /// Per-`(principal, class)` token buckets. An entry set is removed when the
+    /// principal's total in-flight returns to zero (see [`QosPermit::drop`]), so the map
+    /// is bounded by the set of principals with LIVE work — a sustained flood keeps its
+    /// bucket (and stays rate-limited); a drained principal frees it.
+    buckets: DashMap<(String, QosClass), TokenBucket>,
     /// Cumulative admits / rejects (by [`QosReject::stat_idx`]) for observability + tests.
     admitted_total: AtomicU64,
-    rejected_total: [AtomicU64; 3],
+    rejected_total: [AtomicU64; 4],
 }
 
 /// A snapshot of the scheduler's live counters (for observability + assertions).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct QosStats {
     pub in_flight: usize,
-    pub active_tenants: usize,
+    pub active_principals: usize,
     pub admitted_total: u64,
     pub quota_rejected: u64,
     pub fair_share_rejected: u64,
     pub backpressure_rejected: u64,
+    pub rate_limited_rejected: u64,
 }
 
-/// Real-time QoS/SLO-aware admission scheduler (CONCEPT:EG-KG.coordination.backpressure-busy-signal). Cheaply cloneable (an
+/// Engine-native QoS admission scheduler (CONCEPT:EG-KG.coordination.backpressure-busy-signal, W2.4). Cheaply cloneable (an
 /// `Arc` inside); every clone shares the same counters.
 #[derive(Clone)]
 pub struct QosScheduler {
@@ -301,10 +391,17 @@ impl QosScheduler {
                     AtomicUsize::new(0),
                     AtomicUsize::new(0),
                     AtomicUsize::new(0),
+                    AtomicUsize::new(0),
                 ],
-                per_tenant: DashMap::new(),
+                per_principal: DashMap::new(),
+                buckets: DashMap::new(),
                 admitted_total: AtomicU64::new(0),
-                rejected_total: [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)],
+                rejected_total: [
+                    AtomicU64::new(0),
+                    AtomicU64::new(0),
+                    AtomicU64::new(0),
+                    AtomicU64::new(0),
+                ],
             }),
         }
     }
@@ -313,71 +410,128 @@ impl QosScheduler {
         &self.inner.config
     }
 
-    /// Decide whether to admit `req`, applying (in order) the per-tenant hard quota, the
-    /// priority-class ceiling (preemption/backpressure), and — for non-interactive work
-    /// under contention — the per-tenant fair share. On admit the shared counters are
-    /// incremented and a RAII [`QosPermit`] returned; dropping it releases the slot.
+    /// Decide whether to admit `req`, applying (in order) the per-principal hard quota,
+    /// the priority-class ceiling (shed-lowest-first backpressure), the per-principal
+    /// fair share (non-interactive, under contention), and the per-`(principal, class)`
+    /// token bucket. On admit the shared counters are incremented and a RAII
+    /// [`QosPermit`] returned; dropping it releases the slot.
     ///
-    /// Pure over the live counters + `req`, so every rule is deterministically testable.
+    /// Pure over the live counters + `req` + wall-clock, so every rule is testable.
     pub fn try_admit(&self, req: &QosRequest) -> QosDecision {
         let cfg = &self.inner.config;
 
-        // Snapshot the tenant's current in-flight (its DashMap entry, absent ⇒ 0).
-        let tenant_count = self
+        // Snapshot the principal's current in-flight (its DashMap entry, absent ⇒ 0).
+        let principal_count = self
             .inner
-            .per_tenant
-            .get(&req.tenant)
+            .per_principal
+            .get(&req.principal)
             .map(|e| *e.value())
             .unwrap_or(0);
 
-        // (1) Hard per-tenant quota — any class. A tenant at its ceiling is shed.
-        if tenant_count >= cfg.per_tenant_quota {
-            return self.reject(QosReject::Quota);
+        // (1) Hard per-principal quota — any class. A principal at its ceiling is shed.
+        if principal_count >= cfg.per_principal_quota {
+            return self.reject(req, QosReject::Quota);
         }
 
         let in_flight = self.inner.in_flight.load(Ordering::Acquire);
 
-        // (2) Priority-class ceiling. A lower-priority class hits its (lower) ceiling
-        // first, so it is shed while headroom remains for the higher-priority classes —
-        // higher priority preempts the pool under load.
+        // (2) Priority-class ceiling — SHED THE LOWEST CLASS FIRST. A lower-priority
+        // class hits its (lower) ceiling first, so it is shed while headroom remains for
+        // the higher-priority classes: an Ingest flood is shed before it can consume the
+        // slots reserved for Hydration/Orch/Interactive.
         if in_flight >= cfg.class_ceiling(req.class) {
-            return self.reject(QosReject::Backpressure);
+            return self.reject(req, QosReject::Backpressure);
         }
 
-        // (3) Per-tenant fair share, ONLY under contention and ONLY for non-interactive
+        // (3) Per-principal fair share, ONLY under contention and ONLY for non-interactive
         // work (interactive is cheap + latency-critical, so it is never fair-share shed).
-        // A bulk tenant already holding its `capacity / active_tenants` share is shed so
-        // other tenants keep making progress.
+        // A bulk principal already holding its `capacity / active_principals` share is
+        // shed so other principals keep making progress.
         if req.class != QosClass::Interactive && in_flight >= cfg.pressure_band() {
-            let active = self.active_tenants_including(&req.tenant);
+            let active = self.active_principals_including(&req.principal);
             let fair = (cfg.capacity / active.max(1)).max(1);
-            if tenant_count >= fair {
-                return self.reject(QosReject::FairShare);
+            if principal_count >= fair {
+                return self.reject(req, QosReject::FairShare);
             }
+        }
+
+        // (4) Per-(principal, class) token bucket — bounds a single noisy principal's
+        // SUSTAINED rate INSIDE its class. Checked last so a token is consumed only for
+        // an otherwise-admissible request.
+        if !self.take_token(&req.principal, req.class) {
+            return self.reject(req, QosReject::RateLimited);
         }
 
         // Admit: bump the shared counters and hand back a permit that undoes them on drop.
         self.inner.in_flight.fetch_add(1, Ordering::AcqRel);
         self.inner.per_class[req.class.idx()].fetch_add(1, Ordering::AcqRel);
-        *self.inner.per_tenant.entry(req.tenant.clone()).or_insert(0) += 1;
+        *self
+            .inner
+            .per_principal
+            .entry(req.principal.clone())
+            .or_insert(0) += 1;
         self.inner.admitted_total.fetch_add(1, Ordering::Relaxed);
+        tracing::trace!(
+            target: "epistemic_graph::qos",
+            class = req.class.label(),
+            principal = req.principal.as_str(),
+            in_flight = in_flight + 1,
+            "QoS admitted"
+        );
         QosDecision::Admit(QosPermit {
             inner: self.inner.clone(),
-            tenant: req.tenant.clone(),
+            principal: req.principal.clone(),
             class: req.class,
         })
     }
 
-    fn reject(&self, why: QosReject) -> QosDecision {
+    /// Take one token from the `(principal, class)` bucket, refilling it first from the
+    /// wall-clock elapsed since its last access. `true` ⇒ a token was available (admit);
+    /// `false` ⇒ empty (shed `RateLimited`). A disabled bucket (`bucket_refill_per_sec`
+    /// or `bucket_capacity` ≤ 0) always yields `true`.
+    fn take_token(&self, principal: &str, class: QosClass) -> bool {
+        let cfg = &self.inner.config;
+        if cfg.bucket_refill_per_sec <= 0.0 || cfg.bucket_capacity <= 0.0 {
+            return true;
+        }
+        let now = Instant::now();
+        let mut entry = self
+            .inner
+            .buckets
+            .entry((principal.to_string(), class))
+            .or_insert_with(|| TokenBucket {
+                tokens: cfg.bucket_capacity,
+                last_refill: now,
+            });
+        let elapsed = now.saturating_duration_since(entry.last_refill).as_secs_f64();
+        entry.tokens = (entry.tokens + elapsed * cfg.bucket_refill_per_sec).min(cfg.bucket_capacity);
+        entry.last_refill = now;
+        if entry.tokens >= 1.0 {
+            entry.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn reject(&self, req: &QosRequest, why: QosReject) -> QosDecision {
         self.inner.rejected_total[why.stat_idx()].fetch_add(1, Ordering::Relaxed);
+        tracing::debug!(
+            target: "epistemic_graph::qos",
+            class = req.class.label(),
+            principal = req.principal.as_str(),
+            reason = why.label(),
+            in_flight = self.inner.in_flight.load(Ordering::Relaxed),
+            "QoS shed"
+        );
         QosDecision::Reject(why)
     }
 
-    /// Number of DISTINCT tenants with live work, counting `tenant` even if it has none
-    /// yet (it is about to be admitted). Used to compute the fair share denominator.
-    fn active_tenants_including(&self, tenant: &str) -> usize {
-        let base = self.inner.per_tenant.len();
-        if self.inner.per_tenant.contains_key(tenant) {
+    /// Number of DISTINCT principals with live work, counting `principal` even if it has
+    /// none yet (it is about to be admitted). Used as the fair-share denominator.
+    fn active_principals_including(&self, principal: &str) -> usize {
+        let base = self.inner.per_principal.len();
+        if self.inner.per_principal.contains_key(principal) {
             base.max(1)
         } else {
             base + 1
@@ -388,36 +542,48 @@ impl QosScheduler {
     pub fn stats(&self) -> QosStats {
         QosStats {
             in_flight: self.inner.in_flight.load(Ordering::Acquire),
-            active_tenants: self.inner.per_tenant.len(),
+            active_principals: self.inner.per_principal.len(),
             admitted_total: self.inner.admitted_total.load(Ordering::Relaxed),
             quota_rejected: self.inner.rejected_total[0].load(Ordering::Relaxed),
             fair_share_rejected: self.inner.rejected_total[1].load(Ordering::Relaxed),
             backpressure_rejected: self.inner.rejected_total[2].load(Ordering::Relaxed),
+            rate_limited_rejected: self.inner.rejected_total[3].load(Ordering::Relaxed),
         }
     }
 }
 
 /// RAII admission permit. Held by the dispatch task for the life of the request; on drop
-/// it releases the tenant/class/global slots so the pool reflects only live work.
+/// it releases the principal/class/global slots so the pool reflects only live work.
 pub struct QosPermit {
     inner: Arc<QosInner>,
-    tenant: String,
+    principal: String,
     class: QosClass,
+}
+
+impl QosPermit {
+    /// The admission class this permit was granted under (for per-class metrics).
+    pub fn class(&self) -> QosClass {
+        self.class
+    }
 }
 
 impl Drop for QosPermit {
     fn drop(&mut self) {
         self.inner.in_flight.fetch_sub(1, Ordering::AcqRel);
         self.inner.per_class[self.class.idx()].fetch_sub(1, Ordering::AcqRel);
-        // Decrement the tenant entry, removing it at zero so `active_tenants` tracks only
-        // tenants with live work.
+        // Decrement the principal entry, removing it at zero so `active_principals` tracks
+        // only principals with live work. When it reaches zero, also drop that principal's
+        // token buckets so the bucket map stays bounded by the live-principal set.
         if let dashmap::mapref::entry::Entry::Occupied(mut e) =
-            self.inner.per_tenant.entry(self.tenant.clone())
+            self.inner.per_principal.entry(self.principal.clone())
         {
             let v = e.get_mut();
             *v = v.saturating_sub(1);
             if *v == 0 {
                 e.remove();
+                for class in QosClass::ALL {
+                    self.inner.buckets.remove(&(self.principal.clone(), class));
+                }
             }
         }
     }
@@ -426,10 +592,10 @@ impl Drop for QosPermit {
 /// Deterministically order a batch of pending requests for admission and pick the top
 /// `available` slots — the deadline-aware, priority-first scheduler seam (CONCEPT:EG-KG.coordination.backpressure-busy-signal).
 ///
-/// Ordering key: **class descending** (Interactive before Batch before Maintenance), then
-/// **deadline ascending** (an earlier / more-urgent deadline first; `None` sorts last as
-/// least urgent), then **arrival index** (stable, so equal requests keep FIFO order).
-/// Returns the admitted indices in admission order.
+/// Ordering key: **class descending** (Interactive before Orch before Hydration before
+/// Ingest), then **deadline ascending** (an earlier / more-urgent deadline first; `None`
+/// sorts last as least urgent), then **arrival index** (stable, so equal requests keep
+/// FIFO order). Returns the admitted indices in admission order.
 pub fn plan_admissions(pending: &[QosRequest], available: usize) -> Vec<usize> {
     let mut idx: Vec<usize> = (0..pending.len()).collect();
     let keep = available.min(idx.len());
@@ -467,14 +633,23 @@ fn deadline_key(r: &QosRequest) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicU64 as StdAtomicU64};
+    use std::time::Duration;
 
-    fn req(class: QosClass, tenant: &str) -> QosRequest {
+    fn req(class: QosClass, principal: &str) -> QosRequest {
         QosRequest {
             class,
-            tenant: tenant.to_string(),
+            principal: principal.to_string(),
             deadline_micros: None,
-            is_write: class == QosClass::Batch,
         }
+    }
+
+    /// A config whose token bucket is disabled, to isolate the quota / ceiling /
+    /// fair-share rules in a test.
+    fn no_bucket(capacity: usize) -> QosConfig {
+        let mut cfg = QosConfig::auto(capacity);
+        cfg.bucket_refill_per_sec = 0.0;
+        cfg
     }
 
     fn permit(d: QosDecision) -> QosPermit {
@@ -490,242 +665,454 @@ mod tests {
         }
     }
 
-    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — classification derives class + tenant from existing request fields.
+    // W2.4 — the priority claim maps to the four admission classes; absent/unknown ⇒ Orch.
     #[test]
-    fn eg320_classify_maps_method_and_identity_to_class_and_tenant() {
-        let principal = "principal:sha256:0123456789abcdef";
-        // A read ⇒ Interactive; the verified principal scope owns the quota.
-        let r = classify(
-            &Method::HasNode {
-                node_id: "n".into(),
-            },
-            principal,
-            false,
-        )
-        .unwrap();
-        assert_eq!(r.class, QosClass::Interactive);
-        assert_eq!(r.tenant, principal);
-        // A write ⇒ Batch under the same verified owner scope.
-        let w = classify(
-            &Method::AddNode {
-                node_id: "n".into(),
-                properties_msgpack: vec![],
-            },
-            principal,
-            true,
-        )
-        .unwrap();
-        assert_eq!(w.class, QosClass::Batch);
-        assert_eq!(w.tenant, principal);
-        // A graph clear / full dump ⇒ Maintenance.
+    fn priority_claim_maps_to_admission_class() {
         assert_eq!(
-            classify(&Method::ClearGraph, principal, true)
-                .unwrap()
-                .class,
-            QosClass::Maintenance
+            QosClass::from_priority_claim(Some("interactive")),
+            QosClass::Interactive
         );
         assert_eq!(
-            classify(&Method::GetNodes, principal, false).unwrap().class,
-            QosClass::Maintenance
+            QosClass::from_priority_claim(Some("orchestration")),
+            QosClass::Orch
         );
+        assert_eq!(
+            QosClass::from_priority_claim(Some("hydration")),
+            QosClass::Hydration
+        );
+        assert_eq!(
+            QosClass::from_priority_claim(Some("background_ingestion")),
+            QosClass::Ingest
+        );
+        // Absent or unrecognized ⇒ orchestration default (au untagged semantics).
+        assert_eq!(QosClass::from_priority_claim(None), QosClass::Orch);
+        assert_eq!(QosClass::from_priority_claim(Some("bogus")), QosClass::Orch);
+        // Ordering: Interactive > Orch > Hydration > Ingest.
+        assert!(QosClass::Interactive > QosClass::Orch);
+        assert!(QosClass::Orch > QosClass::Hydration);
+        assert!(QosClass::Hydration > QosClass::Ingest);
     }
 
     #[test]
-    fn eg320_classify_rejects_missing_verified_principal() {
+    fn classify_maps_principal_and_priority_claim() {
+        let principal = "principal:sha256:0123456789abcdef";
+        let r = classify(principal, Some("interactive")).unwrap();
+        assert_eq!(r.class, QosClass::Interactive);
+        assert_eq!(r.principal, principal);
+        assert_eq!(
+            classify(principal, Some("background_ingestion"))
+                .unwrap()
+                .class,
+            QosClass::Ingest
+        );
+        // No priority claim ⇒ Orch.
+        assert_eq!(classify(principal, None).unwrap().class, QosClass::Orch);
+    }
+
+    #[test]
+    fn classify_rejects_missing_verified_principal() {
         for principal in ["", "   "] {
             assert_eq!(
-                classify(
-                    &Method::HasNode {
-                        node_id: "n".into()
-                    },
-                    principal,
-                    false,
-                )
-                .unwrap_err(),
+                classify(principal, Some("interactive")).unwrap_err(),
                 "AUTHENTICATION_REQUIRED: verified principal is required for admission"
             );
         }
     }
 
-    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — under contention a high-priority (interactive) request is admitted
-    // while a low-priority (batch/maintenance) one in the SAME saturated state is shed:
-    // priority-based admission / preemption.
+    // W2.4 — SHED THE LOWEST CLASS FIRST: under rising load Ingest is shed before
+    // Hydration before Orch, while Interactive still admits into its reserved headroom.
     #[test]
-    fn eg320_high_priority_admitted_before_low_under_contention() {
-        // capacity 8 ⇒ interactive_reserve 1, batch_reserve 1 ⇒
-        // ceilings: interactive 8, batch 7, maintenance 6; pressure_band 7.
-        let cfg = QosConfig::auto(8);
+    fn lowest_class_shed_first_under_pressure() {
+        // capacity 8 ⇒ reserves 1/1/1 ⇒ ceilings: interactive 8, orch 7, hydration 6,
+        // ingest 5; pressure_band 5.
+        let cfg = no_bucket(8);
         let sched = QosScheduler::new(cfg);
+        assert_eq!(sched.config().class_ceiling(QosClass::Ingest), 5);
+        assert_eq!(sched.config().class_ceiling(QosClass::Hydration), 6);
+        assert_eq!(sched.config().class_ceiling(QosClass::Orch), 7);
+        assert_eq!(sched.config().class_ceiling(QosClass::Interactive), 8);
 
-        // Fill to 7 in-flight with a mix of tenants so no single tenant trips fair-share.
+        // Fill to 5 in-flight across distinct principals so no single one trips quota /
+        // fair-share (each holds exactly 1).
         let mut held = Vec::new();
-        for i in 0..7 {
+        for i in 0..5 {
             held.push(permit(
-                sched.try_admit(&req(QosClass::Interactive, &format!("t{i}"))),
+                sched.try_admit(&req(QosClass::Interactive, &format!("p{i}"))),
             ));
         }
+        assert_eq!(sched.stats().in_flight, 5);
+
+        // At 5 in-flight: INGEST (ceiling 5) is shed first.
+        assert_eq!(
+            reject(sched.try_admit(&req(QosClass::Ingest, "ingest"))),
+            QosReject::Backpressure,
+            "ingest is shed first once its reserved-below headroom is gone"
+        );
+        // HYDRATION (ceiling 6) still admits — one slot above ingest.
+        let hy = permit(sched.try_admit(&req(QosClass::Hydration, "hydra")));
+        assert_eq!(sched.stats().in_flight, 6);
+        // Now at 6: hydration is also shed; orch (ceiling 7) still admits.
+        assert_eq!(
+            reject(sched.try_admit(&req(QosClass::Hydration, "hydra2"))),
+            QosReject::Backpressure
+        );
+        let orch = permit(sched.try_admit(&req(QosClass::Orch, "orch")));
         assert_eq!(sched.stats().in_flight, 7);
-
-        // At 7 in-flight: a BATCH request is at/above its ceiling (7) ⇒ shed Backpressure.
+        // Now at 7: orch is shed; INTERACTIVE (ceiling 8) STILL admits — its reserve holds.
         assert_eq!(
-            reject(sched.try_admit(&req(QosClass::Batch, "batch-tenant"))),
-            QosReject::Backpressure,
-            "low-priority batch is shed once free capacity is reserved for interactive"
+            reject(sched.try_admit(&req(QosClass::Orch, "orch2"))),
+            QosReject::Backpressure
         );
-        // A MAINTENANCE request (ceiling 6) is likewise shed.
-        assert_eq!(
-            reject(sched.try_admit(&req(QosClass::Maintenance, "maint-tenant"))),
-            QosReject::Backpressure,
-        );
-        // But an INTERACTIVE request (ceiling 8) is STILL admitted — high priority wins.
-        let hi = permit(sched.try_admit(&req(QosClass::Interactive, "hot")));
+        let hot = permit(sched.try_admit(&req(QosClass::Interactive, "hot")));
         assert_eq!(sched.stats().in_flight, 8);
-
-        // Now full (8): even interactive is shed (bounded).
+        // Full: even interactive is shed (bounded).
         assert_eq!(
             reject(sched.try_admit(&req(QosClass::Interactive, "hot2"))),
-            QosReject::Backpressure,
+            QosReject::Backpressure
         );
-        drop(hi);
+        drop((hy, orch, hot));
         drop(held);
-        assert_eq!(
-            sched.stats().in_flight,
-            0,
-            "permits release their slots on drop"
-        );
+        assert_eq!(sched.stats().in_flight, 0, "permits release on drop");
     }
 
-    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — deadline-aware, priority-first ordering of a pending batch.
+    // W2.4 — deadline-aware, priority-first ordering across all four classes.
     #[test]
-    fn eg320_plan_admissions_orders_by_priority_then_deadline() {
+    fn plan_admissions_orders_by_priority_then_deadline() {
         let pending = vec![
-            QosRequest {
-                class: QosClass::Batch,
-                tenant: "a".into(),
-                deadline_micros: Some(10),
-                is_write: true,
-            }, // 0
-            QosRequest {
-                class: QosClass::Interactive,
-                tenant: "b".into(),
-                deadline_micros: Some(500),
-                is_write: false,
-            }, // 1
-            QosRequest {
-                class: QosClass::Interactive,
-                tenant: "c".into(),
-                deadline_micros: Some(100),
-                is_write: false,
-            }, // 2
-            QosRequest {
-                class: QosClass::Maintenance,
-                tenant: "d".into(),
-                deadline_micros: Some(1),
-                is_write: true,
-            }, // 3
+            req_dl(QosClass::Ingest, "a", Some(10)),        // 0
+            req_dl(QosClass::Interactive, "b", Some(500)),  // 1
+            req_dl(QosClass::Interactive, "c", Some(100)),  // 2
+            req_dl(QosClass::Hydration, "d", Some(1)),      // 3
+            req_dl(QosClass::Orch, "e", Some(50)),          // 4
         ];
-        // All four: interactive first (earlier deadline among them first), then batch,
-        // then maintenance — regardless of maintenance's tiny deadline.
-        assert_eq!(plan_admissions(&pending, 4), vec![2, 1, 0, 3]);
-        // Only 2 slots ⇒ just the two interactive requests, most-urgent first.
+        // interactive (urgent-first) → orch → hydration → ingest, regardless of the tiny
+        // hydration/ingest deadlines.
+        assert_eq!(plan_admissions(&pending, 5), vec![2, 1, 4, 3, 0]);
+        // Only 2 slots ⇒ the two interactive requests, most-urgent first.
         assert_eq!(plan_admissions(&pending, 2), vec![2, 1]);
-        // Zero capacity ⇒ nothing admitted.
         assert!(plan_admissions(&pending, 0).is_empty());
     }
 
-    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — per-tenant fair share: under contention one greedy bulk tenant
-    // cannot exceed its capacity/active_tenants share while another tenant is competing.
+    fn req_dl(class: QosClass, principal: &str, dl: Option<u64>) -> QosRequest {
+        QosRequest {
+            class,
+            principal: principal.to_string(),
+            deadline_micros: dl,
+        }
+    }
+
+    // W2.4 — per-principal token bucket bounds a noisy principal INSIDE its class while a
+    // DIFFERENT principal's same-class bucket, and the SAME principal's other-class
+    // bucket, stay full.
     #[test]
-    fn eg320_per_tenant_fair_share_under_contention() {
-        // capacity 16 ⇒ quota 4, reserves 2/2 ⇒ pressure_band 12, batch ceiling 14. Keep
-        // tenants under the hard quota so we observe the FAIR-SHARE rule, not the quota one.
-        let cfg = QosConfig::auto(16);
+    fn per_principal_per_class_token_bucket() {
+        let mut cfg = QosConfig::auto(64);
+        // A tiny, non-refilling-in-test bucket so we observe the burst boundary crisply:
+        // 3-token burst, no meaningful refill within the test's microseconds.
+        cfg.bucket_capacity = 3.0;
+        cfg.bucket_refill_per_sec = 0.000001;
         let sched = QosScheduler::new(cfg);
 
-        // Push global in-flight into the contended band (>=12, still below the batch
-        // ceiling 14) using many distinct interactive tenants (each holds 1, none near
-        // quota, interactive is fair-share exempt so this only raises in_flight).
+        // "greedy" drains its Ingest bucket: 3 admits, then RateLimited.
+        let mut held = Vec::new();
+        for _ in 0..3 {
+            held.push(permit(sched.try_admit(&req(QosClass::Ingest, "greedy"))));
+        }
+        assert_eq!(
+            reject(sched.try_admit(&req(QosClass::Ingest, "greedy"))),
+            QosReject::RateLimited,
+            "a principal over its per-class rate is shed RateLimited"
+        );
+        // The SAME principal's INTERACTIVE bucket is independent — still full.
+        let _hot = permit(sched.try_admit(&req(QosClass::Interactive, "greedy")));
+        // A DIFFERENT principal's INGEST bucket is independent — still full.
+        let _other = permit(sched.try_admit(&req(QosClass::Ingest, "other")));
+        assert_eq!(sched.stats().rate_limited_rejected, 1);
+        drop(held);
+    }
+
+    // Token buckets are freed when a principal drains to zero in-flight (bounded map).
+    #[test]
+    fn token_buckets_freed_when_principal_drains() {
+        let mut cfg = QosConfig::auto(64);
+        cfg.bucket_capacity = 2.0;
+        cfg.bucket_refill_per_sec = 0.000001;
+        let sched = QosScheduler::new(cfg);
+        let mut held = vec![permit(sched.try_admit(&req(QosClass::Ingest, "p")))];
+        held.push(permit(sched.try_admit(&req(QosClass::Ingest, "p"))));
+        // Bucket now created + drained to 0.
+        assert_eq!(reject(sched.try_admit(&req(QosClass::Ingest, "p"))), QosReject::RateLimited);
+        drop(held); // principal p drains to zero in-flight ⇒ its buckets are freed.
+        // A fresh full bucket ⇒ admits again.
+        let _fresh = permit(sched.try_admit(&req(QosClass::Ingest, "p")));
+    }
+
+    #[test]
+    fn per_principal_fair_share_under_contention() {
+        // capacity 16 ⇒ quota 4, reserves 2/2/2 ⇒ pressure_band 10, ingest ceiling 10.
+        // Push in-flight to 10 via many distinct interactive principals (fair-share
+        // exempt, each holds 1). Then a single ingest principal is fair-share bounded.
+        let cfg = no_bucket(16);
+        let sched = QosScheduler::new(cfg);
         let mut filler = Vec::new();
-        for i in 0..12 {
+        for i in 0..10 {
             filler.push(permit(
                 sched.try_admit(&req(QosClass::Interactive, &format!("f{i}"))),
             ));
         }
         assert!(sched.stats().in_flight >= sched.config().pressure_band());
-        assert!(sched.stats().in_flight < sched.config().class_ceiling(QosClass::Batch));
-
-        // Now two BATCH tenants compete. active_tenants is large (12 fillers + newcomer),
-        // so fair = 16 / ~13 = 1. The FIRST batch admit for a tenant succeeds (held 0 < 1);
-        // a SECOND concurrent one for the SAME tenant (held 1 >= 1) is shed FairShare
-        // (in-flight is still below the batch ceiling, so this is fair-share, not backpressure).
-        let _b1 = permit(sched.try_admit(&req(QosClass::Batch, "greedy")));
+        // Ingest ceiling is 10; at exactly 10 in-flight an ingest is shed Backpressure
+        // BEFORE fair-share can apply. Use Orch (ceiling 14) so we observe FAIR-SHARE.
+        assert_eq!(sched.config().class_ceiling(QosClass::Orch), 14);
+        let _b1 = permit(sched.try_admit(&req(QosClass::Orch, "greedy")));
+        // active_principals is large (10 fillers + greedy) ⇒ fair = 16/11 = 1. A SECOND
+        // concurrent Orch for "greedy" (holds 1 ≥ 1) is shed FairShare.
         assert_eq!(
-            reject(sched.try_admit(&req(QosClass::Batch, "greedy"))),
-            QosReject::FairShare,
-            "a bulk tenant over its fair share is shed under contention",
+            reject(sched.try_admit(&req(QosClass::Orch, "greedy"))),
+            QosReject::FairShare
         );
-        // A DIFFERENT batch tenant still gets its first slot (fairness across tenants).
-        let _b2 = permit(sched.try_admit(&req(QosClass::Batch, "other")));
+        let _b2 = permit(sched.try_admit(&req(QosClass::Orch, "other")));
         drop(filler);
     }
 
-    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — per-tenant hard quota rejection (any class, regardless of load).
     #[test]
-    fn eg320_per_tenant_quota_rejection() {
-        // capacity 16 ⇒ quota 4. A single uncontended tenant may burst up to the quota,
-        // then is rejected with Quota (NOT backpressure — plenty of global headroom).
-        let sched = QosScheduler::new(QosConfig::auto(16));
+    fn per_principal_quota_rejection() {
+        let sched = QosScheduler::new(no_bucket(16)); // quota 4
         let mut held = Vec::new();
         for _ in 0..4 {
             held.push(permit(sched.try_admit(&req(QosClass::Interactive, "t"))));
         }
-        assert_eq!(
-            sched.stats().in_flight,
-            4,
-            "well below capacity — no backpressure"
-        );
+        assert_eq!(sched.stats().in_flight, 4, "well below capacity");
         assert_eq!(
             reject(sched.try_admit(&req(QosClass::Interactive, "t"))),
             QosReject::Quota,
-            "tenant at its hard quota is rejected even with global headroom",
+            "principal at its hard quota is rejected even with global headroom"
         );
-        // Releasing one lets the tenant back in.
         drop(held.pop());
         let _ok = permit(sched.try_admit(&req(QosClass::Interactive, "t")));
     }
 
-    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — with QoS unconfigured the scheduler seam is absent (default path
-    // unchanged). `configured()` is None unless EPISTEMIC_GRAPH_QOS is truthy.
     #[test]
-    fn eg320_default_no_qos_is_disabled() {
-        // In the test process EPISTEMIC_GRAPH_QOS is unset ⇒ no scheduler ⇒ the transport
-        // never gates on QoS and the baseline admission path is byte-for-byte unchanged.
+    fn default_no_qos_is_disabled() {
         assert!(
             std::env::var("EPISTEMIC_GRAPH_QOS").is_err(),
-            "test env must not preset the QoS flag",
+            "test env must not preset the QoS flag"
         );
         assert!(configured().is_none(), "QoS is opt-in; default is disabled");
     }
 
-    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — backpressure is signalled with a typed, retryable BUSY message.
     #[test]
-    fn eg320_backpressure_is_signalled_at_capacity() {
-        let sched = QosScheduler::new(QosConfig::auto(8));
-        // Saturate with interactive across distinct tenants up to full capacity.
-        let mut held = Vec::new();
-        for i in 0..8 {
-            held.push(permit(
-                sched.try_admit(&req(QosClass::Interactive, &format!("t{i}"))),
+    fn every_reject_reason_has_a_busy_message_and_label() {
+        for why in [
+            QosReject::Quota,
+            QosReject::FairShare,
+            QosReject::Backpressure,
+            QosReject::RateLimited,
+        ] {
+            assert!(why.busy_message().starts_with("BUSY:"));
+            assert!(!why.label().is_empty());
+        }
+    }
+
+    // ── W2.4 ACCEPTANCE: noisy-neighbor soak ────────────────────────────────────
+    // The SLO the 2026-07-11 soak FAILED: interactive p99 must HOLD under a sustained
+    // ingest flood. A sustained ingest firehose PINS the pool at the ingest ceiling
+    // (held permits — real ingestion work already occupying the ingest lane), then a
+    // steady INTERACTIVE client and a concurrent INGEST flood run against it. Because the
+    // class-ceiling reserves headroom above ingest, interactive admits near-instantly
+    // (tiny p99, ~0 sheds) while the flood is shed en masse. We assert the p99 RATIO
+    // (interactive p99 ≪ ingest p99) and the shed counts, and log every number.
+    #[test]
+    fn noisy_neighbor_soak_interactive_p99_holds_under_ingest_flood() {
+        // Deterministic pool. reserve = 32/8 = 4 ⇒ ingest ceiling 20, interactive ceiling
+        // 32, pressure_band 20. Generous token buckets so the SLO under test is the
+        // class-ceiling reservation (the shed-lowest-first mechanism), not the rate limiter.
+        let mut cfg = QosConfig::auto(32);
+        cfg.bucket_capacity = 1_000_000.0;
+        cfg.bucket_refill_per_sec = 1_000_000.0;
+        let sched = QosScheduler::new(cfg);
+        let ceiling = sched.config().class_ceiling(QosClass::Ingest);
+        assert_eq!(ceiling, 20);
+        assert_eq!(sched.config().class_ceiling(QosClass::Interactive), 32);
+
+        // ── Sustained ingest firehose: hold `ceiling` ingest permits across distinct
+        // principals so the pool is pinned AT the ingest ceiling for the whole soak.
+        // (Each principal holds exactly one, so neither the per-principal quota nor
+        // fair-share trips while filling.) Any FURTHER ingest is now shed backpressure;
+        // interactive still has its reserved headroom.
+        let mut firehose = Vec::new();
+        for i in 0..ceiling {
+            firehose.push(permit(
+                sched.try_admit(&req(QosClass::Ingest, &format!("firehose-{i}"))),
             ));
         }
-        let d = sched.try_admit(&req(QosClass::Interactive, "overflow"));
-        let why = reject(d);
-        assert_eq!(why, QosReject::Backpressure);
-        assert!(
-            why.busy_message().starts_with("BUSY:"),
-            "overloaded requests get a retryable BUSY signal",
+        assert_eq!(sched.stats().in_flight, ceiling);
+        // Sanity: an extra ingest is shed (backpressure) while interactive is admitted.
+        assert_eq!(
+            reject(sched.try_admit(&req(QosClass::Ingest, "probe"))),
+            QosReject::Backpressure
         );
-        assert_eq!(sched.stats().backpressure_rejected, 1);
-        drop(held);
+
+        let samples = 500usize;
+        let stop = Arc::new(AtomicBool::new(false));
+        let ingest_flood_shed = Arc::new(StdAtomicU64::new(0));
+        let ingest_flood_admitted = Arc::new(StdAtomicU64::new(0));
+
+        // ── Concurrent ingest flood: 4 principals hammering the (saturated) ingest lane.
+        let mut flood = Vec::new();
+        for f in 0..4 {
+            let sched = sched.clone();
+            let stop = stop.clone();
+            let shed = ingest_flood_shed.clone();
+            let adm = ingest_flood_admitted.clone();
+            flood.push(std::thread::spawn(move || {
+                let principal = format!("flood-{f}");
+                while !stop.load(Ordering::Relaxed) {
+                    match sched.try_admit(&req(QosClass::Ingest, &principal)) {
+                        QosDecision::Reject(_) => {
+                            shed.fetch_add(1, Ordering::Relaxed);
+                        }
+                        QosDecision::Admit(p) => {
+                            adm.fetch_add(1, Ordering::Relaxed);
+                            drop(p);
+                        }
+                    }
+                    std::thread::yield_now();
+                }
+            }));
+        }
+
+        let p99 = |mut v: Vec<u128>| -> u128 {
+            if v.is_empty() {
+                return 0;
+            }
+            v.sort_unstable();
+            v[((v.len() as f64 * 0.99).ceil() as usize).min(v.len()) - 1]
+        };
+
+        // ── Interactive client (the workload whose p99 must hold): time each request's
+        // full path to admission, retrying with a tiny backoff on the rare shed.
+        let interactive = {
+            let sched = sched.clone();
+            std::thread::spawn(move || {
+                let mut lat = Vec::with_capacity(samples);
+                let mut shed = 0u64;
+                for _ in 0..samples {
+                    let start = Instant::now();
+                    loop {
+                        match sched.try_admit(&req(QosClass::Interactive, "interactive-client")) {
+                            QosDecision::Admit(p) => {
+                                lat.push(start.elapsed().as_micros());
+                                std::thread::sleep(Duration::from_micros(30)); // fast read
+                                drop(p);
+                                break;
+                            }
+                            QosDecision::Reject(_) => {
+                                shed += 1;
+                                std::thread::sleep(Duration::from_micros(10));
+                            }
+                        }
+                    }
+                    std::thread::sleep(Duration::from_micros(50)); // steady, not a flood
+                }
+                (lat, shed)
+            })
+        };
+
+        // ── An "insistent ingest" client measured on the SAME axis for the p99 RATIO: it
+        // retries (bounded) to get served, so its time-to-serve reflects being shed
+        // behind the firehose. Bounded retries so a fully-starved request records the
+        // budget rather than hanging.
+        let ingest_client = {
+            let sched = sched.clone();
+            std::thread::spawn(move || {
+                let mut lat = Vec::with_capacity(samples);
+                let mut shed_out = 0u64;
+                for _ in 0..samples {
+                    let start = Instant::now();
+                    let mut admitted = false;
+                    for _ in 0..64 {
+                        match sched.try_admit(&req(QosClass::Ingest, "ingest-client")) {
+                            QosDecision::Admit(p) => {
+                                drop(p);
+                                admitted = true;
+                                break;
+                            }
+                            QosDecision::Reject(_) => {
+                                std::thread::sleep(Duration::from_micros(10));
+                            }
+                        }
+                    }
+                    if !admitted {
+                        shed_out += 1;
+                    }
+                    lat.push(start.elapsed().as_micros());
+                    std::thread::sleep(Duration::from_micros(50));
+                }
+                (lat, shed_out)
+            })
+        };
+
+        let (interactive_lat, interactive_shed) = interactive.join().unwrap();
+        let (ingest_lat, ingest_shed_out) = ingest_client.join().unwrap();
+        stop.store(true, Ordering::Relaxed);
+        for h in flood {
+            let _ = h.join();
+        }
+
+        let interactive_p99 = p99(interactive_lat.clone());
+        let interactive_max = interactive_lat.iter().copied().max().unwrap_or(0);
+        let ingest_p99 = p99(ingest_lat.clone());
+        let flood_shed = ingest_flood_shed.load(Ordering::Relaxed);
+        let flood_adm = ingest_flood_admitted.load(Ordering::Relaxed);
+        let stats = sched.stats();
+
+        // Numbers logged for the record (visible with `--nocapture`).
+        println!(
+            "[W2.4 noisy-neighbor soak] pool cap=32 ingest_ceiling={ceiling} \
+             pinned_firehose={ceiling}\n  interactive: samples={samples} shed={interactive_shed} \
+             p99={interactive_p99}us max={interactive_max}us\n  ingest-client: samples={samples} \
+             shed_out={ingest_shed_out} p99={ingest_p99}us\n  ingest-flood: shed={flood_shed} \
+             admitted={flood_adm}\n  scheduler: admitted_total={} backpressure_shed={} \
+             fair_share_shed={} rate_limited_shed={} quota_shed={}",
+            stats.admitted_total,
+            stats.backpressure_rejected,
+            stats.fair_share_rejected,
+            stats.rate_limited_rejected,
+            stats.quota_rejected,
+        );
+
+        // ── The SLO assertions (the exact shape the 07-11 soak failed) ──────────────
+        // 1) Interactive holds its p99 — near-instant admission even under the flood
+        //    (admits are essentially free; the sleep is the simulated read, excluded).
+        assert!(
+            interactive_p99 < 5_000,
+            "interactive p99 time-to-admit ({interactive_p99}us) exceeded the SLO under flood"
+        );
+        // 2) Interactive is essentially NEVER shed — the reserve above ingest holds.
+        assert!(
+            interactive_shed <= (samples as u64) / 50,
+            "interactive was shed too often ({interactive_shed}/{samples}) — the reserve did not hold"
+        );
+        // 3) The p99 RATIO: interactive is served at least an order of magnitude faster
+        //    than ingest, which is starved behind the firehose.
+        assert!(
+            ingest_p99 > interactive_p99.saturating_mul(10),
+            "expected interactive p99 ({interactive_p99}us) ≪ ingest p99 ({ingest_p99}us)"
+        );
+        // 4) The ingest flood is shed en masse (the noisy neighbor is bounded).
+        assert!(
+            flood_shed > 1_000 && flood_shed > interactive_shed.saturating_mul(100).max(1_000),
+            "expected the ingest flood to be shed far more than interactive \
+             (flood_shed={flood_shed}, interactive_shed={interactive_shed})"
+        );
+        // 5) The class-ceiling shed-lowest-first path was actually exercised.
+        assert!(
+            stats.backpressure_rejected > 0,
+            "the class-ceiling shed path was never exercised"
+        );
+
+        drop(firehose);
+        assert_eq!(sched.stats().in_flight, 0, "all permits released");
     }
 }

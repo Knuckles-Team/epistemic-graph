@@ -10,6 +10,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 > **Documentation clarification (2026-07-23):** The `epistemic-tms` (paraconsistent truth-maintenance + Dung argumentation) and `epistemic-causal` (Pearl do-calculus) features are **included in the default `full` build as of 2.23.1** (EG-P0-6). Both features are unconditionally present in any served deployment; there is no configuration or flag to disable them.
 
+### Added
+- **Engine-native QoS lanes (W2.4, CONCEPT:EG-KG.coordination.backpressure-busy-signal)** — generalized the EG-044
+  admission gate from three method-derived classes to **four admission classes
+  derived from the `eg2.` envelope's priority claim**:
+  `Interactive > Orch > Hydration > Ingest`, mapped 1:1 from agent-utilities'
+  `PriorityClass` currency (`interactive`/`orchestration`/`hydration`/
+  `background_ingestion`; an absent/unknown claim ⇒ `Orch`, matching au's
+  untagged-context semantics). The priority is a new **MAC-covered** claim
+  (`RequestContextClaims.priority`, appended to `build_envelope_v2_bytes` as a
+  distinct tag-`2` optional trailer after the tag-`1` node trailer — fully
+  additive; an envelope without it encodes byte-for-byte as before), so a noisy
+  principal cannot forge a higher class to defeat the admission ordering.
+  - **Shed the lowest class first** — each class has a headroom ceiling; under
+    pressure `Ingest` is shed (`BUSY`) before `Hydration` before `Orch`, leaving
+    the reserved headroom for `Interactive`. Admission ordering, not FIFO.
+  - **Per-principal token buckets, per class** — a lazily-refilled
+    `(principal, class)` bucket bounds a single noisy principal's sustained rate
+    *inside its class*; a principal flooding `Ingest` is shed `RateLimited` while
+    its own `Interactive` bucket and every other principal's buckets stay full.
+    Bucket maps stay bounded by the live-principal set (freed when a principal
+    drains to zero in-flight).
+  - **Per-class Prometheus metrics** (feature `metrics`):
+    `epistemic_graph_qos_admitted_total{class}`,
+    `epistemic_graph_qos_shed_total{class,reason}`,
+    `epistemic_graph_qos_class_in_flight{class}` (queue depth), and
+    `epistemic_graph_qos_class_dispatch_seconds{class}` (latency) — the
+    noisy-neighbor SLO is now first-class-observable.
+  - Opt-in and behaviour-preserving: unchanged unless `EPISTEMIC_GRAPH_QOS` is
+    truthy (`EPISTEMIC_GRAPH_QOS_CAPACITY` / `EPISTEMIC_GRAPH_QOS_PRINCIPAL_QUOTA`
+    tune it). Proven by a noisy-neighbor soak test asserting interactive p99 holds
+    under a sustained ingest flood (the exact SLO shape the 2026-07-11 soak
+    failed). The reference Python client (`epistemic_graph/client.py`) can carry
+    the claim; the au-side `PriorityClass`-contextvar→claim wiring lands with W2.9.
+
 ### Fixed
 - **Cypher anonymous-node inline-property-map audit (W0.8, CONCEPT:EG-KG.query.anon-propmap-parity)** — investigated a
   reported footgun where `MATCH (:Label {k: $v})` (an anonymous node pattern

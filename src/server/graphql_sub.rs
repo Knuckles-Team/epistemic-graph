@@ -850,6 +850,7 @@ mod tests {
             policy_version: "policy-test".into(),
             delegation: Vec::new(),
             node: None,
+            priority: None,
         };
         request.auth_token = compute_verified_envelope_token(
             "graphql-test-secret",

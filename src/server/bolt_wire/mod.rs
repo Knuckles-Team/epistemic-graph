@@ -1319,6 +1319,7 @@ mod tests {
             policy_version: "policy-test".to_string(),
             delegation: Vec::new(),
             node: None,
+            priority: None,
         };
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
