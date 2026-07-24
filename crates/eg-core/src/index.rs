@@ -182,7 +182,8 @@ impl ChangeSet {
     /// label / key dimensions it touched. Use from any write path that reads the blob before the
     /// delete; `record_remove_node` remains correct where the blob is unavailable (coarse fallback).
     pub fn record_remove_node_with_properties(&mut self, id: String, properties_msgpack: Vec<u8>) {
-        self.removed_node_props.insert(id.clone(), properties_msgpack);
+        self.removed_node_props
+            .insert(id.clone(), properties_msgpack);
         self.removed_nodes.push(id);
     }
     pub fn record_add_edge(&mut self, source: String, target: String) {
