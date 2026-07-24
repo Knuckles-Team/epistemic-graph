@@ -37,11 +37,14 @@
 //! [`TieredCache::with_warm_codec`]. Both are OFF by default, so a `pi`/default build
 //! carries no redb and no zstd — the base build stays lean.
 //!
-//! ## Not yet wired (explicit follow-ups)
+//! ## Downstream wiring (built ON this substrate)
 //!
-//! A NETWORKED [`SharedKvBackend`] (RPC / object-store), the concrete vLLM/LMCache
-//! connector, and the graph-os server endpoint that exposes these types are deliberately
-//! left as follow-ups — this crate is the pure engine-side substrate only.
+//! This crate stays the pure engine-side substrate. The NETWORKED [`SharedKvBackend`]
+//! (mutation-store-backed + fleet-shared, so serving instances share prefix blocks through
+//! the engine and the cache survives a restart) is built on it in the FACADE
+//! (`epistemic-graph`'s `src/server/kvcache_http::SharedKvStoreBackend`); the concrete
+//! vLLM/LMCache connector ships in the `epistemic_graph` Python client; and the graph-os
+//! HTTP endpoint exposes both — none of which this leaf crate depends on.
 
 pub mod cold;
 pub mod compress;

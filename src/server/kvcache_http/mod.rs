@@ -87,6 +87,28 @@ use tokio::sync::RwLock;
 use crate::server::ServerState;
 use eg_kvcache::{BranchId, DataVersion, SharedKvBackend, SharedKvIndex, SnapshotId};
 
+/// The networked (mutation-store-backed) shared backend — the durable, fleet-shared
+/// KV-cache over the engine's live `kv.redb` (feature `kv`). See [`shared_store`].
+#[cfg(feature = "kv")]
+mod shared_store;
+#[cfg(feature = "kv")]
+pub use shared_store::{rank_keys_by_importance, SharedKvStoreBackend, SharedKvStoreStats};
+
+/// Env var selecting the KV-cache backend (CONCEPT:EG-KG.backend.networked-shared-kv):
+/// `durable` (aliases `shared`/`store`) ⇒ the mutation-store-backed, FLEET-SHARED,
+/// restart-surviving [`SharedKvStoreBackend`] over the engine's live `kv.redb` — the SAME
+/// store the `KvGet`/`KvPut` wire methods use, so a prefix block one serving instance PUTs
+/// is a cache HIT for every other; requires the `kv` feature + a persist dir. Anything
+/// else / unset ⇒ the in-process ephemeral [`SharedKvIndex`] (unchanged default).
+pub const KVCACHE_BACKEND_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_BACKEND";
+/// Env var labeling this serving instance in the KV-cache metrics/logs (so cross-instance
+/// prefix reuse is attributable). Defaults to `EPISTEMIC_GRAPH_NODE_ID`, else `"kvcache"`.
+pub const KVCACHE_INSTANCE_ID_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_INSTANCE_ID";
+/// Upper bound on blocks paged in from the durable store for one `snapshot` (bounds the
+/// read fan-in behind the LMCacheMPConnector snapshot→branch primitive).
+#[cfg(feature = "kv")]
+const DURABLE_SNAPSHOT_PAGE_IN_CAP: usize = 4096;
+
 /// Env var: when set (and built `--features kvcache-server`) the KV-cache HTTP listener
 /// binds this address (documented loopback default `127.0.0.1:9130`). Unset ⇒ no
 /// listener.
@@ -107,10 +129,21 @@ const HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15
 
 /// The KV-cache backing store: the shared, content-addressed, ref-counted index behind
 /// a `Mutex` (the index needs `&mut` to `put`/`release`; the guard is held only for the
-/// duration of one op). A follow-up networked backend would swap this for an RPC /
-/// object-store client implementing the SAME [`SharedKvBackend`] trait.
+/// duration of one op). The networked, fleet-shared alternative — the durable,
+/// mutation-store-backed `SharedKvStoreBackend` implementing the SAME [`SharedKvBackend`]
+/// trait — is selectable via `KvCacheStore::with_durable` (env
+/// `EPISTEMIC_GRAPH_KVCACHE_BACKEND=durable`).
 pub struct KvCacheStore {
+    /// The in-process shared index. When `durable` is `None` this IS the block store; when
+    /// `durable` is `Some` it is only the zero-copy snapshot-fork working layer (pages are
+    /// paged in from the durable store on `snapshot`).
     index: Mutex<SharedKvIndex>,
+    /// When set, blocks live in the durable, mutation-store-backed, FLEET-SHARED backend
+    /// over the engine's live `kv.redb` (CONCEPT:EG-KG.backend.networked-shared-kv) instead
+    /// of the ephemeral in-process index — so the cache is shared across serving instances
+    /// and survives an engine restart.
+    #[cfg(feature = "kv")]
+    durable: Option<SharedKvStoreBackend>,
 }
 
 impl Default for KvCacheStore {
@@ -120,46 +153,93 @@ impl Default for KvCacheStore {
 }
 
 impl KvCacheStore {
-    /// A fresh, empty in-process shared KV-cache store.
+    /// A fresh, empty in-process shared KV-cache store (ephemeral, single-process).
     pub fn new() -> Self {
         Self {
             index: Mutex::new(SharedKvIndex::new()),
+            #[cfg(feature = "kv")]
+            durable: None,
+        }
+    }
+
+    /// A store whose blocks live in the durable, fleet-shared [`SharedKvStoreBackend`]
+    /// (CONCEPT:EG-KG.backend.networked-shared-kv). The in-process index remains the
+    /// zero-copy snapshot-fork working layer (pages are paged in from the durable store).
+    #[cfg(feature = "kv")]
+    pub fn with_durable(backend: SharedKvStoreBackend) -> Self {
+        Self {
+            index: Mutex::new(SharedKvIndex::new()),
+            durable: Some(backend),
         }
     }
 
     fn get(&self, hash: &str) -> Option<Vec<u8>> {
+        #[cfg(feature = "kv")]
+        if let Some(durable) = &self.durable {
+            return durable.get_block(hash);
+        }
         self.index.lock().unwrap().get_block(hash)
     }
 
     /// Store `block` under `hash`, stamped with the [`DataVersion`] it was `derived_at`
-    /// (CONCEPT:EG-KG.storage.content-addressed-put). Returns `true` iff a NEW block was created (`false` on a dedup hit
-    /// against an already-present block).
-    fn put(&self, hash: &str, block: Vec<u8>, derived_at: DataVersion) -> bool {
-        self.index
+    /// (CONCEPT:EG-KG.storage.content-addressed-put). `Ok(true)` iff a NEW block was created
+    /// (`Ok(false)` on a dedup hit against an already-present block); `Err` on a durable
+    /// store failure (so the surface can 500 rather than silently claim it cached).
+    fn put(&self, hash: &str, block: Vec<u8>, derived_at: DataVersion) -> Result<bool, String> {
+        #[cfg(feature = "kv")]
+        if let Some(durable) = &self.durable {
+            return durable.store_block(hash, block, derived_at);
+        }
+        Ok(self
+            .index
             .lock()
             .unwrap()
-            .put_block(hash, block, derived_at)
+            .put_block(hash, block, derived_at))
     }
 
     fn contains(&self, hash: &str) -> bool {
+        #[cfg(feature = "kv")]
+        if let Some(durable) = &self.durable {
+            return durable.contains(hash);
+        }
         self.index.lock().unwrap().contains(hash)
     }
 
     /// Advance the surface's current data version (CONCEPT:EG-KG.storage.content-addressed-put) — driven by a graph
-    /// write (`PUT /kv/version/<n>`). Retires every now-stale version-tagged entry so no
-    /// stale agent/LLM context is served after the underlying data changed.
+    /// write (`PUT /kv/version/<n>`). The durable backend persists the epoch so the WHOLE
+    /// fleet gates freshness against it (stale entries read as absent); the in-process
+    /// index retires stale entries eagerly.
     fn set_data_version(&self, version: DataVersion) {
+        #[cfg(feature = "kv")]
+        if let Some(durable) = &self.durable {
+            if let Err(error) = durable.set_version(version) {
+                tracing::warn!(
+                    target: "epistemic_graph::kvcache",
+                    error = %error,
+                    "kvcache set_data_version failed"
+                );
+            }
+            return;
+        }
         self.index.lock().unwrap().set_data_version(version);
     }
 
     /// The surface's current data version as connector-friendly JSON (CONCEPT:EG-KG.storage.content-addressed-put).
     fn version_json(&self) -> String {
-        let v = self.index.lock().unwrap().current_version();
-        let (tracking, version) = match v {
+        let current = self.current_version();
+        let (tracking, version) = match current {
             DataVersion::Agnostic => (false, serde_json::Value::Null),
             DataVersion::At(n) => (true, serde_json::json!(n)),
         };
         serde_json::json!({ "tracking": tracking, "version": version }).to_string()
+    }
+
+    fn current_version(&self) -> DataVersion {
+        #[cfg(feature = "kv")]
+        if let Some(durable) = &self.durable {
+            return durable.current_version();
+        }
+        self.index.lock().unwrap().current_version()
     }
 
     // ── zero-copy snapshot-fork surface (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) ─────────────
@@ -170,10 +250,35 @@ impl KvCacheStore {
     // AU `crossmodal_fork` `max_concurrency>1` path targets to make fan-out O(1) in copies.
 
     /// Pin the current pages for `keys` into a snapshot; returns `(snapshot_id, page_count)`.
+    ///
+    /// On the durable backend, the requested (present) blocks are first PAGED IN from the
+    /// fleet-shared store into the in-process fork working-layer, so the LMCacheMPConnector
+    /// snapshot→branch primitive works over durable, cross-instance blocks (bounded fan-in).
+    /// The transient page-in ref is released after the snapshot pins the page — only the
+    /// snapshot then holds it, so `release_snapshot` frees it (no leak).
     fn snapshot(&self, keys: &[String]) -> (u64, usize) {
         let mut idx = self.index.lock().unwrap();
+        #[cfg(feature = "kv")]
+        let paged_in: Vec<String> = if let Some(durable) = &self.durable {
+            let mut newly = Vec::new();
+            for key in keys.iter().take(DURABLE_SNAPSHOT_PAGE_IN_CAP) {
+                if idx.refcount(key) == 0 {
+                    if let Some(block) = durable.get_block(key) {
+                        idx.put_block(key, block, DataVersion::Agnostic);
+                        newly.push(key.clone());
+                    }
+                }
+            }
+            newly
+        } else {
+            Vec::new()
+        };
         let id = idx.snapshot(keys);
         let pages = idx.snapshot_page_count(id).unwrap_or(0);
+        #[cfg(feature = "kv")]
+        for key in &paged_in {
+            idx.release(key);
+        }
         (id.0, pages)
     }
 
@@ -219,9 +324,29 @@ impl KvCacheStore {
     }
 
     fn stats_json(&self) -> String {
+        // Durable backend: the Seam-6 hit-rate export shape (hits/misses/dedup + hit_rate).
+        // Occupancy (unique_blocks/resident_bytes) is deliberately omitted — a full scan on
+        // every /kv/stats would be unbounded — so the stats probe stays O(1).
+        #[cfg(feature = "kv")]
+        if let Some(durable) = &self.durable {
+            let s = durable.stats();
+            return serde_json::json!({
+                "backend": "durable",
+                "instance": durable.instance_id(),
+                "durable": durable.is_durable(),
+                "get_hits": s.get_hits,
+                "get_misses": s.get_misses,
+                "dedup_hits": s.dedup_hits,
+                "put_new": s.put_new,
+                "stale_missed": s.stale_missed,
+                "hit_rate": s.hit_rate(),
+            })
+            .to_string();
+        }
         let s = self.index.lock().unwrap().stats();
         // Hand-built via serde_json (already workspace-wide) — flat, connector-friendly.
         serde_json::json!({
+            "backend": "memory",
             "unique_blocks": s.unique_blocks,
             "total_refs": s.total_refs,
             "resident_bytes": s.resident_bytes,
@@ -539,9 +664,25 @@ fn handle_authorized(store: &KvCacheStore, req: &KvRequest) -> KvResponse {
             // supplied one (CONCEPT:EG-KG.storage.content-addressed-put); absent ⇒ a pure content-addressed page
             // (Agnostic, never version-invalidated).
             let derived_at = parse_data_version(&req.headers);
-            let created = store.put(hash, req.body.clone(), derived_at);
-            // 201 on a brand-new block; 200 on a dedup hit (the block was already present).
-            KvResponse::empty(if created { "201 Created" } else { "200 OK" })
+            // 201 on a brand-new block; 200 on a dedup hit (the block was already present);
+            // 500 on a durable-store write failure (never a silent success — no masking).
+            match store.put(hash, req.body.clone(), derived_at) {
+                Ok(true) => KvResponse::empty("201 Created"),
+                Ok(false) => KvResponse::empty("200 OK"),
+                Err(error) => {
+                    tracing::warn!(
+                        target: "epistemic_graph::kvcache",
+                        hash = %hash,
+                        error = %error,
+                        "kvcache PUT failed"
+                    );
+                    KvResponse::error(
+                        "500 Internal Server Error",
+                        "StoreError",
+                        "failed to store block",
+                    )
+                }
+            }
         }
         _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
     }
@@ -636,9 +777,68 @@ pub async fn serve_with_security(
     addr: &str,
     state: Arc<RwLock<ServerState>>,
 ) -> std::io::Result<()> {
-    let store = Arc::new(KvCacheStore::new());
+    let store = Arc::new(resolve_store(&state).await?);
     let auth = resolve_auth()?;
     serve_with_store_inner(addr, store, auth, Some(state)).await
+}
+
+/// Select the KV-cache backend from `EPISTEMIC_GRAPH_KVCACHE_BACKEND`
+/// (CONCEPT:EG-KG.backend.networked-shared-kv): `durable` (aliases `shared`/`store`) ⇒ the
+/// mutation-store-backed, FLEET-SHARED backend over the engine's live `kv.redb` (the SAME
+/// store the `KvGet`/`KvPut` wire methods use, so blocks are shared across every serving
+/// instance + survive a restart); anything else / unset ⇒ the in-process ephemeral index
+/// (default, unchanged).
+async fn resolve_store(state: &Arc<RwLock<ServerState>>) -> std::io::Result<KvCacheStore> {
+    let backend = std::env::var(KVCACHE_BACKEND_ENV).unwrap_or_default();
+    let want_durable = matches!(
+        backend.trim().to_ascii_lowercase().as_str(),
+        "durable" | "shared" | "store"
+    );
+    if !want_durable {
+        return Ok(KvCacheStore::new());
+    }
+    #[cfg(feature = "kv")]
+    {
+        let kv = { state.read().await.kv.clone() };
+        let Some(kv) = kv else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "EPISTEMIC_GRAPH_KVCACHE_BACKEND=durable requires the kv store (set GRAPH_SERVICE_PERSIST_DIR)",
+            ));
+        };
+        let instance_id = std::env::var(KVCACHE_INSTANCE_ID_ENV)
+            .ok()
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                std::env::var("EPISTEMIC_GRAPH_NODE_ID")
+                    .ok()
+                    .filter(|value| !value.is_empty())
+            })
+            .unwrap_or_else(|| "kvcache".to_string());
+        if !kv.is_durable() {
+            tracing::warn!(
+                target: "epistemic_graph::kvcache",
+                "kvcache durable backend selected but the kv store is in-memory (no persist dir) — shared only across connections of THIS process, NOT restart-surviving"
+            );
+        }
+        tracing::info!(
+            target: "epistemic_graph::kvcache",
+            instance = %instance_id,
+            "kvcache: using the durable, fleet-shared mutation-store-backed backend"
+        );
+        Ok(KvCacheStore::with_durable(SharedKvStoreBackend::new(
+            kv,
+            instance_id,
+        )))
+    }
+    #[cfg(not(feature = "kv"))]
+    {
+        let _ = state;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "EPISTEMIC_GRAPH_KVCACHE_BACKEND=durable requires the `kv` feature",
+        ))
+    }
 }
 
 /// Resolve the mandatory bearer-token credential from the environment.

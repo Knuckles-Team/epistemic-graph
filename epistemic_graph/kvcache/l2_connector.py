@@ -15,6 +15,22 @@ the **``/kv/stats`` counters (CONCEPT:EG-KG.backend.is-configured-so-co)** do NO
 instead speaks the **EG-187 HTTP KV surface**, so every L2 write is
 content-addressed and deduped and the stats counters move.
 
+Hybrid (Mamba/GDN) models — the MP connector path, not V1
+---------------------------------------------------------
+For **hybrid attention/state-space models** (Mamba, gated-delta-net / GDN, and
+attention+SSM hybrids), LMCache offloads through its **multi-process**
+``LMCacheMPConnector`` — the decoupled ``lmcache server`` + ``native_plugin`` L2
+adapter this class implements — **not** the in-process V1 connector. A hybrid
+model's per-request state is not attention-KV alone: it also carries a compact
+recurrent snapshot (Mamba ``conv_state`` + ``ssm_state`` / the GDN recurrent
+state). Because this native client is **opaque-key, opaque-bytes**, that recurrent
+state rides the SAME :meth:`submit_batch_set` / :meth:`submit_batch_get` batches as
+the attention-KV pages — just under its own key(s), with its own (different) byte
+length. Nothing here assumes an attention-only V1 shape, so a hybrid model's
+recurrent-state blocks are pooled + shared cross-instance exactly like KV pages
+(the engine dedups + version-invalidates them identically). This is a hard
+non-regression: keep the connector shape agnostic to what a block *is*.
+
 The LMCache ``native_plugin`` contract
 --------------------------------------
 LMCache's ``NativeConnectorL2Adapter``

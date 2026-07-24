@@ -26,8 +26,9 @@
 //!
 //! A worker would typically wrap a remote backend BEHIND a local [`SharedKvIndex`] (or a
 //! [`crate::TieredCache`]) as an L1, falling through to the network on a local miss. The
-//! networked impl, the vLLM/LMCache connector, and the server endpoint wiring are all
-//! explicit follow-ups (see the crate report).
+//! networked impl over the engine's durable, mutation-store-backed KV store lives in the
+//! FACADE (`epistemic-graph`'s `src/server/kvcache_http::SharedKvStoreBackend`); the
+//! vLLM/LMCache connector ships in the `epistemic_graph` Python client.
 
 use std::collections::HashMap;
 use std::sync::Arc;
