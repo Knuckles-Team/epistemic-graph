@@ -31,6 +31,14 @@ cypher = ["dep:petgraph"]
 # `datascience`, pulling `rand_chacha`; still no BLAS/GPU dep).
 cypher-mining = ["cypher", "eg-compute/mining"]
 cypher-graphlearn = ["cypher", "eg-compute/graphlearn"]
+# CONCEPT:EG-KG.query.cypher-engine-shadow — the `EPISTEMIC_GRAPH_CYPHER_ENGINE`
+# rollout surface (legacy | plan | shadow): a cost-based start/traversal-order
+# `plan` engine over the SAME binding-table walk, plus SHADOW mode that dual-executes
+# and diffs the two engines and logs each divergence with `tracing`. Kept OUT of the
+# lean Pi `cypher` build (which stays legacy-only, dep-identical) — `full` carries it.
+# `tracing` is already an optional dep (used by `sql`) and is present transitively via
+# eg-core, so this adds no NEW crate to the tree.
+cypher-plan = ["cypher", "dep:tracing"]
 # Finance aggregate UDFs (`var`, `cvar`) — forward to eg-compute's finance kernels.
 # Gated (and implies `sql`) so a no-finance build skips them AND keeps nalgebra out
 # of the default tree (CONCEPT:KG-2.184).

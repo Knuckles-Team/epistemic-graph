@@ -69,7 +69,11 @@ def main() -> int:
             for mutation in _mutations(payload):
                 try:
                     _exercise(suffix, mutation)
-                except (UnicodeDecodeError, json.JSONDecodeError, tomllib.TOMLDecodeError):
+                except (
+                    UnicodeDecodeError,
+                    json.JSONDecodeError,
+                    tomllib.TOMLDecodeError,
+                ):
                     pass
                 except Exception:
                     crashes += 1

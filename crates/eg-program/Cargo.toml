@@ -19,4 +19,3 @@ hex = "0.4"
 
 [dev-dependencies]
 rmp-serde = "1.3"
-
