@@ -28,12 +28,15 @@
 //! | [`steiner::steiner_tree`] | `gds.steinerTree` | `O(T·(V+E)logV + T²logT)` |
 //! | [`random_walk::random_walk`] | `gds.randomWalk` | `O(steps·d̄)` |
 //! | [`jaccard_similarity`] / [`cosine_similarity`] | `gds.nodeSimilarity` | `O(deg)` |
-//! | [`knn_similarity`] | `gds.knn` | `O(V²·d̄)` (exact top-`k`, not sampled KNN-descent) |
+//! | [`knn_similarity`] | `gds.knn` (mode `exact`) | `O(V²·d̄)` (exact top-`k`) |
+//! | [`knn_similarity_approx`] | `gds.knn` (mode `approximate`) | `~O(V·k²·d̄·iters)` (seeded NN-descent) |
 //! | [`label_propagation::label_propagation`] | `gds.labelPropagation` | `O(iters·(V+E))` |
 //!
 //! **Determinism.** No RNG anywhere except Louvain's *optional, seeded* visit
-//! shuffle and [`random_walk::random_walk`] (whose whole point IS randomness —
-//! explicitly exempted, but still bit-reproducible for a fixed seed); every
+//! shuffle, [`random_walk::random_walk`] (whose whole point IS randomness —
+//! explicitly exempted, but still bit-reproducible for a fixed seed), and
+//! [`knn_similarity_approx`]'s *seeded* NN-descent sampling (also bit-reproducible
+//! for a fixed seed — the exact [`knn_similarity`] needs no seed); every
 //! other tie-break falls back to ascending node index (which is sorted
 //! node-id order), so those runs are bit-reproducible with no config at all.
 //! [`leiden::leiden`] reuses Louvain's same optional seed for its outer
@@ -79,8 +82,8 @@ pub use pagerank::{pagerank, PageRankConfig, PageRankResult};
 pub use random_walk::{random_walk, RandomWalkConfig};
 pub use shortest_path::{all_pairs_shortest_paths, dijkstra, shortest_path, DijkstraResult};
 pub use similarity::{
-    all_pairs_similarity, cosine_similarity, jaccard_similarity, knn_similarity, Direction, Metric,
-    SimilarityPair,
+    all_pairs_similarity, cosine_similarity, jaccard_similarity, knn_similarity,
+    knn_similarity_approx, Direction, Metric, SimilarityPair,
 };
 pub use steiner::{steiner_tree, SteinerTreeResult};
 pub use triangle::{local_clustering_coefficient, triangle_count};
