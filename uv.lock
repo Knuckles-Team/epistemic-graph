@@ -156,6 +156,9 @@ name = "epistemic-graph"
 source = { editable = "." }
 dependencies = [
     { name = "msgpack" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 
 [package.optional-dependencies]
@@ -173,18 +176,10 @@ all = [
 ]
 full = [
     { name = "httpx" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
-    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pyoxigraph" },
 ]
 lmcache = [
     { name = "httpx" },
-]
-numeric = [
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
-    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 owl = [
     { name = "pyoxigraph" },
@@ -208,7 +203,7 @@ requires-dist = [
     { name = "epistemic-graph", extras = ["test", "owl", "quant", "finance", "ast", "datascience", "reasoning", "server", "full", "lmcache", "numeric"], marker = "extra == 'all'" },
     { name = "httpx", marker = "extra == 'lmcache'", specifier = ">=0.24.0" },
     { name = "msgpack", specifier = ">=1.2.1" },
-    { name = "numpy", marker = "extra == 'numeric'", specifier = ">=1.22.0" },
+    { name = "numpy", specifier = ">=1.22.0" },
     { name = "numpy", marker = "extra == 'quant'", specifier = ">=1.22.0" },
     { name = "pyoxigraph", marker = "extra == 'owl'", specifier = ">=0.3.22" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },

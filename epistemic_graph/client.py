@@ -2966,7 +2966,9 @@ class PlacementClient:
         if not isinstance(endpoints, list) or not all(
             isinstance(e, str) and e for e in endpoints
         ):
-            raise ValueError("PlacementRoute.endpoints must be a list of non-empty strings")
+            raise ValueError(
+                "PlacementRoute.endpoints must be a list of non-empty strings"
+            )
         return answer
 
     async def assign(self, tenant: str, group: int) -> int:
