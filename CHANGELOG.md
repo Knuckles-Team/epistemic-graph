@@ -114,6 +114,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   `/proc/meminfo` successfully, so this branch only fires on a genuinely
   unmeasurable host); a startup `tracing::warn!` now states RAM was undetectable
   and which cap was chosen. Override remains `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH`.
+- **`eg-alignment` resolved through the real CAS backend; in-memory stub deleted**
+  (W4.7 / M3, CONCEPT:EG-P1-3). `eg-alignment` shipped a dependency-free
+  `InMemoryResolver` as its only `EvidenceResolver` implementation, while the
+  real implementation (`CasEvidenceResolver`, `src/server/blob/cas_resolver.rs`)
+  had lived in the facade since the `alignment` feature landed — but nothing
+  proved an `eg_alignment::AlignmentGraph` cross-modal JOIN resolving through
+  it, only single, disconnected loci. Deleted `InMemoryResolver` (No-Legacy: no
+  consumer outside this crate's own tests); its unit tests and dev-dependency
+  integration test now use a private, non-exported `FixtureResolver` double to
+  keep exercising the `EvidenceResolver`/`AlignmentGraph` mechanics this crate
+  owns (it still cannot link the blob CAS by design — a leaf crate below the
+  server). New `cas_resolver.rs` test
+  (`alignment_graph_cross_modal_join_resolves_through_cas`) builds a
+  doc-span/image-region/claim `AlignmentGraph` (`CoOccursWith` /
+  `SupportsClaim`), commits DISTINCT fixture content per evidence hop to a real
+  CAS (`RedbChunkStore::open_temp`, no live services), and proves both hops
+  resolve through the SAME `CasEvidenceResolver` production path
+  `ExplainEvidence` uses — a real UTF-8 excerpt for the doc span, a real CAS
+  digest reference for the image region — while `path_exists` proves the
+  directed doc-span -> image-region -> claim join.
 
 ---
 
