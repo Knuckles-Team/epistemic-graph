@@ -5077,6 +5077,116 @@ class GraphLearnClient:
         return await self._client._send("GraphLearnPredict", params)
 
 
+class PipelineClient:
+    """CONCEPT:EG-KG.mining.ml-pipeline — composable ML pipeline namespace.
+
+    A composable ``train → eval → serve → predict`` lifecycle over a VERSIONED
+    ``:Model`` artifact that GENERALIZES the KAN one-off: a ``spec`` of
+    ``feature steps → split → a pluggable model family`` (``classify`` for node
+    classification, ``estimator`` for regression, ``graphlearn`` for the KAN
+    link-predictor). Two trained versions are queryable ``:Model`` nodes and
+    comparable by their held-out metrics. Mirrors the ``graph_pipeline`` MCP verb +
+    the ``/api/pipeline/*`` REST twin. Heavy/deep model training stays a
+    data-science-mcp job; this is the pure-Rust in-engine path.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def train(
+        self,
+        name: str,
+        spec: dict[str, Any],
+        *,
+        source: dict[str, Any] | None = None,
+        x: list[list[float]] | None = None,
+        y: list[int] | None = None,
+        writeback: bool = True,
+    ) -> dict[str, Any]:
+        """Fit the pipeline's model over composed features, evaluate on a held-out
+        split, and (when ``writeback``) persist a versioned ``:Model`` artifact.
+
+        ``spec`` is ``{features: [...], split: {...}, label_property: "...",
+        model: {family, algorithm, params}}``. Build features from a graph-derived
+        ``source`` (``{node_label, direction, relation, limit}``) or pass an explicit
+        ``x`` matrix; labels come from ``spec.label_property`` (per-node) or explicit
+        ``y``. Returns ``{name, version, model_id, family, algorithm, metrics:
+        {train, test}, n_train, n_test, ...}``.
+        """
+        params: dict[str, Any] = {"name": name, "spec": spec, "writeback": writeback}
+        if source is not None:
+            params["source"] = source
+        if x is not None:
+            params["x"] = x
+        if y is not None:
+            params["y"] = y
+        return await self._client._send("MiningPipelineTrain", params)
+
+    async def evaluate(
+        self,
+        name: str,
+        *,
+        version: int = 0,
+        source: dict[str, Any] | None = None,
+        x: list[list[float]] | None = None,
+        y: list[int] | None = None,
+    ) -> dict[str, Any]:
+        """Score a stored model (``version``; ``0`` ⇒ the served version) against a
+        labeled set, rebuilding features via the model's own recipe. Returns
+        ``{name, version, family, metrics, n}``. Read-only.
+        """
+        params: dict[str, Any] = {"name": name, "version": version}
+        if source is not None:
+            params["source"] = source
+        if x is not None:
+            params["x"] = x
+        if y is not None:
+            params["y"] = y
+        return await self._client._send("MiningPipelineEvaluate", params)
+
+    async def serve(self, name: str, version: int) -> dict[str, Any]:
+        """Deploy a versioned ``:Model`` as the served version (writes a
+        ``:ServedModel`` pointer so :meth:`predict` with ``version=0`` resolves it).
+        """
+        return await self._client._send(
+            "MiningPipelineServe", {"name": name, "version": version}
+        )
+
+    async def predict(
+        self,
+        name: str,
+        *,
+        version: int = 0,
+        source: dict[str, Any] | None = None,
+        x: list[list[float]] | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Predict with a stored model (``version``; ``0`` ⇒ served). Rebuilds
+        features via the model's recipe from ``source`` (or explicit ``x``). With
+        ``writeback=True`` each prediction is materialized as a typed ``:Prediction``
+        node linked to its source node. Returns ``{model_id, family, rows, n_rows,
+        written_back, ...}``.
+        """
+        params: dict[str, Any] = {"name": name, "version": version, "writeback": writeback}
+        if source is not None:
+            params["source"] = source
+        if x is not None:
+            params["x"] = x
+        return await self._client._send("MiningPipelinePredict", params)
+
+    async def compare(
+        self, name: str, version_a: int, version_b: int
+    ) -> dict[str, Any]:
+        """Diff two model versions' held-out metrics. Returns ``{name, version_a,
+        version_b, metrics_a, metrics_b, diff}`` where ``diff`` is per-metric
+        ``b − a``. Read-only.
+        """
+        return await self._client._send(
+            "MiningPipelineCompare",
+            {"name": name, "version_a": version_a, "version_b": version_b},
+        )
+
+
 # Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short
 # default; known-heavy ops (full-graph parse/scan/algorithms) get a generous
@@ -5119,6 +5229,11 @@ _HEAVY_RPC_METHODS = frozenset(
         "GetSubgraph",
         "GetNodes",
         "GetEdges",
+        # ML pipeline train/eval/predict compose embeddings + model fit over the whole
+        # subgraph (CONCEPT:EG-KG.mining.ml-pipeline) — give them the heavy budget.
+        "MiningPipelineTrain",
+        "MiningPipelineEvaluate",
+        "MiningPipelinePredict",
         "KnowledgeStream",
         "ServedModality",
         # SQL scans the whole node set (CONCEPT:EG-KG.query.read-only-sql-query) — give it the heavy budget.
@@ -8047,6 +8162,7 @@ class EpistemicGraphClient:
         self.datascience = DataScienceClient(self)
         self.mining = MiningClient(self)
         self.graphlearn = GraphLearnClient(self)
+        self.pipeline = PipelineClient(self)
         self.query = QueryClient(self)
         self.knowledge = KnowledgeStreamClient(self)
         self.modalities = ServedModalityClient(self)
@@ -8923,6 +9039,7 @@ class SyncEpistemicGraphClient:
         self.datascience = self._SyncWrapper(self._client.datascience, self._loop)
         self.mining = self._SyncWrapper(self._client.mining, self._loop)
         self.graphlearn = self._SyncWrapper(self._client.graphlearn, self._loop)
+        self.pipeline = self._SyncWrapper(self._client.pipeline, self._loop)
         self.query = self._SyncWrapper(self._client.query, self._loop)
         self.knowledge = self._SyncWrapper(self._client.knowledge, self._loop)
         self.modalities = self._SyncWrapper(self._client.modalities, self._loop)

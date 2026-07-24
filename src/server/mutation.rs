@@ -231,6 +231,13 @@ pub const GATEWAY_ROUTED: &[&str] = &[
     "MineOntologyGap",
     "MineRetrievalQuality",
     "MineCommunity",
+    // ── ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): RUNTIME-CONDITIONAL writes —
+    // Train/Predict mutate only when their `writeback` is true; Serve ALWAYS writes the
+    // `:ServedModel` pointer. Same `commit_conditional_mutation` shape, behind
+    // `feature = "ml-pipeline"`. Evaluate/Compare are read-only (not routed). ──
+    "MiningPipelineTrain",
+    "MiningPipelineServe",
+    "MiningPipelinePredict",
     // ── L11 rollout batch 4: RUNTIME-CONDITIONAL query surface — the parsed
     // statement decides whether THIS call mutates. Routed via
     // `commit_conditional_mutation_async` at the query dispatch site (they need
@@ -342,6 +349,12 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::GraphLearnFit { .. } => "GraphLearnFit",
         #[cfg(feature = "graphlearn")]
         Method::GraphLearnPredict { .. } => "GraphLearnPredict",
+        #[cfg(feature = "ml-pipeline")]
+        Method::MiningPipelineTrain { .. } => "MiningPipelineTrain",
+        #[cfg(feature = "ml-pipeline")]
+        Method::MiningPipelineServe { .. } => "MiningPipelineServe",
+        #[cfg(feature = "ml-pipeline")]
+        Method::MiningPipelinePredict { .. } => "MiningPipelinePredict",
         #[cfg(feature = "mining")]
         Method::MineAssociate { .. } => "MineAssociate",
         #[cfg(feature = "mining")]

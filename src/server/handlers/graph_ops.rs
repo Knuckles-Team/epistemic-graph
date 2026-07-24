@@ -1459,6 +1459,85 @@ pub(crate) async fn try_handle_gateway(
             })
             .await
         }
+        // ── ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): RUNTIME-CONDITIONAL writes,
+        // same `commit_conditional_mutation` shape as the GraphLearn*/Mine* families.
+        // Train/Predict mutate only when their own `writeback` is true; Serve ALWAYS
+        // writes the `:ServedModel` pointer (it passes an unconditional `true`). ──
+        #[cfg(feature = "ml-pipeline")]
+        Method::MiningPipelineTrain {
+            name,
+            source,
+            x,
+            y,
+            spec,
+            writeback,
+        } => {
+            let (name, source, x, y, spec, writeback) = (
+                name.clone(),
+                source.clone(),
+                x.clone(),
+                y.clone(),
+                spec.clone(),
+                *writeback,
+            );
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let resp = super::pipeline::handle_train(
+                    req_id, core, name, source, x, y, spec, writeback,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "ml-pipeline")]
+        Method::MiningPipelineServe { name, version } => {
+            let (name, version) = (name.clone(), *version);
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, true, move |core| {
+                let resp = super::pipeline::handle_serve(req_id, core, name, version);
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "ml-pipeline")]
+        Method::MiningPipelinePredict {
+            name,
+            version,
+            source,
+            x,
+            writeback,
+        } => {
+            let (name, version, source, x, writeback) = (
+                name.clone(),
+                *version,
+                source.clone(),
+                x.clone(),
+                *writeback,
+            );
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let resp = super::pipeline::handle_predict(
+                    req_id, core, name, version, source, x, writeback,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
         // ── L11 rollout batch 3: RUNTIME-CONDITIONAL data-mining family — same
         // shape as GraphLearn* above (the request's own `writeback` field decides
         // whether THIS call mutates). Each arm clones the whole `method` (cheap;

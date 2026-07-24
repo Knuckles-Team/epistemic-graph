@@ -26,6 +26,14 @@ pub(crate) mod mining;
 // the `GraphLearn*` variants fall to the graph_ops "not available" catch-all.
 #[cfg(feature = "graphlearn")]
 pub(crate) mod graphlearn;
+// ML pipeline domain (CONCEPT:EG-KG.mining.ml-pipeline, feature `ml-pipeline`). A
+// composable train→eval→serve→predict lifecycle over a versioned `:Model` artifact
+// that generalizes the KAN one-off. GRAPH-SCOPED (like mining/graphlearn) — it reuses
+// graphlearn's subgraph builder + the eg-compute classify/estimator/KAN/embedding/
+// metrics primitives. A build without `ml-pipeline` omits the module and the
+// `MiningPipeline*` variants fall to the graph_ops "not available" catch-all.
+#[cfg(feature = "ml-pipeline")]
+pub(crate) mod pipeline;
 // M3 catalog-driven resharding admin (CONCEPT:EG-KG.backend.m3-admin-dispatch): the wire surface that DRIVES online
 // resharding (EG-032), the tenant catalog (EG-031) and the rebalance planner (EG-035) +
 // its execution (EG-039). Always declared; the real logic is `redb`-gated (the only build

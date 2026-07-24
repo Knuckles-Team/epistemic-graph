@@ -6004,6 +6004,15 @@ async fn dispatch_graph_op_inner(
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
+        // ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): the READ verbs
+        // (Evaluate/Compare) route here with the graph core; Train/Serve/Predict are
+        // GATEWAY_ROUTED (writeback) and never reach this fallback. A build without
+        // `ml-pipeline` omits this line.
+        #[cfg(feature = "ml-pipeline")]
+        let method = match handlers::pipeline::try_handle(req_id, core.clone(), method) {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
         // Read-only query surface — SQL (CONCEPT:EG-KG.query.read-only-sql-query, DataFusion behind
         // `query`) AND Cypher (CONCEPT:EG-KG.query.dep-free-behind, dep-free behind `cypher`) AND GraphQL
         // (CONCEPT:EG-KG.query.sparql-completeness, pure-Rust eg-graphql behind `graphql`): borrows the graph
