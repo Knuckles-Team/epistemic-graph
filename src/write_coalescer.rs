@@ -322,7 +322,17 @@ fn apply_batch(
                 let _ = reply.send(WriteOutcome::Ok);
             }
             WriteOp::RemoveNode { node_id, reply } => {
-                change.record_remove_node(node_id.clone());
+                // Capture the property blob BEFORE deletion (W1.6/P7,
+                // CONCEPT:EG-KG.storage.incremental-index-stamp) so incremental index maintenance removes
+                // the id from exactly its label/property postings, and the dependency clock bumps
+                // exactly the label/key dimensions it touched, instead of a coarse drop/floor. The
+                // node is gone from the property store the instant `txn.remove_node` runs.
+                match txn.get_node_properties(&node_id) {
+                    Some(props) => {
+                        change.record_remove_node_with_properties(node_id.clone(), props)
+                    }
+                    None => change.record_remove_node(node_id.clone()),
+                }
                 txn.remove_node(node_id.clone());
                 // Node identity owns its vector in every indexing mode. The
                 // incremental descriptor repeats this as an idempotent safety net.

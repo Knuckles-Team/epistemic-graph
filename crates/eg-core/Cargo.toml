@@ -25,7 +25,7 @@ broker = ["eg-types/broker"]
 # subscriber, so zero cost in the default build). `rayon` (CONCEPT:EG-014) drives
 # the all-core parallel brute-force fallback — the path EVERY semantic_search hits
 # until the ANN index warms (and after every restart).
-ann = ["dep:tracing", "dep:rayon"]
+ann = ["dep:rayon"]
 # Additionally persist the ANN codes into the engine's redb durable tier
 # (CONCEPT:KG-2.195) rather than only the mmap files.
 ann-redb = ["ann", "eg-ann/redb"]
@@ -79,7 +79,10 @@ dashmap = "6.1"
 hex = "0.4"
 aho-corasick = "1.1"
 # CONCEPT:EG-013 — semantic ANN build/warm tracing spans (only under `ann`).
-tracing = { version = "0.1", optional = true }
+# W1.6/P7: `tracing` is a BASE dep (was ann-gated) so the index-rebuild + dependency-scoped
+# cache-invalidation debug logs compile in every build. No-op without a subscriber, so the
+# default/Pi build pays nothing.
+tracing = { version = "0.1" }
 # CONCEPT:EG-014 — all-core parallel brute-force fallback (only under `ann`).
 rayon = { version = "1.10", optional = true }
 # CONCEPT:EG-303 — durable RBAC/identity persistence: the `security` feature persists

@@ -161,6 +161,19 @@ struct PropertyIndex {
 /// Default cap on the number of distinct property keys ever indexed.
 const DEFAULT_MAX_INDEXED_PROPERTIES: usize = 32;
 
+/// Version stamps for the four lazy node-derived indexes (CONCEPT:EG-KG.storage.incremental-index-stamp,
+/// W1.6/P7). See [`GraphCore::index_stamps`]. Each atomic holds the graph `version()` through
+/// which the matching index's CONTENTS are current. A build stamps the version it scanned at; an
+/// incremental `maintain_indexes` step stamps the batch's committed version. `mark_dirty` uses
+/// the stamp to decide whether an index is stale (drop it) or already current (preserve it).
+#[derive(Debug, Default)]
+struct IndexStamps {
+    label: std::sync::atomic::AtomicU64,
+    node_id: std::sync::atomic::AtomicU64,
+    property: std::sync::atomic::AtomicU64,
+    path: std::sync::atomic::AtomicU64,
+}
+
 /// Inverted JSONPath path-index (CONCEPT:EG-KG.compute.json-deep-indexing — document/JSON deep indexing): for
 /// each indexed JSONPath, a `value → node ids` map (equality/`->>`) PLUS the set of
 /// ids for which the path resolves to any value (existence/containment selectivity).
@@ -474,6 +487,28 @@ pub struct GraphCore {
     /// `replace_snapshot`, which always rebuilds the filter from a COMPLETE
     /// node set.
     bloom_complete: std::sync::atomic::AtomicBool,
+    /// Version stamps for the lazy node-derived indexes (CONCEPT:EG-KG.storage.incremental-index-stamp,
+    /// W1.6/P7). Each records the graph `version()` through which its index's CONTENTS have been
+    /// maintained (built or incrementally updated by `maintain_indexes`). `mark_dirty` drops an
+    /// index only when its stamp is STALE relative to the write's new version — so a write whose
+    /// maintenance step already brought the index current (an ADD/REMOVE incrementally applied to
+    /// the postings, rather than a full rebuild) is PRESERVED, while a write that bypassed
+    /// maintenance (leaving a stale stamp) still invalidates. Stamps are read + written under
+    /// each index's own `RwLock`, so the stamp and its index contents move atomically.
+    index_stamps: IndexStamps,
+    /// Count of FULL rebuilds of the node-derived label / property / JSONPath indexes
+    /// (CONCEPT:EG-KG.storage.incremental-index-stamp, W1.6/P7 — the "rebuild count under continuous
+    /// ingest ~0" metric). Incremented once per `build_label_index` / `build_property_value_map` /
+    /// `build_json_path_maps` — the O(V) scans W1.6 replaced with per-write incremental posting
+    /// maintenance. Under continuous ingest this stays ~1 (the initial warm build) instead of
+    /// growing one-per-write. Observability only; never on a read hot path.
+    index_rebuilds: std::sync::atomic::AtomicU64,
+    /// Dependency clock for the result cache's dependency-scoped invalidation
+    /// (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7, feature `result-cache`).
+    /// A write bumps only the label / key / node / edge dimensions it touched; a cached result
+    /// survives every write disjoint from the query's dependency set. See `crate::dep_scope`.
+    #[cfg(feature = "result-cache")]
+    dep_clock: crate::dep_scope::DepClock,
     /// Version-keyed query-RESULT cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence, feature `result-cache`).
     /// Caches the serialized bytes of a read query (`Sql`/`Cypher`/`Sparql`/
     /// `UnifiedQuery`) keyed by `(query-hash, version())`. A repeated identical query
@@ -577,6 +612,57 @@ fn decode_property_value(
     bytes: &[u8],
 ) -> Result<serde_json::Value, eg_types::msgpack::MsgpackValidationError> {
     eg_types::msgpack::decode_property_value(bytes)
+}
+
+/// The label set a node carries, read from EXACTLY the fields `build_label_index` /
+/// `get_nodes_by_label` match — `type` / `node_type` / `label` (scalar) plus every entry of the
+/// multi-valued `labels` array — so the incremental label-index maintainers (W1.6/P7,
+/// CONCEPT:EG-KG.storage.incremental-index-stamp) file/unfile a node under the SAME labels the full
+/// scan would. Duplicates are possible (a node repeating a value across fields) and are collapsed
+/// by the sorted-set posting invariant `insert_sorted` keeps.
+fn labels_of(val: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+    for key in ["type", "node_type", "label"] {
+        if let Some(label) = val.get(key).and_then(|v| v.as_str()) {
+            out.push(label.to_string());
+        }
+    }
+    if let Some(arr) = val.get("labels").and_then(|v| v.as_array()) {
+        for x in arr {
+            if let Some(label) = x.as_str() {
+                out.push(label.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// Insert `id` into a SORTED, deduplicated posting Vec in place (W1.6/P7 incremental index
+/// maintenance), preserving the sort + no-duplicate invariant every posting build establishes (so
+/// `collect_by_label`'s keyset paging and `nodes_by_properties`' two-pointer intersection stay
+/// correct). A no-op when `id` is already present.
+fn insert_sorted(ids: &mut Vec<String>, id: &str) {
+    if let Err(pos) = ids.binary_search_by(|x| x.as_str().cmp(id)) {
+        ids.insert(pos, id.to_string());
+    }
+}
+
+/// Remove `id` from a SORTED posting Vec in place (W1.6/P7). A no-op when `id` is absent.
+fn remove_sorted(ids: &mut Vec<String>, id: &str) {
+    if let Ok(pos) = ids.binary_search_by(|x| x.as_str().cmp(id)) {
+        ids.remove(pos);
+    }
+}
+
+/// Accumulate a node's labels + top-level property keys into a write footprint (W1.6/P7,
+/// feature `result-cache`) so the dependency clock bumps exactly the dimensions this node's
+/// add/remove/update touched.
+#[cfg(feature = "result-cache")]
+fn collect_dep_footprint(fp: &mut crate::dep_scope::WriteFootprint, val: &serde_json::Value) {
+    fp.labels.extend(labels_of(val));
+    if let Some(obj) = val.as_object() {
+        fp.keys.extend(obj.keys().cloned());
+    }
 }
 
 impl GraphSnapshot {
@@ -2021,6 +2107,10 @@ impl GraphCore {
             read_through: RwLock::new(None),
             node_bloom: RwLock::new(crate::bloom::NodeBloomFilter::default()),
             bloom_complete: std::sync::atomic::AtomicBool::new(false),
+            index_stamps: IndexStamps::default(),
+            index_rebuilds: std::sync::atomic::AtomicU64::new(0),
+            #[cfg(feature = "result-cache")]
+            dep_clock: crate::dep_scope::DepClock::new(),
             #[cfg(feature = "result-cache")]
             result_cache: crate::result_cache::ResultCache::new(),
         }
@@ -2033,6 +2123,27 @@ impl GraphCore {
     #[cfg(feature = "result-cache")]
     pub fn result_cache(&self) -> &crate::result_cache::ResultCache {
         &self.result_cache
+    }
+
+    /// The per-graph dependency clock backing dependency-scoped result-cache invalidation
+    /// (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7). The query handlers
+    /// pass a query's [`crate::dep_scope::DepSet`] to `result_cache().get_dep`/`put_dep`, which
+    /// consult this clock to serve a cached result across any write DISJOINT from that dependency
+    /// set. Write paths feed it via `maintain_indexes` (fine dimensions) and `mark_dirty` (the
+    /// coarse floor). See `crate::dep_scope`.
+    #[cfg(feature = "result-cache")]
+    pub fn dep_clock(&self) -> &crate::dep_scope::DepClock {
+        &self.dep_clock
+    }
+
+    /// Count of FULL node-derived index rebuilds since construction (W1.6/P7, the "rebuild count
+    /// under continuous ingest ~0" metric — CONCEPT:EG-KG.storage.incremental-index-stamp). A warm index
+    /// maintained incrementally through a write stream does NOT rebuild, so this stays ~1 (the
+    /// initial cold build) rather than growing one-per-write. Read by the index-rebuild regression
+    /// test and available as an observability counter.
+    pub fn index_rebuilds(&self) -> u64 {
+        self.index_rebuilds
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The unified secondary-index registry/seam (CONCEPT:AU-KG.retrieval.architecture-report). A planner
@@ -2112,58 +2223,357 @@ impl GraphCore {
         *self.edge_key_index.write() = None;
     }
 
-    /// Invalidate only lazy caches whose indexed fields may have changed. Adds,
-    /// removes and unknown/full-image updates remain conservative; an exact
-    /// field-scoped CAS can retain unrelated warm indexes.
-    fn invalidate_indexes_for_change(&self, change: &crate::index::ChangeSet) {
-        if !change.added_nodes.is_empty() || !change.removed_nodes.is_empty() {
-            self.invalidate_indexes();
-            return;
-        }
-        let mut changed = std::collections::HashSet::new();
-        for update in &change.updated_nodes {
-            let Some(fields) = update.changed_fields.as_ref() else {
-                self.invalidate_indexes();
-                return;
-            };
-            changed.extend(fields.iter().map(String::as_str));
-        }
-        if changed.is_empty() {
-            return;
+    /// Incrementally maintain the lazy node-derived caches for a committed write batch
+    /// (CONCEPT:EG-KG.storage.incremental-index-stamp, W1.6/P7) and — under `result-cache` — record
+    /// the batch's dependency footprint on the [`crate::dep_scope::DepClock`] that backs
+    /// dependency-scoped result-cache invalidation.
+    ///
+    /// Where the previous behavior DROPPED the entire label / property index on any node add or
+    /// remove (forcing a full O(V) rebuild on the next label/property query — pathological under
+    /// continuous ingest), this updates the affected postings in place:
+    ///   * ADD — file the new id under every label it carries and every indexed property key it has;
+    ///   * REMOVE — unfile the id (from its captured labels/keys, or by scanning the warm postings);
+    ///   * UPDATE (CAS) — re-file the id for exactly the changed label / property fields.
+    /// Only a WARM (already-built) cache is touched; a cold cache stays cold and builds on demand.
+    /// An un-attributable change — an update with unknown `changed_fields`, or an add whose blob
+    /// will not decode — still DROPS the affected cache (the sound conservative fallback) and
+    /// coarsely floors the dependency clock. Each cache left warm is STAMPED with `target_version`
+    /// so `mark_dirty` recognizes it as already-current and preserves it instead of nuking it. The
+    /// JSONPath path-index is not incrementally maintained (arbitrary-path resolution); a node add
+    /// or remove drops any warm path-index so the next JSON filter rebuilds it — its pre-W1.6
+    /// behavior, and the documented coarse-fallback shape for that cache.
+    fn invalidate_indexes_for_change(&self, change: &crate::index::ChangeSet, target_version: u64) {
+        #[cfg(feature = "result-cache")]
+        let mut footprint = crate::dep_scope::WriteFootprint::default();
+        #[cfg(feature = "result-cache")]
+        if !change.added_edges.is_empty() || !change.removed_edges.is_empty() {
+            // The node-derived caches are untouched by a pure edge change, but a traversal query
+            // depends on the edge set, so the clock must learn the edge dimension moved.
+            footprint.edge_changed = true;
         }
 
-        if changed
-            .iter()
-            .any(|field| matches!(*field, "type" | "node_type" | "label" | "labels"))
-        {
-            *self.label_index.write() = None;
+        if change.has_node_changes() {
+            self.maintain_node_id_index(change, target_version);
         }
-        {
-            let mut index = self.property_index.write();
-            if index
-                .as_ref()
-                .is_some_and(|index| changed.iter().any(|field| index.keys.contains_key(*field)))
+
+        // ── ADDS: file the new id into the warm postings it belongs to. ──
+        for nc in &change.added_nodes {
+            #[cfg(feature = "result-cache")]
             {
-                *index = None;
+                footprint.node_changed = true;
+            }
+            match self.node_props_value(&nc.id, nc.properties_msgpack.as_deref()) {
+                Some(val) => {
+                    self.label_index_add(&nc.id, &val, target_version);
+                    self.property_index_add(&nc.id, &val, target_version);
+                    #[cfg(feature = "result-cache")]
+                    collect_dep_footprint(&mut footprint, &val);
+                }
+                None => {
+                    // Cannot read the added node's content ⇒ cannot target its postings; drop.
+                    *self.label_index.write() = None;
+                    *self.property_index.write() = None;
+                    #[cfg(feature = "result-cache")]
+                    {
+                        footprint.coarse_node = true;
+                    }
+                }
+            }
+            *self.path_index.write() = None;
+        }
+
+        // ── REMOVES: unfile the id from the warm postings. ──
+        for id in &change.removed_nodes {
+            #[cfg(feature = "result-cache")]
+            {
+                footprint.node_changed = true;
+            }
+            let captured = change
+                .removed_node_props
+                .get(id)
+                .and_then(|blob| decode_property_value(blob).ok());
+            match &captured {
+                Some(val) => {
+                    self.label_index_remove(id, Some(val), target_version);
+                    self.property_index_remove(id, Some(val), target_version);
+                    #[cfg(feature = "result-cache")]
+                    collect_dep_footprint(&mut footprint, val);
+                }
+                None => {
+                    // Uncaptured removal: scan the warm postings for the id (sound; no blob decode)
+                    // and coarsely floor the clock (its labels/keys are unknown).
+                    self.label_index_remove(id, None, target_version);
+                    self.property_index_remove(id, None, target_version);
+                    #[cfg(feature = "result-cache")]
+                    {
+                        footprint.coarse_node = true;
+                    }
+                }
+            }
+            *self.path_index.write() = None;
+        }
+
+        // ── UPDATES (CAS): re-file the id for the changed label / property fields only. ──
+        for nc in &change.updated_nodes {
+            #[cfg(feature = "result-cache")]
+            {
+                footprint.node_changed = true;
+            }
+            let Some(fields) = nc.changed_fields.as_ref() else {
+                // Unknown-scope update ⇒ drop the node-derived caches (fallback) + floor.
+                *self.label_index.write() = None;
+                *self.property_index.write() = None;
+                *self.path_index.write() = None;
+                #[cfg(feature = "result-cache")]
+                {
+                    footprint.coarse_node = true;
+                }
+                continue;
+            };
+            let current = self.node_props_value(&nc.id, None);
+            if fields
+                .iter()
+                .any(|f| matches!(f.as_str(), "type" | "node_type" | "label" | "labels"))
+            {
+                self.label_index_refile(&nc.id, current.as_ref(), target_version);
+                #[cfg(feature = "result-cache")]
+                if let Some(val) = &current {
+                    footprint.labels.extend(labels_of(val));
+                }
+            }
+            self.property_index_refile(&nc.id, fields, current.as_ref(), target_version);
+            #[cfg(feature = "result-cache")]
+            footprint.keys.extend(fields.iter().cloned());
+            self.path_index_invalidate_for_fields(fields, target_version);
+        }
+
+        #[cfg(feature = "result-cache")]
+        self.dep_clock.note_footprint(&footprint, target_version);
+    }
+
+    /// Decode a node's CURRENT property blob (present after an add/update) to JSON, falling back
+    /// to a `fallback` blob captured on the change (used for an add whose node the coalescer
+    /// already committed). `None` when neither is present or decodable — the drop-and-rebuild
+    /// fallback signal for the incremental maintainers.
+    fn node_props_value(
+        &self,
+        id: &str,
+        fallback: Option<&[u8]>,
+    ) -> Option<serde_json::Value> {
+        if let Some(props) = self.node_properties.get(id) {
+            if let Ok(val) = decode_property_value(props.value().as_slice()) {
+                return Some(val);
             }
         }
-        {
-            let mut index = self.path_index.write();
-            let affected = index.as_ref().is_some_and(|index| {
-                index.by_value.keys().any(|path| {
-                    match crate::jsonpath::parse_path(path)
-                        .and_then(|parts| parts.into_iter().next())
-                    {
-                        Some(crate::jsonpath::Segment::Key(key)) => changed.contains(key.as_str()),
-                        // `$`, a root wildcard, or an index-root path can observe
-                        // any top-level update.
-                        _ => true,
+        fallback.and_then(|blob| decode_property_value(blob).ok())
+    }
+
+    /// Keep the warm unlabeled-scan id cache current in place: insert added ids, remove removed
+    /// ids (a CAS leaves the id SET unchanged). Cold ⇒ no-op (builds on demand). Stamped so
+    /// `mark_dirty` preserves it.
+    fn maintain_node_id_index(&self, change: &crate::index::ChangeSet, target_version: u64) {
+        if change.added_nodes.is_empty() && change.removed_nodes.is_empty() {
+            return;
+        }
+        let mut guard = self.node_id_index.write();
+        let Some(ids) = guard.as_mut() else {
+            return;
+        };
+        for nc in &change.added_nodes {
+            insert_sorted(ids, &nc.id);
+        }
+        for id in &change.removed_nodes {
+            remove_sorted(ids, id);
+        }
+        self.index_stamps
+            .node_id
+            .store(target_version, std::sync::atomic::Ordering::Release);
+    }
+
+    /// File `id` under every label it carries in the WARM label index (no-op when cold). Stamped.
+    fn label_index_add(&self, id: &str, val: &serde_json::Value, target_version: u64) {
+        let mut guard = self.label_index.write();
+        let Some(index) = guard.as_mut() else {
+            return;
+        };
+        for label in labels_of(val) {
+            insert_sorted(index.entry(label).or_default(), id);
+        }
+        self.index_stamps
+            .label
+            .store(target_version, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Unfile `id` from the WARM label index. With `val` (captured pre-removal properties) only its
+    /// own label postings are touched; without it, every posting is scanned for the id (sound but
+    /// O(#labels)). No-op when cold. Stamped.
+    fn label_index_remove(
+        &self,
+        id: &str,
+        val: Option<&serde_json::Value>,
+        target_version: u64,
+    ) {
+        let mut guard = self.label_index.write();
+        let Some(index) = guard.as_mut() else {
+            return;
+        };
+        match val {
+            Some(val) => {
+                for label in labels_of(val) {
+                    if let Some(ids) = index.get_mut(&label) {
+                        remove_sorted(ids, id);
                     }
-                })
-            });
-            if affected {
-                *index = None;
+                }
             }
+            None => {
+                for ids in index.values_mut() {
+                    remove_sorted(ids, id);
+                }
+            }
+        }
+        self.index_stamps
+            .label
+            .store(target_version, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Re-file `id` after a label-field CAS: remove it from every posting, then re-add it under
+    /// its CURRENT labels. Bounded by the label cardinality. No-op when cold. Stamped.
+    fn label_index_refile(
+        &self,
+        id: &str,
+        current: Option<&serde_json::Value>,
+        target_version: u64,
+    ) {
+        let mut guard = self.label_index.write();
+        let Some(index) = guard.as_mut() else {
+            return;
+        };
+        for ids in index.values_mut() {
+            remove_sorted(ids, id);
+        }
+        if let Some(val) = current {
+            for label in labels_of(val) {
+                insert_sorted(index.entry(label).or_default(), id);
+            }
+        }
+        self.index_stamps
+            .label
+            .store(target_version, std::sync::atomic::Ordering::Release);
+    }
+
+    /// File `id` under every INDEXED property key it has a scalar value for, in the WARM property
+    /// index (no-op when cold; never indexes a new key — the index stays demand-bounded). Stamped.
+    fn property_index_add(&self, id: &str, val: &serde_json::Value, target_version: u64) {
+        let mut guard = self.property_index.write();
+        let Some(index) = guard.as_mut() else {
+            return;
+        };
+        for (key, by_value) in index.keys.iter_mut() {
+            if let Some(vk) = val.get(key).and_then(Self::property_value_key) {
+                insert_sorted(by_value.entry(vk).or_default(), id);
+            }
+        }
+        self.index_stamps
+            .property
+            .store(target_version, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Unfile `id` from the WARM property index. With captured `val`, only its own value posting
+    /// per indexed key is touched; without it, every value posting is scanned. No-op when cold.
+    fn property_index_remove(
+        &self,
+        id: &str,
+        val: Option<&serde_json::Value>,
+        target_version: u64,
+    ) {
+        let mut guard = self.property_index.write();
+        let Some(index) = guard.as_mut() else {
+            return;
+        };
+        for (key, by_value) in index.keys.iter_mut() {
+            match val.and_then(|v| v.get(key)).and_then(Self::property_value_key) {
+                Some(vk) => {
+                    if let Some(ids) = by_value.get_mut(&vk) {
+                        remove_sorted(ids, id);
+                    }
+                }
+                None => {
+                    for ids in by_value.values_mut() {
+                        remove_sorted(ids, id);
+                    }
+                }
+            }
+        }
+        self.index_stamps
+            .property
+            .store(target_version, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Re-file `id` in the WARM property index for the CHANGED keys only: for each changed key
+    /// that is indexed, remove the id from that key's value postings then re-add it under its
+    /// current value. No-op when cold. Stamped.
+    fn property_index_refile(
+        &self,
+        id: &str,
+        changed_fields: &[String],
+        current: Option<&serde_json::Value>,
+        target_version: u64,
+    ) {
+        let mut guard = self.property_index.write();
+        let Some(index) = guard.as_mut() else {
+            return;
+        };
+        let mut touched = false;
+        for field in changed_fields {
+            let Some(by_value) = index.keys.get_mut(field) else {
+                continue;
+            };
+            touched = true;
+            for ids in by_value.values_mut() {
+                remove_sorted(ids, id);
+            }
+            if let Some(vk) = current
+                .and_then(|v| v.get(field))
+                .and_then(Self::property_value_key)
+            {
+                insert_sorted(by_value.entry(vk).or_default(), id);
+            }
+        }
+        if touched {
+            self.index_stamps
+                .property
+                .store(target_version, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    /// The pre-W1.6 scoped path-index invalidation for a CAS: drop a warm JSONPath index only if
+    /// a changed field could feed one of its indexed paths (an untargeted / root path observes any
+    /// top-level change). The path index is not incrementally maintained; this preserves its
+    /// unaffected-retention behavior for updates.
+    fn path_index_invalidate_for_fields(&self, changed_fields: &[String], target_version: u64) {
+        let mut index = self.path_index.write();
+        if index.is_none() {
+            return;
+        }
+        let affected = index.as_ref().is_some_and(|index| {
+            index.by_value.keys().any(|path| {
+                match crate::jsonpath::parse_path(path).and_then(|parts| parts.into_iter().next()) {
+                    Some(crate::jsonpath::Segment::Key(key)) => {
+                        changed_fields.iter().any(|f| f == &key)
+                    }
+                    _ => true,
+                }
+            })
+        });
+        if affected {
+            *index = None;
+        } else {
+            // The CAS could not feed any indexed path — the warm path index stays valid. Stamp it
+            // forward so `mark_dirty` recognizes it as current and preserves it (W1.6/P7); without
+            // the stamp, the stamp-aware nuke would drop this deliberately-retained cache.
+            self.index_stamps
+                .path
+                .store(target_version, std::sync::atomic::Ordering::Release);
         }
     }
 
@@ -2184,8 +2594,10 @@ impl GraphCore {
     ) -> crate::index::BatchMaintenance {
         let outcome = self.index_manager.commit_batch(self, change);
         // Label/property/JSON-path postings derive only from nodes. Pure edge
-        // batches preserve those potentially expensive warm caches.
-        self.invalidate_indexes_for_change(change);
+        // batches preserve those potentially expensive warm caches. This convenience runs
+        // outside a topology guard, so it predicts the batch's committed version as the next
+        // one — an under-estimate is safe (it only risks an extra rebuild, never a stale read).
+        self.invalidate_indexes_for_change(change, self.version().saturating_add(1));
         outcome
     }
 
@@ -2207,7 +2619,7 @@ impl GraphCore {
             node_count as u64,
             edge_count as u64,
         );
-        self.invalidate_indexes_for_change(change);
+        self.invalidate_indexes_for_change(change, target_version);
         outcome
     }
 
@@ -2255,22 +2667,58 @@ impl GraphCore {
             .version
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
             + 1;
-        // Retire the lazy secondary indexes made stale by this write. Carved into
-        // `invalidate_indexes` (CONCEPT:EG-KG.storage.invalidate-indexes-carve) so the C
-        // (matview cache) ↔ D (incremental write-index coherence) reconcile point is
-        // pre-split: D owns the BODY of this method (delta-maintain instead of drop),
-        // C owns the adjacent result-cache line here.
+        // Retire the lazy secondary indexes made stale by this write — but only the ones a
+        // preceding `maintain_indexes` did NOT already bring current (W1.6/P7,
+        // CONCEPT:EG-KG.storage.incremental-index-stamp). A node add/remove that was incrementally
+        // applied to the postings stamps its index at (at least) this version, so
+        // `invalidate_node_indexes_if_stale` preserves it instead of dropping + rebuilding it;
+        // a write that bypassed maintenance (a stale stamp) still drops it. This is what makes
+        // the index-rebuild count under continuous ingest ~0 instead of one-per-write.
         if invalidate_node_indexes {
-            self.invalidate_indexes();
+            self.invalidate_node_indexes_if_stale(new_version);
         }
         // Unconditional (unlike the node-derived caches above): a pure edge batch
         // is exactly the case `mark_dirty_preserving_indexes` exists for, and it
         // is exactly the case that changes this index.
         self.invalidate_edge_key_index();
+        // CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation (W1.6/P7) — record the
+        // version bump on the dependency clock. It floors (coarsely invalidates every
+        // dependency-scoped result-cache entry) ONLY when this version was not already accounted
+        // for by a `maintain_indexes` footprint — i.e. only for a write that bypassed the
+        // change-set path (a follower's replicated apply). A footprinted write does not floor.
+        #[cfg(feature = "result-cache")]
+        self.dep_clock.note_version_bump(new_version);
         // CONCEPT:EG-KG.compute.cdc-event-emit — fan out a change notification (post-write version) to any
         // live subscribers (the GraphQL subscription carrier). A single relaxed
         // atomic load when there are none, so this is off the write hot path.
         self.changes.emit(new_version);
+    }
+
+    /// Drop each lazy node-derived cache whose STAMP is stale relative to `new_version`
+    /// (W1.6/P7, CONCEPT:EG-KG.storage.incremental-index-stamp) — the stamp-aware replacement for the
+    /// unconditional `invalidate_indexes` the node-write `mark_dirty` used to call. A cache whose
+    /// `maintain_indexes` step already stamped it at `>= new_version` (an incrementally applied
+    /// add/remove/CAS) is preserved; a cache left stale by a maintenance-bypassing write is
+    /// dropped so the next read rebuilds it. The stamp check runs UNDER the cache's own write lock
+    /// so it is atomic with the maintainer's stamp store (no torn stamp-vs-content read).
+    fn invalidate_node_indexes_if_stale(&self, new_version: u64) {
+        Self::drop_if_stale(&self.label_index, &self.index_stamps.label, new_version);
+        Self::drop_if_stale(&self.node_id_index, &self.index_stamps.node_id, new_version);
+        Self::drop_if_stale(&self.property_index, &self.index_stamps.property, new_version);
+        Self::drop_if_stale(&self.path_index, &self.index_stamps.path, new_version);
+    }
+
+    /// Set a lazy cache to `None` iff it is warm AND its stamp predates `new_version`. Generic over
+    /// the four node-derived caches (W1.6/P7).
+    fn drop_if_stale<T>(
+        cache: &RwLock<Option<T>>,
+        stamp: &std::sync::atomic::AtomicU64,
+        new_version: u64,
+    ) {
+        let mut guard = cache.write();
+        if guard.is_some() && stamp.load(std::sync::atomic::Ordering::Acquire) < new_version {
+            *guard = None;
+        }
     }
 
     /// Invalidate cached query results for a CHANGE that landed elsewhere
@@ -2288,6 +2736,10 @@ impl GraphCore {
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
             + 1;
         self.result_cache.invalidate_all();
+        // The dependency clock backs the SAME result cache; a remote change is un-attributable
+        // here (its footprint landed on another node), so floor every dependency dimension at the
+        // new version — no dependency-scoped entry may survive it (W1.6/P7).
+        self.dep_clock.invalidate_all(new_version);
         // The label/property/path caches are derived state; retire them too so a
         // subsequent local read after a remote-applied change rebuilds them. Same
         // carved block as `mark_dirty` (CONCEPT:EG-KG.storage.index-manager-seam).
@@ -3252,9 +3704,21 @@ impl GraphCore {
                 return Self::collect_by_label(idx, &self.node_properties, label, after, limit);
             }
         }
+        // Stamp the freshly built index at the version it reflects (W1.6/P7,
+        // CONCEPT:EG-KG.storage.incremental-index-stamp). The scan reads the LIVE `node_properties`, so
+        // the built map is at least as current as `built_at`; a later write's `mark_dirty` sees
+        // the stamp predates its new version and drops the now-stale index. Captured before the
+        // scan so the stamp is a safe lower bound (an under-estimate only risks a rebuild).
+        let built_at = self.version();
         let built = self.build_label_index();
         let out = Self::collect_by_label(&built, &self.node_properties, label, after, limit);
-        *self.label_index.write() = Some(built);
+        {
+            let mut guard = self.label_index.write();
+            self.index_stamps
+                .label
+                .store(built_at, std::sync::atomic::Ordering::Release);
+            *guard = Some(built);
+        }
         out
     }
 
@@ -3267,11 +3731,17 @@ impl GraphCore {
         // node add/remove between this snapshot and publication; its later
         // mark_dirty invalidates the cache before the next committed-state read.
         if self.node_id_index.read().is_none() {
+            let built_at = self.version();
             let topo = self.topo.read();
             let mut cache = self.node_id_index.write();
             if cache.is_none() {
                 let mut ids: Vec<String> = topo.node_map.keys().cloned().collect();
                 ids.sort_unstable();
+                // Stamp at the built version (W1.6/P7) so `mark_dirty` preserves this scan cache
+                // when a later add/remove is incrementally applied, and drops it otherwise.
+                self.index_stamps
+                    .node_id
+                    .store(built_at, std::sync::atomic::Ordering::Release);
                 *cache = Some(ids);
             }
         }
@@ -3340,6 +3810,19 @@ impl GraphCore {
     ///     index MUST honour both or a label-scoped MATCH under-returns every
     ///     node_type-keyed node), `label`, and the multi-valued `labels` array.
     fn build_label_index(&self) -> HashMap<String, Vec<String>> {
+        // O(V) full rebuild — the exact cost W1.6/P7 incremental maintenance exists to avoid.
+        // Counting + logging it is the "rebuild count under ingest ~0" observability signal.
+        let n = self
+            .index_rebuilds
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        tracing::debug!(
+            target: "epistemic_graph::index_rebuild",
+            index = "label",
+            nodes = self.node_properties.len(),
+            total_rebuilds = n,
+            "full label-index rebuild (cold cache); warm ingest maintains it incrementally"
+        );
         let mut index: HashMap<String, Vec<String>> = HashMap::new();
         for entry in self.node_properties.iter() {
             let Ok(val) = decode_property_value(entry.value().as_slice()) else {
@@ -3395,10 +3878,19 @@ impl GraphCore {
                 }
             }
         }
-        // Slow path: build/extend the index to cover `key` (bounded), then answer.
+        // Slow path: build/extend the index to cover `key` (bounded), then answer. Stamp the
+        // index at the pre-build version (W1.6/P7) so `mark_dirty` preserves it across a
+        // subsequently incrementally-maintained write. `fetch_max` never regresses a stamp a
+        // concurrent maintenance already advanced (the newly-scanned key reflects live data, so
+        // the pre-build version is a safe lower bound).
+        let built_at = self.version();
         let mut guard = self.property_index.write();
         let idx = guard.get_or_insert_with(PropertyIndex::default);
-        self.ensure_key_indexed(idx, key)?;
+        let indexed = self.ensure_key_indexed(idx, key);
+        self.index_stamps
+            .property
+            .fetch_max(built_at, std::sync::atomic::Ordering::AcqRel);
+        indexed?;
         Some(
             idx.keys
                 .get(key)
@@ -3490,6 +3982,18 @@ impl GraphCore {
     /// property `key`. Each node is filed under the canonical string form of its
     /// `key` value (if present and a scalar). Ids are sorted + deduped.
     fn build_property_value_map(&self, key: &str) -> HashMap<String, Vec<String>> {
+        let n = self
+            .index_rebuilds
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        tracing::debug!(
+            target: "epistemic_graph::index_rebuild",
+            index = "property",
+            key,
+            nodes = self.node_properties.len(),
+            total_rebuilds = n,
+            "full property-value-map rebuild (cold key); warm ingest maintains it incrementally"
+        );
         let mut by_value: HashMap<String, Vec<String>> = HashMap::new();
         for entry in self.node_properties.iter() {
             let Ok(val) = decode_property_value(entry.value().as_slice()) else {
@@ -3567,9 +4071,16 @@ impl GraphCore {
                 }
             }
         }
+        let built_at = self.version();
         let mut guard = self.path_index.write();
         let idx = guard.get_or_insert_with(PathIndex::default);
-        self.ensure_json_path_indexed(idx, path)?;
+        let indexed = self.ensure_json_path_indexed(idx, path);
+        // Stamp the (re)built path index at the pre-build version (W1.6/P7) so `mark_dirty`
+        // preserves it across a CAS that could not feed any indexed path.
+        self.index_stamps
+            .path
+            .fetch_max(built_at, std::sync::atomic::Ordering::AcqRel);
+        indexed?;
         Some(
             idx.by_value
                 .get(path)
@@ -3591,9 +4102,14 @@ impl GraphCore {
                 }
             }
         }
+        let built_at = self.version();
         let mut guard = self.path_index.write();
         let idx = guard.get_or_insert_with(PathIndex::default);
-        self.ensure_json_path_indexed(idx, path)?;
+        let indexed = self.ensure_json_path_indexed(idx, path);
+        self.index_stamps
+            .path
+            .fetch_max(built_at, std::sync::atomic::Ordering::AcqRel);
+        indexed?;
         Some(idx.present.get(path).cloned().unwrap_or_default())
     }
 
@@ -3674,7 +4190,13 @@ impl GraphCore {
         }
         let idx = PathIndex::from_persisted(&snap);
         let adopted = idx.by_value.len();
-        *self.path_index.write() = Some(idx);
+        let mut guard = self.path_index.write();
+        // Stamp the rehydrated index at the current version (W1.6/P7) so the stamp-aware
+        // `mark_dirty` treats it as current until the first write that could affect a path.
+        self.index_stamps
+            .path
+            .fetch_max(self.version(), std::sync::atomic::Ordering::AcqRel);
+        *guard = Some(idx);
         adopted
     }
 
@@ -4408,7 +4930,14 @@ impl GraphCore {
         drop(topo);
         self.invalidate_indexes();
         #[cfg(feature = "result-cache")]
-        self.result_cache.invalidate_all();
+        {
+            self.result_cache.invalidate_all();
+            // The whole image was replaced; the dependency clock's old per-label/per-key versions
+            // are meaningless against the new graph and would otherwise spuriously invalidate
+            // future entries. Reset it (the cache's entries were just cleared, so nothing survives
+            // to revalidate) — W1.6/P7.
+            self.dep_clock.reset();
+        }
         Ok(())
     }
 
@@ -4464,7 +4993,11 @@ impl GraphCore {
         // version-keyed cache must be invalidated directly or a post-wipe lookup at the
         // unchanged version could serve a stale result.
         #[cfg(feature = "result-cache")]
-        self.result_cache.invalidate_all();
+        {
+            self.result_cache.invalidate_all();
+            // Wiping the graph also retires the dependency clock's per-dimension history (W1.6/P7).
+            self.dep_clock.reset();
+        }
     }
 
     /// Hibernate this graph's in-memory state (CONCEPT:EG-KG.storage.100m-tenant — cold-tenant
@@ -4783,6 +5316,12 @@ impl GraphCore {
                 filter
             }),
             bloom_complete: std::sync::atomic::AtomicBool::new(true),
+            // A fork starts a fresh OCC version line (version 0 above), so its index stamps and
+            // dependency clock start cold too — every lazy index rebuilds on first use.
+            index_stamps: IndexStamps::default(),
+            index_rebuilds: std::sync::atomic::AtomicU64::new(0),
+            #[cfg(feature = "result-cache")]
+            dep_clock: crate::dep_scope::DepClock::new(),
             // A fork starts with an empty result cache (its own version line).
             #[cfg(feature = "result-cache")]
             result_cache: crate::result_cache::ResultCache::new(),
@@ -7674,7 +8213,11 @@ mod tests {
     }
 
     #[test]
-    fn field_scoped_update_invalidates_only_covering_lazy_cache() {
+    fn field_scoped_update_incrementally_maintains_covering_lazy_cache() {
+        // W1.6/P7: a field-scoped CAS now INCREMENTALLY re-files the affected posting instead of
+        // dropping the covering cache. The `team` update moves `a` from `team=blue` to `team=red`
+        // in place; the label + path caches (unaffected) stay warm; the property cache ALSO stays
+        // warm (refiled), not dropped — the pre-W1.6 behavior was to null it, forcing a rebuild.
         let _guard = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let g = GraphCore::new();
         g.add_node(
@@ -7686,6 +8229,7 @@ mod tests {
         assert_eq!(g.get_nodes_by_label("Task", 0).len(), 1);
         assert_eq!(g.nodes_by_property("team", "blue").unwrap(), vec!["a"]);
         assert_eq!(g.nodes_by_json_path("$.meta.kind", "x").unwrap(), vec!["a"]);
+        let rebuilds_before = g.index_rebuilds();
 
         let mut conditions = serde_json::Map::new();
         conditions.insert("team".into(), serde_json::json!("blue"));
@@ -7705,10 +8249,20 @@ mod tests {
         assert!(g.label_index.read().is_some(), "labels were unaffected");
         assert!(g.path_index.read().is_some(), "$.meta was unaffected");
         assert!(
-            g.property_index.read().is_none(),
-            "team posting was affected"
+            g.property_index.read().is_some(),
+            "the property index is incrementally re-filed (W1.6), not dropped"
         );
+        // The refile is correct: `a` moved from blue to red, with NO full rebuild.
         assert_eq!(g.nodes_by_property("team", "red").unwrap(), vec!["a"]);
+        assert!(
+            g.nodes_by_property("team", "blue").unwrap().is_empty(),
+            "the old value posting no longer lists a"
+        );
+        assert_eq!(
+            g.index_rebuilds(),
+            rebuilds_before,
+            "an in-place refile must not trigger a full index rebuild"
+        );
     }
 
     #[test]
