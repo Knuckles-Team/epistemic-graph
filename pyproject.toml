@@ -75,8 +75,19 @@ lmcache = [
 # the `all` aggregate keep resolving. The compiled faer/ndarray kernel remains always-bundled
 # as package data `epistemic_graph/numeric.abi3.so` (pure-Rust, BLAS/LAPACK-free).
 numeric = []
+# W4.8 (CONCEPT:EG-317) — TEST-ONLY reference-implementation readers for the lake/
+# lake-rest read-parity suite (`tests/test_lake_iceberg_delta_parity.py`): real
+# pyiceberg/deltalake open the engine's own materialized Delta + Iceberg artifacts and
+# assert they read back correctly. Not a runtime dependency of the engine or the
+# Python client — isolated in its own extra (like `owl`/`quant`) so the baseline
+# `test` extra every CI run installs stays light; `pip install
+# epistemic-graph[lake-parity]` pulls it explicitly.
+lake-parity = [
+    "pyiceberg[pyarrow]>=0.7.0",
+    "deltalake>=0.18.0",
+]
 all = [
-    "epistemic-graph[test,owl,quant,finance,ast,datascience,reasoning,server,full,lmcache,numeric]",
+    "epistemic-graph[test,owl,quant,finance,ast,datascience,reasoning,server,full,lmcache,numeric,lake-parity]",
 ]
 
 [tool.ruff]

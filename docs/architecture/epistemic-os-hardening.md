@@ -508,10 +508,14 @@ RLS context so a filtered result cannot cross an authority boundary.
   (`OPENLINEAGE_URL_ENV` constant, `src/server/lake/lineage.rs:36`) — unset means a
   silent no-op; lineage export **never blocks or fails** a materialization run.
 - **Default-on or opt-in:** `lake = ["server", "blob", "tsdb", "dep:eg-lake",
-  "eg-lake/lake", "dep:ureq"]` — opt-in, not in `full` (pulls arrow/parquet +
-  delta/iceberg deps, kept out of the default build's dependency footprint). The Iceberg
-  v2 Avro manifest/manifest-list writer (`crates/eg-lake/src/iceberg_avro.rs`, pure-Rust
-  `apache-avro`) is real (per-column stats for predicate pushdown), not a stub.
+  "eg-lake/lake", "dep:ureq"]` — as of W4.8, folded into `full` (the maintained Polars
+  native-Parquet codec + pure-Rust `apache-avro`, NOT the heavier upstream arrow/parquet
+  crates, measured within the Pi-4 release-binary budget). The materialization tier and
+  the Iceberg-REST listener (`lake-rest`, also in `full`) remain opt-in **at runtime**
+  (`GRAPH_SERVICE_PERSIST_DIR` + `EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS`/
+  `--iceberg-addr`). The Iceberg v2 Avro manifest/manifest-list writer
+  (`crates/eg-lake/src/iceberg_avro.rs`, pure-Rust `apache-avro`) is real (per-column
+  stats for predicate pushdown), not a stub.
 
 ---
 
@@ -719,8 +723,8 @@ wired; consult the [build feature map](tiers.md) for the complete composition.
 | `modality-serving` | **yes** | Universal governed document/image/audio/video state machine and concrete dependency-light runtimes | `server`, `redb`, `security`, `streaming`, media runtime crates, `eg-modality` |
 | `contract` (per-crate) | no | `ModalityContract` conformance-test battery, selected directly for each implementation | `dep:eg-modality` (+ crate-specific extras, e.g. eg-rdf also needs `owl`/`sparql`) |
 | `jobs` | **yes** | `Method::AnalyticsJob` distributed durable analytics-job plane (`eg-jobs`) | `server`, `mining`, `epistemic`, `dep:eg-jobs` |
-| `lake` | no | Parquet/Delta/Iceberg-REST materialization + OpenLineage | `server`, `blob`, `tsdb`, `dep:eg-lake` |
-| `lake-rest` | no | Iceberg-REST catalog endpoint on top of `lake` | `lake` |
+| `lake` | **yes** (W4.8) | Parquet/Delta/Iceberg-REST materialization + OpenLineage | `server`, `blob`, `tsdb`, `dep:eg-lake` |
+| `lake-rest` | **yes** (W4.8) | Iceberg-REST catalog endpoint on top of `lake` | `lake` |
 | `raft` / `cluster` | no (opt-in layer) | `PlacementCatalog`, multi-group Raft, lazy lifecycle's cross-shard leg | `server`, `redb`, `dep:openraft` |
 
 **Small-footprint invariant:** the native `knowledge-batch` and dependency-light media
