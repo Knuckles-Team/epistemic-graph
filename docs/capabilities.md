@@ -423,8 +423,11 @@ See [governed modality serving](architecture/modality_serving.md).
 ## Lakehouse interop (eg-lake — LTAP)
 
 Databricks-LTAP-interoperable: external lakehouse engines read the engine's own tables as open formats with
-**zero ETL**. Gated `lake` (arrow/parquet + delta/iceberg deps), opt-in (not in the default build). See
-[lakehouse-ltap](architecture/lakehouse_ltap.md).
+**zero ETL**. Gated `lake`/`lake-rest` (Polars native-Parquet + pure-Rust `apache-avro` deps); as of W4.8, part
+of the one main `full` build (the measured release-binary size delta stayed inside the Pi-4 budget). The
+materialization tier and the Iceberg-REST listener remain opt-in **at runtime** (nothing runs unless
+`GRAPH_SERVICE_PERSIST_DIR` + `EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS`/`--iceberg-addr` are configured).
+See [lakehouse-ltap](architecture/lakehouse_ltap.md).
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
