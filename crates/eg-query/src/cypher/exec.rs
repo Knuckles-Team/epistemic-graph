@@ -42,6 +42,55 @@ use super::proc::{registry, YieldValue};
 /// unbounded RETURN would buffer the whole result in one message.
 const MAX_ROWS: usize = 50_000;
 
+/// Cypher walk instrumentation (CONCEPT:EG-KG.query.cypher-limit-shortcircuit) — the
+/// per-execution work counters that PROVE the LIMIT short-circuit is O(limit·deg):
+/// a naive materialize-then-LIMIT expands every one of N matches, so `hop_expansions`
+/// scales with N; the short-circuit stops at the budget, so it scales with the LIMIT.
+/// The increments are compiled to empty inlined no-ops OUTSIDE tests (zero hot-path
+/// cost, respecting the Pi-lean `cypher` feature's no-`tracing` boundary); under
+/// `cfg(test)` they accumulate into thread-local `Cell`s that `snapshot`/`reset` back
+/// the differential test with.
+pub(crate) mod walk_metrics {
+    #[cfg(test)]
+    use std::cell::Cell;
+    #[cfg(test)]
+    thread_local! {
+        static STARTS: Cell<u64> = const { Cell::new(0) };
+        static HOPS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    /// A start-node candidate whose hop walk was initiated (the label-index / anchor
+    /// candidate the walk actually expanded from — NOT merely enumerated).
+    #[cfg(test)]
+    pub(crate) fn note_start() {
+        STARTS.with(|c| c.set(c.get().saturating_add(1)));
+    }
+    #[cfg(not(test))]
+    #[inline(always)]
+    pub(crate) fn note_start() {}
+
+    /// One neighbour/target considered while extending a partial across a hop.
+    #[cfg(test)]
+    pub(crate) fn note_hop_expansion() {
+        HOPS.with(|c| c.set(c.get().saturating_add(1)));
+    }
+    #[cfg(not(test))]
+    #[inline(always)]
+    pub(crate) fn note_hop_expansion() {}
+
+    #[cfg(test)]
+    pub(crate) fn reset() {
+        STARTS.with(|c| c.set(0));
+        HOPS.with(|c| c.set(0));
+    }
+
+    /// `(starts_expanded, hop_expansions)` since the last [`reset`].
+    #[cfg(test)]
+    pub(crate) fn snapshot() -> (u64, u64) {
+        (STARTS.with(Cell::get), HOPS.with(Cell::get))
+    }
+}
+
 /// Query parameters (`$name` → JSON value), supplied by the caller (CONCEPT:EG-KG.query.param-list-drives-unwind).
 pub type Params = serde_json::Map<String, Value>;
 
@@ -74,8 +123,35 @@ pub fn exec_cypher_params(
     params: &Params,
 ) -> Result<QueryResult, String> {
     let query = plan_cache::global().get_or_parse(cypher)?;
-    let bindings = run_stages(view, &query.stages, params)?;
+    let bindings = run_stages(view, &query.stages, params, row_budget(&query))?;
     finalize(view, &query, bindings)
+}
+
+/// The LIMIT short-circuit budget (CONCEPT:EG-KG.query.cypher-limit-shortcircuit): the
+/// maximum number of MATCH rows the pipeline can possibly need when the final result is
+/// a pure PREFIX of the binding stream. `Some(skip+limit)` only when NO blocking
+/// operator reorders/collapses/re-counts rows — no `ORDER BY`, no `DISTINCT`, no
+/// aggregation — AND the pipeline is a SINGLE `MATCH` stage (a downstream
+/// `WITH`/`UNWIND`/`CALL` could filter or multiply rows, so capping upstream would be
+/// unsound). `None` ⇒ full materialization, byte-for-byte the prior behavior. The cap
+/// is honored by [`resolve_match`]'s depth-first walk, which stops expanding once the
+/// budget is met instead of materializing every match and truncating in [`finalize`].
+fn row_budget(query: &CypherQuery) -> Option<usize> {
+    let ret = &query.ret;
+    let limit = ret.limit?;
+    if ret.distinct || !ret.order_by.is_empty() {
+        return None;
+    }
+    if ret.items.iter().any(|i| is_agg(&i.expr)) {
+        return None;
+    }
+    // A later stage may filter (WITH … WHERE) or multiply (UNWIND/CALL) rows, so the
+    // short-circuit is sound only for a lone MATCH — exactly the acceptance shape
+    // (`MATCH … LIMIT k`).
+    if !matches!(query.stages.as_slice(), [ReadStage::Match { .. }]) {
+        return None;
+    }
+    Some(limit.saturating_add(ret.skip.unwrap_or(0)).min(MAX_ROWS))
 }
 
 // ── read-stage pipeline (CONCEPT:EG-KG.query.eg-extend-read-side) ─────────────────────────────────────
@@ -85,6 +161,7 @@ fn run_stages(
     view: &GraphView,
     stages: &[ReadStage],
     params: &Params,
+    budget: Option<usize>,
 ) -> Result<Vec<Binding>, String> {
     // Seed with one empty binding so the first MATCH resolves from scratch.
     let mut bindings: Vec<Binding> = vec![HashMap::new()];
@@ -98,7 +175,11 @@ fn run_stages(
             } => {
                 let mut out: Vec<Binding> = Vec::new();
                 for incoming in &bindings {
-                    let mut matched = resolve_match(view, pattern, where_clause, incoming, params)?;
+                    // `budget` is `Some` only for a single-MATCH pipeline (see
+                    // `row_budget`), so the short-circuit cap is applied to the one and
+                    // only stage here; a multi-stage query always carries `None`.
+                    let mut matched =
+                        resolve_match(view, pattern, where_clause, incoming, params, budget)?;
                     if let Some(pv) = path_var {
                         for b in matched.iter_mut() {
                             record_path(pattern, b, pv);
@@ -252,7 +333,9 @@ fn subquery_additions(
     subquery: &CypherQuery,
     params: &Params,
 ) -> Result<Vec<Binding>, String> {
-    let sub_bindings = run_stages(view, &subquery.stages, params)?;
+    // A CALL subquery has its own LIMIT scope (applied by its own `finalize` below);
+    // the outer query's short-circuit budget never applies here.
+    let sub_bindings = run_stages(view, &subquery.stages, params, None)?;
     let ret = &subquery.ret;
     let items: Vec<ReturnItem> = if ret.star {
         scope_vars(&subquery.stages)
@@ -376,18 +459,206 @@ fn run_call_proc(
     Ok(out)
 }
 
+/// The variables a WHERE sub-expression reads (each leaf [`Condition`] names one
+/// `var.prop`). Drives per-hop pushdown: a conjunct is evaluable once every variable
+/// it reads is bound.
+fn where_referenced_vars(e: &WhereExpr, out: &mut HashSet<String>) {
+    match e {
+        WhereExpr::Or(parts) | WhereExpr::And(parts) => {
+            parts.iter().for_each(|p| where_referenced_vars(p, out));
+        }
+        WhereExpr::Cond(c) => {
+            out.insert(c.var.clone());
+        }
+    }
+}
+
+/// Map each pattern variable to the walk position at which it becomes BOUND: the start
+/// node → 0; a FIXED single hop `j`'s target-node var and (single) edge var → `j+1`.
+/// Only plain id-valued bindings are mapped — a quantified-group hop binds LIST-valued
+/// group variables (not comparable by `var.prop`) and a variable-length hop binds no
+/// single edge, so their variables are omitted and any WHERE conjunct over them falls
+/// to the post-walk filter, preserving today's semantics exactly. A repeated variable
+/// keeps its EARLIEST position (where its value is first determined).
+fn pattern_pushdown_positions(pattern: &Pattern) -> HashMap<String, usize> {
+    let mut pos: HashMap<String, usize> = HashMap::new();
+    if let Some(v) = &pattern.start.var {
+        pos.entry(v.clone()).or_insert(0);
+    }
+    for (j, (edge, node)) in pattern.hops.iter().enumerate() {
+        if edge.group.is_some() {
+            continue;
+        }
+        if let Some(v) = &node.var {
+            pos.entry(v.clone()).or_insert(j + 1);
+        }
+        if edge.var_len.is_none() {
+            if let Some(v) = &edge.var {
+                pos.entry(v.clone()).or_insert(j + 1);
+            }
+        }
+    }
+    pos
+}
+
+/// A MATCH's WHERE, split for pushdown (CONCEPT:EG-KG.query.cypher-where-pushdown):
+///   * `start_preds` — conjuncts evaluable once the START node is bound (position 0);
+///   * `hop_preds[j]` — conjuncts evaluable once hop `j`'s target is bound (position
+///     j+1), applied by [`walk_hops`] the instant that hop binds;
+///   * `final_preds` — conjuncts reading a variable NOT bound at a known position
+///     (group / variable-length edge vars, or a var carried from a prior stage's anchor
+///     that is not itself constrained here), applied post-walk exactly as before.
+struct WherePartition {
+    hop_preds: Vec<Vec<WhereExpr>>,
+    start_preds: Vec<WhereExpr>,
+    final_preds: Vec<WhereExpr>,
+}
+
+/// Split a MATCH's WHERE into per-position conjuncts. A top-level `AND` is flattened to
+/// its conjuncts; a bare `Cond`/`Or` is one conjunct pushed to the max position over the
+/// vars it reads. This is a pure optimization: every conjunct is still evaluated exactly
+/// once, just as early as its inputs allow — filtered-out partials are dropped before
+/// the walk expands them further.
+fn partition_where(
+    pattern: &Pattern,
+    anchor: &Binding,
+    where_clause: &Option<WhereExpr>,
+) -> WherePartition {
+    let mut part = WherePartition {
+        hop_preds: vec![Vec::new(); pattern.hops.len()],
+        start_preds: Vec::new(),
+        final_preds: Vec::new(),
+    };
+    let Some(where_clause) = where_clause else {
+        return part;
+    };
+    let positions = pattern_pushdown_positions(pattern);
+    let conjuncts: Vec<WhereExpr> = match where_clause {
+        WhereExpr::And(parts) => parts.clone(),
+        other => vec![other.clone()],
+    };
+    for c in conjuncts {
+        let mut vars = HashSet::new();
+        where_referenced_vars(&c, &mut vars);
+        // The earliest position at which EVERY referenced var is bound: the max over its
+        // vars' bind positions. A var not in the pattern but present in `anchor` is bound
+        // before the walk (position 0); an entirely unknown var forces the final bucket.
+        let earliest = vars.iter().try_fold(0usize, |acc, v| {
+            if let Some(p) = positions.get(v) {
+                Some(acc.max(*p))
+            } else if anchor.contains_key(v) {
+                Some(acc)
+            } else {
+                None
+            }
+        });
+        match earliest {
+            Some(0) => part.start_preds.push(c),
+            Some(p) => part.hop_preds[p - 1].push(c), // position p ⇒ applied after hop p-1
+            None => part.final_preds.push(c),
+        }
+    }
+    part
+}
+
+/// Label-index-first start selection (CONCEPT:EG-KG.query.cypher-label-first-start). When
+/// the START node is UNLABELED and unbound — so its candidate set is the WHOLE graph —
+/// but the pattern's FAR-END node carries a `:Label` (candidate set = the label index,
+/// almost always far smaller), rewrite the linear pattern to walk it in REVERSE,
+/// beginning at the labeled end. The reversed pattern binds the identical variable set
+/// over the identical path set — each hop's direction is flipped, which combined with
+/// swapping current/target reaches the SAME stored edges (`rel_matches` reads the real
+/// orientation either way) — so the result is unchanged as a set; only the far cheaper
+/// start enumeration differs. Restricted to a chain of FIXED, DIRECTED single hops (no
+/// variable-length / quantified-group hop, whose reversal is not a plain direction flip;
+/// no undirected hop, whose edge-variable endpoint resolution is order-sensitive); those
+/// keep start-first. `None` when no rewrite applies.
+fn reorder_labeled_start(view: &GraphView, pattern: &Pattern, anchor: &Binding) -> Option<Pattern> {
+    if pattern.start.label.is_some() || pattern.hops.is_empty() {
+        return None;
+    }
+    if pattern
+        .start
+        .var
+        .as_ref()
+        .is_some_and(|v| anchor.contains_key(v))
+    {
+        return None; // an anchored start is already a single candidate
+    }
+    if pattern.hops.iter().any(|(e, _)| {
+        e.var_len.is_some() || e.group.is_some() || matches!(e.direction, Direction::Both)
+    }) {
+        return None;
+    }
+    let end = &pattern.hops.last()?.1;
+    end.label.as_ref()?;
+    // Only worth it when the labeled end enumerates strictly fewer candidates than the
+    // whole-graph start scan the unlabeled start would otherwise do.
+    if label_candidates(view, end).len() >= view.node_map.len() {
+        return None;
+    }
+    Some(reverse_pattern(pattern))
+}
+
+/// Reverse a linear chain of FIXED, directed single hops so it starts at the current far
+/// end: `n0 -e1- n1 … -ek- nk` becomes `nk -flip(ek)- n{k-1} … -flip(e1)- n0`, each
+/// edge keeping its type/var/props with only its `direction` flipped (Right↔Left).
+/// Caller guarantees no variable-length / quantified-group / undirected hop.
+fn reverse_pattern(pattern: &Pattern) -> Pattern {
+    let mut nodes: Vec<NodePat> = Vec::with_capacity(pattern.hops.len() + 1);
+    nodes.push(pattern.start.clone());
+    for (_, n) in &pattern.hops {
+        nodes.push(n.clone());
+    }
+    let edges: Vec<EdgePat> = pattern.hops.iter().map(|(e, _)| e.clone()).collect();
+    let new_start = nodes[nodes.len() - 1].clone();
+    let mut new_hops: Vec<(EdgePat, NodePat)> = Vec::with_capacity(edges.len());
+    for j in (0..edges.len()).rev() {
+        let mut e = edges[j].clone();
+        e.direction = match e.direction {
+            Direction::Right => Direction::Left,
+            Direction::Left => Direction::Right,
+            Direction::Both => Direction::Both,
+        };
+        new_hops.push((e, nodes[j].clone()));
+    }
+    Pattern {
+        start: new_start,
+        hops: new_hops,
+    }
+}
+
 /// Resolve a linear MATCH `pattern` into var→node-id bindings, applying `where`.
 /// `anchor` pre-binds variables (empty for a fresh MATCH; the incoming binding for
 /// an `OPTIONAL MATCH` / post-`WITH` MATCH) — any pattern position whose variable is
 /// already in `anchor` is constrained to that id, which is the join mechanism
 /// (CONCEPT:EG-KG.query.eg-extend-read-side). Fixed and variable-length hops combine freely (CONCEPT:EG-KG.query.concept-2).
+///
+/// Phase-A pushdowns: WHERE predicates are applied at the EARLIEST var-bound position
+/// during the walk ([`partition_where`], not post-materialization); an unlabeled start
+/// with a labeled far end is walked from the labeled end ([`reorder_labeled_start`]);
+/// and when `budget` is `Some(k)` (a single `MATCH … LIMIT k` with no blocking op —
+/// see [`row_budget`]) the walk is DEPTH-FIRST and stops once `k` rows are produced
+/// ([`walk_hops_dfs`]), so a `LIMIT` touches O(k · degree) work instead of every match.
 fn resolve_match(
     view: &GraphView,
     pattern: &Pattern,
     where_clause: &Option<WhereExpr>,
     anchor: &Binding,
     params: &Params,
+    budget: Option<usize>,
 ) -> Result<Vec<Binding>, String> {
+    // Label-index-first: rebind the walk to start at a labeled end when the start is a
+    // full-graph scan. The reversed pattern binds the same variables over the same paths.
+    let reordered = reorder_labeled_start(view, pattern, anchor);
+    let pattern = reordered.as_ref().unwrap_or(pattern);
+
+    let WherePartition {
+        hop_preds,
+        start_preds,
+        final_preds,
+    } = partition_where(pattern, anchor, where_clause);
+
     // Start candidates: the anchored id if the start var is bound, else the label set,
     // then narrowed by any inline property constraints (CONCEPT:EG-KG.query.param-list-drives-unwind).
     let start_ids: Vec<String> = match pattern.start.var.as_ref().and_then(|v| anchor.get(v)) {
@@ -408,6 +679,37 @@ fn resolve_match(
     })
     .collect();
 
+    // The DEPTH-FIRST budgeted walk is the LIMIT short-circuit; it does not expand
+    // quantified groups, so a pattern with a group hop keeps the breadth-first walk.
+    let dfs_budget = budget.filter(|_| pattern.hops.iter().all(|(e, _)| e.group.is_none()));
+
+    if let Some(k) = dfs_budget {
+        let mut out: Vec<Binding> = Vec::new();
+        for sid in start_ids {
+            if out.len() >= k {
+                break;
+            }
+            let mut b = anchor.clone();
+            if let Some(v) = &pattern.start.var {
+                b.insert(v.clone(), sid.clone());
+            }
+            if !start_preds.iter().all(|w| where_expr_holds(view, &b, w)) {
+                continue;
+            }
+            walk_metrics::note_start();
+            DfsWalk {
+                view,
+                hops: &pattern.hops,
+                hop_preds: &hop_preds,
+                final_preds: &final_preds,
+                params,
+                budget: k,
+            }
+            .run(&b, &sid, 0, &mut out)?;
+        }
+        return Ok(out);
+    }
+
     // (binding, current-node-id) partials, extended hop by hop.
     let mut partials: Vec<(Binding, String)> = Vec::new();
     for sid in start_ids {
@@ -415,14 +717,19 @@ fn resolve_match(
         if let Some(v) = &pattern.start.var {
             b.insert(v.clone(), sid.clone());
         }
+        // Start-node WHERE conjuncts drop a candidate before ANY hop expands from it.
+        if !start_preds.iter().all(|w| where_expr_holds(view, &b, w)) {
+            continue;
+        }
+        walk_metrics::note_start();
         partials.push((b, sid));
     }
 
-    partials = walk_hops(view, &pattern.hops, partials, params)?;
+    partials = walk_hops(view, &pattern.hops, &hop_preds, partials, params)?;
 
     let mut out: Vec<Binding> = Vec::new();
     for (b, _) in partials {
-        if where_holds(view, &b, where_clause) {
+        if final_preds.iter().all(|w| where_expr_holds(view, &b, w)) {
             out.push(b);
         }
     }
@@ -439,19 +746,28 @@ fn resolve_match(
 fn walk_hops(
     view: &GraphView,
     hops: &[(EdgePat, NodePat)],
+    hop_preds: &[Vec<WhereExpr>],
     mut partials: Vec<(Binding, String)>,
     params: &Params,
 ) -> Result<Vec<(Binding, String)>, String> {
-    for (edge, node) in hops {
+    for (j, (edge, node)) in hops.iter().enumerate() {
+        // WHERE conjuncts evaluable once this hop's target is bound (position j+1) —
+        // applied inline so a failing partial is dropped BEFORE the next hop expands it
+        // (CONCEPT:EG-KG.query.cypher-where-pushdown). A group/var-len hop carries none
+        // (its vars fall to the post-walk filter), so this is a no-op there.
+        let preds = hop_preds.get(j).map(Vec::as_slice).unwrap_or(&[]);
         let mut next: Vec<(Binding, String)> = Vec::new();
         for (b, cur) in &partials {
             if let Some(group) = &edge.group {
                 for (group_binding, target) in
                     quantified_group_matches(view, cur, group, b, params)?
                 {
+                    walk_metrics::note_hop_expansion();
                     if let Some(nb) = bind_target_node(view, node, &group_binding, &target, params)
                     {
-                        next.push((nb, target));
+                        if preds.iter().all(|w| where_expr_holds(view, &nb, w)) {
+                            next.push((nb, target));
+                        }
                     }
                     if next.len() > MAX_ROWS {
                         return Err(format!(
@@ -467,27 +783,106 @@ fn walk_hops(
                 None => neighbors(view, cur, edge),
             };
             for t in targets {
+                walk_metrics::note_hop_expansion();
                 let Some(mut nb) = bind_target_node(view, node, b, &t, params) else {
                     continue;
                 };
-                // Bind a named edge variable (`-[r]->`) on the READ path too — not just
-                // write's DELETE-only enrichment — so `RETURN type(r)` (CONCEPT:EG-KG.query.rel-type-projection)
-                // can resolve it. Only meaningful for a single fixed hop; QPP
-                // relationship variables are captured per iteration separately.
-                if let (Some(evar), None) = (&edge.var, edge.var_len) {
-                    let (src, tgt) = match edge.direction {
-                        Direction::Right => (cur.clone(), t.clone()),
-                        Direction::Left => (t.clone(), cur.clone()),
-                        Direction::Both => resolve_undirected_endpoints(view, cur, &t),
-                    };
-                    nb.insert(edge_key(evar), format!("{src}\u{0}{tgt}"));
+                bind_edge_var(view, &mut nb, edge, cur, &t);
+                if preds.iter().all(|w| where_expr_holds(view, &nb, w)) {
+                    next.push((nb, t));
                 }
-                next.push((nb, t));
             }
         }
         partials = next;
     }
     Ok(partials)
+}
+
+/// Bind a named edge variable (`-[r]->`) on the READ path too — not just write's
+/// DELETE-only enrichment — so `RETURN type(r)` / `r.prop`
+/// (CONCEPT:EG-KG.query.rel-type-projection) can resolve it. Only meaningful for a single
+/// FIXED hop; a variable-length hop binds no single edge, and QPP relationship variables
+/// are captured per iteration separately, so both are skipped.
+fn bind_edge_var(view: &GraphView, nb: &mut Binding, edge: &EdgePat, cur: &str, t: &str) {
+    if let (Some(evar), None) = (&edge.var, edge.var_len) {
+        let (src, tgt) = match edge.direction {
+            Direction::Right => (cur.to_string(), t.to_string()),
+            Direction::Left => (t.to_string(), cur.to_string()),
+            Direction::Both => resolve_undirected_endpoints(view, cur, t),
+        };
+        nb.insert(edge_key(evar), format!("{src}\u{0}{tgt}"));
+    }
+}
+
+/// Depth-first, budget-bounded expansion of a FIXED/variable-length hop chain
+/// (CONCEPT:EG-KG.query.cypher-limit-shortcircuit) — the LIMIT short-circuit. The args
+/// invariant across the recursion (view, hops, pushed predicates, params, budget) are
+/// held once here; [`DfsWalk::run`] threads only what varies (binding, current node, hop
+/// index, output). Unlike the breadth-first [`walk_hops`] — which materializes every
+/// partial at each hop before [`finalize`] truncates — it never expands more than the
+/// first `budget` complete paths, so a `MATCH … LIMIT k` touches O(k · degree) work. The
+/// caller guarantees a group-free pattern (quantified groups keep the breadth-first walk).
+struct DfsWalk<'a> {
+    view: &'a GraphView,
+    hops: &'a [(EdgePat, NodePat)],
+    hop_preds: &'a [Vec<WhereExpr>],
+    final_preds: &'a [WhereExpr],
+    params: &'a Params,
+    budget: usize,
+}
+
+impl DfsWalk<'_> {
+    /// Extend `binding` (currently at node `cur`, having bound hops `0..hop_idx`) depth
+    /// first, pushing each COMPLETE binding into `out` and stopping the instant
+    /// `out.len()` reaches `budget`. WHERE conjuncts are applied at their earliest bound
+    /// position (`hop_preds[j]` after hop `j`; `final_preds` at the leaf), identically to
+    /// the breadth-first path.
+    fn run(
+        &self,
+        binding: &Binding,
+        cur: &str,
+        hop_idx: usize,
+        out: &mut Vec<Binding>,
+    ) -> Result<(), String> {
+        if out.len() >= self.budget {
+            return Ok(());
+        }
+        if hop_idx == self.hops.len() {
+            if self
+                .final_preds
+                .iter()
+                .all(|w| where_expr_holds(self.view, binding, w))
+            {
+                out.push(binding.clone());
+            }
+            return Ok(());
+        }
+        let (edge, node) = &self.hops[hop_idx];
+        let preds = self
+            .hop_preds
+            .get(hop_idx)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let targets = match edge.var_len {
+            Some((min, max)) => bfs_reachable(self.view, cur, edge, min, max),
+            None => neighbors(self.view, cur, edge),
+        };
+        for t in targets {
+            if out.len() >= self.budget {
+                break;
+            }
+            walk_metrics::note_hop_expansion();
+            let Some(mut nb) = bind_target_node(self.view, node, binding, &t, self.params) else {
+                continue;
+            };
+            bind_edge_var(self.view, &mut nb, edge, cur, &t);
+            if !preds.iter().all(|w| where_expr_holds(self.view, &nb, w)) {
+                continue;
+            }
+            self.run(&nb, &t, hop_idx + 1, out)?;
+        }
+        Ok(())
+    }
 }
 
 /// Apply the outer node constraints/binding after an ordinary or quantified hop.
@@ -596,14 +991,22 @@ fn expand_group_once(
         local.insert(v.clone(), cur.to_string());
     }
     Ok(
-        walk_hops(view, &group.hops, vec![(local, cur.to_string())], params)?
-            .into_iter()
-            .map(|(local, end)| {
-                let mut captured = local;
-                capture_group_iteration(&mut captured, group);
-                (captured, end)
-            })
-            .collect(),
+        // The group's inner sub-pattern carries no OUTER WHERE pushdown (outer conjuncts
+        // over group variables fall to the post-walk filter — see `partition_where`).
+        walk_hops(
+            view,
+            &group.hops,
+            &[],
+            vec![(local, cur.to_string())],
+            params,
+        )?
+        .into_iter()
+        .map(|(local, end)| {
+            let mut captured = local;
+            capture_group_iteration(&mut captured, group);
+            (captured, end)
+        })
+        .collect(),
     )
 }
 
@@ -1618,7 +2021,14 @@ fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<Query
     // one empty binding (the write clauses run exactly once).
     let snap = core.analysis_snapshot();
     let mut bindings: Vec<Binding> = match &w.match_pattern {
-        Some(pattern) => resolve_match(&snap, pattern, &w.where_clause, &HashMap::new(), params)?,
+        Some(pattern) => resolve_match(
+            &snap,
+            pattern,
+            &w.where_clause,
+            &HashMap::new(),
+            params,
+            None,
+        )?,
         None => vec![HashMap::new()],
     };
 
@@ -3490,5 +3900,250 @@ mod tests {
         let second = exec_cypher_params(&v, text, &params).unwrap();
         assert_eq!(first.columns, second.columns);
         assert_eq!(first.rows, second.rows);
+    }
+
+    // ── Phase A: WHERE pushdown · LIMIT short-circuit · label-index-first start ────
+
+    /// A hub with `mids` MID-children, each carrying `leaves` LEAF-children, so the
+    /// two-hop `(hub)-[:MID]->(m)-[:LEAF]->(x)` pattern has `mids * leaves` matches.
+    fn wide_fixture(mids: usize, leaves: usize) -> GraphView {
+        let core = GraphCore::new();
+        core.add_node("hub".into(), pbytes(serde_json::json!({"node_type":"Hub"})));
+        for i in 0..mids {
+            let m = format!("m{i}");
+            core.add_node(m.clone(), pbytes(serde_json::json!({"node_type":"Mid"})));
+            core.add_edge(
+                "hub".into(),
+                m.clone(),
+                pbytes(serde_json::json!({"relationship":"MID"})),
+            )
+            .unwrap();
+            for j in 0..leaves {
+                let x = format!("x{i}_{j}");
+                core.add_node(x.clone(), pbytes(serde_json::json!({"node_type":"Leaf"})));
+                core.add_edge(
+                    m.clone(),
+                    x.clone(),
+                    pbytes(serde_json::json!({"relationship":"LEAF"})),
+                )
+                .unwrap();
+            }
+        }
+        core.analysis_snapshot()
+    }
+
+    /// ACCEPTANCE (CONCEPT:EG-KG.query.cypher-limit-shortcircuit): `MATCH … LIMIT 1`
+    /// over a 40k-match set expands O(limit · degree) partials, NOT all 40k. The
+    /// instrumented hop-expansion counter is the proof: the un-limited walk builds every
+    /// one of the 40k bindings; the LIMIT walk reaches the first complete row after a
+    /// tiny constant number of expansions (one per hop level), and is orders of magnitude
+    /// cheaper. This is the DEPTH-FIRST short-circuit — a breadth-first last-hop cap could
+    /// not avoid the intermediate MID-level blow-up this two-hop pattern exercises.
+    #[test]
+    fn limit_short_circuit_is_o_limit_deg_on_40k_matches() {
+        let v = wide_fixture(200, 200); // 40_000 two-hop matches
+        let q = "MATCH (h:Hub)-[:MID]->(m)-[:LEAF]->(x) RETURN x";
+
+        // Baseline: no LIMIT materializes every match.
+        walk_metrics::reset();
+        let full = exec_cypher(&v, q).unwrap();
+        let (_, full_hops) = walk_metrics::snapshot();
+        assert_eq!(full.rows.len(), 40_000);
+        assert!(
+            full_hops >= 40_000,
+            "baseline must expand every match, got {full_hops}"
+        );
+
+        // Short-circuit: LIMIT 1 reaches the first row after O(1) work per hop.
+        walk_metrics::reset();
+        let one = exec_cypher(&v, &format!("{q} LIMIT 1")).unwrap();
+        let (_, ltd_hops) = walk_metrics::snapshot();
+        assert_eq!(one.rows.len(), 1);
+        // Reaching the first leaf touches the first mid (1 MID expansion) then its first
+        // leaf (1 LEAF expansion): a tiny constant, FAR below the 40k the naive path pays.
+        assert!(
+            ltd_hops <= 8,
+            "LIMIT 1 must be O(limit·deg), expanded {ltd_hops}"
+        );
+        assert!(
+            ltd_hops.saturating_mul(100) < full_hops,
+            "short-circuit must be orders of magnitude cheaper: {ltd_hops} vs {full_hops}"
+        );
+    }
+
+    /// The DFS short-circuit honours `SKIP`+`LIMIT` (budget = skip+limit) and returns the
+    /// right row count, and is DISABLED by a blocking op (ORDER BY) so that path stays
+    /// fully materialized and correctly ordered.
+    #[test]
+    fn limit_short_circuit_respects_skip_and_disables_on_order_by() {
+        let v = wide_fixture(10, 10); // 100 matches
+        let skipped = exec_cypher(
+            &v,
+            "MATCH (h:Hub)-[:MID]->(m)-[:LEAF]->(x) RETURN x SKIP 3 LIMIT 2",
+        )
+        .unwrap();
+        assert_eq!(skipped.rows.len(), 2, "SKIP 3 LIMIT 2 ⇒ 2 rows");
+
+        // ORDER BY forces full materialization (no short-circuit) and a correct sort.
+        let ordered = exec_cypher(
+            &v,
+            "MATCH (h:Hub)-[:MID]->(m)-[:LEAF]->(x) RETURN x.node_type ORDER BY x.node_type LIMIT 5",
+        )
+        .unwrap();
+        assert_eq!(ordered.rows.len(), 5);
+    }
+
+    /// Per-hop WHERE pushdown (CONCEPT:EG-KG.query.cypher-where-pushdown): a predicate on
+    /// the START variable is applied BEFORE any hop expands, so only the surviving start's
+    /// neighbours are walked — the counter proves the pruned start's subtree is untouched.
+    #[test]
+    fn where_on_start_var_is_pushed_before_hops() {
+        let core = GraphCore::new();
+        for hub in ["keep", "drop"] {
+            core.add_node(
+                hub.into(),
+                pbytes(serde_json::json!({"node_type":"Hub","tag":hub})),
+            );
+            for j in 0..100 {
+                let x = format!("{hub}_{j}");
+                core.add_node(x.clone(), pbytes(serde_json::json!({"node_type":"Leaf"})));
+                core.add_edge(
+                    hub.into(),
+                    x.clone(),
+                    pbytes(serde_json::json!({"relationship":"HAS"})),
+                )
+                .unwrap();
+            }
+        }
+        let v = core.analysis_snapshot();
+
+        walk_metrics::reset();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (h:Hub)-[:HAS]->(x) WHERE h.tag = 'keep' RETURN x",
+        )
+        .unwrap();
+        let (_, hops) = walk_metrics::snapshot();
+        assert_eq!(qr.rows.len(), 100, "only the kept hub's 100 leaves");
+        assert_eq!(
+            hops, 100,
+            "WHERE on the start var must prune 'drop' before its 100 hops expand"
+        );
+    }
+
+    /// A WHERE on a HOP-TARGET variable is applied the instant that hop binds, dropping
+    /// the partial before the NEXT hop expands from it (CONCEPT:EG-KG.query.cypher-where-pushdown).
+    #[test]
+    fn where_on_hop_target_prunes_before_next_hop() {
+        let core = GraphCore::new();
+        core.add_node("hub".into(), pbytes(serde_json::json!({"node_type":"Hub"})));
+        for mid in ["keep", "drop"] {
+            core.add_node(
+                mid.into(),
+                pbytes(serde_json::json!({"node_type":"Mid","tag":mid})),
+            );
+            core.add_edge(
+                "hub".into(),
+                mid.into(),
+                pbytes(serde_json::json!({"relationship":"MID"})),
+            )
+            .unwrap();
+            for j in 0..50 {
+                let x = format!("{mid}_{j}");
+                core.add_node(x.clone(), pbytes(serde_json::json!({"node_type":"Leaf"})));
+                core.add_edge(
+                    mid.into(),
+                    x.clone(),
+                    pbytes(serde_json::json!({"relationship":"LEAF"})),
+                )
+                .unwrap();
+            }
+        }
+        let v = core.analysis_snapshot();
+        walk_metrics::reset();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (h:Hub)-[:MID]->(m)-[:LEAF]->(x) WHERE m.tag='keep' RETURN x",
+        )
+        .unwrap();
+        let (_, hops) = walk_metrics::snapshot();
+        assert_eq!(qr.rows.len(), 50);
+        // hop0: 2 mids expand (2). hop1: only 'keep' (dropped after the MID hop) expands
+        // 50. = 52. Without pushdown both mids' 100 leaves expand (102) then filter to 50.
+        assert_eq!(
+            hops, 52,
+            "m.tag WHERE must prune 'drop' after the MID hop, before LEAF expands"
+        );
+    }
+
+    /// Multi-position WHERE (start var + hop-target var) partitions correctly across
+    /// positions and yields the same rows a post-materialization filter would; the edge
+    /// binding (`type(r)`) survives the pushdown.
+    #[test]
+    fn multi_position_where_pushdown_is_correct() {
+        let v = fixture(); // alice-KNOWS->bob-KNOWS->carol
+        let qr = exec_cypher(
+            &v,
+            "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE a.name='Alice' AND b.name='Bob' \
+             RETURN a.name, type(r), b.name",
+        )
+        .unwrap();
+        assert_eq!(qr.rows.len(), 1);
+        let row = cells_of(&qr, 0);
+        assert_eq!(row[0].as_str(), Some("Alice"));
+        assert_eq!(row[1].as_str(), Some("KNOWS"));
+        assert_eq!(row[2].as_str(), Some("Bob"));
+    }
+
+    /// Label-index-first start selection (CONCEPT:EG-KG.query.cypher-label-first-start): an
+    /// UNLABELED start with a LABELED far end walks from the labeled end, so only the few
+    /// labeled nodes seed the walk instead of the whole graph. The start counter proves it,
+    /// and the result set is unchanged (all 500 sources still reach the rare sink).
+    #[test]
+    fn unlabeled_start_with_labeled_end_walks_from_the_label() {
+        let core = GraphCore::new();
+        core.add_node(
+            "rare".into(),
+            pbytes(serde_json::json!({"node_type":"Rare"})),
+        );
+        for i in 0..500 {
+            let s = format!("s{i}");
+            core.add_node(s.clone(), pbytes(serde_json::json!({"node_type":"Src"})));
+            core.add_edge(
+                s.clone(),
+                "rare".into(),
+                pbytes(serde_json::json!({"relationship":"TO"})),
+            )
+            .unwrap();
+        }
+        let v = core.analysis_snapshot();
+
+        walk_metrics::reset();
+        let qr = exec_cypher(&v, "MATCH (a)-[:TO]->(b:Rare) RETURN a").unwrap();
+        let (starts, _) = walk_metrics::snapshot();
+        assert_eq!(
+            ids(&qr, 0).len(),
+            500,
+            "all 500 sources reach the rare sink"
+        );
+        assert_eq!(
+            starts, 1,
+            "must seed from the single labeled end, not the 501-node full-graph scan"
+        );
+    }
+
+    /// The label-first REVERSAL is semantics-preserving: reversing to start at the labeled
+    /// end binds the identical rows (incl. the intermediate + edge variables) that a
+    /// forced forward walk would. Cross-checks the reversed result against the same query
+    /// with the start explicitly labeled (which does NOT reverse).
+    #[test]
+    fn label_first_reversal_matches_forward_walk() {
+        let v = fixture(); // alice-KNOWS->bob (Person), etc.
+                           // Unlabeled start, labeled end ⇒ reversed internally.
+        let rev = exec_cypher(&v, "MATCH (a)-[:KNOWS]->(b:Person) RETURN a, b").unwrap();
+        // Labeled start ⇒ forward walk, same result set.
+        let fwd = exec_cypher(&v, "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b").unwrap();
+        assert_eq!(ids(&rev, 0), ids(&fwd, 0), "start-column set must match");
+        assert_eq!(ids(&rev, 1), ids(&fwd, 1), "end-column set must match");
     }
 }
