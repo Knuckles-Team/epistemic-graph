@@ -695,7 +695,13 @@ fn resolve_shard_count() -> usize {
                  shard g)"
             );
         }
-        return crate::raft::config::raft_group_count() as usize;
+        let groups = crate::raft::config::raft_group_count();
+        tracing::info!(
+            shards = groups,
+            "raft active: opening K == N durable shards (ADR-2 W1.2 — raft group g owns redb \
+             shard g; N parallel durable writers per node)"
+        );
+        return groups as usize;
     }
     if let Ok(v) = std::env::var("EPISTEMIC_GRAPH_REDB_SHARDS") {
         if let Ok(n) = v.trim().parse::<usize>() {

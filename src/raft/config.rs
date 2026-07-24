@@ -375,14 +375,19 @@ fn parse_peers(raw: &str) -> Result<PeerMap, String> {
 /// env-var races a `from_env` test would need.
 fn parse_groups(raw: Option<String>, default: u64) -> Result<u64, String> {
     let ceiling = crate::redb_layout::MAX_SHARD_COUNT as u64;
-    match raw {
+    // Absent / empty / an explicit `0` all mean "unspecified" ⇒ the cores-derived
+    // `default` (preserving the pre-ADR-2 "None/empty/0 collapse together" semantic,
+    // only the collapse target changed from a hardcoded 1 to `default`). A positive
+    // value is honored, clamped to `1..=MAX_SHARD_COUNT` (K == N ≤ the shard ceiling).
+    let n = match raw {
         Some(v) if !v.trim().is_empty() => v
             .trim()
             .parse::<u64>()
-            .map_err(|_| "EPISTEMIC_GRAPH_RAFT_GROUPS is not an integer".to_string())
-            .map(|n| n.clamp(1, ceiling)),
-        _ => Ok(default.clamp(1, ceiling)),
-    }
+            .map_err(|_| "EPISTEMIC_GRAPH_RAFT_GROUPS is not an integer".to_string())?,
+        _ => 0,
+    };
+    let resolved = if n == 0 { default } else { n };
+    Ok(resolved.clamp(1, ceiling))
 }
 
 /// The cores-derived default group/shard count when `EPISTEMIC_GRAPH_RAFT_GROUPS` is
