@@ -2889,3 +2889,365 @@ mod matview {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// ADR-2 / W1.2: shard-aligned multi-raft-group write scaling
+// (`reports/wave1/ADR-scale-trio.md` §ADR-2). Group g owns redb shard g, so HA
+// (raft) and write-parallelism (K shards) coexist instead of the M2 spike's K=1.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// The ADR-2 alignment invariant, proven WITHOUT a cluster: with the production ring
+/// `0..N`, `GroupRouter::group_of(name)` returns EXACTLY the durable shard
+/// `shard_index(sanitize(name), N)` the graph's data lands in — so "raft group g owns
+/// redb shard g" holds for every graph, INCLUDING names the durable key `sanitize`s
+/// (`a:b` → `a~3ab`), which the pre-ADR-2 raw-name ring hash would have mis-aligned
+/// against the sanitized storage hash.
+#[test]
+fn group_of_equals_durable_shard_index_under_production_ring() {
+    use super::multi::GroupRouter;
+    use crate::server::persistence::redb_backend::shard_index;
+
+    let mut names: Vec<String> = vec![
+        "__commons__", "agent:planner", "acme:ws1", "tenant/hot", "a:b", "a/b", "ZZZ",
+        "g-xyz", "graph-a", "深い", "emoji-🚀", "under_score.dot", "space here", "n%23",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    names.push("x".repeat(300)); // long name → `~h<sha256>` sanitize path
+
+    for n in [2usize, 3, 4, 6, 8, 16] {
+        let router = GroupRouter::new();
+        let ring: Vec<u64> = (0..n as u64).collect();
+        router.set_group_ring(&ring);
+        for name in &names {
+            let g = router.group_of(name) as usize;
+            let s = shard_index(&crate::persist::sanitize(name), n);
+            assert_eq!(
+                g, s,
+                "group_of must equal the durable shard for {name:?} at N={n} \
+                 (ADR-2: raft group g owns redb shard g)"
+            );
+        }
+    }
+}
+
+/// A replicated `AddNode` for `graph`, uniquely keyed by `node_id` (its coordinator key,
+/// so distinct ids never collide as an idempotent replay). ~512-byte payload so each
+/// durable commit does real work — the per-shard writer, not client plumbing, is the cost.
+fn scale_add_node_req(graph: &str, node_id: &str, seq: u64) -> RaftRequest {
+    let filler = "x".repeat(512);
+    RaftRequest {
+        graph_fname: crate::persist::sanitize(graph),
+        graph_name: graph.to_string(),
+        graph_type: GraphType::Global,
+        committed_at_ms: 0,
+        mutation: super::RaftMutationContext::internal("w12-scale", graph, node_id, seq, 0),
+        command: super::ReplicatedMutation::graph(
+            Method::AddNode {
+                node_id: node_id.to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(
+                    &serde_json::json!({"seq": seq, "pad": filler}),
+                )
+                .unwrap(),
+            },
+            "w12-scale",
+        )
+        .unwrap(),
+    }
+}
+
+/// Write one `AddNode` for `graph` (seq-keyed) through `node`'s local group handle.
+/// `node` must currently lead `graph`'s group, else the local `client_write` is rejected.
+async fn write_via_node(
+    nodes: &BTreeMap<NodeId, StartedNode>,
+    node: NodeId,
+    graph: &str,
+    seq: u64,
+) -> Result<(), String> {
+    let g = nodes[&node]
+        .multi
+        .group_for_graph(graph)
+        .await
+        .ok_or_else(|| format!("no local group for {graph} on node {node}"))?;
+    let id = format!("{graph}-n{seq}");
+    g.client_write(scale_add_node_req(graph, &id, seq))
+        .await
+        .map(|_| ())
+}
+
+/// Resolve, per group `0..n_groups`, the `MultiRaft` of the node that currently leads it.
+async fn map_group_leaders(
+    nodes: &BTreeMap<NodeId, StartedNode>,
+    n_groups: u64,
+    timeout: Duration,
+) -> BTreeMap<u64, std::sync::Arc<super::multi::MultiRaft>> {
+    let mut map = BTreeMap::new();
+    for gid in 0..n_groups {
+        let start = std::time::Instant::now();
+        loop {
+            let mut found = None;
+            for n in nodes.values() {
+                if let Some(g) = n.multi.group(gid).await {
+                    if let Some(leader) = g.current_leader().await {
+                        if let Some(ln) = nodes.get(&leader) {
+                            found = Some(ln.multi.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+            if let Some(m) = found {
+                map.insert(gid, m);
+                break;
+            }
+            if start.elapsed() > timeout {
+                panic!("group {gid} never elected a discoverable leader");
+            }
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+    }
+    map
+}
+
+/// Start a 3-node cluster with `n_groups` groups AND `n_groups` durable shards (K == N,
+/// ADR-2), run a fixed concurrent write workload spread across `n_graphs` graphs, and
+/// return `(writes_per_second, total_writes)`. `open_with_shards` forces K == N because
+/// `resolve_shard_count()` returns 1 under `cfg(test)` (the raft env var is unset in tests).
+async fn run_group_write_workload(
+    tag: &str,
+    n_groups: u64,
+    n_graphs: usize,
+    writes_per_graph: u64,
+) -> (f64, u64) {
+    let root = std::env::temp_dir().join(format!("eg-w12-scale-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let ports = free_ports(3);
+    let mut nodes: BTreeMap<NodeId, StartedNode> = BTreeMap::new();
+    for i in 1..=3u64 {
+        let dir = root.join(format!("node{i}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, n_groups as usize)
+                .expect("open K==N sharded redb"),
+        );
+        assert_eq!(backend.as_redb().unwrap().shard_count(), n_groups as usize);
+        let state = make_state_with_backend(&dir, backend).await;
+        let started = node::start(cluster_cfg_with_groups(i, &ports, n_groups), state.clone())
+            .await
+            .expect("start raft node");
+        state.write().await.raft = Some(started.handle.clone());
+        nodes.insert(i, started);
+    }
+
+    // Every group elects a leader; resolve each group's leader node.
+    let leaders = map_group_leaders(&nodes, n_groups, Duration::from_secs(20)).await;
+    let router = nodes.values().next().unwrap().multi.router();
+
+    // Deterministic graph set; each routes to its group's leader (group_of == shard_index).
+    let graphs: Vec<String> = (0..n_graphs).map(|i| format!("w12-{tag}-g{i}")).collect();
+    let mut assignments: Vec<(String, super::multi::Group)> = Vec::with_capacity(graphs.len());
+    for graph in &graphs {
+        let gid = router.group_of(graph);
+        let multi = leaders.get(&gid).expect("leader multi for group").clone();
+        let group = multi.group_for_graph(graph).await.expect("group for graph");
+        assignments.push((graph.clone(), group));
+    }
+
+    // Timed section: one task per graph, all concurrent, each doing `writes_per_graph`
+    // durable replicated writes through its group's leader.
+    let t0 = std::time::Instant::now();
+    let mut handles = Vec::new();
+    for (graph, group) in assignments {
+        handles.push(tokio::spawn(async move {
+            for seq in 0..writes_per_graph {
+                let node_id = format!("{graph}-n{seq}");
+                let req = scale_add_node_req(&graph, &node_id, seq);
+                group
+                    .client_write(req)
+                    .await
+                    .map_err(|e| format!("{graph} seq {seq}: {e}"))?;
+            }
+            Ok::<(), String>(())
+        }));
+    }
+    for h in handles {
+        h.await.unwrap().expect("workload write must commit");
+    }
+    let elapsed = t0.elapsed();
+    let total = n_graphs as u64 * writes_per_graph;
+    let wps = total as f64 / elapsed.as_secs_f64();
+
+    for (_, n) in nodes {
+        n.multi.stop_listener();
+        let _ = n.handle.raft.shutdown().await;
+    }
+    let _ = std::fs::remove_dir_all(&root);
+    (wps, total)
+}
+
+/// ACCEPTANCE (ADR-2 §Acceptance): a 3-node cluster with N groups (== N durable shards)
+/// sustains aggregate write throughput ≥ 2.5× the single-group (K=1) baseline — N parallel
+/// per-node durable writers vs one. Both runs execute the SAME workload in ONE test; the
+/// ratio is asserted and the absolute writes/sec logged.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn multi_group_write_throughput_scales_vs_single_group() {
+    const N_GROUPS: u64 = 6;
+    const N_GRAPHS: usize = 24;
+    const WRITES_PER_GRAPH: u64 = 10;
+
+    // Multi-group (K == N == 6): 6 parallel durable shard writers.
+    let (multi_wps, total) =
+        run_group_write_workload("multi", N_GROUPS, N_GRAPHS, WRITES_PER_GRAPH).await;
+    // Single-group baseline (K == 1): one serialized durable writer, SAME workload.
+    let (single_wps, _) = run_group_write_workload("single", 1, N_GRAPHS, WRITES_PER_GRAPH).await;
+
+    let ratio = multi_wps / single_wps;
+    tracing::info!(
+        n_groups = N_GROUPS,
+        total_writes = total,
+        multi_writes_per_sec = multi_wps,
+        single_writes_per_sec = single_wps,
+        ratio,
+        "ADR-2 W1.2 write-scaling: N-group vs single-group aggregate throughput"
+    );
+    println!(
+        "ADR-2 W1.2 write-scaling: multi(K={N_GROUPS})={multi_wps:.0} w/s, single(K=1)={single_wps:.0} w/s, ratio={ratio:.2}x ({total} writes each)"
+    );
+    assert!(
+        ratio >= 2.5,
+        "N={N_GROUPS}-group aggregate write throughput ({multi_wps:.0} w/s) must be ≥2.5× the \
+         single-group baseline ({single_wps:.0} w/s); measured {ratio:.2}×"
+    );
+}
+
+/// ACCEPTANCE (ADR-2 §Acceptance): per-group failover independence — killing ONE group's
+/// leader must not interrupt writes to a DIFFERENT group. Leaders are spread across nodes
+/// (round-robin `desired_leader`), so group 1's leader (node 2) and group 2's leader
+/// (node 3) live on distinct nodes; killing node 2 leaves group 2 writing uninterrupted
+/// while group 1 independently re-elects.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn per_group_leader_failover_is_independent() {
+    use super::multi::desired_leader;
+
+    let root = std::env::temp_dir().join(format!("eg-w12-failover-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let ports = free_ports(3);
+    let n_groups = 3u64;
+    let mut nodes: BTreeMap<NodeId, StartedNode> = BTreeMap::new();
+    for i in 1..=3u64 {
+        let dir = root.join(format!("node{i}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, n_groups as usize)
+                .expect("open K==N sharded redb"),
+        );
+        let state = make_state_with_backend(&dir, backend).await;
+        let started = node::start(cluster_cfg_with_groups(i, &ports, n_groups), state.clone())
+            .await
+            .expect("start raft node");
+        state.write().await.raft = Some(started.handle.clone());
+        nodes.insert(i, started);
+    }
+
+    // Wait for every group to elect, then rebalance so group g is led by node (g%3)+1:
+    // desired_leader(1,[1,2,3]) == node 2, desired_leader(2,[1,2,3]) == node 3.
+    map_group_leaders(&nodes, n_groups, Duration::from_secs(20)).await;
+    assert_eq!(desired_leader(1, &[1, 2, 3]), Some(2));
+    assert_eq!(desired_leader(2, &[1, 2, 3]), Some(3));
+    let converged = wait_until(Duration::from_secs(30), || async {
+        for n in nodes.values() {
+            n.multi.rebalance_leaders().await;
+        }
+        let g1 = nodes[&2].multi.group(1).await.unwrap().current_leader().await == Some(2);
+        let g2 = nodes[&3].multi.group(2).await.unwrap().current_leader().await == Some(3);
+        g1 && g2
+    })
+    .await;
+    converged.expect("groups 1/2 must converge to leaders on nodes 2/3");
+
+    let router = nodes[&1].multi.router();
+    // Pick a graph in group 1 (leader node 2) and one in group 2 (leader node 3).
+    let pick = |want: u64| -> String {
+        (0..10_000)
+            .map(|i| format!("w12-fo-{i}"))
+            .find(|g| router.group_of(g) == want)
+            .expect("a graph routing to the wanted group")
+    };
+    let graph_g1 = pick(1);
+    let graph_g2 = pick(2);
+
+    // Baseline: both groups accept writes.
+    write_via_node(&nodes, 2, &graph_g1, 0)
+        .await
+        .expect("baseline group-1 write");
+    write_via_node(&nodes, 3, &graph_g2, 0)
+        .await
+        .expect("baseline group-2 write");
+
+    // KILL group 1's leader (node 2). Group 2 (node 3) is a different node.
+    let killed = nodes.remove(&2).unwrap();
+    killed.multi.stop_listener();
+    let _ = killed.handle.raft.shutdown().await;
+
+    // ── KEY ASSERTION: group 2 keeps committing writes UNINTERRUPTED right through
+    // group 1's failover — its leader (node 3) and quorum {1,3} are untouched.
+    let g2_start = std::time::Instant::now();
+    for seq in 1..=15u64 {
+        write_via_node(&nodes, 3, &graph_g2, seq)
+            .await
+            .unwrap_or_else(|e| panic!("group-2 write {seq} must proceed while group 1 fails over: {e}"));
+    }
+    let g2_elapsed = g2_start.elapsed();
+    assert!(
+        g2_elapsed < Duration::from_secs(10),
+        "15 group-2 writes stalled ({g2_elapsed:?}) — group 1's failover leaked into group 2"
+    );
+
+    // Corroborate the killed group DOES recover independently: group 1 re-elects among
+    // {1,3} and accepts a write on its NEW leader.
+    let new_g1_leader = wait_until(Duration::from_secs(25), || async {
+        for n in nodes.values() {
+            if let Some(g) = n.multi.group(1).await {
+                if matches!(g.current_leader().await, Some(l) if l != 2) {
+                    return true;
+                }
+            }
+        }
+        false
+    })
+    .await;
+    new_g1_leader.expect("group 1 must re-elect a surviving leader after node 2 dies");
+    let mut recovered = false;
+    for _ in 0..40 {
+        let leader_node = {
+            let mut found = None;
+            for (nid, n) in nodes.iter() {
+                if let Some(g) = n.multi.group(1).await {
+                    if g.current_leader().await == Some(*nid) {
+                        found = Some(*nid);
+                        break;
+                    }
+                }
+            }
+            found
+        };
+        if let Some(node) = leader_node {
+            if write_via_node(&nodes, node, &graph_g1, 1).await.is_ok() {
+                recovered = true;
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(recovered, "group 1 must accept writes again after independent failover");
+
+    tracing::info!(?g2_elapsed, "ADR-2 W1.2 per-group failover independence verified");
+    for (_, n) in nodes {
+        n.multi.stop_listener();
+        let _ = n.handle.raft.shutdown().await;
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}

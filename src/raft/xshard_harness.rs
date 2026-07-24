@@ -1898,3 +1898,111 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
     backend.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// ADR-2 / W1.2: cross-group 2PC atomicity holds when each group owns its OWN
+// durable shard (K == N). With K=3, GROUP_A (100) → shard 100%3=1 and GROUP_B
+// (200) → shard 200%3=2 — DISTINCT shards — so the participant groups' logs and
+// phase-2 applies span the new per-group shard layout. Atomicity (no partial
+// commit) and crash-mid-prepare recovery must hold across that boundary. The
+// coordinator drives all participant groups locally (cross-node participants are
+// a follow-up), so "leader kill mid-prepare" is the coordinator-node crash the
+// recovery test injects — now over K==N distinct shards.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// A normal cross-group commit is atomic across the two groups' DISTINCT shards.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cross_group_2pc_commits_atomically_across_distinct_shards() {
+    let dir = fresh_dir("xshard-ksharded-commit");
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, 3)
+            .expect("open K=3 redb"),
+    );
+    assert_eq!(
+        backend.as_redb().unwrap().shard_count(),
+        3,
+        "GROUP_A(100)→shard1, GROUP_B(200)→shard2 are distinct under K=3"
+    );
+    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+
+    let txn = two_shard_txn("t-ksharded", "a1", "b1");
+    let outcome = coord.commit_cross_shard(&txn).await.expect("commit returns");
+    assert_eq!(outcome, TxnOutcome::Committed);
+    // Atomic: BOTH graphs applied, phase-2 spanning GROUP_A + GROUP_B on distinct shards.
+    assert_eq!(node_count(&state, GRAPH_A).await, 1, "A applied");
+    assert_eq!(node_count(&state, GRAPH_B).await, 1, "B applied");
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Crash mid-prepare (durable prepares, NO decision) over the K==N per-group shard
+/// layout recovers as presumed-ABORT with NO partial commit — the ADR-2 "cross-group
+/// 2PC survives a leader kill mid-prepare" acceptance, now with each participant
+/// group's log/meta living in its OWN shard (GROUP_A→shard1, GROUP_B→shard2) rather
+/// than the pre-ADR-2 single shard 0.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cross_group_2pc_survives_crash_mid_prepare_across_distinct_shards() {
+    let dir = fresh_dir("xshard-ksharded-crash");
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, 3)
+            .expect("open K=3 redb"),
+    );
+    let txn_id = "t-ksharded-crash";
+    {
+        let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
+        let txn = two_shard_txn(txn_id, "a2", "b2");
+        // PHASE 1 only — durable prepares, but the coordinator "dies" before ANY decision
+        // (the leader-kill-mid-prepare fault, injected deterministically).
+        assert!(coord.prepare_only(&txn).await.expect("prepare"));
+        let redb = backend.as_redb().unwrap();
+        assert_eq!(
+            redb.xshard_scan_prepares().unwrap().len(),
+            2,
+            "two prepares durable"
+        );
+        assert_eq!(
+            redb.xshard_decision_get(txn_id).unwrap(),
+            None,
+            "no decision logged"
+        );
+        multi.stop_listener();
+        multi.close_group(GROUP_A).await.unwrap();
+        multi.close_group(GROUP_B).await.unwrap();
+    }
+    backend.shutdown();
+    drop(backend);
+
+    // Restart: the K=3 layout is DETECTED + honored at open; each group recovers its
+    // log/meta from ITS OWN shard (shard_for_group), then presumed-abort resolves.
+    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, 3)
+            .expect("reopen K=3 redb"),
+    );
+    assert_eq!(
+        backend2.as_redb().unwrap().shard_count(),
+        3,
+        "K=3 per-group-shard layout is honored on reopen"
+    );
+    let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
+
+    let resolved = coord2.recover_in_doubt().await.expect("recover");
+    assert_eq!(resolved, 1, "the in-doubt txn is resolved (as abort)");
+    // NO PARTIAL COMMIT across the distinct participant shards.
+    assert_eq!(node_count(&state2, GRAPH_A).await, 0, "no apply on A");
+    assert_eq!(node_count(&state2, GRAPH_B).await, 0, "no apply on B");
+    assert!(
+        backend2
+            .as_redb()
+            .unwrap()
+            .xshard_scan_prepares()
+            .unwrap()
+            .is_empty(),
+        "prepares cleared on abort"
+    );
+
+    multi2.stop_listener();
+    backend2.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
