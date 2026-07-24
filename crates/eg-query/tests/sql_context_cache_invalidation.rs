@@ -157,6 +157,7 @@ fn view_add_alter_drop_is_reflected_not_served_stale() {
     let r1 = exec_sql_typed_with_tables_cached_cancellable(
         &snap,
         v,
+        v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "caller-x",
@@ -175,6 +176,7 @@ fn view_add_alter_drop_is_reflected_not_served_stale() {
     let r_hit = exec_sql_typed_with_tables_cached_cancellable(
         &snap,
         v,
+        v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "caller-x",
@@ -202,6 +204,7 @@ fn view_add_alter_drop_is_reflected_not_served_stale() {
     let r2 = exec_sql_typed_with_tables_cached_cancellable(
         &snap,
         v,
+        v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "caller-x",
@@ -242,6 +245,7 @@ fn different_epochs_never_share_a_cached_context() {
     let r_v0 = exec_sql_typed_with_tables_cached_cancellable(
         &snap0,
         v0,
+        v0, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "caller-x",
@@ -264,6 +268,7 @@ fn different_epochs_never_share_a_cached_context() {
     let r_v1 = exec_sql_typed_with_tables_cached_cancellable(
         &snap1,
         v1,
+        v1, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "caller-x",
@@ -283,6 +288,7 @@ fn different_epochs_never_share_a_cached_context() {
     let r_v0_again = exec_sql_typed_with_tables_cached_cancellable(
         &snap0,
         v0,
+        v0, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "caller-x",
@@ -314,6 +320,7 @@ fn different_epochs_never_share_a_cached_context() {
     let r_alice = exec_sql_typed_with_tables_cached_cancellable(
         &view_alice,
         shared_v,
+        shared_v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "alice",
@@ -328,6 +335,7 @@ fn different_epochs_never_share_a_cached_context() {
     let r_bob = exec_sql_typed_with_tables_cached_cancellable(
         &view_bob,
         shared_v,
+        shared_v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "bob",
@@ -350,6 +358,7 @@ fn different_epochs_never_share_a_cached_context() {
     let r_alice_again = exec_sql_typed_with_tables_cached_cancellable(
         &view_alice,
         shared_v,
+        shared_v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "alice",
@@ -392,6 +401,7 @@ fn edges_never_leak_across_callers_through_the_cache() {
     let r_alice = exec_sql_typed_with_tables_cached_cancellable(
         &view_alice,
         shared_v,
+        shared_v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "edge-alice",
@@ -406,6 +416,7 @@ fn edges_never_leak_across_callers_through_the_cache() {
     let r_bob = exec_sql_typed_with_tables_cached_cancellable(
         &view_bob,
         shared_v,
+        shared_v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "edge-bob",
@@ -427,6 +438,7 @@ fn edges_never_leak_across_callers_through_the_cache() {
     let r_alice_again = exec_sql_typed_with_tables_cached_cancellable(
         &view_alice,
         shared_v,
+        shared_v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "edge-alice",
@@ -446,6 +458,7 @@ fn edges_never_leak_across_callers_through_the_cache() {
     let r_bob_src = exec_sql_typed_with_tables_cached_cancellable(
         &view_bob,
         shared_v,
+        shared_v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "edge-bob",
@@ -460,6 +473,7 @@ fn edges_never_leak_across_callers_through_the_cache() {
     let r_alice_src = exec_sql_typed_with_tables_cached_cancellable(
         &view_alice,
         shared_v,
+        shared_v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "edge-alice",
@@ -534,6 +548,7 @@ fn same_epoch_repeat_is_a_real_hit_and_matches_uncached() {
     let c1 = exec_sql_typed_with_tables_cached_cancellable(
         &snap,
         v,
+        v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "caller-x",
@@ -552,6 +567,7 @@ fn same_epoch_repeat_is_a_real_hit_and_matches_uncached() {
     let c2 = exec_sql_typed_with_tables_cached_cancellable(
         &snap,
         v,
+        v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "caller-x",
@@ -611,6 +627,7 @@ fn battery_of_queries_matches_uncached_cached_or_not() {
             let cached = exec_sql_typed_with_tables_cached_cancellable(
                 &snap,
                 v,
+                v, // node_epoch (W1.6/P7 site 3): same as graph_version here
                 TENANT,
                 GRAPH,
                 "caller-x",
@@ -647,6 +664,7 @@ fn a_commit_under_a_different_scope_string_still_invalidates() {
     assert!(exec_sql_typed_with_tables_cached_cancellable(
         &snap,
         v,
+        v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "caller-x",
@@ -680,6 +698,7 @@ fn a_commit_under_a_different_scope_string_still_invalidates() {
     let r = exec_sql_typed_with_tables_cached_cancellable(
         &snap,
         v,
+        v, // node_epoch (W1.6/P7 site 3): same as graph_version here
         TENANT,
         GRAPH,
         "caller-x",
@@ -701,4 +720,53 @@ fn a_commit_under_a_different_scope_string_still_invalidates() {
         "the cross-scope commit must have invalidated the cached (nonexistent-table-error) \
          context, not been silently absorbed"
     );
+}
+
+/// ── W1.6/P7 site 3: the O(V) `nodes` Arrow batch is REUSED across a write that did not
+/// touch nodes (a pure-edge / catalog-only write bumps `graph_version` but not `node_epoch`),
+/// and the reused result is byte-identical to the uncached path (the differential). ──
+#[test]
+fn node_batch_reused_across_non_node_write_and_matches_uncached() {
+    let core = graph();
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let cache = SqlContextCache::new();
+    let snap = core.analysis_snapshot();
+    let sql = "SELECT id FROM nodes ORDER BY id";
+
+    // Ground truth: the byte-identical UNCACHED path.
+    let truth = exec_sql_typed_with_tables_cancellable(&snap, &store, sql, &CancellationToken::new())
+        .unwrap();
+
+    let v0 = core.version();
+    // Cold: builds the context AND infers the node batch once.
+    let r0 = exec_sql_typed_with_tables_cached_cancellable(
+        &snap, v0, v0, TENANT, GRAPH, "caller-x", &store, &cache, sql, &CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(rows(&r0), rows(&truth), "cached == uncached (cold)");
+    assert_eq!(cache.node_stats(), (0, 1), "cold miss builds the node batch once");
+
+    // A PURE-EDGE / catalog write: graph_version advances, node_epoch is UNCHANGED (v0).
+    let v1 = v0 + 1;
+    let r1 = exec_sql_typed_with_tables_cached_cancellable(
+        &snap, v1, v0, TENANT, GRAPH, "caller-x", &store, &cache, sql, &CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(rows(&r1), rows(&truth), "cached == uncached after a non-node write (reused batch)");
+    assert_eq!(
+        cache.node_stats(),
+        (1, 1),
+        "a write that did not touch nodes REUSES the O(V) node batch instead of re-scanning it"
+    );
+    let (_hits, ctx_misses) = cache.stats();
+    assert_eq!(ctx_misses, 2, "the context itself is still correctly rebuilt on the new version");
+
+    // A write that DOES touch nodes advances node_epoch → the node batch is re-inferred.
+    let v2 = v1 + 1;
+    let r2 = exec_sql_typed_with_tables_cached_cancellable(
+        &snap, v2, v2, TENANT, GRAPH, "caller-x", &store, &cache, sql, &CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(rows(&r2), rows(&truth), "cached == uncached after a node write");
+    assert_eq!(cache.node_stats(), (1, 2), "a node write re-infers the node batch");
 }
