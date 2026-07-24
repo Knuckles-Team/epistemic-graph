@@ -290,6 +290,296 @@ async fn three_node_cluster_replicates_and_survives_leader_failover() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// ADR-1 / W1.1 (CONCEPT:EG-KG.sharding.cluster-topology, `reports/wave1/ADR-scale-trio.md` §ADR-1) —
+/// the dynamic client-topology-discovery counterpart to
+/// [`three_node_cluster_replicates_and_survives_leader_failover`] above, proven
+/// through the REAL served `dispatch()` entrypoint (like
+/// `wire_raft_add_learner_and_change_membership_resolve_through_dispatch`), not
+/// just the in-process `MultiRaft` API.
+///
+/// Proves, in order: (a) `Method::ClusterMembers`, answered from a FOLLOWER (not
+/// just the leader, unlike `PlacementRoute`), returns the correct topology --
+/// one group, all three self-reported members, correct roles, and each
+/// member's `client_endpoint` matching its configured
+/// `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR`; (b) the `cluster:topology-read`
+/// grant genuinely works -- an envelope asserting ONLY that scope (no
+/// `admin:*`, no `*`) succeeds, while an unrelated scope is denied, proving
+/// this is NOT gated `admin:cluster-read`; (c) `PlacementRoute.endpoints`
+/// echoes the same leader-first member list; (d) after killing the leader and
+/// a new election, `ClusterMembers` queried from a SURVIVOR reflects the NEW
+/// leader -- the engine-side half of "kill leader -> client re-routes with
+/// zero config edits" (the client-side half is proven in AU's
+/// `graph_compute.py`/`placement_catalog.py` reconnect tests).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cluster_members_reports_topology_and_tracks_leader_failover() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
+    use crate::protocol::{Request, ResultPayload};
+    use crate::server::{compute_verified_envelope_token, dispatch, VerifiedEnvelopeParams};
+
+    const TEST_AGENT: &str = "cluster-members-wire-test-agent";
+    const SECRET: &str = "raft-test"; // matches make_state's ServerState.auth_secret
+    static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+    std::env::set_var(
+        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+        std::env::temp_dir().join(format!("eg-cluster-members-wire-auth-{}", std::process::id())),
+    );
+
+    fn signed_request(id: u64, scopes: Vec<String>, method: Method) -> Request {
+        let context = RequestContextClaims {
+            principal: TEST_AGENT.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: TEST_AGENT.to_string(),
+            roles: Vec::new(),
+            scopes,
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+            node: None,
+        };
+        let mut request = Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: String::new(),
+            agent_id: Some(TEST_AGENT.to_string()),
+            method,
+        };
+        let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let issued_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the system clock is after the Unix epoch");
+        let nonce = format!(
+            "cluster-members-{}-{id}-{sequence}-{}",
+            std::process::id(),
+            issued_at.as_nanos()
+        );
+        let idempotency_key = format!("cluster-members-request-{id}-{sequence}");
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: issued_at.as_secs(),
+                nonce: &nonce,
+                idempotency_key: &idempotency_key,
+            },
+        );
+        request
+    }
+
+    let root =
+        std::env::temp_dir().join(format!("eg-wire-cluster-members-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let dirs: Vec<String> = (1..=3)
+        .map(|i| {
+            let d = root.join(format!("node{i}"));
+            std::fs::create_dir_all(&d).unwrap();
+            d.to_string_lossy().to_string()
+        })
+        .collect();
+    let ports = free_ports(3);
+    let gid = super::DEFAULT_GROUP;
+
+    // ── Start three nodes through the REAL production path (`node::start`),
+    // so ADR-1's self-report (`raft::node::start` -> `MultiRaft::commit_node_info`)
+    // runs exactly as it would in a real deployment. ──────────────────────
+    let mut states = Vec::new();
+    let mut nodes: BTreeMap<NodeId, StartedNode> = BTreeMap::new();
+    for i in 1..=3u64 {
+        let state = make_state(&dirs[(i - 1) as usize]).await;
+        state.write().await.isolation.register_agent(AgentIdentity {
+            agent_id: TEST_AGENT.to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        let started = node::start(cluster_cfg(i, &ports), state.clone())
+            .await
+            .expect("start raft node");
+        state.write().await.raft = Some(started.handle.clone());
+        state.write().await.multi_raft = Some(started.multi.clone());
+        states.push(state);
+        nodes.insert(i, started);
+    }
+
+    let leader_id = wait_for_leader(&nodes, Duration::from_secs(15))
+        .await
+        .expect("a leader must be elected");
+    let follower_id = (1..=3u64).find(|&i| i != leader_id).unwrap();
+    let follower_state = states[(follower_id - 1) as usize].clone();
+
+    let expected_endpoint = |id: NodeId| format!("tcp://127.0.0.1:{}", 30_000 + id);
+
+    // ── (a) ClusterMembers from a FOLLOWER reflects all 3 self-reported
+    // members once the background self-report tasks have converged. ──────
+    let mut req_id = 100u64;
+    wait_until(Duration::from_secs(20), || {
+        req_id += 1;
+        let follower_state = follower_state.clone();
+        let request = signed_request(
+            req_id,
+            vec!["cluster:topology-read".to_string()],
+            Method::ClusterMembers,
+        );
+        async move {
+            let resp = dispatch(&follower_state, request).await;
+            matches!(
+                resp.result,
+                Some(ResultPayload::Json(serde_json::Value::Object(ref map)))
+                    if map.get("groups")
+                        .and_then(|g| g.as_array())
+                        .and_then(|groups| groups.first())
+                        .and_then(|g| g.get("members"))
+                        .and_then(|m| m.as_array())
+                        .is_some_and(|members| members.len() == 3)
+            )
+        }
+    })
+    .await
+    .expect("ClusterMembers must report all 3 self-reported members from a follower");
+
+    req_id += 1;
+    let resp = dispatch(
+        &follower_state,
+        signed_request(
+            req_id,
+            vec!["cluster:topology-read".to_string()],
+            Method::ClusterMembers,
+        ),
+    )
+    .await;
+    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
+    let Some(ResultPayload::Json(value)) = resp.result else {
+        panic!("expected a JSON ClusterMembers result, got {:?}", resp.result);
+    };
+    let groups = value["groups"].as_array().expect("groups array");
+    assert_eq!(groups.len(), 1, "single-group deployment -> one group");
+    assert_eq!(groups[0]["group_id"].as_u64(), Some(gid));
+    let members = groups[0]["members"].as_array().expect("members array");
+    assert_eq!(members.len(), 3);
+    let mut seen_leaders = 0;
+    for member in members {
+        let node_id = member["node_id"].as_u64().expect("node_id");
+        let role = member["role"].as_str().expect("role");
+        let endpoint = member["client_endpoint"].as_str().expect("client_endpoint");
+        assert_eq!(endpoint, expected_endpoint(node_id));
+        if node_id == leader_id {
+            assert_eq!(role, "leader");
+            seen_leaders += 1;
+        } else {
+            assert_eq!(role, "follower");
+        }
+    }
+    assert_eq!(seen_leaders, 1, "exactly one member must be reported leader");
+
+    // ── (b) The `cluster:topology-read` grant genuinely works: an envelope
+    // asserting ONLY that scope succeeds; an unrelated scope is denied --
+    // proving this is NOT gated behind `admin:cluster-read`. ─────────────
+    req_id += 1;
+    let denied = dispatch(
+        &follower_state,
+        signed_request(
+            req_id,
+            vec!["irrelevant:scope".to_string()],
+            Method::ClusterMembers,
+        ),
+    )
+    .await;
+    assert!(
+        denied.error.as_deref().is_some_and(|e| e.contains("ACCESS_DENIED")),
+        "an unrelated scope must be denied, got {:?}",
+        denied.error
+    );
+
+    // ── (c) PlacementRoute.endpoints echoes the SAME leader-first list. ──
+    req_id += 1;
+    let route_resp = dispatch(
+        &follower_state,
+        signed_request(
+            req_id,
+            vec!["*".to_string()],
+            Method::PlacementRoute {
+                request: crate::epistemic_operations::PlacementRouteRequest {
+                    schema_version:
+                        crate::epistemic_operations::PlacementRouteRequestSchemaVersion::V1,
+                    tenant_ref: "adr1-endpoints-check".to_string(),
+                    partition_ref: "adr1-endpoints-check".to_string(),
+                    client_epoch: 0,
+                },
+            },
+        ),
+    )
+    .await;
+    assert!(route_resp.error.is_none(), "route error: {:?}", route_resp.error);
+    let Some(ResultPayload::Raw(bytes)) = route_resp.result else {
+        panic!("expected a raw PlacementRoute result, got {:?}", route_resp.result);
+    };
+    let route: serde_json::Value = rmp_serde::from_slice(&bytes).expect("decode PlacementRoute");
+    let endpoints = route["endpoints"].as_array().expect("endpoints array");
+    assert!(!endpoints.is_empty(), "endpoints must be non-empty once nodes have self-reported");
+    assert_eq!(
+        endpoints[0].as_str(),
+        Some(expected_endpoint(leader_id).as_str()),
+        "leader-first ordering"
+    );
+
+    // ── (d) Kill the leader; a new one is elected; ClusterMembers queried
+    // from a SURVIVOR reflects the NEW leader. ────────────────────────────
+    let killed = nodes.remove(&leader_id).unwrap();
+    killed.multi.stop_listener();
+    let _ = killed.handle.raft.shutdown().await;
+
+    let new_leader = wait_for_leader_excluding(&nodes, leader_id, Duration::from_secs(20))
+        .await
+        .expect("a new leader must be elected after the old one is killed");
+    assert_ne!(new_leader, leader_id);
+
+    let survivor_id = (1..=3u64)
+        .find(|&i| i != leader_id && i != new_leader)
+        .unwrap();
+    let survivor_state = states[(survivor_id - 1) as usize].clone();
+
+    req_id += 1;
+    wait_until(Duration::from_secs(20), || {
+        req_id += 1;
+        let survivor_state = survivor_state.clone();
+        let request = signed_request(
+            req_id,
+            vec!["cluster:topology-read".to_string()],
+            Method::ClusterMembers,
+        );
+        async move {
+            let resp = dispatch(&survivor_state, request).await;
+            let Some(ResultPayload::Json(value)) = resp.result else {
+                return false;
+            };
+            value["groups"][0]["members"]
+                .as_array()
+                .is_some_and(|members| {
+                    members.iter().any(|m| {
+                        m["node_id"].as_u64() == Some(new_leader)
+                            && m["role"].as_str() == Some("leader")
+                    })
+                })
+        }
+    })
+    .await
+    .expect("ClusterMembers must reflect the NEW leader after failover, from a survivor");
+
+    // ── Cleanup ─────────────────────────────────────────────────────────
+    for (_, n) in nodes {
+        n.multi.stop_listener();
+        let _ = n.handle.raft.shutdown().await;
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Wait until any node reports a current leader; returns its id.
 async fn wait_for_leader(
     nodes: &BTreeMap<NodeId, StartedNode>,
