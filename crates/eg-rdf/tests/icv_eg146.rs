@@ -71,20 +71,20 @@ fn eg146_icv_check_write_guard_from_eg_rdf() {
         r#"ex:a a ex:Person ; ex:name "A" ."#
     ))
     .unwrap();
-    assert!(validate_icv(&shapes, &base).conforms);
+    assert!(validate_icv(&shapes, &base).unwrap().conforms);
 
     // Rejecting: a second email breaks sh:maxCount 1.
     let bad_add =
         graph_from_turtle(&format!("{PREFIXES}{}", r#"ex:a ex:email "x@y" , "z@y" ."#)).unwrap();
     let bad_add: Vec<_> = bad_add.iter().map(|t| t.into_owned()).collect();
-    let rejected = check_write(&shapes, &base, &bad_add, &[]);
+    let rejected = check_write(&shapes, &base, &bad_add, &[]).unwrap();
     assert!(!rejected.accepted, "maxCount-breaking add must be rejected");
     assert!(!rejected.introduced.is_empty());
 
     // Accepting: an unrelated fact introduces no violation.
     let ok_add = graph_from_turtle(&format!("{PREFIXES}{}", r#"ex:a ex:nickname "Ay" ."#)).unwrap();
     let ok_add: Vec<_> = ok_add.iter().map(|t| t.into_owned()).collect();
-    let accepted = check_write(&shapes, &base, &ok_add, &[]);
+    let accepted = check_write(&shapes, &base, &ok_add, &[]).unwrap();
     assert!(
         accepted.accepted,
         "clean add must be accepted; {:?}",

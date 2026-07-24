@@ -24,18 +24,18 @@
 //! ## Scope (ShExJ vs ShExC)
 //!
 //! ShEx has two syntaxes: **ShExC** (the compact, Turtle-like grammar) and **ShExJ** (the
-//! JSON abstract syntax). This crate implements **ShExJ** — it is the canonical,
-//! unambiguous form and is far more robust to parse than the compact grammar. A **ShExC**
-//! front-end is a documented EG-133 follow-up.
+//! JSON abstract syntax). [`Schema::from_shexj`] parses the canonical JSON form;
+//! [`Schema::from_shexc`] parses the compact textual form DIRECTLY to the same [`Schema`]
+//! model (no ShExJ round-trip) — see [`crate::compact`] for the covered grammar subset.
 //!
-//! Deferred EG-133 follow-ups: ShExC parsing; inverse (`^`) triple constraints; full
-//! backtracking partition for triple constraints that share a predicate; value-set stem /
-//! language-stem ranges; `EXTERNAL` shapes; `totaldigits`/`fractiondigits`; semantic
-//! actions.
+//! Deferred EG-133 follow-ups: full backtracking partition for triple constraints that
+//! share a predicate; value-set stem / language-stem ranges; `EXTERNAL` shapes;
+//! `totaldigits`/`fractiondigits`; semantic actions; triple-expression `$label` groups.
 //!
 //! Pi contract: pure Rust, no C/native dep (`regex` for pattern facets rides eg-rdf's
 //! sparql stack; `serde_json` for ShExJ is already resolved workspace-wide).
 
+mod compact;
 pub mod report;
 pub mod schema;
 pub mod validate;
