@@ -267,7 +267,15 @@ authoritative inventory.
 - **Distributed planes (Phase 2, `raft`/`cluster` unless noted).** `PlacementCatalog`
   (`src/raft/placement.rs`) is the one epoch'd placement authority for online split/merge/
   move; `EPISTEMIC_GRAPH_RAFT_GROUPS` stands up real multi-group production clusters with
-  cross-shard read fan-out (`src/raft/xread.rs`); lazy graph lifecycle is mandatory and
+  cross-shard read fan-out (`src/raft/xread.rs`); **engine-authoritative cluster topology
+  discovery** (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1, `server::persistence::node_info_store`)
+  replaces the static `GRAPH_RAFT_GROUP_ENDPOINTS` client map — each node self-reports
+  `{node_id, raft_addr, advertised_client_addr, tls_server_name}` at startup
+  (`Method::NodeInfoUpsert`, a `CatalogAssign`-shaped `ClusterAdmin`-domain command, NOT
+  graph nodes) and `Method::ClusterMembers` (gated `cluster:topology-read`, answered from
+  ANY node) + `PlacementRoute.endpoints` (leader-first) hand it back to a discovering
+  Python client (`client.cluster_topology.members()`, `epistemic_graph/pool.py`'s
+  `resolve_cluster_endpoints`); lazy graph lifecycle is mandatory and
   bounded in served mode; the durable analytics-job plane (`eg-jobs`, feature `jobs`, in
   `full`) gives
   `Method::AnalyticsJob` async submit/status/cancel/resume over an immutable
@@ -589,6 +597,8 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE` (feature `oidc`) | The OIDC client audience `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER`'s tokens must carry. Falls back to the shared `OIDC_AUDIENCE`. Mandatory once an issuer is configured. |
 | `EPISTEMIC_GRAPH_OIDC_JWKS_URL` (feature `oidc`) | JWKS endpoint the primary protocol fetches signing keys from. No generic fallback (discovery/vendor URL construction belongs at the deployment boundary). Mandatory once an issuer is configured. |
 | `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2, `raft`/`cluster` feature) | Number of Raft groups this node stands up at boot. Default `1`; a value `>1` spreads unpinned graphs across the tenant-range ring while `PlacementCatalog` remains authoritative for explicit placements. |
+| `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR` (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1, `raft::config`) | This node's client-reachable address, self-reported into the durable cluster-topology store (`Method::NodeInfoUpsert`) and handed back by `Method::ClusterMembers`/`PlacementRoute.endpoints` — the engine-authoritative discovery that replaces the static hand-maintained `GRAPH_RAFT_GROUP_ENDPOINTS` client map. **Required whenever Raft peers are configured** (`EPISTEMIC_GRAPH_RAFT_NODE_ID`/`_PEERS` set) — config-contract style, like the transport secret: a clustered node refuses to start without it, since a discovering client would otherwise have no address to learn for this node beyond its own seed contact. Not read at all when Raft is not configured (single-node). |
+| `EPISTEMIC_GRAPH_ADVERTISED_TLS_SERVER_NAME` (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1, `raft::config`) | Optional TLS server name (SNI / certificate hostname) a client should verify when connecting to `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR` over `tls://`, self-reported alongside it into the cluster-topology store. **Unset ⇒ `None`** — the client verifies against the address's own host (the TLS default); zero friction for a deployment that doesn't need SNI override. |
 | `EPISTEMIC_GRAPH_LAZY_STARTUP` (DIST-P2-3) | Catalog-first recovery is mandatory for served mode: a graph hydrates on first access behind its incarnation/version fence. |
 | `EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS` (DIST-P2-3) | Positive cap on simultaneously resident `GraphCore`s; default `1024`. The coldest eligible graph is durability-gated and evicted before admission; `__commons__` is never evicted. |
 | `EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE` (CONCEPT:EG-KG.sharding.paged-lazy-open, `redb` feature) | Positive bound for each source-side lazy-open scan; default `4096`. Every page is fenced by graph incarnation and durable source version under a per-graph lifecycle lock. Graph operations return typed `PARTIAL_MATERIALIZATION` until the final page rebuilds and publishes every maintained index. |

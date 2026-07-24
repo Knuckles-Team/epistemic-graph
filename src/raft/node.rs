@@ -85,57 +85,67 @@ pub async fn start(
     // self-report this node's identity into the durable, Raft-replicated
     // cluster-topology store so `Method::ClusterMembers`/`PlacementRoute.endpoints`
     // can discover it -- replacing the static `GRAPH_RAFT_GROUP_ENDPOINTS` client
-    // map. Bounded retry: immediately after `create_group`/`join_group` this node
-    // (especially a fresh follower) may not yet have observed a leader over real
-    // Raft traffic, so a first attempt commonly fails with "no current leader"
-    // until that settles. Non-fatal on exhaustion -- topology discovery is a
-    // best-effort convenience (the client's static-map override / single-contact
-    // fallback still works, ADR-1 decision 3b/3c), never a reason to fail this
-    // node's own startup.
+    // map. SPAWNED, not awaited inline: immediately after `create_group`/
+    // `join_group` this node (especially a fresh bootstrap node awaiting its
+    // peers, or a follower that hasn't yet observed real Raft traffic) commonly
+    // has no leader to commit through yet, and `node::start` itself must not
+    // block on that settling -- a multi-node deployment starts each node as an
+    // INDEPENDENT process, so blocking here would only cost latency, but an
+    // in-process multi-node harness starting nodes sequentially would
+    // deadlock/stall for the full retry budget on every node. Non-fatal on
+    // exhaustion -- topology discovery is a best-effort convenience (the
+    // client's static-map override / single-contact fallback still works,
+    // ADR-1 decision 3b/3c), never a reason to fail this node's own startup.
     {
         let raft_addr = cfg
             .peers
             .get(&cfg.node_id)
             .map(|node| node.addr.clone())
             .unwrap_or_else(|| cfg.bind_addr.clone());
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
-        loop {
-            match multi
-                .commit_node_info(
-                    cfg.node_id,
-                    raft_addr.clone(),
-                    cfg.advertised_client_addr.clone(),
-                    cfg.advertised_tls_server_name.clone(),
-                )
-                .await
-            {
-                Ok(()) => {
-                    tracing::info!(
-                        node_id = cfg.node_id,
-                        "self-reported cluster-topology node info (ADR-1 / W1.1)"
-                    );
-                    break;
-                }
-                Err(error) if tokio::time::Instant::now() < deadline => {
-                    tracing::debug!(
-                        node_id = cfg.node_id,
-                        %error,
-                        "cluster-topology self-report not yet accepted, retrying"
-                    );
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        node_id = cfg.node_id,
-                        %error,
-                        "cluster-topology self-report failed after retrying; this node will \
-                         be undiscoverable via ClusterMembers/PlacementRoute.endpoints until a \
-                         later successful report"
-                    );
-                    break;
+        let node_id = cfg.node_id;
+        let advertised_client_addr = cfg.advertised_client_addr.clone();
+        let advertised_tls_server_name = cfg.advertised_tls_server_name.clone();
+        let multi_for_report = multi.clone();
+        tokio::spawn(async move {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+            loop {
+                match multi_for_report
+                    .commit_node_info(
+                        node_id,
+                        raft_addr.clone(),
+                        advertised_client_addr.clone(),
+                        advertised_tls_server_name.clone(),
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        tracing::info!(
+                            node_id,
+                            "self-reported cluster-topology node info (ADR-1 / W1.1)"
+                        );
+                        break;
+                    }
+                    Err(error) if tokio::time::Instant::now() < deadline => {
+                        tracing::debug!(
+                            node_id,
+                            %error,
+                            "cluster-topology self-report not yet accepted, retrying"
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            node_id,
+                            %error,
+                            "cluster-topology self-report failed after retrying; this node \
+                             will be undiscoverable via ClusterMembers/PlacementRoute.endpoints \
+                             until a later successful report"
+                        );
+                        break;
+                    }
                 }
             }
-        }
+        });
     }
 
     // Crash-safe online-move recovery is driven by the placement-group leader only.
