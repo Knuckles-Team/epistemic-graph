@@ -33,29 +33,33 @@ use crate::server::state::ServerState;
 /// that schema-locked cross-repo DTO is explicitly documented "without
 /// deployment endpoint material" (it doubles as an audit/CDC-safe route-decision
 /// record and is digest-pinned against the authoritative agent-utilities JSON
-/// Schema catalog) and must not gain network topology fields. `endpoints` is
-/// genuinely additive on the wire: every field below matches that locked shape
-/// field-for-field, plus this one extra key — an old client that only knows the
-/// locked shape simply never reads it.
-#[derive(serde::Serialize)]
-struct PlacementRouteWire {
-    schema_version: PlacementRouteSchemaVersion,
-    route_id: String,
-    tenant_ref: String,
-    partition_ref: String,
-    authoritative: bool,
-    placed: bool,
-    group: u64,
-    epoch: u64,
-    fencing_token: u64,
-    stale: bool,
-    leader_ref: Option<String>,
+/// Schema catalog) and must not gain network topology fields. Every field below
+/// matches that locked shape field-for-field, plus the one extra `endpoints` key.
+///
+/// The extra key is NOT invisible to old readers (A-W1.2-2): the canonical DTO
+/// is `deny_unknown_fields`, so deserializing a route response into it FAILS on
+/// `endpoints`. Consumers of a route response MUST deserialize THIS type (the
+/// tolerant superset), never the canonical DTO. The Python client hand-parses
+/// the flat dict for the same reason.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct PlacementRouteWire {
+    pub(crate) schema_version: PlacementRouteSchemaVersion,
+    pub(crate) route_id: String,
+    pub(crate) tenant_ref: String,
+    pub(crate) partition_ref: String,
+    pub(crate) authoritative: bool,
+    pub(crate) placed: bool,
+    pub(crate) group: u64,
+    pub(crate) epoch: u64,
+    pub(crate) fencing_token: u64,
+    pub(crate) stale: bool,
+    pub(crate) leader_ref: Option<String>,
     /// Client-reachable endpoints of the resolved group's members, LEADER FIRST
     /// (ADR-1). Empty when no cluster topology is known yet (single-node, a
     /// non-raft build, or no member has self-reported) — the client's
     /// static-map override / single-contact fallback (ADR-1 decision 3b/3c)
     /// applies.
-    endpoints: Vec<String>,
+    pub(crate) endpoints: Vec<String>,
 }
 
 fn route_response(
