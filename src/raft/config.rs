@@ -182,8 +182,13 @@ impl RaftClusterConfig {
         // env). Whether it ACTUALLY initializes is also gated on an empty store at
         // boot, decided in `node::start`.
         let is_bootstrap = peers.keys().next() == Some(&node_id);
-        // DIST-P2-2: optional multi-group production startup.
-        let groups = parse_groups(std::env::var("EPISTEMIC_GRAPH_RAFT_GROUPS").ok())?;
+        // DIST-P2-2 / ADR-2 W1.2: multi-group production startup. Absent ⇒ the
+        // cores-derived default (K == N groups, write-sharded like the non-raft path);
+        // set explicitly to size the pool. Clamped to MAX_SHARD_COUNT (K's ceiling).
+        let groups = parse_groups(
+            std::env::var("EPISTEMIC_GRAPH_RAFT_GROUPS").ok(),
+            default_raft_group_count(),
+        )?;
         let transport_secret = resolve_transport_secret()?;
         let loopback_only = peers.len() == 1
             && is_loopback_endpoint(&bind_addr)
@@ -360,20 +365,54 @@ fn parse_peers(raw: &str) -> Result<PeerMap, String> {
     Ok(peers)
 }
 
-/// Parse `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2): `None`/empty/`"0"` all collapse to
-/// `1` (single-group, unchanged default) rather than erroring — an operator who never
-/// heard of this knob gets EXACTLY today's behavior. A non-empty, non-integer value is
-/// a loud misconfig (same posture as `parse_peers`). Pure (no env access) so it is unit
-/// tested directly without the process-global env-var races a `from_env` test would need.
-fn parse_groups(raw: Option<String>) -> Result<u64, String> {
+/// Parse `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2 / ADR-2 W1.2): `None`/empty/`"0"` all
+/// collapse to `default` rather than erroring — an operator who never heard of this knob
+/// gets the cores-derived default ([`default_raft_group_count`]). A non-empty,
+/// non-integer value is a loud misconfig (same posture as `parse_peers`). A configured
+/// value is clamped to `1..=MAX_SHARD_COUNT` because under raft K (redb shards) == N
+/// (groups), so N can never exceed the shard ceiling ([`crate::redb_layout::MAX_SHARD_COUNT`]).
+/// Pure (no env access) so it is unit tested directly without the process-global
+/// env-var races a `from_env` test would need.
+fn parse_groups(raw: Option<String>, default: u64) -> Result<u64, String> {
+    let ceiling = crate::redb_layout::MAX_SHARD_COUNT as u64;
     match raw {
         Some(v) if !v.trim().is_empty() => v
             .trim()
             .parse::<u64>()
             .map_err(|_| "EPISTEMIC_GRAPH_RAFT_GROUPS is not an integer".to_string())
-            .map(|n| n.max(1)),
-        _ => Ok(1),
+            .map(|n| n.clamp(1, ceiling)),
+        _ => Ok(default.clamp(1, ceiling)),
     }
+}
+
+/// The cores-derived default group/shard count when `EPISTEMIC_GRAPH_RAFT_GROUPS` is
+/// unset (ADR-2 / W1.2, `reports/wave1/ADR-scale-trio.md` §ADR-2 decision 2): the raft
+/// group count defaults to the non-raft durable-shard auto-size `clamp(cpu/2, 1, …)` but
+/// with the raised [`crate::redb_layout::MAX_SHARD_COUNT`] ceiling — so turning on raft
+/// (for HA) gets the SAME write-sharding a single-node deployment gets by default rather
+/// than collapsing to one group. Under raft K (redb shards) == N (groups), so this is the
+/// ONE default both `resolve_shard_count` and [`raft_group_count`] derive from.
+pub(crate) fn default_raft_group_count() -> u64 {
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .max(1) as u64;
+    (cpus / 2).clamp(1, crate::redb_layout::MAX_SHARD_COUNT as u64)
+}
+
+/// The number of raft groups (== redb shards K, ADR-2 / W1.2) this node runs, resolved
+/// from `EPISTEMIC_GRAPH_RAFT_GROUPS` with the [`default_raft_group_count`] fallback. Read
+/// by `resolve_shard_count` so the durable store opens EXACTLY N shards — group `g` owns
+/// shard `g`. A malformed value falls back to the default here; the loud validation error
+/// is raised once by [`RaftClusterConfig::from_env`], which gates startup, so this
+/// accessor (reached only on an already-accepted raft-configured node) never needs to
+/// re-report it.
+pub(crate) fn raft_group_count() -> u64 {
+    parse_groups(
+        std::env::var("EPISTEMIC_GRAPH_RAFT_GROUPS").ok(),
+        default_raft_group_count(),
+    )
+    .unwrap_or_else(|_| default_raft_group_count())
 }
 
 #[cfg(test)]
@@ -395,18 +434,36 @@ mod tests {
     }
 
     #[test]
-    fn parse_groups_defaults_to_one_when_absent_or_empty_or_zero() {
-        assert_eq!(parse_groups(None).unwrap(), 1);
-        assert_eq!(parse_groups(Some("".into())).unwrap(), 1);
-        assert_eq!(parse_groups(Some("  ".into())).unwrap(), 1);
-        assert_eq!(parse_groups(Some("0".into())).unwrap(), 1);
+    fn parse_groups_uses_default_when_absent_or_empty_or_zero() {
+        // ADR-2 / W1.2: absent/empty/0 fall back to the supplied cores-derived default
+        // (not a hardcoded 1), because under raft K == N and the default is the same
+        // write-sharding the non-raft path uses.
+        assert_eq!(parse_groups(None, 4).unwrap(), 4);
+        assert_eq!(parse_groups(Some("".into()), 4).unwrap(), 4);
+        assert_eq!(parse_groups(Some("  ".into()), 4).unwrap(), 4);
+        assert_eq!(parse_groups(Some("0".into()), 4).unwrap(), 4);
+        // A default of 0 (impossible from the resolver, defensive) still floors to 1.
+        assert_eq!(parse_groups(None, 0).unwrap(), 1);
     }
 
     #[test]
-    fn parse_groups_accepts_n_and_rejects_garbage() {
-        assert_eq!(parse_groups(Some("4".into())).unwrap(), 4);
-        assert_eq!(parse_groups(Some(" 7 ".into())).unwrap(), 7);
-        assert!(parse_groups(Some("nope".into())).is_err());
+    fn parse_groups_accepts_n_clamps_ceiling_and_rejects_garbage() {
+        assert_eq!(parse_groups(Some("4".into()), 1).unwrap(), 4);
+        assert_eq!(parse_groups(Some(" 7 ".into()), 1).unwrap(), 7);
+        // K == N ≤ MAX_SHARD_COUNT: an over-ceiling group count clamps rather than
+        // opening more shards than the durable layout allows.
+        assert_eq!(
+            parse_groups(Some("9999".into()), 1).unwrap(),
+            crate::redb_layout::MAX_SHARD_COUNT as u64
+        );
+        assert!(parse_groups(Some("nope".into()), 1).is_err());
+    }
+
+    #[test]
+    fn default_raft_group_count_is_bounded() {
+        // Cores-derived, always in 1..=MAX_SHARD_COUNT regardless of the host.
+        let n = default_raft_group_count();
+        assert!((1..=crate::redb_layout::MAX_SHARD_COUNT as u64).contains(&n));
     }
 
     #[test]

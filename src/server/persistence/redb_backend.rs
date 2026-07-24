@@ -672,18 +672,30 @@ where
 }
 
 /// Resolve the shard count K (CONCEPT:EG-KG.backend.sharded-k-way-durable).
-///   * `EPISTEMIC_GRAPH_REDB_SHARDS` overrides (clamped 1..=64).
-///   * Under the `raft` feature AND a configured Raft node, force K=1 — the single
-///     writer the Raft store wraps (multi-Raft sharding is M2, out of scope here).
+///   * Under the `raft` feature AND a configured Raft node (ADR-2 / W1.2,
+///     `reports/wave1/ADR-scale-trio.md` §ADR-2): K == N raft groups — raft group `g`
+///     owns redb shard `g`, so HA no longer forces K=1. The count follows the group
+///     count (`EPISTEMIC_GRAPH_RAFT_GROUPS`, default cores-derived up to `MAX_SHARD_COUNT`);
+///     `EPISTEMIC_GRAPH_REDB_SHARDS` does NOT apply under raft (K is pinned to N so the
+///     group↔shard alignment is exact). An existing K=1 store on disk stays K=1 until the
+///     offline `migrate-shards` tool rewrites its layout (the detected layout wins at open).
+///   * `EPISTEMIC_GRAPH_REDB_SHARDS` overrides the non-raft count (clamped 1..=64).
 ///   * In `cfg(test)` default to 1 so the existing single-writer durability/audit/
 ///     group-commit tests run the byte-for-byte K=1 path unless they opt in via the env.
 ///   * Otherwise K = clamp(cpu/2, 1, 8) — mirrors EG-028 `detect_capacity().cpus`
 ///     (when that module lands this can call `crate::autosize::detect_capacity()`).
 fn resolve_shard_count() -> usize {
-    // Raft active ⇒ K=1 regardless of env (raft + sharding is M2).
+    // Raft active ⇒ K == N groups (ADR-2 / W1.2), NOT the forced K=1 of the M2 spike.
     #[cfg(feature = "raft")]
     if std::env::var("EPISTEMIC_GRAPH_RAFT_NODE_ID").is_ok() {
-        return 1;
+        if std::env::var("EPISTEMIC_GRAPH_REDB_SHARDS").is_ok() {
+            tracing::warn!(
+                "EPISTEMIC_GRAPH_REDB_SHARDS is ignored under an active Raft node; the durable \
+                 shard count follows EPISTEMIC_GRAPH_RAFT_GROUPS (K == N groups, group g owns \
+                 shard g)"
+            );
+        }
+        return crate::raft::config::raft_group_count() as usize;
     }
     if let Ok(v) = std::env::var("EPISTEMIC_GRAPH_REDB_SHARDS") {
         if let Ok(n) = v.trim().parse::<usize>() {
@@ -1202,6 +1214,20 @@ impl RedbBackend {
     /// these stay single-writer-correct (multi-Raft sharding is M2).
     fn shard0(&self) -> &Shard {
         &self.shards[0]
+    }
+
+    /// The shard that owns Raft group `group_id` (ADR-2 / W1.2, `reports/wave1/ADR-scale-trio.md`
+    /// §ADR-2 decision 1: **raft group *g* owns redb shard *g***). A group's durable log +
+    /// vote + applied-state (keyed `(group_id, …)`) live in THIS shard's file, co-located
+    /// with the graph data of every graph the router maps to the group — so one group's
+    /// apply loop is one shard's single writer, and the EG-KG.storage.one-fsync-covers-raft
+    /// coalescing holds per group. Group ids are not required to be dense `0..K` (the
+    /// harness uses 100/200), so the mapping is `group_id % K`; under the production
+    /// `configure_group_ring` (`0..K`) with K == N it reduces to the identity `g → shard g`.
+    /// `K == 1` collapses every group onto `graph-0.redb` — byte-for-byte the pre-ADR-2
+    /// single-shard behavior an un-migrated store keeps.
+    fn shard_for_group(&self, group_id: u64) -> &Shard {
+        &self.shards[(group_id as usize) % self.shards.len()]
     }
 
     /// Number of durable shards K (CONCEPT:EG-KG.backend.sharded-k-way-durable).
@@ -2550,7 +2576,11 @@ impl RedbBackend {
             entries,
             done,
         };
-        let tx = self.shard0().tx.clone();
+        // ADR-2 / W1.2: route to the group's OWN shard (`group_id % K`) so its log
+        // append coalesces into the SAME shard writer's fsync as that group's graph
+        // mutations (EG-KG.storage.one-fsync-covers-raft), and N groups append to N
+        // shards in parallel. K == 1 stores keep every group on shard 0 (unchanged).
+        let tx = self.shard_for_group(group_id).tx.clone();
         tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
             .await
             .map_err(|e| format!("raft_log_append join error: {e}"))?
@@ -2563,7 +2593,7 @@ impl RedbBackend {
     #[cfg(feature = "raft")]
     pub fn raft_log_read(&self, group_id: u64, lo: u64, hi: u64) -> Result<Vec<Vec<u8>>, String> {
         let (reply, rx) = std::sync::mpsc::channel();
-        self.shard0()
+        self.shard_for_group(group_id)
             .tx
             .send(Cmd::RaftLogRead {
                 group_id,
@@ -2580,7 +2610,7 @@ impl RedbBackend {
     #[cfg(feature = "raft")]
     pub async fn raft_log_delete_from(&self, group_id: u64, from: u64) -> Result<(), String> {
         let (done, rx) = oneshot::channel();
-        let tx = self.shard0().tx.clone();
+        let tx = self.shard_for_group(group_id).tx.clone();
         tokio::task::spawn_blocking(move || {
             tx.send(Cmd::RaftLogDeleteFrom {
                 group_id,
@@ -2600,7 +2630,7 @@ impl RedbBackend {
     #[cfg(feature = "raft")]
     pub async fn raft_log_purge_upto(&self, group_id: u64, upto: u64) -> Result<(), String> {
         let (done, rx) = oneshot::channel();
-        let tx = self.shard0().tx.clone();
+        let tx = self.shard_for_group(group_id).tx.clone();
         tokio::task::spawn_blocking(move || {
             tx.send(Cmd::RaftLogPurgeUpto {
                 group_id,
@@ -2620,7 +2650,7 @@ impl RedbBackend {
     #[cfg(feature = "raft")]
     pub fn raft_log_bounds(&self, group_id: u64) -> LogBoundsResult {
         let (reply, rx) = std::sync::mpsc::channel();
-        self.shard0()
+        self.shard_for_group(group_id)
             .tx
             .send(Cmd::RaftLogBounds { group_id, reply })
             .map_err(|_| "redb writer thread is gone".to_string())?;
@@ -2638,7 +2668,9 @@ impl RedbBackend {
     ) -> Result<(), String> {
         let (done, rx) = oneshot::channel();
         let key = key.to_string();
-        let tx = self.shard0().tx.clone();
+        // ADR-2 / W1.2: the group's vote/applied-state/last-purged pointer lives in the
+        // group's OWN shard, beside its log + graph data (`group_id % K`).
+        let tx = self.shard_for_group(group_id).tx.clone();
         tokio::task::spawn_blocking(move || {
             tx.send(Cmd::RaftMetaPut {
                 group_id,
@@ -2659,7 +2691,7 @@ impl RedbBackend {
     #[cfg(feature = "raft")]
     pub fn raft_meta_get(&self, group_id: u64, key: &str) -> Result<Option<Vec<u8>>, String> {
         let (reply, rx) = std::sync::mpsc::channel();
-        self.shard0()
+        self.shard_for_group(group_id)
             .tx
             .send(Cmd::RaftMetaGet {
                 group_id,

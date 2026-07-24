@@ -103,8 +103,13 @@ and single-writer-correct; a transaction stays within one graph (group = txn bou
 so per-shard atomicity is preserved (no durable commit spans graphs/shards). K =
 `clamp(cpu/2, 1, 8)` (env `EPISTEMIC_GRAPH_REDB_SHARDS` overrides). **K=1 is the
 single-shard layout** for constrained hosts. K is fixed per persist-dir once created —
-the on-disk layout is detected and honored at open. Under an active Raft node, K is
-forced to 1 (the Raft store wraps the single writer; multi-Raft sharding is M2).
+the on-disk layout is detected and honored at open. **Under an active Raft node K == N
+Raft groups (ADR-2 / W1.2 — `reports/wave1/ADR-scale-trio.md` §ADR-2): raft group *g*
+owns redb shard *g***, so HA and write-scaling coexist (N groups = N parallel durable
+writers per node). K then follows `EPISTEMIC_GRAPH_RAFT_GROUPS` (default cores-derived up
+to `MAX_SHARD_COUNT`=64); `EPISTEMIC_GRAPH_REDB_SHARDS` does NOT apply under raft. An
+existing K=1 raft store stays K=1 (all groups on shard 0, exactly the pre-ADR-2 behavior)
+until the offline `migrate-shards` tool rewrites its layout.
 
 **Snapshot reads off the writer (CONCEPT:EG-KG.storage.snapshot-read-off-writer).** redb 4.1 is MVCC: a
 `Database::begin_read()` opens a consistent read snapshot that runs CONCURRENTLY with
@@ -144,9 +149,13 @@ split-storage API + native graceful leader transfer — CONCEPT:AU-KG.backend.au
 
 Multi-node deploy (the 4-node fleet cluster + the live single-node→cluster data
 migration) is `services/epistemic-graph/flavors/cluster.env` +
-`docs/architecture/cluster-deployment.md`. **Under an active Raft node the writer is
-K=1** (one group = one serialized write path) — this is HA, not write-scaling;
-multi-Raft sharding (many write groups) is separate (EG-KG.sharding.raft-resharding/2.266) and off by default.
+`docs/architecture/cluster-deployment.md`. **Under an active Raft node K == N Raft
+groups (ADR-2 / W1.2, EG-KG.sharding.raft-resharding): raft group *g* owns redb shard
+*g*, so N groups run N parallel apply loops + N durable shard writers per node** — HA and
+write-scaling coexist, with `MultiRaft::rebalance_leaders` spreading leaders across nodes.
+K follows `EPISTEMIC_GRAPH_RAFT_GROUPS` (default cores-derived up to `MAX_SHARD_COUNT`=64).
+The per-shard cost is one open file descriptor + one writer thread per group, so a very
+high N trades RAM/FDs for write parallelism.
 
 When active, a durable mutation is routed through Raft consensus (the leader's
 `client_write`) BEFORE it is applied+acked — the replication barrier. A committed
@@ -164,16 +173,20 @@ group-commit writer, a log append and its graph mutation **coalesce into ONE
 from redb (it no longer needs the leader to refill an un-snapshotted tail). The
 separate `raft.redb` sidecar is gone — one shared DB serves M2 + every group's log.
 
-**Multi-Raft scaffold (CONCEPT:EG-KG.sharding.raft-resharding).** A `MultiRaft` manager holds N openraft
-groups keyed by `GroupId`, each its own state machine + `GraphCore`, **sharing ONE
-TCP listener per node** (RPC frames tagged + demuxed by group id) and **ONE shared
-authoritative shard** (composite-key log/meta — not a file per group, the spike's FD-ceiling
-fix). A `GroupRouter` maps `graph_name → GroupId`. The default runs **one group**
-(`DEFAULT_GROUP`); `EPISTEMIC_GRAPH_RAFT_GROUPS > 1` creates every configured group
-with the complete peer set, so all groups have quorum replication and failover. One
-graph-local transaction belongs to one group; a cross-group request is
-coordinated by the dedicated cross-shard transaction protocol rather than smuggled
-through a graph-local transaction.
+**Multi-Raft groups (CONCEPT:EG-KG.sharding.raft-resharding, ADR-2 / W1.2).** A `MultiRaft` manager holds N
+openraft groups keyed by `GroupId`, each its own state machine + `GraphCore`, **sharing
+ONE TCP listener per node** (RPC frames tagged + demuxed by group id) and each owning its
+own durable shard (`RedbBackend::shard_for_group(g) = shard[g % K]`, composite-key
+log/meta — group *g* owns shard *g*). A `GroupRouter` maps `graph_name → GroupId` via
+`FNV-1a(sanitize(graph_name)) % N`, the SAME hash `shard_index` uses, so a graph's
+consensus group and its durable shard are the same — the ADR-2 alignment that keeps a
+group's log co-located with its data (one shard = one writer). The default sizes N to the
+cores-derived group count (like the non-raft shard auto-size), collapsing to **one group**
+(`DEFAULT_GROUP`, shard 0) on a constrained host; `EPISTEMIC_GRAPH_RAFT_GROUPS` overrides,
+creating every configured group with the complete peer set, so all groups have quorum
+replication and failover. One graph-local transaction belongs to one group; a cross-group
+request is coordinated by the dedicated cross-shard transaction protocol rather than
+smuggled through a graph-local transaction.
 
 Cross-group reads use the same authenticated, multiplexed `PeerPool` as consensus:
 each leg is a bounded durable keyset page preceded by that group's ReadIndex and
@@ -596,7 +609,7 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` (feature `oidc`) | Primary-protocol OIDC identity binding (`src/server/oidc.rs`, `server::auth::bind_verified_identity`): when set, every `eg2.` envelope must additionally carry an `oidc_token` that independently RSA/JWKS-verifies against this issuer, and the envelope's principal/tenant/roles/scopes must match the verified token's claims (reject on mismatch) — extends the same RSA-JWKS verifier the KV-cache HTTP surface already used. Falls back to the shared `OIDC_ISSUER` when unset. **Absent ⇒ today's HMAC-only `eg2.` behavior is unchanged** (unauthenticated local/dev deployments still work); once set, identity is enforced. Independent of `EPISTEMIC_GRAPH_KVCACHE_JWT_ISSUER` — the two surfaces may point at different realms/audiences. |
 | `EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE` (feature `oidc`) | The OIDC client audience `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER`'s tokens must carry. Falls back to the shared `OIDC_AUDIENCE`. Mandatory once an issuer is configured. |
 | `EPISTEMIC_GRAPH_OIDC_JWKS_URL` (feature `oidc`) | JWKS endpoint the primary protocol fetches signing keys from. No generic fallback (discovery/vendor URL construction belongs at the deployment boundary). Mandatory once an issuer is configured. |
-| `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2, `raft`/`cluster` feature) | Number of Raft groups this node stands up at boot. Default `1`; a value `>1` spreads unpinned graphs across the tenant-range ring while `PlacementCatalog` remains authoritative for explicit placements. |
+| `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2 / ADR-2 W1.2, `raft`/`cluster` feature) | Number of Raft groups this node stands up at boot **and** the durable shard count K (ADR-2: K == N, raft group *g* owns redb shard *g*). Default = the cores-derived auto-size `clamp(cpu/2, 1, MAX_SHARD_COUNT=64)` (the same write-sharding the non-raft path uses — turning on raft no longer collapses to one writer); set explicitly to size the pool, clamped `1..=64`. Un-pinned graphs spread across the `0..N` tenant-range ring (`FNV-1a(sanitize(name)) % N`) while `PlacementCatalog` remains authoritative for explicit placements. **Per-shard cost:** each group opens one redb file descriptor + one group-commit writer thread, so a high N trades RAM/FDs for N-way parallel durable writes. An existing K=1 raft store keeps K=1 (all groups on shard 0) until `migrate-shards` rewrites its layout. |
 | `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR` (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1, `raft::config`) | This node's client-reachable address, self-reported into the durable cluster-topology store (`Method::NodeInfoUpsert`) and handed back by `Method::ClusterMembers`/`PlacementRoute.endpoints` — the engine-authoritative discovery that replaces the static hand-maintained `GRAPH_RAFT_GROUP_ENDPOINTS` client map. **Required whenever Raft peers are configured** (`EPISTEMIC_GRAPH_RAFT_NODE_ID`/`_PEERS` set) — config-contract style, like the transport secret: a clustered node refuses to start without it, since a discovering client would otherwise have no address to learn for this node beyond its own seed contact. Not read at all when Raft is not configured (single-node). |
 | `EPISTEMIC_GRAPH_ADVERTISED_TLS_SERVER_NAME` (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1, `raft::config`) | Optional TLS server name (SNI / certificate hostname) a client should verify when connecting to `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR` over `tls://`, self-reported alongside it into the cluster-topology store. **Unset ⇒ `None`** — the client verifies against the address's own host (the TLS default); zero friction for a deployment that doesn't need SNI override. |
 | `EPISTEMIC_GRAPH_LAZY_STARTUP` (DIST-P2-3) | Catalog-first recovery is mandatory for served mode: a graph hydrates on first access behind its incarnation/version fence. |
@@ -608,7 +621,7 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `EPISTEMIC_GRAPH_REDB_COMMIT_POLICY` | Authoritative redb commit policy: `each`, `interval`, or a positive millisecond value. Invalid values and zero fail startup; there is no durability-off mode. |
 | `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` | Positive adaptive group-commit micro-linger in microseconds (default `1000`). A shallow barrier batch waits once for concurrent writers to join the same fsync; durability remains commit-before-ack. |
 | `EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW` | Shallow-batch op threshold for the EG-024 micro-linger (default `32`, clamped 1..4096). The writer lingers only while `pending.ops.len()` is below this; a deeper batch already coalesces, so it commits immediately (adaptive — no added latency on a deep queue) |
-| `EPISTEMIC_GRAPH_REDB_SHARDS` | **Sharded K-way durable writer (CONCEPT:EG-KG.backend.sharded-k-way-durable).** Number of independent `graph-<n>.redb` files/writer threads, overriding auto-size `clamp(cpu/2, 1, 8)` (clamped 1..64). Each graph routes to a fixed shard by `FNV-1a(sanitized_name) % K`; `K=1` uses canonical `graph-0.redb`. The value is fixed per durable store and forced to `1` under an active Raft node. Normal startup rejects the retired unindexed `graph.redb`; convert it offline with `migrate-shards --shards 1`. |
+| `EPISTEMIC_GRAPH_REDB_SHARDS` | **Sharded K-way durable writer (CONCEPT:EG-KG.backend.sharded-k-way-durable).** Number of independent `graph-<n>.redb` files/writer threads, overriding auto-size `clamp(cpu/2, 1, 8)` (clamped 1..64). Each graph routes to a fixed shard by `FNV-1a(sanitized_name) % K`; `K=1` uses canonical `graph-0.redb`. The value is fixed per durable store. **Ignored under an active Raft node** — there K == N and follows `EPISTEMIC_GRAPH_RAFT_GROUPS` instead (ADR-2 / W1.2, group *g* owns shard *g*), logged as a warning if set. Normal startup rejects the retired unindexed `graph.redb`; convert it offline with `migrate-shards --shards 1`. |
 | `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` | Per-shard auto-sized early-flush threshold. The writer flushes a `Pending` batch once it reaches the threshold, bounding RAM before the channel saturates. Default is half the durable-writer queue depth, clamped `256..16384`; overrides are clamped `64..1_048_576`. |
 | `GRAPH_SERVICE_ENDPOINTS` | Comma-separated shard endpoints for the Python `ShardRouter` |
 | `EPISTEMIC_GRAPH_PGWIRE_ADDR` | When set (build `--features pgwire`), the pg-wire listener binds this address (documented loopback `127.0.0.1:5433`). Unset ⇒ no listener. A connecting driver/ORM introspects a SYNTHETIC read-only catalog (CONCEPT:EG-KG.query.datafusion: DataFusion `information_schema` + a supplemented `pg_catalog` `pg_namespace`/`pg_class`/`pg_attribute`/`pg_type` + `version()`/`current_schema()`/`current_database()`) then runs SQL over `nodes`/`edges` |
