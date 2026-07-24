@@ -206,6 +206,14 @@ pub(crate) async fn try_handle(
                     // describes — they can never drift apart.
                     #[cfg_attr(not(feature = "security"), allow(unused_mut))]
                     let (mut snap, graph_version) = core.analysis_snapshot_versioned();
+                    // W1.6/P7 site 3: the node epoch gates the SQL-context node-batch sub-cache so a
+                    // pure-edge / catalog-only write reuses the O(V) node scan. The dependency clock
+                    // folds the coarse floor into it, keeping it sound for bypass writes; without
+                    // result-cache, fall back to graph_version (correct, no reuse).
+                    #[cfg(feature = "result-cache")]
+                    let node_epoch = core.dep_clock().node_epoch();
+                    #[cfg(not(feature = "result-cache"))]
+                    let node_epoch = graph_version;
                     #[cfg(feature = "security")]
                     rls.filter_view(caller, &mut snap);
                     // CONCEPT:EG-KG.query.served-context-cache — the whole-`SessionContext` cache (UDFs,
@@ -242,6 +250,7 @@ pub(crate) async fn try_handle(
                         eg_query::exec_sql_typed_with_tables_cached_cancellable(
                             &snap,
                             graph_version,
+                            node_epoch,
                             &tenant_scope,
                             &graph_name_owned,
                             &caller_owned,

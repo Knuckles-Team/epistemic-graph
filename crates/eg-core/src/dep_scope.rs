@@ -249,6 +249,28 @@ impl DepClock {
         true
     }
 
+    /// The effective NODE epoch: the version of the most recent write that could have changed any
+    /// node (an add / remove / property update), OR any un-attributable bypass write (the floor).
+    /// Folding in the floor keeps it SOUND for the SQL-context node-table sub-cache (W1.6/P7 site
+    /// 3): a follower's replicated node write bumps the floor even though it recorded no footprint,
+    /// so a cached node table can never be reused across it. Two calls observing the SAME
+    /// `node_epoch` are guaranteed to see the SAME node set + node properties (hence the same
+    /// RLS-filtered node projection), so the O(V) `nodes` Arrow batch may be reused across a
+    /// pure-edge or catalog-only write instead of rebuilt.
+    pub fn node_epoch(&self) -> u64 {
+        self.all_nodes
+            .load(Ordering::Acquire)
+            .max(self.floor.load(Ordering::Acquire))
+    }
+
+    /// The effective EDGE epoch: the version of the most recent edge write or bypass write. The
+    /// sibling of [`node_epoch`](Self::node_epoch) for the edge table.
+    pub fn edge_epoch(&self) -> u64 {
+        self.all_edges
+            .load(Ordering::Acquire)
+            .max(self.floor.load(Ordering::Acquire))
+    }
+
     /// The current coarse floor (observability / tests).
     pub fn floor(&self) -> u64 {
         self.floor.load(Ordering::Acquire)

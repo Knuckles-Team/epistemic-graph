@@ -742,8 +742,23 @@ fn max_cached_contexts() -> usize {
 /// synthesized system catalogs) keyed by [`SqlContextEpoch`].
 pub struct SqlContextCache {
     contexts: Mutex<HashMap<SqlContextEpoch, Arc<BuiltCtx>>>,
+    /// The O(V) inferred `nodes` Arrow batch, sub-cached by (CALLER, NODE EPOCH)
+    /// (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7 site 3). The batch depends
+    /// ONLY on node data, so when a full-`SqlContextEpoch` miss is caused by a pure-edge or
+    /// catalog-only write (the node epoch is UNCHANGED), the whole `BuiltCtx` is rebuilt but this
+    /// expensive scan is REUSED instead of re-run — turning the "every write forces a full O(V+E)
+    /// Arrow rebuild" cost into O(E)+catalog on a write that did not touch nodes. The key INCLUDES
+    /// the caller because `infer_nodes(view)` runs over the caller's ALREADY RLS-filtered view, so
+    /// the node batch is caller-specific — a shared `SqlContextCache` (one per owner file, but a
+    /// single test/embedded instance may serve several callers) must NEVER hand one caller's
+    /// narrower filtered node projection to another. Mirrors `SqlContextEpoch`'s own `caller` field.
+    node_batches: Mutex<HashMap<(String, u64), Arc<(SchemaRef, arrow::record_batch::RecordBatch)>>>,
     hits: std::sync::atomic::AtomicU64,
     misses: std::sync::atomic::AtomicU64,
+    /// Reuse counters for the `nodes`-batch sub-cache (the O(V) scans SKIPPED / RUN). Observability
+    /// + the site-3 regression test's proof that a pure-edge write reuses the node table.
+    node_reuses: std::sync::atomic::AtomicU64,
+    node_builds: std::sync::atomic::AtomicU64,
 }
 
 impl Default for SqlContextCache {
@@ -756,9 +771,22 @@ impl SqlContextCache {
     pub fn new() -> Self {
         Self {
             contexts: Mutex::new(HashMap::new()),
+            node_batches: Mutex::new(HashMap::new()),
             hits: std::sync::atomic::AtomicU64::new(0),
             misses: std::sync::atomic::AtomicU64::new(0),
+            node_reuses: std::sync::atomic::AtomicU64::new(0),
+            node_builds: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// `(node_reuses, node_builds)` since construction (W1.6/P7 site 3): how many times the O(V)
+    /// `nodes` Arrow batch was reused across a non-node write vs re-inferred. A pure-edge write
+    /// following a warm SQL context should REUSE (reuses grows, builds does not).
+    pub fn node_stats(&self) -> (u64, u64) {
+        (
+            self.node_reuses.load(std::sync::atomic::Ordering::Relaxed),
+            self.node_builds.load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 
     /// `(hits, misses)` since construction — observability, and the exact hook the
@@ -800,6 +828,7 @@ impl SqlContextCache {
     async fn get_or_build(
         &self,
         epoch: SqlContextEpoch,
+        node_epoch: u64,
         snap: Arc<GraphView>,
         view: &GraphView,
         store: &TableStore,
@@ -811,7 +840,34 @@ impl SqlContextCache {
         self.misses
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        let nodes = infer_nodes(view)?;
+        // Site 3 (W1.6/P7): reuse the O(V) `nodes` Arrow batch when this full-epoch miss was caused
+        // by a write that did NOT touch nodes (same `node_epoch`) — a pure-edge or catalog-only
+        // write. `RecordBatch`/`SchemaRef` are Arc-backed, so the clone is cheap; the SKIPPED work
+        // is the whole-node-store scan + Arrow column materialization.
+        let node_key = (epoch.caller.clone(), node_epoch);
+        let nodes = {
+            let cached = self.node_batches.lock().unwrap().get(&node_key).cloned();
+            match cached {
+                Some(batch) => {
+                    self.node_reuses
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    (*batch).clone()
+                }
+                None => {
+                    let inferred = infer_nodes(view)?;
+                    self.node_builds
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let mut guard = self.node_batches.lock().unwrap();
+                    // Same crude-but-correct bound as `contexts`: clear on overflow rather than
+                    // tracking recency. An extra miss only re-infers; it never serves wrong data.
+                    if guard.len() >= max_cached_contexts() && !guard.contains_key(&node_key) {
+                        guard.clear();
+                    }
+                    guard.insert(node_key, Arc::new(inferred.clone()));
+                    inferred
+                }
+            }
+        };
         // See `exec_sql_typed_with_tables_cancellable`'s identical ordering note:
         // `ann_indexes` is fetched BEFORE `materialize_user_tables` so it can pick
         // Eager vs Lazy per table.
@@ -910,10 +966,19 @@ fn ann_pushdown_may_apply(sql: &str, ann_indexes: &[AnnIndexPlan]) -> bool {
 /// context cannot safely serve: a bare `plpgsql` call (handled entirely before any
 /// context would be built) and a query [`ann_pushdown_may_apply`] to (its top-k
 /// slice is per-query, not per-epoch).
+///
+/// `node_epoch` (W1.6/P7 site 3) is the version of the most recent write that could have changed
+/// any NODE (from `GraphCore::dep_clock().node_epoch()`, which folds in the coarse floor so a
+/// follower's replicated node write is covered). It gates the O(V) `nodes`-batch sub-cache: a
+/// full-epoch miss whose `node_epoch` is unchanged (a pure-edge or catalog-only write) reuses the
+/// cached node table instead of re-scanning it. Pass `graph_version` for it where a finer epoch is
+/// unavailable (correct, just no reuse — the node batch then keys on the same counter the whole
+/// epoch does).
 #[allow(clippy::too_many_arguments)]
 pub fn exec_sql_typed_with_tables_cached_cancellable(
     view: &GraphView,
     graph_version: u64,
+    node_epoch: u64,
     tenant: &str,
     graph: &str,
     caller: &str,
@@ -955,7 +1020,9 @@ pub fn exec_sql_typed_with_tables_cached_cancellable(
 
     with_thread_runtime(|rt| {
         rt.block_on(async move {
-            let built = cache.get_or_build(epoch, snap, view, store).await?;
+            let built = cache
+                .get_or_build(epoch, node_epoch, snap, view, store)
+                .await?;
             let df = built
                 .ctx
                 .sql(&sql_text)

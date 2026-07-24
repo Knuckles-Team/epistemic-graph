@@ -819,6 +819,13 @@ impl WireSession {
         // version keying the served context cache below is taken ATOMICALLY with the
         // snapshot it describes.
         let (mut snap, graph_version) = core.analysis_snapshot_versioned();
+        // W1.6/P7 site 3: node epoch for the SQL-context node-batch sub-cache (see the RPC SQL
+        // handler for the rationale). Folds in the coarse floor when result-cache is on; else the
+        // graph version (correct, no reuse).
+        #[cfg(feature = "result-cache")]
+        let node_epoch = core.dep_clock().node_epoch();
+        #[cfg(not(feature = "result-cache"))]
+        let node_epoch = graph_version;
         let in_txn = self.in_txn();
         // CONCEPT:EG-KG.compute.kg-transaction-is-pinned — read-your-own-writes: overlay this connection's buffered
         // graph-node ops onto the snapshot so a SELECT (or a candidate-id / RETURNING
@@ -869,6 +876,7 @@ impl WireSession {
             eg_query::exec_sql_typed_with_tables_cached_cancellable(
                 &snap,
                 graph_version,
+                node_epoch,
                 &tenant_scope,
                 &graph_owned,
                 &caller,
