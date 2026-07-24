@@ -3728,6 +3728,70 @@ mod tests {
         assert_eq!(c3[1], Value::Number(42.into()));
     }
 
+    /// ADR-5 / W2.2 item 5: the WorkItem lifecycle-state DISTRIBUTION is queryable via
+    /// Cypher over the co-located statechart projection (the `machine_state` node
+    /// property the phase-1 mirror writes). A grouped `count(*)` over `machine_state`
+    /// answers "how many work items are in each lifecycle state" directly against the
+    /// authoritative graph — no bespoke aggregation endpoint needed.
+    #[test]
+    fn work_item_machine_state_distribution_is_queryable() {
+        let core = GraphCore::new();
+        // A small fleet: 2 leased, 1 running, 1 succeeded, plus a non-WorkItem node the
+        // label filter must exclude.
+        for (id, state) in [
+            ("wi-1", "leased"),
+            ("wi-2", "leased"),
+            ("wi-3", "running"),
+            ("wi-4", "succeeded"),
+        ] {
+            core.add_node(
+                id.into(),
+                pbytes(serde_json::json!({
+                    "node_type": "WorkItem",
+                    "status": state,
+                    "machine_state": state,
+                    "machine_version": 1,
+                })),
+            );
+        }
+        core.add_node(
+            "other".into(),
+            pbytes(serde_json::json!({"node_type": "Agent"})),
+        );
+        let v = core.analysis_snapshot();
+
+        let qr = exec_cypher(
+            &v,
+            "MATCH (w:WorkItem) RETURN w.machine_state AS state, count(*) AS n",
+        )
+        .unwrap();
+        // One row per distinct lifecycle state (implicit GROUP BY the non-agg key).
+        let mut dist: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+        for row in 0..qr.rows.len() {
+            let cells = cells_of(&qr, row);
+            let state = cells[0].as_str().unwrap().to_string();
+            let n = cells[1].as_i64().unwrap();
+            dist.insert(state, n);
+        }
+        assert_eq!(dist.get("leased"), Some(&2));
+        assert_eq!(dist.get("running"), Some(&1));
+        assert_eq!(dist.get("succeeded"), Some(&1));
+        assert_eq!(
+            dist.len(),
+            3,
+            "only the three occupied WorkItem states appear"
+        );
+
+        // A single lifecycle state is likewise a plain label + property filter — the
+        // "which work items are stuck in X" operator question.
+        let leased = exec_cypher(
+            &v,
+            "MATCH (w:WorkItem) WHERE w.machine_state = 'leased' RETURN w.id AS id",
+        )
+        .unwrap();
+        assert_eq!(leased.rows.len(), 2, "exactly the two leased work items");
+    }
+
     #[test]
     fn distinct_dedups_rows() {
         let v = fixture();

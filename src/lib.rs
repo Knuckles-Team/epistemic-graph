@@ -72,6 +72,15 @@ pub mod redb_store;
 #[cfg(feature = "statechart")]
 pub mod loop_statechart;
 
+// CONCEPT:INT-P2-2 / ADR-5 (W2.2) -- the WorkItem statechart definition: the durable
+// unit-of-work lifecycle (`submitted → ready → leased → running → {succeeded|failed|
+// cancelled|dead_letter}`) as ONE reusable `eg_statechart::StatechartDef`, plus the
+// phase-1 dual-write mirror decision + divergence alarm the native `redb_store.rs`
+// WorkItem handlers drive. Pure data + tests; the CAS/fencing row stays the lease
+// authority. See `work_item_statechart.rs`'s module doc for the full derivation.
+#[cfg(feature = "statechart")]
+pub mod work_item_statechart;
+
 /// One staged time-series measurement batch for a cross-modal ACID commit
 /// (CONCEPT:EG-KG.backend.cross-modal-atomic-commit): `(series_id, n_fields, bucket_ns, field_names, points)` where each
 /// point is `(ts_nanos, field_values)`. Carried as PLAIN data (no `eg-tsdb` type) so it
