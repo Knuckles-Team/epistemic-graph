@@ -4,8 +4,6 @@
 //! within that subject; raw paths, endpoints, names, and upstream identifiers are
 //! never accepted by this layer.
 
-use std::collections::HashMap;
-
 use eg_modality::{EvidenceLocus, OpaqueRef};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -30,51 +28,11 @@ pub fn subject_ref(locus: &EvidenceLocus) -> &OpaqueRef {
     locus.subject.opaque()
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct InMemoryResolver {
-    texts: HashMap<OpaqueRef, String>,
-    blobs: HashMap<OpaqueRef, String>,
-}
-
-impl InMemoryResolver {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_text(mut self, subject: OpaqueRef, excerpt: impl Into<String>) -> Self {
-        self.texts.insert(subject, excerpt.into());
-        self
-    }
-
-    pub fn with_blob(mut self, subject: OpaqueRef, blob_ref: impl Into<String>) -> Self {
-        self.blobs.insert(subject, blob_ref.into());
-        self
-    }
-}
-
-impl EvidenceResolver for InMemoryResolver {
-    fn resolve(&self, locus: &EvidenceLocus) -> Option<ResolvedArtifact> {
-        let subject = subject_ref(locus);
-        if let Some(excerpt) = self.texts.get(subject) {
-            return Some(ResolvedArtifact::Text {
-                subject_ref: subject.to_string(),
-                excerpt: excerpt.clone(),
-            });
-        }
-        self.blobs
-            .get(subject)
-            .map(|blob_ref| ResolvedArtifact::Blob {
-                subject_ref: subject.to_string(),
-                blob_ref: blob_ref.clone(),
-                note: "resolved from the registered governed subject".to_string(),
-            })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use eg_modality::{ArtifactId, DerivationId, EvidenceAddress, EvidenceLocusId, ResourceId};
+    use std::collections::HashMap;
 
     fn r(namespace: &str, suffix: u8) -> OpaqueRef {
         OpaqueRef::scoped(namespace, &format!("00000000000000{suffix:02x}")).unwrap()
@@ -87,6 +45,37 @@ mod tests {
             address,
             policy_ref: r("policy", 3),
             derivation_ref: DerivationId::from_token("0000000000000004").unwrap(),
+        }
+    }
+
+    /// Test-only `EvidenceResolver`: exercises the trait/subject-projection
+    /// mechanics this module owns, without a resolution backend. The real
+    /// backend is `CasEvidenceResolver` in the facade
+    /// (`src/server/blob/cas_resolver.rs`), which this leaf crate cannot link
+    /// (see the crate docs on why) — its own tests prove real CAS-backed
+    /// resolution, including a cross-modal `AlignmentGraph` join.
+    struct FixtureResolver(HashMap<OpaqueRef, ResolvedArtifact>);
+
+    impl FixtureResolver {
+        fn new() -> Self {
+            Self(HashMap::new())
+        }
+
+        fn with_text(mut self, subject: OpaqueRef, excerpt: impl Into<String>) -> Self {
+            self.0.insert(
+                subject.clone(),
+                ResolvedArtifact::Text {
+                    subject_ref: subject.to_string(),
+                    excerpt: excerpt.into(),
+                },
+            );
+            self
+        }
+    }
+
+    impl EvidenceResolver for FixtureResolver {
+        fn resolve(&self, locus: &EvidenceLocus) -> Option<ResolvedArtifact> {
+            self.0.get(subject_ref(locus)).cloned()
         }
     }
 
@@ -106,7 +95,7 @@ mod tests {
     fn resolver_uses_only_the_opaque_subject() {
         let evidence = locus(EvidenceAddress::CharacterRange { start: 0, end: 5 });
         let resolver =
-            InMemoryResolver::new().with_text(subject_ref(&evidence).clone(), "hello world");
+            FixtureResolver::new().with_text(subject_ref(&evidence).clone(), "hello world");
         assert_eq!(
             resolver.resolve(&evidence),
             Some(ResolvedArtifact::Text {
@@ -122,6 +111,6 @@ mod tests {
             start_ms: 0,
             end_ms: 1,
         });
-        assert_eq!(InMemoryResolver::new().resolve(&evidence), None);
+        assert_eq!(FixtureResolver::new().resolve(&evidence), None);
     }
 }

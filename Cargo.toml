@@ -292,21 +292,24 @@ kv = ["server", "redb", "eg-types/kv"]
 # and `full-extras` bundles, so only an explicit source build selecting `blob-s3`
 # links the `object_store` SDK (asserted by cargo tree).
 blob-s3 = ["blob", "dep:object_store"]
-# L21 (CONCEPT:EG-P1-3 follow-up) — a REAL `eg_alignment::EvidenceResolver` backed by
-# the engine's own blob CAS: `src/server/blob/cas_resolver.rs`'s `CasEvidenceResolver`
-# looks a locus's opaque subject up in a `GraphView` snapshot's stored `blob_ref` property,
-# then reads the actual bytes back off the SAME content-addressed `ChunkStore` the
-# `blob` feature already wires (`stream_blob_get`) — a `CharacterRange` or
-# `CodeSymbol` resolves to a real UTF-8 excerpt; every other address kind yields
-# a `ResolvedArtifact::Blob` naming the real CAS digest, never a fabricated excerpt.
-# `eg-alignment` cannot reach the blob CAS itself by design (a leaf crate BELOW the
-# server, deps = eg-modality ONLY — see its own crate docs on why it ships only the
-# dependency-free `InMemoryResolver`), so the resolver lives HERE instead: the one
-# place that already links both `eg-alignment` (for the `EvidenceResolver` trait) and
-# the blob CAS (`blob`, for `ChunkStore`). Pulls `blob` + `dep:eg-alignment` +
+# L21 / W4.7 (CONCEPT:EG-P1-3 follow-up, DONE) — a REAL `eg_alignment::EvidenceResolver`
+# backed by the engine's own blob CAS: `src/server/blob/cas_resolver.rs`'s
+# `CasEvidenceResolver` looks a locus's opaque subject up in a `GraphView` snapshot's
+# stored `blob_ref` property, then reads the actual bytes back off the SAME
+# content-addressed `ChunkStore` the `blob` feature already wires (`stream_blob_get`) —
+# a `CharacterRange` or `CodeSymbol` resolves to a real UTF-8 excerpt; every other
+# address kind yields a `ResolvedArtifact::Blob` naming the real CAS digest, never a
+# fabricated excerpt. `eg-alignment` cannot reach the blob CAS itself by design (a leaf
+# crate BELOW the server, deps = eg-modality ONLY — see its own crate docs on why it
+# ships no resolver implementation of its own), so the resolver lives HERE instead: the
+# one place that already links both `eg-alignment` (for the `EvidenceResolver` trait)
+# and the blob CAS (`blob`, for `ChunkStore`). Pulls `blob` + `dep:eg-alignment` +
 # `dep:eg-modality` (the `EvidenceLocus` type, already nameable under `epistemic` — this
 # makes it nameable standalone too, with no new dependency CLASS). Included in
-# the one main `full` serving build.
+# the one main `full` serving build. `cas_resolver`'s own tests prove a cross-modal
+# `AlignmentGraph` join (doc span <-> image region <-> claim) resolving end-to-end
+# through fixture CAS content — the alignment graph itself never links `blob`; only
+# this resolver does.
 alignment = ["blob", "dep:eg-alignment", "dep:eg-modality"]
 # CONCEPT:INT-P2-1 — the durable analytics-job plane: `Method::AnalyticsJob` (async
 # submit/status/cancel/resume over a redb-backed `AnalyticsJob` state machine) +
