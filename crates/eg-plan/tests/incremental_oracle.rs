@@ -14,7 +14,10 @@
 //!
 //! `Circuit::apply` folds signed deltas into maintained state; `Circuit::recompute` does a
 //! from-scratch full scan with NO maintained state. They must agree — the maintained
-//! membership map / bucket accumulators are the tested surface.
+//! membership map / bucket accumulators are the tested surface. (The COMPLEMENTARY oracle
+//! `incremental_execute_oracle.rs` proves the circuit equals the REAL `eg_plan::execute`
+//! recompute; this one isolates delta-maintenance from the shared per-row predicate.)
+#![cfg(feature = "query")]
 
 use std::collections::BTreeMap;
 
@@ -38,12 +41,11 @@ enum Mutation {
 /// A generated node's property values (the fields the supported ops read).
 #[derive(Clone, Debug)]
 struct NodeSpec {
-    kind: String, // -> "type"
-    year: i64,    // -> "year"  (Filter GtNum/LtNum/Eq)
-    ts: i64,      // -> "ts"    (WindowAgg bucketing)
-    value: i64,   // -> "value" (WindowAgg sum/mean); integers keep sums EXACT
-    valid_from: i64,
-    valid_until: i64,
+    kind: String,     // -> "type"       (Scan label / Filter Eq)
+    year: i64,        // -> "year"       (Filter GtNum/LtNum)
+    value: i64,       // -> "value"      (WindowAgg sum/mean); integers keep sums EXACT
+    valid_from: i64,  // -> "valid_from" (AsOf window start AND WindowAgg bucketing)
+    valid_until: i64, // -> "valid_until"(AsOf window end)
 }
 
 impl NodeSpec {
@@ -51,7 +53,6 @@ impl NodeSpec {
         json!({
             "type": self.kind,
             "year": self.year,
-            "ts": self.ts,
             "value": self.value,
             "valid_from": self.valid_from,
             "valid_until": self.valid_until,
@@ -92,15 +93,13 @@ fn arb_node() -> impl Strategy<Value = NodeSpec> {
     (
         prop::sample::select(vec!["Doc", "Note", "Other"]),
         1990i64..2010,
-        0i64..40,
         -20i64..20,
         0i64..30,
         20i64..60,
     )
-        .prop_map(|(kind, year, ts, value, vf, span)| NodeSpec {
+        .prop_map(|(kind, year, value, vf, span)| NodeSpec {
             kind: kind.to_string(),
             year,
-            ts,
             value,
             valid_from: vf,
             valid_until: vf + span,
@@ -120,94 +119,95 @@ fn arb_mutation() -> impl Strategy<Value = Mutation> {
     ]
 }
 
-/// One of the supported plan shapes (all compile to a `Circuit`).
+/// One of the supported plan shapes (all compile to a `Circuit`). The WindowAgg shapes
+/// are only in scope under `timeseries` (without it the circuit falls WindowAgg back to
+/// recompute, so `Circuit::compile` would reject them — see the circuit's cost contract).
 fn arb_supported_plan() -> impl Strategy<Value = Plan> {
-    prop_oneof![
+    let mut shapes: Vec<Vec<Op>> = vec![
         // Scan
-        Just(vec![Op::Scan {
-            label: "Doc".into()
-        }]),
+        vec![Op::Scan {
+            label: "Doc".into(),
+        }],
         // Scan + Filter(GtNum)
-        Just(vec![
+        vec![
             Op::Scan {
-                label: "Doc".into()
+                label: "Doc".into(),
             },
             Op::Filter {
                 preds: vec![Pred::GtNum {
                     prop: "year".into(),
-                    n: 2000.0
-                }]
+                    n: 2000.0,
+                }],
             },
-        ]),
+        ],
         // Scan + Filter(Eq + LtNum) + Limit
-        Just(vec![
+        vec![
             Op::Scan {
-                label: "Note".into()
+                label: "Note".into(),
             },
             Op::Filter {
                 preds: vec![
                     Pred::Eq {
                         prop: "type".into(),
-                        value: "Note".into()
+                        value: "Note".into(),
                     },
                     Pred::LtNum {
                         prop: "year".into(),
-                        n: 2005.0
+                        n: 2005.0,
                     },
                 ],
             },
             Op::Limit { k: 3 },
-        ]),
+        ],
         // Scan + AsOf + Limit
-        Just(vec![
+        vec![
             Op::Scan {
-                label: "Doc".into()
+                label: "Doc".into(),
             },
             Op::AsOf {
                 ts: 40.0,
-                axis: TimeAxis::Valid
+                axis: TimeAxis::Valid,
             },
             Op::Limit { k: 4 },
-        ]),
+        ],
+    ];
+    // WindowAgg is restricted to `Scan → WindowAgg [→ Limit]` (a pre-WindowAgg Filter/AsOf
+    // falls back — see the circuit's window restriction).
+    #[cfg(feature = "timeseries")]
+    shapes.extend([
         // Scan + WindowAgg(sum)
-        Just(vec![
+        vec![
             Op::Scan {
-                label: "Doc".into()
+                label: "Doc".into(),
             },
             Op::WindowAgg {
                 secs: 10.0,
-                agg: "sum".into()
+                agg: "sum".into(),
             },
-        ]),
-        // Scan + Filter + WindowAgg(count) + Limit
-        Just(vec![
+        ],
+        // Scan + WindowAgg(count) + Limit
+        vec![
             Op::Scan {
-                label: "Doc".into()
-            },
-            Op::Filter {
-                preds: vec![Pred::GtNum {
-                    prop: "year".into(),
-                    n: 1995.0
-                }]
+                label: "Doc".into(),
             },
             Op::WindowAgg {
                 secs: 15.0,
-                agg: "count".into()
+                agg: "count".into(),
             },
             Op::Limit { k: 2 },
-        ]),
+        ],
         // Scan + WindowAgg(mean)
-        Just(vec![
+        vec![
             Op::Scan {
-                label: "Doc".into()
+                label: "Doc".into(),
             },
             Op::WindowAgg {
                 secs: 8.0,
-                agg: "mean".into()
+                agg: "mean".into(),
             },
-        ]),
-    ]
-    .prop_map(Plan::new)
+        ],
+    ]);
+    prop::sample::select(shapes).prop_map(Plan::new)
 }
 
 proptest! {
