@@ -1220,6 +1220,46 @@ pub enum Method {
         voters: Vec<u64>,
     },
 
+    // ── Cluster topology discovery (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1) ──────
+    // Engine-authoritative client-side cluster discovery, replacing the static
+    // hand-maintained `GRAPH_RAFT_GROUP_ENDPOINTS` map (`reports/wave1/ADR-scale-trio.md`
+    // §ADR-1). Each node self-reports its own `{node_id, raft_addr,
+    // advertised_client_addr, tls_server_name}` via `NodeInfoUpsert`; every node's
+    // durable copy converges because the SAME committed log entry applies
+    // deterministically on every replica (see
+    // `server::persistence::node_info_store` docs) -- the SAME replication story
+    // `CatalogAssign` uses for the M3 tenant catalog, NOT graph nodes (the
+    // placement catalog's O(N) full-scan lesson). `ClusterMembers` cross-references
+    // that durable store against every live `MultiRaft` group's membership/leader
+    // to answer a complete topology snapshot from ANY reachable node -- not just
+    // the leader, unlike `PlacementRoute` -- so a client's bounded seed-retry (ADR-1
+    // decision 3/4) can re-resolve via any healthy contact.
+    /// Read the current cluster topology (CONCEPT:EG-KG.sharding.cluster-topology): every known Raft
+    /// group's members, each with its role (`leader`/`follower`/`learner`) and
+    /// client-reachable endpoint. Gated `cluster:topology-read` -- NOT
+    /// `admin:cluster-read` -- so an ordinary service role (not just a cluster
+    /// operator) can discover where to reconnect after a failover. Always declared;
+    /// a non-raft build or a raft build with no live `MultiRaft` answers a
+    /// well-formed empty topology rather than an error. Returns JSON
+    /// `{groups: [{group_id, members: [{node_id, role, client_endpoint, tls_name}]}],
+    /// epoch}`.
+    ClusterMembers,
+    /// Self-report this node's identity into the durable, Raft-replicated cluster
+    /// topology (CONCEPT:EG-KG.sharding.cluster-topology). Issued by each node at Raft startup
+    /// (`raft::node::start`), never by an ordinary client. `advertised_client_addr`
+    /// is this node's client-reachable address for the served wire protocol
+    /// (`EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR`); `tls_server_name` is the
+    /// optional TLS SNI/cert hostname a client should verify when connecting to it.
+    /// Idempotent (a repeat upsert for the same `node_id` simply overwrites its
+    /// row). Raft/cluster only; a non-raft build returns a typed "not available"
+    /// error. Returns `Bool` on success.
+    NodeInfoUpsert {
+        node_id: u64,
+        raft_addr: String,
+        advertised_client_addr: String,
+        tls_server_name: Option<String>,
+    },
+
     // ── Placement-catalog wire consumption (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4) ──
     // Exposes the engine's sole placement authority over the wire. The response is
     // complete even for an unplaced/single-node partition, so callers never hash or

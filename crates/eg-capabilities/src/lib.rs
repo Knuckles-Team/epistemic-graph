@@ -883,6 +883,35 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Saga,
         },
+        // ADR-1 / W1.1 cluster-topology discovery. `cluster:topology-read` is
+        // deliberately NOT `admin:*` (so `access::is_admin_authz_action` never
+        // routes it through `require_admin_capability`) -- an ordinary service
+        // role's coarse `kg:read` grant already satisfies it
+        // (`auth::coarse_kg_admin_only` only special-cases `admin:`/`security:`
+        // prefixes and `:admin`/`:control` suffixes), matching the ADR's explicit
+        // "grantable to ordinary service roles" requirement.
+        Method::ClusterMembers => MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::None,
+            authz_action: "cluster:topology-read",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Snapshot,
+        },
+        // Same policy shape as `CatalogAssign`/`Reshard` (ClusterAdmin-domain,
+        // admin-scoped write) -- issued by the node's own startup path, never a
+        // live client, so `admin:cluster` is never actually exercised by a real
+        // caller in practice.
+        Method::NodeInfoUpsert { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::ControlRedb,
+            authz_action: "admin:cluster",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Saga,
+        },
         Method::PlacementAdmin { .. } => MethodPolicy {
             mutates: true,
             durability_domain: DurabilityDomain::ControlRedb,
@@ -2194,6 +2223,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("PlacementRoute", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader"),
         ("RaftAddLearner", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "leader-only openraft add_learner; attaches a non-voting replica without changing the voter set"),
         ("RaftChangeMembership", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "leader-only openraft change_membership; sets the group's exact voter set (the usual way to promote a learner added via RaftAddLearner)"),
+        ("ClusterMembers", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "cluster:topology-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "ADR-1/W1.1 engine-authoritative client topology; deliberately NOT admin:cluster-read -- ordinary service roles need it to re-resolve after a failover; answered from any node, not just the leader"),
+        ("NodeInfoUpsert", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "ADR-1/W1.1 per-node self-report into the durable cluster-topology store (server::persistence::node_info_store); issued only by the node's own Raft startup path, like CatalogAssign above -- NOT graph nodes (placement's O(N) lesson)"),
         ("PlacementAdmin", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "raft-replicated placement-catalog admin op (Assign/Move/AbortMove, the placement DECISION + PLAN->EXECUTE->CATALOG-UPDATE legs): MultiRaft::placement_assign / TenantManager::move_partition / abort_move commit through the DEFAULT group's own client_write / commit_placement, not this gateway's per-graph MutationBatch"),
         ("Backup", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "reads a consistent snapshot out to a bundle; does not mutate the live graph"),
         ("Restore", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "prepared/committed admin MutationBatch saga"),
@@ -2525,7 +2556,9 @@ mod smoke_tests {
         // sibling of `GetEdges`, unconditional): 357 + 1 = 358.
         // Plus W1.4 `ApplyChangeEnvelopes` (the batch sibling of `ApplyChangeEnvelope`,
         // unconditional): 358 + 1 = 359.
-        let expected = 359
+        // Plus ADR-1 / W1.1 `ClusterMembers` + `NodeInfoUpsert` (engine-authoritative
+        // cluster topology discovery, both unconditional): 359 + 2 = 361.
+        let expected = 361
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))

@@ -732,6 +732,14 @@ impl MultiRaft {
     /// The current VOTER set of group `gid` as this node sees it (sorted), or `None` if
     /// the group isn't running here. Read from openraft's replicated membership config,
     /// so on a caught-up node it is the committed cluster membership.
+    /// Every group id currently running on THIS node, sorted (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 /
+    /// W1.1 — `Method::ClusterMembers`' group enumeration). `DEFAULT_GROUP` is
+    /// always included once any group has started (`ensure_group`/`create_group`/
+    /// `join_group` populate it).
+    pub async fn known_groups(&self) -> Vec<GroupId> {
+        self.groups.read().await.keys().copied().collect()
+    }
+
     pub async fn group_membership(&self, gid: GroupId) -> Option<Vec<NodeId>> {
         let raft = self.groups.read().await.get(&gid).cloned()?;
         let metrics = raft.metrics();
@@ -1068,6 +1076,58 @@ impl MultiRaft {
                 command: super::ReplicatedMutation::graph(method.clone(), &server_secret)?,
             };
             self.client_write_group(DEFAULT_GROUP, req).await?;
+        }
+        Ok(())
+    }
+
+    /// Commit this node's [`super::node_info_store::NodeInfo`][ni] self-report
+    /// through the DEFAULT group's Raft consensus (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1 —
+    /// the cluster-topology replication seam; mirrors [`commit_placement`](Self::commit_placement)).
+    /// Ensures the default group is running (idempotent) so a fresh single-group
+    /// deployment that never called [`configure_group_ring`](Self::configure_group_ring)
+    /// can still self-report. [`client_write_group`](Self::client_write_group)
+    /// transparently forwards to the current leader when this node is a follower,
+    /// so a node calling this immediately after its OWN startup (almost never the
+    /// leader) still succeeds. Every node's local `NodeInfoStore` converges
+    /// identically because the SAME committed log entry applies deterministically
+    /// on every replica — NOT graph nodes (placement's O(N) lesson).
+    ///
+    /// [ni]: crate::server::persistence::node_info_store::NodeInfo
+    pub(crate) async fn commit_node_info(
+        &self,
+        node_id: NodeId,
+        raft_addr: String,
+        advertised_client_addr: String,
+        tls_server_name: Option<String>,
+    ) -> Result<(), String> {
+        self.ensure_group(DEFAULT_GROUP).await?;
+        let server_secret = self.ctx.state.read().await.auth_secret.clone();
+        let method = Method::NodeInfoUpsert {
+            node_id,
+            raft_addr,
+            advertised_client_addr,
+            tls_server_name,
+        };
+        let command =
+            crate::raft::NativeMutationCommand::from_public_method(method, &server_secret)
+                .map_err(|_| "node info command has no bounded native domain".to_string())?;
+        let req = RaftRequest {
+            graph_fname: crate::persist::sanitize(placement::PLACEMENT_GRAPH),
+            graph_name: placement::PLACEMENT_GRAPH.to_string(),
+            graph_type: crate::protocol::GraphType::Commons,
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-node-info",
+                placement::PLACEMENT_GRAPH,
+                &format!("node-{node_id}"),
+                0,
+                0,
+            ),
+            command: super::ReplicatedMutation::Native { command },
+        };
+        let response = self.client_write_group(DEFAULT_GROUP, req).await?;
+        if let Some(error) = response.native_error {
+            return Err(error);
         }
         Ok(())
     }

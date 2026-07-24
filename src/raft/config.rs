@@ -19,6 +19,19 @@ const MIN_RAFT_AUTH_SECRET_BYTES: usize = 32;
 const MAX_RAFT_AUTH_SECRET_BYTES: usize = 4 * 1024;
 const MAX_RAFT_PEERS: usize = 1_024;
 const MAX_RAFT_PEER_ADDRESS_BYTES: usize = 1_024;
+/// ADR-1 / W1.1 — this node's client-reachable address, self-reported into the
+/// durable cluster-topology store (`NodeInfoUpsert`) and handed back by
+/// `Method::ClusterMembers`/`PlacementRoute.endpoints`. Required once Raft peers
+/// are configured (config-contract style, like the transport secret below):
+/// without it, a discovering client would have no address to learn for THIS
+/// node beyond its own seed contact.
+const ADVERTISED_CLIENT_ADDR_ENV: &str = "EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR";
+/// Optional TLS server name (SNI / certificate hostname) a client should verify
+/// when connecting to `ADVERTISED_CLIENT_ADDR_ENV` over `tls://`. Unset ⇒ the
+/// client verifies against the address's own host (the TLS default) — zero
+/// friction for a deployment that doesn't need SNI override.
+const ADVERTISED_TLS_SERVER_NAME_ENV: &str = "EPISTEMIC_GRAPH_ADVERTISED_TLS_SERVER_NAME";
+const MAX_ADVERTISED_FIELD_BYTES: usize = 1_024;
 
 /// Derived pre-shared key for the authenticated, encrypted Raft transport.
 ///
@@ -79,6 +92,14 @@ pub struct RaftClusterConfig {
     /// lowest-id node does, and only when its raft store is empty). Computed, not
     /// configured.
     pub is_bootstrap: bool,
+    /// This node's client-reachable address (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1),
+    /// self-reported into the durable cluster-topology store at startup. Required
+    /// (`from_env` fails closed without it — config-contract style, like the
+    /// transport secret below) whenever Raft peers are configured.
+    pub advertised_client_addr: String,
+    /// Optional TLS server name (SNI / cert hostname) a client should verify when
+    /// connecting to `advertised_client_addr` over `tls://` (CONCEPT:EG-KG.sharding.cluster-topology).
+    pub advertised_tls_server_name: Option<String>,
     /// Number of Raft groups THIS node stands up at boot (DIST-P2-2, CONCEPT:EG-KG.sharding.placement-catalog).
     /// `1` — the default when `EPISTEMIC_GRAPH_RAFT_GROUPS` is unset/absent — keeps
     /// production startup creating ONLY [`super::DEFAULT_GROUP`], byte-for-byte the
@@ -102,6 +123,14 @@ impl std::fmt::Debug for RaftClusterConfig {
             .field("node_id", &self.node_id)
             .field("peer_count", &self.peers.len())
             .field("bind_addr", &"<redacted>")
+            .field("advertised_client_addr", &"<redacted>")
+            .field(
+                "advertised_tls_server_name",
+                &self
+                    .advertised_tls_server_name
+                    .as_ref()
+                    .map(|_| "<redacted>"),
+            )
             .field("is_bootstrap", &self.is_bootstrap)
             .field("groups", &self.groups)
             .field("transport_secret", &self.transport_secret)
@@ -164,14 +193,64 @@ impl RaftClusterConfig {
                 "Raft transport key is required for multi-member or non-loopback clusters; set {RAFT_AUTH_SECRET_FILE_ENV} (preferred) or {RAFT_AUTH_SECRET_ENV}"
             ));
         }
+        // ADR-1 / W1.1: config-contract style -- refuse to start clustered
+        // without a client-reachable address to self-report, exactly like the
+        // transport secret check above. A raft build with peers configured but
+        // no discoverable client address would silently strand
+        // `ClusterMembers`/`PlacementRoute.endpoints` for this node forever.
+        let advertised_client_addr = parse_advertised_client_addr()?;
+        let advertised_tls_server_name = parse_advertised_tls_server_name()?;
         Ok(Some(Self {
             node_id,
             peers,
             bind_addr,
+            advertised_client_addr,
+            advertised_tls_server_name,
             is_bootstrap,
             groups,
             transport_secret,
         }))
+    }
+}
+
+/// Parse the required `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR` (CONCEPT:EG-KG.sharding.cluster-topology,
+/// ADR-1). Called only once `EPISTEMIC_GRAPH_RAFT_NODE_ID`/`_PEERS` are already
+/// known-present (see [`RaftClusterConfig::from_env`]), so "peers configured"
+/// always holds here -- fail closed rather than silently omitting this node from
+/// discovery.
+fn parse_advertised_client_addr() -> Result<String, String> {
+    let raw = std::env::var(ADVERTISED_CLIENT_ADDR_ENV).map_err(|_| {
+        format!(
+            "Raft peers are configured but {ADVERTISED_CLIENT_ADDR_ENV} is missing -- set it to \
+             this node's client-reachable address (e.g. 'tcp://10.0.0.1:8765') so \
+             ClusterMembers/PlacementRoute can discover it"
+        )
+    })?;
+    let addr = raw.trim();
+    if addr.is_empty() || addr.len() > MAX_ADVERTISED_FIELD_BYTES {
+        return Err(format!(
+            "{ADVERTISED_CLIENT_ADDR_ENV} must be a non-empty address within \
+             {MAX_ADVERTISED_FIELD_BYTES} bytes"
+        ));
+    }
+    Ok(addr.to_string())
+}
+
+fn parse_advertised_tls_server_name() -> Result<Option<String>, String> {
+    match std::env::var(ADVERTISED_TLS_SERVER_NAME_ENV) {
+        Ok(raw) => {
+            let name = raw.trim();
+            if name.is_empty() {
+                return Ok(None);
+            }
+            if name.len() > MAX_ADVERTISED_FIELD_BYTES {
+                return Err(format!(
+                    "{ADVERTISED_TLS_SERVER_NAME_ENV} exceeds {MAX_ADVERTISED_FIELD_BYTES} bytes"
+                ));
+            }
+            Ok(Some(name.to_string()))
+        }
+        Err(_) => Ok(None),
     }
 }
 

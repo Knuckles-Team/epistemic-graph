@@ -818,6 +818,7 @@ pub const NATIVE_CONSENSUS_METHODS: &[&str] = &[
     "CatalogRemove",
     "RebalanceExecute",
     "Restore",
+    "NodeInfoUpsert",
     "CreateMatView",
     "RefreshMatView",
     "PlanMatViewDefine",
@@ -950,7 +951,12 @@ fn native_domain(method: &Method) -> Option<NativeMutationDomain> {
         | Method::CatalogReassign { .. }
         | Method::CatalogRemove { .. }
         | Method::RebalanceExecute { .. }
-        | Method::Restore { .. } => Some(NativeMutationDomain::ClusterAdmin),
+        | Method::Restore { .. }
+        // ADR-1 / W1.1: each node's self-report into the durable cluster-topology
+        // store (`server::persistence::node_info_store`) -- same ClusterAdmin
+        // bucket as its M3 catalog siblings above, so the SAME committed log entry
+        // applies deterministically on every replica.
+        | Method::NodeInfoUpsert { .. } => Some(NativeMutationDomain::ClusterAdmin),
         #[cfg(feature = "compute-dist")]
         Method::CreateMatView { .. } | Method::RefreshMatView { .. } => {
             Some(NativeMutationDomain::ClusterAdmin)

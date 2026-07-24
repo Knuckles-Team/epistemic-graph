@@ -54,6 +54,43 @@ from .client import (
 logger = logging.getLogger(__name__)
 
 
+async def resolve_cluster_endpoints(
+    client: EpistemicGraphClient,
+) -> tuple[list[str], dict[str, str]]:
+    """Discover live cluster endpoints from ``client``'s SEED connection
+    (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1 — the discovery primitive
+    ``ShardRouter``'s node-bound-envelope comment below has referenced since
+    ADR-3/W1.9).
+
+    Calls ``Method::ClusterMembers`` (engine-authoritative, answered from ANY
+    reachable node — not just the leader) and flattens every group's members
+    into ``(endpoints, node_ids)``: ``endpoints`` is every distinct
+    ``client_endpoint`` across all groups, first-seen order (a member shared by
+    multiple groups is listed once); ``node_ids`` maps each endpoint to its
+    string ``node_id`` for :class:`ShardRouter`'s node-bound envelope minting.
+    Both are empty when no cluster topology is known yet (single-node, or no
+    member has self-reported) — the caller's static-map override / single-contact
+    fallback then applies (ADR-1 decision 3b/3c).
+
+    This is a discovery PRIMITIVE, not a `ShardRouter` constructor: `ShardRouter`
+    routes an already-known endpoint set by GRAPH name via a caller-supplied
+    `route_resolver`, so a caller that wants live discovery calls this first
+    (against one seed connection/contact), then builds/refreshes its
+    `ShardRouter`/resolver from the result — exactly the resolution order ADR-1
+    describes for AU's ``placement_catalog.py``.
+    """
+    answer = await client.cluster_topology.members()
+    endpoints: list[str] = []
+    node_ids: dict[str, str] = {}
+    for group in answer.get("groups", []):
+        for member in group.get("members", []):
+            endpoint = member["client_endpoint"]
+            if endpoint not in node_ids:
+                endpoints.append(endpoint)
+                node_ids[endpoint] = str(member["node_id"])
+    return endpoints, node_ids
+
+
 def _auto_pool_size() -> int:
     """Auto-size a per-endpoint connection pool to the box (CONCEPT:EG-KG.backend.multiplexed-connections).
 
@@ -253,14 +290,18 @@ class ShardRouter:
         self.endpoints = endpoints
         self._route_resolver = route_resolver
         context = validate_request_context(verified_context)
-        # ADR-3 / W1.9 node-bound envelopes: optional endpoint -> node_id map
-        # (e.g. once ADR-1's `ClusterMembers`/`PlacementRoute.endpoints`
-        # discovery is wired in). Absent or missing an entry ⇒ that
-        # endpoint's pool mints with no node claim -- unchanged, zero-friction
-        # behavior. A caller switching to a DIFFERENT endpoint on a later
-        # call (e.g. after invalidating a stale route) transparently gets
-        # THAT endpoint's pool and node_id -- there is no separate re-mint
-        # step, since every `_send()` builds a fresh envelope already.
+        # ADR-3 / W1.9 node-bound envelopes: optional endpoint -> node_id map.
+        # ADR-1 / W1.1's `resolve_cluster_endpoints` (above) is the discovery
+        # primitive that produces this map from a live seed connection's
+        # `ClusterMembers` answer -- pass its `node_ids` result straight
+        # through. Absent or missing an entry ⇒ that endpoint's pool mints
+        # with no node claim -- unchanged, zero-friction behavior for a caller
+        # that never discovered topology (single-node, or a static endpoint
+        # list with no matching node id). A caller switching to a DIFFERENT
+        # endpoint on a later call (e.g. after invalidating a stale route)
+        # transparently gets THAT endpoint's pool and node_id -- there is no
+        # separate re-mint step, since every `_send()` builds a fresh envelope
+        # already.
         node_ids = node_ids or {}
         self.pools: dict[str, ConnectionPool] = {}
         for ep in endpoints:

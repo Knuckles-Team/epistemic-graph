@@ -2736,6 +2736,22 @@ async fn dispatch_inner(
             }
         }
 
+        // ── Cluster topology discovery (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1) ──
+        // Self-routing, NOT graph-scoped (cluster-wide, like the raft-admin block
+        // above): `ClusterMembers` answers from ANY node's local `NodeInfoStore` +
+        // live `MultiRaft` membership (no leader redirect, unlike `PlacementRoute` —
+        // ADR-1's client resolves via any healthy seed); `NodeInfoUpsert` is the
+        // internal per-node self-report `raft::node::start` issues, reaching this
+        // arm only via the replicated-apply re-entry (its live proposal is
+        // intercepted earlier by the `ConsensusNative` branch above).
+        Method::ClusterMembers | Method::NodeInfoUpsert { .. } => {
+            match handlers::topology::try_handle(state, req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: both variants matched above are topology methods.
+                Err(_) => Response::err(req.id, "cluster topology dispatch routing error"),
+            }
+        }
+
         // ── Channel operations ───────────────────────────────────────
         Method::CreateChannel {
             channel_id,
