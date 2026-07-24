@@ -364,7 +364,12 @@ fn build_graph(
 
 /// Build the subgraph AND the canonical `(min,max)`-index edge set (used by predict to
 /// exclude already-existing links from the missing-link enumeration).
-fn build_graph_with_set(
+///
+/// `pub(crate)` so the composable ML-pipeline handler (`handlers/pipeline.rs`) reuses
+/// the EXACT SAME graph-derived subgraph construction (label vertices + intra-label
+/// observed edges) for both its structural-embedding feature step and its `graphlearn`
+/// model family — one subgraph builder, never a drifting second copy.
+pub(crate) fn build_graph_with_set(
     core: &GraphCore,
     source: &GraphSource,
 ) -> (AdjacencyGraph<String>, HashSet<(usize, usize)>) {

@@ -486,6 +486,20 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     {
         return *writeback;
     }
+    // ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): Train/Predict mutate only when
+    // their `writeback` writes back the `:Model` / `:Prediction` nodes; Evaluate and
+    // Compare are pure reads (they fall through to `false`).
+    #[cfg(feature = "ml-pipeline")]
+    if let Method::MiningPipelineTrain { writeback, .. }
+    | Method::MiningPipelinePredict { writeback, .. } = method
+    {
+        return *writeback;
+    }
+    // Serve ALWAYS writes the `:ServedModel` pointer (deploy the version).
+    #[cfg(feature = "ml-pipeline")]
+    if matches!(method, Method::MiningPipelineServe { .. }) {
+        return true;
+    }
     matches!(
         method,
         Method::BeginTxn { .. }
