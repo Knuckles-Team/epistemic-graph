@@ -642,7 +642,9 @@ where
                 }
             };
             let principal_scope = context.principal_persistence_id();
-            let qreq = match crate::server::qos::classify(&req.method, &principal_scope, is_write) {
+            // The admission class comes from the request's MAC-covered priority claim
+            // (W2.4), so a principal cannot forge a higher class than it signed.
+            let qreq = match crate::server::qos::classify(&principal_scope, context.priority()) {
                 Ok(request) => request,
                 Err(error) => {
                     crate::metrics::auth_failure();
@@ -656,8 +658,13 @@ where
             };
             verified_qos_context = Some(context);
             match sched.try_admit(&qreq) {
-                crate::server::qos::QosDecision::Admit(p) => Some(p),
+                crate::server::qos::QosDecision::Admit(p) => {
+                    crate::metrics::qos_admitted(qreq.class.label());
+                    Some(p)
+                }
                 crate::server::qos::QosDecision::Reject(why) => {
+                    // Per-class shed telemetry (W2.4) + the shared BUSY counter.
+                    crate::metrics::qos_shed(qreq.class.label(), why.label());
                     crate::metrics::busy_rejected();
                     let resp = Response::err(req.id, why.busy_message());
                     drop(conn_permit);
@@ -700,19 +707,31 @@ where
         let task_state = state.clone();
         let task_tx = tx.clone();
         let task_sem = sem.clone();
+        // The QoS class this request was admitted under (W2.4), captured for the per-class
+        // dispatch-latency histogram + in-flight gauge; `None` when QoS is not configured.
+        let qos_class = qos_permit.as_ref().map(|p| p.class());
         tokio::spawn(async move {
+            let dispatch_start = std::time::Instant::now();
             let resp = match verified_qos_context {
                 Some(context) => dispatch_verified_request(&task_state, req, context).await,
                 None => dispatch(&task_state, req).await,
             };
+            // Observe per-class dispatch latency + release the per-class gauge (W2.4)
+            // BEFORE the permit drop, so the class is still known.
+            if let Some(class) = qos_class {
+                crate::metrics::qos_dispatch_finished(
+                    class.label(),
+                    dispatch_start.elapsed().as_secs_f64(),
+                );
+            }
             let _ = task_tx
                 .send(encode_bounded_frame(&resp, max_response_bytes))
                 .await;
             drop(read_permit);
             drop(pg_permit);
             drop(g_permit);
-            // CONCEPT:EG-KG.coordination.backpressure-busy-signal — release the QoS slot (tenant/class/global counters) once
-            // the request completes; `None` when QoS is not configured.
+            // CONCEPT:EG-KG.coordination.backpressure-busy-signal — release the QoS slot (principal/class/global counters)
+            // once the request completes; `None` when QoS is not configured.
             drop(qos_permit);
             drop(conn_permit);
             crate::metrics::connection_request_finished(task_sem.available_permits());

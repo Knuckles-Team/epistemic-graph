@@ -44,6 +44,23 @@ pub struct RequestContextClaims {
     /// before (absent, not a hard error).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node: Option<String>,
+    /// Advisory QoS admission-priority class this request declares (W2.4 —
+    /// engine-native QoS lanes). One of the agent-utilities `PriorityClass`
+    /// wire values `"interactive"` / `"orchestration"` / `"hydration"` /
+    /// `"background_ingestion"`; any other or absent value is treated as the
+    /// orchestration default (high, never starved — matching au's
+    /// untagged-context semantics). Mapped to a [`crate`]-independent admission
+    /// class by the server's QoS scheduler (`server::qos::QosClass`).
+    ///
+    /// It is **MAC-covered** (appended to `build_envelope_v2_bytes` as a
+    /// distinct tag-`2` optional trailer, after the tag-`1` node trailer) so a
+    /// noisy principal cannot forge a higher class to defeat the admission
+    /// ordering — the priority is bound to the signed envelope exactly like
+    /// every other claim. `#[serde(default)]` + presence-gated encoding keep an
+    /// envelope minted by a client that predates this claim byte-for-byte
+    /// identical to before (absent, not a hard error) — fully additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<String>,
 }
 
 /// Role of an agent in the system hierarchy.
