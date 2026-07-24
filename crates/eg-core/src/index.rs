@@ -125,6 +125,15 @@ pub struct ChangeSet {
     pub removed_nodes: Vec<String>,
     pub added_edges: Vec<EdgeChange>,
     pub removed_edges: Vec<EdgeChange>,
+    /// Captured property blob of a removed node, keyed by id (CONCEPT:EG-KG.storage.incremental-index-stamp,
+    /// W1.6/P7). A removed node is gone from the property store by the time index maintenance
+    /// runs, so its labels / property keys cannot be re-read — a write path that can capture the
+    /// blob BEFORE the delete records it here, letting incremental index maintenance remove the id
+    /// from exactly the postings it belonged to (and the dependency clock bump exactly the label /
+    /// key dimensions it touched) instead of dropping the whole index / coarsely flooring. A
+    /// removed id ABSENT from this map falls back to the sound coarse path (scan the warm postings
+    /// for the id; floor the dependency clock). Populated only by paths that can capture cheaply.
+    pub removed_node_props: std::collections::HashMap<String, Vec<u8>>,
 }
 
 impl ChangeSet {
@@ -165,6 +174,15 @@ impl ChangeSet {
         self.updated_nodes.push(NodeChange::new(id));
     }
     pub fn record_remove_node(&mut self, id: String) {
+        self.removed_nodes.push(id);
+    }
+    /// Record a removed node together with the property blob it carried just before deletion
+    /// (CONCEPT:EG-KG.storage.incremental-index-stamp, W1.6/P7), so incremental index maintenance can
+    /// remove the id from exactly its postings and the dependency clock can bump exactly the
+    /// label / key dimensions it touched. Use from any write path that reads the blob before the
+    /// delete; `record_remove_node` remains correct where the blob is unavailable (coarse fallback).
+    pub fn record_remove_node_with_properties(&mut self, id: String, properties_msgpack: Vec<u8>) {
+        self.removed_node_props.insert(id.clone(), properties_msgpack);
         self.removed_nodes.push(id);
     }
     pub fn record_add_edge(&mut self, source: String, target: String) {
