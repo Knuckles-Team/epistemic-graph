@@ -732,6 +732,12 @@ fn max_cached_contexts() -> usize {
         .unwrap_or(64)
 }
 
+/// `(caller, node_epoch)` — the key of the `nodes`-batch sub-cache (see
+/// `SqlContextCache::node_batches`).
+type NodeBatchKey = (String, u64);
+/// The cached `nodes` table: its schema + the O(V) inferred Arrow batch.
+type NodeBatchEntry = (SchemaRef, arrow::record_batch::RecordBatch);
+
 /// Amortized whole-`SessionContext` cache for the served SQL read path. Mirrors
 /// [`SqlCache`]'s staleness discipline (version/epoch-keyed, build OUTSIDE the
 /// lock, replace inside it, never serve a mismatched key) but does NOT literally
@@ -752,7 +758,7 @@ pub struct SqlContextCache {
     /// the node batch is caller-specific — a shared `SqlContextCache` (one per owner file, but a
     /// single test/embedded instance may serve several callers) must NEVER hand one caller's
     /// narrower filtered node projection to another. Mirrors `SqlContextEpoch`'s own `caller` field.
-    node_batches: Mutex<HashMap<(String, u64), Arc<(SchemaRef, arrow::record_batch::RecordBatch)>>>,
+    node_batches: Mutex<HashMap<NodeBatchKey, Arc<NodeBatchEntry>>>,
     hits: std::sync::atomic::AtomicU64,
     misses: std::sync::atomic::AtomicU64,
     /// Reuse counters for the `nodes`-batch sub-cache (the O(V) scans SKIPPED / RUN). Observability
