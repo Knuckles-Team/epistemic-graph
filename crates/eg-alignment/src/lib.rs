@@ -20,10 +20,16 @@
 //!   [`resolver::EvidenceResolver`].
 //! * [`resolver::EvidenceResolver`] — the evidence-resolver seam: resolves an
 //!   `EvidenceLocus` back to its [`resolver::ResolvedArtifact`] (a text excerpt or
-//!   a blob reference). [`resolver::InMemoryResolver`] is the trivial,
-//!   dependency-free implementation this crate ships; a real resolver backed by
-//!   the engine's blob CAS + real codecs is a documented follow-up (see module
-//!   docs).
+//!   a blob reference). This crate ships the trait only — deliberately no
+//!   resolver implementation of its own, since a leaf crate below the server
+//!   cannot reach the blob CAS (see "Dependency footprint" below). The real,
+//!   production resolver is `CasEvidenceResolver` in the facade
+//!   (`src/server/blob/cas_resolver.rs`, the `alignment` feature): it resolves a
+//!   locus's opaque subject through a `GraphView` snapshot's stored `blob_ref`
+//!   and reads the actual bytes back out of the engine's content-addressed
+//!   store. Its own tests prove a cross-modal `AlignmentGraph` join (a document
+//!   span co-occurring with an image region that supports a claim) resolving
+//!   end-to-end through fixture CAS content.
 //!
 //! ## Dependency footprint
 //!
@@ -39,4 +45,4 @@ pub mod graph;
 pub mod resolver;
 
 pub use graph::{AlignmentGraph, AlignmentLink, AlignmentNode, AlignmentNodeId, AlignmentRelation};
-pub use resolver::{subject_ref, EvidenceResolver, InMemoryResolver, ResolvedArtifact};
+pub use resolver::{subject_ref, EvidenceResolver, ResolvedArtifact};

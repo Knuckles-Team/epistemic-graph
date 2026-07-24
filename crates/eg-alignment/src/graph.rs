@@ -172,6 +172,35 @@ mod tests {
     use eg_modality::{
         ArtifactId, DerivationId, EvidenceAddress, EvidenceLocusId, OpaqueRef, ResourceId,
     };
+    use std::collections::HashMap;
+
+    /// Test-only `EvidenceResolver` fixture — see the identical helper in
+    /// `resolver.rs`'s own test module for why this crate keeps no shipped
+    /// resolver implementation.
+    struct FixtureResolver(HashMap<OpaqueRef, crate::resolver::ResolvedArtifact>);
+
+    impl FixtureResolver {
+        fn new() -> Self {
+            Self(HashMap::new())
+        }
+
+        fn with_text(mut self, subject: OpaqueRef, excerpt: impl Into<String>) -> Self {
+            self.0.insert(
+                subject.clone(),
+                crate::resolver::ResolvedArtifact::Text {
+                    subject_ref: subject.to_string(),
+                    excerpt: excerpt.into(),
+                },
+            );
+            self
+        }
+    }
+
+    impl crate::resolver::EvidenceResolver for FixtureResolver {
+        fn resolve(&self, locus: &EvidenceLocus) -> Option<crate::resolver::ResolvedArtifact> {
+            self.0.get(crate::resolver::subject_ref(locus)).cloned()
+        }
+    }
 
     fn r(namespace: &str, suffix: u8) -> OpaqueRef {
         OpaqueRef::scoped(namespace, &format!("00000000000000{suffix:02x}")).unwrap()
@@ -286,7 +315,7 @@ mod tests {
         let claim = g.add_node(AlignmentNode::Claim {
             claim_id: "c1".to_string(),
         });
-        let resolver = crate::resolver::InMemoryResolver::new();
+        let resolver = FixtureResolver::new();
         assert_eq!(g.resolve_evidence(claim, &resolver), None);
     }
 
@@ -296,7 +325,7 @@ mod tests {
         let evidence = locus(EvidenceAddress::CharacterRange { start: 0, end: 5 }, 1);
         let subject = evidence.subject.opaque().clone();
         let doc_span = g.add_node(AlignmentNode::Evidence(evidence));
-        let resolver = crate::resolver::InMemoryResolver::new().with_text(subject, "hello");
+        let resolver = FixtureResolver::new().with_text(subject, "hello");
         assert!(g.resolve_evidence(doc_span, &resolver).is_some());
     }
 

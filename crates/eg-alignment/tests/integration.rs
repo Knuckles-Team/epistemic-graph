@@ -8,9 +8,12 @@
 //! `eg-alignment`'s own published dependency graph or the workspace's
 //! default-build footprint.
 
-use eg_alignment::{AlignmentGraph, AlignmentNode, AlignmentRelation, InMemoryResolver};
+use eg_alignment::{
+    AlignmentGraph, AlignmentNode, AlignmentRelation, EvidenceResolver, ResolvedArtifact,
+};
 use eg_audio::AudioData;
 use eg_document::{content_hash, DocumentDecoder, NativeTextDecoder};
+use std::collections::HashMap;
 
 /// A minimal `LexemeEncoder` for the fixture decodes below — the alignment test
 /// only needs a document to decode successfully, not any particular lexeme scheme.
@@ -36,6 +39,50 @@ fn locus(address: EvidenceAddress, suffix: u8) -> EvidenceLocus {
         address,
         policy_ref: r("policy", suffix),
         derivation_ref: DerivationId::from_token(&format!("00000000000002{suffix:02x}")).unwrap(),
+    }
+}
+
+/// Test-only `EvidenceResolver` fixture: this crate ships the `EvidenceResolver`
+/// trait/`AlignmentGraph` seam only (no resolver implementation of its own — see
+/// the crate docs), so an integration test outside the crate needs its own
+/// minimal double to exercise `resolve_evidence`. The real, production resolver
+/// is `CasEvidenceResolver` in the facade (`src/server/blob/cas_resolver.rs`),
+/// which its own tests prove against real CAS-backed fixture content, including
+/// this exact doc-span/image-region/claim cross-modal join.
+struct FixtureResolver(HashMap<OpaqueRef, ResolvedArtifact>);
+
+impl FixtureResolver {
+    fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    fn with_text(mut self, subject: OpaqueRef, excerpt: impl Into<String>) -> Self {
+        self.0.insert(
+            subject.clone(),
+            ResolvedArtifact::Text {
+                subject_ref: subject.to_string(),
+                excerpt: excerpt.into(),
+            },
+        );
+        self
+    }
+
+    fn with_blob(mut self, subject: OpaqueRef, blob_ref: impl Into<String>) -> Self {
+        self.0.insert(
+            subject.clone(),
+            ResolvedArtifact::Blob {
+                subject_ref: subject.to_string(),
+                blob_ref: blob_ref.into(),
+                note: "resolved from the registered governed subject".to_string(),
+            },
+        );
+        self
+    }
+}
+
+impl EvidenceResolver for FixtureResolver {
+    fn resolve(&self, locus: &EvidenceLocus) -> Option<ResolvedArtifact> {
+        self.0.get(eg_alignment::subject_ref(locus)).cloned()
     }
 }
 
@@ -117,7 +164,7 @@ fn alignment_links_a_document_span_to_an_image_region_to_a_claim_and_resolves() 
 
     // Resolution: both evidence nodes resolve to a real artifact through the
     // evidence-resolver seam; the claim node (not an `Evidence` node) does not.
-    let resolver = InMemoryResolver::new()
+    let resolver = FixtureResolver::new()
         .with_text(doc_subject.clone(), "a fox jumps over the fence")
         .with_blob(image_subject.clone(), "img-blob-1");
 
