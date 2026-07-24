@@ -2936,13 +2936,16 @@ fn group_of_equals_durable_shard_index_under_production_ring() {
 /// so distinct ids never collide as an idempotent replay). ~512-byte payload so each
 /// durable commit does real work — the per-shard writer, not client plumbing, is the cost.
 fn scale_add_node_req(graph: &str, node_id: &str, seq: u64) -> RaftRequest {
-    let filler = "x".repeat(512);
+    let filler = "x".repeat(2048);
     RaftRequest {
         graph_fname: crate::persist::sanitize(graph),
         graph_name: graph.to_string(),
         graph_type: GraphType::Global,
         committed_at_ms: 0,
         mutation: super::RaftMutationContext::internal("w12-scale", graph, node_id, seq, 0),
+        // The native command is AEAD-sealed with the node's server secret and unsealed at
+        // apply; this MUST match `make_state_with_backend`'s `auth_secret` ("raft-test")
+        // or apply fails "native Raft command authentication failed".
         command: super::ReplicatedMutation::graph(
             Method::AddNode {
                 node_id: node_id.to_string(),
@@ -2951,7 +2954,7 @@ fn scale_add_node_req(graph: &str, node_id: &str, seq: u64) -> RaftRequest {
                 )
                 .unwrap(),
             },
-            "w12-scale",
+            "raft-test",
         )
         .unwrap(),
     }
@@ -3093,7 +3096,7 @@ async fn run_group_write_workload(
 /// ratio is asserted and the absolute writes/sec logged.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn multi_group_write_throughput_scales_vs_single_group() {
-    const N_GROUPS: u64 = 6;
+    const N_GROUPS: u64 = 8;
     const N_GRAPHS: usize = 24;
     const WRITES_PER_GRAPH: u64 = 10;
 
@@ -3187,9 +3190,15 @@ async fn per_group_leader_failover_is_independent() {
         .await
         .expect("baseline group-2 write");
 
-    // KILL group 1's leader (node 2). Group 2 (node 3) is a different node.
+    // KILL group 1's leader node (node 2) fully — stop its listener AND shut down EVERY
+    // group's raft on it (not just DEFAULT_GROUP via `handle`), else node 2 keeps
+    // heart-beating as group 1's leader and its followers never time out. Group 2's
+    // leader (node 3) is a different node, untouched.
     let killed = nodes.remove(&2).unwrap();
     killed.multi.stop_listener();
+    for gid in killed.multi.known_groups().await {
+        let _ = killed.multi.close_group(gid).await;
+    }
     let _ = killed.handle.raft.shutdown().await;
 
     // ── KEY ASSERTION: group 2 keeps committing writes UNINTERRUPTED right through
