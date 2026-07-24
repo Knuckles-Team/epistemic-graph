@@ -63,6 +63,25 @@ instances share KV blocks: blocks are hash-keyed, deduplicated, and ref-counted,
 lets an external vLLM/LMCache connector fetch or store a block by its token-hash. Two workers that PUT the
 same token-hash store the bytes **once** — the LMCache dedup / prefix-cache win.
 
+## Networked (durable, fleet-shared) backend — `SharedKvStoreBackend`
+
+The `SharedKvIndex` above is **in-process + ephemeral**. `SharedKvStoreBackend`
+(`src/server/kvcache_http/shared_store.rs`) is the SAME `SharedKvBackend` seam over the engine's
+**durable, mutation-store-backed KV store** (`kv.redb`, the store the `KvGet`/`KvPut` wire methods own).
+Select it with `EPISTEMIC_GRAPH_KVCACHE_BACKEND=durable`. Then:
+
+- **Fleet-shared through the engine** — every serving instance that reaches this engine (over `/kv` or the
+  `KvGet`/`KvPut` wire) reads/writes ONE `kv.redb`, so a prefix block instance A PUTs is a HIT for instance B.
+- **Survives a restart** — commit-before-ack redb durability; the shared L2 cache is durable.
+- **Fleet-wide invalidation** — the derived-context data-version epoch is persisted, so a graph write on one
+  node invalidates stale context for all of them (pure content-addressed pages are immune). Stale disk is
+  reclaimed out of band via the bounded `retire_stale` sweep (reads gate lazily meanwhile).
+- **Graph-topology-aware paging** — `page_in_ranked` pages the most graph-central nodes' KV blocks into RAM
+  first, using the resident graph's own PageRank/centrality (`eg_kvcache::graph_importance`) as the locality
+  signal, and seeds the LMCacheMPConnector snapshot→branch working layer.
+- **Hit-rate metrics** — atomic `get_hits`/`get_misses`/`dedup_hits`/`put_new`/`stale_missed` feed `/kv/stats`
+  and a periodic `tracing` hit-rate line (`target: epistemic_graph::kvcache`), in the W3.7 Seam-6 export shape.
+
 ## HTTP server + connector (EG-KG.backend.is-configured-so-co, feature `kvcache-server`)
 
 A gated HTTP surface over the `SharedKvBackend`:
