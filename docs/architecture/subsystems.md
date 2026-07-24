@@ -98,6 +98,9 @@ duplicate publishes) and exposes the stream/confirm/ack ops over the **AMQP `con
 **MQTT 5** wire frames (EG-314). The AMQP, MQTT, and STOMP wire adapters (EG-275/281/282) are three front
 doors onto this one broker. A **live-CEP standing-query subscription** surface (EG-KG.query.protocol-types) lets a client
 register a CEP pattern and receive pushed matches fed by the same CDC bus (see the stream/CEP section).
+W4.10 adds the fourth: a standing query can ALSO forward its matches onto this broker
+(`EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE`, topic-routed by subscription id), so the same three wire
+adapters double as a genuine CEP push transport alongside `CepPoll`'s long-poll.
 
 ---
 
@@ -162,6 +165,10 @@ as a RowSet. The engine's **CDC broadcast bus feeds live windows**, so standing 
 same reactive substrate that drives continuous queries and watches. Program B adds a **live-CEP
 standing-query subscription surface** (Method + subscription stream): register a CEP pattern, subscribe, and
 receive **pushed** matches fed by the CDC bus (EG-KG.query.protocol-types). Gated `stream`, in the one main build.
+W4.10 wires that surface's matches onto the broker too (`EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE`, opt-in,
+feature `broker`) — a second, genuinely-pushed delivery path over the AMQP/MQTT/STOMP wire adapters
+alongside `CepPoll`'s long-poll, reachable with zero added write-path cost when unconfigured (see
+`src/server/cep.rs`).
 
 ---
 

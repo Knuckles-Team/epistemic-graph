@@ -93,6 +93,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   cache NEVER invalidates on a graph write — there is nothing for a write to
   invalidate — so ONE instance safely serves every graph/tenant/caller. Sized
   by `EPISTEMIC_GRAPH_CYPHER_PLAN_CACHE` (default 256 entries, `0` disables).
+- **Live-CEP → broker push bridge** (W4.10, extends `CONCEPT:EG-KG.query.protocol-types`/EG-299).
+  `CepSubscribe`'s standing queries could previously only be drained via `CepPoll`
+  (long-poll). A standing query's matches can now ALSO be genuinely PUSHED: when
+  `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` names an exchange, every match is
+  additionally published — topic-routed, routing key = the subscription id — onto
+  that exchange in `__commons__`'s broker, so an already-connected AMQP/MQTT/STOMP
+  consumer (the three existing wire adapters' own poll-driven push pumps) receives
+  it with no further client action, and any RPC client can equally `BrokerConsume`
+  it. Purely additive over `CepSubscribe`'s registration path (`src/server/cep.rs`);
+  never touches the CDC write-path hook, so the per-write cost is zero whether or
+  not this is armed. Unset (default) ⇒ `CepPoll`-only behavior, unchanged.
 
 ### Fixed
 - **Audit-chain cold-seed tail lookup is now a bounded seek, not a forward scan**
