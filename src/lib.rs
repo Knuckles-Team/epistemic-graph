@@ -81,6 +81,18 @@ pub mod loop_statechart;
 #[cfg(feature = "statechart")]
 pub mod work_item_statechart;
 
+// CONCEPT:INT-P2-2 / ADR-6 (W2.3) -- the agent-instance lifecycle statechart: an agent
+// instance's own `dormant ⇄ active` (+ `terminated`) lifecycle as ONE reusable
+// `eg_statechart::StatechartDef`, the canonical "statechart template" the agents-as-data
+// activation layer instantiates per dormant instance. Distinct from (and composed with)
+// the WorkItem chart above — this owns "is the instance dormant or active", the WorkItem
+// owns "is an activation submitted/leased/running/done". Pure data + tests; instantiated
+// via the EXISTING `Method::Statechart` surface, mirrored as a Python dict in
+// `agent_utilities.orchestration.agent_activation`. See the module doc for the full
+// derivation.
+#[cfg(feature = "statechart")]
+pub mod agent_lifecycle_statechart;
+
 /// One staged time-series measurement batch for a cross-modal ACID commit
 /// (CONCEPT:EG-KG.backend.cross-modal-atomic-commit): `(series_id, n_fields, bucket_ns, field_names, points)` where each
 /// point is `(ts_nanos, field_values)`. Carried as PLAIN data (no `eg-tsdb` type) so it
