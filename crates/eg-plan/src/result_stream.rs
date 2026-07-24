@@ -541,6 +541,98 @@ mod tests {
         assert!(stream.cursor().exhausted);
     }
 
+    /// Resident-set size in bytes on Linux (`/proc/self/statm` field 2 × page size),
+    /// `None` elsewhere — the flat-RSS probe below is Linux-gated.
+    #[cfg(target_os = "linux")]
+    fn resident_bytes() -> Option<u64> {
+        let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+        let resident_pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+        Some(resident_pages * 4096)
+    }
+
+    /// A lazy source that COUNTS how many rows it has yielded, so a test can prove the
+    /// producer pulls incrementally (one batch ahead at most) rather than draining the
+    /// whole source up front — the structural half of the bounded-memory guarantee.
+    struct CountingRows {
+        next: usize,
+        total: usize,
+        pulled: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+
+    impl Iterator for CountingRows {
+        type Item = KnowledgeBatchRow;
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.next >= self.total {
+                return None;
+            }
+            let index = self.next;
+            self.next += 1;
+            self.pulled.set(self.pulled.get() + 1);
+            Some(row(index))
+        }
+    }
+
+    /// A 1M-row scan streams to completion holding only ONE bounded batch resident —
+    /// the whole point of the columnar streaming currency (flat RSS regardless of scan
+    /// size). Proven three ways: (1) the lazy source is a range never collected into a
+    /// `Vec`; (2) the producer is verified to pull at most one `batch_size` page ahead
+    /// of what it has emitted (never draining all 1M up front); (3) on Linux, resident
+    /// memory grows by a small bound across the whole scan, not proportionally to 1M
+    /// rows (which materialized would cost hundreds of MB).
+    #[test]
+    fn million_row_scan_streams_with_flat_memory() {
+        const ROWS: usize = 1_000_000;
+        const BATCH: usize = 1_024;
+
+        let pulled = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let source = CountingRows {
+            next: 0,
+            total: ROWS,
+            pulled: pulled.clone(),
+        };
+        let mut stream =
+            graph_result_stream(context(), vec!["score".to_string()], source, BATCH).unwrap();
+
+        #[cfg(target_os = "linux")]
+        let baseline = resident_bytes();
+
+        // Drive the stream batch-by-batch to a discarding sink, asserting the bound
+        // holds at every step: each resident batch is ≤ BATCH rows, and the source has
+        // never been pulled more than one page beyond what has already been emitted.
+        let mut emitted: usize = 0;
+        let mut batches: u64 = 0;
+        while let Some(envelope) = stream.next_batch().unwrap() {
+            let rows = envelope.batch.len();
+            assert!(
+                rows <= BATCH,
+                "resident batch {rows} exceeded bound {BATCH}"
+            );
+            emitted += rows;
+            batches += 1;
+            assert!(
+                pulled.get() <= emitted + BATCH,
+                "producer read {} rows but only {emitted} emitted (+{BATCH} lookahead) — \
+                 not streaming incrementally",
+                pulled.get(),
+            );
+        }
+
+        assert_eq!(emitted, ROWS);
+        assert_eq!(batches, (ROWS as u64).div_ceil(BATCH as u64));
+        assert!(stream.cursor().exhausted);
+
+        // Flat RSS: streaming 1M rows must not grow resident memory proportionally to
+        // the scan (materialized, 1M `KnowledgeBatchRow`s would cost hundreds of MB).
+        #[cfg(target_os = "linux")]
+        if let (Some(before), Some(after)) = (baseline, resident_bytes()) {
+            let growth = after.saturating_sub(before);
+            assert!(
+                growth < 64 * 1024 * 1024,
+                "RSS grew {growth} bytes over a 1M-row stream — not flat (bounded batch expected)",
+            );
+        }
+    }
+
     #[test]
     fn local_paths_and_unversioned_context_are_rejected() {
         let mut unsafe_row = row(0);
