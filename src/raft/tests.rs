@@ -1169,9 +1169,13 @@ mod placement_admin_wire_rpc {
             "PlacementRoute failed: {:?}",
             route_resp.error
         );
-        let route: crate::epistemic_operations::PlacementRoute = match route_resp.result {
+        // A-W1.2-2: the route response is the ADR-1 wire superset (extra
+        // `endpoints` key); the canonical deny_unknown_fields DTO rejects it,
+        // so the wire type is the ONLY correct reader for a route response.
+        let route: crate::server::handlers::placement::PlacementRouteWire = match route_resp.result
+        {
             Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
-            other => panic!("expected a typed PlacementRoute, got {other:?}"),
+            other => panic!("expected a typed PlacementRouteWire, got {other:?}"),
         };
         assert!(route.placed);
         assert_eq!(
