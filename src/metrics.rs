@@ -297,6 +297,19 @@ mod imp {
              TruthMaintenance index's on_change (a ChangeEvent may stale several ids \
              at once; each staled id counts once per event)",
         );
+        // ADR-5 (W2.2) statechart migration phase 1: the dual-write DIVERGENCE ALARM.
+        // Incremented whenever a lifecycle statechart MIRROR disagrees with the
+        // authoritative (redb-row / Python-enum) next state — the loud, queryable signal
+        // that a chart definition is not yet a faithful replica and the authority flip
+        // (phase 2) must not proceed. The `machine` label is a fixed small set
+        // (`work_item`, `loop`) so the series is bounded.
+        static ref STATECHART_DIVERGENCE_TOTAL: IntCounterVec = counter_vec(
+            "epistemic_graph_statechart_divergence_total",
+            "Count of lifecycle-statechart mirror transitions that diverged from the \
+             authoritative next state during the ADR-5 phase-1 dual-write migration, by \
+             machine (CONCEPT:INT-P2-2)",
+            &["machine"],
+        );
     }
 
     /// Map a graph name onto the bounded label space.
@@ -463,6 +476,14 @@ mod imp {
         EPISTEMIC_MATERIALIZATIONS_STALED_TOTAL.inc_by(n);
     }
 
+    /// Record one lifecycle-statechart mirror divergence (ADR-5 phase-1 dual-write).
+    /// `machine` is a fixed small label (`"work_item"` / `"loop"`).
+    pub fn statechart_divergence(machine: &str) {
+        STATECHART_DIVERGENCE_TOTAL
+            .with_label_values(&[machine])
+            .inc();
+    }
+
     /// Render the full registry in Prometheus text exposition format.
     pub fn render() -> String {
         let encoder = TextEncoder::new();
@@ -504,6 +525,7 @@ mod imp {
     pub fn loop_tick(_name: &str, _seconds: f64) {}
     pub fn set_epistemic_materializations_stale(_n: i64) {}
     pub fn epistemic_materializations_staled(_n: u64) {}
+    pub fn statechart_divergence(_machine: &str) {}
     pub fn render() -> String {
         String::new()
     }
