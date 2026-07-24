@@ -62,6 +62,7 @@ pub(crate) struct PlacementRouteWire {
     pub(crate) endpoints: Vec<String>,
 }
 
+#[allow(clippy::too_many_arguments)] // internal response assembler; mirrors the wire field list (repo idiom: graphlearn/rdf handlers)
 fn route_response(
     req_id: u64,
     group: u64,

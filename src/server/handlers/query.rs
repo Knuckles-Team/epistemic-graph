@@ -1507,6 +1507,7 @@ fn uql_text_embedder() -> Option<&'static dyn eg_plan::TextEmbedder> {
 ///   * `Filter` / `Limit` — RowSet-narrowing transforms over the ALREADY-sourced rows, adding no
 ///     graph dependency beyond the source's (they read only the scanned rows' own properties,
 ///     which the source's label/all-nodes dimension already covers).
+///
 /// ANY other op — a `Traverse` (edges + arbitrary reached nodes), a vector/lexical `Rank`, a
 /// temporal `AsOf`, a reasoner/SPARQL/federation/tensor/spatial/tsdb/epistemic leg — reads state
 /// the clock does not model, so the WHOLE plan falls back to coarse invalidation. That
