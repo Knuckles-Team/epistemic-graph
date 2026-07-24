@@ -1432,6 +1432,29 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     }
     #[cfg(feature = "epistemic-tms")]
     epistemic_graph::server::reasoning_projection::spawn(state.clone());
+    // ── Reasoning auto-cascade (W3.6/E16, opt-in) ─────────────────────────────────
+    // CDC-triggered, debounced OWL/RL closure re-materialization, ONE graph at a
+    // time, ONLY for graphs named in `REASON_ON_WRITE` (config-contract style,
+    // never default-on — materializing a closure on every write is real,
+    // ontology-size-dependent CPU cost). Unset/empty ⇒ no cascade is installed on
+    // the CDC hub and NO background task is spawned at all — the write path is
+    // byte-for-byte what it was before this feature existed.
+    #[cfg(all(feature = "owl", feature = "streaming"))]
+    {
+        let cascade = std::sync::Arc::new(
+            epistemic_graph::server::reasoning_cascade::ReasoningCascade::from_env(),
+        );
+        if cascade.is_active() {
+            if let Some(hub) = state.read().await.cdc.as_ref() {
+                hub.install_reasoning_cascade(cascade.clone());
+            }
+            info!(
+                "Reasoning cascade (REASON_ON_WRITE) armed: debounce {}ms",
+                cascade.debounce_window().as_millis()
+            );
+            epistemic_graph::server::reasoning_cascade::spawn(state.clone(), cascade);
+        }
+    }
     // CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl —
     // install the server-layer secondary-index factory so a committed write batch
     // maintains the text / temporal / derived-OWL indexes INCREMENTALLY through the
