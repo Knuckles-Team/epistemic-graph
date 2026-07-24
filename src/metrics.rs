@@ -403,7 +403,9 @@ mod imp {
     /// Record a QoS-admitted request finishing dispatch after `seconds` (W2.4): observes
     /// the per-class latency histogram and releases the per-class in-flight gauge.
     pub fn qos_dispatch_finished(class: &str, seconds: f64) {
-        QOS_CLASS_LATENCY.with_label_values(&[class]).observe(seconds);
+        QOS_CLASS_LATENCY
+            .with_label_values(&[class])
+            .observe(seconds);
         QOS_CLASS_IN_FLIGHT.with_label_values(&[class]).dec();
     }
 

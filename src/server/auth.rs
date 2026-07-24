@@ -1909,13 +1909,16 @@ mod tests {
         // signing secret). The MAC no longer covers the mutated claim, so
         // verification must fail — the noisy-neighbor defense cannot be forged.
         let mut envelope = decode_envelope_v2(&req).unwrap();
-        assert_eq!(envelope.context.priority.as_deref(), Some("background_ingestion"));
+        assert_eq!(
+            envelope.context.priority.as_deref(),
+            Some("background_ingestion")
+        );
         envelope.context.priority = Some("interactive".into());
         let json = serde_json::to_vec(&envelope).unwrap();
         req.auth_token = format!("{ENVELOPE_V2_PREFIX}{}", hex::encode(json));
 
-        let error =
-            verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap_err();
+        let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
+            .unwrap_err();
         assert!(
             error.contains("Authentication failed") || error.to_lowercase().contains("mac"),
             "a forged priority class must fail MAC verification, got: {error}"
