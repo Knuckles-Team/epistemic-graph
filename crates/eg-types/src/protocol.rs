@@ -207,6 +207,26 @@ pub enum PlacementAdminOp {
     AbortMove { move_id: String },
 }
 
+/// CONCEPT:EG-KG.query.obda-predicate-pushdown — a LIVE EXTERNAL relational source registered
+/// for an OBDA virtual graph (W4.11): a `TriplesMap::logical_source` NAME bound to a `table`
+/// in an external Postgres/MySQL database reachable at `dsn`. On a [`Method::SparqlVirtual`]
+/// query the engine exposes it as a virtual RDF graph and pushes BOTH the query's column
+/// projection AND its row-level `FILTER`s down into a real `SELECT … WHERE …` against the
+/// database — the whole table is never scanned. The live SQL path needs a server built with
+/// `federation-sql` (reusing its SSRF-validated, read-only, timeout+row-bounded connector); a
+/// build without it returns a clean "rebuild with federation-sql" error. Distinct from
+/// `tables` (the engine's OWN user tables).
+#[cfg(feature = "obda")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObdaExternalSource {
+    /// The foreign-source NAME the mapping's `TriplesMap`(s) reference as `logical_source`.
+    pub name: String,
+    /// The external database DSN (`postgres://…` / `mysql://…`), SSRF-validated server-side.
+    pub dsn: String,
+    /// The table (or view) name in the external database to expose as the virtual source.
+    pub table: String,
+}
+
 // ── Method ──────────────────────────────────────────────────────────────
 
 /// All operations supported by the service.
@@ -2984,6 +3004,14 @@ pub enum Method {
         /// `logical_source`s — each is registered as a foreign source under its own
         /// name before the mapping is parsed and the query is run.
         tables: Vec<String>,
+        /// LIVE external relational sources (Postgres/MySQL) registered as foreign OBDA
+        /// sources IN ADDITION to `tables` (CONCEPT:EG-KG.query.obda-predicate-pushdown,
+        /// W4.11). Each binds a `logical_source` name to an external DB table; the query's
+        /// column projection AND its row-level `FILTER`s are pushed into a real
+        /// `SELECT … WHERE …`. Needs a `federation-sql` server build for the live path.
+        /// Empty ⇒ engine-own-tables-only (the prior behavior).
+        #[serde(default)]
+        external_sources: Vec<ObdaExternalSource>,
     },
     /// Run the native OWL 2 (EL⁺ + RL) reasoner over the request's graph and
     /// materialize entailments (CONCEPT:EG-KG.ontology.incremental-materialization). Classifies the OWL axioms already
