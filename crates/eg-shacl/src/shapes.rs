@@ -112,10 +112,31 @@ pub enum Constraint {
     Node(Term),
     /// `sh:property` — value nodes are validated against the referenced property shape.
     Property(Term),
-    /// `sh:sparql` — SPARQL-based constraint (referenced constraint node). DEFERRED:
-    /// parsed to this marker but not evaluated (EG-132 follow-up; needs the eg-rdf
-    /// SPARQL engine over the data graph).
+    /// `sh:sparql` — a SPARQL-based constraint (CONCEPT:EG-KG.ontology.concept-6, W3C SHACL-SPARQL §3.5): the
+    /// referenced constraint node, resolved on demand via
+    /// [`ShapesGraph::parse_sparql_constraint`] (its `sh:select`/`sh:message`/
+    /// `sh:prefixes`) by the evaluator ([`crate::validate`]) and the ICV witness
+    /// builder ([`crate::icv`]).
     Sparql(Term),
+}
+
+/// A resolved `sh:sparql` constraint descriptor (CONCEPT:EG-KG.ontology.concept-6, W3C SHACL-SPARQL §3.5.1):
+/// the SELECT query text plus its local `sh:message` override and the prefix
+/// declarations resolved from `sh:prefixes` (see [`ShapesGraph::parse_sparql_constraint`]).
+#[derive(Debug, Clone)]
+pub struct SparqlConstraint {
+    /// The `sh:select` query text (a SPARQL 1.1 SELECT using `$this`/`?this`, and
+    /// optionally `$PATH`/`?PATH`/`$shapesGraph`/`?shapesGraph`/`$currentShape`/
+    /// `?currentShape` as pre-bound variables).
+    pub select: String,
+    /// `sh:message` on the constraint node itself — overrides the containing
+    /// shape's own `sh:message` for results produced by this constraint, mirroring
+    /// how [`Shape::message`] is used elsewhere.
+    pub message: Option<String>,
+    /// Resolved `prefix -> namespace` declarations reachable from `sh:prefixes`
+    /// (each value transitively via `owl:imports`), prepended as `PREFIX` lines
+    /// before the query is parsed.
+    pub prefixes: Vec<(String, String)>,
 }
 
 /// A parsed shape (node or property).
@@ -130,6 +151,15 @@ pub struct Shape {
     pub message: Option<String>,
     pub severity: Severity,
     pub deactivated: bool,
+    /// `sh:closed true` (CONCEPT:EG-KG.ontology.concept-6, W3C SHACL Core §4.6.1): this shape's value nodes may
+    /// carry ONLY the properties named by this shape's own `sh:property` paths (see
+    /// [`Constraint::Property`]) plus [`Shape::ignored_properties`] — any other
+    /// asserted predicate is a `ClosedConstraintComponent` violation.
+    pub closed: bool,
+    /// `sh:ignoredProperties` — predicates a closed shape allows even though they are
+    /// not the path of any of its own property shapes (e.g. `rdf:type`). Empty unless
+    /// `closed` is set; meaningless otherwise.
+    pub ignored_properties: Vec<NamedNode>,
 }
 
 /// A read-only view over a shapes graph that parses [`Shape`]s on demand.
@@ -140,6 +170,12 @@ pub struct ShapesGraph<'a> {
 impl<'a> ShapesGraph<'a> {
     pub fn new(graph: &'a Graph) -> Self {
         ShapesGraph { graph }
+    }
+
+    /// The underlying shapes graph — used by [`crate::validate`] to evaluate
+    /// `sh:sparql` constraints' `GRAPH $shapesGraph { … }` clauses against it.
+    pub(crate) fn graph(&self) -> &'a Graph {
+        self.graph
     }
 
     /// All ROOT shape terms — those with a target (`sh:targetClass`/`targetNode`/
@@ -342,6 +378,21 @@ impl<'a> ShapesGraph<'a> {
             self.object(id, vocab::DEACTIVATED),
             Some(Term::Literal(ref l)) if l.value() == "true"
         );
+        let closed = matches!(
+            self.object(id, vocab::CLOSED),
+            Some(Term::Literal(ref l)) if l.value() == "true"
+        );
+        let ignored_properties = match self.object(id, vocab::IGNORED_PROPERTIES) {
+            Some(head) => self
+                .rdf_list(&head)
+                .into_iter()
+                .filter_map(|t| match t {
+                    Term::NamedNode(n) => Some(n),
+                    _ => None,
+                })
+                .collect(),
+            None => Vec::new(),
+        };
 
         Shape {
             id: id.clone(),
@@ -351,6 +402,54 @@ impl<'a> ShapesGraph<'a> {
             message: self.string_object(id, vocab::MESSAGE),
             severity,
             deactivated,
+            closed,
+            ignored_properties,
+        }
+    }
+
+    /// Resolve a `sh:sparql` constraint node into its [`SparqlConstraint`] descriptor
+    /// (CONCEPT:EG-KG.ontology.concept-6, W3C SHACL-SPARQL §3.5.1): the `sh:select` text, an optional local
+    /// `sh:message` override, and the prefix declarations reachable from `sh:prefixes`.
+    pub fn parse_sparql_constraint(&self, id: &Term) -> Option<SparqlConstraint> {
+        let select = self.string_object(id, vocab::SELECT)?;
+        let message = self.string_object(id, vocab::MESSAGE);
+        let mut prefixes = Vec::new();
+        let mut seen_decls: Vec<Term> = Vec::new();
+        for target in self.objects(id, vocab::PREFIXES) {
+            self.collect_prefixes(&target, &mut prefixes, &mut seen_decls, 0);
+        }
+        Some(SparqlConstraint {
+            select,
+            message,
+            prefixes,
+        })
+    }
+
+    /// Collect `sh:declare [ sh:prefix "p" ; sh:namespace "iri" ]` entries reachable
+    /// from `target`, following `owl:imports` transitively (W3C SHACL-SPARQL §3.5.1: "the
+    /// object of `sh:prefixes` MAY be linked to a resource that has its own prefix
+    /// declarations... e.g. via `owl:imports`"). `seen` guards against an
+    /// `owl:imports` cycle; `depth` bounds pathological chains.
+    fn collect_prefixes(
+        &self,
+        target: &Term,
+        out: &mut Vec<(String, String)>,
+        seen: &mut Vec<Term>,
+        depth: usize,
+    ) {
+        if depth > 16 || seen.iter().any(|t| t == target) {
+            return;
+        }
+        seen.push(target.clone());
+        for decl in self.objects(target, vocab::DECLARE) {
+            let prefix = self.string_object(&decl, vocab::PREFIX);
+            let namespace = self.string_object(&decl, vocab::NAMESPACE);
+            if let (Some(p), Some(ns)) = (prefix, namespace) {
+                out.push((p, ns));
+            }
+        }
+        for imported in self.objects(target, vocab::OWL_IMPORTS) {
+            self.collect_prefixes(&imported, out, seen, depth + 1);
         }
     }
 }

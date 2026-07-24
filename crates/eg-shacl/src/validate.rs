@@ -7,25 +7,34 @@
 //!    data graph.
 //! 2. A shape's **value nodes** are the focus node itself (node shape) or the objects of
 //!    its `sh:path` predicate (property shape).
-//! 3. Cardinality (`sh:minCount`/`sh:maxCount`) and `sh:hasValue` are checked over the
-//!    SET of value nodes; every other component is checked per value node.
+//! 3. Cardinality (`sh:minCount`/`sh:maxCount`), `sh:hasValue`, and `sh:sparql` are
+//!    checked over/against the FOCUS (set-level); `sh:closed` is checked per value node
+//!    against ITS OWN outgoing properties; every other component is checked per value
+//!    node.
 //! 4. `sh:node`/`sh:and`/`sh:or`/`sh:not`/`sh:xone` recurse into referenced shapes;
 //!    `sh:property` validates each value node against the referenced property shape and
 //!    surfaces its results directly.
+//!
+//! `validate` is fallible: a `sh:sparql` constraint whose query fails to parse, or that
+//! uses a construct this engine's [`crate::sparql`] evaluator does not support, aborts
+//! the WHOLE validation run with `Err` rather than silently producing an incomplete or
+//! wrong report (CONCEPT:EG-KG.ontology.concept-6 — no masking).
 
 use std::cmp::Ordering;
 
-use eg_rdf::oxrdf::{Graph, Term};
+use eg_rdf::oxrdf::{Graph, NamedNode, Term};
 use regex::RegexBuilder;
 
 use crate::report::{ValidationReport, ValidationResult};
 use crate::shapes::{
     as_subject_ref, nn, Constraint, NodeKind, Path, RangeKind, Shape, ShapesGraph, Target,
 };
+use crate::sparql::{self, PreBindings};
 use crate::vocab;
 
-/// Validate a data graph against a shapes graph (CONCEPT:EG-KG.ontology.concept-6).
-pub fn validate(shapes_graph: &Graph, data_graph: &Graph) -> ValidationReport {
+/// Validate a data graph against a shapes graph (CONCEPT:EG-KG.ontology.concept-6). `Err`
+/// iff a `sh:sparql` constraint's query cannot be evaluated (see the module docs).
+pub fn validate(shapes_graph: &Graph, data_graph: &Graph) -> Result<ValidationReport, String> {
     let v = Validator {
         shapes: ShapesGraph::new(shapes_graph),
         data: data_graph,
@@ -37,10 +46,10 @@ pub fn validate(shapes_graph: &Graph, data_graph: &Graph) -> ValidationReport {
             continue;
         }
         for focus in v.focus_nodes(&shape) {
-            v.validate_focus(&shape, &focus, &mut results, 0);
+            v.validate_focus(&shape, &focus, &mut results, 0)?;
         }
     }
-    ValidationReport::from_results(results)
+    Ok(ValidationReport::from_results(results))
 }
 
 struct Validator<'a> {
@@ -137,14 +146,14 @@ impl Validator<'_> {
         focus: &Term,
         out: &mut Vec<ValidationResult>,
         depth: usize,
-    ) {
+    ) -> Result<(), String> {
         if depth > MAX_DEPTH {
-            return;
+            return Ok(());
         }
         let values = self.value_nodes(shape, focus);
         for c in &shape.constraints {
             match c {
-                // ── Set-level (over all value nodes) ──────────────────────
+                // ── Set-level (over all value nodes, or over $this directly) ──
                 Constraint::MinCount(n) => {
                     if values.len() < *n {
                         out.push(self.result(
@@ -178,14 +187,24 @@ impl Validator<'_> {
                         ));
                     }
                 }
+                Constraint::Sparql(constraint_ref) => {
+                    self.check_sparql(shape, focus, constraint_ref, out)?;
+                }
                 // ── Per value node ────────────────────────────────────────
                 _ => {
                     for vn in &values {
-                        self.check_value(shape, focus, vn, c, out, depth);
+                        self.check_value(shape, focus, vn, c, out, depth)?;
                     }
                 }
             }
         }
+        if shape.closed {
+            let allowed = self.closed_allowed_predicates(shape);
+            for vn in &values {
+                self.check_closed(shape, focus, vn, &allowed, out);
+            }
+        }
+        Ok(())
     }
 
     /// Check one per-value-node constraint against a single value node.
@@ -197,7 +216,7 @@ impl Validator<'_> {
         c: &Constraint,
         out: &mut Vec<ValidationResult>,
         depth: usize,
-    ) {
+    ) -> Result<(), String> {
         match c {
             Constraint::Datatype(dt) => {
                 let ok = matches!(vn, Term::Literal(l) if l.datatype().as_str() == dt.as_str());
@@ -312,7 +331,7 @@ impl Validator<'_> {
             }
             // ── Shape-based (recursive) ──────────────────────────────────
             Constraint::Node(shape_ref) => {
-                if !self.node_conforms(shape_ref, vn, depth) {
+                if !self.node_conforms(shape_ref, vn, depth)? {
                     out.push(self.result(
                         shape,
                         focus,
@@ -323,7 +342,7 @@ impl Validator<'_> {
                 }
             }
             Constraint::Not(shape_ref) => {
-                if self.node_conforms(shape_ref, vn, depth) {
+                if self.node_conforms(shape_ref, vn, depth)? {
                     out.push(self.result(
                         shape,
                         focus,
@@ -334,7 +353,13 @@ impl Validator<'_> {
                 }
             }
             Constraint::And(list) => {
-                if !list.iter().all(|s| self.node_conforms(s, vn, depth)) {
+                let mut all = true;
+                for s in list {
+                    if !self.node_conforms(s, vn, depth)? {
+                        all = false;
+                    }
+                }
+                if !all {
                     out.push(self.result(
                         shape,
                         focus,
@@ -345,7 +370,13 @@ impl Validator<'_> {
                 }
             }
             Constraint::Or(list) => {
-                if !list.iter().any(|s| self.node_conforms(s, vn, depth)) {
+                let mut any = false;
+                for s in list {
+                    if self.node_conforms(s, vn, depth)? {
+                        any = true;
+                    }
+                }
+                if !any {
                     out.push(self.result(
                         shape,
                         focus,
@@ -356,10 +387,12 @@ impl Validator<'_> {
                 }
             }
             Constraint::Xone(list) => {
-                let n = list
-                    .iter()
-                    .filter(|s| self.node_conforms(s, vn, depth))
-                    .count();
+                let mut n = 0usize;
+                for s in list {
+                    if self.node_conforms(s, vn, depth)? {
+                        n += 1;
+                    }
+                }
                 if n != 1 {
                     out.push(self.result(
                         shape,
@@ -375,26 +408,144 @@ impl Validator<'_> {
                 // surface its results directly (the SHACL sh:property semantics).
                 let prop_shape = self.shapes.parse_shape(prop_ref);
                 if !prop_shape.deactivated {
-                    self.validate_focus(&prop_shape, vn, out, depth + 1);
+                    self.validate_focus(&prop_shape, vn, out, depth + 1)?;
                 }
             }
-            // Deferred: parsed but not evaluated.
-            Constraint::Sparql(_) => {}
-            // Set-level constraints never reach here.
-            Constraint::MinCount(_) | Constraint::MaxCount(_) | Constraint::HasValue(_) => {}
+            // Set-level constraints (incl. sh:sparql) never reach here.
+            Constraint::MinCount(_)
+            | Constraint::MaxCount(_)
+            | Constraint::HasValue(_)
+            | Constraint::Sparql(_) => {}
         }
+        Ok(())
     }
 
     /// Whether `focus` conforms to the shape identified by `shape_ref` (no results of any
     /// severity). Used by the shape-based logical/`sh:node` components.
-    fn node_conforms(&self, shape_ref: &Term, focus: &Term, depth: usize) -> bool {
+    fn node_conforms(&self, shape_ref: &Term, focus: &Term, depth: usize) -> Result<bool, String> {
         if depth > MAX_DEPTH {
-            return true;
+            return Ok(true);
         }
         let shape = self.shapes.parse_shape(shape_ref);
         let mut tmp = Vec::new();
-        self.validate_focus(&shape, focus, &mut tmp, depth + 1);
-        tmp.is_empty()
+        self.validate_focus(&shape, focus, &mut tmp, depth + 1)?;
+        Ok(tmp.is_empty())
+    }
+
+    // ── sh:sparql (CONCEPT:EG-KG.ontology.concept-6, W3C SHACL-SPARQL §3.5) ─────────────────────────
+
+    /// Evaluate a `sh:sparql` constraint for one focus node: run its `sh:select`
+    /// query with `$this` (and, for a property shape, `$PATH`) pre-bound, and turn
+    /// every returned solution row into one [`ValidationResult`] — mirroring how
+    /// `InvalidResource2`'s TWO offending labels become TWO results in the W3C
+    /// SHACL-SPARQL test suite (`sparql/node/sparql-001`), not one.
+    fn check_sparql(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        constraint_ref: &Term,
+        out: &mut Vec<ValidationResult>,
+    ) -> Result<(), String> {
+        let sc = self
+            .shapes
+            .parse_sparql_constraint(constraint_ref)
+            .ok_or_else(|| format!("sh:sparql: constraint {constraint_ref} has no sh:select"))?;
+        let path_term = match &shape.path {
+            Some(Path::Predicate(p)) => Some(Term::NamedNode(p.clone())),
+            _ => None,
+        };
+        let pre = PreBindings {
+            this: focus.clone(),
+            path: path_term,
+            shapes_graph: sparql::shapes_graph_sentinel(),
+            current_shape: shape.id.clone(),
+        };
+        let rows = sparql::eval_select(
+            &sc.select,
+            &sc.prefixes,
+            self.data,
+            self.shapes.graph(),
+            &pre,
+        )?;
+        for row in rows {
+            let focus_out = row.get("this").cloned().unwrap_or_else(|| focus.clone());
+            let path_out = row
+                .get("path")
+                .map(|t| t.to_string())
+                .or_else(|| Self::path_str(shape));
+            let value_out = row
+                .get("value")
+                .cloned()
+                .unwrap_or_else(|| focus_out.clone());
+            let message = row
+                .get("message")
+                .map(|t| lexical(t).unwrap_or_else(|| t.to_string()))
+                .or_else(|| sc.message.clone())
+                .or_else(|| shape.message.clone());
+            out.push(ValidationResult {
+                focus_node: focus_out.to_string(),
+                path: path_out,
+                value: Some(value_out.to_string()),
+                source_shape: shape.id.to_string(),
+                constraint_component: vocab::CC_SPARQL.to_string(),
+                message,
+                severity: shape.severity,
+            });
+        }
+        Ok(())
+    }
+
+    // ── sh:closed (CONCEPT:EG-KG.ontology.concept-6, W3C SHACL Core §4.6.1) ──────────────────────
+
+    /// Predicates a closed `shape`'s value nodes may carry without violating
+    /// `sh:closed`: the paths of its own `sh:property` sub-shapes, plus
+    /// `sh:ignoredProperties`.
+    fn closed_allowed_predicates(&self, shape: &Shape) -> Vec<NamedNode> {
+        let mut allowed = shape.ignored_properties.clone();
+        for c in &shape.constraints {
+            if let Constraint::Property(prop_ref) = c {
+                let prop_shape = self.shapes.parse_shape(prop_ref);
+                if let Some(Path::Predicate(p)) = prop_shape.path {
+                    allowed.push(p);
+                }
+            }
+        }
+        allowed
+    }
+
+    /// One `ClosedConstraintComponent` violation per (predicate, value) pair
+    /// asserted on `vn` whose predicate is not in `allowed` — a literal `vn` has no
+    /// outgoing triples, so it trivially satisfies a closed shape.
+    fn check_closed(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        allowed: &[NamedNode],
+        out: &mut Vec<ValidationResult>,
+    ) {
+        let Some(subject) = as_subject_ref(vn) else {
+            return;
+        };
+        for t in self.data.triples_for_subject(subject) {
+            if allowed.iter().any(|a| a.as_ref() == t.predicate) {
+                continue;
+            }
+            out.push(ValidationResult {
+                focus_node: focus.to_string(),
+                path: Some(format!("<{}>", t.predicate.as_str())),
+                value: Some(t.object.into_owned().to_string()),
+                source_shape: shape.id.to_string(),
+                constraint_component: vocab::CC_CLOSED.to_string(),
+                message: Some(shape.message.clone().unwrap_or_else(|| {
+                    format!(
+                        "predicate <{}> is not allowed by this closed shape",
+                        t.predicate.as_str()
+                    )
+                })),
+                severity: shape.severity,
+            });
+        }
     }
 }
 
@@ -497,12 +648,12 @@ fn node_kind_ok(vn: &Term, kind: NodeKind) -> bool {
     }
 }
 
-/// Convenience: parse two Turtle documents (shapes + data) and validate. Returns a parse
-/// error string if either document fails to parse.
+/// Convenience: parse two Turtle documents (shapes + data) and validate. Returns an
+/// error string if either document fails to parse, or [`validate`] itself errors.
 pub fn validate_turtle(shapes_ttl: &str, data_ttl: &str) -> Result<ValidationReport, String> {
     let shapes = graph_from_turtle(shapes_ttl)?;
     let data = graph_from_turtle(data_ttl)?;
-    Ok(validate(&shapes, &data))
+    validate(&shapes, &data)
 }
 
 /// Build an `oxrdf::Graph` from a Turtle document via eg-rdf's parser.

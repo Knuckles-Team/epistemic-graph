@@ -230,7 +230,10 @@ ex:PersonShape a sh:NodeShape ;
         r#"ex:alice a ex:Person ; ex:email "a@x.org" ."#
     ))
     .unwrap();
-    assert!(validate_icv(&shapes, &base).conforms, "base is clean");
+    assert!(
+        validate_icv(&shapes, &base).unwrap().conforms,
+        "base is clean"
+    );
 
     // Proposed: add a SECOND email → breaks sh:maxCount 1.
     let additions = eg_shacl::graph_from_turtle(&format!(
@@ -240,7 +243,7 @@ ex:PersonShape a sh:NodeShape ;
     .unwrap();
     let additions: Vec<_> = additions.iter().map(|t| t.into_owned()).collect();
 
-    let check = check_write(&shapes, &base, &additions, &[]);
+    let check = check_write(&shapes, &base, &additions, &[]).unwrap();
     assert!(!check.accepted, "guard must REJECT a maxCount-breaking add");
     assert!(
         !check.introduced.is_empty(),
@@ -279,7 +282,7 @@ ex:PersonShape a sh:NodeShape ;
         graph_from_turtle(&format!("{PREFIXES}{}", r#"ex:alice ex:nickname "Al" ."#)).unwrap();
     let additions: Vec<_> = additions.iter().map(|t| t.into_owned()).collect();
 
-    let check = check_write(&shapes, &base, &additions, &[]);
+    let check = check_write(&shapes, &base, &additions, &[]).unwrap();
     assert!(
         check.accepted,
         "guard must ACCEPT a clean add; {:?}",
@@ -311,7 +314,7 @@ ex:PersonShape a sh:NodeShape ;
         graph_from_turtle(&format!("{PREFIXES}{}", r#"ex:alice ex:name "Alice" ."#)).unwrap();
     let removals: Vec<_> = removals.iter().map(|t| t.into_owned()).collect();
 
-    let check = check_write(&shapes, &base, &[], &removals);
+    let check = check_write(&shapes, &base, &[], &removals).unwrap();
     assert!(
         !check.accepted,
         "removing a required value must be rejected"
@@ -341,7 +344,7 @@ ex:OwnerShape a sh:NodeShape ;
     ))
     .unwrap();
     assert!(
-        !validate_icv(&shapes, &data).conforms,
+        !validate_icv(&shapes, &data).unwrap().conforms,
         "asserted-only: Cat is not an Animal, so sh:class fails closed-world"
     );
 
@@ -350,7 +353,7 @@ ex:OwnerShape a sh:NodeShape ;
     let inferred =
         graph_from_turtle(&format!("{PREFIXES}{}", r#"ex:fluffy a ex:Animal ."#)).unwrap();
     let inferred: Vec<_> = inferred.iter().map(|t| t.into_owned()).collect();
-    let reasoned = validate_icv_with_inferences(&shapes, &data, &inferred);
+    let reasoned = validate_icv_with_inferences(&shapes, &data, &inferred).unwrap();
     assert!(
         reasoned.conforms,
         "reasoned view: inferred type satisfies sh:class; got {:?}",
@@ -372,4 +375,112 @@ ex:PersonShape a sh:NodeShape ;
     assert!(json.contains("witness"));
     let back: IcvReport = serde_json::from_str(&json).unwrap();
     assert_eq!(back, report);
+}
+
+// ── W4.13: sh:sparql through the ICV layer — witness IS the constraint's own SELECT ─
+
+#[test]
+fn w413_icv_sparql_violation_carries_the_constraints_own_select_as_witness() {
+    // sh:sparql (CONCEPT:EG-KG.ontology.concept-6): a Person's ex:age must be non-negative, checked via a
+    // SPARQL FILTER rather than sh:minInclusive, so the SAME evaluator this task
+    // added (crate::sparql) is what ICV's witness-building now goes through too.
+    // The embedded SPARQL text uses the full <http://example.org/age> IRI (not
+    // the ex: prefix) deliberately: this constraint carries no sh:prefixes/
+    // sh:declare, so `ex:` would be undeclared inside the SELECT text -- exactly
+    // as it should be (this crate implements the NORMATIVE sh:declare
+    // resolution mechanism only, see sparql.rs's module docs).
+    let shapes = r#"
+ex:PersonShape a sh:NodeShape ;
+    sh:targetClass ex:Person ;
+    sh:sparql [
+        sh:message "age must be non-negative" ;
+        sh:select """SELECT $this ?value WHERE { $this <http://example.org/age> ?value . FILTER (?value < 0) }""" ;
+    ] .
+"#;
+    let report = run(shapes, r#"ex:bob a ex:Person ; ex:age "-5"^^xsd:integer ."#);
+    assert!(!report.conforms, "a negative age must violate");
+    let v = report
+        .violations
+        .iter()
+        .find(|v| {
+            v.result
+                .constraint_component
+                .contains("SPARQLConstraintComponent")
+        })
+        .expect("an sh:sparql violation is reported");
+    assert_eq!(v.result.focus_node, "<http://example.org/bob>");
+    assert_eq!(
+        v.result.message.as_deref(),
+        Some("age must be non-negative")
+    );
+    // The witness is not a generic fallback query -- it is literally the shape's
+    // OWN sh:select text (the strongest possible "run this to see the offending
+    // data" proof for a SPARQL-based constraint).
+    assert!(
+        v.witness.contains("FILTER (?value < 0)"),
+        "witness embeds the constraint's own SELECT verbatim: {}",
+        v.witness
+    );
+    assert!(v
+        .witness
+        .contains("CONCEPT:EG-KG.ontology.wired-into-commit-write"));
+
+    // A non-negative age does not violate.
+    let good = run(
+        shapes,
+        r#"ex:alice a ex:Person ; ex:age "30"^^xsd:integer ."#,
+    );
+    assert!(good.conforms, "got {:?}", good.violations);
+}
+
+#[test]
+fn w413_icv_check_write_rejects_a_change_that_breaks_an_sh_sparql_constraint() {
+    // The [`check_write`] guard (the pure decision function the native-write ICV
+    // extension and the RDF write guard both sit on) must reject a write that
+    // introduces an sh:sparql violation exactly like it already does for the
+    // structural constraint components.
+    let shapes_ttl = format!(
+        "{PREFIXES}{}",
+        r#"
+ex:PersonShape a sh:NodeShape ;
+    sh:targetClass ex:Person ;
+    sh:sparql [
+        sh:select """SELECT $this ?value WHERE { $this <http://example.org/age> ?value . FILTER (?value < 0) }""" ;
+    ] .
+"#
+    );
+    let shapes = graph_from_turtle(&shapes_ttl).unwrap();
+    let base = graph_from_turtle(&format!(
+        "{PREFIXES}{}",
+        r#"ex:alice a ex:Person ; ex:age "30"^^xsd:integer ."#
+    ))
+    .unwrap();
+    assert!(
+        validate_icv(&shapes, &base).unwrap().conforms,
+        "base is clean"
+    );
+
+    // Proposed: overwrite alice's age with a negative one (remove the old, add the new).
+    let removals = eg_shacl::graph_from_turtle(&format!(
+        "{PREFIXES}{}",
+        r#"ex:alice ex:age "30"^^xsd:integer ."#
+    ))
+    .unwrap();
+    let removals: Vec<_> = removals.iter().map(|t| t.into_owned()).collect();
+    let additions = eg_shacl::graph_from_turtle(&format!(
+        "{PREFIXES}{}",
+        r#"ex:alice ex:age "-1"^^xsd:integer ."#
+    ))
+    .unwrap();
+    let additions: Vec<_> = additions.iter().map(|t| t.into_owned()).collect();
+
+    let check = check_write(&shapes, &base, &additions, &removals).unwrap();
+    assert!(
+        !check.accepted,
+        "guard must REJECT a change that makes ex:age negative"
+    );
+    assert!(check.introduced.iter().any(|v| v
+        .result
+        .constraint_component
+        .contains("SPARQLConstraintComponent")));
 }
