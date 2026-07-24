@@ -31,6 +31,15 @@ cypher = ["dep:petgraph"]
 # `datascience`, pulling `rand_chacha`; still no BLAS/GPU dep).
 cypher-mining = ["cypher", "eg-compute/mining"]
 cypher-graphlearn = ["cypher", "eg-compute/graphlearn"]
+# CONCEPT:EG-KG.query.named-graph-projection-catalog (W4.5/N5) — `gds.graph.project`/`.drop`/
+# `.exists`/`.list` plus named-projection reuse in the OTHER `gds.*` algorithm procedures (an
+# optional `graphName` config key that materializes/reuses a catalog entry instead of always
+# re-scanning the view). Needs `eg-core`'s `result-cache` feature: the `DepClock` this reuses for
+# invalidation (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7) and the
+# `GraphView::projection_scope` handle that carries it both live ONLY there, module-gated
+# identically. Kept OUT of the base `cypher` feature (same posture as `cypher-mining`/
+# `cypher-graphlearn` above) so a lean Pi/`cypher`-only build pays nothing extra.
+result-cache = ["cypher", "eg-core/result-cache"]
 # CONCEPT:EG-KG.query.cypher-engine-shadow — the `EPISTEMIC_GRAPH_CYPHER_ENGINE`
 # rollout surface (legacy | plan | shadow): a cost-based start/traversal-order
 # `plan` engine over the SAME binding-table walk, plus SHADOW mode that dual-executes
