@@ -2908,8 +2908,20 @@ fn group_of_equals_durable_shard_index_under_production_ring() {
     use crate::server::persistence::redb_backend::shard_index;
 
     let mut names: Vec<String> = vec![
-        "__commons__", "agent:planner", "acme:ws1", "tenant/hot", "a:b", "a/b", "ZZZ",
-        "g-xyz", "graph-a", "深い", "emoji-🚀", "under_score.dot", "space here", "n%23",
+        "__commons__",
+        "agent:planner",
+        "acme:ws1",
+        "tenant/hot",
+        "a:b",
+        "a/b",
+        "ZZZ",
+        "g-xyz",
+        "graph-a",
+        "深い",
+        "emoji-🚀",
+        "under_score.dot",
+        "space here",
+        "n%23",
     ]
     .into_iter()
     .map(String::from)
@@ -3032,8 +3044,13 @@ async fn run_group_write_workload(
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.to_string_lossy().to_string();
         let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, n_groups as usize)
-                .expect("open K==N sharded redb"),
+            RedbBackend::open_with_shards(
+                dir.clone(),
+                DurabilityPolicy::Each,
+                4096,
+                n_groups as usize,
+            )
+            .expect("open K==N sharded redb"),
         );
         assert_eq!(backend.as_redb().unwrap().shard_count(), n_groups as usize);
         let state = make_state_with_backend(&dir, backend).await;
@@ -3144,8 +3161,13 @@ async fn per_group_leader_failover_is_independent() {
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.to_string_lossy().to_string();
         let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, n_groups as usize)
-                .expect("open K==N sharded redb"),
+            RedbBackend::open_with_shards(
+                dir.clone(),
+                DurabilityPolicy::Each,
+                4096,
+                n_groups as usize,
+            )
+            .expect("open K==N sharded redb"),
         );
         let state = make_state_with_backend(&dir, backend).await;
         let started = node::start(cluster_cfg_with_groups(i, &ports, n_groups), state.clone())
@@ -3164,8 +3186,22 @@ async fn per_group_leader_failover_is_independent() {
         for n in nodes.values() {
             n.multi.rebalance_leaders().await;
         }
-        let g1 = nodes[&2].multi.group(1).await.unwrap().current_leader().await == Some(2);
-        let g2 = nodes[&3].multi.group(2).await.unwrap().current_leader().await == Some(3);
+        let g1 = nodes[&2]
+            .multi
+            .group(1)
+            .await
+            .unwrap()
+            .current_leader()
+            .await
+            == Some(2);
+        let g2 = nodes[&3]
+            .multi
+            .group(2)
+            .await
+            .unwrap()
+            .current_leader()
+            .await
+            == Some(3);
         g1 && g2
     })
     .await;
@@ -3207,7 +3243,9 @@ async fn per_group_leader_failover_is_independent() {
     for seq in 1..=15u64 {
         write_via_node(&nodes, 3, &graph_g2, seq)
             .await
-            .unwrap_or_else(|e| panic!("group-2 write {seq} must proceed while group 1 fails over: {e}"));
+            .unwrap_or_else(|e| {
+                panic!("group-2 write {seq} must proceed while group 1 fails over: {e}")
+            });
     }
     let g2_elapsed = g2_start.elapsed();
     assert!(
@@ -3251,9 +3289,15 @@ async fn per_group_leader_failover_is_independent() {
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
-    assert!(recovered, "group 1 must accept writes again after independent failover");
+    assert!(
+        recovered,
+        "group 1 must accept writes again after independent failover"
+    );
 
-    tracing::info!(?g2_elapsed, "ADR-2 W1.2 per-group failover independence verified");
+    tracing::info!(
+        ?g2_elapsed,
+        "ADR-2 W1.2 per-group failover independence verified"
+    );
     for (_, n) in nodes {
         n.multi.stop_listener();
         let _ = n.handle.raft.shutdown().await;

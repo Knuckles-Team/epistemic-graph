@@ -1926,7 +1926,10 @@ async fn cross_group_2pc_commits_atomically_across_distinct_shards() {
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
     let txn = two_shard_txn("t-ksharded", "a1", "b1");
-    let outcome = coord.commit_cross_shard(&txn).await.expect("commit returns");
+    let outcome = coord
+        .commit_cross_shard(&txn)
+        .await
+        .expect("commit returns");
     assert_eq!(outcome, TxnOutcome::Committed);
     // Atomic: BOTH graphs applied, phase-2 spanning GROUP_A + GROUP_B on distinct shards.
     assert_eq!(node_count(&state, GRAPH_A).await, 1, "A applied");
