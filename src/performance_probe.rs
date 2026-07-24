@@ -1786,14 +1786,14 @@ fn probe_mutation_batch(scale: usize) -> Result<Observation, ProbeError> {
 fn probe_qos(scale: usize) -> Result<Observation, ProbeError> {
     let pending: Vec<_> = (0..scale)
         .map(|index| QosRequest {
-            class: match index % 3 {
+            class: match index % 4 {
                 0 => QosClass::Interactive,
-                1 => QosClass::Batch,
-                _ => QosClass::Maintenance,
+                1 => QosClass::Orch,
+                2 => QosClass::Hydration,
+                _ => QosClass::Ingest,
             },
-            tenant: format!("eg:tenant:{:08}", index % 17),
+            principal: format!("eg:principal:{:08}", index % 17),
             deadline_micros: Some((scale - index) as u64),
-            is_write: index % 2 == 0,
         })
         .collect();
     let admitted = scale.min(16);

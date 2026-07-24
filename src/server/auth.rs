@@ -101,6 +101,7 @@ impl VerifiedRequestContext {
                 policy_version: policy.expected_policy_version.clone(),
                 delegation: Vec::new(),
                 node: None,
+                priority: None,
             },
             authority.batch_id.clone(),
         ))
@@ -112,6 +113,16 @@ impl VerifiedRequestContext {
 
     pub(crate) fn principal(&self) -> &str {
         &self.claims.principal
+    }
+
+    /// The request's MAC-covered advisory QoS priority claim, if any (W2.4 —
+    /// engine-native QoS lanes). Read by the transport's QoS admission gate and
+    /// mapped to an admission class by `server::qos::QosClass::from_priority_claim`.
+    /// `None` for a client that predates the claim (treated as the orchestration
+    /// default). Because it is bound into the verified envelope MAC, a principal
+    /// cannot forge a higher class than it signed.
+    pub(crate) fn priority(&self) -> Option<&str> {
+        self.claims.priority.as_deref()
     }
 
     /// Tenant carried by the cryptographically verified context. Callers at
@@ -239,6 +250,7 @@ impl VerifiedRequestContext {
                 policy_version: policy.expected_policy_version.clone(),
                 delegation: Vec::new(),
                 node: None,
+                priority: None,
             },
             format!("broker-request:{request_id}"),
         ))
@@ -261,6 +273,7 @@ impl VerifiedRequestContext {
                 policy_version: policy.expected_policy_version.clone(),
                 delegation: Vec::new(),
                 node: None,
+                priority: None,
             },
             format!("local-query:{request_id}"),
         ))
@@ -310,6 +323,7 @@ impl VerifiedRequestContext {
                 policy_version: policy.expected_policy_version.clone(),
                 delegation: Vec::new(),
                 node: None,
+                priority: None,
             },
             idempotency_key,
         ))
@@ -1618,6 +1632,7 @@ mod tests {
             policy_version: "policy-7".into(),
             delegation: vec![],
             node: None,
+            priority: None,
         }
     }
 
@@ -1857,6 +1872,53 @@ mod tests {
         verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap();
         let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap_err();
         assert!(error.contains("replay"), "got: {error}");
+    }
+
+    // ── W2.4: engine-native QoS lanes — the priority claim round-trips + is MAC-covered ──
+
+    #[test]
+    fn v2_priority_claim_round_trips_through_verification() {
+        let _opt_out = require_oidc_off();
+        // Absent priority ⇒ None (an un-upgraded client is unaffected).
+        let plain = signed_v2(540, "v2-prio-absent");
+        let ctx_plain =
+            verify_envelope_v2_with(SECRET, &plain, &verified_policy(), &memory_replay()).unwrap();
+        assert_eq!(ctx_plain.priority(), None);
+
+        // A present priority claim verifies and is readable post-verification, so the
+        // QoS gate can classify off it.
+        let mut claims = verified_claims();
+        claims.priority = Some("background_ingestion".into());
+        let req = signed_v2_with_claims(541, "v2-prio-present", claims);
+        let ctx =
+            verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
+        assert_eq!(ctx.priority(), Some("background_ingestion"));
+    }
+
+    #[test]
+    fn v2_priority_claim_is_mac_covered_and_cannot_be_forged() {
+        let _opt_out = require_oidc_off();
+        // A principal signs itself as background_ingestion ...
+        let mut claims = verified_claims();
+        claims.priority = Some("background_ingestion".into());
+        let mut req = signed_v2_with_claims(542, "v2-prio-forge", claims);
+
+        // ... then tampers with ONLY the priority field of the decoded envelope,
+        // trying to jump to the interactive lane WITHOUT re-signing (it holds no
+        // signing secret). The MAC no longer covers the mutated claim, so
+        // verification must fail — the noisy-neighbor defense cannot be forged.
+        let mut envelope = decode_envelope_v2(&req).unwrap();
+        assert_eq!(envelope.context.priority.as_deref(), Some("background_ingestion"));
+        envelope.context.priority = Some("interactive".into());
+        let json = serde_json::to_vec(&envelope).unwrap();
+        req.auth_token = format!("{ENVELOPE_V2_PREFIX}{}", hex::encode(json));
+
+        let error =
+            verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap_err();
+        assert!(
+            error.contains("Authentication failed") || error.to_lowercase().contains("mac"),
+            "a forged priority class must fail MAC verification, got: {error}"
+        );
     }
 
     #[test]
@@ -2189,6 +2251,7 @@ mod tests {
                 policy_version: "policy-7".into(),
                 delegation: vec![],
                 node: None,
+                priority: None,
             }
         }
 
