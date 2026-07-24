@@ -6846,8 +6846,17 @@ mod mutation_batch_tests {
                 .expect("claim result"),
         )
         .unwrap();
-        let crate::protocol::ResultPayload::Raw(bytes) = payload else {
-            panic!("ClaimWorkItem must return a typed result");
+        // `ResultPayload` is `#[serde(untagged)]` with `PropertiesMsgpack` declared BEFORE
+        // `Raw` (both are `serde_bytes` bins), so a round-tripped bin decodes as the FIRST
+        // matching bin variant (`PropertiesMsgpack`) — the enum's own doc notes this is by
+        // design (the client re-`unpackb`s any top-level bin regardless of variant name).
+        // The claim result is therefore the inner bytes under whichever bin variant serde
+        // picked; accept either. (Pre-W2.2 rot: this assertion named only `Raw`, which the
+        // untagged decoder can never yield for a bin.)
+        let bytes = match payload {
+            crate::protocol::ResultPayload::Raw(inner)
+            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
         };
         let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
         assert!(!result.claimed);
