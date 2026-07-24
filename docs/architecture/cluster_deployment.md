@@ -87,6 +87,12 @@ as before.
 set -a; source services/epistemic-graph/flavors/cluster.env; set +a
 export EPISTEMIC_GRAPH_RAFT_NODE_ID=1
 export EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE="${RAFT_AUTH_SECRET_FILE:?set a runtime secret-file reference}"
+# CONCEPT:EG-KG.sharding.cluster-topology (ADR-1 / W1.1): required once Raft peers are
+# configured -- the address this node self-reports so ClusterMembers/
+# PlacementRoute.endpoints can hand it to a discovering client, replacing
+# the static GRAPH_RAFT_GROUP_ENDPOINTS map. Fails closed (refuses to
+# start) without it once EPISTEMIC_GRAPH_RAFT_NODE_ID/_PEERS are set.
+export EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR="${NODE_1_CLIENT_ADDR:?e.g. tcp://10.0.0.10:8765}"
 export SERVER="${NODE_1_HOST:?set the node 1 host alias at runtime}"
 export ENGINE_PERSIST="${ENGINE_PERSIST:?set to node 1's existing data directory}"
 docker stack deploy -c services/epistemic-graph/compose.dev.yml epistemic-graph-1
