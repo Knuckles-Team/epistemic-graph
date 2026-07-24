@@ -97,7 +97,7 @@ fn main() {
     );
     println!("{}", "-".repeat(66));
 
-    let allow = move |id: u64| id % sel_inv as u64 == 0;
+    let allow = move |id: u64| id.is_multiple_of(sel_inv as u64);
     let mut results: Vec<ScaleResult> = Vec::new();
 
     for &n in &scales {

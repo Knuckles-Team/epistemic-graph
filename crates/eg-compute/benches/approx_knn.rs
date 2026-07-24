@@ -74,8 +74,17 @@ fn main() {
 
     // Approximate NN-descent.
     let t = Instant::now();
-    let approx =
-        knn_similarity_approx(&g, Metric::Jaccard, Direction::Out, k, 0.0, sample_rate, 100, 0.001, 42);
+    let approx = knn_similarity_approx(
+        &g,
+        Metric::Jaccard,
+        Direction::Out,
+        k,
+        0.0,
+        sample_rate,
+        100,
+        0.001,
+        42,
+    );
     let approx_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let (se, sa) = (pair_set(&exact), pair_set(&approx));
@@ -83,10 +92,23 @@ fn main() {
     let recall = recovered as f64 / se.len().max(1) as f64;
     let speedup = exact_ms / approx_ms;
 
-    println!("\n{:>14} | {:>12} | {:>10}", "variant", "time (ms)", "pairs");
+    println!(
+        "\n{:>14} | {:>12} | {:>10}",
+        "variant", "time (ms)", "pairs"
+    );
     println!("{}", "-".repeat(42));
-    println!("{:>14} | {:>12.2} | {:>10}", "exact O(V^2)", exact_ms, se.len());
-    println!("{:>14} | {:>12.2} | {:>10}", "nn-descent", approx_ms, sa.len());
+    println!(
+        "{:>14} | {:>12.2} | {:>10}",
+        "exact O(V^2)",
+        exact_ms,
+        se.len()
+    );
+    println!(
+        "{:>14} | {:>12.2} | {:>10}",
+        "nn-descent",
+        approx_ms,
+        sa.len()
+    );
 
     println!("\n--- acceptance ---");
     let quality_ok = recall >= 0.95;
@@ -102,7 +124,11 @@ fn main() {
     );
     println!(
         "  speed  : {speedup:.1}x exact ({exact_ms:.1} ms -> {approx_ms:.1} ms)  [{}]",
-        if speed_ok { "PASS >= 10x" } else { "FAIL < 10x" }
+        if speed_ok {
+            "PASS >= 10x"
+        } else {
+            "FAIL < 10x"
+        }
     );
     let ok = quality_ok && speed_ok;
     println!("\nRESULT: {}", if ok { "PASS" } else { "FAIL" });
