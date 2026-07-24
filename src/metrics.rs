@@ -134,6 +134,44 @@ mod imp {
              after the global pool / per-graph cap was saturated by writes — each is an \
              interactive read that would otherwise have been shed BUSY behind ingestion",
         );
+        // ── W2.4 engine-native QoS lanes (CONCEPT:EG-KG.coordination.backpressure-busy-signal) ──
+        // Per-admission-class observability: the first-class "did the noisy-neighbor SLO
+        // hold" telemetry. `class` ∈ {ingest,hydration,orch,interactive} (bounded, 4);
+        // `reason` ∈ {quota,fair_share,backpressure,rate_limited} (bounded, 4). Zero unless
+        // the QoS gate is enabled (`EPISTEMIC_GRAPH_QOS`).
+        static ref QOS_ADMITTED: IntCounterVec = counter_vec(
+            "epistemic_graph_qos_admitted_total",
+            "Requests admitted by the QoS admission gate, by priority class (W2.4)",
+            &["class"],
+        );
+        static ref QOS_SHED: IntCounterVec = counter_vec(
+            "epistemic_graph_qos_shed_total",
+            "Requests shed by the QoS admission gate, by priority class and shed reason \
+             (W2.4). The lowest class is shed first under pressure",
+            &["class", "reason"],
+        );
+        static ref QOS_CLASS_IN_FLIGHT: IntGaugeVec = gauge_vec(
+            "epistemic_graph_qos_class_in_flight",
+            "Requests currently holding a QoS admission permit, by priority class (W2.4) — \
+             the per-class queue depth",
+            &["class"],
+        );
+        static ref QOS_CLASS_LATENCY: HistogramVec = {
+            let m = HistogramVec::new(
+                HistogramOpts::new(
+                    "epistemic_graph_qos_class_dispatch_seconds",
+                    "End-to-end dispatch latency of a QoS-admitted request, by priority \
+                     class (W2.4) — interactive p99 must hold under an ingest flood",
+                )
+                .buckets(DURATION_BUCKETS.to_vec()),
+                &["class"],
+            )
+            .expect("valid metric");
+            REGISTRY
+                .register(Box::new(m.clone()))
+                .expect("unique metric");
+            m
+        };
         static ref GRAPH_OPS: IntCounterVec = counter_vec(
             "epistemic_graph_graph_ops_total",
             "Graph-targeted operations admitted past the ACL, by graph (bounded cardinality)",
@@ -348,6 +386,27 @@ mod imp {
         READ_RESERVED_ADMITTED.inc();
     }
 
+    /// Record one request admitted by the QoS gate in priority class `class` (W2.4):
+    /// bumps the per-class admit counter and the per-class in-flight gauge (released by
+    /// `qos_dispatch_finished`).
+    pub fn qos_admitted(class: &str) {
+        QOS_ADMITTED.with_label_values(&[class]).inc();
+        QOS_CLASS_IN_FLIGHT.with_label_values(&[class]).inc();
+    }
+
+    /// Record one request shed by the QoS gate in priority class `class` for `reason`
+    /// (W2.4). Under pressure the lowest class is shed first (`backpressure`).
+    pub fn qos_shed(class: &str, reason: &str) {
+        QOS_SHED.with_label_values(&[class, reason]).inc();
+    }
+
+    /// Record a QoS-admitted request finishing dispatch after `seconds` (W2.4): observes
+    /// the per-class latency histogram and releases the per-class in-flight gauge.
+    pub fn qos_dispatch_finished(class: &str, seconds: f64) {
+        QOS_CLASS_LATENCY.with_label_values(&[class]).observe(seconds);
+        QOS_CLASS_IN_FLIGHT.with_label_values(&[class]).dec();
+    }
+
     pub fn graph_op(graph: &str) {
         GRAPH_OPS.with_label_values(&[&graph_label(graph)]).inc();
     }
@@ -507,6 +566,9 @@ mod imp {
     pub fn connection_request_finished(_permits_available: usize) {}
     pub fn busy_rejected() {}
     pub fn read_reserved_admitted() {}
+    pub fn qos_admitted(_class: &str) {}
+    pub fn qos_shed(_class: &str, _reason: &str) {}
+    pub fn qos_dispatch_finished(_class: &str, _seconds: f64) {}
     pub fn graph_op(_graph: &str) {}
     pub fn set_graph_size(_graph: &str, _nodes: i64, _edges: i64) {}
     pub fn set_graph_memory(_graph: &str, _bytes: i64) {}

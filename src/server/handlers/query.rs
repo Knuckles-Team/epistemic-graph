@@ -4214,6 +4214,7 @@ mod current_auth_test_support {
             policy_version: "policy-test".to_string(),
             delegation: Vec::new(),
             node: None,
+            priority: None,
         };
         let mut request = Request {
             id,
