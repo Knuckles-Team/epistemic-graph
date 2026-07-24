@@ -734,39 +734,86 @@ fn node_batch_reused_across_non_node_write_and_matches_uncached() {
     let sql = "SELECT id FROM nodes ORDER BY id";
 
     // Ground truth: the byte-identical UNCACHED path.
-    let truth = exec_sql_typed_with_tables_cancellable(&snap, &store, sql, &CancellationToken::new())
-        .unwrap();
+    let truth =
+        exec_sql_typed_with_tables_cancellable(&snap, &store, sql, &CancellationToken::new())
+            .unwrap();
 
     let v0 = core.version();
     // Cold: builds the context AND infers the node batch once.
     let r0 = exec_sql_typed_with_tables_cached_cancellable(
-        &snap, v0, v0, TENANT, GRAPH, "caller-x", &store, &cache, sql, &CancellationToken::new(),
+        &snap,
+        v0,
+        v0,
+        TENANT,
+        GRAPH,
+        "caller-x",
+        &store,
+        &cache,
+        sql,
+        &CancellationToken::new(),
     )
     .unwrap();
     assert_eq!(rows(&r0), rows(&truth), "cached == uncached (cold)");
-    assert_eq!(cache.node_stats(), (0, 1), "cold miss builds the node batch once");
+    assert_eq!(
+        cache.node_stats(),
+        (0, 1),
+        "cold miss builds the node batch once"
+    );
 
     // A PURE-EDGE / catalog write: graph_version advances, node_epoch is UNCHANGED (v0).
     let v1 = v0 + 1;
     let r1 = exec_sql_typed_with_tables_cached_cancellable(
-        &snap, v1, v0, TENANT, GRAPH, "caller-x", &store, &cache, sql, &CancellationToken::new(),
+        &snap,
+        v1,
+        v0,
+        TENANT,
+        GRAPH,
+        "caller-x",
+        &store,
+        &cache,
+        sql,
+        &CancellationToken::new(),
     )
     .unwrap();
-    assert_eq!(rows(&r1), rows(&truth), "cached == uncached after a non-node write (reused batch)");
+    assert_eq!(
+        rows(&r1),
+        rows(&truth),
+        "cached == uncached after a non-node write (reused batch)"
+    );
     assert_eq!(
         cache.node_stats(),
         (1, 1),
         "a write that did not touch nodes REUSES the O(V) node batch instead of re-scanning it"
     );
     let (_hits, ctx_misses) = cache.stats();
-    assert_eq!(ctx_misses, 2, "the context itself is still correctly rebuilt on the new version");
+    assert_eq!(
+        ctx_misses, 2,
+        "the context itself is still correctly rebuilt on the new version"
+    );
 
     // A write that DOES touch nodes advances node_epoch → the node batch is re-inferred.
     let v2 = v1 + 1;
     let r2 = exec_sql_typed_with_tables_cached_cancellable(
-        &snap, v2, v2, TENANT, GRAPH, "caller-x", &store, &cache, sql, &CancellationToken::new(),
+        &snap,
+        v2,
+        v2,
+        TENANT,
+        GRAPH,
+        "caller-x",
+        &store,
+        &cache,
+        sql,
+        &CancellationToken::new(),
     )
     .unwrap();
-    assert_eq!(rows(&r2), rows(&truth), "cached == uncached after a node write");
-    assert_eq!(cache.node_stats(), (1, 2), "a node write re-infers the node batch");
+    assert_eq!(
+        rows(&r2),
+        rows(&truth),
+        "cached == uncached after a node write"
+    );
+    assert_eq!(
+        cache.node_stats(),
+        (1, 2),
+        "a node write re-infers the node batch"
+    );
 }

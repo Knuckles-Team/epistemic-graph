@@ -126,7 +126,11 @@ fn property_index_rebuild_flat_under_ingest() {
     let _ = core.nodes_by_property("status", "pending");
     let after_warm = core.index_rebuilds();
     for i in 1..=200 {
-        commit_add(&core, &format!("a{i}"), json!({ "type": "A", "status": "pending" }));
+        commit_add(
+            &core,
+            &format!("a{i}"),
+            json!({ "type": "A", "status": "pending" }),
+        );
         let ids = core.nodes_by_property("status", "pending").unwrap();
         assert_eq!(ids.len(), i + 1);
     }
@@ -171,7 +175,11 @@ fn incremental_property_index_matches_cold_rebuild() {
     let core = GraphCore::new();
     for i in 0..20 {
         let status = if i % 3 == 0 { "done" } else { "pending" };
-        commit_add(&core, &format!("n{i}"), json!({ "type": "T", "status": status }));
+        commit_add(
+            &core,
+            &format!("n{i}"),
+            json!({ "type": "T", "status": status }),
+        );
     }
     let _ = core.nodes_by_property("status", "pending"); // warm
 
@@ -186,7 +194,10 @@ fn incremental_property_index_matches_cold_rebuild() {
         core.invalidate_indexes();
         let mut cold = core.nodes_by_property("status", value).unwrap();
         cold.sort();
-        assert_eq!(warm, cold, "warm property index for status={value} must equal a cold rebuild");
+        assert_eq!(
+            warm, cold,
+            "warm property index for status={value} must equal a cold rebuild"
+        );
     }
 }
 

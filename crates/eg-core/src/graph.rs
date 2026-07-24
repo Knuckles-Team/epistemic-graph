@@ -2355,11 +2355,7 @@ impl GraphCore {
     /// to a `fallback` blob captured on the change (used for an add whose node the coalescer
     /// already committed). `None` when neither is present or decodable — the drop-and-rebuild
     /// fallback signal for the incremental maintainers.
-    fn node_props_value(
-        &self,
-        id: &str,
-        fallback: Option<&[u8]>,
-    ) -> Option<serde_json::Value> {
+    fn node_props_value(&self, id: &str, fallback: Option<&[u8]>) -> Option<serde_json::Value> {
         if let Some(props) = self.node_properties.get(id) {
             if let Ok(val) = decode_property_value(props.value().as_slice()) {
                 return Some(val);
@@ -2407,12 +2403,7 @@ impl GraphCore {
     /// Unfile `id` from the WARM label index. With `val` (captured pre-removal properties) only its
     /// own label postings are touched; without it, every posting is scanned for the id (sound but
     /// O(#labels)). No-op when cold. Stamped.
-    fn label_index_remove(
-        &self,
-        id: &str,
-        val: Option<&serde_json::Value>,
-        target_version: u64,
-    ) {
+    fn label_index_remove(&self, id: &str, val: Option<&serde_json::Value>, target_version: u64) {
         let mut guard = self.label_index.write();
         let Some(index) = guard.as_mut() else {
             return;
@@ -2491,7 +2482,10 @@ impl GraphCore {
             return;
         };
         for (key, by_value) in index.keys.iter_mut() {
-            match val.and_then(|v| v.get(key)).and_then(Self::property_value_key) {
+            match val
+                .and_then(|v| v.get(key))
+                .and_then(Self::property_value_key)
+            {
                 Some(vk) => {
                     if let Some(ids) = by_value.get_mut(&vk) {
                         remove_sorted(ids, id);
@@ -2704,7 +2698,11 @@ impl GraphCore {
     fn invalidate_node_indexes_if_stale(&self, new_version: u64) {
         Self::drop_if_stale(&self.label_index, &self.index_stamps.label, new_version);
         Self::drop_if_stale(&self.node_id_index, &self.index_stamps.node_id, new_version);
-        Self::drop_if_stale(&self.property_index, &self.index_stamps.property, new_version);
+        Self::drop_if_stale(
+            &self.property_index,
+            &self.index_stamps.property,
+            new_version,
+        );
         Self::drop_if_stale(&self.path_index, &self.index_stamps.path, new_version);
     }
 

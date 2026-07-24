@@ -175,7 +175,12 @@ impl DepClock {
         if !fp.labels.is_empty() || !fp.keys.is_empty() {
             let mut fine = self.fine.lock();
             for label in &fp.labels {
-                Self::bump_fine(&mut fine, &self.saturated, Dim::Label(label.clone()), version);
+                Self::bump_fine(
+                    &mut fine,
+                    &self.saturated,
+                    Dim::Label(label.clone()),
+                    version,
+                );
             }
             for key in &fp.keys {
                 Self::bump_fine(&mut fine, &self.saturated, Dim::Key(key.clone()), version);
@@ -370,7 +375,10 @@ mod tests {
         clock.note_version_bump(6);
 
         // The A-query survives the B-write: its dependency set is disjoint.
-        assert!(clock.is_valid(&deps, 5), "disjoint write must not invalidate");
+        assert!(
+            clock.is_valid(&deps, 5),
+            "disjoint write must not invalidate"
+        );
     }
 
     #[test]
@@ -386,7 +394,10 @@ mod tests {
             6,
         );
         clock.note_version_bump(6);
-        assert!(!clock.is_valid(&deps, 5), "a write to label A must invalidate an A-query");
+        assert!(
+            !clock.is_valid(&deps, 5),
+            "a write to label A must invalidate an A-query"
+        );
     }
 
     #[test]
@@ -415,7 +426,10 @@ mod tests {
         clock.note_version_bump(7); // no note_footprint(7) preceded it
         assert_eq!(clock.floor(), 7);
         let deps = DepSet::new(vec![label("A")]);
-        assert!(!clock.is_valid(&deps, 5), "a bypass write must invalidate every entry");
+        assert!(
+            !clock.is_valid(&deps, 5),
+            "a bypass write must invalidate every entry"
+        );
     }
 
     #[test]
@@ -431,7 +445,10 @@ mod tests {
             6,
         );
         clock.note_version_bump(6);
-        assert!(!clock.is_valid(&scan, 5), "an unlabeled scan depends on every node write");
+        assert!(
+            !clock.is_valid(&scan, 5),
+            "an unlabeled scan depends on every node write"
+        );
     }
 
     #[test]
@@ -446,7 +463,10 @@ mod tests {
             6,
         );
         clock.note_version_bump(6);
-        assert!(clock.is_valid(&node_q, 5), "an edge-only write must not invalidate a node query");
+        assert!(
+            clock.is_valid(&node_q, 5),
+            "an edge-only write must not invalidate a node query"
+        );
     }
 
     #[test]
@@ -464,6 +484,9 @@ mod tests {
             6,
         );
         clock.note_version_bump(6);
-        assert!(!clock.is_valid(&deps, 5), "an un-attributable remove must invalidate every entry");
+        assert!(
+            !clock.is_valid(&deps, 5),
+            "an un-attributable remove must invalidate every entry"
+        );
     }
 }
