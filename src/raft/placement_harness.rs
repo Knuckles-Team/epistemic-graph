@@ -705,10 +705,13 @@ async fn wire_placement_route_resolves_through_dispatch() {
     let route_json = |resp: crate::protocol::Response| -> serde_json::Value {
         assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
         match resp.result {
+            // A-W1.2-2: the served route payload is the ADR-1 wire superset
+            // (extra `endpoints` key); the canonical deny_unknown_fields DTO
+            // rejects it, so the wire type is the only correct reader.
             Some(ResultPayload::Raw(bytes)) => {
-                let route: crate::epistemic_operations::PlacementRoute =
-                    rmp_serde::from_slice(&bytes).expect("typed PlacementRoute");
-                serde_json::to_value(route).expect("PlacementRoute JSON projection")
+                let route: crate::server::handlers::placement::PlacementRouteWire =
+                    rmp_serde::from_slice(&bytes).expect("typed PlacementRouteWire");
+                serde_json::to_value(route).expect("PlacementRouteWire JSON projection")
             }
             other => panic!("expected a typed route result, got {other:?}"),
         }
