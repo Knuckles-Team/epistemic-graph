@@ -835,7 +835,10 @@ fn all_methods_table_has_the_expected_variant_count() {
     // unconditional): 358 + 1 = 359.
     // Plus ADR-1 / W1.1 `ClusterMembers` + `NodeInfoUpsert` (engine-authoritative
     // cluster topology discovery, both unconditional): 359 + 2 = 361.
-    let expected = 361
+    // Plus provenance anchoring's `AuditProveInclusion` (unconditional -- `security`
+    // is force-enabled by this crate's own eg-types dependency features, exactly
+    // like `AuditVerify` already is): 361 + 1 = 362.
+    let expected = 362
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

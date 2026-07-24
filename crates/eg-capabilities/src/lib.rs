@@ -725,6 +725,15 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Snapshot,
         },
+        Method::AuditProveInclusion { .. } => MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::None,
+            authz_action: "security:audit",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Snapshot,
+        },
         Method::GetSubgraph { .. } => MethodPolicy {
             mutates: false,
             durability_domain: DurabilityDomain::None,
@@ -2198,6 +2207,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("ClearLedger", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "ledger:admin", idempotent: true, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
         ("ApplyLedger", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "ledger:write", idempotent: false, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
         ("AuditVerify", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "security:audit", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
+        ("AuditProveInclusion", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "security:audit", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "provenance anchoring: Merkle inclusion proof for one node against a prior PROVENANCE_ANCHOR audit-chain entry"),
         ("GetSubgraph", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "node:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("Fork", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "graph:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "returns the forked snapshot to the caller; never registers/persists it server-side"),
         ("DiffAgainst", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "graph:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
@@ -2558,7 +2568,10 @@ mod smoke_tests {
         // unconditional): 358 + 1 = 359.
         // Plus ADR-1 / W1.1 `ClusterMembers` + `NodeInfoUpsert` (engine-authoritative
         // cluster topology discovery, both unconditional): 359 + 2 = 361.
-        let expected = 361
+        // Plus provenance anchoring's `AuditProveInclusion` (unconditional --
+        // `security` is force-enabled by this crate's own eg-types dependency
+        // features above, exactly like `AuditVerify` already is): 361 + 1 = 362.
+        let expected = 362
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
