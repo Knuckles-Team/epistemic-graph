@@ -107,9 +107,17 @@ async fn resolve_group_endpoints(
         .and_then(|p| p.as_redb())
         .map(|b| b.node_info())
     else {
+        tracing::debug!(
+            group,
+            "PlacementRoute.endpoints: no durable redb backend attached"
+        );
         return Vec::new();
     };
     let Some(voters) = multi.group_membership(group).await else {
+        tracing::debug!(
+            group,
+            "PlacementRoute.endpoints: group not running on this node"
+        );
         return Vec::new();
     };
     let learners = multi.group_learners(group).await.unwrap_or_default();
@@ -117,11 +125,19 @@ async fn resolve_group_endpoints(
         Some(handle) => handle.current_leader().await,
         None => None,
     };
-    store
+    let endpoints: Vec<String> = store
         .ordered_members(&voters, &learners, leader)
         .into_iter()
         .map(|info| info.advertised_client_addr)
-        .collect()
+        .collect();
+    if endpoints.is_empty() {
+        tracing::debug!(
+            group,
+            voter_count = voters.len(),
+            "PlacementRoute.endpoints: group has raft members but none have self-reported yet"
+        );
+    }
+    endpoints
 }
 
 #[cfg(feature = "raft")]
