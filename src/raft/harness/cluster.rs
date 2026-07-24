@@ -136,6 +136,11 @@ fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
         node_id,
         peers: peers.clone(),
         bind_addr,
+        // ADR-1 / W1.1: harness nodes advertise a distinct client endpoint per
+        // node id so `ClusterMembers`/`PlacementRoute.endpoints` are exercisable
+        // against a real (loopback) multi-node topology.
+        advertised_client_addr: format!("tcp://127.0.0.1:{}", 20_000 + node_id),
+        advertised_tls_server_name: None,
         is_bootstrap: peers.keys().next() == Some(&node_id),
         groups: 1,
         transport_secret: Some(

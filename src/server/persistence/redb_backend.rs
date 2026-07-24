@@ -869,6 +869,12 @@ pub struct RedbBackend {
     /// is replayable consensus state on every group member rather than a pod-local
     /// coordinator. Single-node serving uses the same image directly.
     admin_mutations: Arc<Database>,
+    /// Durable cluster-topology self-report store (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1).
+    /// Always opened (like `admin_mutations` above) so the shape of `RedbBackend`
+    /// doesn't vary with whether Raft happens to be configured; it is populated
+    /// only when a clustered node self-reports at startup (`raft::node::start`).
+    /// See `server::persistence::node_info_store` for the replication story.
+    node_info: Arc<super::node_info_store::NodeInfoStore>,
 }
 
 impl RedbBackend {
@@ -987,11 +993,13 @@ impl RedbBackend {
                 .map_err(|e| e.to_string())?,
         );
         eg_mutation_store::initialize(&admin_mutations)?;
+        let node_info = Arc::new(super::node_info_store::NodeInfoStore::open(&persist_dir)?);
         Ok(Self {
             shards,
             catalog: None,
             routing_epoch: Arc::new(RwLock::new(())),
             admin_mutations,
+            node_info,
         })
     }
 
@@ -1017,6 +1025,13 @@ impl RedbBackend {
 
     pub(crate) fn admin_mutation_store(&self) -> &Database {
         &self.admin_mutations
+    }
+
+    /// The durable cluster-topology self-report store (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1).
+    /// Always present (see the field doc); empty on a single-node deployment that
+    /// never ran a clustered startup.
+    pub(crate) fn node_info(&self) -> Arc<super::node_info_store::NodeInfoStore> {
+        self.node_info.clone()
     }
 
     /// Stable data-key handle resolved when the durable backend opened.  Private

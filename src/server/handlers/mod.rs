@@ -135,6 +135,13 @@ pub(crate) mod placement;
 // declared (like `placement`); the real answer is `raft`-gated, and a non-raft build
 // answers a clean typed error.
 pub(crate) mod raft_admin;
+// Cluster topology discovery (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1):
+// `Method::ClusterMembers`/`Method::NodeInfoUpsert` over the durable
+// `server::persistence::node_info_store::NodeInfoStore`, replacing the static
+// `GRAPH_RAFT_GROUP_ENDPOINTS` client map. Always declared (like `placement`/
+// `raft_admin`); the real cross-referenced answer is `raft`-gated, and a
+// non-raft build answers a well-formed empty topology / a clean typed error.
+pub(crate) mod topology;
 
 /// The caller/isolation-scoping fields shared by the graph-scoped read handlers'
 /// `try_handle` entry points (`query::try_handle`, `rdf::try_handle`), bundled so

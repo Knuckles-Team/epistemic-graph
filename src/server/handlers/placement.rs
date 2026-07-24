@@ -22,9 +22,41 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use crate::epistemic_operations::{PlacementRoute, PlacementRouteSchemaVersion};
+use crate::epistemic_operations::PlacementRouteSchemaVersion;
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::state::ServerState;
+
+/// The actual `Method::PlacementRoute` WIRE response (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 —
+/// `PlacementRoute.endpoints`, `reports/wave1/ADR-scale-trio.md` §ADR-1 decision 2).
+///
+/// Deliberately a SEPARATE type from [`crate::epistemic_operations::PlacementRoute`]:
+/// that schema-locked cross-repo DTO is explicitly documented "without
+/// deployment endpoint material" (it doubles as an audit/CDC-safe route-decision
+/// record and is digest-pinned against the authoritative agent-utilities JSON
+/// Schema catalog) and must not gain network topology fields. `endpoints` is
+/// genuinely additive on the wire: every field below matches that locked shape
+/// field-for-field, plus this one extra key — an old client that only knows the
+/// locked shape simply never reads it.
+#[derive(serde::Serialize)]
+struct PlacementRouteWire {
+    schema_version: PlacementRouteSchemaVersion,
+    route_id: String,
+    tenant_ref: String,
+    partition_ref: String,
+    authoritative: bool,
+    placed: bool,
+    group: u64,
+    epoch: u64,
+    fencing_token: u64,
+    stale: bool,
+    leader_ref: Option<String>,
+    /// Client-reachable endpoints of the resolved group's members, LEADER FIRST
+    /// (ADR-1). Empty when no cluster topology is known yet (single-node, a
+    /// non-raft build, or no member has self-reported) — the client's
+    /// static-map override / single-contact fallback (ADR-1 decision 3b/3c)
+    /// applies.
+    endpoints: Vec<String>,
+}
 
 fn route_response(
     req_id: u64,
@@ -34,13 +66,14 @@ fn route_response(
     client_epoch: u64,
     tenant_ref: String,
     partition_ref: String,
+    endpoints: Vec<String>,
 ) -> Response {
     if placed && epoch == 0 {
         return Response::err(req_id, "placement catalog contains an invalid epoch");
     }
     Response::ok(
         req_id,
-        ResultPayload::raw(&PlacementRoute {
+        ResultPayload::raw(&PlacementRouteWire {
             schema_version: PlacementRouteSchemaVersion::V1,
             route_id: format!("request:{req_id}"),
             tenant_ref,
@@ -52,8 +85,43 @@ fn route_response(
             fencing_token: group,
             stale: client_epoch < epoch,
             leader_ref: None,
+            endpoints,
         }),
     )
+}
+
+/// Resolve `group`'s client-reachable endpoints, leader first (CONCEPT:EG-KG.sharding.cluster-topology,
+/// ADR-1). Best effort: an unknown group, an unattached `MultiRaft`, or no
+/// durable redb backend all resolve to an empty list rather than an error —
+/// `PlacementRoute` must still answer the route itself even when topology
+/// discovery is unavailable.
+#[cfg(feature = "raft")]
+async fn resolve_group_endpoints(
+    state: &Arc<RwLock<ServerState>>,
+    multi: &crate::raft::multi::MultiRaft,
+    group: u64,
+) -> Vec<String> {
+    let backend = { state.read().await.persistence.clone() };
+    let Some(store) = backend
+        .as_ref()
+        .and_then(|p| p.as_redb())
+        .map(|b| b.node_info())
+    else {
+        return Vec::new();
+    };
+    let Some(voters) = multi.group_membership(group).await else {
+        return Vec::new();
+    };
+    let learners = multi.group_learners(group).await.unwrap_or_default();
+    let leader = match multi.group(group).await {
+        Some(handle) => handle.current_leader().await,
+        None => None,
+    };
+    store
+        .ordered_members(&voters, &learners, leader)
+        .into_iter()
+        .map(|info| info.advertised_client_addr)
+        .collect()
 }
 
 #[cfg(feature = "raft")]
@@ -85,6 +153,7 @@ async fn handle_route(
             client_epoch,
             tenant,
             sub_key,
+            Vec::new(),
         );
     };
 
@@ -114,6 +183,7 @@ async fn handle_route(
     }
 
     let route = multi.route_partition(&tenant, &sub_key).await;
+    let endpoints = resolve_group_endpoints(state, &multi, route.group).await;
     route_response(
         req_id,
         route.group,
@@ -122,6 +192,7 @@ async fn handle_route(
         client_epoch,
         tenant,
         sub_key,
+        endpoints,
     )
 }
 
@@ -288,6 +359,7 @@ pub(crate) async fn try_handle(
             request.client_epoch,
             request.tenant_ref,
             request.partition_ref,
+            Vec::new(),
         )),
         Method::PlacementAdmin { .. } => Ok(Response::err(
             req_id,

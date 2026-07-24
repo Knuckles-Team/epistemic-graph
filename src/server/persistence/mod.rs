@@ -36,6 +36,14 @@ pub mod shard_migrate;
 #[cfg(feature = "redb")]
 pub mod tenant_catalog;
 
+// Cluster node-info store (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1): durable
+// node_id -> {raft_addr, advertised_client_addr, tls_server_name} map that backs
+// `Method::ClusterMembers`/`PlacementRoute.endpoints`, replacing the static
+// `GRAPH_RAFT_GROUP_ENDPOINTS` client map. Mirrors `tenant_catalog`'s own-file,
+// in-memory-cache shape. Redb-only, like its M3 siblings above.
+#[cfg(feature = "redb")]
+pub mod node_info_store;
+
 // M3 keystone (CONCEPT:EG-KG.backend.catalog-shard-resolve / EG-034). Both redb-only:
 //   * `online_reshard` — move ONE graph between shards while the engine RUNS (verbatim
 //     row copy + catalog route flip + source GC), building on EG-030's copy + EG-031's

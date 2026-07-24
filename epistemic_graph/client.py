@@ -2905,6 +2905,13 @@ class PlacementClient:
         still complete (`placed=False`, normally group/epoch 0); callers never
         hash. A durable placement must have a non-zero epoch and its numeric fence
         must match the returned group.
+
+        ``answer["endpoints"]`` (ADR-1 / W1.1) is the resolved group's
+        client-reachable member endpoints, LEADER FIRST — empty when no
+        cluster topology is known yet (single-node, or no member has
+        self-reported). ``pool.py``'s ``ShardRouter``/AU's
+        ``placement_catalog.py`` consume it as the primary resolution source,
+        ahead of the static ``GRAPH_RAFT_GROUP_ENDPOINTS`` override.
         """
         answer = await self._client._send(
             "PlacementRoute",
@@ -2933,6 +2940,7 @@ class PlacementClient:
                     "fencing_token",
                     "stale",
                     "leader_ref",
+                    "endpoints",
                 }
             ),
         )
@@ -2954,6 +2962,11 @@ class PlacementClient:
             or (placed and epoch == 0)
         ):
             raise ValueError("engine returned an invalid placement fence")
+        endpoints = answer["endpoints"]
+        if not isinstance(endpoints, list) or not all(
+            isinstance(e, str) and e for e in endpoints
+        ):
+            raise ValueError("PlacementRoute.endpoints must be a list of non-empty strings")
         return answer
 
     async def assign(self, tenant: str, group: int) -> int:
@@ -2999,6 +3012,62 @@ class PlacementClient:
         return await self._client._send(
             "PlacementAdmin", {"op": {"operation": "abort_move", "move_id": move_id}}
         )
+
+
+class ClusterTopologyClient:
+    """CONCEPT:EG-KG.sharding.cluster-topology — ADR-1 / W1.1 engine-authoritative cluster
+    discovery (``reports/wave1/ADR-scale-trio.md`` §ADR-1).
+
+    Exposes ``Method::ClusterMembers`` — every known Raft group's members, each
+    with its role (``leader``/``follower``/``learner``) and client-reachable
+    endpoint, sourced from the engine's durable ``NodeInfoStore``. Answered from
+    ANY reachable node, not just the leader (unlike :class:`PlacementClient`'s
+    ``route``), so a client can re-resolve via any healthy seed contact. Gated
+    ``cluster:topology-read`` — an ordinary service role's scopes already cover
+    it, not just a cluster operator's ``admin:cluster-read``. Replaces the
+    static hand-maintained ``GRAPH_RAFT_GROUP_ENDPOINTS`` client map.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def members(self) -> dict[str, Any]:
+        """Read the current cluster topology.
+
+        Returns ``{"groups": [{"group_id": int, "members": [{"node_id": int,
+        "role": "leader"|"follower"|"learner", "client_endpoint": str,
+        "tls_name": str | None}, ...]}, ...], "epoch": int}``. A single-node
+        deployment (or a raft build with no live cluster) answers an empty,
+        well-formed topology (``{"groups": [], "epoch": ...}``) rather than an
+        error — the caller's single-contact fallback then applies.
+        """
+        answer = await self._client._send("ClusterMembers")
+        if not isinstance(answer, dict):
+            raise TypeError("ClusterMembers must be a mapping")
+        groups = answer.get("groups")
+        epoch = answer.get("epoch")
+        if not isinstance(groups, list):
+            raise ValueError("ClusterMembers.groups must be a list")
+        if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 0:
+            raise ValueError("ClusterMembers.epoch must be a non-negative integer")
+        for group in groups:
+            if not isinstance(group, dict):
+                raise ValueError("ClusterMembers.groups entries must be mappings")
+            members = group.get("members")
+            if not isinstance(group.get("group_id"), int) or not isinstance(
+                members, list
+            ):
+                raise ValueError("ClusterMembers.groups entry is malformed")
+            for member in members:
+                if (
+                    not isinstance(member, dict)
+                    or not isinstance(member.get("node_id"), int)
+                    or member.get("role") not in ("leader", "follower", "learner")
+                    or not isinstance(member.get("client_endpoint"), str)
+                    or not member.get("client_endpoint")
+                ):
+                    raise ValueError("ClusterMembers member entry is malformed")
+        return answer
 
 
 class RaftAdminClient:
@@ -7969,6 +8038,7 @@ class EpistemicGraphClient:
         self.tenants = MultiTenantClient(self)
         self.resharding = ReshardingClient(self)
         self.placement = PlacementClient(self)
+        self.cluster_topology = ClusterTopologyClient(self)
         self.raft_admin = RaftAdminClient(self)
         self.consensus = ConsensusClient(self)
         self.finance = FinanceClient(self)
@@ -8842,6 +8912,9 @@ class SyncEpistemicGraphClient:
         self.tenants = self._SyncWrapper(self._client.tenants, self._loop)
         self.resharding = self._SyncWrapper(self._client.resharding, self._loop)
         self.placement = self._SyncWrapper(self._client.placement, self._loop)
+        self.cluster_topology = self._SyncWrapper(
+            self._client.cluster_topology, self._loop
+        )
         self.raft_admin = self._SyncWrapper(self._client.raft_admin, self._loop)
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)
         self.finance = self._SyncWrapper(self._client.finance, self._loop)
