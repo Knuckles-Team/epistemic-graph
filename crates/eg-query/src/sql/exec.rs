@@ -415,6 +415,12 @@ pub fn exec_sql_over_tables(
         ctx.register_udf(bm25_snippet_udf());
         // CONCEPT:EG-KG.query.greatest-least-int4range-tsrange — greatest/least, range fns, generate_series (obs path too).
         register_pg_common(&ctx);
+        // CONCEPT:EG-KG.query.approx-distinct-cardinality (W4.5/N5) — sketch-backed aggregates over the obs
+        // Arrow tables too (e.g. `SELECT approx_distinct(trace_id) FROM logs`).
+        ctx.register_udaf(super::sketch_udfs::approx_distinct_udaf());
+        ctx.register_udaf(super::sketch_udfs::approx_frequency_udaf());
+        ctx.register_udaf(super::sketch_udfs::minhash_signature_udaf());
+        ctx.register_udf(super::sketch_udfs::minhash_similarity_udf());
         // CONCEPT:EG-KG.query.surface-b-numeric-operators — Surface-B numeric operators over the obs Arrow tables too.
         #[cfg(feature = "numeric")]
         register_numeric(&ctx);
@@ -1143,6 +1149,13 @@ fn build_ctx(
     // CONCEPT:EG-KG.query.greatest-least-int4range-tsrange — greatest/least, int4range/tsrange + range predicates, and the
     // generate_series table function, rounding out the Postgres common-function surface.
     register_pg_common(&ctx);
+    // CONCEPT:EG-KG.query.approx-distinct-cardinality (W4.5/N5) — sketch-backed aggregates
+    // (HyperLogLog/Count-Min-Sketch/MinHash). Always-on: pure-Rust, no heavy dep beyond what
+    // `sql` already links.
+    ctx.register_udaf(super::sketch_udfs::approx_distinct_udaf());
+    ctx.register_udaf(super::sketch_udfs::approx_frequency_udaf());
+    ctx.register_udaf(super::sketch_udfs::minhash_signature_udaf());
+    ctx.register_udf(super::sketch_udfs::minhash_similarity_udf());
     // CONCEPT:EG-KG.query.surface-b-numeric-operators — Surface-B numeric operators over the graph's resident columns.
     #[cfg(feature = "numeric")]
     register_numeric(&ctx);

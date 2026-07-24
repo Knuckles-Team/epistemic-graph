@@ -429,14 +429,22 @@ pub struct PlanStats {
     /// REAL data distribution instead of a fixed heuristic. A fixed bucket count and capped
     /// sample bound memory per numeric column.
     pub column_stats: ColumnStats,
+    /// Per-column APPROXIMATE DISTINCT-VALUE sketches (CONCEPT:EG-KG.query.approx-distinct-cardinality,
+    /// W4.5/N5) — the planner's "sketch for cardinality" input: an `EQUALITY` predicate's
+    /// selectivity is estimated from `1/distinct_count` (see [`DistinctStats::frac_eq`]) instead
+    /// of the fixed heuristic, the same real-distribution sharpening `column_stats` already gave
+    /// range predicates. A SEPARATE O(N) pass from `column_stats` (which visits numeric values
+    /// only) — this one visits every top-level SCALAR value, numeric or not.
+    pub distinct_stats: DistinctStats,
 }
 
 #[cfg(feature = "query")]
 impl PlanStats {
     /// Collect the catalog from a [`crate::exec::PlanCtx`] snapshot. The scalar counts are
-    /// O(1) (`.len()` on the snapshot maps); [`ColumnStats::collect`] performs an O(N * F)
-    /// property pass once on a cold snapshot and an O(K) clone from the snapshot memo when
-    /// warm. The range-selectivity estimate itself does not rescan nodes per predicate.
+    /// O(1) (`.len()` on the snapshot maps); [`ColumnStats::collect`] and [`DistinctStats::collect`]
+    /// each perform an O(N * F) property pass once on a cold snapshot and an O(K) clone from the
+    /// snapshot memo when warm. The range/equality-selectivity estimates themselves do not
+    /// rescan nodes per predicate.
     pub fn collect(ctx: &crate::exec::PlanCtx) -> Self {
         let node_count = ctx.view.node_properties.len();
         let edge_count = ctx.view.edge_properties.len();
@@ -452,6 +460,7 @@ impl PlanStats {
             embedding_count,
             avg_out_degree,
             column_stats: ColumnStats::collect(ctx.view),
+            distinct_stats: DistinctStats::collect(ctx.view),
         }
     }
 }
@@ -627,6 +636,100 @@ impl ColumnStats {
     }
 }
 
+// ── Approximate DISTINCT-VALUE cardinality via HyperLogLog ───────────────────────
+// (CONCEPT:EG-KG.query.approx-distinct-cardinality, W4.5/N5) — the planner's "sketch for
+// cardinality" input: sharpens `Pred::Eq`'s selectivity from the fixed heuristic to
+// `1/distinct_count`, exactly the kind of real-distribution improvement `ColumnStats`'s
+// histogram already gave `GtNum`/`LtNum` above. A SEPARATE O(N) pass from `ColumnStats::compute`
+// (which visits NUMERIC values only): this one hashes every top-level SCALAR value (numeric,
+// string, or bool) into its column's `eg_compute::sketch::HyperLogLog`, since equality targets
+// string-valued columns (`status`, `type`, …) at least as often as numeric ones.
+
+/// Per-column approximate distinct-value sketches (CONCEPT:EG-KG.query.approx-distinct-cardinality,
+/// W4.5/N5). See the module-level note above for why this is a sibling of, not a merge into,
+/// [`ColumnStats`].
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, Default)]
+pub struct DistinctStats {
+    sketches: std::collections::HashMap<String, eg_compute::sketch::HyperLogLog>,
+}
+
+#[cfg(feature = "query")]
+impl DistinctStats {
+    /// Per-column sketches for `view`, MEMOIZED on the snapshot (`GraphView::distinct_stats_memo`)
+    /// exactly like [`ColumnStats::collect`] — see that method's doc for the full
+    /// staleness-impossible argument; it applies identically here (a `GraphView` never changes
+    /// after construction, so the memo can never go stale).
+    pub fn collect(view: &eg_core::graph::GraphView) -> Self {
+        let memo = view
+            .distinct_stats_memo
+            .get_or_init(|| std::sync::Arc::new(Self::compute(view)));
+        memo.downcast_ref::<Self>()
+            .expect("distinct_stats_memo holds DistinctStats")
+            .clone()
+    }
+
+    /// One O(N) pass over the resident node property blobs: every top-level SCALAR value is
+    /// hashed into its column's sketch. Arrays/objects/null are skipped (never an equality
+    /// target in practice, and hashing a whole nested structure would defeat the sketch's O(1)
+    /// memory point for no query-planning benefit).
+    fn compute(view: &eg_core::graph::GraphView) -> Self {
+        use std::collections::HashMap;
+        let mut sketches: HashMap<String, eg_compute::sketch::HyperLogLog> = HashMap::new();
+        for blob in view.node_properties.values() {
+            let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
+                continue;
+            };
+            let Some(obj) = v.as_object() else {
+                continue;
+            };
+            for (k, val) in obj {
+                if matches!(
+                    val,
+                    serde_json::Value::Array(_)
+                        | serde_json::Value::Object(_)
+                        | serde_json::Value::Null
+                ) {
+                    continue;
+                }
+                // Canonical string form: two equal JSON scalars hash identically regardless of
+                // where they came from, while distinct scalar KINDS with a similar textual form
+                // (the number `1` vs the string `"1"`) still hash distinctly (`to_string` on a
+                // `Value` includes the JSON quoting), matching how Cypher/SQL equality treats
+                // typed values as distinct from their string rendering.
+                let canon = val.to_string();
+                sketches.entry(k.clone()).or_default().insert(&canon);
+            }
+        }
+        Self { sketches }
+    }
+
+    /// Approximate distinct-value count for `column`, or `None` if never observed.
+    pub fn approx_distinct(&self, column: &str) -> Option<f64> {
+        self.sketches.get(column).map(|h| h.estimate())
+    }
+
+    /// Estimated selectivity of an EQUALITY predicate on `column`: `1/distinct_count` (the
+    /// standard equality-selectivity heuristic assuming a roughly uniform value distribution —
+    /// the SAME assumption the fixed `Pred::Eq` constant already made, now grounded in the REAL
+    /// observed cardinality instead of a blind guess). `None` when the column was never
+    /// observed, so the caller falls back to its fixed heuristic.
+    pub fn frac_eq(&self, column: &str) -> Option<f64> {
+        self.approx_distinct(column)
+            .map(|d| (1.0 / d.max(1.0)).clamp(0.0, 1.0))
+    }
+
+    /// Number of columns with collected sketches (introspection / tests).
+    pub fn len(&self) -> usize {
+        self.sketches.len()
+    }
+
+    /// Whether any column sketches were collected.
+    pub fn is_empty(&self) -> bool {
+        self.sketches.is_empty()
+    }
+}
+
 #[cfg(feature = "query")]
 impl NumericColumn {
     /// Fraction of the sampled values `> n`, read off the equi-width histogram with linear
@@ -745,17 +848,25 @@ impl ModalityCardinality {
     }
 
     /// Combined per-predicate selectivity of a relational `Filter` (independent-predicate
-    /// product): equality is highly selective, JSONPath / spatial broad. A numeric RANGE
-    /// (`GtNum`/`LtNum`) is estimated from the REAL column distribution via the collected
-    /// [`ColumnStats`] histogram (CONCEPT:EG-KG.query.column-range-stats) — so a genuinely selective
-    /// range (`year > 2028` in a 2000..2029 column) reads as selective and reorders
-    /// filter-first, while a broad one (`year > 2001`) stays; only when the column has NO
-    /// numeric stats does it fall back to the fixed `RANGE_SEL_FALLBACK` heuristic. Equality /
-    /// JSONPath / spatial estimates are unchanged.
+    /// product): JSONPath / spatial broad. EQUALITY is estimated from the REAL observed
+    /// distinct-value count via the collected [`DistinctStats`] `HyperLogLog` sketch
+    /// (CONCEPT:EG-KG.query.approx-distinct-cardinality, W4.5/N5) — `1/distinct_count`, so a
+    /// highly-selective equality (a near-unique id column) reads as selective and reorders
+    /// filter-first, while a broad one (a boolean-like column with 2 distinct values) stays;
+    /// only when the column has NO sketch does it fall back to the fixed `EQ_SEL_FALLBACK`
+    /// heuristic (the historical constant). A numeric RANGE (`GtNum`/`LtNum`) is estimated from
+    /// the REAL column distribution via the collected [`ColumnStats`] histogram
+    /// (CONCEPT:EG-KG.query.column-range-stats) — so a genuinely selective range (`year > 2028`
+    /// in a 2000..2029 column) reads as selective and reorders filter-first, while a broad one
+    /// (`year > 2001`) stays; only when the column has NO numeric stats does it fall back to the
+    /// fixed `RANGE_SEL_FALLBACK` heuristic. JSONPath / spatial estimates are unchanged.
     fn filter_selectivity(&self, preds: &[crate::algebra::Pred]) -> f64 {
         use crate::algebra::Pred;
         /// Conservative range estimate used only when the column has no statistics.
         const RANGE_SEL_FALLBACK: f64 = 0.33;
+        /// Conservative equality estimate used only when the column has no distinct-value
+        /// sketch — the historical fixed constant this replaces as the estimator of record.
+        const EQ_SEL_FALLBACK: f64 = 0.1;
         let mut sel = 1.0f64;
         for p in preds {
             // The wildcard catches the `geo` spatial `Pred` variants (and any future kind);
@@ -764,7 +875,12 @@ impl ModalityCardinality {
             // feature subset (the `where_clause`/exec split-out precedent).
             #[allow(unreachable_patterns)]
             let s = match p {
-                Pred::Eq { .. } => 0.1,
+                // Equality: consult the HyperLogLog distinct-count sketch, else the fixed fallback.
+                Pred::Eq { prop, .. } => self
+                    .stats
+                    .distinct_stats
+                    .frac_eq(prop)
+                    .unwrap_or(EQ_SEL_FALLBACK),
                 // Numeric range: consult the column histogram, else the fixed fallback.
                 Pred::GtNum { prop, n } => self
                     .stats
