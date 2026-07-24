@@ -670,6 +670,7 @@ pub(crate) fn sign_current_test_request(secret: &str, mut request: Request) -> R
         policy_version: "policy-test".to_string(),
         delegation: Vec::new(),
         node: None,
+        priority: None,
     };
     let nonce = format!(
         "rust-unit-{}-{}",
