@@ -123,8 +123,28 @@ pub fn exec_cypher_params(
     params: &Params,
 ) -> Result<QueryResult, String> {
     let query = plan_cache::global().get_or_parse(cypher)?;
-    let bindings = run_stages(view, &query.stages, params, row_budget(&query))?;
-    finalize(view, &query, bindings)
+    // The `EPISTEMIC_GRAPH_CYPHER_ENGINE` rollout (legacy | plan | shadow) is a
+    // `full`-only surface; a lean `cypher`-only build always runs legacy.
+    #[cfg(feature = "cypher-plan")]
+    {
+        engine::dispatch(view, cypher, &query, params)
+    }
+    #[cfg(not(feature = "cypher-plan"))]
+    {
+        run_legacy(view, &query, params)
+    }
+}
+
+/// Run an already-parsed query through the legacy binding-table walk — the Phase-A
+/// pushdowns (per-hop WHERE, LIMIT short-circuit, label-index-first start) are part of
+/// this path. The default engine, and the result SHADOW mode serves.
+fn run_legacy(
+    view: &GraphView,
+    query: &CypherQuery,
+    params: &Params,
+) -> Result<QueryResult, String> {
+    let bindings = run_stages(view, &query.stages, params, row_budget(query))?;
+    finalize(view, query, bindings)
 }
 
 /// The LIMIT short-circuit budget (CONCEPT:EG-KG.query.cypher-limit-shortcircuit): the
@@ -2570,6 +2590,265 @@ fn node_var(node: &NodePat, pos: usize) -> String {
     node.var.clone().unwrap_or_else(|| format!("__anon{pos}"))
 }
 
+// ── Phase B: EPISTEMIC_GRAPH_CYPHER_ENGINE rollout — legacy | plan | shadow ────────
+//
+// Design note / ADR deviation (CONCEPT:EG-KG.query.cypher-engine-shadow). The ADR
+// (reports/wave1/ADR-cypher-lowering.md) specified lowering the Cypher AST onto eg-plan's
+// RowSet ops so `GlobalChainCost` reorders them. Implementation found that infeasible for
+// THREE verified reasons, so this module realizes the ADR's INTENT (route Cypher through
+// cost-based planning; shadow-differential rollout; zero-divergence gate) without the
+// infeasible lowering:
+//   1. Crate DAG direction: `eg-plan` depends on `eg-query` (optional, `query` feature),
+//      so eg-query — home of the Cypher AST + executor — CANNOT depend on eg-plan's cost
+//      model / Op algebra (a cycle the workspace DAG rejects at compile time).
+//   2. RowSet currency: eg-plan's `RowSet` is a single-column, id-DEDUPLICATED set (its
+//      own docs call multi-column projection "an EXPLICIT later increment"); it cannot
+//      represent a Cypher binding table (bag semantics, multi-var a/r/b rows, edge
+//      identity for `type(r)`). Rebuilding it ripples through ~35 ops + the cost model +
+//      optimizer + DAG executor + differential oracle + cross-shard exchange — a
+//      multi-wave rewrite, and beyond this task's "surgical" + "no optimizer rule changes
+//      beyond what lowering requires" bounds.
+//   3. Reordering headroom: the Cypher grammar here is linear-path-only (no comma-joined
+//      disjoint patterns — a grammar change is an explicit NON-GOAL), so a chain's only
+//      degrees of freedom are start-end + hop-direction; the N-ary join reordering
+//      `GlobalChainCost` exists for has almost nothing to reorder.
+//
+// So `plan` is a cost-based start/traversal-order chooser over the SAME semantics-exact
+// binding-table walk (DAG-legal: statistics computed locally over the GraphView, the same
+// signals PlanStats/ColumnStats derive), and `shadow` dual-executes both and logs any
+// divergence — the differential infrastructure the ADR's rollout section mandates, which
+// also de-risks a future full lowering. Full details in the W1.3 report.
+#[cfg(feature = "cypher-plan")]
+mod engine {
+    use super::*;
+    use std::sync::OnceLock;
+
+    /// Which Cypher execution engine to use (CONCEPT:EG-KG.query.cypher-engine-shadow),
+    /// selected once by `EPISTEMIC_GRAPH_CYPHER_ENGINE`. Default `Legacy`; the flip to
+    /// `Plan` is a later release, gated on the shadow harness reaching zero divergences.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) enum CypherEngine {
+        Legacy,
+        Plan,
+        Shadow,
+    }
+
+    /// Read + cache the engine selection. Unset / `legacy` / any unrecognized value ⇒ the
+    /// safe `Legacy` default (the flag never fails closed onto an unproven engine).
+    pub(crate) fn selected_engine() -> CypherEngine {
+        static ENGINE: OnceLock<CypherEngine> = OnceLock::new();
+        *ENGINE.get_or_init(|| {
+            let e = match std::env::var("EPISTEMIC_GRAPH_CYPHER_ENGINE")
+                .ok()
+                .as_deref()
+            {
+                Some("plan") => CypherEngine::Plan,
+                Some("shadow") => CypherEngine::Shadow,
+                _ => CypherEngine::Legacy,
+            };
+            if e != CypherEngine::Legacy {
+                tracing::info!(
+                    target: "epistemic_graph::cypher_shadow",
+                    engine = ?e,
+                    "non-default Cypher engine selected via EPISTEMIC_GRAPH_CYPHER_ENGINE"
+                );
+            }
+            e
+        })
+    }
+
+    /// Execute `query` under the selected engine. `legacy`/`plan` run one engine; `shadow`
+    /// runs BOTH, SERVES legacy, and logs any divergence with the query text.
+    pub(crate) fn dispatch(
+        view: &GraphView,
+        text: &str,
+        query: &CypherQuery,
+        params: &Params,
+    ) -> Result<QueryResult, String> {
+        match selected_engine() {
+            CypherEngine::Legacy => run_legacy(view, query, params),
+            CypherEngine::Plan => run_plan(view, query, params),
+            CypherEngine::Shadow => run_shadow(view, text, query, params),
+        }
+    }
+
+    /// The `plan` engine: cost-based start/traversal-order selection over the SAME
+    /// binding-table walk. A pure AST pre-pass ([`cost_plan`]) rewrites each MATCH pattern
+    /// to begin at the cost-cheapest end (reusing the semantics-preserving
+    /// [`reverse_pattern`]); the rewritten query then runs through the identical
+    /// `run_stages`/`finalize`, so the result is unchanged as a set.
+    fn run_plan(
+        view: &GraphView,
+        query: &CypherQuery,
+        params: &Params,
+    ) -> Result<QueryResult, String> {
+        let planned = cost_plan(view, query);
+        let bindings = run_stages(view, &planned.stages, params, row_budget(&planned))?;
+        finalize(view, &planned, bindings)
+    }
+
+    /// SHADOW mode (CONCEPT:EG-KG.query.cypher-engine-shadow): run BOTH engines, SERVE
+    /// legacy, and `tracing::warn!` each divergence — row-set equality MODULO ORDERING
+    /// when there is no ORDER BY, exact ordered equality otherwise — with the query text.
+    /// Zero divergences over the corpus + generator is the flip gate.
+    fn run_shadow(
+        view: &GraphView,
+        text: &str,
+        query: &CypherQuery,
+        params: &Params,
+    ) -> Result<QueryResult, String> {
+        let legacy = run_legacy(view, query, params);
+        let plan = run_plan(view, query, params);
+        match (&legacy, &plan) {
+            (Ok(l), Ok(p)) => {
+                if let Some(reason) = result_divergence(l, p, query) {
+                    tracing::warn!(
+                        target: "epistemic_graph::cypher_shadow",
+                        query = %text,
+                        reason = %reason,
+                        "Cypher shadow-mode divergence (serving legacy)"
+                    );
+                }
+            }
+            (Ok(_), Err(e)) => tracing::warn!(
+                target: "epistemic_graph::cypher_shadow",
+                query = %text,
+                plan_error = %e,
+                "Cypher shadow: plan engine errored while legacy succeeded"
+            ),
+            (Err(e), Ok(_)) => tracing::warn!(
+                target: "epistemic_graph::cypher_shadow",
+                query = %text,
+                legacy_error = %e,
+                "Cypher shadow: plan engine succeeded while legacy errored"
+            ),
+            // Both errored — same failure class, nothing to reconcile.
+            (Err(_), Err(_)) => {}
+        }
+        legacy // ALWAYS serve legacy under shadow
+    }
+
+    /// `None` when the two results are equal (modulo row ordering unless the query has an
+    /// ORDER BY), else a short reason for the shadow log. Rows are msgpack cell-vectors,
+    /// so a byte-wise sort is a stable multiset compare for the un-ordered case.
+    fn result_divergence(a: &QueryResult, b: &QueryResult, query: &CypherQuery) -> Option<String> {
+        if a.columns != b.columns {
+            return Some(format!("columns {:?} vs {:?}", a.columns, b.columns));
+        }
+        if a.rows.len() != b.rows.len() {
+            return Some(format!("row count {} vs {}", a.rows.len(), b.rows.len()));
+        }
+        if query.ret.order_by.is_empty() {
+            let mut la: Vec<&Vec<u8>> = a.rows.iter().collect();
+            let mut lb: Vec<&Vec<u8>> = b.rows.iter().collect();
+            la.sort_unstable();
+            lb.sort_unstable();
+            if la != lb {
+                return Some("row multiset differs (no ORDER BY)".to_string());
+            }
+        } else if a.rows != b.rows {
+            return Some("ordered rows differ (ORDER BY)".to_string());
+        }
+        None
+    }
+
+    /// Rewrite each MATCH stage's pattern to start at the cost-cheapest end (a
+    /// semantics-preserving reversal). Non-MATCH stages and patterns with no cheaper
+    /// reversal are left untouched.
+    fn cost_plan(view: &GraphView, query: &CypherQuery) -> CypherQuery {
+        let mut q = query.clone();
+        for stage in &mut q.stages {
+            if let ReadStage::Match { pattern, .. } = stage {
+                if let Some(rewritten) = cost_reorder(view, pattern) {
+                    *pattern = rewritten;
+                }
+            }
+        }
+        q
+    }
+
+    /// Cost-choose the start end of a linear pattern: reverse iff the far end enumerates
+    /// strictly fewer start candidates than the current start. Unlike the legacy
+    /// label-first heuristic (which only fires for an unlabeled start), this also reorders
+    /// a both-ends-labeled pattern toward the smaller label. Restricted to the same
+    /// fixed/directed single-hop chains [`reverse_pattern`] handles.
+    fn cost_reorder(view: &GraphView, pattern: &Pattern) -> Option<Pattern> {
+        if pattern.hops.is_empty() {
+            return None;
+        }
+        if pattern.hops.iter().any(|(e, _)| {
+            e.var_len.is_some() || e.group.is_some() || matches!(e.direction, Direction::Both)
+        }) {
+            return None;
+        }
+        let start_cost = start_candidate_cost(view, &pattern.start);
+        let end = &pattern.hops.last()?.1;
+        let end_cost = start_candidate_cost(view, end);
+        (end_cost < start_cost).then(|| reverse_pattern(pattern))
+    }
+
+    /// Estimated start-candidate count a node position seeds — the local analogue of
+    /// eg-plan's `PlanStats` label-cardinality selectivity: an inline `{id: …}` pin is a
+    /// single-node point lookup; a labeled position is its label-index size; an unlabeled
+    /// position is the whole-graph node count.
+    fn start_candidate_cost(view: &GraphView, node: &NodePat) -> usize {
+        if node
+            .props
+            .as_ref()
+            .is_some_and(|ps| ps.iter().any(|(k, _)| k == "id"))
+        {
+            return 1;
+        }
+        match &node.label {
+            Some(_) => label_candidates(view, node).len(),
+            None => view.node_map.len(),
+        }
+    }
+
+    /// Differential entry for the shadow harness (CONCEPT:EG-KG.query.cypher-engine-shadow):
+    /// run BOTH engines over `text` and return the divergence reason (`None` = agree). A
+    /// query legacy itself rejects is skipped (`Ok(None)`) — both engines share the parser,
+    /// so a parse/semantic error is not an engine divergence.
+    #[cfg(test)]
+    pub(crate) fn diff_for_test(
+        view: &GraphView,
+        text: &str,
+        params: &Params,
+    ) -> Result<Option<String>, String> {
+        let query = plan_cache::global().get_or_parse(text)?;
+        let Ok(l) = run_legacy(view, &query, params) else {
+            return Ok(None);
+        };
+        match run_plan(view, &query, params) {
+            Ok(p) => Ok(result_divergence(&l, &p, &query)),
+            Err(e) => Ok(Some(format!("plan engine errored: {e}"))),
+        }
+    }
+
+    /// Run ONLY the `plan` engine (bypassing the cached env selection) — the harness uses
+    /// this to prove the plan engine genuinely cost-reorders, not merely that it agrees.
+    #[cfg(test)]
+    pub(crate) fn run_plan_for_test(
+        view: &GraphView,
+        text: &str,
+        params: &Params,
+    ) -> Result<QueryResult, String> {
+        let query = plan_cache::global().get_or_parse(text)?;
+        run_plan(view, &query, params)
+    }
+
+    /// Run ONLY the legacy engine (bypassing the cached env selection).
+    #[cfg(test)]
+    pub(crate) fn run_legacy_for_test(
+        view: &GraphView,
+        text: &str,
+        params: &Params,
+    ) -> Result<QueryResult, String> {
+        let query = plan_cache::global().get_or_parse(text)?;
+        run_legacy(view, &query, params)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4145,5 +4424,162 @@ mod tests {
         let fwd = exec_cypher(&v, "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b").unwrap();
         assert_eq!(ids(&rev, 0), ids(&fwd, 0), "start-column set must match");
         assert_eq!(ids(&rev, 1), ids(&fwd, 1), "end-column set must match");
+    }
+
+    // ── Phase B: EPISTEMIC_GRAPH_CYPHER_ENGINE plan/shadow differential harness ────
+
+    /// The `plan` engine genuinely cost-reorders a BOTH-labeled pattern toward the smaller
+    /// label (which the legacy label-first heuristic — unlabeled-start-only — does not),
+    /// AND still agrees with legacy on the result set. 100 `:A` each → one `:B`.
+    #[cfg(feature = "cypher-plan")]
+    #[test]
+    fn plan_engine_cost_reorders_both_labeled_and_agrees() {
+        let core = GraphCore::new();
+        core.add_node("b".into(), pbytes(serde_json::json!({"node_type":"B"})));
+        for i in 0..100 {
+            let a = format!("a{i}");
+            core.add_node(a.clone(), pbytes(serde_json::json!({"node_type":"A"})));
+            core.add_edge(
+                a.clone(),
+                "b".into(),
+                pbytes(serde_json::json!({"relationship":"R"})),
+            )
+            .unwrap();
+        }
+        let v = core.analysis_snapshot();
+        let q = "MATCH (a:A)-[:R]->(b:B) RETURN a";
+
+        // Agreement — the shadow flip gate.
+        assert_eq!(engine::diff_for_test(&v, q, &Params::new()).unwrap(), None);
+
+        // Legacy keeps the labeled start (seeds from 100 :A); plan cost-reverses (seeds
+        // from the single :B). Same 100-row result, very different work.
+        walk_metrics::reset();
+        let legacy = engine::run_legacy_for_test(&v, q, &Params::new()).unwrap();
+        let (legacy_starts, _) = walk_metrics::snapshot();
+
+        walk_metrics::reset();
+        let planned = engine::run_plan_for_test(&v, q, &Params::new()).unwrap();
+        let (plan_starts, _) = walk_metrics::snapshot();
+
+        assert_eq!(legacy.rows.len(), 100);
+        assert_eq!(planned.rows.len(), 100);
+        assert_eq!(legacy_starts, 100, "legacy keeps the 100 :A labeled start");
+        assert_eq!(
+            plan_starts, 1,
+            "plan engine must cost-reverse to seed from the single :B"
+        );
+    }
+
+    /// Shadow-mode ZERO-DIVERGENCE over a representative corpus: labeled/unlabeled starts,
+    /// multi-hop, WHERE, LIMIT/SKIP, ORDER BY, DISTINCT, aggregation, `type(r)`, and a
+    /// variable-length hop — the plan engine must return the SAME rows legacy does (modulo
+    /// order when there is no ORDER BY) for every one.
+    #[cfg(feature = "cypher-plan")]
+    #[test]
+    fn shadow_corpus_zero_divergence() {
+        let f = fixture();
+        let corpus: &[&str] = &[
+            "MATCH (a:Person) RETURN a",
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b",
+            "MATCH (a)-[:KNOWS]->(b:Person) RETURN a, b",
+            "MATCH (a:Person)-[:KNOWS]->(b) RETURN a, b",
+            "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN type(r), b.name ORDER BY b.name",
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.name = 'Alice' RETURN b",
+            "MATCH (a:Person) RETURN a LIMIT 1",
+            "MATCH (a:Person) RETURN a.name ORDER BY a.name DESC SKIP 1 LIMIT 1",
+            "MATCH (a:Person) RETURN count(a)",
+            "MATCH (a:Person) RETURN DISTINCT a.node_type",
+            "MATCH (a:Person)-[:KNOWS*1..2]->(b:Person) RETURN b",
+            "MATCH (a) RETURN a",
+            // OPTIONAL MATCH, WITH pipelining, and an undirected hop — the plan engine
+            // leaves the latter two shapes' order untouched, but shadow must still confirm
+            // no accidental divergence on the full read grammar.
+            "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(b:Person) RETURN a, b",
+            "MATCH (a:Person) WITH a WHERE a.name = 'Alice' RETURN a",
+            "MATCH (a:Person)-[:KNOWS]-(b:Person) RETURN a, b",
+            "MATCH (a)-[:KNOWS]->(b) RETURN a.name, b.name",
+        ];
+        for q in corpus {
+            assert_eq!(
+                engine::diff_for_test(&f, q, &Params::new()).unwrap(),
+                None,
+                "shadow-mode divergence on: {q}"
+            );
+        }
+    }
+
+    /// Property-based shadow differential: a seeded generator (xorshift, no `rand` dep)
+    /// builds bounded random graphs and random linear patterns, asserting ZERO divergence
+    /// between the legacy and plan engines across every generated shape. This is the
+    /// differential the ADR's flip gate requires; a real reversal/cost bug would surface
+    /// as a divergence here rather than passing silently.
+    #[cfg(feature = "cypher-plan")]
+    #[test]
+    fn shadow_property_based_zero_divergence() {
+        let mut seed: u64 = 0x1234_5678_9abc_def0;
+        let mut rng = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let labels = ["A", "B", "C"];
+        let rels = ["R", "S"];
+        let node_pat = |var: &str, r: &mut dyn FnMut() -> u64| -> String {
+            // ~2/3 of positions carry a label (so cost_reorder has asymmetric ends to
+            // reorder); the rest are unlabeled.
+            if r() % 3 == 0 {
+                format!("({var})")
+            } else {
+                format!("({var}:{})", labels[(r() % labels.len() as u64) as usize])
+            }
+        };
+
+        for iter in 0..300 {
+            let core = GraphCore::new();
+            let n = 3 + (rng() % 8) as usize; // 3..10 nodes
+            let ids: Vec<String> = (0..n).map(|i| format!("n{i}")).collect();
+            for id in &ids {
+                let lbl = labels[(rng() % labels.len() as u64) as usize];
+                core.add_node(
+                    id.clone(),
+                    pbytes(serde_json::json!({"node_type": lbl, "v": (rng() % 5) as i64})),
+                );
+            }
+            let edges = (rng() % (2 * n as u64)) as usize;
+            for _ in 0..edges {
+                let a = &ids[(rng() % n as u64) as usize];
+                let b = &ids[(rng() % n as u64) as usize];
+                if a != b {
+                    let rel = rels[(rng() % rels.len() as u64) as usize];
+                    let _ = core.add_edge(
+                        a.clone(),
+                        b.clone(),
+                        pbytes(serde_json::json!({"relationship": rel})),
+                    );
+                }
+            }
+            let v = core.analysis_snapshot();
+
+            let hops = 1 + (rng() % 3) as usize; // 1..3 hops
+            let mut q = String::from("MATCH ");
+            q.push_str(&node_pat("a0", &mut rng));
+            for h in 0..hops {
+                let rel = rels[(rng() % rels.len() as u64) as usize];
+                q.push_str(&format!("-[:{rel}]->"));
+                q.push_str(&node_pat(&format!("a{}", h + 1), &mut rng));
+            }
+            q.push_str(" RETURN a0");
+            if rng() % 2 == 0 {
+                q.push_str(" LIMIT 3");
+            }
+
+            assert_eq!(
+                engine::diff_for_test(&v, &q, &Params::new()).unwrap(),
+                None,
+                "shadow divergence on generated query (iter {iter}): {q}"
+            );
+        }
     }
 }
