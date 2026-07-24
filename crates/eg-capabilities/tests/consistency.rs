@@ -233,6 +233,9 @@ const MUTATION_APPLY_DURABLE_GRAPHREDB: &[&str] = &[
     #[cfg(feature = "modality-serving")]
     "ServedModality",
 ];
+// NOTE: `RegisterServer` (W2.5) is intentionally ABSENT from this list -- it self-translates
+// into `Method::AddNode` (see `NATIVE_GRAPHREDB_DURABLE` below), so `AddNode` above already
+// carries the real `mutation_apply::is_durable_mutation` classification for its effect.
 
 /// GraphRedb operations that own a native transaction/status/outbox commit point
 /// outside the per-method graph mutation-applier classifier.
@@ -254,6 +257,10 @@ const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "IcvConfigure",
     "PruneByLifecycle",
     "Reconcile",
+    // W2.5: self-translates into `Method::AddNode` (dispatch.rs) BEFORE any durable
+    // commit -- exactly the "ApplyMultisigMutation -> ApplyMutation" shape above --
+    // so its real durability is AddNode's own MUTATION_APPLY_DURABLE_GRAPHREDB entry.
+    "RegisterServer",
     "RunDatalogReasoning",
     "Sql",
     "TouchNodes",
@@ -364,6 +371,7 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "PublishIdempotent",
     "Reconcile",
     "Reinforce",
+    "RegisterServer",
     "RemoveEdge",
     "RemoveNode",
     "RemoveTriples",
@@ -402,6 +410,7 @@ const CDC_RS_EMITS_CDC: &[&str] = &[
     "FromMsgpack",
     "IcvConfigure",
     "Reconcile",
+    "RegisterServer",
     "RemoveEdge",
     "RemoveNode",
     "RunDatalogReasoning",
@@ -598,6 +607,7 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("RegisterContinuousQuery", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RegisterForeignSource", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RegisterIdentity", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
+    ("RegisterServer", "UNASSIGNED", "W2.5 fleet server push-registration/heartbeat (self-translates into Method::AddNode against __commons__, like ApplyMultisigMutation above translates into ApplyMutation); mutates per policy/semantics, but absent from access.rs::requires_write entirely -- it is not graph-scoped and never reaches dispatch_graph_op with its own identity"),
     ("RegisterTrigger", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RegisterUdf", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("Reshard", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
@@ -835,7 +845,9 @@ fn all_methods_table_has_the_expected_variant_count() {
     // unconditional): 358 + 1 = 359.
     // Plus ADR-1 / W1.1 `ClusterMembers` + `NodeInfoUpsert` (engine-authoritative
     // cluster topology discovery, both unconditional): 359 + 2 = 361.
-    let expected = 361
+    // Plus W2.5 `RegisterServer` (engine-native fleet server registry,
+    // unconditional): 361 + 1 = 362.
+    let expected = 362
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

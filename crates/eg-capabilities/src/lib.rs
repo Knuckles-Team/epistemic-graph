@@ -912,6 +912,22 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Saga,
         },
+        // Fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5): writes a REAL
+        // `:Server` graph node (unlike `NodeInfoUpsert` above) by self-translating into
+        // `Method::AddNode` against `__commons__` (dispatch.rs) -- so the durable/audit/CDC
+        // effect mirrors `AddNode` exactly, even though this variant itself never reaches
+        // the gateway (see `server::mutation::NON_GATEWAY_COORDINATED`). `registry:write` is
+        // deliberately NOT `admin:*` (like `cluster:topology-read` above) -- an ordinary
+        // fleet service role, not just a cluster operator, self-registers.
+        Method::RegisterServer { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::GraphRedb,
+            authz_action: "registry:write",
+            idempotent: true,
+            audited: true,
+            emits_cdc: true,
+            txn_participation: TxnParticipation::Atomic,
+        },
         Method::PlacementAdmin { .. } => MethodPolicy {
             mutates: true,
             durability_domain: DurabilityDomain::ControlRedb,
@@ -2225,6 +2241,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("RaftChangeMembership", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "leader-only openraft change_membership; sets the group's exact voter set (the usual way to promote a learner added via RaftAddLearner)"),
         ("ClusterMembers", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "cluster:topology-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "ADR-1/W1.1 engine-authoritative client topology; deliberately NOT admin:cluster-read -- ordinary service roles need it to re-resolve after a failover; answered from any node, not just the leader"),
         ("NodeInfoUpsert", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "ADR-1/W1.1 per-node self-report into the durable cluster-topology store (server::persistence::node_info_store); issued only by the node's own Raft startup path, like CatalogAssign above -- NOT graph nodes (placement's O(N) lesson)"),
+        ("RegisterServer", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "registry:write", idempotent: true, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "W2.5 fleet server push-registration/heartbeat: self-translates into Method::AddNode against __commons__ (dispatch.rs), writing a REAL :Server graph node -- unlike NodeInfoUpsert above, this one IS a KG entity the fleet queries"),
         ("PlacementAdmin", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "raft-replicated placement-catalog admin op (Assign/Move/AbortMove, the placement DECISION + PLAN->EXECUTE->CATALOG-UPDATE legs): MultiRaft::placement_assign / TenantManager::move_partition / abort_move commit through the DEFAULT group's own client_write / commit_placement, not this gateway's per-graph MutationBatch"),
         ("Backup", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "reads a consistent snapshot out to a bundle; does not mutate the live graph"),
         ("Restore", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "prepared/committed admin MutationBatch saga"),
@@ -2558,7 +2575,9 @@ mod smoke_tests {
         // unconditional): 358 + 1 = 359.
         // Plus ADR-1 / W1.1 `ClusterMembers` + `NodeInfoUpsert` (engine-authoritative
         // cluster topology discovery, both unconditional): 359 + 2 = 361.
-        let expected = 361
+        // Plus W2.5 `RegisterServer` (engine-native fleet server registry,
+        // unconditional): 361 + 1 = 362.
+        let expected = 362
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))

@@ -246,7 +246,12 @@ pub mod cold_tier_impl;
 pub mod ann_warm;
 mod compute;
 mod dispatch;
+// Fleet server registry stale-lease reaper (CONCEPT:EG-KG.sharding.server-registry, W2.5): periodic
+// sweep that expires a `:Server` node whose `Method::RegisterServer`-issued
+// lease has lapsed. Always declared (mirrors `ann_warm` above) — the sweep is a
+// no-op when nothing has registered.
 pub(crate) mod handlers;
+pub mod registry_reaper;
 // MutationPlan + the single commit gateway (CONCEPT:EG-P0-2): consumes
 // `eg-capabilities`' MethodPolicy to drive authz + durable-commit + audit + CDC for
 // the GATEWAY_ROUTED mutation set from ONE call site. See its module docs for scope.
