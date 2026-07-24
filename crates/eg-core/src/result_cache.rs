@@ -23,6 +23,21 @@
 // result for the graph at once. We do not evict per-write; a stale entry simply can
 // never be looked up (its `(hash, old_version)` key is dead) and ages out of the LRU.
 //
+// ## Dependency-scoped entries (W1.6/P7) — surviving unrelated writes
+//
+// The version-keyed path above is CORRECT but COARSE: under a mixed read/write workload its
+// hit-rate collapses toward the WRITE rate, because ANY write to ANY part of the graph retires
+// EVERY cached result. `get_dep`/`put_dep` add a second, finer namespace
+// (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation). A dependency-scoped entry is keyed on
+// query IDENTITY alone (`(query_hash, actor_scope)`, no version) and tagged with the
+// [`crate::dep_scope::DepSet`] it READ (the labels it scanned, whether it read all nodes/edges).
+// On lookup it is revalidated against the graph's [`crate::dep_scope::DepClock`]: it stays valid
+// until a write TOUCHES one of its dimensions, so a repeated `MATCH (:A)` survives a continuous
+// stream of `:B` inserts. A query whose dependency set cannot be computed soundly does NOT use
+// this path — it keeps the version-keyed `get`/`put` above (coarse, unchanged). Correctness is
+// the clock's job: a stale hit is impossible because `DepClock::is_valid` floors on any
+// un-attributable write. See `crate::dep_scope`.
+//
 // ## Bounded LRU — pure-Rust, Pi-safe
 //
 // A fixed-capacity LRU keyed by a 128-bit query hash + the version. NO external
@@ -36,6 +51,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 
 use parking_lot::Mutex;
+
+use crate::dep_scope::{DepClock, DepSet};
 
 /// Default number of distinct (query, version) results retained per graph.
 /// Overridable via `EPISTEMIC_GRAPH_RESULT_CACHE_CAP` (0 disables the cache).
@@ -73,6 +90,30 @@ struct Entry {
     tick: u64,
 }
 
+/// Cache key for a DEPENDENCY-SCOPED entry (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation,
+/// W1.6/P7): the query identity + RLS actor scope, WITHOUT the graph version. Unlike the
+/// version-keyed [`Key`], a dependency-scoped entry is not retired by every write — it is keyed
+/// on identity alone and revalidated against the [`DepClock`] on each lookup, so it survives any
+/// write DISJOINT from the query's dependency set.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct DepKey {
+    query_hash: u128,
+    actor_scope_hash: u64,
+}
+
+/// One dependency-scoped cached result: the bytes, the graph version it was computed at, the
+/// dependency set it READ, and its LRU tick. Validity is `DepClock::is_valid(deps, computed_at)`.
+struct DepEntry {
+    bytes: std::sync::Arc<Vec<u8>>,
+    /// The graph `version()` the result was computed against — the reference point the clock's
+    /// per-dimension write versions are compared against.
+    computed_at: u64,
+    /// The dimensions this result depends on. A write invalidates the entry iff its change-set
+    /// overlaps this set (or floors the clock past `computed_at`).
+    deps: DepSet,
+    tick: u64,
+}
+
 /// A bounded, version-keyed LRU cache of serialized query results for ONE graph.
 /// Lives on `GraphCore`; the query handlers consult it before executing a read and
 /// populate it after a miss. Empty + zero-cost until first use.
@@ -87,7 +128,15 @@ struct Inner {
     map: HashMap<Key, Entry>,
     /// Tick order contains exactly one entry for every key in `map`.
     recency: BTreeMap<u64, Key>,
-    /// Monotonic access counter; the entry with the smallest `tick` is the LRU.
+    /// Dependency-scoped entries (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7):
+    /// keyed on query identity + actor scope (NOT version), revalidated against the graph's
+    /// `DepClock` on lookup. A separate namespace + LRU from the version-keyed `map` above; both
+    /// are independently bounded by `cap`.
+    dep_map: HashMap<DepKey, DepEntry>,
+    /// Tick order for `dep_map`; exactly one entry per `dep_map` key.
+    dep_recency: BTreeMap<u64, DepKey>,
+    /// Monotonic access counter shared by both namespaces; the entry with the smallest `tick` is
+    /// the LRU within its own recency index.
     clock: u64,
 }
 
@@ -124,6 +173,8 @@ impl ResultCache {
             inner: Mutex::new(Inner {
                 map: HashMap::new(),
                 recency: BTreeMap::new(),
+                dep_map: HashMap::new(),
+                dep_recency: BTreeMap::new(),
                 clock: 0,
             }),
             cap,
@@ -282,6 +333,150 @@ impl ResultCache {
         let mut inner = self.inner.lock();
         inner.map.clear();
         inner.recency.clear();
+        inner.dep_map.clear();
+        inner.dep_recency.clear();
+    }
+
+    /// Look up a DEPENDENCY-SCOPED cached result (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation,
+    /// W1.6/P7). Unlike [`get_scoped`](Self::get_scoped), the entry is keyed on identity alone
+    /// (`query_hash` + `actor_scope_hash`, no version) and is served across any write that did NOT
+    /// touch its dependency set: `clock.is_valid(entry.deps, entry.computed_at)` decides. A hit
+    /// updates recency and the hit counter; a lookup that finds a now-STALE entry (a write
+    /// overlapped its deps, or floored the clock) EVICTS it and misses, so a subsequent recompute
+    /// re-populates it. This is the path a query with a soundly computable dependency set uses
+    /// instead of the version-keyed path; a query whose dependencies cannot be computed keeps
+    /// using `get`/`put` (coarse, version-keyed) unchanged.
+    pub fn get_dep(
+        &self,
+        query_hash: u128,
+        actor_scope_hash: u64,
+        clock: &DepClock,
+    ) -> Option<Vec<u8>> {
+        if self.cap == 0 {
+            self.misses
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return None;
+        }
+        let key = DepKey {
+            query_hash,
+            actor_scope_hash,
+        };
+        let mut inner = self.inner.lock();
+        inner.clock += 1;
+        let now = inner.clock;
+        // Read the entry's validity + old tick, ending the immutable borrow before mutating.
+        let (present, valid, old_tick) = match inner.dep_map.get(&key) {
+            Some(entry) => (
+                true,
+                clock.is_valid(&entry.deps, entry.computed_at),
+                entry.tick,
+            ),
+            None => (false, false, 0),
+        };
+        if !present {
+            drop(inner);
+            self.misses
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return None;
+        }
+        if !valid {
+            // A write since `computed_at` overlapped this query's dependency set (or floored the
+            // clock). Evict the stale entry so the recompute can re-cache it.
+            inner.dep_recency.remove(&old_tick);
+            inner.dep_map.remove(&key);
+            drop(inner);
+            self.misses
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            // GOOD LOGS: the eviction decision — a cached result was retired because a write
+            // touched one of its dependencies (the correctness-critical path).
+            tracing::debug!(
+                target: "epistemic_graph::dep_cache",
+                query_hash,
+                "dependency-scoped hit evicted: a dependency was written since it was computed"
+            );
+            self.maybe_log_rate();
+            return None;
+        }
+        let bytes = {
+            let entry = inner.dep_map.get_mut(&key).expect("present checked above");
+            entry.tick = now;
+            std::sync::Arc::clone(&entry.bytes)
+        };
+        inner.dep_recency.remove(&old_tick);
+        inner.dep_recency.insert(now, key);
+        drop(inner);
+        self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.maybe_log_rate();
+        // Owned copy off-lock, mirroring `get_scoped`.
+        Some((*bytes).clone())
+    }
+
+    /// GOOD LOGS: periodically emit the cache hit-rate + size — the "periodic hit-rate/eviction
+    /// metric" (W1.6/P7). Fires once every 1024 accesses (cheap modulo on the shared counters), so
+    /// it never floods yet gives a running picture of how well dependency-scoping is holding the
+    /// hit-rate up under a mixed read/write workload.
+    fn maybe_log_rate(&self) {
+        let hits = self.hits.load(std::sync::atomic::Ordering::Relaxed);
+        let misses = self.misses.load(std::sync::atomic::Ordering::Relaxed);
+        let total = hits + misses;
+        if total == 0 || total % 1024 != 0 {
+            return;
+        }
+        let (version_entries, dep_entries) = {
+            let inner = self.inner.lock();
+            (inner.map.len(), inner.dep_map.len())
+        };
+        tracing::debug!(
+            target: "epistemic_graph::dep_cache",
+            hits,
+            misses,
+            hit_rate = hits as f64 / total as f64,
+            version_entries,
+            dep_entries,
+            "result-cache hit-rate metric"
+        );
+    }
+
+    /// Insert a DEPENDENCY-SCOPED result computed at graph version `computed_at` with dependency
+    /// set `deps` (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7). Evicts the LRU
+    /// dependency entry first when at capacity. A no-op when the cache is disabled (`cap == 0`).
+    pub fn put_dep(
+        &self,
+        query_hash: u128,
+        actor_scope_hash: u64,
+        computed_at: u64,
+        deps: DepSet,
+        bytes: Vec<u8>,
+    ) {
+        if self.cap == 0 {
+            return;
+        }
+        let key = DepKey {
+            query_hash,
+            actor_scope_hash,
+        };
+        let mut inner = self.inner.lock();
+        inner.clock += 1;
+        let now = inner.clock;
+        let old_tick = inner.dep_map.get(&key).map(|entry| entry.tick);
+        if old_tick.is_none() && inner.dep_map.len() >= self.cap {
+            if let Some((&lru_tick, &lru_key)) = inner.dep_recency.first_key_value() {
+                inner.dep_recency.remove(&lru_tick);
+                inner.dep_map.remove(&lru_key);
+            }
+        } else if let Some(old_tick) = old_tick {
+            inner.dep_recency.remove(&old_tick);
+        }
+        inner.dep_map.insert(
+            key,
+            DepEntry {
+                bytes: std::sync::Arc::new(bytes),
+                computed_at,
+                deps,
+                tick: now,
+            },
+        );
+        inner.dep_recency.insert(now, key);
     }
 
     /// `(hits, misses)` since construction — the proof counters a test reads to show
@@ -294,13 +489,19 @@ impl ResultCache {
         )
     }
 
-    /// Current number of retained entries (observability/tests).
+    /// Current number of retained VERSION-KEYED entries (observability/tests).
     pub fn len(&self) -> usize {
         self.inner.lock().map.len()
     }
 
+    /// Current number of retained DEPENDENCY-SCOPED entries (observability/tests, W1.6/P7).
+    pub fn dep_len(&self) -> usize {
+        self.inner.lock().dep_map.len()
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        let inner = self.inner.lock();
+        inner.map.is_empty() && inner.dep_map.is_empty()
     }
 }
 

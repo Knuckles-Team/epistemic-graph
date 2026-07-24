@@ -32,6 +32,13 @@ pub mod compute;
 #[cfg(feature = "contract")]
 mod contract;
 pub mod decay;
+/// CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation (W1.6/P7) — the per-graph
+/// dependency clock backing the result cache's dependency-scoped invalidation: a write
+/// bumps only the label / property-key / node / edge dimensions it actually touched, so a
+/// cached query result survives every write whose change-set is DISJOINT from the query's
+/// dependency set. Gated with the result cache it serves.
+#[cfg(feature = "result-cache")]
+pub mod dep_scope;
 pub mod graph;
 pub mod index;
 pub mod isolation;

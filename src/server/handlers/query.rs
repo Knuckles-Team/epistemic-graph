@@ -291,6 +291,12 @@ pub(crate) async fn try_handle(
             // on the plan bytes + the caller's RLS context. The plan + semantic store
             // both reflect `version`, so a write retires the entry; the
             // RLS-context salt keeps agent A's fused result out of agent B's lookups.
+            // Dependency-scoped invalidation (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation,
+            // W1.6/P7): a plan reducible to a bounded node read (Scan/Filter/Limit) is cached in
+            // the dependency-scoped namespace, so it survives every write DISJOINT from its
+            // labels; any other plan shape keeps the coarse version-keyed path unchanged.
+            #[cfg(feature = "result-cache")]
+            let dep = plan_dependency_set(&plan);
             #[cfg(feature = "result-cache")]
             let (snap, version, hash) = {
                 let mut payload = rmp_serde::to_vec_named(&plan).unwrap_or_default();
@@ -308,7 +314,11 @@ pub(crate) async fn try_handle(
                     rls,
                 );
                 let (mut snap, version) = core.analysis_snapshot_versioned();
-                if let Some(bytes) = core.result_cache().get(hash, version) {
+                let cached = match &dep {
+                    Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
+                    None => core.result_cache().get(hash, version),
+                };
+                if let Some(bytes) = cached {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
                 #[cfg(feature = "security")]
@@ -379,7 +389,18 @@ pub(crate) async fn try_handle(
                 Ok(Ok(rows)) => {
                     let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
                     #[cfg(feature = "result-cache")]
-                    core.result_cache().put(hash, version, bytes.clone());
+                    match &dep {
+                        // Dependency-scoped store: computed against `version`, tagged with the
+                        // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
+                        Some(deps) => core.result_cache().put_dep(
+                            hash,
+                            0,
+                            version,
+                            deps.clone(),
+                            bytes.clone(),
+                        ),
+                        None => core.result_cache().put(hash, version, bytes.clone()),
+                    }
                     Response::ok(req_id, ResultPayload::Raw(bytes))
                 }
                 Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
@@ -406,6 +427,11 @@ pub(crate) async fn try_handle(
             // on the text + the caller's RLS context (the parse is deterministic, so
             // caching pre-parse is sound and skips the parse on a hit too). The
             // RLS-context salt keeps agent A's result out of agent B's lookups.
+            // Dependency-scoped invalidation (W1.6/P7): identical to the `UnifiedQuery` arm — a
+            // Scan/Filter/Limit plan is cached in the dependency-scoped namespace (survives
+            // disjoint writes); any other shape keeps the version-keyed path.
+            #[cfg(feature = "result-cache")]
+            let dep = plan_dependency_set(&plan);
             #[cfg(feature = "result-cache")]
             let (snap, version, hash) = {
                 let mut payload = text.clone().into_bytes();
@@ -423,7 +449,11 @@ pub(crate) async fn try_handle(
                     rls,
                 );
                 let (mut snap, version) = core.analysis_snapshot_versioned();
-                if let Some(bytes) = core.result_cache().get(hash, version) {
+                let cached = match &dep {
+                    Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
+                    None => core.result_cache().get(hash, version),
+                };
+                if let Some(bytes) = cached {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
                 #[cfg(feature = "security")]
@@ -489,7 +519,18 @@ pub(crate) async fn try_handle(
                 Ok(Ok(rows)) => {
                     let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
                     #[cfg(feature = "result-cache")]
-                    core.result_cache().put(hash, version, bytes.clone());
+                    match &dep {
+                        // Dependency-scoped store: computed against `version`, tagged with the
+                        // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
+                        Some(deps) => core.result_cache().put_dep(
+                            hash,
+                            0,
+                            version,
+                            deps.clone(),
+                            bytes.clone(),
+                        ),
+                        None => core.result_cache().put(hash, version, bytes.clone()),
+                    }
                     Response::ok(req_id, ResultPayload::Raw(bytes))
                 }
                 Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
@@ -1446,6 +1487,49 @@ fn uql_text_embedder() -> Option<&'static dyn eg_plan::TextEmbedder> {
         )
         .as_ref()
         .map(|e| e as &dyn eg_plan::TextEmbedder)
+}
+
+/// Compute a SOUND dependency set for a UQL/`UnifiedQuery` plan
+/// (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7), or `None` when the plan's
+/// shape cannot be reduced to one — the caller then uses the coarse version-keyed result-cache
+/// path (unchanged). ONLY a plan built from pure node-relational ops is dependency-scoped:
+///   * `Scan { label }` — the sole source: a labeled scan depends on that label, an unlabeled scan
+///     on the whole node set (both tracked by the [`eg_core::dep_scope::DepClock`]);
+///   * `Filter` / `Limit` — RowSet-narrowing transforms over the ALREADY-sourced rows, adding no
+///     graph dependency beyond the source's (they read only the scanned rows' own properties,
+///     which the source's label/all-nodes dimension already covers).
+/// ANY other op — a `Traverse` (edges + arbitrary reached nodes), a vector/lexical `Rank`, a
+/// temporal `AsOf`, a reasoner/SPARQL/federation/tensor/spatial/tsdb/epistemic leg — reads state
+/// the clock does not model, so the WHOLE plan falls back to coarse invalidation. That
+/// conservative boundary is what makes a stale hit impossible: a dependency set is only ever
+/// returned when it PROVABLY captures everything the query reads.
+#[cfg(feature = "result-cache")]
+fn plan_dependency_set(plan: &eg_plan::Plan) -> Option<eg_core::dep_scope::DepSet> {
+    use eg_core::dep_scope::{DepSet, Dim};
+    let mut dims: Vec<Dim> = Vec::new();
+    let mut has_source = false;
+    for op in &plan.ops {
+        match op {
+            eg_plan::Op::Scan { label } => {
+                has_source = true;
+                if label.is_empty() {
+                    dims.push(Dim::AllNodes);
+                } else {
+                    dims.push(Dim::Label(label.clone()));
+                }
+            }
+            eg_plan::Op::Filter { .. } | eg_plan::Op::Limit { .. } => {}
+            // Any op reading state outside the dependency clock's model ⇒ coarse fallback.
+            _ => return None,
+        }
+    }
+    // A plan with no graph SOURCE op (e.g. a pure federation/tsdb seed) is not a bounded node
+    // read — fall back rather than claim an empty dependency set.
+    if has_source {
+        Some(DepSet::new(dims))
+    } else {
+        None
+    }
 }
 
 /// Does `ops` reference a lexical text op — an `Op::RankText` at the top level or nested
