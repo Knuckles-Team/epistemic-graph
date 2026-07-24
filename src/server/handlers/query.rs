@@ -4399,6 +4399,29 @@ mod result_cache_dispatch_tests {
     const SECRET: &str = "result-cache-test-secret";
 
     fn state() -> Arc<RwLock<ServerState>> {
+        // Post-FLIP every dispatch-served mutation is authoritative
+        // (commit-before-ack), so `AddNode` through `dispatch` REQUIRES a
+        // persistence backend — a backendless fixture rejects the write
+        // ("authoritative MutationBatch commit requires a persistence
+        // backend") before the cache paths under test are ever reached.
+        static DIR_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let dir = std::env::temp_dir()
+            .join(format!(
+                "eg-result-cache-dispatch-{}-{}",
+                std::process::id(),
+                DIR_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ))
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(&dir).expect("create test persist dir");
+        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
+            crate::server::persistence::redb_backend::RedbBackend::open(
+                dir.clone(),
+                crate::durability::DurabilityPolicy::Each,
+                4096,
+            )
+            .expect("open test redb backend"),
+        );
         Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
@@ -4408,8 +4431,8 @@ mod result_cache_dispatch_tests {
             isolation: current_isolation(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
-            persist_dir: None,
-            persistence: None,
+            persist_dir: Some(dir),
+            persistence: Some(backend),
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
