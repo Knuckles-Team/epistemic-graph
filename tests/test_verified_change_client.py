@@ -20,6 +20,12 @@ from epistemic_graph.client import (
     validate_request_context,
 )
 
+# Every test in this file is pure client-side logic: `EpistemicGraphClient` is
+# always constructed over dummy `object()` reader/writer (never a real
+# connection), and the two `async def` tests monkeypatch `client._send`
+# instead of performing I/O. No test here needs the shared native engine.
+pytestmark = pytest.mark.no_engine
+
 
 def _context() -> dict[str, object]:
     return {
@@ -318,6 +324,128 @@ def test_validate_request_context_accepts_optional_node_claim() -> None:
 def test_validate_request_context_rejects_invalid_node_claim(bad_node: object) -> None:
     with pytest.raises((TypeError, ValueError)):
         validate_request_context({**_context(), "node": bad_node})
+
+
+# ── ADR-4 decision 5 / W2.1-1: the optional OIDC bearer-token claim ─────────
+#
+# Unlike `node`/`priority` (MAC-covered tag-1/tag-2 trailers), `oidc_token`
+# rides as a SIBLING top-level envelope field -- matching the Rust decode
+# shape (`EnvelopeV2.oidc_token`, `src/server/auth.rs`) -- and is deliberately
+# NOT folded into the canonical MAC bytes: the token's own RSA/JWKS signature
+# is the trust anchor, and the engine's `bind_verified_identity` independently
+# cross-checks its subject/tenant against `context`, so MAC coverage would add
+# no real protection (see `build_envelope_v2_bytes`'s doc comment in
+# `crates/eg-types/src/protocol.rs`).
+
+
+def test_v2_token_includes_oidc_token_when_present() -> None:
+    client = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context={**_context(), "oidc_token": "eyJhbGciOiJSUzI1NiJ9.fixture.sig"},
+    )
+    payload = _decode_envelope(
+        client._compute_verified_token(_node_bound_request(), "idempotency-fixture")
+    )
+    # Carried at the TOP level, sibling to `context` -- never nested inside it
+    # (the Rust `RequestContextClaims` struct is `deny_unknown_fields`, so
+    # nesting it there would break decoding).
+    assert payload["oidc_token"] == "eyJhbGciOiJSUzI1NiJ9.fixture.sig"
+    assert "oidc_token" not in payload["context"]
+    assert payload["context"] == _context()
+
+
+def test_v2_token_omits_oidc_token_when_absent() -> None:
+    """Genuinely additive: no claim set -> no `oidc_token` key at all (not a
+    `null`), so an un-upgraded caller's envelope is byte-for-byte the same
+    shape as before this claim existed."""
+
+    client = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context=_context(),
+    )
+    payload = _decode_envelope(
+        client._compute_verified_token(_node_bound_request(), "idempotency-fixture")
+    )
+    assert "oidc_token" not in payload
+    assert payload["context"] == _context()
+
+
+def test_v2_token_oidc_token_does_not_change_the_mac(monkeypatch) -> None:
+    """The inverse of `test_v2_token_node_claim_changes_the_mac`: the token's
+    own signature is the trust anchor, not the HMAC, so two envelopes that
+    differ ONLY in `oidc_token` must sign IDENTICALLY.
+
+    `_compute_verified_token` mints a fresh timestamp/nonce every call (both
+    MAC-covered), so a naive cross-call MAC comparison would differ for that
+    reason alone regardless of `oidc_token` -- freeze both to isolate
+    `oidc_token` as the ONLY variable between calls.
+    """
+    import epistemic_graph.client as client_module
+
+    monkeypatch.setattr(client_module.time, "time", lambda: 1_700_000_000)
+    monkeypatch.setattr(client_module.secrets, "token_hex", lambda _n: "fixed-nonce")
+
+    client_no_token = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context=_context(),
+    )
+    client_with_token = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context={**_context(), "oidc_token": "token-a"},
+    )
+    client_with_other_token = EpistemicGraphClient(  # type: ignore[arg-type]
+        object(),
+        object(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context={**_context(), "oidc_token": "token-b"},
+    )
+    request = _node_bound_request()
+    payload_absent = _decode_envelope(
+        client_no_token._compute_verified_token(dict(request), "idempotency-fixture")
+    )
+    payload_a = _decode_envelope(
+        client_with_token._compute_verified_token(dict(request), "idempotency-fixture")
+    )
+    payload_b = _decode_envelope(
+        client_with_other_token._compute_verified_token(dict(request), "idempotency-fixture")
+    )
+    assert payload_absent["nonce"] == payload_a["nonce"] == payload_b["nonce"], (
+        "the nonce freeze must actually be effective, or this test proves nothing"
+    )
+    assert "oidc_token" not in payload_absent
+    assert payload_a["oidc_token"] == "token-a"
+    assert payload_b["oidc_token"] == "token-b"
+    assert payload_a["mac"] == payload_absent["mac"] == payload_b["mac"], (
+        "oidc_token must NOT affect the MAC-covered bytes"
+    )
+
+
+def test_validate_request_context_accepts_optional_oidc_token_claim() -> None:
+    validated = validate_request_context({**_context(), "oidc_token": "token-value"})
+    assert validated["oidc_token"] == "token-value"
+    validated_absent = validate_request_context(_context())
+    assert "oidc_token" not in validated_absent
+
+
+@pytest.mark.parametrize("bad_oidc_token", ["", "   ", 42])
+def test_validate_request_context_rejects_invalid_oidc_token_claim(
+    bad_oidc_token: object,
+) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        validate_request_context({**_context(), "oidc_token": bad_oidc_token})
 
 
 def test_signed_f32_body_matches_rust_rmp_serde_fixture() -> None:

@@ -187,6 +187,13 @@ pub fn audit_line(method: &Method) -> Option<String> {
             signatures.len(),
             hex::encode(Sha256::digest(query.as_bytes()))
         ),
+        // W2.5 fleet server registry: this variant self-translates into `Method::AddNode`
+        // in `dispatch.rs` BEFORE ever reaching a durable commit (mirroring
+        // `ApplyMultisigMutation` above, which translates into `ApplyMutation`), so the
+        // REAL audit line durable-committed for a registration is `ADD_NODE|srv:<name>`
+        // (AddNode's own arm above). This arm is defense-in-depth only, matching
+        // `ApplyMultisigMutation`'s precedent.
+        Method::RegisterServer { name, .. } => format!("REGISTER_SERVER|srv:{name}"),
         #[cfg(feature = "shacl")]
         Method::IcvConfigure { graph, mode, .. } => format!(
             "ICV_CONFIGURE|{}|{mode}",

@@ -72,6 +72,7 @@ fn context_for(agent_id: &str) -> RequestContextClaims {
         policy_version: TEST_POLICY_VERSION.to_string(),
         delegation: Vec::new(),
         node: None,
+        priority: None,
     }
 }
 
