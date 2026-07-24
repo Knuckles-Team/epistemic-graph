@@ -85,6 +85,16 @@ impl GroupRouter {
     }
 
     /// The group that owns `graph_name`. Override → tenant-range ring → [`DEFAULT_GROUP`].
+    ///
+    /// The ring path hashes the **sanitized** durable key ([`crate::persist::sanitize`]),
+    /// NOT the raw name — deliberately, so it agrees with the durable-storage router
+    /// (`redb_backend::shard_index(graph_fname, K)`, which also hashes the sanitized key
+    /// with the SAME FNV-1a). That agreement is the ADR-2 / W1.2 invariant "raft group `g`
+    /// owns redb shard `g`": with the production ring `0..K` and K == N (see
+    /// `MultiRaft::configure_group_ring` + `resolve_shard_count`), `group_of(name)` reduces
+    /// to `fnv1a(sanitize(name)) % N` == the shard the graph's data lands in, so a group's
+    /// consensus and its graphs' data share one shard. (Overrides — reshard/placement pins,
+    /// keyed on the raw name callers pass — still win first.)
     pub fn group_of(&self, graph_name: &str) -> GroupId {
         if let Some(g) = self.overrides.get(graph_name) {
             return *g;
@@ -93,7 +103,7 @@ impl GroupRouter {
         if ring.is_empty() {
             return DEFAULT_GROUP;
         }
-        ring[(fnv1a(graph_name) % ring.len() as u64) as usize]
+        ring[(fnv1a(&crate::persist::sanitize(graph_name)) % ring.len() as u64) as usize]
     }
 
     /// Configure the tenant-range ring (CONCEPT:AU-KG.ingest.mirror-inbound): un-pinned graphs

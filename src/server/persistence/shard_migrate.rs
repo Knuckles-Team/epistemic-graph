@@ -24,10 +24,13 @@
 //! * The tamper-evident hash-chained `AUDIT` log (CONCEPT:EG-KG.sharding.row-level-security) is copied
 //!   verbatim `(graph, seq) → prev_hash|entry_hash|line`, so the chain stays valid:
 //!   re-deriving it would break verification, copying preserves it.
-//! * Global, non-per-graph records — the Raft log/meta (`RAFT_LOG`/`RAFT_META`), the
-//!   cross-shard 2PC records (`XSHARD_PREPARE`/`XSHARD_DECISION`) and materialized views
-//!   (`MATVIEWS`) — live in shard 0 (EG-026's `shard0()` home), so they are routed to
-//!   the NEW shard 0 regardless of graph.
+//! * The Raft log/meta (`RAFT_LOG`/`RAFT_META`) are per-GROUP (ADR-2 / W1.2: raft group
+//!   `g` owns redb shard `g`), so a `(group_id, …)` row routes to `group_id % new_k` —
+//!   the SAME mapping `RedbBackend::shard_for_group` uses at runtime — so each group's
+//!   log/vote/applied lands in that group's own shard after a K change.
+//! * The remaining global records — the cross-shard 2PC records (`XSHARD_PREPARE`/
+//!   `XSHARD_DECISION`) and materialized views (`MATVIEWS`) — keep their `shard0()` home,
+//!   so they are routed to the NEW shard 0 regardless of graph.
 //!
 //! Because routing keys on the SAME sanitized graph name the engine uses, a migrated
 //! dir reopens at the new K with every graph reachable + its audit chain verifiable.
@@ -78,8 +81,14 @@ pub struct MigrationReport {
     pub audit: u64,
     /// Mutation replay/outbox and governed ChangeEnvelope rows copied.
     pub auxiliary: u64,
-    /// Global rows copied to the new shard 0 (raft log/meta + 2PC + matviews).
+    /// Global rows copied (raft log/meta routed per group; 2PC + matviews on shard 0).
     pub global: u64,
+    /// ADR-2 / W1.2 group-count metadata: the number of Raft groups the destination
+    /// layout supports. Under raft, K (redb shards) == N (groups) — raft group `g` owns
+    /// shard `g` — so this equals `dest_shards`. Surfaced explicitly in the manifest so the
+    /// W5.2 cutover runbook can assert the migrated store's group count matches the
+    /// cluster's `EPISTEMIC_GRAPH_RAFT_GROUPS` before seeding the groups.
+    pub dest_raft_groups: usize,
 }
 
 /// Discover a migration source under `dir` (CONCEPT:EG-KG.sharding.atomic-shard-swap).
@@ -147,6 +156,8 @@ pub fn migrate_shards(
     let mut report = MigrationReport {
         source_shards: src_paths.len(),
         dest_shards: new_k,
+        // ADR-2 / W1.2: K == N under raft, so the destination group count is the shard count.
+        dest_raft_groups: new_k,
         ..Default::default()
     };
     let mut seen_graphs: HashSet<String> = HashSet::new();
@@ -491,10 +502,10 @@ pub fn migrate_shards(
                 }
             }
 
-            // Global (non-per-graph) records live in shard 0 only.
-            if dest_idx == 0 {
-                report.global += copy_global_tables(&src_dbs, &wtx)?;
-            }
+            // Global (non-per-graph) records. ADR-2 / W1.2: the Raft log/meta are
+            // per-GROUP (group g owns shard g), so they route to `group_id % new_k` on
+            // EVERY dest pass; the 2PC records + matviews keep their shard-0 home.
+            report.global += copy_global_tables(&src_dbs, &wtx, dest_idx, new_k)?;
         }
         wtx.commit().map_err(|e| e.to_string())?;
     }
@@ -502,17 +513,25 @@ pub fn migrate_shards(
     Ok(report)
 }
 
-/// Copy the GLOBAL (non-per-graph) durable tables from every source into the new
-/// shard-0 write txn (CONCEPT:EG-KG.sharding.atomic-shard-swap): the Raft log/meta, the cross-shard 2PC records,
-/// and the materialized views. These are EG-026 "shard 0 home" records.
-fn copy_global_tables(src_dbs: &[Database], wtx: &redb::WriteTransaction) -> Result<u64, String> {
+/// Copy the GLOBAL (non-per-graph) durable tables from every source into `dest_idx`'s
+/// write txn (CONCEPT:EG-KG.sharding.atomic-shard-swap).
+///
+/// ADR-2 / W1.2: the Raft log (`RAFT_LOG`) and meta (`RAFT_META`) are per-GROUP records —
+/// raft group `g` owns redb shard `g` — so a `(group_id, …)` row routes to
+/// `group_id % new_k`, EXACTLY like `RedbBackend::shard_for_group` at runtime. A migrated
+/// raft store therefore finds each group's log/vote/applied in that group's own shard
+/// (not stranded on shard 0). The cross-shard 2PC records (`XSHARD_PREPARE`/
+/// `XSHARD_DECISION`) and materialized views (`MATVIEWS`) keep their runtime `shard0()`
+/// home, so they are copied only on the `dest_idx == 0` pass.
+fn copy_global_tables(
+    src_dbs: &[Database],
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
     let mut count = 0u64;
     let mut d_raft_log = wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
     let mut d_raft_meta = wtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
-    let mut d_xprep = wtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
-    let mut d_xdec = wtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
-    #[cfg(feature = "compute-dist")]
-    let mut d_matviews = wtx.open_table(MATVIEWS).map_err(|e| e.to_string())?;
 
     for src in src_dbs {
         let rtx = src.begin_read().map_err(|e| e.to_string())?;
@@ -520,6 +539,9 @@ fn copy_global_tables(src_dbs: &[Database], wtx: &redb::WriteTransaction) -> Res
             for row in t.iter().map_err(|e| e.to_string())? {
                 let (k, v) = row.map_err(|e| e.to_string())?;
                 let (g, i) = k.value();
+                if (g as usize) % new_k != dest_idx {
+                    continue;
+                }
                 d_raft_log
                     .insert((g, i), v.value())
                     .map_err(|e| e.to_string())?;
@@ -530,39 +552,54 @@ fn copy_global_tables(src_dbs: &[Database], wtx: &redb::WriteTransaction) -> Res
             for row in t.iter().map_err(|e| e.to_string())? {
                 let (k, v) = row.map_err(|e| e.to_string())?;
                 let (g, s) = k.value();
+                if (g as usize) % new_k != dest_idx {
+                    continue;
+                }
                 d_raft_meta
                     .insert((g, s), v.value())
                     .map_err(|e| e.to_string())?;
                 count += 1;
             }
         }
-        if let Ok(t) = rtx.open_table(XSHARD_PREPARE) {
-            for row in t.iter().map_err(|e| e.to_string())? {
-                let (k, v) = row.map_err(|e| e.to_string())?;
-                let (txn, gid) = k.value();
-                d_xprep
-                    .insert((txn, gid), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-        if let Ok(t) = rtx.open_table(XSHARD_DECISION) {
-            for row in t.iter().map_err(|e| e.to_string())? {
-                let (k, v) = row.map_err(|e| e.to_string())?;
-                d_xdec
-                    .insert(k.value(), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
+    }
+
+    // The 2PC coordinator records + materialized views stay on shard 0 (their runtime
+    // `shard0()` home is unchanged by ADR-2), so migrate them only on the first pass.
+    if dest_idx == 0 {
+        let mut d_xprep = wtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
+        let mut d_xdec = wtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
         #[cfg(feature = "compute-dist")]
-        if let Ok(t) = rtx.open_table(MATVIEWS) {
-            for row in t.iter().map_err(|e| e.to_string())? {
-                let (k, v) = row.map_err(|e| e.to_string())?;
-                d_matviews
-                    .insert(k.value(), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
+        let mut d_matviews = wtx.open_table(MATVIEWS).map_err(|e| e.to_string())?;
+        for src in src_dbs {
+            let rtx = src.begin_read().map_err(|e| e.to_string())?;
+            if let Ok(t) = rtx.open_table(XSHARD_PREPARE) {
+                for row in t.iter().map_err(|e| e.to_string())? {
+                    let (k, v) = row.map_err(|e| e.to_string())?;
+                    let (txn, gid) = k.value();
+                    d_xprep
+                        .insert((txn, gid), v.value())
+                        .map_err(|e| e.to_string())?;
+                    count += 1;
+                }
+            }
+            if let Ok(t) = rtx.open_table(XSHARD_DECISION) {
+                for row in t.iter().map_err(|e| e.to_string())? {
+                    let (k, v) = row.map_err(|e| e.to_string())?;
+                    d_xdec
+                        .insert(k.value(), v.value())
+                        .map_err(|e| e.to_string())?;
+                    count += 1;
+                }
+            }
+            #[cfg(feature = "compute-dist")]
+            if let Ok(t) = rtx.open_table(MATVIEWS) {
+                for row in t.iter().map_err(|e| e.to_string())? {
+                    let (k, v) = row.map_err(|e| e.to_string())?;
+                    d_matviews
+                        .insert(k.value(), v.value())
+                        .map_err(|e| e.to_string())?;
+                    count += 1;
+                }
             }
         }
     }
