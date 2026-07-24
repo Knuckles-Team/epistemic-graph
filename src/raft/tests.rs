@@ -328,7 +328,10 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
     std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
     std::env::set_var(
         "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-        std::env::temp_dir().join(format!("eg-cluster-members-wire-auth-{}", std::process::id())),
+        std::env::temp_dir().join(format!(
+            "eg-cluster-members-wire-auth-{}",
+            std::process::id()
+        )),
     );
 
     fn signed_request(id: u64, scopes: Vec<String>, method: Method) -> Request {
@@ -373,8 +376,7 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
         request
     }
 
-    let root =
-        std::env::temp_dir().join(format!("eg-wire-cluster-members-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("eg-wire-cluster-members-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let dirs: Vec<String> = (1..=3)
         .map(|i| {
@@ -456,7 +458,10 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
     .await;
     assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
     let Some(ResultPayload::Json(value)) = resp.result else {
-        panic!("expected a JSON ClusterMembers result, got {:?}", resp.result);
+        panic!(
+            "expected a JSON ClusterMembers result, got {:?}",
+            resp.result
+        );
     };
     let groups = value["groups"].as_array().expect("groups array");
     assert_eq!(groups.len(), 1, "single-group deployment -> one group");
@@ -476,7 +481,10 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
             assert_eq!(role, "follower");
         }
     }
-    assert_eq!(seen_leaders, 1, "exactly one member must be reported leader");
+    assert_eq!(
+        seen_leaders, 1,
+        "exactly one member must be reported leader"
+    );
 
     // ── (b) The `cluster:topology-read` grant genuinely works: an envelope
     // asserting ONLY that scope succeeds; an unrelated scope is denied --
@@ -492,15 +500,22 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
     )
     .await;
     assert!(
-        denied.error.as_deref().is_some_and(|e| e.contains("ACCESS_DENIED")),
+        denied
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("ACCESS_DENIED")),
         "an unrelated scope must be denied, got {:?}",
         denied.error
     );
 
-    // ── (c) PlacementRoute.endpoints echoes the SAME leader-first list. ──
+    // ── (c) PlacementRoute.endpoints echoes the SAME leader-first list.
+    // Unlike ClusterMembers, PlacementRoute remains LEADER-ONLY (pre-existing,
+    // unchanged by ADR-1 -- a follower answers OPERATION_REDIRECTED), so this
+    // leg is issued against the leader's own state. ──────────────────────
+    let leader_state = states[(leader_id - 1) as usize].clone();
     req_id += 1;
     let route_resp = dispatch(
-        &follower_state,
+        &leader_state,
         signed_request(
             req_id,
             vec!["*".to_string()],
@@ -516,13 +531,23 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
         ),
     )
     .await;
-    assert!(route_resp.error.is_none(), "route error: {:?}", route_resp.error);
+    assert!(
+        route_resp.error.is_none(),
+        "route error: {:?}",
+        route_resp.error
+    );
     let Some(ResultPayload::Raw(bytes)) = route_resp.result else {
-        panic!("expected a raw PlacementRoute result, got {:?}", route_resp.result);
+        panic!(
+            "expected a raw PlacementRoute result, got {:?}",
+            route_resp.result
+        );
     };
     let route: serde_json::Value = rmp_serde::from_slice(&bytes).expect("decode PlacementRoute");
     let endpoints = route["endpoints"].as_array().expect("endpoints array");
-    assert!(!endpoints.is_empty(), "endpoints must be non-empty once nodes have self-reported");
+    assert!(
+        !endpoints.is_empty(),
+        "endpoints must be non-empty once nodes have self-reported"
+    );
     assert_eq!(
         endpoints[0].as_str(),
         Some(expected_endpoint(leader_id).as_str()),

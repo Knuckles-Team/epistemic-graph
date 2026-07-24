@@ -45,17 +45,35 @@ async fn handle_node_info_upsert(
         .and_then(|p| p.as_redb())
         .map(|b| b.node_info())
     else {
+        tracing::warn!(
+            req_id,
+            node_id,
+            "NodeInfoUpsert applied with no durable redb backend attached; self-report dropped"
+        );
         return node_info_unavailable(req_id);
     };
     let info = crate::server::persistence::node_info_store::NodeInfo {
         node_id,
-        raft_addr,
-        advertised_client_addr,
+        raft_addr: raft_addr.clone(),
+        advertised_client_addr: advertised_client_addr.clone(),
         tls_server_name,
     };
     match store.upsert(info) {
-        Ok(()) => Response::ok(req_id, ResultPayload::Bool(true)),
-        Err(error) => Response::err(req_id, format!("node info upsert failed: {error}")),
+        Ok(()) => {
+            tracing::debug!(
+                req_id,
+                node_id,
+                raft_addr,
+                advertised_client_addr,
+                generation = store.generation(),
+                "applied cluster-topology NodeInfoUpsert (ADR-1 / W1.1)"
+            );
+            Response::ok(req_id, ResultPayload::Bool(true))
+        }
+        Err(error) => {
+            tracing::warn!(req_id, node_id, %error, "cluster-topology NodeInfoUpsert rejected");
+            Response::err(req_id, format!("node info upsert failed: {error}"))
+        }
     }
 }
 
@@ -82,6 +100,10 @@ async fn handle_cluster_members(state: &Arc<RwLock<ServerState>>, req_id: u64) -
         .and_then(|p| p.as_redb())
         .map(|b| b.node_info())
     else {
+        tracing::warn!(
+            req_id,
+            "ClusterMembers requested with no durable redb backend attached"
+        );
         return node_info_unavailable(req_id);
     };
     let epoch = store.generation();
@@ -92,6 +114,11 @@ async fn handle_cluster_members(state: &Arc<RwLock<ServerState>>, req_id: u64) -
         // node): a well-formed empty topology, exactly like `PlacementRoute`'s
         // single-node fallback returns a complete unplaced answer rather than an
         // error. The client's single-contact fallback (ADR-1 decision 3c) applies.
+        tracing::debug!(
+            req_id,
+            epoch,
+            "ClusterMembers: no live MultiRaft, answering empty topology"
+        );
         return Response::ok(
             req_id,
             ResultPayload::Json(serde_json::json!({"groups": [], "epoch": epoch})),
@@ -120,8 +147,23 @@ async fn handle_cluster_members(state: &Arc<RwLock<ServerState>>, req_id: u64) -
                 })
             })
             .collect();
+        if members.len() < voters.len() + learners.len() {
+            tracing::debug!(
+                req_id,
+                group_id,
+                known_members = members.len(),
+                raft_members = voters.len() + learners.len(),
+                "ClusterMembers: some raft members have no durable self-report yet"
+            );
+        }
         groups.push(serde_json::json!({"group_id": group_id, "members": members}));
     }
+    tracing::debug!(
+        req_id,
+        group_count = groups.len(),
+        epoch,
+        "served ClusterMembers"
+    );
     Response::ok(
         req_id,
         ResultPayload::Json(serde_json::json!({"groups": groups, "epoch": epoch})),
