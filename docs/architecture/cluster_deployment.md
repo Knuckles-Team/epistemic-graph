@@ -222,7 +222,7 @@ confirm there before declaring the cluster production-live:
    `RaftChangeMembership` can shrink the voter set as a workaround by omitting a
    node from the requested `voters`, but that is NOT the same safety envelope as
    a dedicated remove entrypoint — flag for a follow-up).
-   
+
    §2c is now drivable end-to-end without a bespoke binary: bring node 2 up on
    the SAME `EPISTEMIC_GRAPH_RAFT_NODE_ID`/`EPISTEMIC_GRAPH_RAFT_PEERS`/
    `EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE` boot env this doc already documents in

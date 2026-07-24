@@ -2621,11 +2621,14 @@ pub(crate) fn where_clause(preds: &[Pred]) -> Result<String, String> {
                 }
                 // JSONPath predicates are evaluated per row and never reach SQL.
                 Pred::JsonPath { .. } => "1=1".into(),
-                // Spatial predicates are likewise evaluated outside this SQL leg. This module
-                // only compiles under `query`, which pulls `eg-types/query` — the full wire
-                // contract that surfaces the geo `Pred` variants unconditionally. The "1=1"
-                // passthrough needs no eg-geo executor, so this arm is NOT `geo`-gated: the
-                // variants always exist here even when eg-plan does not link the geo backend.
+                // Spatial predicates are likewise evaluated outside this SQL leg. Every
+                // `Pred::Spatial*` variant is `#[cfg(feature = "geo")]`-gated in
+                // `eg-types/src/wire.rs`, so this arm MUST carry the same gate — without it a
+                // `query`-but-not-`geo` build (E0599: no variant named SpatialWithin, …) fails
+                // to compile. The non-geo `Pred` set is {Eq, GtNum, LtNum, JsonPath}, so the
+                // match stays exhaustive when this arm is compiled out. The "1=1" passthrough
+                // needs no eg-geo executor; spatial preds are split out and evaluated per-row.
+                #[cfg(feature = "geo")]
                 Pred::SpatialWithin { .. }
                 | Pred::SpatialDWithin { .. }
                 | Pred::SpatialContains { .. }

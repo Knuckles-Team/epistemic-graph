@@ -50,7 +50,13 @@ def _violations(text: str) -> list[str]:
         if reference.startswith("docker://"):
             if re.fullmatch(r"docker://[^\s]+@sha256:[0-9a-f]{64}", reference) is None:
                 findings.append("mutable container action")
-        elif re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_./-]+)?@[0-9a-f]{40}", reference) is None:
+        elif (
+            re.fullmatch(
+                r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_./-]+)?@[0-9a-f]{40}",
+                reference,
+            )
+            is None
+        ):
             findings.append("mutable action")
     return findings
 
@@ -62,7 +68,9 @@ def main() -> int:
     failures = 0
     workflow_root = Path(".github/workflows")
     if workflow_root.is_dir():
-        for path in sorted((*workflow_root.glob("*.yml"), *workflow_root.glob("*.yaml"))):
+        for path in sorted(
+            (*workflow_root.glob("*.yml"), *workflow_root.glob("*.yaml"))
+        ):
             try:
                 payload = path.read_text(encoding="utf-8")
             except (OSError, UnicodeError):
