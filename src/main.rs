@@ -1778,6 +1778,56 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // ── Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security) ───────────────────────────────
+    // Periodically Merkle-anchor every resident graph's `:ToolCall`/`:RunTrace`
+    // provenance-node window into the SAME tamper-evident audit chain the
+    // `security` feature already maintains, so a tamper of an anchored node's
+    // durable content becomes detectable via `Method::AuditProveInclusion`.
+    // Reuses the engine's existing interval-task cadence (like the budget/cold-
+    // offload sweeps above) — NO new daemon/thread. OFF by default: arm with
+    // `EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS=N` (the sweep then runs every `N`
+    // seconds). Overhead is bounded regardless of `N`: the window-size-dependent
+    // work runs off the writer thread, and an unchanged window commits nothing
+    // (see `server::persistence::provenance_anchor`'s module doc).
+    #[cfg(feature = "security")]
+    {
+        let interval_secs = std::env::var("EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        if interval_secs > 0 {
+            let anchor_state = state.clone();
+            info!(
+                "Provenance anchoring: Merkle-anchoring :ToolCall/:RunTrace windows every {}s \
+                 (CONCEPT:EG-KG.sharding.row-level-security)",
+                interval_secs
+            );
+            tokio::spawn(async move {
+                let mut ticker =
+                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                ticker.tick().await; // consume the immediate first tick
+                loop {
+                    ticker.tick().await;
+                    let __loop_tick_started = std::time::Instant::now();
+                    let anchored = epistemic_graph::server::persistence::provenance_anchor::sweep(
+                        &anchor_state,
+                    )
+                    .await;
+                    if anchored > 0 {
+                        tracing::info!(
+                            "Provenance anchoring: anchored {} graph(s) this tick",
+                            anchored
+                        );
+                    }
+                    epistemic_graph::metrics::loop_tick(
+                        "provenance_anchor",
+                        __loop_tick_started.elapsed().as_secs_f64(),
+                    );
+                }
+            });
+        }
+    }
+
     // ── OCC transaction TTL sweep (CONCEPT:EG-KG.txn.multi-op-occ-acid safety rail) ─────────
     // Auto-roll-back transactions idle past the TTL so an abandoned client never
     // leaks a staged transaction forever. An abandoned txn never committed, so it

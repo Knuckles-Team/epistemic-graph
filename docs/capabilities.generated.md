@@ -122,6 +122,7 @@
 | `ClearLedger` | true | GraphRedb | `ledger:admin` | true | true | true | Atomic | state-backed MutationBatch |
 | `ApplyLedger` | true | GraphRedb | `ledger:write` | false | true | true | Atomic | state-backed MutationBatch |
 | `AuditVerify` | false | None | `security:audit` | true | false | false | Snapshot |  |
+| `AuditProveInclusion` | false | None | `security:audit` | true | false | false | Snapshot | provenance anchoring: Merkle inclusion proof for one node against a prior PROVENANCE_ANCHOR audit-chain entry |
 | `GetSubgraph` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `Fork` | false | None | `graph:read` | true | false | false | Snapshot | returns the forked snapshot to the caller; never registers/persists it server-side |
 | `DiffAgainst` | false | None | `graph:read` | true | false | false | Snapshot |  |
