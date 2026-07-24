@@ -796,8 +796,17 @@ mod tests {
         let g = clustered_similarity_graph(30, 8, 6);
         let k = 8;
         let exact = knn_similarity(&g, Metric::Jaccard, Direction::Out, k, 0.0);
-        let approx =
-            knn_similarity_approx(&g, Metric::Jaccard, Direction::Out, k, 0.0, 0.5, 30, 0.001, 42);
+        let approx = knn_similarity_approx(
+            &g,
+            Metric::Jaccard,
+            Direction::Out,
+            k,
+            0.0,
+            0.5,
+            30,
+            0.001,
+            42,
+        );
         let (se, sa) = (pair_set(&exact), pair_set(&approx));
         let recovered = se.intersection(&sa).count();
         let recall = recovered as f64 / se.len().max(1) as f64;
@@ -814,7 +823,17 @@ mod tests {
     fn knn_approx_is_deterministic_for_fixed_seed() {
         let g = clustered_similarity_graph(20, 6, 5);
         let run = || {
-            knn_similarity_approx(&g, Metric::Cosine, Direction::Out, 6, 0.0, 0.5, 20, 0.001, 7)
+            knn_similarity_approx(
+                &g,
+                Metric::Cosine,
+                Direction::Out,
+                6,
+                0.0,
+                0.5,
+                20,
+                0.001,
+                7,
+            )
         };
         let a = run();
         let b = run();
@@ -837,16 +856,34 @@ mod tests {
             ("c", "x", 1.0),
         ]);
         let exact = knn_similarity(&g, Metric::Jaccard, Direction::Out, 5, 0.0);
-        let approx =
-            knn_similarity_approx(&g, Metric::Jaccard, Direction::Out, 5, 0.0, 0.5, 10, 0.001, 1);
+        let approx = knn_similarity_approx(
+            &g,
+            Metric::Jaccard,
+            Direction::Out,
+            5,
+            0.0,
+            0.5,
+            10,
+            0.001,
+            1,
+        );
         assert_eq!(pair_set(&exact), pair_set(&approx));
     }
 
     #[test]
     fn knn_approx_respects_cutoff() {
         let g = clustered_similarity_graph(15, 6, 5);
-        let approx =
-            knn_similarity_approx(&g, Metric::Jaccard, Direction::Out, 8, 0.5, 0.5, 20, 0.001, 3);
+        let approx = knn_similarity_approx(
+            &g,
+            Metric::Jaccard,
+            Direction::Out,
+            8,
+            0.5,
+            0.5,
+            20,
+            0.001,
+            3,
+        );
         assert!(
             approx.iter().all(|p| p.score > 0.5),
             "no pair may fall at/below the cutoff"

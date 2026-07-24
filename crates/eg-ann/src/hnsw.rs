@@ -810,7 +810,7 @@ mod tests {
             hnsw.insert(i as u64, v.clone());
         }
         // Allow only ids ≡ 0 (mod 7) — ~14% selectivity.
-        let allow = |id: u64| id % 7 == 0;
+        let allow = |id: u64| id.is_multiple_of(7);
         let mut qr = ChaCha8Rng::seed_from_u64(101);
         for _ in 0..25 {
             let q: Vec<f32> = (0..dim).map(|_| qr.gen::<f32>() * 2.0 - 1.0).collect();
@@ -834,7 +834,7 @@ mod tests {
             hnsw.insert(i as u64, v.clone());
         }
         // ~1% selectivity: keep ids ≡ 0 (mod 100).
-        let allow = |id: u64| id % 100 == 0;
+        let allow = |id: u64| id.is_multiple_of(100);
         let ef = 128;
         let mut qr = ChaCha8Rng::seed_from_u64(2025);
         let nq = 100;
@@ -869,7 +869,7 @@ mod tests {
         };
         let a = build();
         let b = build();
-        let allow = |id: u64| id % 50 == 0;
+        let allow = |id: u64| id.is_multiple_of(50);
         let mut qr = ChaCha8Rng::seed_from_u64(7);
         for _ in 0..20 {
             let q: Vec<f32> = (0..dim).map(|_| qr.gen::<f32>() * 2.0 - 1.0).collect();

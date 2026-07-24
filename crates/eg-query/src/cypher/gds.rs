@@ -34,11 +34,11 @@ use eg_compute::graph_algos::{
     a_star, all_pairs_similarity, article_rank, betweenness_centrality, closeness_centrality,
     degree_centrality, dijkstra, eigenvector_centrality, harmonic_centrality, haversine_km,
     k1_coloring, k_core, knn_similarity, knn_similarity_approx, label_propagation, leiden,
-    local_clustering_coefficient,
-    louvain, pagerank, random_walk, steiner_tree, strongly_connected_components, triangle_count,
-    weakly_connected_components, yen_k_shortest_paths, AdjacencyGraph, ArticleRankConfig,
-    ClosenessConfig, DegreeKind, Direction, EigenvectorConfig, LabelPropagationConfig,
-    LeidenConfig, LouvainConfig, Metric, PageRankConfig, RandomWalkConfig,
+    local_clustering_coefficient, louvain, pagerank, random_walk, steiner_tree,
+    strongly_connected_components, triangle_count, weakly_connected_components,
+    yen_k_shortest_paths, AdjacencyGraph, ArticleRankConfig, ClosenessConfig, DegreeKind,
+    Direction, EigenvectorConfig, LabelPropagationConfig, LeidenConfig, LouvainConfig, Metric,
+    PageRankConfig, RandomWalkConfig,
 };
 
 use super::proc::{CypherProcedure, ProcRow, YieldValue};
@@ -1962,7 +1962,8 @@ mod tests {
         // NN-descent must recover at least one exact 1.0 neighbour pair per block it
         // touches — verify it found the strong structure, not just noise.
         assert!(
-            r.iter().any(|row| (row[2].as_f64().unwrap() - 1.0).abs() < 1e-9),
+            r.iter()
+                .any(|row| (row[2].as_f64().unwrap() - 1.0).abs() < 1e-9),
             "approx knn must recover within-block 1.0 pairs"
         );
     }
