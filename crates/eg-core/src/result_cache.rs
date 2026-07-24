@@ -419,7 +419,7 @@ impl ResultCache {
         let hits = self.hits.load(std::sync::atomic::Ordering::Relaxed);
         let misses = self.misses.load(std::sync::atomic::Ordering::Relaxed);
         let total = hits + misses;
-        if total == 0 || total % 1024 != 0 {
+        if total == 0 || !total.is_multiple_of(1024) {
             return;
         }
         let (version_entries, dep_entries) = {

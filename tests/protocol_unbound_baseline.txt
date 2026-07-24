@@ -107,3 +107,8 @@ CepPoll
 # are now BOUND (gap-fill program): client.jobs.{submit,status,cancel,resume}
 # (Method::AnalyticsJob) and client.cancel_request (Method::CancelRequest). No longer
 # listed here — they now have a Python sender.
+# Cluster-topology self-report (ADR-1 / W1.1): each node upserts its own
+# {node_id, addrs, tls_name} row at startup via the replicated ClusterAdmin
+# command path — engine-internal maintenance; a client must never write another
+# node's topology row. Clients READ topology via ClusterMembers (bound).
+NodeInfoUpsert

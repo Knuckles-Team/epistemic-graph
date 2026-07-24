@@ -2234,6 +2234,7 @@ impl GraphCore {
     ///   * ADD — file the new id under every label it carries and every indexed property key it has;
     ///   * REMOVE — unfile the id (from its captured labels/keys, or by scanning the warm postings);
     ///   * UPDATE (CAS) — re-file the id for exactly the changed label / property fields.
+    ///
     /// Only a WARM (already-built) cache is touched; a cold cache stays cold and builds on demand.
     /// An un-attributable change — an update with unknown `changed_fields`, or an add whose blob
     /// will not decode — still DROPS the affected cache (the sound conservative fallback) and
