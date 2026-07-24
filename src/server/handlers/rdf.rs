@@ -182,6 +182,7 @@ pub(crate) async fn try_handle(
             query,
             mapping,
             tables,
+            external_sources,
         } => {
             let authority = read_authority
                 .and_then(GraphReadAuthority::carrier)
@@ -194,7 +195,10 @@ pub(crate) async fn try_handle(
                 Ok(store) => store,
                 Err(error) => return Ok(Response::err(req_id, error)),
             };
-            Ok(handle_sparql_virtual(req_id, store, query, mapping, tables).await)
+            Ok(
+                handle_sparql_virtual(req_id, store, query, mapping, tables, external_sources)
+                    .await,
+            )
         }
         #[cfg(feature = "rdf")]
         Method::RunRules {
@@ -675,10 +679,12 @@ async fn handle_sparql_virtual(
     query: String,
     mapping: String,
     tables: Vec<String>,
+    external_sources: Vec<crate::protocol::ObdaExternalSource>,
 ) -> Response {
-    let out =
-        tokio::task::spawn_blocking(move || sparql_virtual(&store, &query, &mapping, &tables))
-            .await;
+    let out = tokio::task::spawn_blocking(move || {
+        sparql_virtual(&store, &query, &mapping, &tables, &external_sources)
+    })
+    .await;
     match out {
         Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
         Ok(Err(msg)) => Response::err(req_id, format!("SparqlVirtual error: {msg}")),
@@ -692,10 +698,11 @@ async fn handle_sparql_virtual(
 /// templates/literal object maps consume the lexical form; typed SQL round-tripping
 /// through a `rr:datatype` object map is a documented follow-up, mirrored from the
 /// EG-101 `ObdaSource` contract). The full row is always scanned from the table (the
-/// store's `scan` has no column-projection API); THIS layer still applies the
-/// `needed`-column projection when handing rows back, so the OBDA-side pushdown
-/// contract (only query-relevant columns end up in a materialized triple) still holds
-/// even though the underlying store scan itself is not column-pushed.
+/// store's `scan` has no column-projection API); THIS layer still applies BOTH the
+/// `needed`-column projection AND the pushed-down row-level `filters`
+/// (CONCEPT:EG-KG.query.obda-predicate-pushdown) when handing rows back, so the OBDA-side
+/// pushdown contract (only query-relevant rows/columns end up in a materialized triple)
+/// holds even though the underlying store scan itself is not column/predicate-pushed.
 #[cfg(feature = "obda")]
 struct TableStoreSource {
     schema: eg_query::TableSchema,
@@ -758,19 +765,36 @@ impl eg_rdf::obda::ObdaSource for TableStoreSource {
     fn scan(
         &self,
         needed: &std::collections::BTreeSet<String>,
+        filters: &[eg_rdf::obda::ObdaFilter],
     ) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
+        let cols = self.schema.columns();
         let mut out = Vec::with_capacity(self.rows.len());
         for row in &self.rows {
-            let mut fr = eg_rdf::obda::ForeignRow::new();
-            for (col, cell) in self.schema.columns().iter().zip(row.iter()) {
-                if !needed.is_empty() && !needed.contains(&col.name) {
-                    continue;
-                }
-                if let Some(v) = Self::lexical(cell) {
-                    fr.insert(col.name.clone(), v);
-                }
+            // Build the full lexical row first — a pushed FILTER may reference a column the
+            // query does not PROJECT, so it must be visible for the predicate check.
+            let full: eg_rdf::obda::ForeignRow = cols
+                .iter()
+                .zip(row.iter())
+                .filter_map(|(col, cell)| Self::lexical(cell).map(|v| (col.name.clone(), v)))
+                .collect();
+            // Row-level predicate pushdown (CONCEPT:EG-KG.query.obda-predicate-pushdown): drop
+            // any row the pushed-down FILTERs exclude BEFORE projecting — the internal-table
+            // analogue of a SQL WHERE (closing the "pushdown stopped at column projection" gap).
+            if !filters
+                .iter()
+                .all(|f| full.get(&f.column).is_some_and(|c| f.matches(c)))
+            {
+                continue;
             }
-            out.push(fr);
+            // Projection pushdown: keep only the query-relevant columns.
+            let projected: eg_rdf::obda::ForeignRow = if needed.is_empty() {
+                full
+            } else {
+                full.into_iter()
+                    .filter(|(k, _)| needed.contains(k))
+                    .collect()
+            };
+            out.push(projected);
         }
         Ok(out)
     }
@@ -786,11 +810,18 @@ fn sparql_virtual(
     query: &str,
     mapping: &str,
     tables: &[String],
+    external_sources: &[crate::protocol::ObdaExternalSource],
 ) -> Result<crate::protocol::SparqlResult, String> {
     let mut reg = eg_rdf::obda::ObdaSourceRegistry::new();
     for table in tables {
         let src = TableStoreSource::load(store, table)?;
         reg.register(table.clone(), std::sync::Arc::new(src));
+    }
+    // W4.11 — register each LIVE external relational source (CONCEPT:EG-KG.query.obda-predicate-pushdown).
+    // The query's projection + row-level FILTERs are pushed into a real SELECT … WHERE ….
+    for ext in external_sources {
+        let src = SqlObdaSource::connect(&ext.dsn, &ext.table)?;
+        reg.register(ext.name.clone(), std::sync::Arc::new(src));
     }
 
     // Auto-detect standard R2RML Turtle (carries the `rr:` namespace) vs. the compact
@@ -812,6 +843,255 @@ fn sparql_virtual(
         eg_rdf::sparql::QueryOutcome::Graph(_) => (Vec::new(), Vec::new()),
     };
     Ok(crate::protocol::SparqlResult { vars, rows })
+}
+
+// ── external relational OBDA source + SPARQL→SQL predicate pushdown (W4.11) ──────────────────
+//   CONCEPT:EG-KG.query.obda-predicate-pushdown — a live external Postgres/MySQL table exposed
+//   as a virtual RDF graph, with the query's column projection AND row-level FILTERs pushed
+//   down into a real `SELECT … WHERE …`. The SQL-generation (`render_obda_select`) is a PURE
+//   function proven by unit tests ("assert the pushdown via the query plan"); execution goes
+//   through the `ObdaSqlExecutor` seam so it is testable with a mock (no live DB) while the
+//   `federation-sql` executor connects to the fleet's database.
+
+/// The SQL dialect an external OBDA source speaks — selects identifier quoting + the
+/// lexical-cast form so every SELECTed column comes back as text (the `ForeignRow` currency).
+#[cfg(feature = "obda")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ObdaSqlDialect {
+    Postgres,
+    MySql,
+}
+
+#[cfg(feature = "obda")]
+impl ObdaSqlDialect {
+    /// Infer the dialect from a DSN scheme (`postgres://…` / `mysql://…`).
+    fn from_dsn(dsn: &str) -> Result<Self, String> {
+        match dsn.split(':').next().unwrap_or("") {
+            "postgres" | "postgresql" => Ok(Self::Postgres),
+            "mysql" | "mariadb" => Ok(Self::MySql),
+            _ => Err(
+                "obda: unsupported external SQL scheme (expected postgres:// or mysql://)".into(),
+            ),
+        }
+    }
+}
+
+/// CONCEPT:EG-KG.query.obda-predicate-pushdown — executes a rendered READ-ONLY `SELECT` against
+/// an external relational database and returns each row as column→lexical-string. The seam that
+/// lets the SQL-generation + pushdown logic be unit-tested with a MOCK executor (no live DB)
+/// while a real `federation-sql` executor connects to the fleet's Postgres/MySQL.
+#[cfg(feature = "obda")]
+trait ObdaSqlExecutor: Send + Sync {
+    fn run_select(&self, sql: &str) -> Result<Vec<eg_rdf::obda::ForeignRow>, String>;
+}
+
+/// An [`eg_rdf::obda::ObdaSource`] backed by a table in an EXTERNAL relational database
+/// (CONCEPT:EG-KG.query.obda-predicate-pushdown). On `scan` it renders the projection- and
+/// FILTER-pushed `SELECT … WHERE …` for its dialect and runs it through the [`ObdaSqlExecutor`].
+#[cfg(feature = "obda")]
+struct SqlObdaSource {
+    table: String,
+    dialect: ObdaSqlDialect,
+    executor: std::sync::Arc<dyn ObdaSqlExecutor>,
+}
+
+#[cfg(feature = "obda")]
+impl SqlObdaSource {
+    /// Build a live external source over `table` reachable at `dsn` (the `federation-sql`
+    /// path). A build without `federation-sql` returns a clean "rebuild" error.
+    fn connect(dsn: &str, table: &str) -> Result<Self, String> {
+        let dialect = ObdaSqlDialect::from_dsn(dsn)?;
+        validate_sql_identifier(table)?;
+        let executor = federation_sql_executor(dsn)?;
+        Ok(Self {
+            table: table.to_string(),
+            dialect,
+            executor,
+        })
+    }
+}
+
+#[cfg(feature = "obda")]
+impl eg_rdf::obda::ObdaSource for SqlObdaSource {
+    fn scan(
+        &self,
+        needed: &std::collections::BTreeSet<String>,
+        filters: &[eg_rdf::obda::ObdaFilter],
+    ) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
+        let sql = render_obda_select(&self.table, needed, filters, self.dialect)?;
+        self.executor.run_select(&sql)
+    }
+}
+
+/// CONCEPT:EG-KG.query.obda-predicate-pushdown — render the read-only `SELECT` a [`SqlObdaSource`]
+/// issues: the `needed` columns each CAST to text (so the result is uniformly lexical), plus a
+/// `WHERE` built from the pushed-down [`eg_rdf::obda::ObdaFilter`]s — the row-level pushdown.
+/// Identifiers are validated + quoted and every literal is safely rendered, so the SQL carries
+/// no injection surface (and `federation-sql` re-validates the whole statement before running).
+/// This is a PURE function — the unit tests assert its `WHERE` clause ("the query plan").
+#[cfg(feature = "obda")]
+fn render_obda_select(
+    table: &str,
+    needed: &std::collections::BTreeSet<String>,
+    filters: &[eg_rdf::obda::ObdaFilter],
+    dialect: ObdaSqlDialect,
+) -> Result<String, String> {
+    if needed.is_empty() {
+        // A real OBDA mapping always needs ≥1 column (the subject template); an empty set
+        // means a variable-predicate query with no mapped columns — not answerable over a
+        // live external source without a full schema fetch. Fail clean rather than SELECT *.
+        return Err(
+            "obda: external SQL source needs a column-restricted query (no projectable columns)"
+                .into(),
+        );
+    }
+    let select_list = needed
+        .iter()
+        .map(|c| render_select_item(c, dialect))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    let mut sql = format!(
+        "SELECT {select_list} FROM {}",
+        quote_sql_identifier(table, dialect)?
+    );
+    if !filters.is_empty() {
+        let where_clause = filters
+            .iter()
+            .map(|f| render_obda_filter(f, dialect))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(" AND ");
+        sql.push_str(" WHERE ");
+        sql.push_str(&where_clause);
+    }
+    Ok(sql)
+}
+
+/// A SELECT item that casts the column to text and re-aliases it to its own name, so every
+/// returned value is lexical and the executor maps it back by name.
+#[cfg(feature = "obda")]
+fn render_select_item(col: &str, dialect: ObdaSqlDialect) -> Result<String, String> {
+    let q = quote_sql_identifier(col, dialect)?;
+    Ok(match dialect {
+        ObdaSqlDialect::Postgres => format!("{q}::text AS {q}"),
+        ObdaSqlDialect::MySql => format!("CAST({q} AS CHAR) AS {q}"),
+    })
+}
+
+/// Render one pushed-down [`eg_rdf::obda::ObdaFilter`] as a SQL predicate over the NATIVE
+/// (un-cast) column, so a numeric comparison runs against the numeric column type.
+#[cfg(feature = "obda")]
+fn render_obda_filter(
+    f: &eg_rdf::obda::ObdaFilter,
+    dialect: ObdaSqlDialect,
+) -> Result<String, String> {
+    use eg_rdf::obda::ObdaCompare;
+    let col = quote_sql_identifier(&f.column, dialect)?;
+    let op = match f.op {
+        ObdaCompare::Eq => "=",
+        ObdaCompare::Lt => "<",
+        ObdaCompare::Le => "<=",
+        ObdaCompare::Gt => ">",
+        ObdaCompare::Ge => ">=",
+    };
+    let lit = render_sql_literal(&f.value, f.numeric, dialect)?;
+    Ok(format!("{col} {op} {lit}"))
+}
+
+/// Validate a SQL identifier: `[A-Za-z_][A-Za-z0-9_]*`, ≤63 chars. Rejecting anything else is
+/// what makes quoting injection-safe.
+#[cfg(feature = "obda")]
+fn validate_sql_identifier(ident: &str) -> Result<(), String> {
+    let ok = !ident.is_empty()
+        && ident.len() <= 63
+        && ident
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && ident.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("obda: invalid SQL identifier {ident:?}"))
+    }
+}
+
+/// Validate then quote a SQL identifier for the dialect.
+#[cfg(feature = "obda")]
+fn quote_sql_identifier(ident: &str, dialect: ObdaSqlDialect) -> Result<String, String> {
+    validate_sql_identifier(ident)?;
+    Ok(match dialect {
+        ObdaSqlDialect::Postgres => format!("\"{ident}\""),
+        ObdaSqlDialect::MySql => format!("`{ident}`"),
+    })
+}
+
+/// Render a filter's comparison literal: a validated numeric token unquoted, or a safely
+/// escaped single-quoted string. Rejects a NUL byte and a non-finite numeric outright.
+#[cfg(feature = "obda")]
+fn render_sql_literal(
+    value: &str,
+    numeric: bool,
+    dialect: ObdaSqlDialect,
+) -> Result<String, String> {
+    if value.contains('\0') {
+        return Err("obda: filter literal contains a NUL byte".into());
+    }
+    if numeric {
+        let n: f64 = value
+            .parse()
+            .map_err(|_| format!("obda: non-numeric literal {value:?} for a numeric filter"))?;
+        if !n.is_finite() {
+            return Err(format!("obda: non-finite numeric literal {value:?}"));
+        }
+        if !value
+            .chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E'))
+        {
+            return Err(format!("obda: unsafe numeric literal {value:?}"));
+        }
+        return Ok(value.to_string());
+    }
+    // String literal: double every single quote; MySQL also treats backslash as an escape
+    // char (unlike standard-conforming Postgres), so double backslashes there too.
+    let escaped = match dialect {
+        ObdaSqlDialect::Postgres => value.replace('\'', "''"),
+        ObdaSqlDialect::MySql => value.replace('\\', "\\\\").replace('\'', "''"),
+    };
+    Ok(format!("'{escaped}'"))
+}
+
+/// Build the LIVE `federation-sql` executor for `dsn`, or a clean "rebuild with federation-sql"
+/// error when the feature is off (the wire variant + rewrite still exist — only the driver is
+/// absent, exactly like `eg_plan::federation::SqlSource`'s not-built placeholder).
+#[cfg(all(feature = "obda", feature = "federation-sql"))]
+fn federation_sql_executor(dsn: &str) -> Result<std::sync::Arc<dyn ObdaSqlExecutor>, String> {
+    Ok(std::sync::Arc::new(FederationSqlExecutor {
+        dsn: dsn.to_string(),
+    }))
+}
+
+#[cfg(all(feature = "obda", not(feature = "federation-sql")))]
+fn federation_sql_executor(_dsn: &str) -> Result<std::sync::Arc<dyn ObdaSqlExecutor>, String> {
+    Err(
+        "obda: a live external SQL source needs a server built with the `federation-sql` \
+         feature (no SQL driver in this build)"
+            .into(),
+    )
+}
+
+/// The live executor: reuses `eg_plan::federation`'s SSRF-validated, read-only,
+/// timeout+row-bounded column fetch (CONCEPT:EG-KG.query.query-federation) to run the rendered
+/// SELECT against the external database.
+#[cfg(all(feature = "obda", feature = "federation-sql"))]
+struct FederationSqlExecutor {
+    dsn: String,
+}
+
+#[cfg(all(feature = "obda", feature = "federation-sql"))]
+impl ObdaSqlExecutor for FederationSqlExecutor {
+    fn run_select(&self, sql: &str) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
+        eg_plan::federation::fetch_sql_columns(&self.dsn, sql)
+    }
 }
 
 /// Parse Turtle/N-Triples and store into the target graph; route multi-valued
@@ -1112,5 +1392,180 @@ mod run_rules_dispatch_tests {
         );
         assert_eq!(out.facts[0].predicate, "grandparent");
         assert!(out.facts[0].derived, "the returned fact is an inference");
+    }
+}
+
+/// W4.11 — external OBDA source SQL-generation + row-level predicate pushdown
+/// (CONCEPT:EG-KG.query.obda-predicate-pushdown). Proves the pushdown "via the query plan"
+/// (the rendered SQL) and end-to-end over a MOCK external source — no live database.
+#[cfg(all(test, feature = "obda"))]
+mod obda_pushdown_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+    use std::sync::{Arc, Mutex};
+
+    fn needed(cols: &[&str]) -> BTreeSet<String> {
+        cols.iter().map(|c| c.to_string()).collect()
+    }
+
+    /// A mock [`ObdaSqlExecutor`] recording every rendered SQL string it is handed, and
+    /// returning a fixed "external table" — the acceptance-shaped mock (no live DB).
+    struct MockSqlExecutor {
+        seen: Mutex<Vec<String>>,
+        rows: Vec<eg_rdf::obda::ForeignRow>,
+    }
+    impl ObdaSqlExecutor for MockSqlExecutor {
+        fn run_select(&self, sql: &str) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
+            self.seen.lock().unwrap().push(sql.to_string());
+            Ok(self.rows.clone())
+        }
+    }
+
+    fn row(id: &str, name: &str, age: &str) -> eg_rdf::obda::ForeignRow {
+        [("id", id), ("name", name), ("age", age)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// CONCEPT:EG-KG.query.obda-predicate-pushdown — a numeric filter renders a native-typed
+    /// pushed `WHERE`, with every projected column cast to text (Postgres).
+    #[test]
+    fn render_obda_select_pushes_numeric_where_postgres() {
+        let filters = vec![eg_rdf::obda::ObdaFilter {
+            column: "age".into(),
+            op: eg_rdf::obda::ObdaCompare::Gt,
+            value: "28".into(),
+            numeric: true,
+        }];
+        let sql = render_obda_select(
+            "people",
+            &needed(&["name", "age"]),
+            &filters,
+            ObdaSqlDialect::Postgres,
+        )
+        .unwrap();
+        assert!(sql.contains("FROM \"people\""), "{sql}");
+        assert!(sql.contains("\"age\"::text AS \"age\""), "{sql}");
+        assert!(
+            sql.contains("WHERE \"age\" > 28"),
+            "the numeric FILTER must be pushed to SQL: {sql}"
+        );
+    }
+
+    /// A MySQL render uses backtick quoting + `CAST(... AS CHAR)`.
+    #[test]
+    fn render_obda_select_mysql_dialect() {
+        let filters = vec![eg_rdf::obda::ObdaFilter {
+            column: "age".into(),
+            op: eg_rdf::obda::ObdaCompare::Ge,
+            value: "18".into(),
+            numeric: true,
+        }];
+        let sql =
+            render_obda_select("t", &needed(&["age"]), &filters, ObdaSqlDialect::MySql).unwrap();
+        assert!(sql.contains("FROM `t`"), "{sql}");
+        assert!(sql.contains("CAST(`age` AS CHAR) AS `age`"), "{sql}");
+        assert!(sql.contains("WHERE `age` >= 18"), "{sql}");
+    }
+
+    /// A string-equality filter is single-quoted and injection-escaped (doubled quote).
+    #[test]
+    fn render_obda_select_escapes_string_literal() {
+        let filters = vec![eg_rdf::obda::ObdaFilter {
+            column: "name".into(),
+            op: eg_rdf::obda::ObdaCompare::Eq,
+            value: "O'Brien".into(),
+            numeric: false,
+        }];
+        let sql = render_obda_select(
+            "people",
+            &needed(&["name"]),
+            &filters,
+            ObdaSqlDialect::Postgres,
+        )
+        .unwrap();
+        assert!(
+            sql.contains("WHERE \"name\" = 'O''Brien'"),
+            "the string literal must be safely escaped: {sql}"
+        );
+    }
+
+    /// An invalid identifier (injection attempt) is rejected, not quoted through.
+    #[test]
+    fn render_obda_select_rejects_bad_identifier() {
+        let err = render_obda_select(
+            "people; DROP TABLE users",
+            &needed(&["name"]),
+            &[],
+            ObdaSqlDialect::Postgres,
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid SQL identifier"), "{err}");
+    }
+
+    /// CONCEPT:EG-KG.query.obda-predicate-pushdown — ACCEPTANCE: SPARQL over a virtual EXTERNAL
+    /// table (a mock SQL source) pushes the `FILTER (?age > 28)` down into a real `WHERE`
+    /// (asserted via the rendered SQL — "the query plan"), and the SPARQL answer is correct
+    /// (the evaluator re-filters over the materialized view, so Bob(25) is excluded even though
+    /// the mock returned him).
+    #[test]
+    fn sparql_over_external_mock_source_pushes_where() {
+        let mock = Arc::new(MockSqlExecutor {
+            seen: Mutex::new(Vec::new()),
+            rows: vec![
+                row("1", "Alice", "30"),
+                row("2", "Bob", "25"),
+                row("3", "Carol", "40"),
+            ],
+        });
+        let src = SqlObdaSource {
+            table: "people".into(),
+            dialect: ObdaSqlDialect::Postgres,
+            executor: mock.clone(),
+        };
+        let mut reg = eg_rdf::obda::ObdaSourceRegistry::new();
+        reg.register("people", Arc::new(src));
+
+        let vg = eg_rdf::obda::VirtualGraph::new().with_map(
+            eg_rdf::obda::TriplesMap::new("people", "http://example.org/person/{id}")
+                .add_column("http://example.org/name", "name")
+                .add_typed_column(
+                    "http://example.org/age",
+                    "age",
+                    "http://www.w3.org/2001/XMLSchema#integer",
+                ),
+        );
+        let proj = eg_rdf::sparql::Projection::raw();
+        let outcome = eg_rdf::obda::run_outcome_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?name WHERE { ?p ex:name ?name ; ex:age ?age . FILTER (?age > 28) }"#,
+            &proj,
+        )
+        .unwrap();
+
+        // The FILTER reached the external DB as a pushed-down WHERE.
+        let seen = mock.seen.lock().unwrap();
+        assert!(
+            seen.iter()
+                .any(|s| s.contains("WHERE") && s.contains("\"age\" > 28")),
+            "the FILTER must be pushed into the external SQL, saw: {seen:?}"
+        );
+
+        // ...and the answer is correct (Bob excluded by the evaluator's re-filter).
+        match outcome {
+            eg_rdf::sparql::QueryOutcome::Solutions(res) => {
+                let mut names: Vec<String> = res
+                    .solutions
+                    .iter()
+                    .filter_map(|s| s.get("name").map(|b| b.as_str().to_string()))
+                    .collect();
+                names.sort();
+                assert_eq!(names, vec!["Alice", "Carol"]);
+            }
+            other => panic!("expected solutions, got {other:?}"),
+        }
     }
 }

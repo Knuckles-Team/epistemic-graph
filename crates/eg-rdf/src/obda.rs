@@ -80,11 +80,77 @@ pub type ForeignSourceName = String;
 /// consume; typed literals are a documented follow-up.
 pub type ForeignRow = HashMap<String, String>;
 
+/// CONCEPT:EG-KG.query.obda-predicate-pushdown — a comparison operator for a row-level
+/// predicate pushed down INTO an [`ObdaSource`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObdaCompare {
+    /// `=` (equality).
+    Eq,
+    /// `<` (strictly less).
+    Lt,
+    /// `<=` (less-or-equal).
+    Le,
+    /// `>` (strictly greater).
+    Gt,
+    /// `>=` (greater-or-equal).
+    Ge,
+}
+
+/// CONCEPT:EG-KG.query.obda-predicate-pushdown — one single-column row-level predicate the
+/// OBDA rewrite pushes PAST column-projection down into the backing [`ObdaSource`]. It is
+/// the SPARQL `FILTER (?v OP literal)` leg, resolved (via the query's BGP) to the source
+/// column `?v` binds to. A source that can filter (a live SQL table) turns it into a `WHERE`
+/// clause — the row-level pushdown that stops the whole table being scanned; an in-memory
+/// source applies it directly; a source that IGNORES it stays CORRECT, because the SPARQL
+/// evaluator re-applies every `FILTER` over the materialized view ([`run_outcome_virtual`]
+/// step 4) — pushdown is a soundness-preserving OPTIMIZATION, never the sole filter.
+///
+/// Only a SOUND subset is ever produced ([`map_pushable_filters`]): equality on a string
+/// column, and any comparison on a NUMERIC (`xsd:integer`/`decimal`/`double`/…) typed
+/// column against a numeric literal. String ordering (`<`/`>` on a plain-literal column,
+/// where SPARQL codepoint order need not match a SQL collation) is never pushed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ObdaFilter {
+    /// The source column the predicate constrains.
+    pub column: String,
+    /// The comparison operator.
+    pub op: ObdaCompare,
+    /// The comparison literal's lexical value.
+    pub value: String,
+    /// Whether `value` is a NUMBER — compare/emit it numerically (`col > 28`) rather than
+    /// as a quoted string (`col = 'Alice'`).
+    pub numeric: bool,
+}
+
+impl ObdaFilter {
+    /// Whether `cell` (a source row's lexical column value) SATISFIES this predicate. An
+    /// in-memory [`ObdaSource`] uses this to apply the pushdown directly; a numeric filter
+    /// compares parsed `f64`s (a non-numeric cell fails), a string filter compares lexically.
+    pub fn matches(&self, cell: &str) -> bool {
+        if self.numeric {
+            let (Ok(c), Ok(v)) = (cell.parse::<f64>(), self.value.parse::<f64>()) else {
+                return false;
+            };
+            match self.op {
+                ObdaCompare::Eq => c == v,
+                ObdaCompare::Lt => c < v,
+                ObdaCompare::Le => c <= v,
+                ObdaCompare::Gt => c > v,
+                ObdaCompare::Ge => c >= v,
+            }
+        } else {
+            // Only equality is ever produced for a string column (see ObdaFilter docs).
+            matches!(self.op, ObdaCompare::Eq) && cell == self.value
+        }
+    }
+}
+
 /// CONCEPT:EG-KG.ontology.foreign-source-seam — the OBDA foreign-source seam: pull tabular rows on demand. This is
 /// the column-carrying analogue of eg-plan's `ForeignSource` (which yields the id+score
 /// `RowSet`); R2RML needs full columns to fill templates, so an `ObdaSource` returns
 /// [`ForeignRow`]s. `scan` takes the columns the query actually needs (projection
-/// pushdown) — an empty `needed` means "every column".
+/// pushdown) plus the row-level [`ObdaFilter`]s the query's `FILTER`s pushed down
+/// (CONCEPT:EG-KG.query.obda-predicate-pushdown) — an empty `needed` means "every column".
 pub trait ObdaSource: Send + Sync {
     /// The columns this source can provide (its schema), if known. Advisory — used for
     /// validation and error messages; an empty vec means "schema not declared".
@@ -92,10 +158,18 @@ pub trait ObdaSource: Send + Sync {
         Vec::new()
     }
 
-    /// Pull rows, projecting to `needed` when it is non-empty (the pushdown). Rows are
-    /// pulled at query time — a network/read failure is an `Err` (a virtual graph over an
-    /// unreachable source is a real error, not an empty result).
-    fn scan(&self, needed: &BTreeSet<String>) -> Result<Vec<ForeignRow>, String>;
+    /// Pull rows, projecting to `needed` when it is non-empty (the projection pushdown) and
+    /// applying `filters` — the row-level predicate pushdown (CONCEPT:EG-KG.query.obda-predicate-pushdown).
+    /// A source that can push both (a SQL table → `SELECT <needed> WHERE <filters>`) avoids
+    /// scanning the whole table; a source that applies `filters` in memory still does less
+    /// downstream work; a source that ignores `filters` is still CORRECT (the SPARQL
+    /// evaluator re-filters). Rows are pulled at query time — a network/read failure is an
+    /// `Err` (a virtual graph over an unreachable source is a real error, not an empty result).
+    fn scan(
+        &self,
+        needed: &BTreeSet<String>,
+        filters: &[ObdaFilter],
+    ) -> Result<Vec<ForeignRow>, String>;
 }
 
 /// A boxed, thread-safe [`ObdaSource`] stored by name in an [`ObdaSourceRegistry`].
@@ -150,14 +224,19 @@ impl ObdaSource for TableSource {
         self.columns.clone()
     }
 
-    fn scan(&self, needed: &BTreeSet<String>) -> Result<Vec<ForeignRow>, String> {
+    fn scan(
+        &self,
+        needed: &BTreeSet<String>,
+        filters: &[ObdaFilter],
+    ) -> Result<Vec<ForeignRow>, String> {
+        // Predicate pushdown (CONCEPT:EG-KG.query.obda-predicate-pushdown): drop any row a
+        // pushed FILTER excludes before projecting — the in-memory analogue of a SQL WHERE.
+        let kept = self.rows.iter().filter(|row| row_passes(row, filters));
         if needed.is_empty() {
-            return Ok(self.rows.clone());
+            return Ok(kept.cloned().collect());
         }
-        // Projection pushdown: keep only the needed columns from each row.
-        Ok(self
-            .rows
-            .iter()
+        // Projection pushdown: keep only the needed columns from each surviving row.
+        Ok(kept
             .map(|row| {
                 needed
                     .iter()
@@ -166,6 +245,14 @@ impl ObdaSource for TableSource {
             })
             .collect())
     }
+}
+
+/// Whether `row` satisfies EVERY pushed [`ObdaFilter`] (a missing filter column ⇒ the row
+/// cannot satisfy that predicate). Shared by the in-memory [`ObdaSource`]s.
+fn row_passes(row: &ForeignRow, filters: &[ObdaFilter]) -> bool {
+    filters
+        .iter()
+        .all(|f| row.get(&f.column).is_some_and(|cell| f.matches(cell)))
 }
 
 /// CONCEPT:EG-KG.ontology.foreign-source-seam — an [`ObdaSource`] backed by a CLOSURE producing rows on demand (an
@@ -178,9 +265,10 @@ pub struct ClosureSource<F> {
 
 impl<F> ClosureSource<F>
 where
-    F: Fn(&BTreeSet<String>) -> Result<Vec<ForeignRow>, String> + Send + Sync,
+    F: Fn(&BTreeSet<String>, &[ObdaFilter]) -> Result<Vec<ForeignRow>, String> + Send + Sync,
 {
-    /// Build from a declared schema + a row-producing closure.
+    /// Build from a declared schema + a row-producing closure. The closure receives the
+    /// needed-column set AND the pushed row-level [`ObdaFilter`]s so it can push both.
     pub fn new(columns: Vec<String>, f: F) -> Self {
         Self { columns, f }
     }
@@ -188,14 +276,18 @@ where
 
 impl<F> ObdaSource for ClosureSource<F>
 where
-    F: Fn(&BTreeSet<String>) -> Result<Vec<ForeignRow>, String> + Send + Sync,
+    F: Fn(&BTreeSet<String>, &[ObdaFilter]) -> Result<Vec<ForeignRow>, String> + Send + Sync,
 {
     fn columns(&self) -> Vec<String> {
         self.columns.clone()
     }
 
-    fn scan(&self, needed: &BTreeSet<String>) -> Result<Vec<ForeignRow>, String> {
-        (self.f)(needed)
+    fn scan(
+        &self,
+        needed: &BTreeSet<String>,
+        filters: &[ObdaFilter],
+    ) -> Result<Vec<ForeignRow>, String> {
+        (self.f)(needed, filters)
     }
 }
 
@@ -446,11 +538,15 @@ impl VirtualGraph {
     /// source ON DEMAND. `wanted_predicates` restricts materialization to the given
     /// predicate IRIs (`None` ⇒ every predicate) — the BGP-driven pushdown: only those
     /// predicate-object maps run, and only their columns (plus the subject-template
-    /// columns) are pulled from the source. Returns the materialized RDF triples.
+    /// columns) are pulled from the source. `filters` is the query's `FILTER`-derived
+    /// row-level predicate pushdown (CONCEPT:EG-KG.query.obda-predicate-pushdown): per map,
+    /// the SOUND subset of comparisons on THIS map's columns is handed to the source's
+    /// `scan` (an empty [`FilterContext`] pushes nothing). Returns the materialized RDF triples.
     pub fn materialize(
         &self,
         reg: &ObdaSourceRegistry,
         wanted_predicates: &Option<BTreeSet<String>>,
+        filters: &FilterContext,
     ) -> Result<Vec<Triple>, String> {
         let mut out = Vec::new();
         for map in &self.triples_maps {
@@ -477,8 +573,11 @@ impl VirtualGraph {
                 obj.columns_into(&mut needed);
             }
 
+            // The SOUND subset of the query's FILTERs that constrain THIS map's columns —
+            // pushed to the source alongside the projection (CONCEPT:EG-KG.query.obda-predicate-pushdown).
+            let map_filters = map_pushable_filters(map, filters);
             let source = reg.resolve(&map.logical_source)?;
-            let rows = source.scan(&needed)?;
+            let rows = source.scan(&needed, &map_filters)?;
 
             for row in &rows {
                 let Some(subject_iri) = expand_template(&map.subject_template, row) else {
@@ -515,7 +614,7 @@ impl VirtualGraph {
     /// column). Convenience for tests / debugging; the query path uses the pushdown
     /// [`materialize`](Self::materialize) so it never pulls the whole dataset.
     pub fn materialize_all(&self, reg: &ObdaSourceRegistry) -> Result<Vec<Triple>, String> {
-        self.materialize(reg, &None)
+        self.materialize(reg, &None, &FilterContext::default())
     }
 }
 
@@ -554,13 +653,15 @@ pub fn run_outcome_virtual(
     query_str: &str,
     proj: &Projection,
 ) -> Result<QueryOutcome, String> {
-    // (1) parse, then learn which predicates the query references (the pushdown key).
+    // (1) parse, then learn which predicates the query references (the pushdown key) and
+    // which FILTER comparisons can be pushed to the source as row-level predicates.
     let query = crate::sparql::parse_query(query_str)?;
     let wanted = wanted_predicates(&query);
+    let filters = FilterContext::from_query(&query);
 
-    // (2)+(3) scan the backing source(s) on demand for only the needed columns and
-    // materialize the query-relevant triples via the TriplesMaps.
-    let triples = vg.materialize(reg, &wanted)?;
+    // (2)+(3) scan the backing source(s) on demand for only the needed columns, applying
+    // the pushed-down FILTERs, and materialize the query-relevant triples via the TriplesMaps.
+    let triples = vg.materialize(reg, &wanted, &filters)?;
 
     // (4) load into a TRANSIENT view and run the existing evaluator (joins/filters/…).
     let view = build_view(triples)?;
@@ -666,6 +767,234 @@ fn collect_predicates(
         // `Lateral` (feature `sep-0006`) and any future variant we cannot see into.
         _ => *unrestricted = true,
     }
+}
+
+// ── FILTER → row-level predicate pushdown (CONCEPT:EG-KG.query.obda-predicate-pushdown) ──────────────
+
+/// CONCEPT:EG-KG.query.obda-predicate-pushdown — the query-derived FILTER pushdown context:
+/// which object variable a BGP binds through which CONSTANT predicate, and the literal
+/// comparisons a `FILTER` applies to each variable. [`VirtualGraph::materialize`] intersects
+/// this with each [`TriplesMap`]'s predicate→column maps ([`map_pushable_filters`]) to derive
+/// the per-source [`ObdaFilter`]s. The [`Default`] (empty) context pushes nothing — every
+/// FILTER is then applied only by the SPARQL evaluator over the materialized view, so an
+/// empty context is always CORRECT (just unoptimized).
+#[derive(Debug, Default)]
+pub struct FilterContext {
+    /// object-variable name → the constant predicate IRIs a REQUIRED BGP triple binds it through.
+    var_predicates: HashMap<String, BTreeSet<String>>,
+    /// object-variable name → the `(op, literal-lexical, literal-is-numeric)` FILTER comparisons.
+    var_compares: HashMap<String, Vec<(ObdaCompare, String, bool)>>,
+}
+
+impl FilterContext {
+    /// Build the pushdown context from a parsed SPARQL query. Walks the algebra collecting
+    /// object-variable ↔ constant-predicate bindings AND `FILTER` comparisons from the
+    /// REQUIRED (conjunctive) core ONLY — anything reachable solely through an `OPTIONAL`
+    /// right side, a `UNION`, or a `MINUS` branch is skipped, since pushing a filter derived
+    /// there could wrongly drop a row that must still appear (bound differently or UNBOUND).
+    /// Completeness is always preserved: whatever is not extracted is simply re-filtered by
+    /// the evaluator over the materialized view.
+    fn from_query(query: &spargebra::Query) -> Self {
+        use spargebra::Query;
+        let pattern = match query {
+            Query::Select { pattern, .. }
+            | Query::Construct { pattern, .. }
+            | Query::Describe { pattern, .. }
+            | Query::Ask { pattern, .. } => pattern,
+        };
+        let mut ctx = FilterContext::default();
+        collect_filter_context(pattern, true, &mut ctx);
+        ctx
+    }
+}
+
+/// Walk the algebra collecting the [`FilterContext`]. `required` is true in the conjunctive
+/// core and false inside an `OPTIONAL` right side / `UNION` / `MINUS` branch (see
+/// [`FilterContext::from_query`]).
+fn collect_filter_context(
+    p: &spargebra::algebra::GraphPattern,
+    required: bool,
+    ctx: &mut FilterContext,
+) {
+    use spargebra::algebra::GraphPattern as G;
+    use spargebra::term::{NamedNodePattern, TermPattern};
+    match p {
+        G::Bgp { patterns } => {
+            if required {
+                for tp in patterns {
+                    if let (NamedNodePattern::NamedNode(pred), TermPattern::Variable(v)) =
+                        (&tp.predicate, &tp.object)
+                    {
+                        ctx.var_predicates
+                            .entry(v.as_str().to_string())
+                            .or_default()
+                            .insert(pred.as_str().to_string());
+                    }
+                }
+            }
+        }
+        G::Filter { expr, inner } => {
+            // A FILTER only helps if it sits in the required core (an OPTIONAL-scoped FILTER
+            // constrains only the optional binding, not the row that must still appear).
+            if required {
+                collect_filter_compares(expr, ctx);
+            }
+            collect_filter_context(inner, required, ctx);
+        }
+        G::Join { left, right } => {
+            collect_filter_context(left, required, ctx);
+            collect_filter_context(right, required, ctx);
+        }
+        // The OPTIONAL right side is NOT required (a var it binds may end up UNBOUND).
+        G::LeftJoin { left, right, .. } => {
+            collect_filter_context(left, required, ctx);
+            collect_filter_context(right, false, ctx);
+        }
+        // UNION / MINUS branches are not the single required core.
+        G::Union { left, right } | G::Minus { left, right } => {
+            collect_filter_context(left, false, ctx);
+            collect_filter_context(right, false, ctx);
+        }
+        G::Extend { inner, .. }
+        | G::OrderBy { inner, .. }
+        | G::Project { inner, .. }
+        | G::Distinct { inner }
+        | G::Reduced { inner }
+        | G::Slice { inner, .. }
+        | G::Group { inner, .. }
+        | G::Graph { inner, .. }
+        | G::Service { inner, .. } => collect_filter_context(inner, required, ctx),
+        // A property path binds no plain object variable we can key a column on; VALUES, and
+        // any unseen future variant (`Lateral`/sep-0006), contribute no pushdown — correctness
+        // is unaffected (the evaluator re-filters), so they fall through the wildcard.
+        _ => {}
+    }
+}
+
+/// Collect the `(op, literal, numeric)` comparisons an `AND`-decomposed `FILTER` expression
+/// applies to a plain object variable. Only simple `?var OP literal` (or the flipped
+/// `literal OP ?var`) comparisons are extracted; anything else is left to the evaluator.
+fn collect_filter_compares(expr: &spargebra::algebra::Expression, ctx: &mut FilterContext) {
+    use spargebra::algebra::Expression as E;
+    match expr {
+        E::And(a, b) => {
+            collect_filter_compares(a, ctx);
+            collect_filter_compares(b, ctx);
+        }
+        E::Equal(a, b) => record_compare(a, b, ObdaCompare::Eq, ObdaCompare::Eq, ctx),
+        E::Greater(a, b) => record_compare(a, b, ObdaCompare::Gt, ObdaCompare::Lt, ctx),
+        E::GreaterOrEqual(a, b) => record_compare(a, b, ObdaCompare::Ge, ObdaCompare::Le, ctx),
+        E::Less(a, b) => record_compare(a, b, ObdaCompare::Lt, ObdaCompare::Gt, ctx),
+        E::LessOrEqual(a, b) => record_compare(a, b, ObdaCompare::Le, ObdaCompare::Ge, ctx),
+        _ => {}
+    }
+}
+
+/// Record a single `?var OP literal` comparison. `op_var_left` applies when the variable is
+/// the LEFT operand (`?v OP l`); `op_var_right` is the flipped operator for `l OP ?v`.
+fn record_compare(
+    a: &spargebra::algebra::Expression,
+    b: &spargebra::algebra::Expression,
+    op_var_left: ObdaCompare,
+    op_var_right: ObdaCompare,
+    ctx: &mut FilterContext,
+) {
+    use spargebra::algebra::Expression as E;
+    let recorded = match (a, b) {
+        (E::Variable(v), E::Literal(l)) => Some((v, l, op_var_left)),
+        (E::Literal(l), E::Variable(v)) => Some((v, l, op_var_right)),
+        _ => None,
+    };
+    if let Some((v, l, op)) = recorded {
+        ctx.var_compares
+            .entry(v.as_str().to_string())
+            .or_default()
+            .push((
+                op,
+                l.value().to_string(),
+                is_numeric_datatype(l.datatype().as_str()),
+            ));
+    }
+}
+
+/// The SOUND subset of the query's pushable filters that constrain THIS map's columns
+/// (CONCEPT:EG-KG.query.obda-predicate-pushdown). For a NUMERIC typed column, any comparison
+/// against a numeric literal is pushed; for a string column, only equality (collation-safe)
+/// is pushed. A `Template`/constant object map is not a single-column filter target.
+fn map_pushable_filters(map: &TriplesMap, fctx: &FilterContext) -> Vec<ObdaFilter> {
+    let mut out: Vec<ObdaFilter> = Vec::new();
+    for (pred, obj) in &map.predicate_object_maps {
+        let (col, col_numeric) = match obj {
+            ObjectMap::Column(c) => (c, false),
+            ObjectMap::TypedColumn(c, dt) => (c, is_numeric_datatype(dt)),
+            _ => continue,
+        };
+        for (var, preds) in &fctx.var_predicates {
+            if !preds.contains(pred) {
+                continue;
+            }
+            let Some(compares) = fctx.var_compares.get(var) else {
+                continue;
+            };
+            for (op, value, lit_numeric) in compares {
+                let filter = if col_numeric {
+                    // A numeric column needs a numeric literal; then ANY comparison is sound.
+                    if !lit_numeric {
+                        continue;
+                    }
+                    ObdaFilter {
+                        column: col.clone(),
+                        op: *op,
+                        value: value.clone(),
+                        numeric: true,
+                    }
+                } else {
+                    // A string column: only equality is collation-safe to push.
+                    if *op != ObdaCompare::Eq {
+                        continue;
+                    }
+                    ObdaFilter {
+                        column: col.clone(),
+                        op: ObdaCompare::Eq,
+                        value: value.clone(),
+                        numeric: false,
+                    }
+                };
+                if !out.contains(&filter) {
+                    out.push(filter);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Whether an `xsd:` datatype IRI is one of the numeric types (so a comparison against it is
+/// pushed numerically). CONCEPT:EG-KG.query.obda-predicate-pushdown.
+fn is_numeric_datatype(dt: &str) -> bool {
+    const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
+    let Some(local) = dt.strip_prefix(XSD) else {
+        return false;
+    };
+    matches!(
+        local,
+        "integer"
+            | "decimal"
+            | "double"
+            | "float"
+            | "long"
+            | "int"
+            | "short"
+            | "byte"
+            | "nonNegativeInteger"
+            | "nonPositiveInteger"
+            | "negativeInteger"
+            | "positiveInteger"
+            | "unsignedLong"
+            | "unsignedInt"
+            | "unsignedShort"
+            | "unsignedByte"
+    )
 }
 
 // ── template helpers (CONCEPT:EG-KG.ontology.foreign-source-seam) ────────────────────────────────────────────
@@ -1356,7 +1685,9 @@ mod tests {
 
         let reg = people_registry();
         let vg = people_vgraph();
-        let triples = vg.materialize(&reg, &wanted).unwrap();
+        let triples = vg
+            .materialize(&reg, &wanted, &FilterContext::default())
+            .unwrap();
         // Only name triples materialized — no age, no knows, no rdf:type.
         assert_eq!(triples.len(), 3);
         assert!(triples
@@ -1431,6 +1762,201 @@ mod tests {
         assert_eq!(expand_template("http://ex/p/{missing}", &row), None);
         // Escaped braces.
         assert_eq!(expand_template("a{{b}}c", &row), Some("a{b}c".to_string()));
+    }
+
+    // ── CONCEPT:EG-KG.query.obda-predicate-pushdown — row-level FILTER pushdown ──────────────────────────
+
+    /// A mock EXTERNAL [`ObdaSource`] that RECORDS the `(needed, filters)` every `scan`
+    /// receives, then delegates to an in-memory table — so a test can assert the WHERE was
+    /// pushed to the source WITHOUT any live database (the acceptance shape for W4.11).
+    struct RecordingSource {
+        table: TableSource,
+        seen_filters: std::sync::Mutex<Vec<Vec<ObdaFilter>>>,
+    }
+    impl RecordingSource {
+        fn new(table: TableSource) -> Self {
+            Self {
+                table,
+                seen_filters: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+        fn all_pushed(&self) -> Vec<ObdaFilter> {
+            self.seen_filters
+                .lock()
+                .unwrap()
+                .iter()
+                .flatten()
+                .cloned()
+                .collect()
+        }
+    }
+    impl ObdaSource for RecordingSource {
+        fn columns(&self) -> Vec<String> {
+            self.table.columns()
+        }
+        fn scan(
+            &self,
+            needed: &BTreeSet<String>,
+            filters: &[ObdaFilter],
+        ) -> Result<Vec<ForeignRow>, String> {
+            self.seen_filters.lock().unwrap().push(filters.to_vec());
+            self.table.scan(needed, filters)
+        }
+    }
+
+    /// A people table (id/name/age) for the pushdown tests.
+    fn people_table() -> TableSource {
+        TableSource::from_records(
+            ["id", "name", "age"].map(String::from),
+            [
+                vec!["1".into(), "Alice".into(), "30".into()],
+                vec!["2".into(), "Bob".into(), "25".into()],
+                vec!["3".into(), "Carol".into(), "40".into()],
+            ],
+        )
+    }
+
+    /// The virtual graph over the people table with a TYPED (xsd:integer) age, so a numeric
+    /// FILTER pushes.
+    fn people_typed_vgraph() -> VirtualGraph {
+        VirtualGraph::new().with_map(
+            TriplesMap::new("people", "http://example.org/person/{id}")
+                .add_column("http://example.org/name", "name")
+                .add_typed_column(
+                    "http://example.org/age",
+                    "age",
+                    "http://www.w3.org/2001/XMLSchema#integer",
+                ),
+        )
+    }
+
+    /// CONCEPT:EG-KG.query.obda-predicate-pushdown — a numeric `FILTER (?age > 28)` is PUSHED
+    /// to the backing source as an `age > 28` numeric [`ObdaFilter`] (proven by the recording
+    /// mock external source — "assert the pushdown via the query plan"), and the answer is
+    /// still correct (the SPARQL evaluator re-applies the FILTER over the materialized view).
+    #[test]
+    fn obda_numeric_filter_is_pushed_to_source() {
+        let src = std::sync::Arc::new(RecordingSource::new(people_table()));
+        let mut reg = ObdaSourceRegistry::new();
+        reg.register("people", src.clone());
+        let vg = people_typed_vgraph();
+
+        let res = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?name WHERE { ?p ex:name ?name ; ex:age ?age . FILTER (?age > 28) }"#,
+        )
+        .unwrap();
+
+        // The WHERE reached the source as a pushed-down predicate.
+        let pushed = src.all_pushed();
+        assert!(
+            pushed.iter().any(|f| f.column == "age"
+                && f.op == ObdaCompare::Gt
+                && f.value == "28"
+                && f.numeric),
+            "the numeric FILTER must be pushed to the source, saw: {pushed:?}"
+        );
+
+        // The answer is correct: Alice(30), Carol(40); Bob(25) excluded.
+        let mut names: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("name").map(|b| b.as_str().to_string()))
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Alice", "Carol"]);
+    }
+
+    /// CONCEPT:EG-KG.query.obda-predicate-pushdown — an EQUALITY `FILTER (?name = "Alice")` on a
+    /// string column pushes as a string-equality `ObdaFilter`; the row-level pushdown makes the
+    /// source return exactly the matching row.
+    #[test]
+    fn obda_string_equality_filter_is_pushed() {
+        let src = std::sync::Arc::new(RecordingSource::new(people_table()));
+        let mut reg = ObdaSourceRegistry::new();
+        reg.register("people", src.clone());
+        let vg = people_typed_vgraph();
+
+        let res = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?p WHERE { ?p ex:name ?name . FILTER (?name = "Alice") }"#,
+        )
+        .unwrap();
+
+        let pushed = src.all_pushed();
+        assert!(
+            pushed.iter().any(|f| f.column == "name"
+                && f.op == ObdaCompare::Eq
+                && f.value == "Alice"
+                && !f.numeric),
+            "the string equality FILTER must be pushed, saw: {pushed:?}"
+        );
+        let subjects: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("p").map(|b| b.as_str().to_string()))
+            .collect();
+        assert_eq!(subjects, vec!["<http://example.org/person/1>"]);
+    }
+
+    /// CONCEPT:EG-KG.query.obda-predicate-pushdown — SOUNDNESS: a FILTER scoped INSIDE an
+    /// `OPTIONAL` is NEVER pushed (pushing it would wrongly drop rows whose optional is unbound).
+    /// Every person is still returned and NO age filter reaches the source.
+    #[test]
+    fn obda_optional_scoped_filter_is_not_pushed() {
+        let src = std::sync::Arc::new(RecordingSource::new(people_table()));
+        let mut reg = ObdaSourceRegistry::new();
+        reg.register("people", src.clone());
+        let vg = people_typed_vgraph();
+
+        let res = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?name WHERE {
+                 ?p ex:name ?name .
+                 OPTIONAL { ?p ex:age ?age . FILTER (?age > 100) }
+               }"#,
+        )
+        .unwrap();
+
+        let pushed = src.all_pushed();
+        assert!(
+            !pushed.iter().any(|f| f.column == "age"),
+            "an OPTIONAL-scoped FILTER must NOT be pushed, saw: {pushed:?}"
+        );
+        // All three names survive (the impossible age>100 only prunes the optional leg).
+        assert_eq!(res.solutions.len(), 3);
+    }
+
+    /// CONCEPT:EG-KG.query.obda-predicate-pushdown — string ORDERING (`<`/`>` on a plain-literal
+    /// column) is NOT pushed (SPARQL codepoint order need not match a SQL collation), but the
+    /// query still returns the correct answer via the evaluator.
+    #[test]
+    fn obda_string_ordering_filter_is_not_pushed() {
+        let src = std::sync::Arc::new(RecordingSource::new(people_table()));
+        let mut reg = ObdaSourceRegistry::new();
+        reg.register("people", src.clone());
+        // Untyped name column (string).
+        let vg = VirtualGraph::new().with_map(
+            TriplesMap::new("people", "http://example.org/person/{id}")
+                .add_column("http://example.org/name", "name"),
+        );
+        let _ = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?name WHERE { ?p ex:name ?name . FILTER (?name > "B") }"#,
+        )
+        .unwrap();
+        assert!(
+            src.all_pushed().is_empty(),
+            "a string-ordering FILTER must not be pushed"
+        );
     }
 
     // ── CONCEPT:EG-KG.ontology.iri-template-object-map — full R2RML Turtle parsing ───────────────────────────────
