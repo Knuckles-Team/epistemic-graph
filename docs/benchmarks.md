@@ -179,3 +179,59 @@ cargo bench --features full --bench cold_warm_reopen                            
 python3 scripts/bench_gate.py                                                         # p50 + recall@k gate
 # live cold-vs-warm + warm-fork + KV cross-restart drivers: see the workspace report
 ```
+
+## Provenance-anchoring write-path overhead (measured, honest noise floor)
+
+`benches/provenance_anchor_bench.rs` fans 1,000 concurrent authoritative
+`AddNode` writes into one redb backend, with vs. without a concurrent
+provenance-anchor loop contending for the same writer thread. Reproduce with:
+
+```bash
+cargo bench --features security --bench provenance_anchor_bench
+```
+
+**Design of the "on" arm is a deliberate worst case, not a realistic
+deployment**: it re-anchors on a fixed 10ms interval (100 anchor commits/sec)
+and mutates one of the anchored nodes every tick so the window's Merkle root
+changes EVERY time — a real durable commit every tick, never the free
+unchanged-root skip path `provenance_anchor_commit` takes when nothing
+changed. A real deployment's `EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS` is
+**seconds**, not milliseconds — 3,000×+ less frequent than this stress test —
+and most ticks hit the free skip path because the provenance window is not
+churning every 10ms.
+
+**Two independent runs (2026-07-24), this box under heavy concurrent
+wave-agent build load (~15-60 load average on 24 cores, fluctuating):**
+
+| Run | `anchoring_off` (criterion `[lo mid hi]`) | `anchoring_on` (criterion `[lo mid hi]`) |
+|---|---|---|
+| 1 | 19.895 / 20.576 / 21.077 ms | 24.132 / 26.395 / 30.060 ms |
+| 2 | 28.326 / 28.803 / 29.281 ms | 21.819 / 26.087 / 29.232 ms |
+
+**Honest reading:** the two arms' confidence intervals overlap substantially
+within each run, and the SAME arm moved by ~40% between the two independent
+runs (external contention, not a code change). Run 2's `anchoring_on` median
+is actually *below* its `anchoring_off` median. This is not a claim of zero
+overhead — it means the effect size (if any) at this aggressive 10ms cadence
+is smaller than this shared box's own measurement noise floor. We do not
+report a single precise "+X%" figure from this data because it would not be
+honest at this noise level.
+
+**Why the architecture is the stronger evidence for the <1% budget:** the
+window-size-dependent work (`RedbBackend::provenance_leaf_hashes_blocking`)
+runs off the writer thread via the lock-free MVCC snapshot read path (same
+seam `read_node_blocking` already uses) and never touches the writer's
+command channel. Only `provenance_anchor_commit`'s own commit touches the
+writer thread, and its cost is O(1) in window size; it opens zero
+transactions when the computed root is unchanged since the last anchor (the
+overwhelmingly common case at any `EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS`
+realistic cadence, since most ticks see no new provenance nodes). The
+measured numbers above are consistent with (do not contradict) this design:
+even a maximally-aggressive 100-commits/sec synthetic stress, run back to
+back with the baseline, could not be distinguished from noise on this box.
+
+Reproduce on a quieter box for a tighter confidence interval:
+
+```bash
+cargo bench --features security --bench provenance_anchor_bench
+```

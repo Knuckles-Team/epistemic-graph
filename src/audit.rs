@@ -736,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn authoritative_state_receipt_audits_only_a_valid_digest() {
+    fn authoritative_state_receipt_gets_a_short_line_others_fall_back_to_general_audit() {
         let digest = "a".repeat(64);
         let receipt = Method::ApplyMutation {
             event_type: "authoritative_state_operation".to_string(),
@@ -746,11 +746,31 @@ mod tests {
             audit_line(&receipt).as_deref(),
             Some(format!("AUTHORITATIVE_STATE_MUTATION|sha256:{digest}").as_str())
         );
-        assert!(audit_line(&Method::ApplyMutation {
+        // Pre-existing bug found while verifying this task's own "existing audit
+        // tests stay green" acceptance bar (unrelated to provenance anchoring --
+        // logged to reports/issue-register.md): this assertion used to expect
+        // `None` for a malformed digest, but `b1ac4ac` ("W1c", 2026-07-21) added
+        // the general `ApplyMutation` fallback arm below the digest-guarded one
+        // specifically to CLOSE an audit-visibility gap (every `ApplyMutation`
+        // is now audited, never silently dropped) -- it never updated this
+        // pre-existing test to match. `None` here would silently RE-OPEN that
+        // exact gap, so a malformed "authoritative_state_operation" query must
+        // fall through to the general digested `APPLY_MUTATION|...` line, not
+        // `None`.
+        let malformed = audit_line(&Method::ApplyMutation {
             event_type: "authoritative_state_operation".to_string(),
             query: "not-a-digest".to_string(),
-        })
-        .is_none());
+        });
+        assert_eq!(
+            malformed.as_deref(),
+            Some(
+                format!(
+                    "APPLY_MUTATION|authoritative_state_operation|sha256:{}",
+                    hex::encode(Sha256::digest(b"not-a-digest"))
+                )
+                .as_str()
+            )
+        );
     }
 
     // ── Provenance anchoring: Merkle primitives ─────────────────────────────
