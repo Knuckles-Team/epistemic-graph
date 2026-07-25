@@ -370,12 +370,18 @@ async fn index_matview(state: &Arc<RwLock<ServerState>>, def: PlanMatView) {
     let mut circuit = match eg_plan::incremental::Circuit::compile(&def.plan) {
         Ok(circuit) => circuit,
         Err(unsupported) => {
-            tracing::debug!(
-                "plan matview '{}' is not incrementally maintainable ({unsupported}); \
-                 keeping it on the recompute path",
-                def.name
+            // First-class, queryable fallback (CONCEPT:EG-KG.storage.incremental-matview):
+            // record the TYPED reason on the tracked view and log it structured — never a
+            // silent drop. The view stays correct on today's recompute-on-`Get` path.
+            tracing::info!(
+                target: "epistemic_graph::matview",
+                view = %def.name,
+                graph = %def.graph,
+                op_index = unsupported.index,
+                reason = %unsupported.reason,
+                "plan matview falls back to full recompute (op not incrementally maintainable)",
             );
-            matview::manager().define(def);
+            matview::manager().note_fallback(def, unsupported.to_string());
             return;
         }
     };
@@ -387,7 +393,6 @@ async fn index_matview(state: &Arc<RwLock<ServerState>>, def: PlanMatView) {
     };
     let seed = matview::incremental::seed_delta_from_core(&core);
     circuit.apply(&seed);
-    let current = circuit.current();
     // Watermark AFTER seeding (mirrors `cdc::register_query`): later deltas fold from here.
     let through_seq = {
         let s = state.read().await;
@@ -407,7 +412,7 @@ async fn index_matview(state: &Arc<RwLock<ServerState>>, def: PlanMatView) {
             }
         }
     }
-    matview::manager().install_incremental(def, circuit, current, through_seq);
+    matview::manager().install_incremental(def, circuit, through_seq);
 }
 
 /// `PlanMatViewGet`: serve the cached result when fresh (no CDC change AND a cache hit at
