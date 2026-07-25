@@ -6,8 +6,14 @@ making the engine an **LTAP** (Lakehouse-Transactional-Analytical Processing) su
 engines read the engine's own tables as open **Parquet + Delta/Iceberg** with **zero ETL**, while writes
 still land through the one ACID write path.
 
-This is the `eg-lake` crate (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns), gated behind the `lake` feature (`arrow`/`parquet` +
-delta/iceberg deps), an **opt-in feature (not in the default build)**.
+This is the `eg-lake` crate (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns), gated behind the `lake`/`lake-rest`
+features (a maintained Polars native-Parquet codec + pure-Rust `apache-avro`, both `default-features = false`).
+As of W4.8, `lake` and `lake-rest` are part of the **one main `full` build** (`cargo build`, the published
+wheel) — the measured release-binary size delta stayed inside the Pi-4 budget (see the W4.8 report / the
+`lake =` feature comment in the root `Cargo.toml`). The materialization tier and the Iceberg-REST listener
+each remain **opt-in at runtime**: nothing runs unless `GRAPH_SERVICE_PERSIST_DIR` +
+`EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS` / `--iceberg-addr` are explicitly configured, exactly like
+`--metrics-addr`/`--obs-addr`.
 
 > Positioning: this is what makes the engine a drop-in in front of a **Databricks / Spark / Trino / DuckDB**
 > lakehouse — the tables it serves over pgwire/native are *also* an open-format lake the analytical engines
@@ -76,19 +82,30 @@ flowchart LR
 | **L**akehouse interop | **eg-lake (EG-KG.storage.lsn-as-snapshot-returns)**: Parquet + Delta + Iceberg + LSN as-of + Iceberg-REST catalog — external engines read with zero ETL |
 
 The write path is unchanged and stays the single source of truth; `eg-lake` is a **read-side, additive**
-projection. A build that does not enable the opt-in `lake` feature (or set the catalog address) is
-byte-for-byte the prior engine.
+projection. A build that excludes the `lake` feature (e.g. `--no-default-features`) is byte-for-byte the
+prior engine; the standard `full` build links it but runs nothing extra unless the materialization interval
+or the catalog address is also configured.
 
 ---
 
 ## Reaching it
 
-- **Feature:** build with `--features "lake server"`; the catalog + materialization surface activate behind
-  their own opt-in environment or flag. `lake` is an explicit Rust build feature
-  and is not selected by a Python installation extra.
+- **Feature:** the default `full` build (`cargo build`, the published wheel) already links `lake` + `lake-rest`
+  (W4.8); a slim/no-default-features build adds them back with `--features "lake lake-rest server"`. Either
+  way, the catalog + materialization surface stay opt-in **at runtime**, activated only by their own
+  environment/flag (`EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS`, `--iceberg-addr`). `lake` is a Rust build
+  feature only — it is not selected by a Python installation extra (the compiled server binary always carries
+  it once built with `full`).
 - **Delta readers** point at the `_delta_log` table path on the object store.
 - **Iceberg readers** point a catalog at the Iceberg-REST endpoint.
 - **Time-travel** reads pin a snapshot that corresponds to an engine LSN (`Op::AsOf`).
+- **Known gap (W4.8, `reports/issue-register.md`):** the production listener wiring
+  (`serve_with_security`) currently denies every Iceberg-REST request via the shared,
+  cross-cutting `server::unauthenticated_carrier_denied` stub — the same pre-existing gap affects
+  `obs`/`s3-api`/`sparql-http`/`federation-search`/`kvcache-server`, not something specific to lake. The
+  endpoint shapes are correct and covered by `src/server/lake/rest.rs`'s own (non-security) test suite and by
+  `tests/test_lake_iceberg_delta_parity.py`'s pyiceberg/deltalake read-parity tests, which drive the real
+  `eg-lake` write path directly rather than through the gated listener.
 
 See the [capability matrix](../capabilities.md#lakehouse-interop-eg-lake-ltap) row and
 [concepts](../concepts.md) `CONCEPT:EG-KG.storage.lsn-as-snapshot-returns` for the authoritative definition, and

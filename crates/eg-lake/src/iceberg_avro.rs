@@ -120,7 +120,7 @@ const MANIFEST_FILE_SCHEMA: &str = r#"{
     {"name": "added_rows_count", "type": "long", "field-id": 512},
     {"name": "existing_rows_count", "type": "long", "field-id": 513},
     {"name": "deleted_rows_count", "type": "long", "field-id": 514},
-    {"name": "partitions", "type": ["null", {"type": "array", "items": {
+    {"name": "partitions", "type": ["null", {"type": "array", "element-id": 508, "items": {
       "type": "record",
       "name": "field_summary",
       "fields": [

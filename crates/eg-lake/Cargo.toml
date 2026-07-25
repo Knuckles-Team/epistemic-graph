@@ -3,7 +3,7 @@ name = "eg-lake"
 version = "0.1.0"
 edition = "2021"
 authors = ["Repository Maintainers <maintainers@example.invalid>"]
-description = "LTAP lakehouse-interop tier for the epistemic-graph engine (CONCEPT:EG-317). Transcodes engine table/columnar data into Parquet-on-object-store with Delta Lake + Iceberg transaction logs, an Iceberg-REST catalog stub and LSN-style as-of snapshots, so external lakehouse engines (Spark/Trino/DuckDB) read our tables with zero ETL. Heavy arrow/parquet deps sit behind the `lake` feature; the crate is a leaf and stays OUT of the Pi build."
+description = "LTAP lakehouse-interop tier for the epistemic-graph engine (CONCEPT:EG-317). Transcodes engine table/columnar data into Parquet-on-object-store with Delta Lake + Iceberg transaction logs, an Iceberg-REST catalog and LSN-style as-of snapshots, so external lakehouse engines (Spark/Trino/DuckDB) read our tables with zero ETL. The Parquet/Avro codec deps sit behind this crate's own `lake` feature; the crate is a leaf (no workspace edges). As of W4.8 the facade folds it into the one main `full` build (Polars native-Parquet + pure-Rust apache-avro, both default-features off — not the heavier upstream arrow/parquet crates), sized within the Pi-4 release-binary budget."
 license = "MIT"
 
 [lib]

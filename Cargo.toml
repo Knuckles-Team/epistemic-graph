@@ -29,8 +29,13 @@ members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crat
 # main build's `kvcache-server` feature.
 # CONCEPT:EG-317: eg-lake is the LTAP lakehouse-interop leaf crate — Parquet
 # materialization + Delta/Iceberg logs + LSN as-of snapshots + Iceberg-REST catalog)
-# behind the composable `lake` feature. Its heavy Arrow/Parquet dependencies remain
-# isolated to that explicit source feature; `lake` is not another deployment tier.
+# behind the composable `lake`/`lake-rest` features. `lake` is not another deployment
+# tier: as of W4.8 it is folded into the one main `full` build (the Polars-native-Parquet
+# + pure-Rust apache-avro codec measured well inside the Pi-4 release-binary budget — see
+# the `lake =` feature comment below for the measured delta), so a default `cargo build`
+# now serves the Iceberg-REST catalog when `--iceberg-addr` is configured, exactly like
+# every other opt-in-at-runtime, compiled-in-by-default listener (`--metrics-addr`/
+# `--obs-addr`/`--s3-addr`).
 # CONCEPT:E4 — eg-modality: the ModalityContract trait + conformance harness. A tiny
 # leaf crate BELOW eg-plan/eg-core in the DAG (deps = eg-types ONLY — see its own
 # Cargo.toml/lib.rs docs for why). The contract/TCK is adopted across the modality
@@ -96,6 +101,20 @@ required-features = ["redb", "server"]
 name = "restore"
 path = "src/bin/restore.rs"
 required-features = ["redb", "server"]
+
+# Fixture-scale Delta/Iceberg write-format export tool (W4.8, CONCEPT:EG-317). Drives
+# the REAL `eg-lake` production write path (`LakeTable::materialize`/`delta_log`/
+# `iceberg`/`iceberg_manifests` — the identical calls `src/server/lake::LakeManager`
+# makes) directly against a plain local directory (bypassing the server/blob-CAS/
+# network entirely), so the Python test suite's read-parity tests
+# (`tests/test_lake_iceberg_delta_parity.py`) can point a REAL, unmodified pyiceberg/
+# deltalake reader at genuinely engine-written files with no HTTP/catalog plumbing
+# in between. Needs only the `lake` feature (no `server`/`blob`/`tsdb` — it writes
+# straight to disk with `std::fs`).
+[[bin]]
+name = "lake-fixture-export"
+path = "src/bin/lake_fixture_export.rs"
+required-features = ["lake"]
 
 # SQLite-style embedded usage (CONCEPT:KG-2.216). Needs the in-process library API.
 [[example]]
@@ -779,8 +798,12 @@ s3-api = ["blob", "kv", "server"]
 # to `EPISTEMIC_GRAPH_OPENLINEAGE_URL` over the SAME pure-Rust `ureq` client
 # `sparql-service`/`federation-search` already link (no new HTTP dep). Needs `server`
 # (the manager + the periodic drain sweep live on `ServerState`) + `blob` (the CAS) +
-# `tsdb` (the series source). It is an explicit source feature outside the main,
-# `cluster`, and `full-extras` product bundles.
+# `tsdb` (the series source). W4.8 (CONCEPT:EG-317 / INT-P2-3, M4): folded into the one
+# main `full` build — `eg-lake`'s deps are the maintained Polars native-Parquet codec
+# (default-features off) + pure-Rust `apache-avro` (default-features off, so no
+# snappy/zstd/bzip/xz C codec), NOT the heavier upstream `arrow`/`parquet` crates a Pi
+# build must avoid; see `docs/architecture/lakehouse_ltap.md` and the W4.8 report for the
+# measured release-binary size delta.
 lake = ["server", "blob", "tsdb", "dep:eg-lake", "eg-lake/lake", "dep:ureq"]
 # Iceberg-REST catalog HTTP surface (INT-P2-3, `iceberg.apache.org/rest-catalog-spec`)
 # over the `lake` materialization tier: a hand-rolled, DEPENDENCY-FREE HTTP/1.1
@@ -792,8 +815,18 @@ lake = ["server", "blob", "tsdb", "dep:eg-lake", "eg-lake/lake", "dep:ureq"]
 # engine's own compaction pass rather than ingesting externally-authored manifests, a
 # documented scope note), so a standard Iceberg REST client (PyIceberg/Spark/Trino) can
 # list + load the engine's materialized tables. The listener only starts when ALSO
-# configured via --iceberg-addr / EPISTEMIC_GRAPH_ICEBERG_ADDR. It is an explicit source
-# feature atop `lake`, outside the three product bundles.
+# configured via --iceberg-addr / EPISTEMIC_GRAPH_ICEBERG_ADDR. W4.8: folded into the
+# one main `full` build alongside `lake` (previously an explicit source feature outside
+# every product bundle) — adds no dependency beyond `lake` itself (the listener reuses
+# the same dependency-free tokio idiom every other auxiliary HTTP surface in this file
+# uses). NOTE (W4.8 finding, see `reports/issue-register.md`): the production wiring in
+# `src/main.rs` serves this listener via `serve_with_security`, which — like every other
+# `serve_with_security`-wired auxiliary HTTP surface in this facade (`obs`, `s3-api`,
+# `sparql-http`, `federation-search`, `kvcache-server`) — currently denies every request
+# unconditionally via the shared `access::unauthenticated_carrier_denied` stub (a
+# pre-existing, cross-cutting gap, not introduced or fixed here); the endpoint set and
+# response shapes are exercised through the feature's own `serve()` (non-security) test
+# suite in `src/server/lake/rest.rs`.
 lake-rest = ["lake"]
 # Remote KV-cache HTTP surface (CONCEPT:EG-187) — exposes the `eg-kvcache` shared,
 # content-addressed backend (EG-186) over HTTP so parallel vLLM/LMCache instances SHARE
@@ -985,7 +1018,7 @@ security = ["redb", "oidc", "dep:chacha20poly1305", "eg-types/security", "eg-cor
 # `eg2.` protocol identity binding and `kvcache-server`'s KV-cache HTTP bearer auth —
 # rather than each surface vendoring its own copy.
 oidc = ["dep:jsonwebtoken", "dep:ureq"]
-full = ["compute", "server", "server-tls", "query", "knowledge-batch", "cypher", "cypher-plan", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "statechart", "modality-serving", "embedded", "matview"]
+full = ["compute", "server", "server-tls", "query", "knowledge-batch", "cypher", "cypher-plan", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "statechart", "modality-serving", "embedded", "matview", "lake", "lake-rest"]
 all = ["full"]
 # D4 (CONCEPT:EG-KG.epistemic.epistemic-substrate): `epistemic` (the eg-epistemic
 # claims/evidence/belief-state layer, E6/E2/D3/D5) is folded into `full` above so a
@@ -1130,9 +1163,9 @@ eg-stream = { path = "crates/eg-stream", optional = true }
 eg-tsdb = { path = "crates/eg-tsdb", optional = true }
 # LTAP lakehouse-interop leaf crate (feature `lake`, CONCEPT:EG-317 / INT-P2-3): Parquet
 # materialization + Delta/Iceberg transaction logs + LSN as-of snapshots + the
-# Iceberg-REST catalog contents. Pulled only behind the explicit `lake` source feature
-# (with its own `lake` sub-feature, which uses the maintained Polars native Parquet
-# codec); none of the product bundles select it. The
+# Iceberg-REST catalog contents. Pulled behind the `lake` source feature (with its own
+# `lake` sub-feature, which uses the maintained Polars native Parquet codec); as of
+# W4.8, `lake` (and `lake-rest`) are part of the one main `full` build. The
 # engine-side seam (`src/server/lake/`) converts real `eg_tsdb::store::SeriesStore`
 # series into `eg_lake::LakeBatch`es and drives the materialize/compact/delete +
 # catalog-registration + OpenLineage-event calls this crate does not (and, per its own
