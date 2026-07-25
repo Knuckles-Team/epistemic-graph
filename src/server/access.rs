@@ -1417,7 +1417,7 @@ const RLS_ROUTED: &[&str] = &[
 const REASON_SERVER_LIFECYCLE: &str =
     "server-lifecycle / liveness methods touch no tenant-owned row";
 const REASON_AUDIT_CHAIN_ADMIN_GATED: &str =
-    "AuditVerify walks the hash-chained audit log under the kg:admin capability gate -- not a graph row read";
+    "AuditVerify/AuditProveInclusion walk the hash-chained audit log (incl. its provenance-anchor entries) under the kg:admin capability gate -- not a graph row read";
 const REASON_VERIFIED_TENANT_CLAIM: &str =
     "dispatch.rs compares the request's tenant against verified_context.claims().tenant before serving it (GetChangeEnvelope/GetContentVersion/GetChangeCursor) -- an explicit verified-tenant-claim check, not a graph row";
 const REASON_CLUSTER_ADMIN_GATED: &str =
@@ -1454,6 +1454,7 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("ResourceStats", REASON_SERVER_LIFECYCLE),
     // REASON_AUDIT_CHAIN_ADMIN_GATED
     ("AuditVerify", REASON_AUDIT_CHAIN_ADMIN_GATED),
+    ("AuditProveInclusion", REASON_AUDIT_CHAIN_ADMIN_GATED),
     // REASON_VERIFIED_TENANT_CLAIM
     ("GetChangeCursor", REASON_VERIFIED_TENANT_CLAIM),
     ("GetChangeEnvelope", REASON_VERIFIED_TENANT_CLAIM),

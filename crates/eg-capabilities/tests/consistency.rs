@@ -847,7 +847,10 @@ fn all_methods_table_has_the_expected_variant_count() {
     // cluster topology discovery, both unconditional): 359 + 2 = 361.
     // Plus W2.5 `RegisterServer` (engine-native fleet server registry,
     // unconditional): 361 + 1 = 362.
-    let expected = 362
+    // Plus provenance anchoring's `AuditProveInclusion` (unconditional -- `security`
+    // is force-enabled by this crate's own eg-types dependency features, exactly
+    // like `AuditVerify` already is): 362 + 1 = 363.
+    let expected = 363
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

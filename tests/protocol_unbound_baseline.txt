@@ -37,6 +37,13 @@ RunUdf
 # subsystem), not a nodes/edges/graph client call; bind here until a Python security
 # sub-client is added.
 AuditVerify
+# Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security, `security` feature): a periodic engine job
+# Merkle-anchors a graph's :ToolCall/:RunTrace provenance-node window into the SAME
+# audit chain AuditVerify walks; AuditProveInclusion produces + server-verifies a
+# Merkle inclusion proof for one node against a prior anchor. Same engine-side
+# forensic-op posture as AuditVerify immediately above; bind here until a Python
+# security sub-client is added.
+AuditProveInclusion
 # Generic namespaced Key→Value surface (CONCEPT:EG-022, `kv` feature): a drop-in KV
 # store keyed by (namespace, key) layered over the same durable redb substrate, NOT
 # graph-scoped. It is an engine-side substrate surface (like the Blob*/Ts* ops), not a

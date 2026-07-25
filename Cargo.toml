@@ -1394,6 +1394,19 @@ path = "benches/cold_warm_reopen.rs"
 harness = false
 required-features = ["full"]
 
+# Provenance-anchoring write-path overhead (provenance anchoring, CONCEPT:EG-KG.sharding.row-level-security):
+# N concurrent authoritative writers fanned into ONE redb backend, with vs.
+# without a concurrent (deliberately aggressive) anchor-sweep loop contending
+# for the SAME writer thread, so the anchoring job's write-throughput overhead
+# is a measured wall-clock delta rather than an assumption. Needs the `security`
+# feature (redb backend + the provenance-anchor primitives); a default
+# `cargo check --benches` skips it. DEV-only; never linked into the binary.
+[[bench]]
+name = "provenance_anchor_bench"
+path = "benches/provenance_anchor_bench.rs"
+harness = false
+required-features = ["security"]
+
 [profile.release]
 opt-level = 3
 # thin (not fat) LTO. EVIDENCED: the aarch64 wheel cross-build (zig/qemu under

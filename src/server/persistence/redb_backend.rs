@@ -303,6 +303,32 @@ pub(crate) enum Cmd {
         seq: u64,
         reply: std::sync::mpsc::Sender<Result<(), String>>,
     },
+    /// Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security): durably append a Merkle root over an
+    /// ALREADY-HASHED `:ToolCall`/`:RunTrace` window into the graph's tamper-evident
+    /// audit chain, plus its member leaf-hash side row. `root`/`members` are
+    /// computed by the CALLER off this thread (`provenance_leaf_hashes_blocking`,
+    /// which reads via the lock-free MVCC snapshot path, not this channel), so this
+    /// command's own cost is O(1) in window size — the periodic sweep's write-path
+    /// overhead is bounded regardless of how large the window was. `Ok(None)` means
+    /// the root was unchanged since the last anchor (skipped, no row written).
+    #[cfg(feature = "security")]
+    ProvenanceAnchorCommit {
+        graph: String,
+        root: crate::audit::Hash,
+        members: Vec<(String, crate::audit::Hash)>,
+        reply: std::sync::mpsc::Sender<Result<Option<u64>, String>>,
+    },
+    /// Produce + verify a Merkle inclusion proof for one node against a prior
+    /// provenance anchor (CONCEPT:EG-KG.sharding.row-level-security; `Method::AuditProveInclusion`). Routed
+    /// through the owner thread (exclusive file lock), which flushes pending first
+    /// — mirrors `AuditVerify` so a proof always reflects the latest durable state.
+    #[cfg(feature = "security")]
+    AuditProveInclusion {
+        graph: String,
+        node_id: String,
+        anchor_seq: Option<u64>,
+        reply: std::sync::mpsc::Sender<Result<crate::protocol::MerkleInclusionReport, String>>,
+    },
     /// **Cross-modal ACID commit (CONCEPT:EG-KG.txn.reader-never-sees-node).** Land a graph, vector, blob-ref,
     /// and property write-set for ONE graph in ONE `WriteTransaction`, all-or-nothing,
     /// awaiting its durable fsync (commit-before-ack). On any error nothing lands: the
@@ -1372,6 +1398,74 @@ impl RedbBackend {
             .map_err(|_| "redb writer thread is gone".to_string())?;
         rx.recv()
             .map_err(|_| "redb writer dropped audit_verify reply".to_string())?
+    }
+
+    /// Off-writer-thread read: hash each of `node_ids`' CURRENT durable content
+    /// into a provenance leaf hash (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring). Lock-free
+    /// MVCC snapshot read (mirrors `read_node_blocking`) — never touches the
+    /// writer channel, so hashing a large window costs the writer thread nothing.
+    #[cfg(feature = "security")]
+    pub fn provenance_leaf_hashes_blocking(
+        &self,
+        graph_fname: &str,
+        node_ids: &[String],
+    ) -> Result<Vec<(String, crate::audit::Hash)>, String> {
+        let shard = self.shard_for(graph_fname);
+        let db = shard
+            .db
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
+        crate::redb_store::provenance_leaf_hashes(&db, graph_fname, node_ids, crypto)
+    }
+
+    /// Durably anchor an already-hashed provenance window (CONCEPT:EG-KG.sharding.row-level-security,
+    /// provenance anchoring). Routed through the owner thread (exclusive file
+    /// lock) since it may write; `Ok(None)` means the root was unchanged and
+    /// nothing was written — the common case for an idle graph.
+    #[cfg(feature = "security")]
+    pub fn provenance_anchor_commit_blocking(
+        &self,
+        graph_fname: &str,
+        root: crate::audit::Hash,
+        members: Vec<(String, crate::audit::Hash)>,
+    ) -> Result<Option<u64>, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.shard_for(graph_fname)
+            .tx
+            .send(Cmd::ProvenanceAnchorCommit {
+                graph: graph_fname.to_string(),
+                root,
+                members,
+                reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped provenance_anchor_commit reply".to_string())?
+    }
+
+    /// Produce + verify a Merkle inclusion proof for one node against a prior
+    /// provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring). Routed through
+    /// the owner thread (exclusive file lock), which flushes pending writes first.
+    #[cfg(feature = "security")]
+    pub fn audit_prove_inclusion_blocking(
+        &self,
+        graph_fname: &str,
+        node_id: &str,
+        anchor_seq: Option<u64>,
+    ) -> Result<crate::protocol::MerkleInclusionReport, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.shard_for(graph_fname)
+            .tx
+            .send(Cmd::AuditProveInclusion {
+                graph: graph_fname.to_string(),
+                node_id: node_id.to_string(),
+                anchor_seq,
+                reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped audit_prove_inclusion reply".to_string())?
     }
 
     /// Read ONE graph's durable rows back as an owned dump (CONCEPT:EG-KG.storage.100m-tenant — tenant
@@ -3196,6 +3290,12 @@ struct Pending {
     /// restart) from a single scan inside `append_audit_entry`.
     #[cfg(feature = "security")]
     audit_tail: crate::redb_store::AuditTailCache,
+    /// Per-graph provenance-anchor tail cache (CONCEPT:EG-KG.sharding.row-level-security), the
+    /// `ProvenanceAnchorCommit` sibling of `audit_tail` above — lives on `Pending`
+    /// for the same reason: the writer thread's LIFETIME, seeded once per graph
+    /// from a single scan (`provenance_anchor_commit`), then kept hot in RAM.
+    #[cfg(feature = "security")]
+    provenance_anchor_cache: crate::redb_store::ProvenanceAnchorCache,
 }
 
 impl Pending {
@@ -3369,6 +3469,40 @@ fn handle_cmd(
                 wtx.commit().map_err(|e| e.to_string())?;
                 Ok(())
             })();
+            let _ = reply.send(res);
+            false
+        }
+        #[cfg(feature = "security")]
+        Cmd::ProvenanceAnchorCommit {
+            graph,
+            root,
+            members,
+            reply,
+        } => {
+            // Flush pending first so the anchor's cache-seed (on first touch) and
+            // its audit-chain append see the latest durable state, mirroring
+            // AuditVerify/TestTamperAudit above.
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let res = crate::redb_store::provenance_anchor_commit(
+                db,
+                &mut pending.provenance_anchor_cache,
+                &mut pending.audit_tail,
+                &graph,
+                root,
+                &members,
+            );
+            let _ = reply.send(res);
+            false
+        }
+        #[cfg(feature = "security")]
+        Cmd::AuditProveInclusion {
+            graph,
+            node_id,
+            anchor_seq,
+            reply,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let res = crate::redb_store::prove_inclusion(db, &graph, &node_id, anchor_seq, crypto);
             let _ = reply.send(res);
             false
         }
@@ -6232,6 +6366,186 @@ mod tests {
         let broken = decode(dispatch(&state, req(4, Method::AuditVerify)).await);
         assert!(!broken.ok, "tamper should be detected");
         assert_eq!(broken.first_broken_seq, Some(0));
+
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Provenance-anchor inclusion proof (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring) —
+    /// the tamper-detection acceptance test: a `:ToolCall` node's window is
+    /// anchored, its inclusion proof verifies against that anchor's chain-protected
+    /// root, and
+    /// an overwrite of that SAME node's durable content AFTER anchoring — through
+    /// the ORDINARY served write path, not a raw byte-flip — makes the SAME
+    /// anchor's inclusion proof fail. A node that was never in the window
+    /// reports `included=false` rather than a false pass, and the audit chain
+    /// itself (both anchor entries) still verifies clean throughout.
+    #[cfg(feature = "security")]
+    #[tokio::test]
+    async fn provenance_anchor_inclusion_proof_detects_tamper() {
+        use crate::protocol::{AuditReport, MerkleInclusionReport, ResultPayload};
+        use crate::server::dispatch;
+        use crate::server::persistence::provenance_anchor;
+
+        const SECRET: &str = "provenance-secret";
+        let dir = std::env::temp_dir().join(format!("eg-provenance-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        let backend = Arc::new(
+            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+                .expect("open redb backend"),
+        );
+        let state = new_state(Some(dir_s.clone()));
+        {
+            let mut s = state.write().await;
+            s.auth_secret = SECRET.to_string();
+            s.persistence = Some(backend.clone());
+        }
+        let req = |id: u64, method: Method| current_request(SECRET, id, "__commons__", method);
+
+        // Seed a ToolCall, a RunTrace, and an ordinary (non-provenance) node.
+        for (rid, nid, node_type) in [
+            (1u64, "tc-1", "ToolCall"),
+            (2, "rt-1", "RunTrace"),
+            (3, "widget-1", "Widget"),
+        ] {
+            let r = dispatch(
+                &state,
+                req(
+                    rid,
+                    Method::AddNode {
+                        node_id: nid.into(),
+                        properties_msgpack: props(
+                            serde_json::json!({"node_type": node_type, "v": 1}),
+                        ),
+                    },
+                ),
+            )
+            .await;
+            assert!(r.error.is_none(), "seed add failed: {:?}", r.error);
+        }
+
+        // Sweep: anchors the __commons__ ToolCall+RunTrace window (Widget is out
+        // of scope, so it never affects the anchored root).
+        let anchored = provenance_anchor::sweep(&state).await;
+        assert_eq!(
+            anchored, 1,
+            "exactly one graph (__commons__) should be freshly anchored"
+        );
+
+        let decode_report = |r: crate::protocol::Response| -> MerkleInclusionReport {
+            match r.result {
+                Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+                other => panic!("expected raw MerkleInclusionReport, got {other:?}"),
+            }
+        };
+
+        // A clean, freshly-anchored ToolCall node verifies.
+        let clean = decode_report(
+            dispatch(
+                &state,
+                req(
+                    4,
+                    Method::AuditProveInclusion {
+                        node_id: "tc-1".to_string(),
+                        anchor_seq: None,
+                    },
+                ),
+            )
+            .await,
+        );
+        assert!(clean.included, "tc-1 must be part of the anchor's window");
+        assert!(clean.verified, "clean node should verify: {clean:?}");
+        assert_eq!(clean.window_size, 2, "only tc-1 + rt-1 are in scope");
+        let anchor_seq = clean.anchor_seq;
+
+        // Overwrite tc-1's durable content through the ORDINARY served write path
+        // (not a raw byte-flip) -- the realistic tamper/insider-edit scenario.
+        let r = dispatch(
+            &state,
+            req(
+                5,
+                Method::AddNode {
+                    node_id: "tc-1".to_string(),
+                    properties_msgpack: props(
+                        serde_json::json!({"node_type": "ToolCall", "v": "TAMPERED"}),
+                    ),
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "overwrite failed: {:?}", r.error);
+
+        // Same anchor (explicit `anchor_seq`), same node id: now fails
+        // verification -- the acceptance property.
+        let tampered = decode_report(
+            dispatch(
+                &state,
+                req(
+                    6,
+                    Method::AuditProveInclusion {
+                        node_id: "tc-1".to_string(),
+                        anchor_seq: Some(anchor_seq),
+                    },
+                ),
+            )
+            .await,
+        );
+        assert!(
+            tampered.included,
+            "tc-1 is still part of that anchor's window"
+        );
+        assert!(
+            !tampered.verified,
+            "tampered node must fail inclusion verification: {tampered:?}"
+        );
+        assert_ne!(
+            tampered.computed_root_sha256, tampered.anchored_root_sha256,
+            "a tampered leaf must recompute a different root than the anchor"
+        );
+        assert_eq!(
+            tampered.anchored_root_sha256, clean.anchored_root_sha256,
+            "the ANCHORED root itself (chain-protected) must not change"
+        );
+
+        // A node that was never in the window reports included=false, never a
+        // false "verified".
+        let out_of_window = decode_report(
+            dispatch(
+                &state,
+                req(
+                    7,
+                    Method::AuditProveInclusion {
+                        node_id: "widget-1".to_string(),
+                        anchor_seq: Some(anchor_seq),
+                    },
+                ),
+            )
+            .await,
+        );
+        assert!(!out_of_window.included);
+        assert!(!out_of_window.verified);
+
+        // tc-1's overwrite changed the window's root, so a second sweep anchors
+        // AGAIN (a second, distinct chain entry) -- and the audit chain itself
+        // (both anchor entries, plus the ordinary mutation entries) still
+        // verifies clean: provenance anchoring never breaks `AuditVerify`.
+        let anchored_again = provenance_anchor::sweep(&state).await;
+        assert_eq!(
+            anchored_again, 1,
+            "the tampered content changed the root, so it anchors again"
+        );
+
+        let audit_report: AuditReport =
+            match dispatch(&state, req(8, Method::AuditVerify)).await.result {
+                Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+                other => panic!("expected raw AuditReport, got {other:?}"),
+            };
+        assert!(
+            audit_report.ok,
+            "the audit chain itself (incl. both anchor entries) must still verify: {audit_report:?}"
+        );
 
         backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
