@@ -6599,6 +6599,7 @@ class RdfClient:
         query: str,
         mapping: str,
         tables: list[str],
+        external_sources: list[dict[str, str]] | None = None,
     ) -> list[dict[str, str | None]]:
         """OBDA / R2RML VIRTUAL GRAPH query (CONCEPT:EG-KG.query.r2rml-virtual-graph /
         CONCEPT:EG-KG.query.obda-query-rewrite) — Ontology-Based Data Access: run a
@@ -6626,6 +6627,13 @@ class RdfClient:
         is persisted into any graph. Returns the same row-dict shape as :meth:`sparql`.
         OBDA, SPARQL, and query support are included in the mandatory main build.
         Read-only.
+
+        ``external_sources`` (CONCEPT:EG-KG.query.obda-predicate-pushdown, W4.11) registers
+        LIVE external relational sources IN ADDITION to ``tables`` — each a mapping of
+        ``{"name": <logical_source>, "dsn": "postgres://…"|"mysql://…", "table": <table>}``.
+        The query's column projection AND its row-level ``FILTER``s are pushed down into a
+        real ``SELECT … WHERE …`` against the external database (the whole table is never
+        scanned). The live SQL path needs a server built with ``federation-sql``.
         """
         result = await self._client._send(
             "SparqlVirtual",
@@ -6633,6 +6641,7 @@ class RdfClient:
                 "query": query,
                 "mapping": mapping,
                 "tables": list(tables),
+                "external_sources": [dict(s) for s in (external_sources or [])],
             },
         )
         if not result:
