@@ -21,6 +21,8 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+#[cfg(feature = "owl")]
+use std::sync::OnceLock;
 
 use parking_lot::Mutex;
 use tokio::sync::Notify;
@@ -103,6 +105,14 @@ pub struct CdcHub {
     /// hot emit path reads it lock-free.
     #[cfg(feature = "stream")]
     cep: std::sync::OnceLock<Arc<crate::server::cep::CepSurface>>,
+    /// The opt-in reasoning cascade (W3.6/E16, `REASON_ON_WRITE`), installed
+    /// once at startup ONLY when armed (`install_reasoning_cascade`). `None`
+    /// (the default for every existing deployment/test) means `emit` pays
+    /// exactly one `OnceLock::get()` — a single atomic load — before
+    /// returning: the cost gate the opt-in exists to enforce. Same lazy,
+    /// set-once-from-outside idiom as `cep` above.
+    #[cfg(feature = "owl")]
+    reasoning_cascade: OnceLock<Arc<crate::server::reasoning_cascade::ReasoningCascade>>,
 }
 
 impl Default for CdcHub {
@@ -120,6 +130,8 @@ impl CdcHub {
             cap: ring_cap(),
             #[cfg(feature = "stream")]
             cep: std::sync::OnceLock::new(),
+            #[cfg(feature = "owl")]
+            reasoning_cascade: OnceLock::new(),
         }
     }
 
@@ -131,6 +143,20 @@ impl CdcHub {
         self.cep
             .get_or_init(crate::server::cep::CepSurface::new)
             .clone()
+    }
+
+    /// Install the reasoning cascade (W3.6/E16). Called at most once, at
+    /// startup, ONLY when `REASON_ON_WRITE` is armed
+    /// (`ReasoningCascade::is_active`) — see `main.rs`. A second call is a
+    /// silent no-op (the cascade is fixed for this hub's lifetime, same as
+    /// `cep` above); every test/deployment that never calls this leaves
+    /// `emit`'s hook a single cheap `OnceLock::get()` miss.
+    #[cfg(feature = "owl")]
+    pub fn install_reasoning_cascade(
+        &self,
+        cascade: Arc<crate::server::reasoning_cascade::ReasoningCascade>,
+    ) {
+        let _ = self.reasoning_cascade.set(cascade);
     }
 
     /// Clone the per-graph `Notify` so a `Watch` can await the next change. Creates the
@@ -217,6 +243,18 @@ impl CdcHub {
             // view's `current` stays fresh WITHOUT a full recompute. One is a no-op per
             // view depending on its mode.
             crate::server::matview::apply_delta(graph, &emitted_event);
+        }
+        // Reasoning auto-cascade (W3.6/E16, CONCEPT: opt-in `REASON_ON_WRITE`): note
+        // the write for the debounced OWL/RL closure refresh. THE COST GATE lives
+        // here: with no cascade installed (every deployment that never armed
+        // `REASON_ON_WRITE`, and every existing test), this is ONE `OnceLock::get()`
+        // — a single atomic load — and nothing else. With a cascade installed but
+        // `graph` not in its opted-in set, `note_write` itself is one hashset lookup.
+        // Actual reasoning work NEVER happens on this path — only the periodic sweep
+        // task (`reasoning_cascade::spawn`) runs `add_axioms`/`classify`.
+        #[cfg(feature = "owl")]
+        if let Some(cascade) = self.reasoning_cascade.get() {
+            cascade.note_write(graph);
         }
         notify.notify_waiters();
         seq
@@ -857,6 +895,72 @@ mod tests {
 
     fn props(v: serde_json::Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    /// Wiring proof (W3.6/E16): `emit` on the REAL hook only notes a write for a
+    /// graph actually in the installed cascade's opted-in set; every other graph
+    /// leaves ZERO cascade bookkeeping, through the exact same `CdcHub::emit` path
+    /// production traffic takes (not a direct call into `ReasoningCascade`).
+    #[cfg(feature = "owl")]
+    #[test]
+    fn emit_notes_the_installed_cascade_only_for_its_opted_in_graph() {
+        use crate::server::reasoning_cascade::ReasoningCascade;
+        use std::time::Duration;
+
+        let hub = CdcHub::new();
+        let cascade = std::sync::Arc::new(ReasoningCascade::new(
+            ["g-in".to_string()].into_iter().collect(),
+            Duration::from_secs(60),
+        ));
+        hub.install_reasoning_cascade(cascade.clone());
+
+        hub.emit(
+            "g-in",
+            CdcKind::AddNode,
+            "n1".into(),
+            String::new(),
+            None,
+            Some(props(serde_json::json!({"type": "Doc"}))),
+        );
+        hub.emit(
+            "g-out",
+            CdcKind::AddNode,
+            "n2".into(),
+            String::new(),
+            None,
+            Some(props(serde_json::json!({"type": "Doc"}))),
+        );
+
+        assert!(
+            !cascade.has_no_state("g-in"),
+            "the opted-in graph's write must be noted via the real emit() hook"
+        );
+        assert!(
+            cascade.has_no_state("g-out"),
+            "a non-opted-in graph's write must leave NO cascade state, even through \
+             the real emit() hook"
+        );
+    }
+
+    /// A hub with NO cascade installed (every existing deployment/test) never
+    /// touches `reasoning_cascade` at all — `emit`'s hook is a single
+    /// `OnceLock::get()` miss. This is implicitly exercised by every OTHER test
+    /// in this module (none of them install a cascade); this test just pins the
+    /// unconfigured path explicitly.
+    #[cfg(feature = "owl")]
+    #[test]
+    fn emit_with_no_cascade_installed_behaves_exactly_as_before() {
+        let hub = CdcHub::new();
+        let seq = hub.emit(
+            "g",
+            CdcKind::AddNode,
+            "n1".into(),
+            String::new(),
+            None,
+            Some(props(serde_json::json!({"type": "Doc"}))),
+        );
+        assert_eq!(seq, 0);
+        assert_eq!(hub.read("g", 0, 0).unwrap().len(), 1);
     }
 
     #[test]
