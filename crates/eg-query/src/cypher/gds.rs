@@ -25,6 +25,7 @@
 //! by normal `YIELD` validation.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use eg_core::graph::GraphView;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
@@ -52,7 +53,13 @@ use super::proc::{CypherProcedure, ProcRow, YieldValue};
 /// A*/Yen's-k/Steiner-tree/random-walk paths) all route to always-on
 /// `graph_algos` kernels; `gds.dbscan` and `gds.linkPrediction` are gated
 /// behind the `cypher-mining`/`cypher-graphlearn` features (they route to
-/// heavier eg-compute domains — see `Cargo.toml`).
+/// heavier eg-compute domains — see `Cargo.toml`). The `gds.graph.*` NAMED
+/// PROJECTION CATALOG (CONCEPT:EG-KG.query.named-graph-projection-catalog, W4.5/N5 —
+/// `project`/`drop`/`exists`/`list`) is gated behind `result-cache` (it needs the
+/// `GraphView::projection_scope` handle that only exists under that feature); every OTHER
+/// procedure above ALSO accepts an optional `graphName` config key (via the shared
+/// [`project_named`] helper) that reuses a cataloged projection instead of re-scanning the view —
+/// a no-op, zero-regression addition when `graphName` is absent or the feature is off.
 pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
     #[allow(unused_mut)]
     let mut v: Vec<Box<dyn CypherProcedure>> = vec![
@@ -92,6 +99,17 @@ pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
     v.push(Box::new(FastRp));
     #[cfg(feature = "cypher-graphlearn")]
     v.push(Box::new(Node2Vec));
+    // ── W4.5/N5 named graph-projection catalog (CONCEPT:EG-KG.query.named-graph-projection-catalog) ──
+    // Appended at the END for the same merge-conflict-minimizing reason as the W4.2 embeddings
+    // above. Gated behind `result-cache` — see `gds_procedures`'s doc.
+    #[cfg(feature = "result-cache")]
+    v.push(Box::new(GraphCatalogProject));
+    #[cfg(feature = "result-cache")]
+    v.push(Box::new(GraphCatalogDrop));
+    #[cfg(feature = "result-cache")]
+    v.push(Box::new(GraphCatalogExists));
+    #[cfg(feature = "result-cache")]
+    v.push(Box::new(GraphCatalogList));
     v
 }
 
@@ -118,6 +136,55 @@ fn project(view: &GraphView, weight_prop: Option<&str>) -> AdjacencyGraph<String
         by_src.entry(s).or_default().push((t, w));
     }
     AdjacencyGraph::from_adjacency(by_src)
+}
+
+/// The reuse-aware counterpart of [`project`] (CONCEPT:EG-KG.query.named-graph-projection-catalog,
+/// W4.5/N5) — EVERY `gds.*` algorithm procedure calls this instead of [`project`] directly, so an
+/// OPTIONAL `graphName` config key transparently skips the O(V+E) scan on a cache hit:
+///
+///   * `graph_name` absent ⇒ byte-identical to calling [`project`] directly (today's behavior,
+///     unconditionally — no catalog interaction, zero regression for any pre-existing caller).
+///   * `graph_name` present ⇒ look up that name in the graph's named-projection catalog (reached
+///     via `view.projection_scope`, threaded from `GraphCore::analysis_snapshot_versioned` — see
+///     that type's doc). A HIT returns the materialized projection WITHOUT re-scanning. A MISS
+///     (absent name, a write since materialization touched it, or the `result-cache` feature not
+///     compiled in) is a CLEAR error naming `gds.graph.project` as the fix — a typo'd name should
+///     be a loud failure, not a silent, surprising full rescan every call.
+///
+/// Returns an `Arc` (not an owned `AdjacencyGraph`) uniformly on BOTH paths — cheap on the fresh
+/// path (one allocation, no extra copy of the projected data) and the whole point on the reuse
+/// path (share the SAME cataloged structure, never clone it) — so every call site is unchanged
+/// either way: `&g` derefs to `&AdjacencyGraph<String>` for a kernel call exactly as before.
+fn project_named(
+    view: &GraphView,
+    weight_prop: Option<&str>,
+    graph_name: Option<&str>,
+) -> Result<Arc<AdjacencyGraph<String>>, String> {
+    let Some(name) = graph_name else {
+        return Ok(Arc::new(project(view, weight_prop)));
+    };
+    #[cfg(feature = "result-cache")]
+    {
+        let scope = view.projection_scope.as_ref().ok_or_else(|| {
+            "named graph projections are unavailable in this build (missing the `result-cache` \
+             feature)"
+                .to_string()
+        })?;
+        let blob = scope.catalog.get(name, &scope.dep_clock).ok_or_else(|| {
+            format!(
+                "named graph '{name}' does not exist (or a write invalidated it) — call \
+                 `gds.graph.project('{name}', {{...}})` first"
+            )
+        })?;
+        blob.downcast::<AdjacencyGraph<String>>()
+            .map_err(|_| format!("named graph '{name}' is not a graph-algorithms projection"))
+    }
+    #[cfg(not(feature = "result-cache"))]
+    {
+        Err(format!(
+            "named graph '{name}' unavailable: this build lacks the `result-cache` feature"
+        ))
+    }
 }
 
 /// A node's numeric property `prop`, if present and numeric
@@ -259,7 +326,11 @@ impl CypherProcedure for PageRank {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let pr = PageRankConfig {
             damping: cfg.f64("dampingFactor", 0.85),
             tolerance: cfg.f64("tolerance", 1e-7),
@@ -283,7 +354,11 @@ impl CypherProcedure for Betweenness {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let directed = !cfg
             .string("orientation")
             .map(|o| o.eq_ignore_ascii_case("UNDIRECTED"))
@@ -305,7 +380,7 @@ impl CypherProcedure for Degree {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, None);
+        let g = project_named(view, None, cfg.string("graphName").as_deref())?;
         let kind = match cfg.string("orientation").as_deref() {
             Some(o) if o.eq_ignore_ascii_case("REVERSE") => DegreeKind::In,
             Some(o) if o.eq_ignore_ascii_case("UNDIRECTED") => DegreeKind::Total,
@@ -331,7 +406,11 @@ impl CypherProcedure for Eigenvector {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let ec = EigenvectorConfig {
             tolerance: cfg.f64("tolerance", 1e-7),
             max_iterations: cfg.usize("maxIterations", 20),
@@ -356,7 +435,11 @@ impl CypherProcedure for ArticleRank {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let ac = ArticleRankConfig {
             damping: cfg.f64("dampingFactor", 0.85),
             tolerance: cfg.f64("tolerance", 1e-7),
@@ -381,7 +464,11 @@ impl CypherProcedure for Closeness {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let cc = ClosenessConfig {
             improved: cfg
                 .get("useWassermanFaust")
@@ -406,7 +493,11 @@ impl CypherProcedure for Harmonic {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         Ok(scored_rows(harmonic_centrality(&g), "score"))
     }
 }
@@ -426,7 +517,11 @@ impl CypherProcedure for Louvain {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let lc = LouvainConfig {
             resolution: cfg.f64("resolution", 1.0),
             seed: None,
@@ -455,7 +550,11 @@ impl CypherProcedure for Leiden {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let lc = LeidenConfig {
             resolution: cfg.f64("resolution", cfg.f64("gamma", 1.0)),
             seed: None,
@@ -483,7 +582,11 @@ impl CypherProcedure for LabelPropagation {
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
         let weight_prop = cfg.string("relationshipWeightProperty");
-        let g = project(view, weight_prop.as_deref());
+        let g = project_named(
+            view,
+            weight_prop.as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let lpc = LabelPropagationConfig {
             max_iterations: cfg.usize("maxIterations", 10),
             weighted: weight_prop.is_some(),
@@ -508,7 +611,11 @@ impl CypherProcedure for Wcc {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         Ok(partition_rows(
             weakly_connected_components(&g),
             "componentId",
@@ -529,7 +636,11 @@ impl CypherProcedure for Scc {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         Ok(partition_rows(
             strongly_connected_components(&g),
             "componentId",
@@ -552,8 +663,9 @@ impl CypherProcedure for TriangleCount {
     fn columns(&self) -> &'static [&'static str] {
         &["nodeId", "triangleCount"]
     }
-    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
-        let g = project(view, None);
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let g = project_named(view, None, cfg.string("graphName").as_deref())?;
         Ok(int_rows(triangle_count(&g), "triangleCount"))
     }
 }
@@ -570,8 +682,9 @@ impl CypherProcedure for LocalClusteringCoefficient {
     fn columns(&self) -> &'static [&'static str] {
         &["nodeId", "localClusteringCoefficient"]
     }
-    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
-        let g = project(view, None);
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let g = project_named(view, None, cfg.string("graphName").as_deref())?;
         Ok(scored_rows(
             local_clustering_coefficient(&g),
             "localClusteringCoefficient",
@@ -590,8 +703,9 @@ impl CypherProcedure for KCore {
     fn columns(&self) -> &'static [&'static str] {
         &["nodeId", "coreValue"]
     }
-    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
-        let g = project(view, None);
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let g = project_named(view, None, cfg.string("graphName").as_deref())?;
         Ok(int_rows(k_core(&g), "coreValue"))
     }
 }
@@ -607,8 +721,9 @@ impl CypherProcedure for K1Coloring {
     fn columns(&self) -> &'static [&'static str] {
         &["nodeId", "color"]
     }
-    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
-        let g = project(view, None);
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let g = project_named(view, None, cfg.string("graphName").as_deref())?;
         Ok(int_rows(k1_coloring(&g), "color"))
     }
 }
@@ -638,7 +753,11 @@ impl CypherProcedure for Dijkstra {
         let source = ids
             .first()
             .ok_or_else(|| "gds.dijkstra requires a source node id argument".to_string())?;
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let si = g
             .index_of(source)
             .ok_or_else(|| format!("source node `{source}` not in graph"))?;
@@ -689,7 +808,11 @@ impl CypherProcedure for AStar {
         let target = ids.get(1).ok_or_else(|| {
             "gds.shortestPath.astar requires a target node id argument".to_string()
         })?;
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let si = g
             .index_of(source)
             .ok_or_else(|| format!("source node `{source}` not in graph"))?;
@@ -750,7 +873,11 @@ impl CypherProcedure for Yens {
         let target = ids.get(1).ok_or_else(|| {
             "gds.shortestPath.yens requires a target node id argument".to_string()
         })?;
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let si = g
             .index_of(source)
             .ok_or_else(|| format!("source node `{source}` not in graph"))?;
@@ -806,7 +933,11 @@ impl CypherProcedure for SteinerTree {
         let root = ids
             .first()
             .ok_or_else(|| "gds.steinerTree requires a root node id argument".to_string())?;
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let ri = g
             .index_of(root)
             .ok_or_else(|| format!("root node `{root}` not in graph"))?;
@@ -854,7 +985,11 @@ impl CypherProcedure for RandomWalk {
         let start = ids
             .first()
             .ok_or_else(|| "gds.randomWalk requires a start node id argument".to_string())?;
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let si = g
             .index_of(start)
             .ok_or_else(|| format!("start node `{start}` not in graph"))?;
@@ -898,7 +1033,11 @@ impl CypherProcedure for NodeSimilarity {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let metric = match cfg.string("similarityMetric").as_deref() {
             Some(m) if m.eq_ignore_ascii_case("COSINE") => Metric::Cosine,
             _ => Metric::Jaccard,
@@ -945,7 +1084,11 @@ impl CypherProcedure for Knn {
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let metric = match cfg.string("similarityMetric").as_deref() {
             Some(m) if m.eq_ignore_ascii_case("COSINE") => Metric::Cosine,
             _ => Metric::Jaccard,
@@ -1098,7 +1241,7 @@ impl CypherProcedure for LinkPrediction {
         use std::collections::HashSet;
 
         let cfg = Config::of(args);
-        let g = project(view, None);
+        let g = project_named(view, None, cfg.string("graphName").as_deref())?;
         if g.node_count() < 2 {
             return Ok(Vec::new());
         }
@@ -1180,7 +1323,11 @@ impl CypherProcedure for FastRp {
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         use eg_compute::graphlearn::embeddings::{fastrp, FastRpConfig};
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let def = FastRpConfig::default();
         let fcfg = FastRpConfig {
             dim: cfg.usize("embeddingDimension", def.dim),
@@ -1212,7 +1359,11 @@ impl CypherProcedure for Node2Vec {
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         use eg_compute::graphlearn::embeddings::{node2vec, Node2VecConfig};
         let cfg = Config::of(args);
-        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let g = project_named(
+            view,
+            cfg.string("relationshipWeightProperty").as_deref(),
+            cfg.string("graphName").as_deref(),
+        )?;
         let def = Node2VecConfig::default();
         let ncfg = Node2VecConfig {
             dim: cfg.usize("embeddingDimension", def.dim),
@@ -1227,6 +1378,199 @@ impl CypherProcedure for Node2Vec {
             ..def
         };
         Ok(embedding_rows(&g, node2vec(&g, &ncfg)))
+    }
+}
+
+// ── W4.5/N5 named graph-projection catalog (CONCEPT:EG-KG.query.named-graph-projection-catalog) ──
+//
+// The `gds.graph.project`-equivalent CATALOG surface: materialize a projection ONCE under a
+// caller-chosen name, then every OTHER `gds.*` algorithm procedure above reuses it (via
+// `project_named`'s optional `graphName` config key) instead of re-scanning the graph view —
+// Neo4j GDS's actual value proposition (project once, run PageRank/Louvain/betweenness/… many
+// times against the SAME materialized structure). Gated behind `result-cache` — see
+// `gds_procedures`'s doc for why. Appended at the END of this file for the same
+// merge-conflict-minimizing reason as the W4.2 embeddings above.
+
+/// `gds.graph.project(graphName, config)` — scan the current view into an `AdjacencyGraph` ONCE
+/// and catalog it under `graphName` (CONCEPT:EG-KG.query.named-graph-projection-catalog, W4.5/N5).
+/// `args[0]` is the graph name (a string, required); the optional `{…}` config supports
+/// `relationshipWeightProperty` (identical semantics to every other `gds.*` procedure's
+/// weighting). Yields ONE row: `graphName`, `nodeCount`, `relationshipCount`.
+///
+/// Invalidation reuses the graph's `DepClock` (W1.6/P7 — see `eg_core::projection_catalog`'s doc):
+/// a write to the node or edge set retires this entry, so a subsequent algorithm call naming a
+/// now-stale `graphName` gets a clear error instead of silently serving stale structure.
+#[cfg(feature = "result-cache")]
+struct GraphCatalogProject;
+#[cfg(feature = "result-cache")]
+impl CypherProcedure for GraphCatalogProject {
+    fn name(&self) -> &'static str {
+        "gds.graph.project"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["graphName", "nodeCount", "relationshipCount"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let name = args
+            .iter()
+            .find_map(|a| a.as_str())
+            .ok_or_else(|| "gds.graph.project requires a graph name string argument".to_string())?;
+        let cfg = Config::of(args);
+        let weight_prop = cfg.string("relationshipWeightProperty");
+        let scope = view.projection_scope.as_ref().ok_or_else(|| {
+            "named graph projections require the engine's result-cache feature".to_string()
+        })?;
+        let g = project(view, weight_prop.as_deref());
+        let (node_count, edge_count) = (g.node_count(), g.edge_count());
+        scope.catalog.put(
+            name,
+            Arc::new(g) as Arc<dyn std::any::Any + Send + Sync>,
+            scope.version,
+            eg_core::dep_scope::DepSet::new(vec![
+                eg_core::dep_scope::Dim::AllNodes,
+                eg_core::dep_scope::Dim::AllEdges,
+            ]),
+            node_count,
+            edge_count,
+            weight_prop,
+        );
+        Ok(vec![vec![
+            (
+                "graphName".to_string(),
+                YieldValue::Scalar(Value::String(name.to_string())),
+            ),
+            (
+                "nodeCount".to_string(),
+                YieldValue::Scalar(Value::Number((node_count as u64).into())),
+            ),
+            (
+                "relationshipCount".to_string(),
+                YieldValue::Scalar(Value::Number((edge_count as u64).into())),
+            ),
+        ]])
+    }
+}
+
+/// `gds.graph.drop(graphName)` — remove a named projection from the catalog
+/// (CONCEPT:EG-KG.query.named-graph-projection-catalog, W4.5/N5), reclaiming its memory. Yields
+/// ONE row: `graphName`, `exists` (whether it was present BEFORE the drop — GDS semantics: a
+/// name that never existed is reported, not an error).
+#[cfg(feature = "result-cache")]
+struct GraphCatalogDrop;
+#[cfg(feature = "result-cache")]
+impl CypherProcedure for GraphCatalogDrop {
+    fn name(&self) -> &'static str {
+        "gds.graph.drop"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["graphName", "exists"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let name = args
+            .iter()
+            .find_map(|a| a.as_str())
+            .ok_or_else(|| "gds.graph.drop requires a graph name string argument".to_string())?;
+        let scope = view.projection_scope.as_ref().ok_or_else(|| {
+            "named graph projections require the engine's result-cache feature".to_string()
+        })?;
+        let existed = scope.catalog.drop_projection(name);
+        Ok(vec![vec![
+            (
+                "graphName".to_string(),
+                YieldValue::Scalar(Value::String(name.to_string())),
+            ),
+            (
+                "exists".to_string(),
+                YieldValue::Scalar(Value::Bool(existed)),
+            ),
+        ]])
+    }
+}
+
+/// `gds.graph.exists(graphName)` — whether a named projection is currently cataloged
+/// (CONCEPT:EG-KG.query.named-graph-projection-catalog, W4.5/N5) — CATALOG MEMBERSHIP, not
+/// freshness (mirrors Neo4j GDS: an existence check, no revalidation against the dependency
+/// clock). Yields ONE row: `graphName`, `exists`.
+#[cfg(feature = "result-cache")]
+struct GraphCatalogExists;
+#[cfg(feature = "result-cache")]
+impl CypherProcedure for GraphCatalogExists {
+    fn name(&self) -> &'static str {
+        "gds.graph.exists"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["graphName", "exists"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let name = args
+            .iter()
+            .find_map(|a| a.as_str())
+            .ok_or_else(|| "gds.graph.exists requires a graph name string argument".to_string())?;
+        let scope = view.projection_scope.as_ref().ok_or_else(|| {
+            "named graph projections require the engine's result-cache feature".to_string()
+        })?;
+        let exists = scope.catalog.exists(name);
+        Ok(vec![vec![
+            (
+                "graphName".to_string(),
+                YieldValue::Scalar(Value::String(name.to_string())),
+            ),
+            (
+                "exists".to_string(),
+                YieldValue::Scalar(Value::Bool(exists)),
+            ),
+        ]])
+    }
+}
+
+/// `gds.graph.list()` — every currently cataloged named projection
+/// (CONCEPT:EG-KG.query.named-graph-projection-catalog, W4.5/N5), sorted by name. Yields one row
+/// per entry: `graphName`, `nodeCount`, `relationshipCount`, `relationshipWeightProperty` (`null`
+/// when the projection is unweighted).
+#[cfg(feature = "result-cache")]
+struct GraphCatalogList;
+#[cfg(feature = "result-cache")]
+impl CypherProcedure for GraphCatalogList {
+    fn name(&self) -> &'static str {
+        "gds.graph.list"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &[
+            "graphName",
+            "nodeCount",
+            "relationshipCount",
+            "relationshipWeightProperty",
+        ]
+    }
+    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let scope = view.projection_scope.as_ref().ok_or_else(|| {
+            "named graph projections require the engine's result-cache feature".to_string()
+        })?;
+        Ok(scope
+            .catalog
+            .list()
+            .into_iter()
+            .map(|(name, nodes, edges, weight_prop)| {
+                vec![
+                    (
+                        "graphName".to_string(),
+                        YieldValue::Scalar(Value::String(name)),
+                    ),
+                    (
+                        "nodeCount".to_string(),
+                        YieldValue::Scalar(Value::Number((nodes as u64).into())),
+                    ),
+                    (
+                        "relationshipCount".to_string(),
+                        YieldValue::Scalar(Value::Number((edges as u64).into())),
+                    ),
+                    (
+                        "relationshipWeightProperty".to_string(),
+                        YieldValue::Scalar(weight_prop.map(Value::String).unwrap_or(Value::Null)),
+                    ),
+                ]
+            })
+            .collect())
     }
 }
 
@@ -2182,5 +2526,282 @@ mod tests {
             let len = row[1].as_array().expect("embedding is a list").len();
             assert_eq!(len, 16);
         }
+    }
+
+    // ── W4.5/N5 named graph-projection catalog: reuse bench + invalidation proof ─────────
+
+    /// A deterministic ring-plus-chords graph: `n` nodes, each connected to its next `k`
+    /// neighbors (mod `n`) — cheap to build, large enough that `project()`'s O(V+E) scan is a
+    /// measurable cost rather than a rounding error in the reuse bench below.
+    #[cfg(feature = "result-cache")]
+    fn ring_graph(core: &GraphCore, n: usize, k: usize) {
+        for i in 0..n {
+            core.add_node(
+                format!("n{i}"),
+                pbytes(serde_json::json!({"node_type": "Bench"})),
+            );
+        }
+        for i in 0..n {
+            for j in 1..=k {
+                let t = (i + j) % n;
+                core.add_edge(
+                    format!("n{i}"),
+                    format!("n{t}"),
+                    pbytes(serde_json::json!({"relationship": "NEXT"})),
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    /// CONCEPT:EG-KG.query.named-graph-projection-catalog (W4.5/N5) — the ACCEPTANCE-CRITICAL
+    /// bench: `gds.graph.project` materializes ONCE, then TWO DIFFERENT algorithm calls
+    /// (`gds.pageRank`, `gds.betweenness`) naming the SAME `graphName` both SKIP the scan.
+    /// Proven two ways: (1) the catalog's own hit/miss counters — deterministic and
+    /// contention-proof, the PRIMARY assertion; (2) a wall-clock comparison against an
+    /// equivalent UNNAMED (always-re-project) call on the SAME graph — the literal "bench",
+    /// logged either way (`--nocapture`) and asserted as a simple, contention-tolerant
+    /// directional inequality (reuse must be faster, with no specific ratio required).
+    #[cfg(feature = "result-cache")]
+    #[test]
+    fn w45_named_projection_reused_across_different_algorithms() {
+        let core = GraphCore::new();
+        ring_graph(&core, 2_000, 4);
+
+        // ── Part 1: the deterministic proof (hit/miss counters) ──
+        let (v1, _) = core.analysis_snapshot_versioned();
+        let proj = exec_cypher(
+            &v1,
+            "CALL gds.graph.project('bench', {}) \
+             YIELD graphName, nodeCount, relationshipCount \
+             RETURN graphName, nodeCount, relationshipCount",
+        )
+        .unwrap();
+        let proj_rows = rows(&proj);
+        assert_eq!(proj_rows.len(), 1);
+        assert_eq!(proj_rows[0][1].as_u64(), Some(2_000));
+
+        let (v2, _) = core.analysis_snapshot_versioned();
+        let pr = exec_cypher(
+            &v2,
+            "CALL gds.pageRank({graphName: 'bench', maxIterations: 3}) \
+             YIELD nodeId, score RETURN nodeId, score",
+        )
+        .unwrap();
+        assert_eq!(rows(&pr).len(), 2_000);
+
+        let (v3, _) = core.analysis_snapshot_versioned();
+        let bw = exec_cypher(
+            &v3,
+            "CALL gds.betweenness({graphName: 'bench'}) YIELD nodeId, score RETURN nodeId, score",
+        )
+        .unwrap();
+        assert_eq!(rows(&bw).len(), 2_000);
+
+        let (hits, misses) = core.graph_projections().stats();
+        assert_eq!(
+            (hits, misses),
+            (2, 0),
+            "pageRank + betweenness must BOTH hit the catalog (skip the scan); \
+             gds.graph.project itself is a `put`, not a `get`, so it does not count"
+        );
+
+        // ── Part 2: the bench (wall-clock — informative + directionally asserted) ──
+        let (v_fresh, _) = core.analysis_snapshot_versioned();
+        let t0 = std::time::Instant::now();
+        exec_cypher(
+            &v_fresh,
+            "CALL gds.pageRank({maxIterations: 3}) YIELD nodeId, score RETURN nodeId, score",
+        )
+        .unwrap();
+        let fresh_dur = t0.elapsed();
+
+        let (v_reuse, _) = core.analysis_snapshot_versioned();
+        let t1 = std::time::Instant::now();
+        exec_cypher(
+            &v_reuse,
+            "CALL gds.pageRank({graphName: 'bench', maxIterations: 3}) \
+             YIELD nodeId, score RETURN nodeId, score",
+        )
+        .unwrap();
+        let reuse_dur = t1.elapsed();
+
+        // GOOD LOGS: the timing signal the "bench" acceptance wording asks for.
+        println!(
+            "w45 projection-reuse bench (n=2000 nodes, k=4): \
+             fresh(project+pageRank)={fresh_dur:?} reused(pageRank only, catalog hit)={reuse_dur:?}"
+        );
+        assert!(
+            reuse_dur < fresh_dur,
+            "reusing a cataloged projection must be faster than re-projecting from scratch: \
+             fresh={fresh_dur:?} reuse={reuse_dur:?}"
+        );
+
+        let (hits2, misses2) = core.graph_projections().stats();
+        assert_eq!(hits2, 3, "the bench's own reuse call is a 3rd catalog hit");
+        assert_eq!(misses2, 0);
+    }
+
+    /// CONCEPT:EG-KG.query.named-graph-projection-catalog (W4.5/N5) — invalidation proof,
+    /// W1.6-style: a write touching the node set (the SAME `AllNodes` `DepClock` dimension
+    /// `dep_scope`'s own `overlapping_write_invalidates_entry` test exercises for the result
+    /// cache) retires a cataloged projection, so the NEXT algo call naming it must re-project —
+    /// surfaced here as a clear error (not a silent fallback; see `project_named`'s doc for why
+    /// a loud failure beats a silent perf cliff), and the stale entry is EVICTED, not merely
+    /// marked invalid (`gds.graph.exists` agrees).
+    #[cfg(feature = "result-cache")]
+    #[test]
+    fn w45_named_projection_invalidates_on_relevant_write() {
+        let core = GraphCore::new();
+        for id in ["a", "b", "c"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        core.add_edge("a".into(), "b".into(), pbytes(serde_json::json!({})))
+            .unwrap();
+
+        let (v1, _) = core.analysis_snapshot_versioned();
+        exec_cypher(
+            &v1,
+            "CALL gds.graph.project('g', {}) YIELD graphName RETURN graphName",
+        )
+        .unwrap();
+        assert!(core.graph_projections().exists("g"));
+
+        // A COMMITTED write touching the node set — mirroring the write coalescer's own
+        // pattern (`crates/eg-core/tests/dependency_scoped_cache.rs`'s `commit_add` helper):
+        // `add_node` alone is a RAW primitive that does not itself call `mark_dirty`/feed the
+        // dependency clock (see that test file's module doc); `maintain_indexes` +
+        // `mark_dirty` are what actually bump `version()` and record the write's footprint.
+        let d_props = pbytes(serde_json::json!({"node_type": "N"}));
+        core.add_node("d".into(), d_props.clone());
+        let mut cs = eg_core::index::ChangeSet::new();
+        cs.added_nodes
+            .push(eg_core::index::NodeChange::with_properties(
+                "d".to_string(),
+                d_props,
+            ));
+        core.maintain_indexes(&cs);
+        core.mark_dirty();
+
+        let (v2, _) = core.analysis_snapshot_versioned();
+        let err = exec_cypher(
+            &v2,
+            "CALL gds.pageRank({graphName: 'g'}) YIELD nodeId, score RETURN nodeId, score",
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("does not exist") || err.to_lowercase().contains("invalidat"),
+            "expected an invalidation error naming `gds.graph.project`, got: {err}"
+        );
+
+        // The stale entry was EVICTED (not merely reported invalid).
+        assert!(!core.graph_projections().exists("g"));
+
+        let (hits, misses) = core.graph_projections().stats();
+        assert_eq!(hits, 0);
+        assert_eq!(misses, 1, "the post-write lookup must miss");
+
+        // Re-projecting under the SAME name recovers reuse for the NEXT call.
+        let (v3, _) = core.analysis_snapshot_versioned();
+        exec_cypher(
+            &v3,
+            "CALL gds.graph.project('g', {}) YIELD graphName RETURN graphName",
+        )
+        .unwrap();
+        let (v4, _) = core.analysis_snapshot_versioned();
+        exec_cypher(
+            &v4,
+            "CALL gds.pageRank({graphName: 'g'}) YIELD nodeId, score RETURN nodeId, score",
+        )
+        .unwrap();
+        let (hits2, misses2) = core.graph_projections().stats();
+        assert_eq!(hits2, 1, "re-projecting recovers reuse");
+        assert_eq!(misses2, 1, "unchanged from the invalidation above");
+    }
+
+    /// The graph-catalog error surface (CONCEPT:EG-KG.query.named-graph-projection-catalog,
+    /// W4.5/N5): `gds.graph.drop`/`gds.graph.exists`/`gds.graph.list` over a small graph.
+    #[cfg(feature = "result-cache")]
+    #[test]
+    fn w45_graph_catalog_drop_exists_list() {
+        let core = GraphCore::new();
+        for id in ["a", "b"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        core.add_edge(
+            "a".into(),
+            "b".into(),
+            pbytes(serde_json::json!({"weight": 2.0})),
+        )
+        .unwrap();
+
+        let (v1, _) = core.analysis_snapshot_versioned();
+        exec_cypher(
+            &v1,
+            "CALL gds.graph.project('cat', {relationshipWeightProperty: 'weight'}) \
+             YIELD graphName RETURN graphName",
+        )
+        .unwrap();
+
+        let (v2, _) = core.analysis_snapshot_versioned();
+        let exists_qr = exec_cypher(
+            &v2,
+            "CALL gds.graph.exists('cat') YIELD graphName, exists RETURN graphName, exists",
+        )
+        .unwrap();
+        assert_eq!(rows(&exists_qr)[0][1], Value::Bool(true));
+
+        let (v3, _) = core.analysis_snapshot_versioned();
+        let list_qr = exec_cypher(
+            &v3,
+            "CALL gds.graph.list() YIELD graphName, nodeCount, relationshipCount, \
+             relationshipWeightProperty RETURN graphName, nodeCount, relationshipCount, \
+             relationshipWeightProperty",
+        )
+        .unwrap();
+        let list_rows = rows(&list_qr);
+        assert_eq!(list_rows.len(), 1);
+        assert_eq!(list_rows[0][0], Value::String("cat".to_string()));
+        assert_eq!(list_rows[0][1].as_u64(), Some(2));
+        assert_eq!(list_rows[0][2].as_u64(), Some(1));
+        assert_eq!(list_rows[0][3], Value::String("weight".to_string()));
+
+        let (v4, _) = core.analysis_snapshot_versioned();
+        let drop_qr = exec_cypher(
+            &v4,
+            "CALL gds.graph.drop('cat') YIELD graphName, exists RETURN graphName, exists",
+        )
+        .unwrap();
+        assert_eq!(rows(&drop_qr)[0][1], Value::Bool(true));
+        assert!(!core.graph_projections().exists("cat"));
+
+        // Dropping again reports absent, not an error.
+        let (v5, _) = core.analysis_snapshot_versioned();
+        let drop_again = exec_cypher(
+            &v5,
+            "CALL gds.graph.drop('cat') YIELD graphName, exists RETURN graphName, exists",
+        )
+        .unwrap();
+        assert_eq!(rows(&drop_again)[0][1], Value::Bool(false));
+    }
+
+    /// An UNNAMED algo call (no `graphName`) is byte-for-byte unaffected by the catalog's
+    /// existence — zero regression for every pre-existing caller (CONCEPT:EG-KG.query.named-graph-projection-catalog,
+    /// W4.5/N5).
+    #[cfg(feature = "result-cache")]
+    #[test]
+    fn w45_unnamed_calls_do_not_touch_the_catalog() {
+        let v = fixture();
+        exec_cypher(
+            &v,
+            "CALL gds.pageRank({dampingFactor: 0.85, maxIterations: 10}) \
+             YIELD nodeId, score RETURN nodeId, score",
+        )
+        .unwrap();
+        // `fixture()` returns a bare `analysis_snapshot()` (no `projection_scope`), so there is
+        // no catalog to touch at all — confirmed by the SAME assertion `project_named`'s `None`
+        // branch documents. This also exercises the plain `analysis_snapshot()` path (as opposed
+        // to `_versioned`) still working unchanged for GDS procedures.
+        assert!(v.projection_scope.is_none());
     }
 }

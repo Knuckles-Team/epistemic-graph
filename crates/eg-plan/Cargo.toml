@@ -16,7 +16,7 @@ name = "eg_plan"
 # leg — and the `UnifiedPlan::execute` that needs it — are gated behind this
 # feature, exactly as the facade gates `query`.
 default = []
-query = ["dep:eg-query", "eg-query/sql"]
+query = ["dep:eg-query", "eg-query/sql", "dep:eg-compute"]
 # The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer). The engine
 # itself compiles under `query` (beside the executor) and is active by default with the
 # runtime kill-switch `EPISTEMIC_GRAPH_COST_OPT=0` → identity; this feature is the FACADE tier
@@ -252,7 +252,12 @@ eg-tensor = { path = "../eg-tensor", optional = true }
 # `reasoning` domain) backing the `Op::Probabilistic` op (feature `probabilistic`,
 # CONCEPT:EG-086). Optional + only referenced under #[cfg(feature = "probabilistic")];
 # eg-compute depends only on eg-core/eg-types (no heavy dep, no eg-plan back-edge → no
-# cycle), so a default/Pi build links none of it.
+# cycle), so a default/Pi build links none of it. ALSO activated by `query` (CONCEPT:
+# EG-KG.query.approx-distinct-cardinality, W4.5/N5): `PlanStats`'s `DistinctStats` uses
+# `eg_compute::sketch::HyperLogLog` for approx-distinct cardinality. This is NOT a new
+# heavy-dep boundary for `query` — that feature already forces `eg-query/sql` (DataFusion +
+# Arrow), so eg-compute's lightweight base (rayon/sha2/hex/rand on top of the
+# already-required eg-core/eg-types) adds nothing to the Pi-tier budget question.
 eg-compute = { path = "../eg-compute", optional = true }
 # The engine-native epistemic layer (claims/evidence/belief-state, confidence propagation,
 # justification) backing the `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,

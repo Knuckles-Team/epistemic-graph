@@ -20,6 +20,11 @@ pub mod ast;
 pub mod graph_algos;
 pub mod parser;
 pub mod screen;
+// CONCEPT:EG-KG.compute.approximate-sketches (W4.5/N5) — HyperLogLog / Count-Min Sketch /
+// MinHash. Pure-Rust (only `std`), deterministic given the same inserted items — the lowest
+// common DAG ancestor of `eg-plan` (PlanStats cardinality inputs) and `eg-query` (SQL aggregate
+// UDFs), which is why it lives here rather than in either consumer. Always-on (no heavy deps).
+pub mod sketch;
 
 // ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for MergeProposal`,
 // behind the crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.

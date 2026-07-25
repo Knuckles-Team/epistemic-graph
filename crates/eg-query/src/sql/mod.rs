@@ -76,6 +76,11 @@ mod plpgsql;
 // a module path directly — external consumers only ever see the explicit `pub use`
 // re-exports below (`SqlCache`), unchanged.
 pub(crate) mod providers;
+/// Sketch-backed SQL aggregate UDFs (CONCEPT:EG-KG.query.approx-distinct-cardinality, W4.5/N5):
+/// `approx_distinct`/`approx_frequency`/`minhash_signature` + the `minhash_similarity` scalar.
+/// Always-on under base `sql` — the underlying sketches (`eg_compute::sketch`) are pure-Rust
+/// with zero heavy deps, already-linked `eg-compute` unconditionally carries them.
+mod sketch_udfs;
 mod tablefuncs;
 mod udfs;
 

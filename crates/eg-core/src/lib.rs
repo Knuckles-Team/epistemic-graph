@@ -48,6 +48,11 @@ pub mod jsonpath;
 /// `PathIndexPersistence` seam + in-memory default are always compiled; the
 /// redb-backed `RedbPathIndexStore` is gated behind the `path-persist` feature.
 pub mod path_persist;
+/// CONCEPT:EG-KG.query.named-graph-projection-catalog (W4.5 / N5) — the `gds.graph.project`-
+/// equivalent named/materialized graph-projection catalog, invalidated via the SAME `dep_scope`
+/// `DepClock` the result cache's dependency-scoped entries use. Gated with it (needs the clock).
+#[cfg(feature = "result-cache")]
+pub mod projection_catalog;
 #[cfg(feature = "security")]
 pub mod rbac;
 /// CONCEPT:EG-KG.compute.durable-rbac-identity-persistence — durable RBAC/identity persistence (redb-backed, feature `security`).
