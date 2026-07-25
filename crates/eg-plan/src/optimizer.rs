@@ -654,11 +654,11 @@ pub const ADAPTIVE_REOPT_THRESHOLD: f64 = 0.5;
 /// reorderable run — this is a no-op clone, so a caller can invoke it unconditionally after every
 /// op without extra cost in the common (estimate was fine) case.
 ///
-/// Opt-in-by-default-ON (no env flag): a caller decides WHEN to call it (after which op, with
-/// what actual count) — this fn is pure re-costing logic, not a scheduler. Wiring it into
-/// [`crate::exec::execute`]'s per-op loop so every `apply()` call reports its real `RowSet::len()`
-/// and triggers this automatically is the documented follow-up (CONCEPT:EG-KG.query.adaptive-reoptimization) —
-/// today a caller (or a future `Driver` impl) invokes it explicitly between ops.
+/// Pure re-costing logic, not a scheduler: it takes no env flag of its own and does not
+/// decide WHEN to fire. [`crate::exec::run_with_adaptive_reopt`] is the caller that
+/// decides that — auto-wired (no opt-in) into BOTH [`crate::exec::SerialDriver::run`]
+/// and the `par-runtime` `crate::runtime::ParallelDriver`, so every ordinary
+/// `Plan::execute` reports each op's real `RowSet::len()` here after it runs.
 pub fn reoptimize_remaining(
     remaining_ops: &[Op],
     estimated: f64,

@@ -16,7 +16,7 @@ name = "eg_plan"
 # leg — and the `UnifiedPlan::execute` that needs it — are gated behind this
 # feature, exactly as the facade gates `query`.
 default = []
-query = ["dep:eg-query", "eg-query/sql", "dep:eg-compute"]
+query = ["dep:eg-query", "eg-query/sql", "dep:eg-compute", "dep:tracing"]
 # The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer). The engine
 # itself compiles under `query` (beside the executor) and is active by default with the
 # runtime kill-switch `EPISTEMIC_GRAPH_COST_OPT=0` → identity; this feature is the FACADE tier
@@ -141,6 +141,20 @@ probabilistic = [
     "dep:eg-compute",
     "eg-compute/reasoning",
 ]
+# KAN-learned cardinality-estimate correction (CONCEPT:EG-KG.query.adaptive-reoptimization, W4.12
+# phase 2 — "planner feedback + learned costs"): an online, per-op-kind correction —
+# eg-compute's polynomial-basis `KanEdgeFn` (the SAME primitive W4.2's graphlearn
+# link-predictor trains, reused here) — trained continuously from the `(estimated,
+# actual)` pairs the auto-wired adaptive-reopt loop already observes each op, nudging
+# FUTURE `ModalityCardinality::rows_out` estimates toward what the graph actually does.
+# Pulls eg-compute's `graphlearn` domain (pure-Rust, no heavy dep — implies
+# `datascience` ⇒ `dep:rand_chacha` only; NOT the `ast`/tree-sitter tier). Compile-time
+# opt-in ONLY compiles the capability in; it stays inert until the runtime flag
+# `EPISTEMIC_GRAPH_LEARNED_COST=1` is ALSO set (see `learned_cost::enabled`), so a
+# default/Pi build — and a `learned-cost` build that hasn't flipped the runtime flag —
+# are byte-for-byte the pre-existing static-estimate behavior.
+# FOLD: opt-in; deliberately NOT added to any facade tier aggregate (node/full/pi).
+learned-cost = ["query", "dep:eg-compute", "eg-compute/graphlearn"]
 # Engine-native epistemic query surface (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2): the
 # `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,SourceReliability,ConfidenceOp,
 # ExplainBelief}` ops — belief propagation + justification IN-PLAN, composing with the
@@ -222,6 +236,14 @@ eg-core = { path = "../eg-core" }
 # feature — only the `epistemic` feature (below) populates it; a default/Pi build's
 # `evidence_refs` stays the empty `Vec` it always was.
 eg-modality = { path = "../eg-modality" }
+# Targeted tracing for the adaptive-reopt runtime-feedback loop
+# (CONCEPT:EG-KG.query.adaptive-reoptimization, `exec::run_with_adaptive_reopt`): a
+# `tracing::debug!` event per op with `(op, estimate, actual, reopt)` fields — a
+# no-op facade until a subscriber is installed, so this adds no runtime cost to a
+# default build. SAME version pin `eg-core`/`eg-compute`/the facade already use.
+# Optional + tied to `query` (the only feature that compiles `exec.rs`), so a
+# default/Pi build links none of it.
+tracing = { version = "0.1", optional = true }
 # The relational FILTER leg is real DataFusion via eg-query's schema-on-read
 # `nodes` provider — gated behind `query` so a default build links none of it.
 eg-query = { path = "../eg-query", optional = true }
@@ -391,5 +413,21 @@ criterion = { version = "0.5", default-features = false }
 [[bench]]
 name = "hybrid_queries"
 path = "benches/hybrid_queries.rs"
+harness = false
+required-features = ["query"]
+
+# ── Adaptive re-optimization skew bench (CONCEPT:EG-KG.query.adaptive-reoptimization, W4.12
+# phase 1) ─────────────────────────────────────────────────────────────────────────────
+# A skewed hub-fan-out fixture (the SAME shape `tests.rs`'s
+# `adaptive_reopt_auto_wires_into_ordinary_execution` proves triggers a real reorder,
+# scaled up for a measurable wall-clock delta) run through the ordinary, auto-wired
+# `Plan::execute` twice: once with the runtime feedback loop enabled (the default) and
+# once with it disabled (`EPISTEMIC_GRAPH_COST_OPT=0`, the pre-adaptive-reopt behavior) —
+# proving the mid-plan re-optimization is not just correct (already proven by the unit/
+# integration tests) but a genuine PERFORMANCE win on data whose skew a plan-time-only
+# estimate cannot see. `required-features = ["query"]` only — no learned-cost needed.
+[[bench]]
+name = "adaptive_reopt"
+path = "benches/adaptive_reopt.rs"
 harness = false
 required-features = ["query"]

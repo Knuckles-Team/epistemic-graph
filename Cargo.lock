@@ -2650,6 +2650,7 @@ dependencies = [
  "sqlparser",
  "sqlx",
  "tokio",
+ "tracing",
  "ureq",
  "wat",
  "webpki-roots 0.26.11",
