@@ -369,6 +369,11 @@
 | `MineReduce` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
 | `GraphLearnFit` | ~true | GraphRedb | `graphlearn:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
 | `GraphLearnPredict` | ~true | GraphRedb | `graphlearn:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MiningPipelineTrain` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field (persists a versioned :Model artifact) |
+| `MiningPipelineServe` | true | GraphRedb | `mining:write` | false | true | false | Atomic | always writes the :ServedModel pointer to deploy a version |
+| `MiningPipelinePredict` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field (materializes :Prediction nodes) |
+| `MiningPipelineEvaluate` | false | None | `mining:read` | true | false | false | Snapshot | read-only: scores a stored versioned model against a labeled set |
+| `MiningPipelineCompare` | false | None | `mining:read` | true | false | false | Snapshot | read-only: diffs two model versions' held-out metrics |
 | `MineSequence` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound; writeback=true enters the canonical durable mutation path |
 | `MineForecast` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound; writeback=true enters the canonical durable mutation path |
 | `MineText` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound; writeback=true for lda/nmf enters the canonical durable mutation path |
