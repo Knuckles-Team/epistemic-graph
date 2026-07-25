@@ -1778,6 +1778,46 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // ── Fleet server registry stale-lease reaper (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──
+    // `Method::RegisterServer` writes/renews a `:Server` node with a
+    // server-computed `lease_expires_at_ms`. This sweep expires (durably
+    // removes, CDC-emitting) any `:Server` node whose lease has lapsed --
+    // e.g. a fleet server that crashed and stopped heartbeating. Reuses the
+    // engine's existing interval-task cadence (like the sweeps above) — NO
+    // new daemon. Always armed (unlike cold-offload's opt-in memory policy,
+    // an unreaped dead registration is a correctness/staleness concern, not
+    // a resource-usage opt-in) at a short default interval so even the
+    // minimum 1s `ttl_secs` lease is reaped promptly.
+    {
+        let reaper_state = state.clone();
+        let reap_interval = epistemic_graph::server::registry_reaper::reap_interval_secs();
+        info!(
+            "Server registry: reaping expired :Server leases every {}s (CONCEPT:EG-KG.sharding.server-registry)",
+            reap_interval
+        );
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(reap_interval));
+            ticker.tick().await; // consume the immediate first tick
+            loop {
+                ticker.tick().await;
+                let __loop_tick_started = std::time::Instant::now();
+                let now_ms = epistemic_graph::server::txn::now_ms();
+                let n = epistemic_graph::server::registry_reaper::reap_expired_servers(
+                    &reaper_state,
+                    now_ms,
+                )
+                .await;
+                if n > 0 {
+                    tracing::info!("Server registry: reaped {} expired :Server lease(s)", n);
+                }
+                epistemic_graph::metrics::loop_tick(
+                    "server_registry_reap",
+                    __loop_tick_started.elapsed().as_secs_f64(),
+                );
+            }
+        });
+    }
+
     // ── OCC transaction TTL sweep (CONCEPT:EG-KG.txn.multi-op-occ-acid safety rail) ─────────
     // Auto-roll-back transactions idle past the TTL so an abandoned client never
     // leaks a staged transaction forever. An abandoned txn never committed, so it

@@ -1272,6 +1272,49 @@ pub enum Method {
         tls_server_name: Option<String>,
     },
 
+    // ── Fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──────
+    // Push-registration + lease-TTL heartbeat for fleet MCP/agent servers, writing
+    // REAL, queryable knowledge-graph `:Server` nodes -- unlike `NodeInfoUpsert`
+    // above (deliberately NOT graph nodes, the placement O(N)-scan lesson), a
+    // `:Server` node IS a first-class KG entity the fleet queries (`MATCH
+    // (s:Server)-[:PROVIDES]->(r:CallableResource)`), the SAME shape
+    // `agent_utilities.knowledge_graph.core.engine_ingestion.ingest_mcp_server`
+    // writes today via `MERGE (s:Server {id: $id}) SET s.name=…, s.url=…,
+    // s.timestamp=…` (Cypher, `node_type: "Server"` is the canonical label field
+    // eg-query's CREATE/MERGE path sets — see `crates/eg-query/src/cypher/exec.rs`
+    // `relationship_fixture`). `RegisterServer` self-translates into
+    // `Method::AddNode` against `__commons__` (see `dispatch.rs`), reusing the
+    // existing durable-commit + CDC + audit machinery byte-for-byte — the SAME
+    // "translate then delegate" shape `Method::ApplyMultisigMutation` uses for
+    // `Method::ApplyMutation`. Raft/cluster native-consensus wiring is a tracked
+    // follow-up (`reports/issue-register.md`); single-node/`full` (the shipped
+    // build) is fully wired.
+    /// Push-register (or renew, idempotently) this server's fleet identity
+    /// (CONCEPT:EG-KG.sharding.server-registry) as a `:Server` node in
+    /// `__commons__`. `name` becomes the node id `srv:<name>` (must match
+    /// `^[A-Za-z0-9_.-]{1,128}$`, the same bound au's config-sync ingestion
+    /// enforces); `url` is a bounded opaque endpoint reference (never a raw
+    /// credentialed URL — callers pass the same kind of privacy-safe reference
+    /// au's `persistence_reference` produces); `resources_json` is an optional,
+    /// size-bounded opaque JSON object (non-sensitive metadata, mirrors au's
+    /// `_mcp_persistence_resources`); `ttl_secs` is the caller's requested lease
+    /// duration (bounded server-side). The SERVER computes the absolute
+    /// `lease_expires_at_ms`/`last_heartbeat_ms` from its own clock — it never
+    /// trusts a caller-supplied timestamp. Re-calling with the SAME `name`
+    /// renews the lease (a heartbeat is just a repeat `RegisterServer` call) and
+    /// refreshes every other field, exactly like `NodeInfoUpsert`'s self-report
+    /// semantics; `registered_at_ms` is preserved from the prior row if one
+    /// exists. A periodic engine sweep expires (removes) a `:Server` node whose
+    /// lease has lapsed, emitting a CDC `RemoveNode` event. Returns `Bool` on
+    /// success.
+    RegisterServer {
+        name: String,
+        url: String,
+        #[serde(default)]
+        resources_json: String,
+        ttl_secs: u64,
+    },
+
     // ── Placement-catalog wire consumption (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4) ──
     // Exposes the engine's sole placement authority over the wire. The response is
     // complete even for an unplaced/single-node partition, so callers never hash or

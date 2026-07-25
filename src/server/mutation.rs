@@ -3431,6 +3431,26 @@ mod tests {
         ("Restore", "prepared/committed admin MutationBatch saga around online restore/PITR"),
         ("RaftAddLearner", "leader-only openraft add_learner via handlers::raft_admin::try_handle against MultiRaft directly -- no GraphCore/graph_name in scope, cluster-wide like Reshard/CatalogAssign above"),
         ("RaftChangeMembership", "leader-only openraft change_membership via handlers::raft_admin::try_handle against MultiRaft directly -- no GraphCore/graph_name in scope, cluster-wide like Reshard/CatalogAssign above"),
+        // Pre-existing W1.1 gap (found while wiring W2.5/RegisterServer below): self-contained
+        // ClusterAdmin-domain write into the durable node_info.redb store
+        // (server::persistence::node_info_store::NodeInfoStore::upsert), issued only by a
+        // node's own Raft startup path (raft::node::start). NOT graph-scoped -- no
+        // GraphCore/graph_name in scope, self-routes in dispatch.rs BEFORE dispatch_graph_op
+        // (the `Method::ClusterMembers | Method::NodeInfoUpsert` arm), exactly like
+        // RaftAddLearner/RaftChangeMembership above. `crates/eg-capabilities/tests/
+        // consistency.rs` already carries the equivalent access.rs::requires_write UNASSIGNED
+        // entry for this method; this gateway-migration test was missing its own.
+        ("NodeInfoUpsert", "self-contained ClusterAdmin-domain write into node_info.redb (server::persistence::node_info_store); issued only by the node's own Raft startup path, never a live client -- NOT graph-scoped, no GraphCore/graph_name in scope, self-routes in dispatch.rs before dispatch_graph_op like RaftAddLearner/RaftChangeMembership above"),
+        // W2.5 fleet server registry: self-translates into `Method::AddNode` against
+        // `__commons__` from its own top-level dispatch.rs arm (see the
+        // `Method::RegisterServer` match), exactly like `ApplyMultisigMutation` above
+        // translates into `Method::ApplyMutation` -- by the time a mutation happens the
+        // method value has already become `AddNode`, so `RegisterServer` itself never
+        // reaches `commit_mutation` directly. The durable write / audit line / CDC event
+        // are AddNode's (already gateway-routed); `RegisterServer`'s OWN `audit_line`/
+        // `emit_for_method` marker arms (mirroring `ApplyMultisigMutation`'s) are
+        // defense-in-depth only, unreachable via this single-node delegation path.
+        ("RegisterServer", "validates + computes the lease fields then TRANSLATES into a Method::AddNode dispatched through the ordinary dispatch_graph_op path against __commons__ (which IS gateway-routed) -- see dispatch.rs; by the time a mutation happens the method value has already become AddNode, so this variant itself never reaches commit_mutation directly"),
         ("PlacementAdmin", "raft-replicated placement-catalog admin op (Assign/Move/AbortMove); MultiRaft::placement_assign / TenantManager::move_partition / abort_move commit through the DEFAULT group's own client_write / commit_placement to the __placement_catalog__ control graph, not this gateway's per-graph MutationBatch"),
         ("CreateMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
         ("RefreshMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
