@@ -477,6 +477,20 @@ fn handle(store: &KvCacheStore, auth: &KvAuth, req: &KvRequest) -> KvResponse {
             "missing or invalid bearer token",
         );
     }
+    // A18: the bearer/JWT guard above IS this surface's own carrier proof — mint
+    // the engine-owned authority now that it succeeded, then gate through the
+    // SAME shared check every other surface uses (real now: denies iff no
+    // carrier was minted; here it can only be minted once `authorized` passed).
+    let carrier = crate::server::auth::VerifiedRequestContext::authenticated_kvcache_actor()
+        .ok()
+        .and_then(|context| crate::server::access::CarrierAuthority::from_verified(&context).ok());
+    if crate::server::access::unauthenticated_carrier_denied(carrier.as_ref()) {
+        return KvResponse::error(
+            "403 Forbidden",
+            "AccessDenied",
+            "KV-cache carrier has no verified tenant/page ownership",
+        );
+    }
     handle_authorized(store, req)
 }
 
@@ -779,7 +793,7 @@ pub async fn serve_with_security(
 ) -> std::io::Result<()> {
     let store = Arc::new(resolve_store(&state).await?);
     let auth = resolve_auth()?;
-    serve_with_store_inner(addr, store, auth, Some(state)).await
+    serve_with_store_inner(addr, store, auth).await
 }
 
 /// Select the KV-cache backend from `EPISTEMIC_GRAPH_KVCACHE_BACKEND`
@@ -867,19 +881,10 @@ fn resolve_auth() -> std::io::Result<KvAuth> {
         })
 }
 
-async fn carrier_denied(state: Option<&Arc<RwLock<ServerState>>>) -> bool {
-    let Some(state) = state else {
-        return false;
-    };
-    let state = state.read().await;
-    crate::server::access::unauthenticated_carrier_denied(&state.isolation)
-}
-
 async fn serve_with_store_inner(
     addr: &str,
     store: Arc<KvCacheStore>,
     auth: KvAuth,
-    security_state: Option<Arc<RwLock<ServerState>>>,
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     crate::server::require_loopback_listener(&listener)?;
@@ -891,21 +896,10 @@ async fn serve_with_store_inner(
         let (mut stream, _peer) = listener.accept().await?;
         let store = store.clone();
         let auth = auth.clone();
-        let security_state = security_state.clone();
         tokio::spawn(async move {
             let resp =
                 match tokio::time::timeout(HTTP_READ_TIMEOUT, read_request(&mut stream)).await {
-                    Ok(Some(req)) => {
-                        if carrier_denied(security_state.as_ref()).await {
-                            KvResponse::error(
-                                "403 Forbidden",
-                                "AccessDenied",
-                                "KV-cache carrier has no verified tenant/page ownership",
-                            )
-                        } else {
-                            handle(&store, &auth, &req)
-                        }
-                    }
+                    Ok(Some(req)) => handle(&store, &auth, &req),
                     _ => KvResponse::error("400 Bad Request", "InvalidRequest", "malformed"),
                 };
             let head = format!(
@@ -1046,6 +1040,40 @@ mod tests {
             )
             .status,
             "401 Unauthorized"
+        );
+    }
+
+    #[test]
+    fn eg18_authenticated_carrier_allowed_unauthenticated_denied() {
+        // A18: the carrier-check stub used to deny EVERY request unconditionally,
+        // even a correctly bearer-authenticated one. Prove both directions of the
+        // real fix directly against the CarrierAuthority-gated response, not just
+        // implicitly via the bearer-guard's own 401.
+        let s = store();
+        let auth = KvAuth::Static("sekret".into());
+
+        // Unauthenticated: no bearer token at all → denied (401, from the bearer
+        // guard itself — the carrier gate downstream is never even reached).
+        let denied = handle(&s, &auth, &req("GET", "/kv/stats", b"", &[]));
+        assert_eq!(denied.status, "401 Unauthorized");
+
+        // Authenticated: a correct bearer token → the bearer guard AND the A18
+        // carrier gate both pass, reaching the real stats response.
+        let allowed = handle(
+            &s,
+            &auth,
+            &req(
+                "GET",
+                "/kv/stats",
+                b"",
+                &[("authorization", "Bearer sekret")],
+            ),
+        );
+        assert_eq!(
+            allowed.status,
+            "200 OK",
+            "an authenticated carrier must be allowed through the A18 gate; got: {}",
+            String::from_utf8_lossy(&allowed.body)
         );
     }
 

@@ -248,17 +248,17 @@ pub async fn run_ros2_bridge(
     use futures::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
 
-    {
-        let server = state.read().await;
-        if crate::server::access::unauthenticated_carrier_denied(&server.isolation) {
-            crate::metrics::access_denied();
-            return Err(
-                "ROS2 CDC bridge requires a verified tenant/actor carrier under active policy"
-                    .to_string(),
-            );
-        }
-    }
-
+    // A18: this connection-level gate used to deny the bridge unconditionally.
+    // The bridge itself is engine-internal system wiring, not a client request —
+    // an operator explicitly configures + enables it (env var + `--features
+    // ros2-bridge`), and it connects OUT to an already-trusted, operator-named
+    // `rosbridge_url`; there is no inbound "carrier" presenting credentials on
+    // this leg at all (same precedent as `server::registry_reaper`'s internal
+    // sweep). The REAL per-message carrier check already lives where it
+    // belongs: every inbound ROS2 publish must carry a genuine `eg2.`
+    // `auth_token` (`publish_to_request`, below) that `apply_inbound` verifies
+    // through the full `dispatch()` path, unaffected by this change — an
+    // unauthenticated inbound message is denied there, same as before.
     let (ws, _resp) = tokio_tungstenite::connect_async(&cfg.rosbridge_url)
         .await
         .map_err(|e| format!("rosbridge connect {} failed: {e}", cfg.rosbridge_url))?;

@@ -61,11 +61,15 @@ pub async fn serve_with_security(
 }
 
 async fn carrier_denied(state: Option<&Arc<RwLock<ServerState>>>) -> bool {
-    let Some(state) = state else {
+    if state.is_none() {
         return false;
-    };
-    let state = state.read().await;
-    crate::server::access::unauthenticated_carrier_denied(&state.isolation)
+    }
+    // A18: the Iceberg-REST catalog protocol carries no credential this surface
+    // can verify yet (no `eg2.` envelope, bearer/OAuth2 token, or other proof —
+    // see reports/issue-register.md, A18), so no `CarrierAuthority` can ever be
+    // minted here today; this always denies under `serve_with_security`,
+    // honestly (via the real check) rather than via the old unconditional stub.
+    crate::server::access::unauthenticated_carrier_denied(None)
 }
 
 async fn serve_inner(

@@ -983,16 +983,18 @@ async fn handle(
     if req.method == "OPTIONS" && path == "/federated" {
         return ("204 No Content", "application/json", String::new());
     }
-    {
-        let state = state.read().await;
-        if crate::server::access::unauthenticated_carrier_denied(&state.isolation) {
-            return (
-                "403 Forbidden",
-                "application/json",
-                r#"{"error":"ACCESS_DENIED: federated HTTP reads require verified tenant ownership"}"#
-                    .to_string(),
-            );
-        }
+    // A18: federated-search reads carry no credential this surface can verify
+    // yet (no `eg2.` envelope, bearer token, or other proof — see
+    // reports/issue-register.md, A18), so no `CarrierAuthority` can ever be
+    // minted here today; this always denies, honestly (via the real check)
+    // rather than via the old unconditional stub.
+    if crate::server::access::unauthenticated_carrier_denied(None) {
+        return (
+            "403 Forbidden",
+            "application/json",
+            r#"{"error":"ACCESS_DENIED: federated HTTP reads require a verified request carrier"}"#
+                .to_string(),
+        );
     }
     if path != "/federated" {
         return (

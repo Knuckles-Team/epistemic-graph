@@ -984,21 +984,22 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
                     let __loop_tick_started = std::time::Instant::now();
                     // `lake` implies `blob` + `tsdb`, so both are always configured
                     // (`Some`) here — neither is ever independently off in this build.
-                    let (lake_handle, tsdb, store, carrier_denied) = {
+                    // A18: this is engine-internal system maintenance, not a client
+                    // request — no caller identity, no signed envelope to check, the
+                    // SAME precedent `server::registry_reaper`'s stale-lease reaper and
+                    // the cold-offload sweep already establish for a periodic interval
+                    // task that reads `ServerState` directly rather than minting a
+                    // synthetic signed `Request` and re-entering `dispatch()`. The old
+                    // client-carrier gate here was always the WRONG check for a task
+                    // with no carrier at all, not a security boundary being relaxed.
+                    let (lake_handle, tsdb, store) = {
                         let s = sweep_state.read().await;
                         (
                             s.lake.clone(),
                             s.tsdb_store.clone(),
                             s.blob.as_ref().map(|b| b.store.clone()),
-                            epistemic_graph::server::unauthenticated_carrier_denied(&s.isolation),
                         )
                     };
-                    if carrier_denied {
-                        tracing::warn!(
-                            "Lake materialize sweep denied: raw series export has no verified tenant ownership"
-                        );
-                        continue;
-                    }
                     let (Some(tsdb), Some(store)) = (tsdb, store) else {
                         tracing::warn!(
                             "Lake materialize sweep: no tsdb/blob store configured, skipping tick"

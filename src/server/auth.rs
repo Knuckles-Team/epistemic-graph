@@ -279,6 +279,57 @@ impl VerifiedRequestContext {
         ))
     }
 
+    /// Bind a fixed engine-owned service identity for an auxiliary HTTP surface
+    /// whose OWN protocol-native guard authenticates the caller but cannot
+    /// distinguish one caller from another (a single configured SigV4 credential
+    /// pair, a shared bearer secret, or a JWT proving only platform membership).
+    /// Mirrors [`Self::authenticated_local_query`]'s fixed-identity shape; callers
+    /// pass ONLY after their own gate has already succeeded — this never
+    /// authenticates anything itself.
+    fn authenticated_fixed_service_actor(service: &str, scopes: &[&str]) -> Result<Self, String> {
+        let policy = request_context_policy()?;
+        let principal = format!("service:{service}");
+        Ok(Self::from_verified_claims(
+            RequestContextClaims {
+                principal: principal.clone(),
+                tenant: policy.expected_tenant.clone(),
+                audience: policy.expected_audience.clone(),
+                agent_id: principal,
+                roles: vec![format!("{service}-adapter")],
+                scopes: scopes.iter().map(|s| s.to_string()).collect(),
+                policy_version: policy.expected_policy_version.clone(),
+                delegation: Vec::new(),
+                node: None,
+                priority: None,
+            },
+            format!("{service}-session"),
+        ))
+    }
+
+    /// Build the engine-owned authority for the S3-compatible REST surface
+    /// (A18) after its SigV4 request signature has cryptographically proven the
+    /// caller holds the deployment's configured `S3_ACCESS_KEY`/`S3_SECRET_KEY`
+    /// pair (`server::s3::authorized`). SigV4, not an `eg2.` envelope, is this
+    /// surface's own proof of possession; the deployment has exactly one
+    /// configured credential, not a distinguishable per-caller principal, so —
+    /// like [`Self::authenticated_local_query`] — every verified caller shares
+    /// one fixed service identity.
+    pub(crate) fn authenticated_s3_actor() -> Result<Self, String> {
+        Self::authenticated_fixed_service_actor("s3-api-client", &["kg:read", "kg:write"])
+    }
+
+    /// Build the engine-owned authority for the KV-cache HTTP surface (A18)
+    /// after its bearer/JWT guard (`server::kvcache_http::authorized`) has
+    /// verified the caller. That guard proves the caller holds a valid platform
+    /// credential, not a distinguishable per-caller tenant/actor (a shared
+    /// static secret has no such notion at all, and a JWT only proves platform
+    /// membership here), so every verified caller shares one fixed service
+    /// identity — the same shape [`Self::authenticated_local_query`] uses for the
+    /// engine-owned local adapter.
+    pub(crate) fn authenticated_kvcache_actor() -> Result<Self, String> {
+        Self::authenticated_fixed_service_actor("kvcache-client", &["kg:read", "kg:write"])
+    }
+
     /// Build the engine-owned authority for a native SQL connection after that
     /// protocol has completed its mandatory cryptographic password proof.
     ///
