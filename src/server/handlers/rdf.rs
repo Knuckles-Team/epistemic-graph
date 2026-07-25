@@ -298,7 +298,10 @@ async fn handle_shacl_validate(
             Err(e) => return Response::err(req_id, format!("ShaclValidate: bad data graph: {e}")),
         }
     };
-    let report = eg_shacl::validate(&shapes_graph, &data);
+    let report = match eg_shacl::validate(&shapes_graph, &data) {
+        Ok(report) => report,
+        Err(e) => return Response::err(req_id, format!("ShaclValidate: {e}")),
+    };
     match serde_json::to_value(&report) {
         Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
         Err(e) => Response::err(req_id, format!("ShaclValidate: serialize report: {e}")),

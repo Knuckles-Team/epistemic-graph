@@ -213,6 +213,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   digest reference for the image region — while `path_exists` proves the
   directed doc-span -> image-region -> claim join.
 
+### Added
+- **SHACL validation completeness: `sh:sparql`, `sh:closed`, and native-write ICV
+  (W4.13, CONCEPT:EG-KG.ontology.concept-6 / CONCEPT:EG-KG.ontology.rdf-update-guard).**
+  - `sh:sparql` (W3C SHACL-SPARQL): a new pre-binding-aware SPARQL 1.1 SELECT
+    evaluator (`crates/eg-shacl/src/sparql.rs`, its own `spargebra` dependency —
+    no ShExJ/GraphView involved) genuinely pre-binds `$this`/`$PATH`/
+    `$shapesGraph`/`$currentShape`, resolves `sh:prefixes`/`sh:declare`
+    transitively through `owl:imports`, and turns every projected solution row
+    into one `ValidationResult`. Constructs the spec permits declining
+    (aggregates, `MINUS`, `VALUES`, non-`SILENT` `SERVICE`, property paths,
+    `EXISTS`, arithmetic) fail the validation run (`Err`) rather than silently
+    mis-evaluating.
+  - `sh:closed` + `sh:ignoredProperties` now enforced (`validate.rs`).
+  - `validate`/`validate_icv`/`check_write` and friends are consequently
+    fallible (`Result<_, String>`); `server::handlers::rdf` updated for the new
+    signature.
+  - Fixed a latent `sh:conforms` spec bug found while building the W3C fixture
+    tests: was "no `sh:Violation`-severity result," the W3C-normative rule
+    (confirmed by the vocabulary itself and the official test suite's
+    `severity-001`/`002` + `sparql-003`) is "no result of ANY severity." No
+    existing test encoded the old rule, so this was a silent, unexercised gap,
+    not a masked regression.
+  - ICV witness generation extended: an `sh:sparql` violation's witness is the
+    constraint's own `sh:select` text; `sh:closed` gets a dedicated witness
+    naming the offending predicate.
+  - Proven against 20 fixtures pulled verbatim from the official W3C SHACL test
+    suite (`crates/eg-shacl/tests/w3c_sparql_closed.rs`): 18/20 match the
+    suite's expected outcome exactly; the other 2 are documented, non-panicking
+    deviations where this engine evaluates (one proven correct) rather than
+    declining a nested sub-`SELECT`/`SELECT *`.
+  - **ShExC (compact syntax) parser** (`crates/eg-shex/src/compact.rs`): a
+    hand-rolled lexer + recursive-descent parser producing `Schema` directly
+    (no ShExJ round-trip) — `PREFIX`/`BASE`, `START=`, shape combinators
+    (`AND`/`OR`/`NOT`), node constraints, triple constraints with cardinality,
+    `EachOf`/`OneOf`, `CLOSED`/`EXTRA`, inverse (`^`). `Schema::from_shexc`;
+    round-trip-proven equal (structural `PartialEq`) to an equivalent
+    programmatic `Schema` build (`crates/eg-shex/tests/compact.rs`).
+  - **ICV extended to native (non-RDF) writes** — Cypher `CREATE`/`SET`/
+    `DELETE`, `CompareAndSetNodeFields`, and any other mutation on the
+    gateway's staged/diffable commit path now enforce the same registered
+    per-graph integrity policy the RDF write path does, gated by the new
+    `EPISTEMIC_GRAPH_ICV_NATIVE_WRITES` env var (two-level opt-in: the gate
+    AND the graph's own registered policy; see AGENTS.md). A rejection carries
+    the same witness-bearing detail; non-opted-in graphs and a disabled gate
+    are byte-for-byte unaffected. `server::icv_guard::check_native_write`,
+    proven by 5 unit tests built from bare `GraphCore::add_node`/`add_edge`
+    primitives, no RDF/Turtle involved.
+  - Existing `eg-shacl`/`eg-shex` test suites stay green throughout.
+
 ---
 
 ## [2.23.1] - 2026-07-18 — Exact certification and protocol hardening

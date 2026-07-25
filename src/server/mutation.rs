@@ -1324,6 +1324,23 @@ where
         Ok(payload) => payload,
         Err(error) => return Response::err(ctx.req_id, error),
     };
+    // X5-enforce, native writes (W4.13, CONCEPT:EG-KG.ontology.rdf-update-guard): the same
+    // registered per-graph integrity policy the RDF write path enforces, extended
+    // (opt-in, `EPISTEMIC_GRAPH_ICV_NATIVE_WRITES`) to this gateway's staged/
+    // diffable native-write path (`CompareAndSetNodeFields`, `ApplyMutation`, and
+    // any other write NOT on the `prepublish_success` row-local fast path — see
+    // `commit_conditional_mutation_async_inner` for the sibling `CypherQuery`
+    // path). A rejection here discards the staged image before it is ever
+    // diffed, snapshotted, or durably committed.
+    #[cfg(feature = "shacl")]
+    if let Err(rejection) =
+        crate::server::icv_guard::check_native_write(ctx.graph_name, ctx.core, &staged)
+    {
+        return Response::err(
+            ctx.req_id,
+            format!("mutation rejected by integrity policy: {rejection}"),
+        );
+    }
     let staged_snapshot = staged.snapshot();
     let row_delta = match crate::graph_delta::GraphRowDelta::between(
         &base_snapshot_for_delta,
@@ -1764,6 +1781,21 @@ where
         Ok(payload) => payload,
         Err(error) => return Response::err(ctx.req_id, error),
     };
+    // X5-enforce, native writes (W4.13, CONCEPT:EG-KG.ontology.rdf-update-guard): this
+    // is the path `CypherQuery` writes actually take (see the doc comment above) —
+    // the RDF surface routed here (AddTriples/RemoveTriples/DropNamedGraph) already
+    // enforces via `check_before_write` inside its own handler before the staged
+    // mutation lands, so this call is a fast no-op for those (no diff to find);
+    // for a native Cypher write it is the ONLY enforcement point.
+    #[cfg(feature = "shacl")]
+    if let Err(rejection) =
+        crate::server::icv_guard::check_native_write(ctx.graph_name, ctx.core, &staged)
+    {
+        return Response::err(
+            ctx.req_id,
+            format!("mutation rejected by integrity policy: {rejection}"),
+        );
+    }
     let staged_snapshot = staged.snapshot();
     let row_delta = match crate::graph_delta::GraphRowDelta::between(
         &base_snapshot_for_delta,

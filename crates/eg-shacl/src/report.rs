@@ -61,9 +61,19 @@ pub struct ValidationReport {
 }
 
 impl ValidationReport {
-    /// Build a report from its results, deriving `conforms` (true iff no `Violation`).
+    /// Build a report from its results, deriving `conforms`.
+    ///
+    /// `conforms` is `true` **iff there are no results of ANY severity** — the
+    /// normative W3C definition (`sh:conforms` rdfs:comment: "True if the validation
+    /// did not produce any validation results, and false otherwise"; confirmed by the
+    /// SHACL test suite itself: `core/misc/severity-001`/`severity-002` and
+    /// `sparql/node/sparql-003` all expect `sh:conforms "false"` for a report whose
+    /// ONLY results are `sh:Warning`/`sh:Info`/a custom severity). This is a fix, not
+    /// a new rule: severity does NOT change whether a shape's constraint failed —
+    /// only whether that failure surfaces as `sh:Violation` vs `sh:Warning`/`sh:Info`
+    /// in each [`ValidationResult`].
     pub fn from_results(results: Vec<ValidationResult>) -> Self {
-        let conforms = !results.iter().any(|r| r.severity == Severity::Violation);
+        let conforms = results.is_empty();
         ValidationReport { conforms, results }
     }
 }
