@@ -19,18 +19,25 @@ Run standalone (bypass the slow shared-engine conftest fixture, matching
 
     python3 -m pytest tests/test_lake_iceberg_delta_parity.py --noconftest -q
 
-Known, pre-existing, cross-cutting gap (NOT fixed by this test file, not specific to
-lake — see `reports/issue-register.md`, W4.8 entry): the production Iceberg-REST
-listener wiring (`serve_with_security` in `src/main.rs`) currently denies every HTTP
-request via the shared `server::unauthenticated_carrier_denied` stub, which every other
-`serve_with_security`-wired auxiliary HTTP surface in this facade (`obs`, `s3-api`,
-`sparql-http`, `federation-search`, `kvcache-server`) shares. That is why the tests here
-deliberately do NOT read table bytes back over `--iceberg-addr` HTTP — they drive
-`eg-lake`'s real write path directly instead, which exercises 100% of the same
+A18 (see `reports/issue-register.md`): the shared `server::unauthenticated_carrier_denied`
+carrier-check STUB that used to deny EVERY `serve_with_security`-wired auxiliary HTTP
+surface unconditionally is fixed — `s3-api`, `sparql-http` (mutations), and
+`kvcache-server` now mint a real `CarrierAuthority` from their own protocol-native proof
+(SigV4 / `eg2.` envelope / bearer-JWT respectively) and work for an authenticated
+carrier. The production Iceberg-REST listener wiring (`serve_with_security` in
+`src/main.rs`) still denies every HTTP request, honestly now: the Iceberg-REST catalog
+protocol carries no credential this engine can verify yet (no `eg2.` envelope,
+bearer/OAuth2 token, or other proof — the real Iceberg-REST spec's own convention is an
+OAuth2 client-credentials bearer token, a deliberate scheme decision NOT made here), so
+no `CarrierAuthority` can ever be minted for this surface today — same open question for
+`obs`/`federation-search` and SPARQL's own read (SELECT/CONSTRUCT) leg. That is why the
+tests here deliberately do NOT read table bytes back over `--iceberg-addr` HTTP — they
+drive `eg-lake`'s real write path directly instead, which exercises 100% of the same
 materialize/render code the live listener's `LakeManager` calls, only skipping the
 gated HTTP hop. `test_iceberg_rest_listener_responds_when_configured` below proves the
 listener itself starts and speaks HTTP from the real compiled server binary, and
-documents today's 403 rather than silently ignoring it.
+documents today's 403 (a real, deliberate denial now, not the old stub) rather than
+silently ignoring it.
 """
 
 from __future__ import annotations
@@ -360,13 +367,18 @@ def test_iceberg_rest_listener_responds_when_configured(iceberg_server):
     of W4.8), opens a live HTTP listener on `--iceberg-addr` and speaks the
     Iceberg-REST envelope shape.
 
-    KNOWN GAP (see the module docstring + reports/issue-register.md, W4.8): today this
-    returns 403 for every request because of the pre-existing, cross-cutting
-    `server::unauthenticated_carrier_denied` stub shared by every `serve_with_security`
-    -wired auxiliary HTTP surface in this facade — not something this test file
-    introduces or should silently mask. This assertion pins that CURRENT, documented
-    behavior; if/when the carrier-gate gap is closed, this test's status-code
-    assertion should be updated to 200 (and the JSON body asserted) as a deliberate,
+    A18 (see the module docstring + reports/issue-register.md): the OLD
+    cross-cutting `server::unauthenticated_carrier_denied` stub that used to deny
+    EVERY `serve_with_security`-wired auxiliary surface unconditionally is fixed.
+    This surface still returns 403 for this plain, unauthenticated request, but
+    now for a real, deliberate reason: the Iceberg-REST catalog protocol carries
+    no credential this engine can verify yet (no `eg2.` envelope, bearer/OAuth2
+    token, or other proof), so no `CarrierAuthority` can be minted here — a
+    genuine open scheme decision (see `reports/issue-register.md`, A18), not a
+    stub. This assertion pins that CURRENT, documented, correctly-fail-closed
+    behavior; if/when a carrier scheme is decided and implemented for THIS
+    surface specifically, this test's status-code assertion should be updated
+    (and the JSON body asserted for an authenticated request) as a deliberate,
     reviewed change rather than an unnoticed regression in either direction.
     """
     status, body = _http_get(iceberg_server, "/v1/config")
