@@ -43,6 +43,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     under a sustained ingest flood (the exact SLO shape the 2026-07-11 soak
     failed). The reference Python client (`epistemic_graph/client.py`) can carry
     the claim; the au-side `PriorityClass`-contextvar→claim wiring lands with W2.9.
+- **Engine-native fleet server registry + heartbeat** (W2.5, CONCEPT:EG-KG.sharding.server-registry) —
+  a push-registration RPC, `Method::RegisterServer` (idempotent: re-calling with
+  the same `name` renews the lease — a heartbeat is just a repeat call), writes a
+  REAL, queryable `:Server` graph node into `__commons__` — unlike the W1.1
+  `NodeInfoStore`/`NodeInfoUpsert` cluster-topology store (deliberately NOT graph
+  nodes, the placement O(N)-scan lesson), a `:Server` row here IS a first-class KG
+  entity the fleet queries (`MATCH (s:Server)-[:PROVIDES]->(r:CallableResource)`),
+  the SAME shape agent-utilities' config-sync ingestion
+  (`knowledge_graph.core.engine_ingestion.ingest_mcp_server`) writes via Cypher
+  `MERGE`. The server computes the absolute lease expiry from its own clock —
+  never a caller-supplied timestamp — and self-translates into a plain
+  `Method::AddNode` against `__commons__` (`dispatch.rs`), so durability/audit/CDC
+  are AddNode's own, already-proven machinery; a new periodic stale-lease reaper
+  (`server::registry_reaper`, the engine's existing interval-task cadence —
+  `EPISTEMIC_GRAPH_SERVER_REGISTRY_REAP_SECS`, default 15s, always armed) durably
+  removes any `:Server` node whose lease has lapsed and emits the resulting
+  `RemoveNode` CDC event, feeding the incident brain within one sweep interval of
+  the lease actually expiring. Python-client-bound via
+  `client.server_registry.register(name, url, resources=, ttl_secs=)`. On the
+  agent-utilities side, `mcp/server_factory.py`'s `create_mcp_server` wires every
+  one of the ~62 fleet MCP servers to self-register + heartbeat for free via its
+  FastMCP ASGI `lifespan` (proven to run under every transport, including
+  `stdio`) — no per-server opt-in; the config-file sync becomes a
+  reconciler-of-record over the SAME RPC (long-TTL repair of drift / a
+  never-self-registering third-party server) rather than the sole writer.
+  Raft/cluster native-consensus wiring for this RPC is a tracked follow-up
+  (`reports/issue-register.md` A12); the shipped single-node/`full` build is
+  fully wired and tested.
+- **`oidc_token` optional claim on the Python client** (ADR-4 decision 5 /
+  W2.1-1, CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation) — `epistemic_graph.client`'s
+  `RequestContextClaims`/`validate_request_context` previously rejected
+  `oidc_token` as an unsupported claim, even though the server has independently
+  accepted+verified it (`EnvelopeV2.oidc_token`, `server::auth::bind_verified_identity`)
+  since the `oidc` feature shipped — blocking agent-utilities' per-agent
+  delegation (decision 5, RFC 8693 exchanged token) from ever reaching the wire.
+  Mirrors `node`/`priority`'s optional-claim shape on the CALLER-FACING model, but
+  rides the wire as a SIBLING top-level envelope field (matching the existing
+  Rust decode shape) rather than a MAC-covered trailer: deliberately NOT folded
+  into `build_envelope_v2_bytes` (no Rust changes needed) since the token's own
+  RSA/JWKS signature is the trust anchor and `bind_verified_identity`
+  independently cross-checks its subject/tenant against the SAME context — MAC
+  coverage would add no real protection (see `EnvelopeV2.oidc_token`'s existing
+  doc comment). agent-utilities' `GraphSession._apply_spawn_delegation` now
+  forwards `SpawnDelegation.oidc_token` onto the envelope in `on`-mode delegation.
 
 ### Fixed
 - **Cypher anonymous-node inline-property-map audit (W0.8, CONCEPT:EG-KG.query.anon-propmap-parity)** — investigated a

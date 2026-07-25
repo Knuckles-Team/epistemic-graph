@@ -63,10 +63,26 @@ class RequestContextClaims(_RequiredRequestContextClaims, total=False):
     agent-utilities carrier layer sets it from the ambient ``PriorityClass``
     contextvar; absent, the engine treats the request as the orchestration
     default.
+
+    ``oidc_token`` (ADR-4 decision 5) is an optional RFC 8693 exchanged OIDC
+    bearer/assertion binding ``principal``/``tenant``/``roles``/``scopes`` to a
+    verified external identity. Unlike ``node``/``priority`` it does NOT ride
+    the canonical MAC-covered claim set -- it is carried as a SIBLING top-level
+    field on the wire envelope (``{"context": {...}, "oidc_token": "...",
+    ...}``), matching the Rust decode shape (``EnvelopeV2.oidc_token`` in
+    ``src/server/auth.rs``, deliberately kept out of ``build_envelope_v2_bytes``
+    since the token's own RSA/JWKS signature is the trust anchor, not MAC
+    coverage -- a holder of the HMAC secret gains nothing by swapping it, since
+    the engine's ``bind_verified_identity`` independently verifies the token
+    and rejects any subject/tenant mismatch against ``context``). Normally the
+    agent-utilities delegation layer sets it from the ambient
+    ``SpawnDelegation.oidc_token`` (``GraphSession._apply_spawn_delegation``);
+    absent, the envelope is unchanged from before this claim existed.
     """
 
     node: str
     priority: str
+    oidc_token: str
 
 
 _REQUIRED_REQUEST_CONTEXT_FIELDS = frozenset(
@@ -113,6 +129,12 @@ def validate_request_context(
         if not isinstance(priority, str) or not priority.strip():
             raise ValueError(
                 "verified_context.priority must be a non-empty string when present"
+            )
+    if "oidc_token" in context:
+        oidc_token = context["oidc_token"]
+        if not isinstance(oidc_token, str) or not oidc_token.strip():
+            raise ValueError(
+                "verified_context.oidc_token must be a non-empty string when present"
             )
 
     value: dict[str, Any] = copy.deepcopy(dict(context))
@@ -3088,6 +3110,71 @@ class ClusterTopologyClient:
                 ):
                     raise ValueError("ClusterMembers member entry is malformed")
         return answer
+
+
+class ServerRegistryClient:
+    """CONCEPT:EG-KG.sharding.server-registry — W2.5 engine-native fleet server registry.
+
+    Exposes ``Method::RegisterServer``: a push-registration + lease-TTL
+    heartbeat RPC that writes a REAL, queryable ``:Server`` graph node into
+    ``__commons__`` — unlike :class:`ClusterTopologyClient` (cluster Raft
+    nodes, deliberately NOT graph nodes), a ``:Server`` row here IS a
+    first-class KG entity the fleet queries (``MATCH
+    (s:Server)-[:PROVIDES]->(r:CallableResource)``), the SAME shape
+    ``agent_utilities.knowledge_graph.core.engine_ingestion.ingest_mcp_server``
+    writes today via Cypher ``MERGE``. Every fleet MCP server self-registers
+    at startup and re-calls :meth:`register` periodically to renew its lease
+    (wired into ``mcp/server_factory.py`` so every fleet server gets it for
+    free); the au config-sync ingestion becomes a reconciler that repairs
+    drift through this SAME RPC instead of being the sole writer.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def register(
+        self,
+        name: str,
+        url: str,
+        *,
+        resources: dict[str, Any] | None = None,
+        ttl_secs: int = 300,
+    ) -> bool:
+        """Push-register (or renew) ``name``'s fleet identity.
+
+        A repeat call with the SAME ``name`` renews the lease — call this
+        periodically (well inside ``ttl_secs``) as a heartbeat; a server that
+        stops renewing is reaped by the engine's stale-lease sweep once its
+        lease lapses (CONCEPT:EG-KG.sharding.server-registry). The server computes the
+        absolute lease expiry from its own clock — it never trusts a
+        caller-supplied timestamp. ``url`` should be a bounded, privacy-safe
+        endpoint reference (never a raw credentialed URL). ``resources`` is
+        optional, non-sensitive, size-bounded metadata (encoded as opaque
+        JSON). Returns ``True`` on success.
+        """
+        if not isinstance(name, str) or not name:
+            raise ValueError("RegisterServer.name is required")
+        if not isinstance(url, str) or not url:
+            raise ValueError("RegisterServer.url is required")
+        if isinstance(ttl_secs, bool) or not isinstance(ttl_secs, int) or ttl_secs <= 0:
+            raise ValueError("RegisterServer.ttl_secs must be a positive integer")
+        if resources is not None and not isinstance(resources, dict):
+            raise ValueError("RegisterServer.resources must be a mapping")
+        resources_json = (
+            json.dumps(resources, separators=(",", ":"), sort_keys=True)
+            if resources
+            else ""
+        )
+        result = await self._client._send(
+            "RegisterServer",
+            {
+                "name": name,
+                "url": url,
+                "resources_json": resources_json,
+                "ttl_secs": ttl_secs,
+            },
+        )
+        return bool(result)
 
 
 class RaftAdminClient:
@@ -8059,6 +8146,7 @@ class EpistemicGraphClient:
         self.resharding = ReshardingClient(self)
         self.placement = PlacementClient(self)
         self.cluster_topology = ClusterTopologyClient(self)
+        self.server_registry = ServerRegistryClient(self)
         self.raft_admin = RaftAdminClient(self)
         self.consensus = ConsensusClient(self)
         self.finance = FinanceClient(self)
@@ -8562,6 +8650,19 @@ class EpistemicGraphClient:
             _put_v2_text(canonical, priority)
         else:
             priority = None
+        # ADR-4 decision 5: the optional OIDC bearer/assertion. Deliberately NOT
+        # folded into the canonical MAC bytes (no tag-3 trailer) -- it rides as
+        # a SIBLING top-level envelope field below, matching the Rust decode
+        # shape (`EnvelopeV2.oidc_token`) and its own documented rationale: the
+        # token's own RSA/JWKS signature is the trust anchor, and the engine's
+        # `bind_verified_identity` independently cross-checks its subject/
+        # tenant against this SAME `context`, so MAC coverage would add no
+        # real protection (see `RequestContextClaims.oidc_token`'s docstring).
+        oidc_token = context.get("oidc_token")
+        if isinstance(oidc_token, str) and oidc_token.strip():
+            oidc_token = oidc_token.strip()
+        else:
+            oidc_token = None
         mac = hmac.new(
             self._auth_secret.encode("utf-8"), bytes(canonical), hashlib.sha256
         ).hexdigest()
@@ -8579,13 +8680,15 @@ class EpistemicGraphClient:
             context_payload["node"] = node_id
         if priority:
             context_payload["priority"] = priority
-        envelope = {
+        envelope: dict[str, Any] = {
             "context": context_payload,
             "timestamp": timestamp,
             "nonce": nonce,
             "idempotency_key": idempotency_key,
             "mac": mac,
         }
+        if oidc_token:
+            envelope["oidc_token"] = oidc_token
         payload = json.dumps(
             envelope, ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8")
@@ -8947,6 +9050,9 @@ class SyncEpistemicGraphClient:
         self.placement = self._SyncWrapper(self._client.placement, self._loop)
         self.cluster_topology = self._SyncWrapper(
             self._client.cluster_topology, self._loop
+        )
+        self.server_registry = self._SyncWrapper(
+            self._client.server_registry, self._loop
         )
         self.raft_admin = self._SyncWrapper(self._client.raft_admin, self._loop)
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)

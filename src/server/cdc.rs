@@ -677,6 +677,22 @@ pub fn emit_for_method(hub: &CdcHub, core: &GraphCore, graph: &str, method: &Met
                 None,
             );
         }
+        // W2.5 fleet server registry: defense-in-depth marker mirroring
+        // `ApplyMultisigMutation` above -- this variant self-translates into
+        // `Method::AddNode` in `dispatch.rs` BEFORE ever reaching `commit_mutation`, so
+        // the REAL CDC event for a registration is AddNode's own (`srv:<name>`,
+        // AddNode/UpdateNode kind), not this marker. Unreachable via the single-node
+        // delegation path today.
+        (Method::RegisterServer { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__register_server".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
         #[cfg(feature = "shacl")]
         (Method::IcvConfigure { .. }, _) => {
             hub.emit(

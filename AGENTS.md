@@ -288,7 +288,21 @@ authoritative inventory.
   graph nodes) and `Method::ClusterMembers` (gated `cluster:topology-read`, answered from
   ANY node) + `PlacementRoute.endpoints` (leader-first) hand it back to a discovering
   Python client (`client.cluster_topology.members()`, `epistemic_graph/pool.py`'s
-  `resolve_cluster_endpoints`); lazy graph lifecycle is mandatory and
+  `resolve_cluster_endpoints`); **the fleet server registry** (CONCEPT:EG-KG.sharding.server-registry,
+  W2.5, `src/server/registry_reaper.rs`) is the opposite shape — unlike node-info,
+  a fleet MCP/agent server's registration IS a real, queryable `:Server` graph node
+  in `__commons__` (`MATCH (s:Server)-[:PROVIDES]->(r:CallableResource)`, the same
+  shape au's config-sync ingestion writes). `Method::RegisterServer` (idempotent
+  push-registration + lease-TTL heartbeat — a repeat call renews the lease) self-
+  translates into a plain `Method::AddNode`, so durability/audit/CDC are AddNode's
+  own; a periodic stale-lease reaper (the engine's existing interval-task cadence,
+  `EPISTEMIC_GRAPH_SERVER_REGISTRY_REAP_SECS`, default 15s) durably removes any
+  `:Server` node whose lease has lapsed and emits the resulting `RemoveNode` CDC
+  event. `mcp/server_factory.py` (au) wires every fleet server's `create_mcp_server`
+  to self-register + heartbeat via its FastMCP `lifespan` for free; au's config-file
+  sync is now a reconciler-of-record over the SAME RPC rather than the sole writer.
+  Python-client-bound via `client.server_registry.register(name, url, resources=,
+  ttl_secs=)`. lazy graph lifecycle is mandatory and
   bounded in served mode; the durable analytics-job plane (`eg-jobs`, feature `jobs`, in
   `full`) gives
   `Method::AnalyticsJob` async submit/status/cancel/resume over an immutable
@@ -612,6 +626,7 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2 / ADR-2 W1.2, `raft`/`cluster` feature) | Number of Raft groups this node stands up at boot **and** the durable shard count K (ADR-2: K == N, raft group *g* owns redb shard *g*). Default = the cores-derived auto-size `clamp(cpu/2, 1, MAX_SHARD_COUNT=64)` (the same write-sharding the non-raft path uses — turning on raft no longer collapses to one writer); set explicitly to size the pool, clamped `1..=64`. Un-pinned graphs spread across the `0..N` tenant-range ring (`FNV-1a(sanitize(name)) % N`) while `PlacementCatalog` remains authoritative for explicit placements. **Per-shard cost:** each group opens one redb file descriptor + one group-commit writer thread, so a high N trades RAM/FDs for N-way parallel durable writes. An existing K=1 raft store keeps K=1 (all groups on shard 0) until `migrate-shards` rewrites its layout. |
 | `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR` (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1, `raft::config`) | This node's client-reachable address, self-reported into the durable cluster-topology store (`Method::NodeInfoUpsert`) and handed back by `Method::ClusterMembers`/`PlacementRoute.endpoints` — the engine-authoritative discovery that replaces the static hand-maintained `GRAPH_RAFT_GROUP_ENDPOINTS` client map. **Required whenever Raft peers are configured** (`EPISTEMIC_GRAPH_RAFT_NODE_ID`/`_PEERS` set) — config-contract style, like the transport secret: a clustered node refuses to start without it, since a discovering client would otherwise have no address to learn for this node beyond its own seed contact. Not read at all when Raft is not configured (single-node). |
 | `EPISTEMIC_GRAPH_ADVERTISED_TLS_SERVER_NAME` (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1, `raft::config`) | Optional TLS server name (SNI / certificate hostname) a client should verify when connecting to `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR` over `tls://`, self-reported alongside it into the cluster-topology store. **Unset ⇒ `None`** — the client verifies against the address's own host (the TLS default); zero friction for a deployment that doesn't need SNI override. |
+| `EPISTEMIC_GRAPH_SERVER_REGISTRY_REAP_SECS` (CONCEPT:EG-KG.sharding.server-registry, W2.5, `server::registry_reaper`) | Positive interval, seconds, for the fleet server-registry stale-lease reaper: how often `__commons__` is swept for `:Server` nodes (written by `Method::RegisterServer`) whose `lease_expires_at_ms` has lapsed. A lapsed row is durably removed and a `RemoveNode` CDC event is emitted (feeds the incident brain). **Default `15`** (unset or non-positive) — short enough that even the minimum allowed `RegisterServer.ttl_secs` lease (1s) is reaped promptly; always armed (unlike cold-offload's opt-in memory policy, an unreaped dead registration is a staleness/correctness concern, not a resource-usage opt-in). |
 | `EPISTEMIC_GRAPH_LAZY_STARTUP` (DIST-P2-3) | Catalog-first recovery is mandatory for served mode: a graph hydrates on first access behind its incarnation/version fence. |
 | `EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS` (DIST-P2-3) | Positive cap on simultaneously resident `GraphCore`s; default `1024`. The coldest eligible graph is durability-gated and evicted before admission; `__commons__` is never evicted. |
 | `EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE` (CONCEPT:EG-KG.sharding.paged-lazy-open, `redb` feature) | Positive bound for each source-side lazy-open scan; default `4096`. Every page is fenced by graph incarnation and durable source version under a per-graph lifecycle lock. Graph operations return typed `PARTIAL_MATERIALIZATION` until the final page rebuilds and publishes every maintained index. |

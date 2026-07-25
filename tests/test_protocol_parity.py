@@ -25,6 +25,12 @@ from pathlib import Path
 
 import pytest
 
+# Purely static: reads/regexes protocol.rs + client.py as text, never builds
+# or connects to the shared native engine (found while validating W2.5 --
+# this file's own session paid the full cargo-build+server-boot fixture cost
+# for zero benefit).
+pytestmark = pytest.mark.no_engine
+
 _ROOT = Path(__file__).parent.parent
 _PROTOCOL = _ROOT / "crates" / "eg-types" / "src" / "protocol.rs"
 _CLIENT = _ROOT / "epistemic_graph" / "client.py"
