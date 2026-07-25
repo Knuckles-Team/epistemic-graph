@@ -16,7 +16,7 @@ import json
 import ssl
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 import pytest
 
@@ -386,3 +386,151 @@ def test_l2_injected_connector(kv_server):
     finally:
         l2.close()  # does not own conn
         conn.close()
+
+
+# --------------------------------------------------------------------------- #
+# Fleet-shared prefix reuse — two vLLM instances share blocks THROUGH one engine
+# (W4.9 / CONCEPT:EG-KG.backend.networked-shared-kv). A shared in-memory engine
+# behind a dependency-injected transport models "N instances, one engine".
+# --------------------------------------------------------------------------- #
+class _Resp:
+    """A minimal `.status` / `.body` response the connector reads."""
+
+    __slots__ = ("status", "body")
+
+    def __init__(self, status: int, body: bytes = b"") -> None:
+        self.status = status
+        self.body = body
+
+
+class _SharedFakeEngine:
+    """One in-memory content-addressed /kv engine, SHARED across connectors."""
+
+    def __init__(self) -> None:
+        self.blocks: dict[str, bytes] = {}
+        self.get_hits = 0
+        self.get_misses = 0
+        self.dedup_hits = 0
+
+
+class _SharedTransport:
+    """A `_Transport` over a shared :class:`_SharedFakeEngine` — every connector that
+    holds one points at the SAME engine, so a block instance A PUTs is a HIT for B."""
+
+    def __init__(self, engine: _SharedFakeEngine) -> None:
+        self._engine = engine
+
+    def request(self, method, url, *, body=None, headers=None):  # noqa: ANN001
+        path = urlsplit(url).path
+        eng = self._engine
+        if path == "/kv/stats":
+            return _Resp(
+                200,
+                json.dumps(
+                    {
+                        "unique_blocks": len(eng.blocks),
+                        "get_hits": eng.get_hits,
+                        "get_misses": eng.get_misses,
+                        "dedup_hits": eng.dedup_hits,
+                    }
+                ).encode(),
+            )
+        if path.startswith("/kv/") and path.endswith("/exists"):
+            key = unquote(path[len("/kv/") : -len("/exists")])
+            return _Resp(
+                200, json.dumps({"hash": key, "exists": key in eng.blocks}).encode()
+            )
+        if path.startswith("/kv/"):
+            key = unquote(path[len("/kv/") :])
+            if method == "PUT":
+                new = key not in eng.blocks
+                if not new:
+                    eng.dedup_hits += 1
+                eng.blocks[key] = bytes(body or b"")
+                return _Resp(201 if new else 200)
+            if method == "HEAD":
+                return _Resp(200 if key in eng.blocks else 404)
+            if method == "GET":
+                if key in eng.blocks:
+                    eng.get_hits += 1
+                    return _Resp(200, eng.blocks[key])
+                eng.get_misses += 1
+                return _Resp(404)
+        return _Resp(404)
+
+    def close(self) -> None:  # pragma: no cover - trivial
+        pass
+
+
+def _shared_connector(engine: _SharedFakeEngine) -> RemoteKVConnector:
+    return RemoteKVConnector(
+        KvCacheConfig(base_url="http://127.0.0.1:9130", token=_TEST_TOKEN, timeout_s=5.0),
+        transport=_SharedTransport(engine),
+    )
+
+
+def test_cross_instance_shared_prefix_hit():
+    """A prefix block one instance offloads is a cache HIT for another, through the
+    engine — driver-level proof of fleet-shared prefix reuse."""
+    engine = _SharedFakeEngine()
+    instance_a = _shared_connector(engine)
+    instance_b = _shared_connector(engine)
+    try:
+        prefix = "tok:shared-system-prompt-prefix"
+        page = b"attention-kv-page" * 32
+        assert instance_b.get(prefix) is None  # B: cold miss (would recompute)
+        assert instance_a.put(prefix, page) is True  # A: computes + offloads
+        assert instance_b.contains(prefix) is True  # B sees it via the shared engine
+        assert instance_b.get(prefix) == page  # cross-instance HIT — no recompute
+    finally:
+        instance_a.close()
+        instance_b.close()
+    assert engine.get_hits == 1 and engine.get_misses == 1  # measured hit-rate 0.5
+
+
+def test_l2_mp_connector_carries_hybrid_recurrent_state():
+    """LMCacheMPConnector (native_plugin L2, the MP path) carries a hybrid Mamba/GDN
+    model's recurrent state ALONGSIDE attention-KV blocks — the non-regression guard for
+    "hybrid models run via the MP connector, not V1". The recurrent snapshot is a
+    distinct key with a different byte length; a V1 attention-only shape could not carry
+    it, but the opaque-bytes MP native client does.
+    """
+    engine = _SharedFakeEngine()
+    conn = _shared_connector(engine)
+    l2 = RemoteKVL2Connector(connector=conn, num_workers=2)
+    try:
+        attn = b"A" * 4096  # attention KV page
+        recurrent = b"M" * 777  # Mamba conv_state + ssm_state snapshot (different size)
+        fid = l2.submit_batch_set(
+            ["blk:attn", "blk:mamba-state"],
+            [memoryview(attn), memoryview(recurrent)],
+        )
+        assert _drain(l2, fid)[1] is True  # both blocks offloaded
+
+        # Both round-trip into correctly-sized buffers — recurrent state is NOT dropped.
+        buf_attn = memoryview(bytearray(len(attn)))
+        buf_rec = memoryview(bytearray(len(recurrent)))
+        fid = l2.submit_batch_get(["blk:attn", "blk:mamba-state"], [buf_attn, buf_rec])
+        rec = _drain(l2, fid)
+        assert rec[3] == [True, True], "attention AND recurrent-state blocks both hit"
+        assert bytes(buf_attn) == attn
+        assert bytes(buf_rec) == recurrent
+    finally:
+        l2.close()
+        conn.close()
+
+
+def test_hybrid_recurrent_state_is_shared_cross_instance():
+    """A hybrid model's recurrent-state block offloaded by instance A is reusable by
+    instance B, exactly like an attention-KV page (pooled + shared by the engine)."""
+    engine = _SharedFakeEngine()
+    instance_a = _shared_connector(engine)
+    instance_b = _shared_connector(engine)
+    try:
+        state_key = "tok:mamba-conv-ssm-state@layer7"
+        recurrent = bytes(range(256)) * 3
+        assert instance_a.put(state_key, recurrent) is True
+        assert instance_b.get(state_key) == recurrent  # cross-instance recurrent reuse
+    finally:
+        instance_a.close()
+        instance_b.close()
