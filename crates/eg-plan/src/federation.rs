@@ -1202,6 +1202,163 @@ impl SqlSource<'_> {
     }
 }
 
+/// CONCEPT:EG-KG.query.obda-predicate-pushdown — run a rendered READ-ONLY `SELECT` against an
+/// external Postgres/MySQL database and return each row as `column → lexical-string`. The
+/// COLUMN-carrying sibling of [`SqlSource::fetch`] (which yields the id+score `RowSet`): the
+/// OBDA external-source seam needs full columns to fill R2RML templates. Reuses the SAME
+/// SSRF-validated DSN handling, `validate_federated_sql` statement check, read-only
+/// transaction, connect/query timeouts, and row cap. The caller (`SqlObdaSource`) casts every
+/// selected column to text, so each value decodes as `Option<String>`; a NULL column is omitted
+/// (so an R2RML template/column over it correctly yields no triple). Sync — it spins a small
+/// current-thread tokio runtime, exactly like [`SqlSource::fetch`].
+#[cfg(feature = "federation-sql")]
+pub fn fetch_sql_columns(
+    dsn: &str,
+    sql: &str,
+) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("federation: build tokio runtime: {e}"))?;
+    rt.block_on(fetch_sql_columns_async(dsn, sql))
+}
+
+#[cfg(feature = "federation-sql")]
+async fn fetch_sql_columns_async(
+    dsn: &str,
+    sql: &str,
+) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+    if dsn.is_empty() || dsn.len() > MAX_FEDERATED_SQL_DSN_BYTES || dsn.contains('\0') {
+        return Err("federation: invalid SQL connection configuration".to_string());
+    }
+    match dsn.split(':').next().unwrap_or("") {
+        "postgres" | "postgresql" => {
+            validate_federated_sql(sql, SqlDialect::Postgres)?;
+            fetch_pg_columns(dsn, sql).await
+        }
+        "mysql" | "mariadb" => {
+            validate_federated_sql(sql, SqlDialect::MySql)?;
+            fetch_my_columns(dsn, sql).await
+        }
+        _ => Err(
+            "federation: unsupported SQL connection scheme (expected postgres or mysql)"
+                .to_string(),
+        ),
+    }
+}
+
+#[cfg(feature = "federation-sql")]
+async fn fetch_pg_columns(
+    dsn: &str,
+    sql: &str,
+) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+    use futures_util::TryStreamExt;
+    use sqlx::{Column, Connection, Row};
+    let mut conn = tokio::time::timeout(
+        FEDERATED_SQL_CONNECT_TIMEOUT,
+        sqlx::postgres::PgConnection::connect(dsn),
+    )
+    .await
+    .map_err(|_| "federation: postgres connection timed out".to_string())?
+    .map_err(|_| "federation: postgres connection failed".to_string())?;
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|_| "federation: postgres transaction failed".to_string())?;
+    sqlx::query("SET TRANSACTION READ ONLY")
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| "federation: postgres read-only transaction unavailable".to_string())?;
+    let out = tokio::time::timeout(FEDERATED_SQL_QUERY_TIMEOUT, async {
+        let mut rows = sqlx::query(sqlx::AssertSqlSafe(sql.to_owned())).fetch(&mut *tx);
+        let mut out = Vec::new();
+        while let Some(row) = rows
+            .try_next()
+            .await
+            .map_err(|_| "federation: postgres query failed".to_string())?
+        {
+            if out.len() >= MAX_FEDERATED_SQL_ROWS {
+                return Err("federation: postgres result exceeds row limit".to_string());
+            }
+            let map = row
+                .columns()
+                .iter()
+                .enumerate()
+                .filter_map(|(i, col)| {
+                    row.try_get::<Option<String>, _>(i)
+                        .ok()
+                        .flatten()
+                        .map(|v| (col.name().to_string(), v))
+                })
+                .collect::<std::collections::HashMap<String, String>>();
+            out.push(map);
+        }
+        Ok::<_, String>(out)
+    })
+    .await
+    .map_err(|_| "federation: postgres query timed out".to_string())??;
+    tx.rollback()
+        .await
+        .map_err(|_| "federation: postgres read-only transaction cleanup failed".to_string())?;
+    Ok(out)
+}
+
+#[cfg(feature = "federation-sql")]
+async fn fetch_my_columns(
+    dsn: &str,
+    sql: &str,
+) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+    use futures_util::TryStreamExt;
+    use sqlx::{Column, Connection, Row};
+    let mut conn = tokio::time::timeout(
+        FEDERATED_SQL_CONNECT_TIMEOUT,
+        sqlx::mysql::MySqlConnection::connect(dsn),
+    )
+    .await
+    .map_err(|_| "federation: mysql connection timed out".to_string())?
+    .map_err(|_| "federation: mysql connection failed".to_string())?;
+    sqlx::query("SET TRANSACTION READ ONLY")
+        .execute(&mut conn)
+        .await
+        .map_err(|_| "federation: mysql read-only transaction unavailable".to_string())?;
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|_| "federation: mysql transaction failed".to_string())?;
+    let out = tokio::time::timeout(FEDERATED_SQL_QUERY_TIMEOUT, async {
+        let mut rows = sqlx::query(sqlx::AssertSqlSafe(sql.to_owned())).fetch(&mut *tx);
+        let mut out = Vec::new();
+        while let Some(row) = rows
+            .try_next()
+            .await
+            .map_err(|_| "federation: mysql query failed".to_string())?
+        {
+            if out.len() >= MAX_FEDERATED_SQL_ROWS {
+                return Err("federation: mysql result exceeds row limit".to_string());
+            }
+            let map = row
+                .columns()
+                .iter()
+                .enumerate()
+                .filter_map(|(i, col)| {
+                    row.try_get::<Option<String>, _>(i)
+                        .ok()
+                        .flatten()
+                        .map(|v| (col.name().to_string(), v))
+                })
+                .collect::<std::collections::HashMap<String, String>>();
+            out.push(map);
+        }
+        Ok::<_, String>(out)
+    })
+    .await
+    .map_err(|_| "federation: mysql query timed out".to_string())??;
+    tx.rollback()
+        .await
+        .map_err(|_| "federation: mysql read-only transaction cleanup failed".to_string())?;
+    Ok(out)
+}
+
 /// Read the `id_field` column of a Postgres row as a String id, trying the common id
 /// SQL types in order (text, then integer, then float). A column that decodes as none of
 /// these errors clearly (rather than silently dropping the row).

@@ -3803,6 +3803,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
                     query: "PREFIX ex: <http://example.org/> SELECT ?name WHERE { ?p a ex:Person ; ex:name ?name }".into(),
                     mapping,
                     tables: vec![table.clone()],
+                    external_sources: vec![],
                 },
             ),
         )
