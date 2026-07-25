@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use eg_plan::incremental::Circuit;
-use eg_plan::RowSet;
 use parking_lot::Mutex;
 
 /// The durable DEFINITION of a plan-backed materialized view (CONCEPT:EG-KG.storage.plan-backed-matview):
@@ -28,8 +27,9 @@ pub struct PlanMatView {
 /// (CONCEPT:EG-KG.storage.incremental-matview).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
-    /// Its plan compiled to a DBSP circuit: `apply_delta` maintains `current` on each CDC
-    /// change; `Get` serves `current` directly (no recompute, no cache round-trip).
+    /// Its plan compiled to a DBSP circuit: `apply_delta` folds each CDC change into the
+    /// circuit's maintained state in O(delta); `Get` projects the result directly from
+    /// that state (no recompute, no cache round-trip).
     Incremental,
     /// Its plan has an op with no incremental form (Traverse/Reason/…): today's
     /// recompute-on-`Get` path, unchanged. A CDC change flags it stale.
@@ -37,7 +37,8 @@ pub enum Mode {
 }
 
 /// In-RAM per-view tracking: the definition + freshness flag + (for `Incremental` views)
-/// the compiled circuit, its live maintained result, and its CDC watermark.
+/// the compiled circuit + its CDC watermark, or (for `Recompute` views) the typed reason
+/// its plan could not be incrementalized.
 struct Tracked {
     def: PlanMatView,
     /// Set by [`PlanMatViewManager::note_change`] when a committed write to `def.graph`
@@ -48,10 +49,14 @@ struct Tracked {
     /// The maintenance mode (CONCEPT:EG-KG.storage.incremental-matview).
     mode: Mode,
     /// `Some` ⇒ `Mode::Incremental`: the compiled DBSP circuit `apply_delta` folds
-    /// deltas into. `None` ⇒ `Mode::Recompute`.
+    /// deltas into. Its maintained STATE (membership map / bucket accumulators) is the
+    /// authoritative result; the RowSet is projected lazily by `current()` at read, so
+    /// per-delta maintenance stays O(delta), not O(view). `None` ⇒ `Mode::Recompute`.
     circuit: Option<Circuit>,
-    /// The live, incrementally-maintained result an `Incremental` `Get` serves directly.
-    current: RowSet,
+    /// The typed reason this view fell back to `Mode::Recompute` (the first unsupported
+    /// op) — first-class + queryable (CONCEPT:EG-KG.storage.incremental-matview), never a
+    /// silent drop. `None` for an `Incremental` view or a boot-reloaded view.
+    fallback_reason: Option<String>,
     /// CDC watermark — the next `seq` this view expects (mirrors
     /// `cdc::ContinuousQuery::through_seq`). Deltas with `seq < through_seq` are already
     /// folded and skipped.
@@ -73,9 +78,19 @@ pub fn manager() -> &'static PlanMatViewManager {
 
 impl PlanMatViewManager {
     /// Insert (or replace) a view definition in `Mode::Recompute`, marking it freshly
-    /// materialized. The unchanged path — used for a plan the circuit compiler can't
-    /// incrementalize and for boot reload (which re-materializes lazily on first `Get`).
+    /// materialized (no fallback reason — boot reload / re-materializes lazily on `Get`).
     pub fn define(&self, def: PlanMatView) {
+        self.insert_recompute(def, None);
+    }
+
+    /// Insert (or replace) a view in `Mode::Recompute` because its plan carried an op the
+    /// circuit compiler can't incrementalize, recording the TYPED `reason` so the fallback
+    /// is queryable (CONCEPT:EG-KG.storage.incremental-matview) — never a silent drop.
+    pub fn note_fallback(&self, def: PlanMatView, reason: String) {
+        self.insert_recompute(def, Some(reason));
+    }
+
+    fn insert_recompute(&self, def: PlanMatView, fallback_reason: Option<String>) {
         self.views.lock().insert(
             def.name.clone(),
             Tracked {
@@ -83,22 +98,17 @@ impl PlanMatViewManager {
                 stale: false,
                 mode: Mode::Recompute,
                 circuit: None,
-                current: RowSet::new(),
+                fallback_reason,
                 through_seq: 0,
             },
         );
     }
 
-    /// Install (or replace) a view in `Mode::Incremental` with its compiled `circuit`, an
-    /// initial maintained `current` (the just-materialized rows), and the CDC `through_seq`
-    /// watermark captured at definition time (CONCEPT:EG-KG.storage.incremental-matview).
-    pub fn install_incremental(
-        &self,
-        def: PlanMatView,
-        circuit: Circuit,
-        current: RowSet,
-        through_seq: u64,
-    ) {
+    /// Install (or replace) a view in `Mode::Incremental` with its compiled + seeded
+    /// `circuit` and the CDC `through_seq` watermark captured at definition time
+    /// (CONCEPT:EG-KG.storage.incremental-matview). The circuit's maintained state is the
+    /// authoritative result; `Get` projects it lazily.
+    pub fn install_incremental(&self, def: PlanMatView, circuit: Circuit, through_seq: u64) {
         self.views.lock().insert(
             def.name.clone(),
             Tracked {
@@ -106,7 +116,7 @@ impl PlanMatViewManager {
                 stale: false,
                 mode: Mode::Incremental,
                 circuit: Some(circuit),
-                current,
+                fallback_reason: None,
                 through_seq,
             },
         );
@@ -117,16 +127,27 @@ impl PlanMatViewManager {
         self.views.lock().get(name).map(|t| t.mode)
     }
 
-    /// The live maintained result rows `[id, score?]` of an `Incremental` view (`None` for
-    /// an unknown or `Recompute`-mode view — the caller then takes the recompute path).
+    /// The typed fallback reason for a `Mode::Recompute` view (why its plan was not
+    /// incrementalizable) — the queryable half of the first-class fallback. `None` for an
+    /// `Incremental` view, a boot-reloaded view, or an unknown one.
+    pub fn fallback_reason(&self, name: &str) -> Option<String> {
+        self.views.lock().get(name).and_then(|t| t.fallback_reason.clone())
+    }
+
+    /// The live maintained result rows `[id, score?]` of an `Incremental` view, PROJECTED
+    /// from the circuit's maintained state at read (`None` for an unknown or
+    /// `Recompute`-mode view — the caller then takes the recompute path). This projection
+    /// is O(view); the per-delta maintenance in `apply_delta` is O(delta).
     pub fn incremental_rows(&self, name: &str) -> Option<Vec<(String, Option<f32>)>> {
         let views = self.views.lock();
         let t = views.get(name)?;
         if t.mode != Mode::Incremental {
             return None;
         }
+        let circuit = t.circuit.as_ref()?;
         Some(
-            t.current
+            circuit
+                .current()
                 .rows()
                 .iter()
                 .map(|r| (r.id.clone(), r.score))
@@ -157,12 +178,26 @@ impl PlanMatViewManager {
             }
             if let Some(circuit) = t.circuit.as_mut() {
                 let delta = super::incremental::event_to_delta(event);
-                if !delta.is_empty() {
-                    circuit.apply(&delta);
-                    t.current = circuit.current();
-                }
+                // O(delta) maintenance: fold the signed delta into the circuit's state
+                // ONLY (no O(view) result projection here — `Get` projects `current()`
+                // lazily). `touched` is the rows-touched instrument (bounded by the delta
+                // size, independent of view size — the O(delta) cost proof).
+                let touched = if delta.is_empty() {
+                    0
+                } else {
+                    circuit.apply(&delta)
+                };
                 t.through_seq = event.seq + 1;
                 n += 1;
+                tracing::trace!(
+                    target: "epistemic_graph::matview",
+                    view = %t.def.name,
+                    graph = %graph,
+                    seq = event.seq,
+                    delta = delta.len(),
+                    touched,
+                    "incremental matview maintained one CDC delta",
+                );
             }
         }
         n
@@ -304,7 +339,7 @@ mod tests {
         };
 
         let m = PlanMatViewManager::default();
-        m.install_incremental(d, circuit, RowSet::new(), 0);
+        m.install_incremental(d, circuit, 0);
         assert_eq!(m.mode("v"), Some(Mode::Incremental));
 
         // add a passing Doc (2005), a filtered-out Doc (1999), a non-Doc — via CDC events.
@@ -351,6 +386,23 @@ mod tests {
             m.incremental_rows("v").unwrap().is_empty(),
             "stale seq is not folded"
         );
+    }
+
+    #[test]
+    fn note_fallback_records_queryable_reason() {
+        // The first-class fallback: an unsupported-op plan is Recompute mode AND exposes
+        // its typed reason via `fallback_reason` (queryable), never a silent drop.
+        let m = PlanMatViewManager::default();
+        m.note_fallback(def("t", "g"), "op #1 is not incrementally maintainable: Traverse".into());
+        assert_eq!(m.mode("t"), Some(Mode::Recompute));
+        assert_eq!(
+            m.fallback_reason("t").as_deref(),
+            Some("op #1 is not incrementally maintainable: Traverse")
+        );
+        // A plain define (boot reload) has no fallback reason; an Incremental view none.
+        m.define(def("d", "g"));
+        assert_eq!(m.fallback_reason("d"), None);
+        assert_eq!(m.fallback_reason("unknown"), None);
     }
 
     #[test]

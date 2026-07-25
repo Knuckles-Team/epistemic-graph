@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 442caf83b4a05ff34e66ada14a53c20d456b4abc69f884f2c3a9f9f1be8aa990 # shrinks to plan = Plan { ops: [Scan { label: "Note" }, Filter { preds: [LtNum { prop: "year", n: 2003.0 }] }] }, mutations = [Upsert { id: "n0", node: NodeSpec { kind: "Other", year: 1990, value: 0, valid_from: 0, valid_until: 20 } }]
+cc 602d9bbdcf9f17d91b4bde943b66a583778b8d0ccf8c8341576108cb2d3a4974 # shrinks to plan = Plan { ops: [Scan { label: "Doc" }, Filter { preds: [GtNum { prop: "year", n: 2000.0 }] }] }, mutations = [Remove { id: "n0" }]
