@@ -82,6 +82,7 @@ mod tests {
     use super::*;
     use crate::server::blob::store::RedbChunkStore;
     use crate::server::blob::stream::stream_blob_put;
+    use eg_alignment::{AlignmentGraph, AlignmentNode, AlignmentRelation};
     use eg_core::graph::GraphCore;
     use eg_modality::{ArtifactId, DerivationId, EvidenceLocusId, OpaqueRef, ResourceId};
     use serde_json::json;
@@ -172,5 +173,90 @@ mod tests {
         let resolver = CasEvidenceResolver::new(&view, cas);
         let evidence = locus(EvidenceAddress::CharacterRange { start: 0, end: 1 });
         assert_eq!(resolver.resolve(&evidence), None);
+    }
+
+    /// W4.7 (M3) — the cross-modal join proof: an `eg_alignment::AlignmentGraph`
+    /// links a document span to an image region (`CoOccursWith`) which supports a
+    /// claim (`SupportsClaim`), exactly the shape `eg-alignment` exists for. Both
+    /// evidence hops are backed by DISTINCT governed subjects whose `blob_ref`
+    /// points at REAL bytes committed to a fixture CAS (`RedbChunkStore::open_temp`,
+    /// no live services) — resolution reads those bytes back through the SAME
+    /// `CasEvidenceResolver` production code path `ExplainEvidence` uses, not a
+    /// fabricated excerpt/digest. This is the one place `eg-alignment`'s graph and
+    /// the real CAS resolver are exercised together.
+    #[test]
+    fn alignment_graph_cross_modal_join_resolves_through_cas() {
+        let cas = store();
+        let doc_committed =
+            stream_blob_put(cas.as_ref(), b"a fox jumps over the fence".as_slice(), 0).unwrap();
+        let image_committed = stream_blob_put(cas.as_ref(), [0xabu8; 128].as_slice(), 0).unwrap();
+
+        let doc_locus = locus(EvidenceAddress::CharacterRange { start: 0, end: 5 });
+        let mut image_locus = locus(EvidenceAddress::ImageRegion {
+            x: 10.0,
+            y: 10.0,
+            width: 40.0,
+            height: 30.0,
+        });
+        // A distinct governed subject from the doc locus's (`locus()` fixes
+        // ArtifactId "...02") so the two evidence hops resolve independent CAS
+        // content — a real cross-modal join, not one node twice.
+        image_locus.subject =
+            ResourceId::Artifact(ArtifactId::from_token("0000000000000003").unwrap());
+
+        let doc_subject = subject_ref(&doc_locus).to_string();
+        let image_subject = subject_ref(&image_locus).to_string();
+
+        let core = GraphCore::new();
+        core.add_node(
+            doc_subject.clone(),
+            blob(json!({ "node_type": "Document", "blob_ref": doc_committed.digest })),
+        );
+        core.add_node(
+            image_subject.clone(),
+            blob(json!({ "node_type": "Image", "blob_ref": image_committed.digest })),
+        );
+        let view = core.analysis_snapshot();
+        let resolver = CasEvidenceResolver::new(&view, cas);
+
+        let mut graph = AlignmentGraph::new();
+        let doc_node = graph.add_node(AlignmentNode::Evidence(doc_locus));
+        let image_node = graph.add_node(AlignmentNode::Evidence(image_locus));
+        let claim_node = graph.add_node(AlignmentNode::Claim {
+            claim_id: "claim-fox-in-fence".to_string(),
+        });
+        graph.add_edge(doc_node, image_node, AlignmentRelation::CoOccursWith);
+        graph.add_edge(image_node, claim_node, AlignmentRelation::SupportsClaim);
+
+        // The cross-modal query: a doc span reaches a claim through an image
+        // region hop (directed — the reverse does not hold).
+        assert!(graph.path_exists(doc_node, claim_node));
+        assert!(
+            !graph.path_exists(claim_node, doc_node),
+            "edges are directed"
+        );
+
+        // Both hops resolve through the REAL CAS resolver: real bytes read back
+        // off the fixture store, not a fabricated excerpt/digest.
+        assert_eq!(
+            graph.resolve_evidence(doc_node, &resolver),
+            Some(ResolvedArtifact::Text {
+                subject_ref: doc_subject,
+                excerpt: "a fox".to_string(),
+            }),
+            "the doc span resolves to the real CAS excerpt"
+        );
+        assert_eq!(
+            graph.resolve_evidence(image_node, &resolver),
+            Some(ResolvedArtifact::Blob {
+                subject_ref: image_subject,
+                blob_ref: image_committed.digest,
+                note: "resolved from the engine content-addressed store".to_string(),
+            }),
+            "the image region resolves to the real CAS digest"
+        );
+
+        // The claim node has no located span — never resolved.
+        assert_eq!(graph.resolve_evidence(claim_node, &resolver), None);
     }
 }
