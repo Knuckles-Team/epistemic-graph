@@ -141,6 +141,18 @@ pub fn build_envelope_v2_bytes(
         buf.push(1);
         put(&mut buf, node);
     }
+    // W2.4 engine-native QoS lanes: the advisory admission-priority claim, MAC-
+    // covered so it cannot be forged to jump the admission ordering. Appended as
+    // a SECOND optional trailer with a DISTINCT tag byte (`2`, vs the node
+    // trailer's `1`) so the two trailers stay mutually unambiguous — a
+    // node-only envelope and a priority-only envelope can never collide onto the
+    // same MAC input (a bare shared marker would let `node="x"` and
+    // `priority="x"` sign identically). Presence-gated exactly like `node`, so an
+    // envelope without a priority claim encodes byte-for-byte as before.
+    if let Some(priority) = claims.priority.as_deref() {
+        buf.push(2);
+        put(&mut buf, priority);
+    }
     buf
 }
 
@@ -5745,6 +5757,7 @@ mod tests {
             policy_version: "v".into(),
             delegation: vec![],
             node: None,
+            priority: None,
         }
     }
 
@@ -5824,6 +5837,59 @@ mod tests {
             present_a, present_b,
             "different target nodes must not share an encoding"
         );
+    }
+
+    // W2.4 engine-native QoS lanes: the priority claim is additive AND its
+    // encoding stays unambiguous against the node trailer (distinct tag bytes).
+    #[test]
+    fn envelope_v2_bytes_cover_the_priority_claim_without_node_collision() {
+        let base = node_binding_fixture_claims();
+        let absent = build_envelope_v2_bytes(7, "g", "Ping", "hash", &base, 111, "nonce", "idem");
+
+        // A present priority claim changes the MAC-covered bytes ...
+        let mut with_prio = base.clone();
+        with_prio.priority = Some("background_ingestion".into());
+        let prio_only =
+            build_envelope_v2_bytes(7, "g", "Ping", "hash", &with_prio, 111, "nonce", "idem");
+        assert_ne!(
+            absent, prio_only,
+            "a present priority claim must change the MAC-covered bytes"
+        );
+
+        // ... and distinct priority values encode distinctly.
+        let mut with_prio2 = base.clone();
+        with_prio2.priority = Some("interactive".into());
+        let prio_only2 =
+            build_envelope_v2_bytes(7, "g", "Ping", "hash", &with_prio2, 111, "nonce", "idem");
+        assert_ne!(
+            prio_only, prio_only2,
+            "different priority classes must not share an encoding"
+        );
+
+        // The tag-distinctness guarantee: node="X" (tag 1) and priority="X"
+        // (tag 2) with the SAME value must NOT produce the same MAC input — a
+        // shared marker byte would let one claim be silently reinterpreted as
+        // the other.
+        let mut node_x = base.clone();
+        node_x.node = Some("X".into());
+        let node_only = build_envelope_v2_bytes(7, "g", "Ping", "hash", &node_x, 111, "nonce", "idem");
+        let mut prio_x = base.clone();
+        prio_x.priority = Some("X".into());
+        let prio_x_bytes =
+            build_envelope_v2_bytes(7, "g", "Ping", "hash", &prio_x, 111, "nonce", "idem");
+        assert_ne!(
+            node_only, prio_x_bytes,
+            "node and priority trailers with the same value must not collide"
+        );
+
+        // Both trailers present: node (tag 1) precedes priority (tag 2), and the
+        // combined encoding differs from either alone.
+        let mut both = base.clone();
+        both.node = Some("X".into());
+        both.priority = Some("interactive".into());
+        let both_bytes = build_envelope_v2_bytes(7, "g", "Ping", "hash", &both, 111, "nonce", "idem");
+        assert_ne!(both_bytes, node_only);
+        assert_ne!(both_bytes, prio_only2);
     }
 
     #[test]

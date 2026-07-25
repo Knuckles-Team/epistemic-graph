@@ -74,6 +74,7 @@ fn current_request(id: u64, method: Method) -> Request {
         policy_version: "policy-test".to_string(),
         delegation: Vec::new(),
         node: None,
+        priority: None,
     };
     let mut request = Request {
         id,
