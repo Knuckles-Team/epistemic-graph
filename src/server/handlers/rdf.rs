@@ -1043,6 +1043,7 @@ mod run_rules_dispatch_tests {
             policy_version: "policy-test".to_string(),
             delegation: Vec::new(),
             node: None,
+            priority: None,
         };
         let mut request = Request {
             id,

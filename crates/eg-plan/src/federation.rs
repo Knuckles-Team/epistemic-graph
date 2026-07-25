@@ -1524,6 +1524,7 @@ mod envelope_signer_tests {
             policy_version: "policy-test".into(),
             delegation: vec![],
             node: None,
+            priority: None,
         }
     }
 

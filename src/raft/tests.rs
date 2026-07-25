@@ -345,6 +345,7 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
             policy_version: "policy-test".to_string(),
             delegation: Vec::new(),
             node: None,
+            priority: None,
         };
         let mut request = Request {
             id,
@@ -843,6 +844,7 @@ mod placement_admin_wire_rpc {
             policy_version: "policy-test".to_string(),
             delegation: Vec::new(),
             node: None,
+            priority: None,
         };
         let mut request = crate::protocol::Request {
             id,
@@ -2316,6 +2318,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
             policy_version: "policy-test".to_string(),
             delegation: Vec::new(),
             node: None,
+            priority: None,
         };
         let mut request = Request {
             id,

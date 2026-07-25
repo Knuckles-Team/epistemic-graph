@@ -898,6 +898,7 @@ mod tests {
                 "effective-agent".to_string(),
             ],
             node: None,
+            priority: None,
         };
         let authority = KnowledgeStreamAuthority::from_verified("server-secret", &claims).unwrap();
         for reference in [&authority.tenant_ref, &authority.access_policy_ref] {
