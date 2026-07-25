@@ -1031,11 +1031,25 @@ impl CostEstimate {
 }
 
 #[cfg(feature = "query")]
-impl Cardinality for ModalityCardinality {
-    /// Estimated rows OUT of `op` given `in_card` rows in — one arm per modality
-    /// (CONCEPT:EG-KG.query.cardinality-estimators). Feature-gated ops that are absent in this build
-    /// fall to the pass-through wildcard, so the match compiles under ANY feature subset.
-    fn rows_out(&self, op: &Op, in_card: f64, _ctx: &crate::exec::PlanCtx) -> f64 {
+impl ModalityCardinality {
+    /// The STATIC, model-only cardinality estimate for `op` — one arm per modality
+    /// (CONCEPT:EG-KG.query.cardinality-estimators). Feature-gated ops that are absent in this
+    /// build fall to the pass-through wildcard, so the match compiles under ANY feature
+    /// subset. This is [`Cardinality::rows_out`]'s ENTIRE body prior to the opt-in
+    /// `learned-cost` tier (CONCEPT:EG-KG.query.adaptive-reoptimization, W4.12 phase 2) — split out
+    /// under its own name (`pub(crate)`, not part of the public [`Cardinality`] trait) so
+    /// [`crate::exec::run_with_adaptive_reopt`] can train [`crate::learned_cost::LearnedCostStore`]
+    /// on the RAW estimate even when `rows_out` itself is returning a corrected number —
+    /// training on an already-corrected value would have the curve recursively "correct
+    /// its own correction" instead of converging on the true static-model bias. Every
+    /// existing caller that reads `rows_out` gets EXACTLY this computation, unchanged,
+    /// whenever `learned-cost` is not both compiled in and runtime-enabled.
+    pub(crate) fn static_rows_out(
+        &self,
+        op: &Op,
+        in_card: f64,
+        _ctx: &crate::exec::PlanCtx,
+    ) -> f64 {
         let n = self.stats.node_count as f64;
         match op {
             // SOURCE: a label selects a fraction of the graph (no per-label catalog).
@@ -1094,6 +1108,30 @@ impl Cardinality for ModalityCardinality {
             // Rerankers / context / other sources: preserve the row count (pass-through).
             _ => in_card,
         }
+    }
+}
+
+#[cfg(feature = "query")]
+impl Cardinality for ModalityCardinality {
+    /// Estimated rows OUT of `op` given `in_card` rows in (CONCEPT:EG-KG.query.cardinality-estimators)
+    /// — [`Self::static_rows_out`]'s model estimate, nudged by the opt-in learned
+    /// correction (CONCEPT:EG-KG.query.adaptive-reoptimization, W4.12 phase 2) when
+    /// [`crate::learned_cost::enabled`] is true: every caller of `rows_out` (the
+    /// plan-time optimizer, `reoptimize_remaining`'s permutation search, the exec loop's
+    /// own per-op estimate) picks up a systematic bias learned from PAST executions
+    /// automatically, with zero call-site changes. Byte-for-byte [`Self::static_rows_out`]
+    /// whenever `learned-cost` is not both compiled in and runtime-enabled — the default.
+    fn rows_out(&self, op: &Op, in_card: f64, ctx: &crate::exec::PlanCtx) -> f64 {
+        let raw = self.static_rows_out(op, in_card, ctx);
+        #[cfg(feature = "learned-cost")]
+        {
+            if crate::learned_cost::enabled() {
+                if let Some(kind) = crate::learned_cost::op_kind(op) {
+                    return crate::learned_cost::LearnedCostStore::global().correct(kind, raw);
+                }
+            }
+        }
+        raw
     }
 }
 

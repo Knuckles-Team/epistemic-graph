@@ -549,6 +549,14 @@ pub trait Driver {
 /// result (`crate::runtime::spill_if_needed`) — see that module's docs for why "the actual
 /// cardinality after op i" is still a single scalar there (the loop iterates over WHOLE ops,
 /// never morsels, regardless of which driver runs them).
+///
+/// **Learned-cost tier (W4.12 phase 2, `learned-cost` feature + `EPISTEMIC_GRAPH_LEARNED_COST=1`,
+/// opt-in on top of the above).** The SAME per-op `(estimate, actual)` pair this loop already
+/// computes for the divergence check ALSO trains [`crate::learned_cost::LearnedCostStore`] —
+/// a small KAN correction curve per op-kind — so a bias observed here nudges
+/// [`crate::cost::ModalityCardinality::rows_out`]'s estimate on every LATER op and every
+/// LATER query, not just this one query's reactive re-plan. See `crate::learned_cost`'s
+/// module doc for the design and its queryable-artifact surface.
 pub struct SerialDriver;
 
 impl Driver for SerialDriver {
@@ -604,6 +612,33 @@ where
         cur = step(&op, cur, ctx)?;
         let actual_out = cur.len() as f64;
 
+        // Learned-cost online training (CONCEPT:EG-KG.query.adaptive-reoptimization, W4.12
+        // phase 2, opt-in): feed this op's real (static-estimate, actual) pair to the
+        // per-op-kind KAN correction so a bias learned HERE nudges every FUTURE
+        // `rows_out` call — this query's later ops and every later query — see
+        // `crate::learned_cost`'s module doc. Trains on `static_rows_out`, never on
+        // `estimated_out` above (which may already be corrected when the flag is on),
+        // so the curve fits the TRUE static-model bias instead of recursively
+        // correcting its own output. A cheap recompute of a pure function, paid only
+        // when the opt-in flag is actually on.
+        #[cfg(feature = "learned-cost")]
+        if crate::learned_cost::enabled() {
+            if let Some(kind) = crate::learned_cost::op_kind(&op) {
+                let raw_estimate = card.static_rows_out(&op, estimated_in, ctx);
+                crate::learned_cost::LearnedCostStore::global().observe(
+                    kind,
+                    raw_estimate,
+                    actual_out,
+                );
+            }
+        }
+
+        // `reopt` stays `false` for the last op (no tail left to re-cost) and whenever
+        // `reoptimize_remaining` takes its below-threshold no-op path; it flips `true`
+        // only on a genuine re-order — a plain slice compare against the borrowed
+        // pre-splice tail, no extra clone, so this costs nothing beyond the tracing
+        // event itself.
+        let mut reopt = false;
         if i + 1 < remaining.len() {
             let tail = crate::optimizer::reoptimize_remaining(
                 &remaining[i + 1..],
@@ -612,8 +647,16 @@ where
                 &card,
                 ctx,
             );
+            reopt = remaining[i + 1..] != tail[..];
             remaining.splice(i + 1.., tail);
         }
+        tracing::debug!(
+            op = ?op,
+            estimate = estimated_out,
+            actual = actual_out,
+            reopt,
+            "adaptive-reopt per-op cardinality check (CONCEPT:EG-KG.query.adaptive-reoptimization)"
+        );
         estimated_in = actual_out;
         i += 1;
     }

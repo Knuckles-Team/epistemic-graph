@@ -144,6 +144,17 @@ pub mod optimizer;
 #[cfg(feature = "query")]
 pub mod oracle;
 
+/// KAN-learned cardinality-estimate correction (CONCEPT:EG-KG.query.adaptive-reoptimization,
+/// W4.12 phase 2): an online, per-op-kind correction trained continuously from the
+/// SAME `(estimated, actual)` pairs [`exec::run_with_adaptive_reopt`] already observes,
+/// so a systematic estimation bias learned on one query nudges later queries' plan-time
+/// estimates instead of only triggering reactive re-planning. Opt-in twice over — the
+/// `learned-cost` cargo feature AND the `EPISTEMIC_GRAPH_LEARNED_COST=1` runtime flag —
+/// so a default build/deployment is byte-for-byte unaffected. See the module doc for
+/// the design and the "queryable artifact" surface.
+#[cfg(feature = "learned-cost")]
+pub mod learned_cost;
+
 pub use algebra::{Op, Plan, Pred};
 
 // The hierarchical-retrieval surface (CONCEPT:EG-KG.retrieval.bounded-drill): the retriever + its accessor
@@ -238,11 +249,24 @@ pub use optimizer::{enabled as cost_opt_enabled, optimize, rule_names as cost_op
 /// The adaptive re-optimization hook (CONCEPT:EG-KG.query.adaptive-reoptimization): re-cost and,
 /// if warranted, re-order the not-yet-executed tail of a plan once an earlier op's ACTUAL
 /// output cardinality diverges from what plan-time estimation predicted — the runtime feedback
-/// loop beyond the static, once-per-`optimize()` cost decision. See
-/// [`optimizer::reoptimize_remaining`] for the divergence threshold and today's caller-driven
-/// wiring (a future `Driver` can call it automatically between ops).
+/// loop beyond the static, once-per-`optimize()` cost decision. Auto-wired into
+/// [`exec::run_with_adaptive_reopt`] (both [`exec::SerialDriver`] and the opt-in
+/// `par-runtime` `runtime::ParallelDriver` share that one loop), so every ordinary
+/// `Plan::execute` already calls this after each op; see [`optimizer::reoptimize_remaining`]
+/// for the divergence threshold.
 #[cfg(feature = "query")]
 pub use optimizer::{reoptimize_remaining, ADAPTIVE_REOPT_THRESHOLD};
+
+/// The learned-cost queryable-artifact surface (CONCEPT:EG-KG.query.adaptive-reoptimization,
+/// W4.12 phase 2): the process-wide [`learned_cost::LearnedCostStore`], its serializable
+/// [`learned_cost::CostCorrectionArtifact`] snapshot, and the runtime opt-in flag —
+/// re-exported at the crate root mirroring [`optimizer::enabled`]'s `cost_opt_enabled`
+/// re-export above.
+#[cfg(feature = "learned-cost")]
+pub use learned_cost::{
+    artifacts as learned_cost_artifacts, enabled as learned_cost_enabled, CostCorrectionArtifact,
+    LearnedCostStore,
+};
 
 /// The server-side text→vector embedder seam (CONCEPT:EG-KG.compute.no-embedder-bound-op): the `TextEmbedder` trait
 /// backing the UQL `RANK BY ~ "text"` (`Op::RankEmbed`) NL→vector resolver, plus the

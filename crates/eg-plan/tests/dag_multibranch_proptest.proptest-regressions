@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc fbc3b47e8e4a0d3bdf0e73a531591bfec1bd2df62b1d83e3290fde3865aa1abb # shrinks to branch_a = [Scan { label: "Doc" }], branch_b = [Scan { label: "Tool" }, Filter { preds: [GtNum { prop: "year", n: 2000.0 }] }, Rank { query: [1.0, 0.0, 0.0, 0.0] }], join_k = 1
