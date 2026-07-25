@@ -374,7 +374,30 @@ impl HnswIndex {
     /// (clamped to ≥ `k`). Results carry EXACT distances and are sorted nearest-first
     /// with deterministic `(distance, id)` tie-breaking — directly comparable and
     /// mergeable with [`FlatIndex`] / [`IvfPq`] / `merge_topk` output.
+    ///
+    /// A thin wrapper over [`Self::search_filtered`] with no candidate predicate,
+    /// so the unfiltered walk is byte-identical to the original beam search.
     pub fn search(&self, query: &[f32], k: usize, ef: usize) -> Vec<SearchResult> {
+        self.search_filtered(query, k, ef, None)
+    }
+
+    /// Approximate top-`k` with an optional metadata predicate PUSHED INTO the
+    /// layer-0 neighbour expansion (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). `allow`, when present, is
+    /// tested against each candidate's EXTERNAL id DURING the graph walk, so only
+    /// permitted nodes ever enter the result beam and the returned top-`k` already
+    /// satisfies the predicate — no over-fetch-then-post-filter. The traversal still
+    /// routes THROUGH disallowed nodes (they remain navigability "bridges"), so recall
+    /// over the allowed subset is preserved. `allow == None` is exactly the unfiltered
+    /// [`Self::search`] (it dispatches to the original [`Self::search_layer`], so
+    /// unfiltered results are unchanged). See [`Self::search_layer_filtered`] for why
+    /// the explored count stays `O(ef / selectivity)` — independent of the graph size.
+    pub fn search_filtered(
+        &self,
+        query: &[f32],
+        k: usize,
+        ef: usize,
+        allow: Option<&dyn Fn(u64) -> bool>,
+    ) -> Vec<SearchResult> {
         assert_eq!(query.len(), self.dim, "query length must equal dim");
         if k == 0 {
             return Vec::new();
@@ -382,11 +405,17 @@ impl HnswIndex {
         let Some(mut ep) = self.entry_point else {
             return Vec::new();
         };
+        // Upper-layer descent is PURE NAVIGATION (never filtered) — identical to the
+        // unfiltered path. The predicate only governs which layer-0 nodes may be
+        // RETURNED, not which nodes may be used to route toward the query.
         for layer in (1..=self.max_level).rev() {
             ep = self.greedy_closest(query, ep, layer);
         }
         let ef = ef.max(k);
-        let mut found = self.search_layer(query, &[ep], ef, 0);
+        let mut found = match allow {
+            None => self.search_layer(query, &[ep], ef, 0),
+            Some(allow) => self.search_layer_filtered(query, &[ep], ef, 0, allow),
+        };
         truncate_nearest(&mut found, k);
         found
             .into_iter()
@@ -395,6 +424,102 @@ impl HnswIndex {
                 distance: c.dist,
             })
             .collect()
+    }
+
+    /// Beam search at one layer with a metadata predicate pushed into the neighbour
+    /// expansion (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter) — the filtered sibling of [`Self::search_layer`].
+    ///
+    /// The graph is walked through EVERY reachable node so navigability is preserved
+    /// (a disallowed node is still expanded as a routing bridge), but only nodes whose
+    /// external id passes `allow` may enter the result beam `results` (the max-heap of
+    /// the `ef` nearest allowed candidates). The frontier admits a neighbour while the
+    /// beam is not yet full of `ef` allowed nodes — so the walk floods toward the
+    /// allowed subset — OR the neighbour is closer than the current worst allowed
+    /// result — so once `ef` allowed nodes are found the frontier drains and the search
+    /// terminates. Reaching `ef` allowed nodes at selectivity `s` costs `~ef/s` node
+    /// visits regardless of the graph's size, which is the sub-linear win over a
+    /// post-filter that must first over-fetch a size-proportional band. Deterministic:
+    /// [`Cand`]'s total `(distance, id, node)` order drives every heap.
+    fn search_layer_filtered(
+        &self,
+        query: &[f32],
+        entries: &[usize],
+        ef: usize,
+        layer: usize,
+        allow: &dyn Fn(u64) -> bool,
+    ) -> Vec<Cand> {
+        // A selective filter floods more of the graph than the unfiltered beam, so the
+        // visited set is sized generously to cut rehashing.
+        let mut visited: HashSet<usize> = HashSet::with_capacity(ef * 8);
+        // `candidates`: min-heap (nearest first) of the frontier to expand — includes
+        // disallowed bridge nodes.
+        let mut candidates: BinaryHeap<Reverse<Cand>> = BinaryHeap::new();
+        // `results`: max-heap (farthest first) of the current best `ef` ALLOWED nodes.
+        let mut results: BinaryHeap<Cand> = BinaryHeap::new();
+
+        for &e in entries {
+            let c = Cand {
+                dist: self.dist_to(query, e),
+                node: e,
+                id: self.nodes[e].id,
+            };
+            visited.insert(e);
+            candidates.push(Reverse(c));
+            if allow(c.id) {
+                results.push(c);
+            }
+        }
+        while results.len() > ef {
+            results.pop();
+        }
+
+        while let Some(Reverse(c)) = candidates.pop() {
+            // Stop only once the beam holds `ef` ALLOWED results AND the nearest
+            // remaining frontier node is farther than the worst kept one — no closer
+            // allowed node is reachable downhill.
+            if results.len() >= ef {
+                if let Some(worst) = results.peek() {
+                    if c.dist > worst.dist {
+                        break;
+                    }
+                }
+            }
+            for &nb in &self.nodes[c.node].neighbors[layer] {
+                if !visited.insert(nb) {
+                    continue;
+                }
+                let d = self.dist_to(query, nb);
+                let worst_allowed = results.peek().map(|w| w.dist);
+                // Frontier admission — the bound that keeps exploration sub-linear:
+                // keep routing through this node while allowed results are still owed,
+                // or while it could beat the current worst allowed result.
+                if results.len() < ef || worst_allowed.is_none_or(|wd| d < wd) {
+                    let nc = Cand {
+                        dist: d,
+                        node: nb,
+                        id: self.nodes[nb].id,
+                    };
+                    candidates.push(Reverse(nc));
+                    if allow(nc.id) {
+                        results.push(nc);
+                        if results.len() > ef {
+                            results.pop();
+                        }
+                    }
+                }
+            }
+        }
+        // One targeted event per filtered search (a no-op without a subscriber): the
+        // explored count + allowed-found let a caller derive the observed selectivity.
+        tracing::trace!(
+            target: "eg_ann::hnsw",
+            mode = "filtered",
+            ef,
+            explored = visited.len(),
+            allowed_found = results.len(),
+            "hnsw filtered layer search",
+        );
+        results.into_vec()
     }
 }
 
@@ -635,5 +760,124 @@ mod tests {
             }
         }
         assert!(hits >= 4, "self-retrieval top-1 too weak: {hits}/5");
+    }
+
+    /// Exact filtered top-`k` ground truth: brute-force distances over ONLY the ids
+    /// passing `allow`, nearest-first with the crate's `(distance, id)` tie-break.
+    fn brute_filtered(
+        data: &[Vec<f32>],
+        q: &[f32],
+        k: usize,
+        metric: Metric,
+        allow: &dyn Fn(u64) -> bool,
+    ) -> Vec<u64> {
+        let mut scored: Vec<(f32, u64)> = data
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| allow(*i as u64))
+            .map(|(i, v)| (metric.distance(q, v), i as u64))
+            .collect();
+        scored.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        scored.truncate(k);
+        scored.into_iter().map(|(_, id)| id).collect()
+    }
+
+    #[test]
+    fn filtered_none_equals_unfiltered() {
+        let dim = 16;
+        let data = random_vecs(1_000, dim, 71);
+        let mut hnsw = HnswIndex::new(dim, Metric::L2, 12, 100, 4);
+        for (i, v) in data.iter().enumerate() {
+            hnsw.insert(i as u64, v.clone());
+        }
+        let mut qr = ChaCha8Rng::seed_from_u64(3);
+        for _ in 0..20 {
+            let q: Vec<f32> = (0..dim).map(|_| qr.gen::<f32>() * 2.0 - 1.0).collect();
+            assert_eq!(
+                hnsw.search(&q, 10, 64),
+                hnsw.search_filtered(&q, 10, 64, None),
+                "search_filtered(None) must equal the unfiltered search byte-for-byte"
+            );
+        }
+    }
+
+    #[test]
+    fn filtered_search_returns_only_allowed_ids() {
+        let dim = 24;
+        let data = random_vecs(3_000, dim, 12);
+        let mut hnsw = HnswIndex::new(dim, Metric::Cosine, 16, 200, 9);
+        for (i, v) in data.iter().enumerate() {
+            hnsw.insert(i as u64, v.clone());
+        }
+        // Allow only ids ≡ 0 (mod 7) — ~14% selectivity.
+        let allow = |id: u64| id.is_multiple_of(7);
+        let mut qr = ChaCha8Rng::seed_from_u64(101);
+        for _ in 0..25 {
+            let q: Vec<f32> = (0..dim).map(|_| qr.gen::<f32>() * 2.0 - 1.0).collect();
+            let got = hnsw.search_filtered(&q, 10, 96, Some(&allow));
+            assert!(
+                got.iter().all(|r| allow(r.id)),
+                "every returned id must satisfy the predicate"
+            );
+        }
+    }
+
+    /// THE FILTERED BAR (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter): recall@10 ≥ 0.9 over the ALLOWED
+    /// subset at ~1% selectivity, vs the exact filtered brute-force ground truth.
+    #[test]
+    fn filtered_recall_at_10_meets_target_1pct_selectivity() {
+        let dim = 32;
+        let n = 10_000;
+        let data = random_vecs(n, dim, 33);
+        let mut hnsw = HnswIndex::new(dim, Metric::L2, 16, 200, 7);
+        for (i, v) in data.iter().enumerate() {
+            hnsw.insert(i as u64, v.clone());
+        }
+        // ~1% selectivity: keep ids ≡ 0 (mod 100).
+        let allow = |id: u64| id.is_multiple_of(100);
+        let ef = 128;
+        let mut qr = ChaCha8Rng::seed_from_u64(2025);
+        let nq = 100;
+        let mut sum = 0.0f64;
+        for _ in 0..nq {
+            let q: Vec<f32> = (0..dim).map(|_| qr.gen::<f32>() * 2.0 - 1.0).collect();
+            let truth = brute_filtered(&data, &q, 10, Metric::L2, &allow);
+            let got: Vec<u64> = hnsw
+                .search_filtered(&q, 10, ef, Some(&allow))
+                .into_iter()
+                .map(|r| r.id)
+                .collect();
+            sum += recall_at_k(&got, &truth, 10);
+        }
+        let recall = sum / nq as f64;
+        assert!(
+            recall >= 0.9,
+            "filtered HNSW recall@10 = {recall:.4} must be >= 0.9 (n={n}, sel=1%, ef={ef})"
+        );
+    }
+
+    #[test]
+    fn filtered_search_deterministic() {
+        let dim = 20;
+        let data = random_vecs(2_000, dim, 88);
+        let build = || {
+            let mut h = HnswIndex::new(dim, Metric::L2, 16, 200, 5);
+            for (i, v) in data.iter().enumerate() {
+                h.insert(i as u64, v.clone());
+            }
+            h
+        };
+        let a = build();
+        let b = build();
+        let allow = |id: u64| id.is_multiple_of(50);
+        let mut qr = ChaCha8Rng::seed_from_u64(7);
+        for _ in 0..20 {
+            let q: Vec<f32> = (0..dim).map(|_| qr.gen::<f32>() * 2.0 - 1.0).collect();
+            assert_eq!(
+                a.search_filtered(&q, 10, 96, Some(&allow)),
+                b.search_filtered(&q, 10, 96, Some(&allow)),
+                "filtered search must be deterministic across identical builds"
+            );
+        }
     }
 }

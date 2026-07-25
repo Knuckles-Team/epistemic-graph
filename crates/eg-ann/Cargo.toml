@@ -80,3 +80,10 @@ tempfile = "3.10"
 name = "recall"
 path = "benches/recall.rs"
 harness = false
+
+# Filtered-ANN recall + sub-linear-scaling bench (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter,
+# W4.3/E10): the pushed-down HNSW `search_filtered` vs a post-filter brute force.
+[[bench]]
+name = "filtered_ann"
+path = "benches/filtered_ann.rs"
+harness = false

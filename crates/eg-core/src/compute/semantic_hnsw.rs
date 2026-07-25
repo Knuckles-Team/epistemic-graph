@@ -18,6 +18,13 @@ use std::collections::HashMap;
 const HNSW_MAX_NB_CONN: usize = 16;
 /// Expansion factor during search (higher = more accurate, slower).
 const HNSW_EF_SEARCH: usize = 64;
+/// Beam width for a FILTERED search (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). Wider than
+/// `HNSW_EF_SEARCH` because a selective predicate forces the walk to route through
+/// disallowed "bridge" nodes before it collects a full beam of allowed results; the
+/// explored count is `~ef/selectivity`, still a constant independent of the store
+/// size (so latency stays sub-linear in |V|). Sized to hold filtered recall@10 ≥ 0.9
+/// down to ~1% selectivity (validated by the eg-ann `filtered_ann` bench).
+const HNSW_EF_SEARCH_FILTERED: usize = 128;
 /// Expansion factor while inserting points.
 const HNSW_EF_CONSTRUCTION: usize = 200;
 /// Stable seed keeps graph construction reproducible across nodes and reloads.
@@ -238,11 +245,14 @@ impl SemanticStore {
         self.hnsw_query(query_embedding, n_results, &idx)
     }
 
-    /// kNN search restricted to ids passing `allow` (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). The additive HNSW has no
-    /// native candidate pre-filter, so this backend realises the predicate by
-    /// over-fetching a wider band and post-filtering — still correct, just without the
-    /// push-down win the `ann` (IVF-PQ) backend gets from `search_filtered`. The
-    /// signature matches the `ann` backend so the planner calls it identically.
+    /// kNN search restricted to ids passing `allow`, with the predicate PUSHED INTO
+    /// the HNSW neighbour expansion (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). `allow` is tested during the
+    /// layer-0 graph walk (`HnswIndex::search_filtered`), so disallowed rows never
+    /// enter the result beam and the returned top-`k` already satisfies the predicate
+    /// — the same push-down win the `ann` (IVF-PQ) backend gets, now on the graph-walk
+    /// path instead of an over-fetch + post-filter. The traversal still routes through
+    /// disallowed nodes so recall over the allowed subset is preserved. The signature
+    /// matches the `ann` backend so the planner calls it identically.
     pub fn semantic_search_filtered(
         &self,
         query_embedding: &[f32],
@@ -252,12 +262,73 @@ impl SemanticStore {
         if n_results == 0 {
             return Vec::new();
         }
-        let want = (n_results * 4).max(n_results + 32);
-        self.semantic_search(query_embedding, want)
+        if self.embeddings.len() < BRUTE_FORCE_THRESHOLD {
+            return self.brute_force_search_filtered(query_embedding, n_results, allow);
+        }
+        self.ensure_index();
+        let idx = self.index.read();
+        let Some(hnsw) = idx.hnsw.as_ref() else {
+            return Vec::new();
+        };
+        // Map the HNSW internal id (insertion ordinal) → node id and fold BOTH the
+        // tombstone check and the caller's predicate into one `allow` closure the
+        // graph walk applies during expansion: a tombstoned or out-of-range internal
+        // id is treated as disallowed (still a routing bridge, never a result), which
+        // is exactly the tombstone filtering the unfiltered `hnsw_query` does after
+        // the fact — unified here into the push-down.
+        let allow_internal = |internal_id: u64| -> bool {
+            let Ok(internal) = usize::try_from(internal_id) else {
+                return false;
+            };
+            if idx.tombstones.contains(&internal) {
+                return false;
+            }
+            match idx.order.get(internal) {
+                Some(node_id) => allow(node_id.as_str()),
+                None => false,
+            }
+        };
+        let ef = HNSW_EF_SEARCH_FILTERED.max(n_results);
+        hnsw.search_filtered(query_embedding, n_results, ef, Some(&allow_internal))
             .into_iter()
-            .filter(|(id, _)| allow(id.as_str()))
-            .take(n_results)
+            .filter_map(|neighbor| {
+                usize::try_from(neighbor.id)
+                    .ok()
+                    .and_then(|internal| idx.order.get(internal))
+                    .map(|id| (id.clone(), 1.0 - neighbor.distance))
+            })
             .collect()
+    }
+
+    /// Brute-force cosine search restricted to ids passing `allow` (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter) —
+    /// the exact fallback for a collection below the HNSW build threshold. The
+    /// predicate is applied INSIDE the scan so disallowed ids never reach the top-k.
+    fn brute_force_search_filtered(
+        &self,
+        query_embedding: &[f32],
+        n_results: usize,
+        allow: impl Fn(&str) -> bool,
+    ) -> Vec<(String, f32)> {
+        let query_norm = dot_product(query_embedding, query_embedding).sqrt();
+        if query_norm == 0.0 {
+            return Vec::new();
+        }
+        let mut scores: Vec<(String, f32)> = self
+            .embeddings
+            .iter()
+            .filter(|(node_id, _)| allow(node_id.as_str()))
+            .filter_map(|(node_id, emb)| {
+                let emb_norm = dot_product(emb, emb).sqrt();
+                if emb_norm == 0.0 {
+                    None
+                } else {
+                    let similarity = dot_product(query_embedding, emb) / (query_norm * emb_norm);
+                    Some((node_id.clone(), similarity))
+                }
+            })
+            .collect();
+        truncate_highest_similarity(&mut scores, n_results);
+        scores
     }
 
     /// Ensure the HNSW index reflects the current embeddings (double-checked).
