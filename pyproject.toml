@@ -21,6 +21,13 @@ dependencies = [
     # BASE dependency so `import epistemic_graph.numeric` works on a bare `pip install
     # epistemic-graph` (the module `agent_utilities.numeric`'s `xp` shim binds, CONCEPT:KG-2.315).
     "numpy>=1.22.0",
+    # FULL-BY-DEFAULT (CONCEPT:EG-346, 2026-07-25): the UNIFIED binary is the default install
+    # — `pip install epistemic-graph` (NO extra tag) ships the complete engine. OWL/SPARQL
+    # (pyoxigraph) and the LMCache HTTP driver (httpx) join numeric in the base so `[full]` is
+    # no longer needed to get the whole engine. A slimmer serving consumer still chooses what
+    # to import; nothing here forces a heavy ML/torch/native-AVX wheel onto the base.
+    "pyoxigraph>=0.3.22",
+    "httpx>=0.24.0",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -58,11 +65,11 @@ ast = []
 datascience = []
 reasoning = []
 server = []
-# `full` folds in every optional Python dep so `pip install epistemic-graph[full]` is
-# truly complete — INCLUDING numeric (the compiled kernel `.so` is already wheel-bundled;
-# this pulls the numpy boundary interop so `epistemic_graph.numeric` works out of the box),
-# owl (pyoxigraph) and lmcache (httpx). Previously `full = []` omitted numeric — the gap.
-full = ["epistemic-graph[owl,lmcache,numeric]"]
+# `full` is now a NO-OP ALIAS (2026-07-25): the unified binary is full-by-DEFAULT, so its
+# Python deps (numpy for numeric, pyoxigraph for owl, httpx for lmcache) moved UP into the
+# base `dependencies`. `pip install epistemic-graph` (no tag) is now the complete engine;
+# `[full]` is retained only so existing installs/refs keep resolving.
+full = []
 # CONCEPT:EG-337 — the Python LMCache/vLLM remote-backend driver for the EG-187
 # KV-cache endpoint (`epistemic_graph.kvcache`). The driver itself imports with
 # STDLIB ONLY (urllib), so this extra only pulls the optional httpx acceleration
