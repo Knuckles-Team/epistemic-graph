@@ -131,7 +131,10 @@ impl PlanMatViewManager {
     /// incrementalizable) — the queryable half of the first-class fallback. `None` for an
     /// `Incremental` view, a boot-reloaded view, or an unknown one.
     pub fn fallback_reason(&self, name: &str) -> Option<String> {
-        self.views.lock().get(name).and_then(|t| t.fallback_reason.clone())
+        self.views
+            .lock()
+            .get(name)
+            .and_then(|t| t.fallback_reason.clone())
     }
 
     /// The live maintained result rows `[id, score?]` of an `Incremental` view, PROJECTED
@@ -393,7 +396,10 @@ mod tests {
         // The first-class fallback: an unsupported-op plan is Recompute mode AND exposes
         // its typed reason via `fallback_reason` (queryable), never a silent drop.
         let m = PlanMatViewManager::default();
-        m.note_fallback(def("t", "g"), "op #1 is not incrementally maintainable: Traverse".into());
+        m.note_fallback(
+            def("t", "g"),
+            "op #1 is not incrementally maintainable: Traverse".into(),
+        );
         assert_eq!(m.mode("t"), Some(Mode::Recompute));
         assert_eq!(
             m.fallback_reason("t").as_deref(),

@@ -64,7 +64,7 @@ fn maintenance_cost_is_o_delta_not_o_view() {
     // touched count must be constant across the 100× sweep (== batch_rows × matched_stages),
     // never a function of view size.
     for (label, plan, expected_touched) in [
-        ("scan", scan_only(), 2),        // update = retract+insert, 1 stage each  = 2
+        ("scan", scan_only(), 2), // update = retract+insert, 1 stage each  = 2
         ("scan+filter", scan_filter(), 4), // update = retract+insert, 2 stages each = 4
     ] {
         let mut touched_seq = Vec::new();

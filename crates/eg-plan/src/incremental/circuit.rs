@@ -949,7 +949,10 @@ mod tests {
         assert_eq!(c.current().ids(), vec!["0", "10"]);
         assert_eq!(c.current().rows()[0].score, Some(7.0));
 
-        c.apply(&retract("a", json!({"type": "M", "valid_from": 3, "value": 5})));
+        c.apply(&retract(
+            "a",
+            json!({"type": "M", "valid_from": 3, "value": 5}),
+        ));
         model.remove("a");
         assert_eq!(c.current(), c.recompute(&model));
 
