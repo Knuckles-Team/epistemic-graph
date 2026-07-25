@@ -1053,6 +1053,28 @@ pub enum Method {
     // walk the target graph's hash-chained audit log and report OK or the first break.
     #[cfg(feature = "security")]
     AuditVerify,
+    /// Produce + server-side-verify a Merkle inclusion proof for one node against
+    /// a prior provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, feature `security`) — the
+    /// extension that lets [`AuditVerify`](Method::AuditVerify)'s tamper-evidence
+    /// reach the ANCHORED NODES' CONTENT, not just the ordering of mutations. A
+    /// periodic engine job Merkle-hashes the target graph's `:ToolCall`/
+    /// `:RunTrace` provenance-node window and folds the root into this SAME
+    /// hash chain as one more entry (`audit::provenance_anchor_line`); this
+    /// method re-hashes `node_id`'s CURRENT durable content and walks the
+    /// anchor-time sibling path up to that chain-protected root — a mismatch
+    /// (`MerkleInclusionReport.verified == false`) proves the node's durable
+    /// bytes changed after anchoring, whether by raw tampering or an ordinary
+    /// later overwrite. `anchor_seq` selects a specific anchor by its
+    /// audit-chain seq; `None` uses the target graph's most recent anchor.
+    /// Errors when the graph has no anchor yet or `anchor_seq` names an entry
+    /// that is not one; `included == false` (not an error) means `node_id`
+    /// simply was not part of that anchor's window. Returns
+    /// `Raw(MerkleInclusionReport)`.
+    #[cfg(feature = "security")]
+    AuditProveInclusion {
+        node_id: String,
+        anchor_seq: Option<u64>,
+    },
 
     // ── Subgraph & Matching ──────────────────────────────────────────
     GetSubgraph {
@@ -4875,6 +4897,50 @@ pub struct AuditReport {
     pub ok: bool,
     pub entries: u64,
     pub first_broken_seq: Option<u64>,
+    pub detail: String,
+}
+
+/// Which side of its parent a Merkle audit-path sibling sits on (provenance
+/// anchoring, CONCEPT:EG-KG.sharding.row-level-security). The verifier folds the running hash with each
+/// step's sibling on the side named here — RFC 6962 §2.1.1 Merkle audit path
+/// semantics.
+#[cfg(feature = "security")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MerkleSide {
+    Left,
+    Right,
+}
+
+/// One Merkle audit-path step, wire-encoded: a hex-encoded sibling subtree hash
+/// plus which side it sits on. See [`MerkleInclusionReport`].
+#[cfg(feature = "security")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MerkleProofStep {
+    pub sibling_sha256: String,
+    pub side: MerkleSide,
+}
+
+/// Result of `Method::AuditProveInclusion` (provenance anchoring, CONCEPT:EG-KG.sharding.row-level-security): a
+/// Merkle inclusion proof for one node against a prior provenance anchor,
+/// ALREADY VERIFIED server-side. `verified` is the tamper signal: `false`
+/// whenever the node's CURRENT durable content does not re-hash to the leaf
+/// folded into `anchored_root_sha256` at anchor time — including when the node
+/// was altered by an otherwise-ordinary later write, not just raw byte-level
+/// tampering. `included == false` only means `node_id` was never part of that
+/// anchor's window (a different anchor, a non-provenance node, or a node created
+/// after this anchor ran) — not itself evidence of tampering.
+#[cfg(feature = "security")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MerkleInclusionReport {
+    pub graph: String,
+    pub node_id: String,
+    pub anchor_seq: u64,
+    pub window_size: usize,
+    pub included: bool,
+    pub verified: bool,
+    pub anchored_root_sha256: String,
+    pub computed_root_sha256: String,
+    pub proof: Vec<MerkleProofStep>,
     pub detail: String,
 }
 

@@ -14,6 +14,23 @@
 //! where `entry_hash = SHA256( prev_hash || graph || seq_le_u64 || line )` and the
 //! genesis entry (`seq == 0`) uses an all-zero `prev_hash`. `line` is a canonical,
 //! deterministic description of the mutation (see [`audit_line`]).
+//!
+//! ## Provenance anchoring (inclusion proofs over this same chain)
+//!
+//! The chain above proves the *sequence* of mutations is unbroken; it does not, by
+//! itself, prove that a node's CURRENT durable bytes still match what a past
+//! mutation wrote (a raw byte-flip of a stored row — or an ordinary later
+//! overwrite — is invisible to [`verify_chain`] alone). A periodic engine job
+//! (`server::persistence::provenance_anchor`) closes that gap for the
+//! `:ToolCall`/`:RunTrace` provenance-node window: it Merkle-hashes the window
+//! (RFC 6962 §2.1 Merkle Tree Hash — [`mth_from_hashes`]) and folds the root into
+//! THIS SAME chain as one more entry ([`provenance_anchor_line`]). A later
+//! Merkle inclusion proof ([`audit_path_from_hashes`] / [`recompute_root`])
+//! re-hashes a node's current content and walks it up an anchor-time sibling path
+//! to that chain-protected root — a mismatch proves the node changed after
+//! anchoring. See `redb_store::{provenance_anchor_commit, prove_inclusion}` for
+//! the durable read/write side and `Method::AuditProveInclusion` for the served
+//! surface.
 
 #![cfg(feature = "security")]
 
@@ -474,6 +491,196 @@ where
     }
 }
 
+// ── Provenance anchoring: RFC 6962 Merkle Tree Hash + audit path ───────────────
+//
+// A pure-Rust implementation of Certificate Transparency's Merkle Tree Hash
+// (RFC 6962 §2.1) and Merkle audit path (§2.1.1). Leaf/internal domain
+// separation (the `0x00`/`0x01` prefixes below) defeats the classic
+// second-preimage tree-forgery attack; the "largest power of two below n" split
+// needs no rebalancing or duplicate-last-node trick for an odd leaf count
+// (unlike the weaker Bitcoin-style scheme). These functions operate on
+// ALREADY-HASHED leaves ([`merkle_leaf_hash`] applies RFC 6962's own leaf-hash
+// step once, up front) so a Merkle audit path for one leaf never requires
+// re-reading any OTHER leaf's raw content — only its recorded sibling hashes —
+// which is what lets [`crate::redb_store::prove_inclusion`] verify one node
+// independent of what happened to its neighbors afterward.
+
+/// Domain-separation tag for a LEAF hash (RFC 6962 `MTH({d(0)})`).
+const LEAF_TAG: u8 = 0x00;
+/// Domain-separation tag for an INTERNAL node hash (RFC 6962 `MTH(D[n])`, n>1).
+const NODE_TAG: u8 = 0x01;
+
+/// Fixed content hashed in place of a provenance node that no longer has a
+/// durable row (removed since it was anchored). It can never equal a real
+/// anchor-time leaf hash (a real one is content-addressed on that node's actual
+/// bytes), so an inclusion proof for a since-removed node fails closed exactly
+/// like tampering would, rather than panicking or fabricating a pass.
+pub const MISSING_NODE_SENTINEL: &[u8] = b"EG-PROVENANCE-ANCHOR-MISSING-NODE";
+
+/// Which side of its parent a Merkle audit-path sibling hash sits on — the
+/// verifier needs this to fold `(running_hash, sibling)` in the right order.
+/// Also the wire `MerkleSide` the served `Method::AuditProveInclusion` surface
+/// returns (re-exported via `crate::protocol`).
+pub use crate::protocol::MerkleSide;
+
+/// One step of a Merkle audit path: a sibling subtree hash plus which side it
+/// sits on relative to the path being verified.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProofStep {
+    pub sibling: Hash,
+    pub side: MerkleSide,
+}
+
+/// Length-prefix `node_id` before the raw content bytes so the two can never be
+/// confused with each other (mirrors `build_envelope_v2_bytes`'s length-prefix
+/// convention) and so the node's IDENTITY, not just its content, is bound into
+/// the leaf — two different nodes that happen to carry byte-identical properties
+/// still hash to distinct leaves.
+fn encode_leaf_input(node_id: &str, content: &[u8]) -> Vec<u8> {
+    let mut v = Vec::with_capacity(4 + node_id.len() + content.len());
+    v.extend_from_slice(&(node_id.len() as u32).to_be_bytes());
+    v.extend_from_slice(node_id.as_bytes());
+    v.extend_from_slice(content);
+    v
+}
+
+/// A provenance-node leaf hash: `SHA-256(0x00 || len(node_id) || node_id ||
+/// content)`, content-addressed on the node's CURRENT durable bytes at the time
+/// of the call. Re-computing this later from a since-mutated node yields a
+/// different hash — the tamper signal an inclusion proof checks for.
+pub fn merkle_leaf_hash(node_id: &str, content: &[u8]) -> Hash {
+    let mut h = Sha256::new();
+    h.update([LEAF_TAG]);
+    h.update(encode_leaf_input(node_id, content));
+    h.finalize().into()
+}
+
+fn parent_hash(left: &Hash, right: &Hash) -> Hash {
+    let mut h = Sha256::new();
+    h.update([NODE_TAG]);
+    h.update(left);
+    h.update(right);
+    h.finalize().into()
+}
+
+/// Largest power of two strictly less than `n` (RFC 6962's tree-split rule,
+/// defined for `n > 1`).
+fn largest_power_of_two_below(n: usize) -> usize {
+    debug_assert!(
+        n > 1,
+        "largest_power_of_two_below is only defined for n > 1"
+    );
+    let mut k = 1usize;
+    while k * 2 < n {
+        k *= 2;
+    }
+    k
+}
+
+/// RFC 6962 §2.1 Merkle Tree Hash over an ORDERED list of ALREADY-COMPUTED leaf
+/// hashes (a provenance anchor persists leaf hashes, not raw node content — see
+/// `crate::redb_store::PROVENANCE_ANCHOR_MEMBERS`'s doc). `n == 0` is RFC 6962's
+/// defined empty-tree case (the anchoring job never actually calls this on an
+/// empty window, but the function stays total). `n == 1` returns the lone leaf
+/// hash unchanged — it already carries the RFC's `0x00` leaf tag from
+/// [`merkle_leaf_hash`], so it is NOT re-hashed here.
+pub fn mth_from_hashes(leaves: &[Hash]) -> Hash {
+    match leaves.len() {
+        0 => Sha256::digest(b"").into(),
+        1 => leaves[0],
+        n => {
+            let k = largest_power_of_two_below(n);
+            let left = mth_from_hashes(&leaves[..k]);
+            let right = mth_from_hashes(&leaves[k..]);
+            parent_hash(&left, &right)
+        }
+    }
+}
+
+/// RFC 6962 §2.1.1 Merkle audit path for leaf index `m` (0-based) among
+/// already-hashed `leaves`: the ordered sibling-hash path from the leaf up to
+/// (not including) the root, each step tagged with which side it sits on so
+/// [`recompute_root`] does not need to re-derive the recursive split. Empty when
+/// `m` is out of bounds or the tree is a single leaf (nothing to prove against).
+pub fn audit_path_from_hashes(leaves: &[Hash], m: usize) -> Vec<ProofStep> {
+    fn go(leaves: &[Hash], m: usize, out: &mut Vec<ProofStep>) {
+        let n = leaves.len();
+        if n <= 1 {
+            return; // PATH(0, {d(0)}) = {}
+        }
+        let k = largest_power_of_two_below(n);
+        if m < k {
+            go(&leaves[..k], m, out);
+            out.push(ProofStep {
+                sibling: mth_from_hashes(&leaves[k..]),
+                side: MerkleSide::Right,
+            });
+        } else {
+            go(&leaves[k..], m - k, out);
+            out.push(ProofStep {
+                sibling: mth_from_hashes(&leaves[..k]),
+                side: MerkleSide::Left,
+            });
+        }
+    }
+    let mut out = Vec::new();
+    if m < leaves.len() {
+        go(leaves, m, &mut out);
+    }
+    out
+}
+
+/// Recompute a Merkle root by folding `leaf_hash` up through `path`. The caller
+/// (`crate::redb_store::prove_inclusion`) passes the TARGET node's CURRENT
+/// content re-hashed via [`merkle_leaf_hash`] and the ANCHOR-TIME sibling `path`;
+/// comparing the result to the chain-protected anchored root is the inclusion
+/// proof's verification step. Always returns a value (never fails) so a caller
+/// can report both the anchored and the recomputed root even on a mismatch.
+pub fn recompute_root(leaf_hash: &Hash, path: &[ProofStep]) -> Hash {
+    let mut acc = *leaf_hash;
+    for step in path {
+        acc = match step.side {
+            MerkleSide::Right => parent_hash(&acc, &step.sibling),
+            MerkleSide::Left => parent_hash(&step.sibling, &acc),
+        };
+    }
+    acc
+}
+
+/// Canonical, deterministic audit-chain LINE for a provenance anchor:
+/// `PROVENANCE_ANCHOR|count=<n>|sha256:<root-hex>`. Mirrors the compact
+/// `key=value` / `sha256:` idiom [`audit_line`] already uses for
+/// `ApplyLedger`/`ApplyMutation`'s digest receipt — the full member list lives in
+/// the sibling `PROVENANCE_ANCHOR_MEMBERS` side table (`redb_store.rs`), keyed by
+/// this entry's own chain `seq`, so the chained line itself stays small
+/// regardless of window size. Unlike every line [`audit_line`] produces, this one
+/// has no corresponding `Method` — it is synthesized by the periodic
+/// provenance-anchor sweep, not a client request, hence a free function instead
+/// of another `audit_line` match arm.
+pub fn provenance_anchor_line(count: usize, root: &Hash) -> String {
+    format!(
+        "PROVENANCE_ANCHOR|count={count}|sha256:{}",
+        hex::encode(root)
+    )
+}
+
+/// Inverse of [`provenance_anchor_line`]: `None` for any line that is not
+/// exactly that shape (including an ordinary mutation line) — callers use this
+/// to recognize an anchor entry while walking the chain.
+pub fn parse_provenance_anchor_line(line: &[u8]) -> Option<(usize, Hash)> {
+    let line = std::str::from_utf8(line).ok()?;
+    let rest = line.strip_prefix("PROVENANCE_ANCHOR|count=")?;
+    let (count_str, rest) = rest.split_once('|')?;
+    let count: usize = count_str.parse().ok()?;
+    let hex_root = rest.strip_prefix("sha256:")?;
+    if hex_root.len() != 64 || !hex_root.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let bytes = hex::decode(hex_root).ok()?;
+    let root: Hash = bytes.try_into().ok()?;
+    Some((count, root))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -536,7 +743,7 @@ mod tests {
     }
 
     #[test]
-    fn authoritative_state_receipt_audits_only_a_valid_digest() {
+    fn authoritative_state_receipt_gets_a_short_line_others_fall_back_to_general_audit() {
         let digest = "a".repeat(64);
         let receipt = Method::ApplyMutation {
             event_type: "authoritative_state_operation".to_string(),
@@ -546,10 +753,137 @@ mod tests {
             audit_line(&receipt).as_deref(),
             Some(format!("AUTHORITATIVE_STATE_MUTATION|sha256:{digest}").as_str())
         );
-        assert!(audit_line(&Method::ApplyMutation {
+        // Pre-existing bug found while verifying this task's own "existing audit
+        // tests stay green" acceptance bar (unrelated to provenance anchoring --
+        // logged to reports/issue-register.md): this assertion used to expect
+        // `None` for a malformed digest, but `b1ac4ac` ("W1c", 2026-07-21) added
+        // the general `ApplyMutation` fallback arm below the digest-guarded one
+        // specifically to CLOSE an audit-visibility gap (every `ApplyMutation`
+        // is now audited, never silently dropped) -- it never updated this
+        // pre-existing test to match. `None` here would silently RE-OPEN that
+        // exact gap, so a malformed "authoritative_state_operation" query must
+        // fall through to the general digested `APPLY_MUTATION|...` line, not
+        // `None`.
+        let malformed = audit_line(&Method::ApplyMutation {
             event_type: "authoritative_state_operation".to_string(),
             query: "not-a-digest".to_string(),
-        })
-        .is_none());
+        });
+        assert_eq!(
+            malformed.as_deref(),
+            Some(
+                format!(
+                    "APPLY_MUTATION|authoritative_state_operation|sha256:{}",
+                    hex::encode(Sha256::digest(b"not-a-digest"))
+                )
+                .as_str()
+            )
+        );
+    }
+
+    // ── Provenance anchoring: Merkle primitives ─────────────────────────────
+
+    #[test]
+    fn mth_single_leaf_is_the_leaf_itself() {
+        // RFC 6962 `MTH({d0}) = SHA-256(0x00 || d0)` -- already what
+        // `merkle_leaf_hash` computed, so a one-leaf tree's root IS that hash,
+        // unchanged.
+        let leaf = merkle_leaf_hash("n1", b"props");
+        assert_eq!(mth_from_hashes(&[leaf]), leaf);
+    }
+
+    #[test]
+    fn mth_two_leaves_matches_manual_rfc6962_combination() {
+        let a = merkle_leaf_hash("n1", b"a");
+        let b = merkle_leaf_hash("n2", b"b");
+        let root = mth_from_hashes(&[a, b]);
+        let mut h = Sha256::new();
+        h.update([NODE_TAG]);
+        h.update(a);
+        h.update(b);
+        let expected: Hash = h.finalize().into();
+        assert_eq!(root, expected);
+    }
+
+    #[test]
+    fn audit_path_round_trips_for_every_leaf_in_an_odd_sized_tree() {
+        // n=5 exercises an UNBALANCED split (k=4) at the top level -- the case
+        // the RFC 6962 "largest power of two below n" rule (not a
+        // duplicate-last-node scheme) has to get right.
+        let leaves: Vec<Hash> = (0..5)
+            .map(|i| merkle_leaf_hash(&format!("n{i}"), format!("props{i}").as_bytes()))
+            .collect();
+        let root = mth_from_hashes(&leaves);
+        for (m, leaf) in leaves.iter().enumerate() {
+            let path = audit_path_from_hashes(&leaves, m);
+            let recomputed = recompute_root(leaf, &path);
+            assert_eq!(recomputed, root, "leaf {m} must verify against the root");
+        }
+    }
+
+    #[test]
+    fn audit_path_detects_a_tampered_leaf() {
+        let leaves: Vec<Hash> = (0..5)
+            .map(|i| merkle_leaf_hash(&format!("n{i}"), format!("props{i}").as_bytes()))
+            .collect();
+        let root = mth_from_hashes(&leaves);
+        let path = audit_path_from_hashes(&leaves, 2);
+        // The verifier re-hashes leaf 2 from CURRENT (here: different/tampered)
+        // content and walks the SAME anchor-time sibling path.
+        let tampered_leaf = merkle_leaf_hash("n2", b"props2-TAMPERED");
+        let recomputed = recompute_root(&tampered_leaf, &path);
+        assert_ne!(
+            recomputed, root,
+            "a tampered leaf must not reproduce the anchored root"
+        );
+    }
+
+    #[test]
+    fn audit_path_is_empty_for_a_single_leaf_tree() {
+        let leaf = merkle_leaf_hash("only", b"content");
+        assert!(audit_path_from_hashes(&[leaf], 0).is_empty());
+        assert_eq!(recompute_root(&leaf, &[]), leaf);
+    }
+
+    #[test]
+    fn audit_path_out_of_bounds_index_is_empty() {
+        let leaves: Vec<Hash> = (0..3)
+            .map(|i| merkle_leaf_hash(&format!("n{i}"), b"x"))
+            .collect();
+        assert!(audit_path_from_hashes(&leaves, 3).is_empty());
+    }
+
+    #[test]
+    fn provenance_anchor_line_round_trips() {
+        let root = merkle_leaf_hash("x", b"y");
+        let line = provenance_anchor_line(3, &root);
+        assert_eq!(
+            line,
+            format!("PROVENANCE_ANCHOR|count=3|sha256:{}", hex::encode(root))
+        );
+        assert_eq!(
+            parse_provenance_anchor_line(line.as_bytes()),
+            Some((3, root))
+        );
+    }
+
+    #[test]
+    fn parse_provenance_anchor_line_rejects_non_anchor_lines() {
+        assert_eq!(parse_provenance_anchor_line(b"ADD_NODE|n1"), None);
+        assert_eq!(
+            parse_provenance_anchor_line(b"PROVENANCE_ANCHOR|count=abc|sha256:zz"),
+            None
+        );
+        assert_eq!(
+            parse_provenance_anchor_line(b"PROVENANCE_ANCHOR|count=1|sha256:tooshort"),
+            None
+        );
+    }
+
+    #[test]
+    fn merkle_leaf_hash_binds_the_node_id_not_just_content() {
+        // Two different node ids with byte-identical properties must NOT collide.
+        let a = merkle_leaf_hash("node-a", b"same-content");
+        let b = merkle_leaf_hash("node-b", b"same-content");
+        assert_ne!(a, b);
     }
 }

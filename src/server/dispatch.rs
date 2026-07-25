@@ -5970,6 +5970,31 @@ async fn dispatch_graph_op_inner(
         };
     }
 
+    // Provenance-anchor inclusion proof (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring): the
+    // `AuditVerify` extension that reaches an anchored NODE's content, not just
+    // mutation ordering. Same routing shape as `AuditVerify` immediately above —
+    // the redb backend's owner thread (flushes pending first), handled after the
+    // registry lock is released.
+    #[cfg(feature = "security")]
+    if let Method::AuditProveInclusion {
+        node_id,
+        anchor_seq,
+    } = &method
+    {
+        let fname = crate::persist::sanitize(graph_name);
+        return match persistence.as_ref().and_then(|p| p.as_redb()) {
+            Some(redb) => match redb.audit_prove_inclusion_blocking(&fname, node_id, *anchor_seq) {
+                Ok(report) => Response::ok(req_id, ResultPayload::raw(&report)),
+                Err(e) => Response::err(req_id, format!("AuditProveInclusion error: {e}")),
+            },
+            None => Response::err(
+                req_id,
+                "AuditProveInclusion requires a durable redb backend (no persist dir configured)"
+                    .to_string(),
+            ),
+        };
+    }
+
     // Concrete governed modality service. This is deliberately after graph ACL,
     // lazy materialization, placement resolution and verified-context authority
     // derivation, but before the generic replicated-mutation branch: the mutation gateway

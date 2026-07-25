@@ -118,6 +118,18 @@ pub(crate) const SEMANTIC: TableDefinition<&str, &[u8]> = TableDefinition::new("
 // table const is always defined (so the layout is stable) but only WRITTEN/READ under
 // `security`.
 pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit_chain");
+// Provenance-anchor MEMBER list (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring): `(graph,
+// audit_seq) -> msgpack Vec<(node_id, leaf_hash_bytes)>` for the `:ToolCall`/`:RunTrace`
+// window folded into the audit-chain entry at that exact `seq` (a
+// `PROVENANCE_ANCHOR|...` line, see `crate::audit::provenance_anchor_line`). Keyed
+// by the SAME seq as its audit entry so the two correlate with no extra index. The
+// anchored ROOT itself is never trusted from this table -- only from the
+// tamper-evident AUDIT entry at that seq -- so tampering this side table cannot
+// forge a passing inclusion proof; it can only make an otherwise-valid proof fail
+// closed (see `crate::redb_store::prove_inclusion`).
+#[cfg(feature = "security")]
+pub(crate) const PROVENANCE_ANCHOR_MEMBERS: TableDefinition<(&str, u64), &[u8]> =
+    TableDefinition::new("provenance_anchor_members");
 pub(crate) const GRAPH_META: TableDefinition<&str, &[u8]> = TableDefinition::new("graph_meta");
 /// Authoritative mutation-batch status/result rows, keyed by stable `batch_id`.
 /// The complete batch is retained so a retry can prove that the idempotency key
@@ -281,6 +293,9 @@ pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Resul
         .map_err(|error| error.to_string())?;
     #[cfg(feature = "security")]
     wtx.open_table(AUDIT).map_err(|error| error.to_string())?;
+    #[cfg(feature = "security")]
+    wtx.open_table(PROVENANCE_ANCHOR_MEMBERS)
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -3846,6 +3861,25 @@ pub(crate) fn append_audit_entry(
         Some(l) => l,
         None => return Ok(()),
     };
+    append_audit_entry_with_line(audit, cache, graph, line.as_bytes()).map(|_| ())
+}
+
+/// [`append_audit_entry`]'s underlying primitive: append ONE chain entry for an
+/// explicit `line` (rather than deriving it from a `Method`) and return the
+/// assigned `(seq, hash)`. Shared by the per-mutation audit trail above AND the
+/// provenance-anchor job ([`provenance_anchor_commit`]), which appends a
+/// `PROVENANCE_ANCHOR|...` line that has no corresponding `Method` at all — it is
+/// synthesized by a periodic sweep, not a client request. Behavior (and the
+/// persisted bytes) for the `Method`-driven call sites are byte-for-byte
+/// unchanged: `append_audit_entry` now does nothing but derive `line` and forward
+/// here.
+#[cfg(feature = "security")]
+pub(crate) fn append_audit_entry_with_line(
+    audit: &mut redb::Table<(&str, u64), &[u8]>,
+    cache: &mut AuditTailCache,
+    graph: &str,
+    line: &[u8],
+) -> Result<(u64, crate::audit::Hash), String> {
     // O(1): chain off the cached tail; seed it from ONE scan only on first touch.
     let (prev, next_seq) = match cache.get(graph) {
         Some(&(seq, hash)) => (hash, seq + 1),
@@ -3881,14 +3915,14 @@ pub(crate) fn append_audit_entry(
             }
         }
     };
-    let hash = crate::audit::link_hash(&prev, graph, next_seq, line.as_bytes());
-    let blob = crate::audit::encode_entry(&prev, &hash, line.as_bytes());
+    let hash = crate::audit::link_hash(&prev, graph, next_seq, line);
+    let blob = crate::audit::encode_entry(&prev, &hash, line);
     audit
         .insert((graph, next_seq), blob.as_slice())
         .map_err(|e| e.to_string())?;
     // Keep the tail hot: the next op (this batch or a later one) chains off RAM.
     cache.insert(graph.to_string(), (next_seq, hash));
-    Ok(())
+    Ok((next_seq, hash))
 }
 
 /// Verify a graph's hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security). Range-scans
@@ -3912,6 +3946,305 @@ pub(crate) fn verify_audit(
         graph,
         rows.iter().map(|(s, b)| (*s, b.as_slice())),
     ))
+}
+
+// ── Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security) ───────────────────────────────
+//
+// A periodic engine job (`server::persistence::provenance_anchor`) Merkle-anchors a
+// graph's `:ToolCall`/`:RunTrace` provenance-node window into the SAME hash-chained
+// AUDIT table above, so a byte-level tamper of an anchored node's durable content —
+// invisible to `verify_audit` alone, which only proves the SEQUENCE of audit lines
+// is unbroken, not that a node's current bytes match what was written — becomes
+// detectable via a Merkle inclusion proof against that anchored, chain-protected
+// root. See `crate::audit`'s module doc for the full design rationale.
+//
+// The three functions below split the work by WHERE it is safe to run:
+//   * [`provenance_leaf_hashes`] is a lock-free MVCC snapshot read (like
+//     `read_one_node`) — it does NOT touch the writer thread, so hashing a large
+//     window never competes with the ordinary write path.
+//   * [`provenance_anchor_commit`] is the only piece that writes; its own cost is
+//     O(1) in window size (the window was already hashed off-thread) and it skips
+//     entirely (no transaction at all) when the graph's last anchored root is
+//     unchanged — the overhead-budget guarantee this whole feature must meet.
+//   * [`prove_inclusion`] is a read-only reconstruction of one node's inclusion
+//     proof against a chosen (or the latest) anchor.
+
+/// Per-graph provenance-anchor tail cache: `graph -> (last anchor seq, last
+/// anchored root)`. Mirrors [`AuditTailCache`]'s O(1) seed-once-then-hot-in-RAM
+/// design so the periodic anchor sweep's "did anything change since the last
+/// anchor" check never range-scans on the common (unchanged) tick.
+#[cfg(feature = "security")]
+pub(crate) type ProvenanceAnchorCache = HashMap<String, (u64, crate::audit::Hash)>;
+
+/// Read the CURRENT durable content of each of `node_ids` and hash it into a
+/// provenance leaf hash. A lock-free MVCC snapshot read (mirrors `read_one_node`/
+/// `durable_node_presence`) — does NOT go through the writer thread, so this can
+/// process a large window without competing with the ordinary write path. An id
+/// with no durable row (removed since it was selected as a candidate) is
+/// silently excluded: the window is "whatever is durably present right now", not
+/// a promise that every candidate survives to be anchored.
+#[cfg(feature = "security")]
+pub(crate) fn provenance_leaf_hashes(
+    db: &Database,
+    graph: &str,
+    node_ids: &[String],
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<(String, crate::audit::Hash)>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let nodes = rtx.open_table(NODES).map_err(|e| e.to_string())?;
+    let mut out = Vec::with_capacity(node_ids.len());
+    for id in node_ids {
+        if let Some(v) = nodes.get((graph, id.as_str())).map_err(|e| e.to_string())? {
+            let content = crypto.unseal(v.value())?;
+            out.push((id.clone(), crate::audit::merkle_leaf_hash(id, &content)));
+        }
+    }
+    Ok(out)
+}
+
+/// Seek `graph`'s latest provenance-anchor `(seq, root)` directly off durable
+/// storage via a bounded reverse scan (the `append_audit_entry` tail-seek
+/// pattern, never a forward walk) — used to seed [`ProvenanceAnchorCache`] on
+/// first touch and to resolve `Method::AuditProveInclusion`'s `anchor_seq: None`.
+/// The root is always decoded from the tamper-evident AUDIT entry at that seq,
+/// never trusted from the `PROVENANCE_ANCHOR_MEMBERS` side table.
+#[cfg(feature = "security")]
+fn read_latest_provenance_anchor_root(
+    db: &Database,
+    graph: &str,
+) -> Result<Option<(u64, crate::audit::Hash)>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let anchor_members = rtx
+        .open_table(PROVENANCE_ANCHOR_MEMBERS)
+        .map_err(|e| e.to_string())?;
+    let last = anchor_members
+        .range((graph, 0u64)..=(graph, u64::MAX))
+        .map_err(|e| e.to_string())?
+        .next_back()
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    let Some((k, _)) = last else {
+        return Ok(None);
+    };
+    let seq = k.value().1;
+    let audit = rtx.open_table(AUDIT).map_err(|e| e.to_string())?;
+    let audit_row = audit
+        .get((graph, seq))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "provenance anchor row has no matching audit entry".to_string())?;
+    let (_, _, line) = crate::audit::decode_entry(audit_row.value())
+        .ok_or_else(|| "corrupt audit entry at anchor seq".to_string())?;
+    let (_, root) = crate::audit::parse_provenance_anchor_line(line)
+        .ok_or_else(|| "anchor seq is not a PROVENANCE_ANCHOR line".to_string())?;
+    Ok(Some((seq, root)))
+}
+
+/// Durably anchor a provenance-node window's Merkle root into `graph`'s
+/// tamper-evident audit chain. `members` is the CALLER's already-hashed
+/// `(node_id, leaf_hash)` window (see [`provenance_leaf_hashes`], computed OFF
+/// any transaction so this function's own cost is independent of window size —
+/// the write-throughput overhead budget this satisfies). Returns `Ok(None)` with
+/// NO transaction opened at all when `root` already equals the graph's last
+/// anchored root per the in-RAM `cache` (an idle graph's provenance window is
+/// unchanged tick to tick — the common case). On a genuine change: opens one
+/// `WriteTransaction`, appends a `PROVENANCE_ANCHOR|count=N|sha256:ROOT` line to
+/// the SAME audit chain [`append_audit_entry`] uses, stores `members` at the
+/// assigned seq so a later inclusion proof can reconstruct the sibling path (see
+/// [`prove_inclusion`]), and returns `Ok(Some(seq))`.
+#[cfg(feature = "security")]
+pub(crate) fn provenance_anchor_commit(
+    db: &Database,
+    cache: &mut ProvenanceAnchorCache,
+    audit_tail: &mut AuditTailCache,
+    graph: &str,
+    root: crate::audit::Hash,
+    members: &[(String, crate::audit::Hash)],
+) -> Result<Option<u64>, String> {
+    if members.is_empty() {
+        return Ok(None);
+    }
+    // Fast path: the cache already says nothing changed -- zero redb transactions.
+    if cache.get(graph).map(|&(_, last)| last) == Some(root) {
+        return Ok(None);
+    }
+    // First touch since open (or after restart): seed from durable state via a
+    // plain read transaction (no write lock held) before deciding to write.
+    if !cache.contains_key(graph) {
+        if let Some((seq, seeded_root)) = read_latest_provenance_anchor_root(db, graph)? {
+            cache.insert(graph.to_string(), (seq, seeded_root));
+            if seeded_root == root {
+                return Ok(None);
+            }
+        }
+    }
+
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    let seq = {
+        let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
+        let mut anchor_members = wtx
+            .open_table(PROVENANCE_ANCHOR_MEMBERS)
+            .map_err(|e| e.to_string())?;
+        let line = crate::audit::provenance_anchor_line(members.len(), &root);
+        let (seq, _hash) =
+            append_audit_entry_with_line(&mut audit, audit_tail, graph, line.as_bytes())?;
+        let on_disk: Vec<(String, Vec<u8>)> = members
+            .iter()
+            .map(|(id, h)| (id.clone(), h.to_vec()))
+            .collect();
+        let encoded = rmp_serde::to_vec_named(&on_disk).map_err(|e| e.to_string())?;
+        anchor_members
+            .insert((graph, seq), encoded.as_slice())
+            .map_err(|e| e.to_string())?;
+        seq
+    };
+    wtx.commit().map_err(|e| e.to_string())?;
+    cache.insert(graph.to_string(), (seq, root));
+    Ok(Some(seq))
+}
+
+/// Produce + verify a Merkle inclusion proof for `node_id` against a provenance
+/// anchor (`Method::AuditProveInclusion`). `anchor_seq = None` resolves to the
+/// graph's most recent anchor. The ANCHORED ROOT is always read from the
+/// tamper-evident audit-chain entry at that seq (never from the members side
+/// table); `node_id`'s CURRENT durable content is re-hashed and walked up the
+/// anchor-time sibling path (from the members table) to compare against that
+/// root — a mismatch is the tamper signal (`verified = false`), independent of
+/// whatever happened to any OTHER node in the window (each leaf's proof only
+/// needs its own O(log n) sibling hashes, not its neighbors' current content).
+#[cfg(feature = "security")]
+pub(crate) fn prove_inclusion(
+    db: &Database,
+    graph: &str,
+    node_id: &str,
+    anchor_seq: Option<u64>,
+    crypto: DurableCrypto<'_>,
+) -> Result<crate::protocol::MerkleInclusionReport, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+
+    let seq = match anchor_seq {
+        Some(seq) => seq,
+        None => {
+            let anchor_members = rtx
+                .open_table(PROVENANCE_ANCHOR_MEMBERS)
+                .map_err(|e| e.to_string())?;
+            let last = anchor_members
+                .range((graph, 0u64)..=(graph, u64::MAX))
+                .map_err(|e| e.to_string())?
+                .next_back()
+                .transpose()
+                .map_err(|e| e.to_string())?;
+            match last {
+                Some((k, _)) => k.value().1,
+                None => return Err(format!("graph '{graph}' has no provenance anchor yet")),
+            }
+        }
+    };
+
+    let audit = rtx.open_table(AUDIT).map_err(|e| e.to_string())?;
+    let audit_row = audit
+        .get((graph, seq))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("no audit entry at seq {seq}"))?;
+    let (_, _, line) = crate::audit::decode_entry(audit_row.value())
+        .ok_or_else(|| "corrupt audit entry".to_string())?;
+    let (count, anchored_root) = crate::audit::parse_provenance_anchor_line(line)
+        .ok_or_else(|| format!("audit entry at seq {seq} is not a PROVENANCE_ANCHOR line"))?;
+
+    let anchor_members = rtx
+        .open_table(PROVENANCE_ANCHOR_MEMBERS)
+        .map_err(|e| e.to_string())?;
+    let members_row = anchor_members
+        .get((graph, seq))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("no provenance-anchor member row at seq {seq}"))?;
+    let stored: Vec<(String, Vec<u8>)> = decode_durable(members_row.value())?;
+    if stored.len() != count {
+        return Err("provenance-anchor member row does not match its audit line count".to_string());
+    }
+    let members: Vec<(String, crate::audit::Hash)> = stored
+        .into_iter()
+        .map(|(id, h)| {
+            let hash: crate::audit::Hash = h
+                .as_slice()
+                .try_into()
+                .map_err(|_| "corrupt provenance-anchor member hash".to_string())?;
+            Ok((id, hash))
+        })
+        .collect::<Result<_, String>>()?;
+
+    let window_size = members.len();
+    let anchored_root_sha256 = hex::encode(anchored_root);
+
+    let Some(index) = members.iter().position(|(id, _)| id == node_id) else {
+        return Ok(crate::protocol::MerkleInclusionReport {
+            graph: graph.to_string(),
+            node_id: node_id.to_string(),
+            anchor_seq: seq,
+            window_size,
+            included: false,
+            verified: false,
+            anchored_root_sha256: anchored_root_sha256.clone(),
+            computed_root_sha256: anchored_root_sha256,
+            proof: Vec::new(),
+            detail: "node was not part of this anchor's provenance window".to_string(),
+        });
+    };
+
+    let leaf_hashes: Vec<crate::audit::Hash> = members.iter().map(|(_, h)| *h).collect();
+    let path = crate::audit::audit_path_from_hashes(&leaf_hashes, index);
+
+    let nodes = rtx.open_table(NODES).map_err(|e| e.to_string())?;
+    let current = nodes
+        .get((graph, node_id))
+        .map_err(|e| e.to_string())?
+        .map(|v| crypto.unseal(v.value()))
+        .transpose()?;
+
+    let (current_leaf_hash, detail_if_missing) = match &current {
+        Some(content) => (crate::audit::merkle_leaf_hash(node_id, content), None),
+        // No durable row anymore (removed since anchoring). There is nothing left
+        // to re-hash; fold in a fixed domain-tagged sentinel so the proof walk
+        // stays well-defined. It CANNOT reproduce the real anchor-time leaf hash,
+        // so verification fails closed exactly like real content tampering would.
+        None => (
+            crate::audit::merkle_leaf_hash(node_id, crate::audit::MISSING_NODE_SENTINEL),
+            Some("node has no durable row anymore (removed since anchoring)".to_string()),
+        ),
+    };
+
+    let computed_root = crate::audit::recompute_root(&current_leaf_hash, &path);
+    let verified = computed_root == anchored_root;
+
+    let proof = path
+        .into_iter()
+        .map(|step| crate::protocol::MerkleProofStep {
+            sibling_sha256: hex::encode(step.sibling),
+            side: step.side,
+        })
+        .collect();
+
+    let detail = if verified {
+        "verified: current durable content matches the anchored leaf".to_string()
+    } else if let Some(missing) = detail_if_missing {
+        missing
+    } else {
+        "TAMPER DETECTED: current durable content does not match the anchored leaf".to_string()
+    };
+
+    Ok(crate::protocol::MerkleInclusionReport {
+        graph: graph.to_string(),
+        node_id: node_id.to_string(),
+        anchor_seq: seq,
+        window_size,
+        included: true,
+        verified,
+        anchored_root_sha256,
+        computed_root_sha256: hex::encode(computed_root),
+        proof,
+        detail,
+    })
 }
 
 // ── O(1) edge-ordinal counter (CONCEPT:EG-KG.storage.redb-store #3) ────────────────────────────

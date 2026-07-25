@@ -56,6 +56,13 @@ pub mod online_reshard;
 #[cfg(feature = "redb")]
 pub mod cold_offload;
 
+// Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security): the periodic sweep that Merkle-anchors
+// each resident graph's `:ToolCall`/`:RunTrace` provenance-node window into the
+// SAME tamper-evident audit chain `security` already maintains. Redb-only (the
+// audit chain and its `PROVENANCE_ANCHOR_MEMBERS` side table are redb tables).
+#[cfg(feature = "security")]
+pub mod provenance_anchor;
+
 // M3 R3 — rebalancing planner (CONCEPT:EG-KG.sharding.even-load-rebalance). A PURE, deterministic policy layer
 // over observable per-shard/per-graph load + the EG-031 catalog that EMITS a plan of
 // `{graph, from_shard, to_shard}` moves to even out load. It does NOT execute the
