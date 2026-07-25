@@ -159,6 +159,13 @@ mining = ["eg-compute/mining", "eg-types/mining"]
 # `full` via `compute`. Gates eg-compute/graphlearn + eg-types/graphlearn + the
 # handlers/graphlearn.rs dispatch arm. Implies datascience (shared Adam kernels).
 graphlearn = ["datascience", "eg-compute/graphlearn", "eg-types/graphlearn"]
+# ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): the composable train→eval→serve→
+# predict surface over a versioned `:Model` artifact, generalizing the KAN one-off. It
+# COMPOSES existing eg-compute primitives — classify (mining), regression estimators
+# (datascience), the KAN link-predictor (graphlearn), structural embeddings + metrics —
+# so it pulls all three domains + eg-types/ml-pipeline. Gates the handlers/pipeline.rs
+# dispatch arm. Pure-Rust, folded into `full` via `compute`.
+ml-pipeline = ["mining", "datascience", "graphlearn", "eg-types/ml-pipeline"]
 reasoning = ["eg-compute/reasoning"]
 # Engine-native epistemic layer (CONCEPT:EG-KG.epistemic.epistemic-substrate, E6+E2): the
 # eg-epistemic leaf crate (claims/evidence/belief-state + confidence propagation) over
@@ -943,7 +950,7 @@ shacl = ["rdf", "dep:eg-shacl"]
 # serde_json is workspace-wide) — and is included in the one main build alongside
 # rdf/sparql/shacl.
 shex = ["rdf", "dep:eg-shex"]
-compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlearn", "reasoning"]
+compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlearn", "ml-pipeline", "reasoning"]
 # `full`/`all`/`default` = THE ONE MAIN BUILD (CONCEPT:EG-371). It deliberately stays
 # SINGLE-NODE: raft is NOT folded in, so a `full` build links no openraft (replication
 # is the opt-in `cluster` layer). Consequently `compute-dist` (which NEEDS raft for

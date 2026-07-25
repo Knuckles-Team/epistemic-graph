@@ -1055,3 +1055,68 @@ graph_mine { "action": "community",
 // REST twin (same _execute_tool core)
 POST /api/mining/community { "algorithm": "label_propagation", "writeback": true }
 ```
+
+---
+
+# ML Pipeline — `MiningPipeline*` (CONCEPT:EG-KG.mining.ml-pipeline)
+
+A composable **train → eval → serve → predict** lifecycle over a **versioned
+`:Model` artifact** that GENERALIZES the KAN one-off. A `PipelineSpec` is
+`feature steps → split → a pluggable model family`:
+
+- **`classify`** — node classification (`gaussiannb`/`multinomialnb`/`knn`/`logistic`/
+  `svc`), over `eg_compute::mining::classify`.
+- **`estimator`** — regression (`ridge`/`lasso`/`elasticnet`/`decisiontree`/
+  `randomforest`/`gradientboosting`/`adaboost`/`svr`), over `datascience::estimators`.
+- **`graphlearn`** — the KAN link-predictor, over `graphlearn::link_predict` (the
+  one-off, now just one family behind the same lifecycle).
+
+Feature steps compose the structural embedders (`fastrp`/`node2vec`), pre-stored node
+vectors, and L2-normalization; metrics come from `datascience::metrics` (accuracy /
+macro-F1 for classify, R² / RMSE for regression) and the KAN's own AUC. Each `train`
+persists a versioned `:Model` node (`model:<name>:v<n>`), so two versions are queryable
+and comparable; `serve` writes a `:ServedModel` pointer so predict-by-name resolves the
+deployed version.
+
+## Train a node-classification pipeline
+
+```python
+spec = {
+    "features": [{"step": "embedding", "method": "fastrp", "dim": 32}],
+    "split": {"test_ratio": 0.3, "seed": 7},
+    "label_property": "label",                       # per-node integer class
+    "model": {"family": "classify", "algorithm": "logistic"},
+}
+v1 = await c.pipeline.train("community", spec,
+                            source={"node_label": "Person", "direction": "any"})
+# → {name, version: 1, model_id: "model:community:v1",
+#    metrics: {train: {...}, test: {accuracy, macro_f1}}, ...}
+```
+
+## Eval, serve, predict, compare
+
+```python
+await c.pipeline.evaluate("community", version=1,
+                          source={"node_label": "Person"})   # → {metrics, n}
+await c.pipeline.serve("community", version=1)                # deploy v1
+pred = await c.pipeline.predict("community", version=0,       # 0 ⇒ served
+                                source={"node_label": "Person"}, writeback=True)
+# → {rows: [{id, label, proba}], ...}   (+ one :Prediction node per row)
+
+v2 = await c.pipeline.train("community", {**spec,
+        "model": {"family": "classify", "algorithm": "knn"}},
+        source={"node_label": "Person"})                     # → version: 2
+cmp = await c.pipeline.compare("community", 1, 2)
+# → {metrics_a, metrics_b, diff: {accuracy: b−a, macro_f1: b−a}}
+```
+
+## MCP + REST (pipeline)
+
+```jsonc
+// MCP — one tool, five actions
+graph_pipeline { "action": "train",
+  "params_json": "{\"name\":\"community\",\"spec\":{...},\"source\":{\"node_label\":\"Person\"}}" }
+
+// REST twin (same _execute_tool core)
+POST /api/pipeline/{train,eval,serve,predict,compare}
+```

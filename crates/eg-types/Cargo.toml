@@ -29,6 +29,13 @@ mining = []
 # opaque `serde_json::Value`, so no KAN type leaks into the wire) — folds into the
 # serving tiers exactly like mining; a build without it drops the variants.
 graphlearn = []
+# ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): gates the composable
+# `Method::MiningPipeline*` variants + their `PipelineSpec`/`FeatureStep`/`ModelSpec`/
+# `SplitSpec` wire DTOs. It embeds `GraphSource` (the node source), so it implies
+# `graphlearn`; the fitted-model blob rides an opaque `serde_json::Value`, so no
+# per-family type leaks into the wire. Folds into the serving tiers; a build without it
+# drops every variant (→ the dispatch "not available in this build" catch-all).
+ml-pipeline = ["graphlearn"]
 # Engine-native epistemic layer (CONCEPT:EG-KG.epistemic.epistemic-substrate, E6):
 # gates the additive epistemic fields and citation DTOs. Citations reuse the governed
 # `EvidenceLocusWire` query DTO, so `epistemic` must imply `query`; keeping the

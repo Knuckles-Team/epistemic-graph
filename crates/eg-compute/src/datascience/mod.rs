@@ -9,5 +9,6 @@
 #![allow(clippy::needless_range_loop)]
 
 pub mod estimators;
+pub mod metrics;
 pub mod primitives;
 pub mod training;
