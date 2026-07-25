@@ -869,11 +869,15 @@ fn is_observability_read_carrier(method: &str, path: &str) -> bool {
 async fn observability_read_denied(
     security_state: Option<&Arc<tokio::sync::RwLock<crate::server::ServerState>>>,
 ) -> bool {
-    let Some(security_state) = security_state else {
+    if security_state.is_none() {
         return false;
-    };
-    let state = security_state.read().await;
-    crate::server::access::unauthenticated_carrier_denied(&state.isolation)
+    }
+    // A18: PromQL/trace/log-search reads carry no credential this surface can
+    // verify yet (no `eg2.` envelope, bearer token, or other proof — see
+    // reports/issue-register.md, A18), so no `CarrierAuthority` can ever be
+    // minted here today; this always denies under `serve_with_security`,
+    // honestly (via the real check) rather than via the old unconditional stub.
+    crate::server::access::unauthenticated_carrier_denied(None)
 }
 
 /// Route + execute an ingest request → `(status, content_type, body)`.
