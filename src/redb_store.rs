@@ -1984,6 +1984,58 @@ fn write_work_item_props(
     Ok(())
 }
 
+/// Drive the phase-1 statechart MIRROR for one WorkItem transition (ADR-5 / W2.2) and
+/// fold its durable `MachineInstance` projection back INTO the same `props` map — so the
+/// mirror commits in the SAME redb write transaction as the authoritative lifecycle
+/// `status` on the SAME shard. That co-location is what makes a `kill -9` mid-transition
+/// unable to split the row from its mirror (both land, or neither does), and it keeps the
+/// mirror state Cypher-queryable as ordinary node properties (`machine_state`).
+///
+/// The redb row's `status` REMAINS the authority in phase 1; this only compares the
+/// chart's independently-computed next state against it and raises the divergence alarm on
+/// a mismatch (a chart bug caught before the phase-2 authority flip). `pre_status` is the
+/// row status BEFORE the authority mutated it; `authoritative_next` is `Some(status)` the
+/// authority persisted (the firing handlers always transition, so it is always `Some`).
+#[cfg(feature = "statechart")]
+fn apply_work_item_mirror(
+    props: &mut serde_json::Map<String, serde_json::Value>,
+    work_item_id: &str,
+    pre_status: &str,
+    event: &str,
+    payload: serde_json::Value,
+    authoritative_next: Option<&str>,
+) {
+    let outcome =
+        crate::work_item_statechart::mirror_outcome(pre_status, event, payload, authoritative_next);
+    if outcome.diverged {
+        crate::work_item_statechart::emit_divergence(
+            work_item_id,
+            pre_status,
+            event,
+            authoritative_next,
+            &outcome.next_state,
+        );
+    }
+    let prior_version = property_u64(props, "machine_version");
+    let next_version = if outcome.fired {
+        prior_version.saturating_add(1)
+    } else {
+        prior_version
+    };
+    props.insert(
+        "machine_state".into(),
+        serde_json::Value::String(outcome.next_state),
+    );
+    props.insert(
+        "machine_version".into(),
+        serde_json::Value::from(next_version),
+    );
+    props.insert(
+        "machine_def_id".into(),
+        serde_json::Value::String(crate::work_item_statechart::WORK_ITEM_DEF_ID.clone()),
+    );
+}
+
 /// Apply one native WorkItem transition while the MutationBatch write
 /// transaction is held. The returned payload is persisted as the batch result in
 /// that same transaction, so a retry observes the exact original claim/commit
@@ -2166,6 +2218,18 @@ fn apply_work_item_rows(
             let kind = property_string(&props, "kind").to_string();
             let payload_ref = property_string(&props, "payload_ref").to_string();
             let max_attempts = property_u64(&props, "max_attempts").max(1);
+            // Phase-1 statechart mirror: the picked candidate was `ready` (it passed the
+            // `status != "ready"` filter above); selection already happened outside the
+            // chart, so its `ready --claim--> leased` edge is unconditional.
+            #[cfg(feature = "statechart")]
+            apply_work_item_mirror(
+                &mut props,
+                &node_id,
+                "ready",
+                crate::work_item_statechart::EV_CLAIM,
+                serde_json::json!({}),
+                Some("leased"),
+            );
             write_work_item_props(nodes, graph, &node_id, &props, crypto)?;
             Ok(Some(crate::protocol::ResultPayload::raw(
                 &ClaimWorkItemResult {
@@ -2220,6 +2284,10 @@ fn apply_work_item_rows(
                     serde_json::json!({"renewed": false, "reason": "fenced"}),
                 )));
             }
+            // Phase-1 mirror: the lease was validated (fence_valid), so leased|running →
+            // running. Capture the pre-status before the authority overwrites it.
+            #[cfg(feature = "statechart")]
+            let pre_status = property_string(&props, "status").to_string();
             let now_s = *now_ms as f64 / 1000.0;
             props.insert("status".into(), serde_json::Value::String("running".into()));
             props.insert("heartbeat_at".into(), serde_json::Value::from(now_s));
@@ -2227,6 +2295,15 @@ fn apply_work_item_rows(
             props.insert(
                 "lease_expires_at".into(),
                 serde_json::Value::from(now_s + *lease_ms as f64 / 1000.0),
+            );
+            #[cfg(feature = "statechart")]
+            apply_work_item_mirror(
+                &mut props,
+                work_item_id,
+                &pre_status,
+                crate::work_item_statechart::EV_RENEW,
+                serde_json::json!({ "fence_valid": true }),
+                Some("running"),
             );
             write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
             Ok(Some(crate::protocol::ResultPayload::Json(
@@ -2303,6 +2380,13 @@ fn apply_work_item_rows(
             let now_s = *now_ms as f64 / 1000.0;
             let attempts = property_u64(&props, "attempt");
             let max_attempts = property_u64(&props, "max_attempts").max(1);
+            // Phase-1 mirror inputs: pre-status (leased|running, validated above) + the
+            // DLQ-threshold POLICY boolean (`retryable && attempt < max_attempts`) the
+            // chart reads as a pre-computed guard input — see `work_item_statechart`.
+            #[cfg(feature = "statechart")]
+            let pre_status = property_string(&props, "status").to_string();
+            #[cfg(feature = "statechart")]
+            let commit_retry_eligible = attempts < max_attempts;
             let committed_status = if outcome == "failed" && *retryable && attempts < max_attempts {
                 let backoff = property_f64(&props, "backoff_base_s").max(1.0)
                     * 2f64.powi(attempts.saturating_sub(1).min(31) as i32);
@@ -2347,6 +2431,31 @@ fn apply_work_item_rows(
             props.insert("lease_owner".into(), serde_json::Value::Null);
             props.insert("lease_expires_at".into(), serde_json::Value::Null);
             props.insert("updated_at".into(), serde_json::Value::from(now_s));
+            // Phase-1 mirror: the commit outcome maps to the chart's commit_* event; the
+            // authoritative next state is whatever the handler persisted (ready on a
+            // scheduled retry, else the terminal). The chart must independently agree.
+            #[cfg(feature = "statechart")]
+            {
+                let event = match outcome.as_str() {
+                    "succeeded" => crate::work_item_statechart::EV_COMMIT_SUCCEEDED,
+                    "cancelled" => crate::work_item_statechart::EV_COMMIT_CANCELLED,
+                    _ => crate::work_item_statechart::EV_COMMIT_FAILED,
+                };
+                let mirror_payload = serde_json::json!({
+                    "fence_valid": true,
+                    "retryable": *retryable,
+                    "retry_eligible": commit_retry_eligible,
+                });
+                let authoritative_next = property_string(&props, "status").to_string();
+                apply_work_item_mirror(
+                    &mut props,
+                    work_item_id,
+                    &pre_status,
+                    event,
+                    mirror_payload,
+                    Some(&authoritative_next),
+                );
+            }
             write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
 
             let mut changed = vec![work_item_id.clone()];
@@ -2446,6 +2555,10 @@ fn apply_work_item_rows(
                     }),
                 )));
             }
+            // Phase-1 mirror: capture the pre-status (a cancellable non-terminal state)
+            // before the authority marks it cancelled.
+            #[cfg(feature = "statechart")]
+            let pre_status = property_string(&props, "status").to_string();
             let next_epoch = property_u64(&props, "lease_epoch").saturating_add(1);
             props.insert(
                 "status".into(),
@@ -2463,6 +2576,15 @@ fn apply_work_item_rows(
                     .clone()
                     .map(serde_json::Value::String)
                     .unwrap_or(serde_json::Value::Null),
+            );
+            #[cfg(feature = "statechart")]
+            apply_work_item_mirror(
+                &mut props,
+                work_item_id,
+                &pre_status,
+                crate::work_item_statechart::EV_CANCEL,
+                serde_json::json!({ "cancellable": true }),
+                Some("cancelled"),
             );
             write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
             Ok(Some(crate::protocol::ResultPayload::Json(
@@ -2516,6 +2638,10 @@ fn apply_work_item_rows(
                     }),
                 )));
             }
+            // Phase-1 mirror: capture the leased|running pre-status before the fenced
+            // lease is released back to `ready`.
+            #[cfg(feature = "statechart")]
+            let pre_status = property_string(&props, "status").to_string();
             let next_epoch = (*lease_epoch).saturating_add(1);
             let attempts = property_u64(&props, "attempt").saturating_sub(1);
             let defer_count = property_u64(&props, "defer_count").saturating_add(1);
@@ -2537,6 +2663,15 @@ fn apply_work_item_rows(
                     .clone()
                     .map(serde_json::Value::String)
                     .unwrap_or(serde_json::Value::Null),
+            );
+            #[cfg(feature = "statechart")]
+            apply_work_item_mirror(
+                &mut props,
+                work_item_id,
+                &pre_status,
+                crate::work_item_statechart::EV_DEFER,
+                serde_json::json!({ "fence_valid": true }),
+                Some("ready"),
             );
             write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
             Ok(Some(crate::protocol::ResultPayload::Json(
@@ -6711,8 +6846,17 @@ mod mutation_batch_tests {
                 .expect("claim result"),
         )
         .unwrap();
-        let crate::protocol::ResultPayload::Raw(bytes) = payload else {
-            panic!("ClaimWorkItem must return a typed result");
+        // `ResultPayload` is `#[serde(untagged)]` with `PropertiesMsgpack` declared BEFORE
+        // `Raw` (both are `serde_bytes` bins), so a round-tripped bin decodes as the FIRST
+        // matching bin variant (`PropertiesMsgpack`) — the enum's own doc notes this is by
+        // design (the client re-`unpackb`s any top-level bin regardless of variant name).
+        // The claim result is therefore the inner bytes under whichever bin variant serde
+        // picked; accept either. (Pre-W2.2 rot: this assertion named only `Raw`, which the
+        // untagged decoder can never yield for a bin.)
+        let bytes = match payload {
+            crate::protocol::ResultPayload::Raw(inner)
+            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
         };
         let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
         assert!(!result.claimed);
@@ -6720,6 +6864,188 @@ mod mutation_batch_tests {
         assert_eq!(result.tenant_in_flight, Some(1));
 
         let _ = std::fs::remove_file(path);
+    }
+
+    /// ADR-5 / W2.2 acceptance: a `kill -9` mid-transition resumes correctly. The
+    /// WorkItem lifecycle `status` and its co-located statechart MIRROR (`machine_state`)
+    /// are one row written in ONE redb write transaction, so a crash BEFORE the commit
+    /// rolls both back and a crash AFTER the commit lands both — they can never split.
+    #[cfg(feature = "statechart")]
+    #[test]
+    fn work_item_status_and_statechart_mirror_commit_atomically_across_kill9() {
+        use crate::epistemic_operations::{
+            ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion,
+        };
+
+        let seed_ready = |db: &Database| {
+            let mut seed = batch("wi-seed", "wi-seed-key");
+            seed.operations = vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::AddNode {
+                    node_id: "wi".into(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                        "node_type": "WorkItem",
+                        "tenant": "tenant-a",
+                        "status": "ready",
+                    }))
+                    .unwrap(),
+                },
+            }];
+            commit_at(db, &seed, None).unwrap();
+        };
+
+        let claim_batch = || {
+            let mut claim = batch("wi-claim", "wi-claim-key");
+            claim.expected_graph_version = Some(4);
+            claim.operations = vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::ClaimWorkItem {
+                    request: ClaimWorkItemRequest {
+                        schema_version: ClaimWorkItemRequestSchemaVersion::V1,
+                        tenant_ref: "tenant-a".into(),
+                        work_item_id: Some("wi".into()),
+                        queue_ref: None,
+                        resource_class: None,
+                        fairness_group: None,
+                        worker_ref: "worker-a".into(),
+                        now_ms: 1_000,
+                        lease_ms: 10_000,
+                        max_tenant_in_flight: 64,
+                    },
+                },
+            }];
+            claim
+        };
+
+        let read_pair = |db: &Database| -> (Option<String>, Option<String>) {
+            match read_one_node(db, "graph-a", "wi", DurableCrypto::none()).unwrap() {
+                None => (None, None),
+                Some(b) => {
+                    let props: serde_json::Map<String, serde_json::Value> =
+                        decode_durable(&b).unwrap();
+                    let get = |k: &str| props.get(k).and_then(|v| v.as_str()).map(str::to_string);
+                    (get("status"), get("machine_state"))
+                }
+            }
+        };
+
+        // Scenario A — crash BEFORE the redb commit: NEITHER status nor its mirror persist.
+        {
+            let path = temp_path("wi-kill9-precommit");
+            {
+                let db = open(&path);
+                seed_ready(&db);
+                assert!(commit_at(
+                    &db,
+                    &claim_batch(),
+                    Some(MutationBatchCrashpoint::BeforeCommit)
+                )
+                .is_err());
+            }
+            let db = open(&path);
+            let (status, machine) = read_pair(&db);
+            assert_eq!(status.as_deref(), Some("ready"), "status must not advance");
+            assert_eq!(machine, None, "the mirror must not advance either");
+            let _ = std::fs::remove_file(path);
+        }
+
+        // Scenario B — crash AFTER the redb commit (before ack): BOTH status AND its
+        // mirror are already durably on disk, together.
+        {
+            let path = temp_path("wi-kill9-postcommit");
+            {
+                let db = open(&path);
+                seed_ready(&db);
+                assert!(commit_at(
+                    &db,
+                    &claim_batch(),
+                    Some(MutationBatchCrashpoint::AfterCommitBeforeAck)
+                )
+                .is_err());
+            }
+            let db = open(&path);
+            let (status, machine) = read_pair(&db);
+            assert_eq!(
+                status.as_deref(),
+                Some("leased"),
+                "status committed durably"
+            );
+            assert_eq!(
+                machine.as_deref(),
+                Some("leased"),
+                "mirror committed durably and atomically with status"
+            );
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    /// ADR-5 / W2.2 acceptance: the dual-write divergence alarm fires on an induced
+    /// divergence. Drives the redb integration point (`apply_work_item_mirror`) with an
+    /// authoritative next state the chart would never compute, and asserts the
+    /// `epistemic_graph_statechart_divergence_total` counter increments while the agreeing
+    /// case does not.
+    #[cfg(all(feature = "statechart", feature = "metrics"))]
+    #[test]
+    fn work_item_mirror_divergence_raises_the_alarm() {
+        fn divergence_count() -> u64 {
+            for line in crate::metrics::render().lines() {
+                if line.starts_with(
+                    "epistemic_graph_statechart_divergence_total{machine=\"work_item\"}",
+                ) {
+                    return line
+                        .rsplit(' ')
+                        .next()
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .map(|f| f as u64)
+                        .unwrap_or(0);
+                }
+            }
+            0
+        }
+
+        // Induced divergence: `ready --claim-->` the chart decides `leased`, but the
+        // (hypothetically buggy) authority claims it landed `succeeded`.
+        let before = divergence_count();
+        let mut props = serde_json::Map::new();
+        apply_work_item_mirror(
+            &mut props,
+            "wi",
+            "ready",
+            crate::work_item_statechart::EV_CLAIM,
+            serde_json::json!({}),
+            Some("succeeded"),
+        );
+        assert_eq!(
+            divergence_count(),
+            before + 1,
+            "an induced divergence must increment the alarm counter"
+        );
+        // The mirror still records ITS OWN decision, so the divergence is queryable at rest.
+        assert_eq!(
+            props.get("machine_state").and_then(|v| v.as_str()),
+            Some("leased")
+        );
+
+        // The agreeing case does NOT alarm.
+        let steady = divergence_count();
+        let mut props2 = serde_json::Map::new();
+        apply_work_item_mirror(
+            &mut props2,
+            "wi2",
+            "ready",
+            crate::work_item_statechart::EV_CLAIM,
+            serde_json::json!({}),
+            Some("leased"),
+        );
+        assert_eq!(divergence_count(), steady, "agreement must not alarm");
+        assert_eq!(
+            props2.get("machine_state").and_then(|v| v.as_str()),
+            Some("leased")
+        );
     }
 
     #[test]
