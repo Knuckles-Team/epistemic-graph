@@ -5272,7 +5272,11 @@ class PipelineClient:
         node linked to its source node. Returns ``{model_id, family, rows, n_rows,
         written_back, ...}``.
         """
-        params: dict[str, Any] = {"name": name, "version": version, "writeback": writeback}
+        params: dict[str, Any] = {
+            "name": name,
+            "version": version,
+            "writeback": writeback,
+        }
         if source is not None:
             params["source"] = source
         if x is not None:
