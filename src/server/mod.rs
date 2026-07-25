@@ -262,6 +262,15 @@ pub(crate) mod mutation_batch;
 // status/recompute directly from that projection.
 #[cfg(feature = "epistemic-tms")]
 pub mod reasoning_projection;
+// Reasoning auto-cascade (W3.6/E16, opt-in via `REASON_ON_WRITE`): CDC-triggered,
+// debounced OWL/RL closure re-materialization per graph. Wires the EXISTING
+// `eg_rdf::owl::Reasoner` incremental delta re-seed (`add_axioms`) into the write
+// path via the CDC hub's `emit` choke point (see `cdc.rs`). Gated on `owl` alone
+// (this module's real dependency) — a `streaming`-less build compiles it, but its
+// only call site (the `owl`-gated hook inside `cdc.rs`, itself `streaming`-gated)
+// then has nothing to reach it, so nothing spawns.
+#[cfg(feature = "owl")]
+pub mod reasoning_cascade;
 // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): wires the EXISTING eg-shacl ICV
 // commit guard onto the live RDF write path (AddTriples/RemoveTriples/ApplyMutation).
 // Pure-Rust (no new dep — `eg-shacl` + `std::sync::OnceLock`), gated `shacl`; a build
