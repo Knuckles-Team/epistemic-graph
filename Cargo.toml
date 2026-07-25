@@ -557,8 +557,14 @@ streaming = ["server", "eg-types/streaming"]
 # any write bumps the version → miss → recompute (staleness impossible). Pure-Rust
 # bounded LRU + hash (NO new dep, NO DataFusion/openraft/object_store), included in
 # the one main build. The CDC feed (feature `streaming`)
-# drives cross-replica invalidation when both are present.
-result-cache = ["eg-core/result-cache"]
+# drives cross-replica invalidation when both are present. The weak `eg-query?/result-cache`
+# edge additionally unlocks `eg-query`'s named graph-projection catalog
+# (CONCEPT:EG-KG.query.named-graph-projection-catalog, W4.5/N5 — `gds.graph.project`/`.drop`/
+# `.exists`/`.list` + named-projection reuse in the other `gds.*` procedures), which needs
+# `GraphView::projection_scope` — a field that only exists under `eg-core/result-cache` — and is
+# therefore compiled in ONLY when `eg-query` is already enabled (`cypher`/`query`), mirroring the
+# `numeric`/`wasm-udf` weak-dep precedents below.
+result-cache = ["eg-core/result-cache", "eg-query?/result-cache"]
 # Plan-backed materialized views (CONCEPT:EG-KG.storage.plan-backed-matview): a NAMED,
 # DURABLE `wire::Plan` over one graph whose RESULT rides the version-keyed, RLS-aware
 # result cache. Defining it executes the plan once (via the eg-plan runtime) and caches

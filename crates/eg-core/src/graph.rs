@@ -61,6 +61,49 @@ pub struct GraphView {
     /// how `plan_stats_memo` is filled by the producing crate rather than by
     /// eg-core itself. `None` until first use.
     pub label_index_memo: OnceLock<HashMap<String, Vec<String>>>,
+    /// Interior-mutable, type-erased memo of per-column APPROXIMATE DISTINCT-VALUE sketches
+    /// (CONCEPT:EG-KG.query.approx-distinct-cardinality, W4.5/N5) — `eg-plan`'s `DistinctStats`
+    /// (an `eg_compute::sketch::HyperLogLog` per top-level property key). Same shape and same
+    /// staleness-impossible reasoning as [`Self::plan_stats_memo`] (a THIRD, separate slot rather
+    /// than folded into that one: `plan_stats_memo` already has established callers/tests keyed
+    /// to holding exactly `eg-plan`'s `ColumnStats` — see that field's doc). `None` until first
+    /// use; populated by `eg-plan`, not here.
+    pub distinct_stats_memo: OnceLock<Arc<dyn Any + Send + Sync>>,
+    /// Graph-level named-projection catalog + dependency-clock handle
+    /// (CONCEPT:EG-KG.query.named-graph-projection-catalog, W4.5/N5). Unlike `plan_stats_memo`/
+    /// `label_index_memo` above (per-snapshot memos that start cold on every view), this is
+    /// GRAPH identity, not snapshot-derived data — see [`ProjectionScope`]'s doc. `None` on any
+    /// view not produced by `GraphCore::analysis_snapshot_versioned`.
+    #[cfg(feature = "result-cache")]
+    pub projection_scope: Option<ProjectionScope>,
+}
+
+/// Graph-level handles threaded into a [`GraphView`] (CONCEPT:EG-KG.query.named-graph-projection-catalog,
+/// W4.5/N5) so code holding only a read-only view — never the live, lock-bearing `GraphCore` —
+/// can still reach the two pieces of graph-IDENTITY state a named projection needs: the
+/// [`crate::projection_catalog::ProjectionCatalog`] itself and the [`crate::dep_scope::DepClock`]
+/// that validates its entries. Deliberately narrow: NOT the whole `GraphCore` (which holds the
+/// `RwLock`/`DashMap` state a read-only, off-lock algorithm must never touch — the entire reason
+/// `GraphView` snapshots exist, per this file's opening doc comment). Both fields are `Arc`
+/// clones of the SAME live objects `GraphCore` owns, not forks of their state, so a projection
+/// materialized through this handle is visible to every OTHER query against the same graph, and
+/// a write recorded on the live `DepClock` is immediately visible here.
+///
+/// `None` on any `GraphView` not produced via a `(view, version)` pair —
+/// `topology_snapshot`/`analysis_snapshot`/`get_subgraph`/manually-constructed test views — so a
+/// `gds.*` procedure without this handle simply falls back to re-projecting from the view on
+/// every call (today's behavior; zero regression for any pre-existing caller). Only
+/// `GraphCore::analysis_snapshot_versioned` populates it, because a freshly materialized
+/// projection must be stamped with the SAME atomically-read `version` that call already
+/// captures.
+#[derive(Clone)]
+#[cfg(feature = "result-cache")]
+pub struct ProjectionScope {
+    pub catalog: Arc<crate::projection_catalog::ProjectionCatalog>,
+    pub dep_clock: Arc<crate::dep_scope::DepClock>,
+    /// The graph version this VIEW reflects — what a NEWLY materialized projection is stamped
+    /// `computed_at` with, so it validates correctly against `dep_clock` on the next lookup.
+    pub version: u64,
 }
 
 impl Clone for GraphView {
@@ -69,6 +112,11 @@ impl Clone for GraphView {
     /// must not inherit the source's cached stats (which describe the source's data).
     /// Fresh empty memos make any derived stat recompute on demand for the clone —
     /// staleness is impossible even under a hypothetical clone-then-mutate.
+    ///
+    /// `projection_scope` is the one exception: it is GRAPH identity (an `Arc` handle to the
+    /// source `GraphCore`'s own catalog + clock), not snapshot-derived data, so it is PRESERVED
+    /// (an `Arc` clone) rather than reset — a clone of this view must still resolve a named
+    /// projection against the same live catalog the original would have.
     fn clone(&self) -> Self {
         Self {
             graph: self.graph.clone(),
@@ -77,6 +125,9 @@ impl Clone for GraphView {
             edge_properties: self.edge_properties.clone(),
             plan_stats_memo: OnceLock::new(),
             label_index_memo: OnceLock::new(),
+            distinct_stats_memo: OnceLock::new(),
+            #[cfg(feature = "result-cache")]
+            projection_scope: self.projection_scope.clone(),
         }
     }
 }
@@ -507,8 +558,16 @@ pub struct GraphCore {
     /// (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7, feature `result-cache`).
     /// A write bumps only the label / key / node / edge dimensions it touched; a cached result
     /// survives every write disjoint from the query's dependency set. See `crate::dep_scope`.
+    /// `Arc`-wrapped (not a bare value) so [`Self::analysis_snapshot_versioned`] can hand a
+    /// SHARED, live handle to it into a [`ProjectionScope`] riding along on a [`GraphView`] —
+    /// the same continuously-fed clock instance, not a fork of its state — letting `eg-query`'s
+    /// GDS procedures (which see only `&GraphView`, never the lock-bearing `GraphCore`) validate
+    /// a named graph projection against it (CONCEPT:EG-KG.query.named-graph-projection-catalog,
+    /// W4.5/N5). Every existing accessor/call site is unaffected: `&DepClock` methods take
+    /// `&self` (interior mutability throughout), so they resolve through the `Arc` via ordinary
+    /// auto-deref with no call-site changes.
     #[cfg(feature = "result-cache")]
-    dep_clock: crate::dep_scope::DepClock,
+    dep_clock: Arc<crate::dep_scope::DepClock>,
     /// Version-keyed query-RESULT cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence, feature `result-cache`).
     /// Caches the serialized bytes of a read query (`Sql`/`Cypher`/`Sparql`/
     /// `UnifiedQuery`) keyed by `(query-hash, version())`. A repeated identical query
@@ -517,6 +576,14 @@ pub struct GraphCore {
     /// construction. Bounded LRU, pure-Rust, so it folds into the lean Pi tier.
     #[cfg(feature = "result-cache")]
     result_cache: crate::result_cache::ResultCache,
+    /// Named graph-projection catalog (CONCEPT:EG-KG.query.named-graph-projection-catalog, W4.5 /
+    /// N5, feature `result-cache`) — the `gds.graph.project`-equivalent: a materialized
+    /// projection an algorithm re-runs against without re-scanning the graph, invalidated via
+    /// [`Self::dep_clock`] (reused, not duplicated). `Arc`-wrapped for the SAME reason as
+    /// `dep_clock`: shared into a [`GraphView`]'s [`ProjectionScope`] so `eg-query`'s `gds.*`
+    /// procedures can populate/consult it. See `crate::projection_catalog`.
+    #[cfg(feature = "result-cache")]
+    graph_projections: Arc<crate::projection_catalog::ProjectionCatalog>,
 }
 
 impl Default for GraphCore {
@@ -2110,9 +2177,11 @@ impl GraphCore {
             index_stamps: IndexStamps::default(),
             index_rebuilds: std::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "result-cache")]
-            dep_clock: crate::dep_scope::DepClock::new(),
+            dep_clock: Arc::new(crate::dep_scope::DepClock::new()),
             #[cfg(feature = "result-cache")]
             result_cache: crate::result_cache::ResultCache::new(),
+            #[cfg(feature = "result-cache")]
+            graph_projections: Arc::new(crate::projection_catalog::ProjectionCatalog::new()),
         }
     }
 
@@ -2134,6 +2203,19 @@ impl GraphCore {
     #[cfg(feature = "result-cache")]
     pub fn dep_clock(&self) -> &crate::dep_scope::DepClock {
         &self.dep_clock
+    }
+
+    /// The named graph-projection catalog (CONCEPT:EG-KG.query.named-graph-projection-catalog,
+    /// W4.5/N5) — the `gds.graph.project`-equivalent materialized-projection cache. `eg-query`'s
+    /// `gds.graph.project`/`gds.graph.drop`/`gds.graph.list`/`gds.graph.exists` procedures and
+    /// every named-projection-aware `gds.*` algorithm procedure reach it via the
+    /// [`ProjectionScope`] riding on [`Self::analysis_snapshot_versioned`]'s [`GraphView`], not
+    /// through this accessor directly (they only ever hold a view) — this accessor is for
+    /// `GraphCore`-holding callers (tests, admin/introspection surfaces). See
+    /// `crate::projection_catalog`.
+    #[cfg(feature = "result-cache")]
+    pub fn graph_projections(&self) -> &crate::projection_catalog::ProjectionCatalog {
+        &self.graph_projections
     }
 
     /// Count of FULL node-derived index rebuilds since construction (W1.6/P7, the "rebuild count
@@ -5202,6 +5284,12 @@ impl GraphCore {
             edge_properties: HashMap::new(),
             plan_stats_memo: OnceLock::new(),
             label_index_memo: OnceLock::new(),
+            distinct_stats_memo: OnceLock::new(),
+            // No version captured alongside this snapshot (unlike `analysis_snapshot_versioned`),
+            // so a freshly materialized projection couldn't be soundly stamped — omit the handle;
+            // a `gds.*` procedure over this view just always re-projects.
+            #[cfg(feature = "result-cache")]
+            projection_scope: None,
         }
     }
 
@@ -5225,6 +5313,12 @@ impl GraphCore {
                 .collect(),
             plan_stats_memo: OnceLock::new(),
             label_index_memo: OnceLock::new(),
+            distinct_stats_memo: OnceLock::new(),
+            // No version captured alongside this snapshot — see `topology_snapshot`'s identical
+            // note. Callers that need named-projection reuse must use
+            // `analysis_snapshot_versioned` instead.
+            #[cfg(feature = "result-cache")]
+            projection_scope: None,
         }
     }
 
@@ -5254,6 +5348,17 @@ impl GraphCore {
                 .collect(),
             plan_stats_memo: OnceLock::new(),
             label_index_memo: OnceLock::new(),
+            distinct_stats_memo: OnceLock::new(),
+            // CONCEPT:EG-KG.query.named-graph-projection-catalog (W4.5/N5) — hand this view a
+            // SHARED handle (Arc clones — the same live objects, not forks) to the graph's named
+            // projection catalog + the dependency clock that validates it, stamped with the SAME
+            // `version` just read atomically above. This is the ONE snapshot constructor that
+            // populates it (see `ProjectionScope`'s doc for why the others deliberately don't).
+            projection_scope: Some(ProjectionScope {
+                catalog: Arc::clone(&self.graph_projections),
+                dep_clock: Arc::clone(&self.dep_clock),
+                version,
+            }),
         };
         (view, version)
     }
@@ -5320,10 +5425,16 @@ impl GraphCore {
             index_stamps: IndexStamps::default(),
             index_rebuilds: std::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "result-cache")]
-            dep_clock: crate::dep_scope::DepClock::new(),
+            dep_clock: Arc::new(crate::dep_scope::DepClock::new()),
             // A fork starts with an empty result cache (its own version line).
             #[cfg(feature = "result-cache")]
             result_cache: crate::result_cache::ResultCache::new(),
+            // A fork is a distinct graph (its own version line, above) — it must NOT share the
+            // parent's named projections (they were materialized+stamped against the PARENT's
+            // version history, meaningless against the fork's fresh one). Fresh + empty; the
+            // fork rebuilds any projection it needs on first `gds.graph.project`.
+            #[cfg(feature = "result-cache")]
+            graph_projections: Arc::new(crate::projection_catalog::ProjectionCatalog::new()),
         }
     }
 
