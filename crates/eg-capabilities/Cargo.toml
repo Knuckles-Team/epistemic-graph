@@ -50,7 +50,8 @@ name = "eg_capabilities"
 [dependencies.eg-types]
 path = "../eg-types"
 features = [
-    "metrics", "finance", "datascience", "mining", "graphlearn", "epistemic",
+    "metrics", "finance", "datascience", "mining", "graphlearn", "ml-pipeline",
+    "epistemic",
     "query", "graphql", "broker", "text", "blob", "kv", "sqlite-file",
     "streaming", "cost", "rdf", "sparql", "owl", "owl-plan", "obda",
     "wasm-udf", "compute-dist", "matview", "security", "federation",

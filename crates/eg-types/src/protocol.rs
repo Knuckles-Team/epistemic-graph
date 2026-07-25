@@ -3731,6 +3731,89 @@ pub enum Method {
         writeback: bool,
     },
 
+    // ── ML Pipeline (CONCEPT:EG-KG.mining.ml-pipeline) ──
+    // A composable train→eval→serve→predict pipeline over a versioned `:Model`
+    // artifact that GENERALIZES the KAN one-off (GraphLearn* above): ordered feature
+    // steps → split → a pluggable model family (classify | estimator | graphlearn).
+    // GRAPH-SCOPED like mining/graphlearn — features are read off the live subgraph and
+    // the versioned `:Model`/`:ServedModel`/`:Prediction` write-backs materialize into
+    // the core. Train/Serve/Predict are RUNTIME-CONDITIONAL writes (routed via
+    // `commit_conditional_mutation`, like the GraphLearn*/Mine* families); Evaluate and
+    // Compare are read-only. Gated `ml-pipeline`; a build without it drops every variant
+    // → the graph_ops "not available in this build" catch-all.
+    #[cfg(feature = "ml-pipeline")]
+    MiningPipelineTrain {
+        /// Pipeline name — versioned `:Model` artifacts are keyed by it (`v1`, `v2`…).
+        name: String,
+        /// The graph-derived node source the feature steps read. Empty ⇒ `x` explicit.
+        #[serde(default)]
+        source: Option<GraphSource>,
+        /// Explicit feature matrix — each row a sample. Empty ⇒ built from `source`
+        /// via the spec's feature steps.
+        #[serde(default)]
+        x: Vec<Vec<f64>>,
+        /// Explicit integer labels aligned to the rows / source node order. Empty ⇒
+        /// read from each node's `spec.label_property` (node classification).
+        #[serde(default)]
+        y: Vec<i64>,
+        /// The composable pipeline recipe (features → split → model).
+        spec: crate::wire::PipelineSpec,
+        /// Persist the fitted model as a versioned `:Model` node (a graph write).
+        /// `false` ⇒ dry-run: fit + report metrics without materializing an artifact.
+        #[serde(default = "default_true")]
+        writeback: bool,
+    },
+    #[cfg(feature = "ml-pipeline")]
+    MiningPipelineEvaluate {
+        /// The pipeline whose stored model to score.
+        name: String,
+        /// Model version to evaluate; `0` ⇒ the currently-served version.
+        #[serde(default)]
+        version: u64,
+        /// Node source to build the evaluation features from (via the model's stored
+        /// feature recipe). Empty ⇒ use explicit `x`.
+        #[serde(default)]
+        source: Option<GraphSource>,
+        #[serde(default)]
+        x: Vec<Vec<f64>>,
+        /// Ground-truth integer labels; empty ⇒ read the model's `label_property`.
+        #[serde(default)]
+        y: Vec<i64>,
+    },
+    #[cfg(feature = "ml-pipeline")]
+    MiningPipelineServe {
+        /// The pipeline whose version to deploy.
+        name: String,
+        /// The `:Model` version to mark served (predict-by-name then resolves it).
+        version: u64,
+    },
+    #[cfg(feature = "ml-pipeline")]
+    MiningPipelinePredict {
+        /// The pipeline to predict with.
+        name: String,
+        /// Model version; `0` ⇒ the currently-served version.
+        #[serde(default)]
+        version: u64,
+        /// Node source to predict over (rebuilds features via the model's recipe).
+        /// Empty ⇒ use explicit `x`.
+        #[serde(default)]
+        source: Option<GraphSource>,
+        #[serde(default)]
+        x: Vec<Vec<f64>>,
+        /// Materialize each prediction as a typed `:Prediction` node linked to its
+        /// source node (a graph write).
+        #[serde(default)]
+        writeback: bool,
+    },
+    #[cfg(feature = "ml-pipeline")]
+    MiningPipelineCompare {
+        /// The pipeline whose two versions to compare.
+        name: String,
+        /// The two `:Model` versions to diff (held-out metrics).
+        version_a: u64,
+        version_b: u64,
+    },
+
     /// Sequential-pattern mining (CONCEPT:EG-KG.mining.prefixspan — Phase 4).
     /// Finds frequent ORDERED subsequences (PrefixSpan or GSP; both agree) over
     /// EITHER explicit `sequences` (each a time-ordered list of item labels — an
