@@ -140,3 +140,11 @@ name = "parse_bench"
 path = "benches/parse_bench.rs"
 harness = false
 required-features = ["ast"]
+
+# Approximate gds.knn (NN-descent) quality + speed bench (CONCEPT:EG-KG.compute.node-similarity,
+# W4.3/E11): seeded NN-descent vs the exact O(V^2) sweep. Always-on graph_algos, so no
+# required-features.
+[[bench]]
+name = "approx_knn"
+path = "benches/approx_knn.rs"
+harness = false

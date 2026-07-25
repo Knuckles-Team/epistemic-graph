@@ -83,7 +83,9 @@ RETURN nodeId, score ORDER BY score DESC LIMIT 10;
 Available `gds.*`: PageRank, weakly/strongly-connected components, Louvain community detection, Label
 Propagation, betweenness + degree centrality, single-source weighted shortest path (Dijkstra), node
 similarity (Jaccard/cosine over neighborhoods, all-pairs `gds.nodeSimilarity` + per-node top-`k`
-`gds.knn`), density clustering (`gds.dbscan`, feature `cypher-mining`), and link prediction
+`gds.knn` — `mode: 'exact'` [default, full `O(V²·d̄)` sweep] or `mode: 'approximate'` [seeded
+NN-descent sampling: `sampleRate`/`maxIterations`/`deltaThreshold`/`randomSeed`, sub-quadratic at
+large V]), density clustering (`gds.dbscan`, feature `cypher-mining`), and link prediction
 (`gds.linkPrediction`, a KAN classifier over structural pair features, feature `cypher-graphlearn`) —
 CONCEPT:EG-KG.query.gds-procedure-routing.
 

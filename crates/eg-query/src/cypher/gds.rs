@@ -33,11 +33,12 @@ use serde_json::Value;
 use eg_compute::graph_algos::{
     a_star, all_pairs_similarity, article_rank, betweenness_centrality, closeness_centrality,
     degree_centrality, dijkstra, eigenvector_centrality, harmonic_centrality, haversine_km,
-    k1_coloring, k_core, knn_similarity, label_propagation, leiden, local_clustering_coefficient,
-    louvain, pagerank, random_walk, steiner_tree, strongly_connected_components, triangle_count,
-    weakly_connected_components, yen_k_shortest_paths, AdjacencyGraph, ArticleRankConfig,
-    ClosenessConfig, DegreeKind, Direction, EigenvectorConfig, LabelPropagationConfig,
-    LeidenConfig, LouvainConfig, Metric, PageRankConfig, RandomWalkConfig,
+    k1_coloring, k_core, knn_similarity, knn_similarity_approx, label_propagation, leiden,
+    local_clustering_coefficient, louvain, pagerank, random_walk, steiner_tree,
+    strongly_connected_components, triangle_count, weakly_connected_components,
+    yen_k_shortest_paths, AdjacencyGraph, ArticleRankConfig, ClosenessConfig, DegreeKind,
+    Direction, EigenvectorConfig, LabelPropagationConfig, LeidenConfig, LouvainConfig, Metric,
+    PageRankConfig, RandomWalkConfig,
 };
 
 use super::proc::{CypherProcedure, ProcRow, YieldValue};
@@ -926,10 +927,14 @@ impl CypherProcedure for NodeSimilarity {
 /// (CONCEPT:EG-KG.query.gds-procedure-routing). Distinct from `gds.nodeSimilarity`'s global
 /// all-pairs cutoff sweep: each node independently keeps its `topK` best-scoring
 /// matches. Config: `similarityMetric` (`JACCARD` [default] / `COSINE`),
-/// `similarityCutoff` (0.0), `topK` (10), `relationshipWeightProperty`. Yields
-/// `node1`, `node2`, `similarity`. Routes to
-/// `eg_compute::graph_algos::knn_similarity` (CONCEPT:EG-KG.compute.node-similarity) — exact
-/// top-`k` via a full sweep, not Neo4j's approximate KNN-descent sampling.
+/// `similarityCutoff` (0.0), `topK` (10), `relationshipWeightProperty`, and the
+/// mode selector `mode` (`exact` [default] / `approximate`). `exact` routes to
+/// `eg_compute::graph_algos::knn_similarity` (a full `O(V²·d̄)` sweep); `approximate`
+/// routes to `eg_compute::graph_algos::knn_similarity_approx` — Neo4j-style seeded
+/// NN-descent sampling that trades exactness for a sub-quadratic cost at large V,
+/// with the extra knobs `sampleRate` (0.5), `maxIterations` (100), `deltaThreshold`
+/// (0.001), and `randomSeed` (42). Both modes yield identical
+/// `node1`/`node2`/`similarity` shape + ordering. CONCEPT:EG-KG.compute.node-similarity
 struct Knn;
 impl CypherProcedure for Knn {
     fn name(&self) -> &'static str {
@@ -947,7 +952,34 @@ impl CypherProcedure for Knn {
         };
         let cutoff = cfg.f64("similarityCutoff", 0.0);
         let top_k = cfg.usize("topK", 10);
-        let pairs = knn_similarity(&g, metric, Direction::Out, top_k, cutoff);
+        let approximate = cfg
+            .string("mode")
+            .map(|m| {
+                let m = m.trim();
+                m.eq_ignore_ascii_case("approximate")
+                    || m.eq_ignore_ascii_case("approx")
+                    || m.eq_ignore_ascii_case("sampled")
+            })
+            .unwrap_or(false);
+        let pairs = if approximate {
+            let sample_rate = cfg.f64("sampleRate", 0.5);
+            let max_iters = cfg.usize("maxIterations", 100);
+            let delta = cfg.f64("deltaThreshold", 0.001);
+            let seed = cfg.usize("randomSeed", 42) as u64;
+            knn_similarity_approx(
+                &g,
+                metric,
+                Direction::Out,
+                top_k,
+                cutoff,
+                sample_rate,
+                max_iters,
+                delta,
+                seed,
+            )
+        } else {
+            knn_similarity(&g, metric, Direction::Out, top_k, cutoff)
+        };
         Ok(pairs
             .into_iter()
             .map(|p| {
@@ -1885,6 +1917,80 @@ mod tests {
             let ids = [node_id(&row[0]), node_id(&row[1])];
             ids.contains(&"b") && ids.contains(&"c")
         }));
+    }
+
+    #[test]
+    fn call_gds_knn_approximate_mode_finds_clusters() {
+        // 4 blocks × 6 members, each block's members share 3 block-local feature
+        // targets ⇒ within-block similarity 1.0, cross-block 0.0. n=24 sources > k+1
+        // so `mode: "approximate"` runs real NN-descent (not the tiny-graph fallback).
+        let core = GraphCore::new();
+        let mut expected_block: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for blk in 0..4 {
+            for member in 0..6 {
+                let src = format!("n{blk}_{member}");
+                core.add_node(src.clone(), pbytes(serde_json::json!({"node_type": "N"})));
+                expected_block.insert(src.clone(), blk);
+                for f in 0..3 {
+                    let tgt = format!("f{blk}_{f}");
+                    core.add_node(tgt.clone(), pbytes(serde_json::json!({"node_type": "F"})));
+                    core.add_edge(src.clone(), tgt, pbytes(serde_json::json!({})))
+                        .unwrap();
+                }
+            }
+        }
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.knn({topK: 3, mode: 'approximate', sampleRate: 0.8, randomSeed: 7}) \
+             YIELD node1, node2, similarity RETURN node1, node2, similarity",
+        )
+        .unwrap();
+        let r = rows(&qr);
+        assert!(!r.is_empty(), "approximate knn must yield pairs");
+        // Every returned pair is a valid within-block (score 1.0) similarity edge:
+        // cross-block pairs score 0.0 and are cut by the default cutoff.
+        for row in &r {
+            let (a, b) = (node_id(&row[0]), node_id(&row[1]));
+            let s = row[2].as_f64().unwrap();
+            assert!((0.0..=1.0).contains(&s) && s > 0.0);
+            if let (Some(ba), Some(bb)) = (expected_block.get(a), expected_block.get(b)) {
+                assert_eq!(ba, bb, "an approx pair ({a},{b}) must be within one block");
+            }
+        }
+        // NN-descent must recover at least one exact 1.0 neighbour pair per block it
+        // touches — verify it found the strong structure, not just noise.
+        assert!(
+            r.iter()
+                .any(|row| (row[2].as_f64().unwrap() - 1.0).abs() < 1e-9),
+            "approx knn must recover within-block 1.0 pairs"
+        );
+    }
+
+    #[test]
+    fn call_gds_knn_approximate_matches_exact_on_tiny_graph() {
+        // n=3 sources ≤ topK+1 ⇒ `mode: "approximate"` falls back to the exact sweep,
+        // so it must reproduce the exact test's (a,b)@1.0 result — confirms routing.
+        let core = GraphCore::new();
+        for id in ["a", "b", "c", "x", "y"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for (s, t) in [("a", "x"), ("a", "y"), ("b", "x"), ("b", "y"), ("c", "x")] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
+                .unwrap();
+        }
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.knn({topK: 1, mode: 'approximate'}) YIELD node1, node2, similarity \
+             RETURN node1, node2, similarity",
+        )
+        .unwrap();
+        let r = rows(&qr);
+        assert!(r.iter().any(|row| node_id(&row[0]) == "a"
+            && node_id(&row[1]) == "b"
+            && (row[2].as_f64().unwrap() - 1.0).abs() < 1e-9));
     }
 
     #[cfg(feature = "cypher-mining")]
