@@ -5872,7 +5872,8 @@ mod tests {
         // the other.
         let mut node_x = base.clone();
         node_x.node = Some("X".into());
-        let node_only = build_envelope_v2_bytes(7, "g", "Ping", "hash", &node_x, 111, "nonce", "idem");
+        let node_only =
+            build_envelope_v2_bytes(7, "g", "Ping", "hash", &node_x, 111, "nonce", "idem");
         let mut prio_x = base.clone();
         prio_x.priority = Some("X".into());
         let prio_x_bytes =
@@ -5887,7 +5888,8 @@ mod tests {
         let mut both = base.clone();
         both.node = Some("X".into());
         both.priority = Some("interactive".into());
-        let both_bytes = build_envelope_v2_bytes(7, "g", "Ping", "hash", &both, 111, "nonce", "idem");
+        let both_bytes =
+            build_envelope_v2_bytes(7, "g", "Ping", "hash", &both, 111, "nonce", "idem");
         assert_ne!(both_bytes, node_only);
         assert_ne!(both_bytes, prio_only2);
     }
