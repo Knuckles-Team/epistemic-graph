@@ -503,8 +503,11 @@ impl QosScheduler {
                 tokens: cfg.bucket_capacity,
                 last_refill: now,
             });
-        let elapsed = now.saturating_duration_since(entry.last_refill).as_secs_f64();
-        entry.tokens = (entry.tokens + elapsed * cfg.bucket_refill_per_sec).min(cfg.bucket_capacity);
+        let elapsed = now
+            .saturating_duration_since(entry.last_refill)
+            .as_secs_f64();
+        entry.tokens =
+            (entry.tokens + elapsed * cfg.bucket_refill_per_sec).min(cfg.bucket_capacity);
         entry.last_refill = now;
         if entry.tokens >= 1.0 {
             entry.tokens -= 1.0;
@@ -779,11 +782,11 @@ mod tests {
     #[test]
     fn plan_admissions_orders_by_priority_then_deadline() {
         let pending = vec![
-            req_dl(QosClass::Ingest, "a", Some(10)),        // 0
-            req_dl(QosClass::Interactive, "b", Some(500)),  // 1
-            req_dl(QosClass::Interactive, "c", Some(100)),  // 2
-            req_dl(QosClass::Hydration, "d", Some(1)),      // 3
-            req_dl(QosClass::Orch, "e", Some(50)),          // 4
+            req_dl(QosClass::Ingest, "a", Some(10)),       // 0
+            req_dl(QosClass::Interactive, "b", Some(500)), // 1
+            req_dl(QosClass::Interactive, "c", Some(100)), // 2
+            req_dl(QosClass::Hydration, "d", Some(1)),     // 3
+            req_dl(QosClass::Orch, "e", Some(50)),         // 4
         ];
         // interactive (urgent-first) → orch → hydration → ingest, regardless of the tiny
         // hydration/ingest deadlines.
@@ -841,9 +844,12 @@ mod tests {
         let mut held = vec![permit(sched.try_admit(&req(QosClass::Ingest, "p")))];
         held.push(permit(sched.try_admit(&req(QosClass::Ingest, "p"))));
         // Bucket now created + drained to 0.
-        assert_eq!(reject(sched.try_admit(&req(QosClass::Ingest, "p"))), QosReject::RateLimited);
+        assert_eq!(
+            reject(sched.try_admit(&req(QosClass::Ingest, "p"))),
+            QosReject::RateLimited
+        );
         drop(held); // principal p drains to zero in-flight ⇒ its buckets are freed.
-        // A fresh full bucket ⇒ admits again.
+                    // A fresh full bucket ⇒ admits again.
         let _fresh = permit(sched.try_admit(&req(QosClass::Ingest, "p")));
     }
 
