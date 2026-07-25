@@ -170,6 +170,28 @@ pub fn build_iceberg(
         .map(|(id, s)| iceberg_schema(s, *id))
         .collect();
 
+    // `schema.name-mapping.default` (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns): eg-lake's Parquet writer
+    // (Polars, `parquet_io.rs`) does not embed Iceberg field-ids on Parquet columns the
+    // way a native Iceberg writer does, so a spec-compliant reader (pyiceberg's
+    // `pyarrow_to_schema`, and any other reader that enforces
+    // https://iceberg.apache.org/spec/#column-projection) refuses to open the file
+    // without EITHER embedded field-ids OR this table-property fallback: a JSON array
+    // (itself embedded as a STRING value, per the spec's Name Mapping Serialization)
+    // mapping each column NAME to its Iceberg field-id, so the reader resolves by name.
+    // Built from the CURRENT schema (evolution is additive-only, CONCEPT:EG-KG.storage.iceberg-per-file-schema-id) —
+    // matches the SAME 1-based, declaration-order ids `iceberg_schema` assigns.
+    let name_mapping: Vec<Value> = current_schema
+        .map(|s| {
+            s.fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| json!({ "field-id": i + 1, "names": [f.name] }))
+                .collect()
+        })
+        .unwrap_or_default();
+    let name_mapping_json =
+        serde_json::to_string(&name_mapping).unwrap_or_else(|_| "[]".to_string());
+
     let metadata = json!({
         "format-version": 2,
         "table-uuid": table_uuid,
@@ -187,6 +209,7 @@ pub fn build_iceberg(
         "properties": {
             "engine": "epistemic-graph/eg-lake",
             "concept": "EG-KG.storage.lsn-as-snapshot-returns",
+            "schema.name-mapping.default": name_mapping_json,
         },
         "current-snapshot-id": snapshot_id,
         "snapshots": [snapshot_obj],

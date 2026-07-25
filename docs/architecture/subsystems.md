@@ -217,7 +217,8 @@ violating write — and can run in the OWL-reasoned view, surpassing Stardog ICV
 
 ## Lakehouse interop (eg-lake — LTAP, EG-KG.storage.lsn-as-snapshot-returns) {#lakehouse-interop}
 
-A new leaf crate `eg-lake` (feature `lake`, an opt-in feature not in the default build) is the **read-side lakehouse egress** that makes
+A leaf crate `eg-lake` (features `lake`/`lake-rest`, part of the one main `full` build as of W4.8) is the
+**read-side lakehouse egress** that makes
 the engine an **LTAP** (Lakehouse-Transactional-Analytical) superset — **Databricks-interoperable**. An async
 columnar-materialization tier transcodes an engine table / columnar segment into Arrow record batches and
 writes **Parquet** onto the object store (the same blob CAS / S3 tier), appending a **Delta** `_delta_log`
@@ -225,8 +226,10 @@ and **Iceberg** snapshot metadata, and serving an **Iceberg-REST catalog** so ex
 (Databricks / Spark / Trino / DuckDB) read the engine's own tables with **zero ETL**. Materialization reuses
 the engine's versioned snapshots + `Op::AsOf` for **LSN-style as-of / time-travel** reads that pin an exact
 engine version. The write path is unchanged — this is an additive projection, not a second store. *(The
-Iceberg **Avro manifest** writer is currently a stub; the Delta path + Iceberg-REST catalog are the
-complete reader-ready surfaces.)* Deep dive: [lakehouse-ltap](lakehouse_ltap.md).
+Iceberg **Avro manifest** writer (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest) is a real, spec-compliant
+writer, not a stub — the Delta path, the real Avro manifest/manifest-list, and the Iceberg-REST catalog are
+all complete reader-ready surfaces; read-parity against real pyiceberg/deltalake readers is covered in
+`tests/test_lake_iceberg_delta_parity.py`.)* Deep dive: [lakehouse-ltap](lakehouse_ltap.md).
 
 ## QoS/SLO scheduler (server, EG-320)
 
