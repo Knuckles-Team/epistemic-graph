@@ -23,11 +23,26 @@ a verified principal, tenant, audience, effective agent, policy version, scopes,
 timestamp, nonce, and idempotency key. The server requires the `security` feature,
 a non-empty signing secret, deployment policy values, a durable replay ledger,
 and a signer-key registry before it opens a listener (see
-`docs/service_mode.md#authentication-protocol`). There is **NO PyO3 / in-process extension** — that coupling was
-removed to stay GIL-free and horizontally scalable. The shipped wheel contains
-the `epistemic-graph-server` binary plus a pure-Python client; `maturin` is
-configured `bindings = "bin"`. This is enforced by `scripts/check_no_pyo3.sh`
-(fails on PyO3 in source **or** a compiled `_epistemic_graph*.so`).
+`docs/service_mode.md#authentication-protocol`).
+
+**Two deployment shapes, one performance discipline (this edict evolved — see history).**
+*(a) Out-of-process (the horizontal-scale default):* Python talks to a long-running Tokio
+engine over the socket — GIL-free, so one engine backs many `graph-os` clients and scales
+independently; the wheel ships the `epistemic-graph-server` binary + a pure-Python client
+(`bindings = "bin"`). *(b) Unified single binary (the self-contained default — EVOLVING):*
+for a self-contained deployment (one `graph-os`, no horizontal fan-out) the engine is
+embedded **in-process via PyO3** — one binary, one lifecycle, no socket serialize/round-trip,
+no cross-image drift — and is **preferred wherever it consolidates with no hot-path cost**.
+**The rule that keeps BOTH shapes fast is the same and non-negotiable: engine calls stay
+BATCHED** (one call = one batch op over graph-resident data, never a per-element Python loop)
+and the engine's tokio/compute internals stay pure Rust — so Python never bottlenecks the hot
+path in either shape. Rust-native/optimized is the default; PyO3 sits ONLY at that batched
+boundary, never in a per-op inner loop. (History: PyO3 was originally removed outright to stay
+GIL-free and horizontally scalable — the right call for a shared, scaled engine. It is now
+restored as the OPT-IN unified path because a self-contained deployment gains a single
+consolidated binary with no measured downside, and the batching discipline preserves the
+original performance goal that motivated the removal. `scripts/check_no_pyo3.sh` therefore
+scopes to the scale-out build, not the unified one.)
 
 The framing is a 4-byte big-endian `u32` length prefix + a MessagePack body, so
 binary payloads containing `0x0A` survive intact (newline framing would not).
