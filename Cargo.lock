@@ -2731,6 +2731,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "spargebra",
 ]
 
 [[package]]

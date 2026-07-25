@@ -13,14 +13,21 @@
 //!   `sh:class`, `sh:nodeKind`, value range (`sh:minInclusive`/`sh:maxInclusive`/
 //!   `sh:minExclusive`/`sh:maxExclusive`), string (`sh:minLength`/`sh:maxLength`/
 //!   `sh:pattern`+`sh:flags`/`sh:languageIn`), `sh:in`, `sh:hasValue`, logical
-//!   (`sh:and`/`sh:or`/`sh:not`/`sh:xone`), `sh:node`, and `sh:property`.
+//!   (`sh:and`/`sh:or`/`sh:not`/`sh:xone`), `sh:node`, `sh:property`, `sh:closed`
+//!   (+ `sh:ignoredProperties`), and `sh:sparql` (a SPARQL-based constraint, evaluated
+//!   by the pre-binding-aware engine in [`sparql`] — see [`shapes::SparqlConstraint`]).
 //!
-//! [`validate`] returns a serde-serializable [`ValidationReport`] = `conforms` + a list of
-//! [`ValidationResult`] (`focus_node`, `path`, `value`, `source_shape`,
-//! `constraint_component`, `message`, `severity`).
+//! [`validate`] returns a `Result` of a serde-serializable [`ValidationReport`] =
+//! `conforms` + a list of [`ValidationResult`] (`focus_node`, `path`, `value`,
+//! `source_shape`, `constraint_component`, `message`, `severity`); the `Err` case is a
+//! `sh:sparql` query that fails to parse or uses a construct this engine does not
+//! evaluate (property paths, `MINUS`/`VALUES`/non-`SILENT` `SERVICE`/sub-`SELECT`/
+//! aggregates/`EXISTS`/arithmetic, or rebinding `$this` — all constructs the W3C
+//! SHACL-SPARQL test suite itself expects an implementation MAY decline).
 //!
-//! Pi contract: pure Rust, no C/native dep. `sh:sparql` constraints are parsed to a
-//! deferred marker but NOT evaluated (a documented follow-up — see [`shapes::Constraint`]).
+//! Pi contract: pure Rust, no C/native dep — the `sh:sparql` engine parses with
+//! `spargebra` (already pulled in transitively wherever `sparql` is on; pinned here as
+//! its own direct dependency so `sh:sparql` works in a `shacl`-only build too).
 //!
 //! The [`icv`] module layers **Integrity Constraint Validation** (CONCEPT:EG-KG.ontology.wired-into-commit-write) on
 //! top: the same shapes read as Stardog-style **closed-world** DB integrity constraints
@@ -31,6 +38,7 @@ pub mod icv;
 pub mod policy;
 pub mod report;
 pub mod shapes;
+mod sparql;
 pub mod validate;
 pub mod vocab;
 

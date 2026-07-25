@@ -73,10 +73,11 @@ pub struct IcvReport {
 }
 
 impl IcvReport {
+    /// `conforms` iff there are NO violations of any severity — see
+    /// [`crate::report::ValidationReport::from_results`] (ICV reuses SHACL Core's
+    /// detection engine, so it reuses the SAME normative `sh:conforms` definition).
     fn from_violations(violations: Vec<IcvViolation>) -> Self {
-        let conforms = !violations
-            .iter()
-            .any(|v| v.result.severity == Severity::Violation);
+        let conforms = violations.is_empty();
         IcvReport {
             conforms,
             violations,
@@ -101,9 +102,11 @@ pub struct WriteCheck {
 /// constraints** (CONCEPT:EG-KG.ontology.wired-into-commit-write). Returns an [`IcvReport`] with a SPARQL witness per
 /// violation. Reuses the SHACL Core engine ([`crate::validate::validate`]) for
 /// detection — so ICV and SHACL agree exactly on WHAT is a violation; ICV adds the
-/// closed-world framing + the witness.
-pub fn validate_icv(shapes_graph: &Graph, data_graph: &Graph) -> IcvReport {
-    let report = validate(shapes_graph, data_graph);
+/// closed-world framing + the witness. `Err` iff the underlying SHACL validation
+/// errors (a `sh:sparql` constraint this engine cannot evaluate — see
+/// [`crate::validate`]'s module docs).
+pub fn validate_icv(shapes_graph: &Graph, data_graph: &Graph) -> Result<IcvReport, String> {
+    let report = validate(shapes_graph, data_graph)?;
     let shapes = ShapesGraph::new(shapes_graph);
     let registry = collect_shape_registry(&shapes);
 
@@ -111,11 +114,11 @@ pub fn validate_icv(shapes_graph: &Graph, data_graph: &Graph) -> IcvReport {
         .results
         .into_iter()
         .map(|result| {
-            let witness = build_witness(&result, &registry);
+            let witness = build_witness(&result, &registry, shapes_graph);
             IcvViolation { result, witness }
         })
         .collect();
-    IcvReport::from_violations(violations)
+    Ok(IcvReport::from_violations(violations))
 }
 
 /// Validate over the **OWL-reasoned view** (CONCEPT:EG-KG.ontology.wired-into-commit-write, the "surpass Stardog"
@@ -132,7 +135,7 @@ pub fn validate_icv_with_inferences(
     shapes_graph: &Graph,
     data_graph: &Graph,
     inferred: &[Triple],
-) -> IcvReport {
+) -> Result<IcvReport, String> {
     let mut reasoned = data_graph.clone();
     for t in inferred {
         reasoned.insert(t);
@@ -141,11 +144,12 @@ pub fn validate_icv_with_inferences(
 }
 
 /// Convenience: parse a shapes + data Turtle document and run the closed-world ICV
-/// check (CONCEPT:EG-KG.ontology.wired-into-commit-write). Returns a parse error string if either document fails.
+/// check (CONCEPT:EG-KG.ontology.wired-into-commit-write). Returns an error string if either document fails to
+/// parse, or [`validate_icv`] itself errors.
 pub fn validate_icv_turtle(shapes_ttl: &str, data_ttl: &str) -> Result<IcvReport, String> {
     let shapes = graph_from_turtle(shapes_ttl)?;
     let data = graph_from_turtle(data_ttl)?;
-    Ok(validate_icv(&shapes, &data))
+    validate_icv(&shapes, &data)
 }
 
 /// **Guard mode** (CONCEPT:EG-KG.ontology.wired-into-commit-write): would applying `additions` and `removals` to
@@ -163,8 +167,8 @@ pub fn check_write(
     base: &Graph,
     additions: &[Triple],
     removals: &[Triple],
-) -> WriteCheck {
-    let before = validate_icv(shapes_graph, base);
+) -> Result<WriteCheck, String> {
+    let before = validate_icv(shapes_graph, base)?;
 
     let mut projected = base.clone();
     for t in removals {
@@ -173,7 +177,7 @@ pub fn check_write(
     for t in additions {
         projected.insert(t);
     }
-    let after = validate_icv(shapes_graph, &projected);
+    let after = validate_icv(shapes_graph, &projected)?;
 
     let before_keys: HashMap<ViolationKey, ()> = before
         .violations
@@ -209,12 +213,12 @@ pub fn check_write(
         .iter()
         .any(|v| v.result.severity == Severity::Violation);
 
-    WriteCheck {
+    Ok(WriteCheck {
         accepted,
         introduced,
         resolved,
         pre_existing,
-    }
+    })
 }
 
 // ── Violation identity (for the write-guard diff) ───────────────────────────
@@ -290,6 +294,7 @@ fn component_matches(c: &Constraint, cc: &str) -> bool {
             | (Constraint::LanguageIn(_), vocab::CC_LANGUAGE_IN)
             | (Constraint::In(_), vocab::CC_IN)
             | (Constraint::HasValue(_), vocab::CC_HAS_VALUE)
+            | (Constraint::Sparql(_), vocab::CC_SPARQL)
     ) || matches!(
         (c, cc),
         (
@@ -331,8 +336,15 @@ fn value_binding(focus: &str, pred: &Option<String>) -> String {
 /// Build the SPARQL witness for a single violation. Reuses the parsed [`Shape`] (to
 /// recover the constraint's parameters) so the witness returns exactly the offending
 /// data. The core constraints get a precise query; shape-based/logical constraints get
-/// a best-effort query that returns the offending value node(s).
-fn build_witness(res: &ValidationResult, registry: &HashMap<String, Shape>) -> String {
+/// a best-effort query that returns the offending value node(s). `shapes_graph` is
+/// needed only for `sh:sparql` violations, to recover the constraint's own
+/// `sh:select` text (the most precise witness possible: it IS the query that proved
+/// the violation).
+fn build_witness(
+    res: &ValidationResult,
+    registry: &HashMap<String, Shape>,
+    shapes_graph: &Graph,
+) -> String {
     let focus = &res.focus_node;
     let shape = registry.get(&res.source_shape);
     let pred = shape.and_then(path_predicate);
@@ -344,6 +356,47 @@ fn build_witness(res: &ValidationResult, registry: &HashMap<String, Shape>) -> S
             res.source_shape
         )
     };
+
+    // sh:closed (CONCEPT:EG-KG.ontology.concept-6) has no `Constraint` entry of its own (it is a
+    // shape-level flag, not a listed constraint) — dispatch on the reported
+    // component directly, using the OFFENDING predicate the checker already
+    // captured in `res.path` for a precise witness.
+    if res.constraint_component == vocab::CC_CLOSED {
+        return match res.path.as_deref().map(|p| p.trim_matches(['<', '>'])) {
+            Some(iri) => format!(
+                "{}SELECT ?value WHERE {{\n  {focus} <{iri}> ?value .\n}}\n# <{iri}> is not among this closed shape's sh:property paths / sh:ignoredProperties",
+                header("sh:closed — predicate not permitted by this closed shape"),
+            ),
+            None => format!(
+                "{}SELECT ?value WHERE {{\n{}}}\n# (does not satisfy component {})",
+                header("sh:closed — predicate not permitted by this closed shape"),
+                value_binding(focus, &pred),
+                res.constraint_component,
+            ),
+        };
+    }
+    // sh:sparql (CONCEPT:EG-KG.ontology.concept-6, W3C SHACL-SPARQL §3.5): the constraint's OWN sh:select IS
+    // the witness — it is literally the query whose result row produced this
+    // violation. Shown with $this named explicitly since a witness is read by a
+    // human, not re-evaluated by this engine's pre-binding evaluator.
+    if res.constraint_component == vocab::CC_SPARQL {
+        if let Some(Constraint::Sparql(constraint_ref)) = &constraint {
+            let shapes = ShapesGraph::new(shapes_graph);
+            if let Some(sc) = shapes.parse_sparql_constraint(constraint_ref) {
+                return format!(
+                    "{}# sh:select, with $this = {focus}:\n{}",
+                    header("sh:sparql — the constraint's own SELECT produced this result"),
+                    sc.select.trim(),
+                );
+            }
+        }
+        return format!(
+            "{}SELECT ?value WHERE {{\n{}}}\n# (does not satisfy component {})",
+            header("sh:sparql — the constraint's own SELECT produced this result"),
+            value_binding(focus, &pred),
+            res.constraint_component,
+        );
+    }
 
     match &constraint {
         Some(Constraint::MinCount(n)) => {

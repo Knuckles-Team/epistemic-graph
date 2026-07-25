@@ -9,6 +9,8 @@ pub const SH: &str = "http://www.w3.org/ns/shacl#";
 pub const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 /// The XSD namespace.
 pub const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
+/// The OWL namespace (only used to follow `owl:imports` when resolving `sh:prefixes`).
+pub const OWL: &str = "http://www.w3.org/2002/07/owl#";
 
 macro_rules! sh {
     ($name:ident, $local:expr) => {
@@ -33,6 +35,19 @@ sh!(NODE, "node");
 sh!(DEACTIVATED, "deactivated");
 sh!(SEVERITY, "severity");
 sh!(MESSAGE, "message");
+
+// Closed shapes (CONCEPT:EG-KG.ontology.concept-6, W3C SHACL Core §4.6.1).
+sh!(CLOSED, "closed");
+sh!(IGNORED_PROPERTIES, "ignoredProperties");
+
+// `sh:sparql` prefix resolution (W3C SHACL-SPARQL §3.5.1/3.6): `sh:prefixes` points at
+// a resource (transitively via `owl:imports`) carrying `sh:declare [ sh:prefix "p" ;
+// sh:namespace "iri"^^xsd:anyURI ]` entries.
+sh!(PREFIXES, "prefixes");
+sh!(DECLARE, "declare");
+sh!(PREFIX, "prefix");
+sh!(NAMESPACE, "namespace");
+pub const OWL_IMPORTS: &str = "http://www.w3.org/2002/07/owl#imports";
 
 // Severities.
 sh!(VIOLATION, "Violation");
@@ -104,6 +119,8 @@ sh!(CC_OR, "OrConstraintComponent");
 sh!(CC_NOT, "NotConstraintComponent");
 sh!(CC_XONE, "XoneConstraintComponent");
 sh!(CC_NODE, "NodeConstraintComponent");
+sh!(CC_CLOSED, "ClosedConstraintComponent");
+sh!(CC_SPARQL, "SPARQLConstraintComponent");
 
 // RDF list + typing.
 pub const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
@@ -112,3 +129,7 @@ pub const RDF_REST: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest";
 pub const RDF_NIL: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil";
 pub const RDF_LANG_STRING: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString";
 pub const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
+// Used by the `sh:sparql` FILTER expression evaluator (`crate::sparql`) to
+// construct/recognise boolean- and integer-typed result literals.
+pub const XSD_BOOLEAN: &str = "http://www.w3.org/2001/XMLSchema#boolean";
+pub const XSD_INTEGER: &str = "http://www.w3.org/2001/XMLSchema#integer";

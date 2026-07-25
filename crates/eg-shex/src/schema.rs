@@ -96,7 +96,7 @@ pub struct NodeConstraint {
 
 /// A ShEx triple expression — the arc pattern a `Shape` matches against a node's
 /// neighborhood.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TripleExpr {
     /// A single `predicate` with a value shape and cardinality `[min, max]`
     /// (`max == -1` ⇒ unbounded).
@@ -117,7 +117,7 @@ pub enum TripleExpr {
 
 /// A ShEx `Shape` — a triple-expression pattern over a node's neighborhood, optionally
 /// `closed` (rejecting arcs on predicates not mentioned / not in `extra`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Shape {
     pub expression: Option<TripleExpr>,
     pub closed: bool,
@@ -126,7 +126,7 @@ pub struct Shape {
 }
 
 /// A ShEx shape expression — the thing a node is tested against.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ShapeExpr {
     NodeConstraint(NodeConstraint),
     Shape(Shape),
@@ -141,7 +141,7 @@ pub enum ShapeExpr {
 }
 
 /// A parsed ShEx schema — labelled shape expressions plus an optional `start`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Schema {
     pub shapes: HashMap<ShapeLabel, ShapeExpr>,
     pub start: Option<ShapeExpr>,
@@ -178,6 +178,13 @@ impl Schema {
             schema.start = Some(parse_shape_expr(start)?);
         }
         Ok(schema)
+    }
+
+    /// Parse a ShExC (compact syntax) schema document (CONCEPT:EG-KG.compute.concept-2) —
+    /// the Turtle-like textual form, parsed DIRECTLY to this model (no ShExJ round-trip).
+    /// See `crate::compact` for the grammar subset covered.
+    pub fn from_shexc(text: &str) -> Result<Schema, String> {
+        crate::compact::parse(text)
     }
 }
 

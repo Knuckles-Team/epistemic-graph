@@ -6,9 +6,14 @@
 # dependency is eg-rdf (feature `rdf`, which links oxrdf/oxttl — all pure Rust). It is
 # NOT depended on by eg-rdf, so no DAG cycle.
 #
-# Pi contract: pure-Rust, no C/native dep. `regex` (for `sh:pattern`) is already in the
-# tree via eg-rdf's `sparql` feature (CONCEPT:EG-053), so eg-shacl adds NO new crate
-# download. Folded into the engine's `shacl` serving feature (which implies `rdf`).
+# Pi contract: pure-Rust, no C/native dep. `regex` (for `sh:pattern` AND the `sh:sparql`
+# REGEX()/pattern-facet builtins, see `src/sparql.rs`) is already in the tree via
+# eg-rdf's `sparql` feature (CONCEPT:EG-053), so eg-shacl adds no NEW crate there.
+# `spargebra` (parser + algebra ONLY — no store, pure Rust) is eg-shacl's OWN direct
+# dependency (not routed through eg-rdf's heavier `sparql`/GraphView engine) so
+# `sh:sparql` constraint evaluation (W3C SHACL-SPARQL) works in a `shacl`-only build,
+# not just a `shacl`+`sparql` one. Folded into the engine's `shacl` serving feature
+# (which implies `rdf`).
 [package]
 name = "eg-shacl"
 version = "0.1.0"
@@ -31,6 +36,12 @@ serde_json = "1"
 # `sh:pattern` regex. Pure-Rust, already pulled by eg-rdf's `sparql` feature (EG-053),
 # so this pins the SAME crate — no new dependency in a `full` build.
 regex = "1"
+# `sh:sparql` constraint evaluation (CONCEPT:EG-132, W3C SHACL-SPARQL): parses the
+# `sh:select` query text; `src/sparql.rs` supplies its OWN pre-binding-aware evaluator
+# over `eg_rdf::oxrdf::Graph` (NOT eg-rdf's GraphView-based `sparql` feature). Pure Rust
+# (parser + algebra only, no store) — pinned to the SAME version eg-rdf's `sparql`
+# feature uses, so a `full` build still links exactly one copy.
+spargebra = "0.4"
 # ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
 # OFF) — a default/pi/node/full build links none of it and `ValidationResult`
 # carries no new required trait. See `src/contract.rs`.

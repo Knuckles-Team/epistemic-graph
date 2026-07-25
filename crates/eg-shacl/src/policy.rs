@@ -44,7 +44,13 @@ impl IcvPolicy {
     }
 
     /// The pure ICV write check for this policy's shapes (delegates to [`check_write`]).
-    pub fn check(&self, base: &Graph, additions: &[Triple], removals: &[Triple]) -> WriteCheck {
+    /// `Err` iff a `sh:sparql` constraint in these shapes cannot be evaluated.
+    pub fn check(
+        &self,
+        base: &Graph,
+        additions: &[Triple],
+        removals: &[Triple],
+    ) -> Result<WriteCheck, String> {
         check_write(&self.shapes, base, additions, removals)
     }
 }
@@ -109,7 +115,18 @@ impl WriteGuard for IcvPolicyRegistry {
                 details: serde_json::json!({"reason": "integrity_policy_required"}),
             });
         };
-        let check = policy.check(base, additions, removals);
+        // A `sh:sparql` constraint that cannot be evaluated is a FAIL-CLOSED
+        // rejection here too (CONCEPT:EG-KG.ontology.rdf-update-guard, no masking): an integrity policy this
+        // engine cannot actually check must never be silently treated as satisfied.
+        let check = policy
+            .check(base, additions, removals)
+            .map_err(|error| GuardRejection {
+                graph: graph.map(str::to_string),
+                message: format!(
+                    "EG-KG.ontology.rdf-update-guard: integrity policy could not be evaluated: {error}"
+                ),
+                details: serde_json::json!({"reason": "integrity_policy_unevaluable"}),
+            })?;
         if check.accepted {
             Ok(())
         } else {
