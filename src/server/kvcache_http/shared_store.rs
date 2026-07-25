@@ -250,7 +250,9 @@ impl SharedKvStoreBackend {
     /// `KvCacheStore` can route a version bump here without the trait's `&mut self`.
     pub fn set_version(&self, version: DataVersion) -> Result<(), String> {
         match version {
-            DataVersion::At(v) => self.store.put(META_NS, VERSION_KEY, v.to_be_bytes().to_vec()),
+            DataVersion::At(v) => self
+                .store
+                .put(META_NS, VERSION_KEY, v.to_be_bytes().to_vec()),
             DataVersion::Agnostic => {
                 self.store.delete(META_NS, VERSION_KEY)?;
                 Ok(())
@@ -517,7 +519,10 @@ mod tests {
         );
 
         // B (a cold worker) now HITs the SAME prefix through the engine — no recompute.
-        assert!(instance_b.contains(prefix_hash), "B sees A's block via the shared store");
+        assert!(
+            instance_b.contains(prefix_hash),
+            "B sees A's block via the shared store"
+        );
         assert_eq!(
             instance_b.get_block(prefix_hash),
             Some(kv_page),
@@ -544,7 +549,10 @@ mod tests {
         let hash = "tok:hot-prefix";
         let page: Block = vec![3u8; 512];
 
-        assert!(a.put_block(hash, page.clone(), DataVersion::Agnostic), "A: new");
+        assert!(
+            a.put_block(hash, page.clone(), DataVersion::Agnostic),
+            "A: new"
+        );
         assert!(
             !b.put_block(hash, page.clone(), DataVersion::Agnostic),
             "B: same content already in the shared store ⇒ dedup, not new"
@@ -569,11 +577,18 @@ mod tests {
         assert!(writer.put_block("pure-page", vec![1u8; 64], DataVersion::Agnostic));
 
         // The READER instance (separate handle) sees the fresh context via the shared store.
-        assert_eq!(reader.get_block("agent-ctx").as_deref(), Some(&b"ctx-at-v0"[..]));
+        assert_eq!(
+            reader.get_block("agent-ctx").as_deref(),
+            Some(&b"ctx-at-v0"[..])
+        );
 
         // A graph write bumps the epoch (persisted) ⇒ the reader now MISSES the stale ctx…
         writer.set_data_version(DataVersion::At(1));
-        assert_eq!(reader.get_block("agent-ctx"), None, "stale context is a fleet-wide miss");
+        assert_eq!(
+            reader.get_block("agent-ctx"),
+            None,
+            "stale context is a fleet-wide miss"
+        );
         assert!(!reader.contains("agent-ctx"));
         assert_eq!(reader.stats().stale_missed, 1, "the stale miss is counted");
         // …but the pure content-addressed page is untouched.
@@ -581,7 +596,10 @@ mod tests {
 
         // Re-publish freshly-derived context at v1 ⇒ served again.
         assert!(writer.put_block("agent-ctx", b"ctx-at-v1".to_vec(), DataVersion::At(1)));
-        assert_eq!(reader.get_block("agent-ctx").as_deref(), Some(&b"ctx-at-v1"[..]));
+        assert_eq!(
+            reader.get_block("agent-ctx").as_deref(),
+            Some(&b"ctx-at-v1"[..])
+        );
 
         // retire_stale is a no-op now (nothing stale at v1), and it never touches pure pages.
         assert_eq!(writer.retire_stale(1000).unwrap(), 0);
@@ -631,31 +649,51 @@ mod tests {
         let shared = store("locality");
         let mut backend = SharedKvStoreBackend::new(shared.clone(), "s");
         for (node, _) in &scores {
-            assert!(backend
-                .put_block(&format!("kv:{node}"), vec![0u8; 128], DataVersion::Agnostic));
+            assert!(backend.put_block(
+                &format!("kv:{node}"),
+                vec![0u8; 128],
+                DataVersion::Agnostic
+            ));
         }
 
         // Rank block-keys by graph importance, then page in only the single most central.
         let ranked = rank_keys_by_importance(&scores, |node| Some(format!("kv:{node}")));
-        assert_eq!(ranked.first().map(String::as_str), Some("kv:hub"), "hub ranks first");
+        assert_eq!(
+            ranked.first().map(String::as_str),
+            Some("kv:hub"),
+            "hub ranks first"
+        );
         let paged = backend.page_in_ranked(&ranked, 1);
         assert_eq!(paged.len(), 1);
-        assert_eq!(paged[0].0, "kv:hub", "the graph-central block is paged in first");
+        assert_eq!(
+            paged[0].0, "kv:hub",
+            "the graph-central block is paged in first"
+        );
     }
 
     /// The framed block round-trips its version stamp + bytes, and a malformed frame reads
     /// as a miss (defensive decode).
     #[test]
     fn frame_encode_decode_round_trips() {
-        for version in [DataVersion::Agnostic, DataVersion::At(0), DataVersion::At(42)] {
+        for version in [
+            DataVersion::Agnostic,
+            DataVersion::At(0),
+            DataVersion::At(42),
+        ] {
             let block = vec![1u8, 2, 3, 255, 0, 10];
             let frame = encode_frame(&block, version);
             let (decoded_version, decoded_block) = decode_frame(&frame).unwrap();
             assert_eq!(decoded_version, version);
             assert_eq!(decoded_block, &block[..]);
         }
-        assert!(decode_frame(&[0u8; 4]).is_none(), "too-short frame is malformed");
-        assert!(decode_frame(&[9u8; 16]).is_none(), "bad discriminant is malformed");
+        assert!(
+            decode_frame(&[0u8; 4]).is_none(),
+            "too-short frame is malformed"
+        );
+        assert!(
+            decode_frame(&[9u8; 16]).is_none(),
+            "bad discriminant is malformed"
+        );
     }
 
     /// Durability: a block one instance PUTs survives a store close + reopen, so the fleet

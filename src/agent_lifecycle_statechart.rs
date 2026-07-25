@@ -118,7 +118,8 @@ pub static AGENT_LIFECYCLE_DEF: LazyLock<StatechartDef> =
 
 /// The content-addressed id of [`AGENT_LIFECYCLE_DEF`] — the same id the Python
 /// `AGENT_LIFECYCLE_DEF` dict must produce when registered, proving byte-parity.
-pub static AGENT_LIFECYCLE_DEF_ID: LazyLock<String> = LazyLock::new(|| AGENT_LIFECYCLE_DEF.def_id());
+pub static AGENT_LIFECYCLE_DEF_ID: LazyLock<String> =
+    LazyLock::new(|| AGENT_LIFECYCLE_DEF.def_id());
 
 #[cfg(test)]
 mod tests {
@@ -155,12 +156,10 @@ mod tests {
     fn activation_cycle_round_trips() {
         let d = def();
         let ctx = Context::new();
-        let activated =
-            transition(&d, STATE_DORMANT, &ctx, &EventInput::new(EV_ACTIVATE)).unwrap();
+        let activated = transition(&d, STATE_DORMANT, &ctx, &EventInput::new(EV_ACTIVATE)).unwrap();
         assert!(activated.fired);
         assert_eq!(activated.next_state, STATE_ACTIVE);
-        let released =
-            transition(&d, STATE_ACTIVE, &ctx, &EventInput::new(EV_DEACTIVATE)).unwrap();
+        let released = transition(&d, STATE_ACTIVE, &ctx, &EventInput::new(EV_DEACTIVATE)).unwrap();
         assert!(released.fired);
         assert_eq!(released.next_state, STATE_DORMANT);
     }
