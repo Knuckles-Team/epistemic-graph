@@ -43,6 +43,19 @@
 //! (`stream`, the only thing that pulls eg-stream's tokio). A `pi` build (streaming, no
 //! stream) compiles none of this and the `Cep*` methods fall to the dispatch not-available
 //! catch-all.
+//!
+//! ## Push extension: the broker bridge (opt-in, feature `broker`)
+//! `CepPoll` above is a pull surface (long-poll). W4.10/M6 adds a genuine PUSH surface by
+//! reusing the engine's OWN broker (EG-275..284) rather than inventing a new transport:
+//! when `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` names a target, every match a standing query
+//! detects is ALSO published — topic-routed, routing key = the subscription id — onto that
+//! exchange in `__commons__`. Any already-connected AMQP/MQTT/STOMP consumer (the three wire
+//! adapters' own poll-driven push pumps) is then pushed the match with no further client
+//! action, and any RPC client can equally `BrokerConsume` it. This is purely additive over
+//! `CepSubscribe`'s registration path (see [`forward_to_broker_if_configured`]) — it never
+//! touches [`CdcHub::emit`](crate::server::cdc::CdcHub::emit) or [`CepSurface::feed_change`],
+//! so the write-path cost of this extension, whether armed or not, is exactly zero: unset
+//! (the default) means the whole section below is inert and no forwarder task ever exists.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -184,6 +197,17 @@ impl CepSurface {
         existed
     }
 
+    /// An INDEPENDENT resubscribed receiver on `sub_id`'s match stream (its own lag
+    /// accounting), for a forwarder that must not disturb `CepPoll`'s buffered drain —
+    /// the broker-push bridge below is the first caller. `None` if `sub_id` is unknown
+    /// (dropped / never registered). Mirrors `eg_stream::live::CepSubscription::resubscribe`'s
+    /// documented fan-out contract: many independent consumers may watch one standing query.
+    pub async fn resubscribe(&self, sub_id: u64) -> Option<CepSubscription> {
+        let sub = self.subs.get(&sub_id)?.clone();
+        let sub = sub.lock().await;
+        Some(sub.resubscribe())
+    }
+
     /// How many standing queries are currently registered (test/introspection helper).
     #[cfg(test)]
     pub fn sub_count(&self) -> usize {
@@ -271,6 +295,149 @@ fn pattern_from_spec(p: &CepNodeSpec) -> CepPattern {
     }
 }
 
+// ── CEP → broker push bridge (opt-in, W4.10/M6) ───────────────────────────────────
+// See the module doc's "Push extension" section. Everything here runs off
+// `CepSubscribe`'s registration path only; NONE of it is reachable from
+// `CdcHub::emit`/`CepSurface::feed_change`, so the per-write cost of this whole
+// section — armed or not — is zero (structural: a `git diff` of `cdc.rs` for this
+// change is empty).
+
+/// Env var naming the broker exchange every standing query's matches are ALSO
+/// published to. Unset/blank ⇒ no broker forwarding — `CepPoll` remains the only
+/// delivery path, byte-for-byte the pre-W4.10 behavior.
+#[cfg(feature = "broker")]
+const CEP_BROKER_EXCHANGE_ENV: &str = "EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE";
+
+/// The graph whose broker hosts forwarded CEP matches. CEP patterns are cross-graph by
+/// design (no mandatory graph in the wire contract; the surface is admin-only), so
+/// forwarded matches live on the one graph guaranteed to exist — the same commons/
+/// control graph the broker's own docs already use for cross-cutting state.
+#[cfg(feature = "broker")]
+const CEP_BROKER_GRAPH: &str = "__commons__";
+
+/// Read + trim the configured exchange name.
+#[cfg(feature = "broker")]
+fn cep_broker_exchange() -> Option<String> {
+    parse_cep_broker_exchange(std::env::var(CEP_BROKER_EXCHANGE_ENV).ok().as_deref())
+}
+
+/// Pure parse step, split out from [`cep_broker_exchange`] so the gate logic is
+/// testable without touching process-global env state (tests in this crate run
+/// concurrently, so mutating a real env var would race).
+#[cfg(feature = "broker")]
+fn parse_cep_broker_exchange(raw: Option<&str>) -> Option<String> {
+    let trimmed = raw?.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+/// Encode + publish one [`Match`] to the broker (CONCEPT:EG-KG.compute.message-broker-exchanges), topic-routed by
+/// the subscription id so a consumer can bind to one subscription's matches
+/// (`bind_queue(exchange, q, "<sub_id>")`) or every match on the exchange (`"#"`).
+/// Declaring the exchange is idempotent (a no-op once it already exists as `Topic`); a
+/// kind collision or an encode failure is logged and dropped — the forwarder never
+/// panics or blocks the match stream over a broker-side problem.
+#[cfg(feature = "broker")]
+fn publish_match_to_broker(core: &crate::graph::GraphCore, exchange: &str, sub_id: u64, m: &Match) {
+    if let Err(error) =
+        crate::broker::declare_exchange(core, exchange, crate::broker::ExchangeKind::Topic)
+    {
+        tracing::warn!(exchange, sub_id, %error, "CEP broker forwarder: exchange declare failed");
+        return;
+    }
+    let Ok(payload) = rmp_serde::to_vec_named(m) else {
+        tracing::warn!(
+            exchange,
+            sub_id,
+            "CEP broker forwarder: match encode failed"
+        );
+        return;
+    };
+    let routing_key = sub_id.to_string();
+    let delivered = crate::broker::publish(core, exchange, &routing_key, &payload);
+    tracing::debug!(
+        exchange,
+        sub_id,
+        match_events = m.events.len(),
+        delivered,
+        "CEP match pushed to broker"
+    );
+}
+
+/// Drain `rx` for the lifetime of standing query `sub_id`, publishing each match to
+/// `exchange` on `core`. Ends when the standing query is unregistered (the one
+/// `broadcast::Sender` its `StandingQuery` owns drops, so `recv` reports `Closed`). A
+/// forwarder that falls behind drops the oldest matches and logs the count — it never
+/// blocks CEP ingestion, matching the poll surface's own drop-oldest contract.
+#[cfg(feature = "broker")]
+fn spawn_cep_broker_forwarder(
+    core: Arc<crate::graph::GraphCore>,
+    exchange: String,
+    sub_id: u64,
+    mut rx: CepSubscription,
+) {
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(m) => publish_match_to_broker(&core, &exchange, sub_id, &m),
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(
+                        sub_id,
+                        exchange,
+                        lagged = n,
+                        "CEP broker forwarder dropped the oldest matches"
+                    );
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
+/// If `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` is configured, start forwarding `sub_id`'s
+/// matches to it. A no-op (no task spawned, no registry read) when unset — the gate
+/// this whole extension's zero-cost-when-off claim rests on.
+#[cfg(feature = "broker")]
+async fn forward_to_broker_if_configured(
+    state: &Arc<RwLock<ServerState>>,
+    surface: &Arc<CepSurface>,
+    sub_id: u64,
+) {
+    if let Some(exchange) = cep_broker_exchange() {
+        forward_to_broker(state, surface, sub_id, &exchange).await;
+    }
+}
+
+/// Resolve `__commons__`, take an independent resubscribed receiver on `sub_id`, and
+/// spawn the forwarder. Split from [`forward_to_broker_if_configured`] so a test can
+/// drive it directly with an explicit exchange (no env var, so no cross-test races).
+#[cfg(feature = "broker")]
+async fn forward_to_broker(
+    state: &Arc<RwLock<ServerState>>,
+    surface: &Arc<CepSurface>,
+    sub_id: u64,
+    exchange: &str,
+) {
+    let core = {
+        let s = state.read().await;
+        s.registry
+            .get(CEP_BROKER_GRAPH)
+            .map(|entry| entry.core.clone())
+    };
+    let Some(core) = core else {
+        tracing::warn!(
+            exchange,
+            sub_id,
+            graph = CEP_BROKER_GRAPH,
+            "CEP broker forwarder: commons graph unavailable"
+        );
+        return;
+    };
+    let Some(rx) = surface.resubscribe(sub_id).await else {
+        return;
+    };
+    spawn_cep_broker_forwarder(core, exchange.to_string(), sub_id, rx);
+}
+
 /// Reach the lazily-created CEP surface off the CDC hub (creating it on first use), or an
 /// ERROR response if the engine somehow booted without a CDC hub.
 async fn surface_of(
@@ -323,6 +490,11 @@ pub(crate) async fn try_handle(
                 buffer as usize
             };
             let id = surface.register(&pattern, window, buf);
+            // Opt-in push extension (W4.10/M6): if configured, forward this standing
+            // query's matches to the broker too. No-op (nothing read, nothing spawned)
+            // when `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` is unset — see the module doc.
+            #[cfg(feature = "broker")]
+            forward_to_broker_if_configured(state, &surface, id).await;
             Ok(Response::ok(req_id, ResultPayload::Count(id)))
         }
 
@@ -483,5 +655,216 @@ mod tests {
             }
             _ => panic!("expected Within"),
         }
+    }
+
+    // ── W4.10/M6: CEP → broker push bridge ────────────────────────────────────────
+
+    #[cfg(feature = "broker")]
+    #[test]
+    fn cep_broker_exchange_gate_unset_or_blank_disables_forwarding() {
+        assert_eq!(parse_cep_broker_exchange(None), None);
+        assert_eq!(parse_cep_broker_exchange(Some("")), None);
+        assert_eq!(parse_cep_broker_exchange(Some("   ")), None);
+        assert_eq!(
+            parse_cep_broker_exchange(Some("  cep-matches  ")),
+            Some("cep-matches".to_string())
+        );
+    }
+
+    /// A minimal `ServerState` for the broker-forward round-trip. Mirrors the
+    /// `test_state()` fixture the wire-adapter test modules (mqtt_wire et al.) already
+    /// use; every optional/feature-gated field is `None`/empty so it compiles under any
+    /// feature combination that also has `broker` on.
+    #[cfg(feature = "broker")]
+    fn test_state() -> Arc<RwLock<ServerState>> {
+        use crate::channels::ChannelManager;
+        use crate::isolation::IsolationLayer;
+        use crate::registry::GraphRegistry;
+        use dashmap::DashMap;
+        use tokio::sync::Semaphore;
+        Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: "test".to_string(),
+            persist_dir: None,
+            persistence: None,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            read_admission: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
+        }))
+    }
+
+    /// ACCEPTANCE (W4.10/M6): a Sequence pattern registered over live mutations fires a
+    /// push event end-to-end over the broker — a matching CDC stream reaches the bound
+    /// broker queue; a non-matching one produces nothing.
+    #[cfg(feature = "broker")]
+    #[tokio::test]
+    async fn cep_match_reaches_the_broker_queue_end_to_end() {
+        let core = crate::graph::GraphCore::new();
+        let exchange = "cep-test-exchange";
+        crate::broker::declare_exchange(&core, exchange, crate::broker::ExchangeKind::Topic)
+            .unwrap();
+        // A wildcard binding: one queue watching every subscription's matches.
+        crate::broker::bind_queue(&core, exchange, "watchers", "#");
+
+        let surface = CepSurface::new();
+        let sub_id = surface.register(
+            &alert_pattern(),
+            Window::Sliding { size: 0 },
+            DEFAULT_MATCH_BUFFER,
+        );
+        let mut forward_rx = surface.resubscribe(sub_id).await.expect("known sub");
+
+        // Non-matching event: the pattern never completes, so nothing is ever sent on
+        // the match stream.
+        surface.feed_change(&cdc("g", CdcKind::AddNode, "n0", "Doc"));
+        // Matching event: the Sequence completes → exactly one Match is published.
+        surface.feed_change(&cdc("g", CdcKind::AddNode, "n1", "Alert"));
+
+        let m = tokio::time::timeout(std::time::Duration::from_secs(2), forward_rx.recv())
+            .await
+            .expect("a match arrives before the timeout")
+            .expect("no lag/close on a fresh resubscribe");
+        publish_match_to_broker(&core, exchange, sub_id, &m);
+
+        let claim = serde_json::json!({"status": "claimed"})
+            .as_object()
+            .unwrap()
+            .clone();
+        let got = core.claim_next_fields(&crate::broker::queue_msg_label("watchers"), &claim);
+        assert!(got.is_some(), "the match must reach the bound broker queue");
+        let (_, props) = got.unwrap();
+        assert_eq!(
+            props.get("routing_key").and_then(|v| v.as_str()),
+            Some(sub_id.to_string().as_str()),
+            "routed by the subscription id, so a consumer can bind to just this subscription"
+        );
+        let hexed = props.get("payload").and_then(|v| v.as_str()).unwrap();
+        let payload = crate::broker::hex_decode(hexed).unwrap();
+        let decoded: Match = rmp_serde::from_slice(&payload).unwrap();
+        assert_eq!(decoded.events.len(), 1);
+        assert_eq!(decoded.events[0].key, "Alert");
+
+        // The non-matching Doc event never produced a Match, so nothing else is queued.
+        assert!(
+            core.claim_next_fields(&crate::broker::queue_msg_label("watchers"), &claim)
+                .is_none(),
+            "a non-matching event must not push anything"
+        );
+    }
+
+    /// The full async wiring — `forward_to_broker` resolves `__commons__`, resubscribes,
+    /// and spawns the live forwarder task — delivers a match without the test driving
+    /// the forwarder loop by hand (unlike the test above, which calls
+    /// `publish_match_to_broker` directly after awaiting the resubscribed receiver).
+    #[cfg(feature = "broker")]
+    #[tokio::test]
+    async fn forward_to_broker_spawns_a_live_forwarder_that_delivers_matches() {
+        let state = test_state();
+        let exchange = "cep-live-exchange";
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        crate::broker::declare_exchange(&core, exchange, crate::broker::ExchangeKind::Topic)
+            .unwrap();
+        crate::broker::bind_queue(&core, exchange, "live", "#");
+
+        let surface = CepSurface::new();
+        let sub_id = surface.register(
+            &alert_pattern(),
+            Window::Sliding { size: 0 },
+            DEFAULT_MATCH_BUFFER,
+        );
+        forward_to_broker(&state, &surface, sub_id, exchange).await;
+
+        surface.feed_change(&cdc("g", CdcKind::AddNode, "n1", "Alert"));
+
+        let claim = serde_json::json!({"status": "claimed"})
+            .as_object()
+            .unwrap()
+            .clone();
+        let label = crate::broker::queue_msg_label("live");
+        // Bounded retry: the forwarder runs on its own tokio task, so delivery is
+        // asynchronous — not a fixed sleep, so this is fast on a healthy box and never
+        // hangs on a slow/contended one (a genuine miss still fails after the bound).
+        let mut got = None;
+        for _ in 0..200 {
+            if let Some(hit) = core.claim_next_fields(&label, &claim) {
+                got = Some(hit);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let (_, props) = got.expect("the live forwarder must deliver the match");
+        let hexed = props.get("payload").and_then(|v| v.as_str()).unwrap();
+        let decoded: Match =
+            rmp_serde::from_slice(&crate::broker::hex_decode(hexed).unwrap()).unwrap();
+        assert_eq!(decoded.events[0].key, "Alert");
+    }
+
+    /// Zero-cost-when-off (structural, mirroring W3.6's cost gate): with the env var
+    /// unset, `forward_to_broker_if_configured` never reads the registry or
+    /// resubscribes — it returns having done nothing observable. Combined with the fact
+    /// that this whole bridge is reachable ONLY from `CepSubscribe`'s registration path
+    /// (never from `CdcHub::emit`/`feed_change`, unlike a write-path hook), the write
+    /// path carries zero added cost whether or not this feature is armed.
+    #[cfg(feature = "broker")]
+    #[tokio::test]
+    async fn forward_to_broker_if_configured_is_a_noop_when_env_is_unset() {
+        assert!(
+            std::env::var(CEP_BROKER_EXCHANGE_ENV).is_err(),
+            "test assumes the CI/dev environment never sets this var"
+        );
+        let state = test_state();
+        let surface = CepSurface::new();
+        let sub_id = surface.register(
+            &alert_pattern(),
+            Window::Sliding { size: 0 },
+            DEFAULT_MATCH_BUFFER,
+        );
+        // Must return promptly and must not disturb the surface: `CepPoll`'s own
+        // subscription is unaffected (still exactly one, still pollable).
+        forward_to_broker_if_configured(&state, &surface, sub_id).await;
+        assert_eq!(surface.sub_count(), 1);
+        surface.feed_change(&cdc("g", CdcKind::AddNode, "n1", "Alert"));
+        let matches = surface.poll(sub_id, 1000).await.expect("known sub");
+        assert_eq!(matches.len(), 1, "CepPoll still works exactly as before");
     }
 }
