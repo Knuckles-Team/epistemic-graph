@@ -488,11 +488,6 @@ pub(crate) use dispatch::{
     apply_replicated_transaction_finalize, apply_replicated_transaction_participant,
     apply_replicated_transaction_prepare, ReplicatedParticipantRef,
 };
-/// Public binary-facing policy hook for auxiliary carriers that cannot parse the
-/// verified RPC request envelope.
-pub fn unauthenticated_carrier_denied(isolation: &crate::isolation::IsolationLayer) -> bool {
-    access::unauthenticated_carrier_denied(isolation)
-}
 // NL planner injection (CONCEPT:EG-KG.query.fence-stripper): an embedder opts into engine-driven NL→query.
 #[cfg(feature = "nl-query")]
 pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};

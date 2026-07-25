@@ -120,10 +120,18 @@ fn opaque_scope(value: &str, namespace: &str) -> bool {
         })
 }
 
-/// Any carrier that has not produced the current verified context is denied
-/// before touching engine state.
-pub(crate) fn unauthenticated_carrier_denied(_isolation: &IsolationLayer) -> bool {
-    true
+/// Any carrier that has not produced a verified [`CarrierAuthority`] is denied
+/// before touching engine state (A18). Each auxiliary surface must first attempt
+/// to authenticate the caller through its OWN protocol-appropriate mechanism —
+/// SigV4 for the S3-compatible REST surface, the `eg2.` envelope for SPARQL
+/// mutations, the bearer/JWT guard for the KV-cache surface, ... — and mint a
+/// `CarrierAuthority` only on success (mirroring how `pgwire`/`mysql-wire`/
+/// `bolt-wire` bind a server-owned tenant+actor authority only after their own
+/// cryptographic proof succeeds). This function's only job is to ask whether
+/// that succeeded; it cannot itself authenticate anything, since a per-request
+/// credential is never available at this layer.
+pub(crate) fn unauthenticated_carrier_denied(carrier: Option<&CarrierAuthority>) -> bool {
+    carrier.is_none()
 }
 
 /// The single row-level authority carried by every served graph read.
@@ -1264,6 +1272,27 @@ mod universal_row_read_tests {
         );
         assert!(!bob.owns(alice.tenant_scope(), alice.actor_scope()));
         assert!(!alice_other_tenant.owns(alice.tenant_scope(), alice.actor_scope()));
+    }
+
+    /// A18: `unauthenticated_carrier_denied` used to be `{ true }` unconditionally
+    /// — every caller, verified or not, was denied. It must now discriminate: a
+    /// genuine `CarrierAuthority` allows, its absence denies. This is the direct,
+    /// minimal proof of the fixed invariant; the per-surface integration proofs
+    /// (S3 SigV4, KV-cache bearer/JWT) live alongside each surface's own tests.
+    #[test]
+    fn a18_carrier_authority_present_allows_absent_denies() {
+        let carrier = CarrierAuthority::from_verified(
+            &super::super::auth::VerifiedRequestContext::verified_for_test("alice"),
+        )
+        .unwrap();
+        assert!(
+            !unauthenticated_carrier_denied(Some(&carrier)),
+            "a real, verified carrier must be ALLOWED, not denied"
+        );
+        assert!(
+            unauthenticated_carrier_denied(None),
+            "no carrier at all must still be denied (fail-closed)"
+        );
     }
 }
 

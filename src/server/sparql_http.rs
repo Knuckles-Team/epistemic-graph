@@ -254,18 +254,14 @@ async fn handle(
     {
         return ("204 No Content", "text/plain", String::new());
     }
-    let carrier_denied = {
-        let state = state.read().await;
-        crate::server::access::unauthenticated_carrier_denied(&state.isolation)
-    };
-    if carrier_denied {
-        crate::metrics::access_denied();
-        return (
-            "403 Forbidden",
-            "text/plain",
-            "SPARQL/Graph Store HTTP requires an authenticated request-context carrier".to_string(),
-        );
-    }
+    // A18: there is no longer a single blanket carrier gate here. SPARQL Update
+    // (below) and the Graph Store PUT/POST/DELETE legs (`handle_graph_store`)
+    // already build a real `eg2.`-verified `Request` (`signed_request`) and run
+    // it through `dispatch()`, which mints and checks a genuine `CarrierAuthority`
+    // itself — an outer stub gate only ever stood redundantly in front of that.
+    // The read-only legs (`run_query`, `handle_nl`, Graph Store GET/HEAD) have no
+    // per-request credential to verify at all yet; each denies explicitly at its
+    // own call site below rather than behind one easily-bypassed shared stub.
     // Natural-language query facade route (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`): POST
     // `{text, graph}` → the NL planner → UQL → executed rows as JSON. Served on the SAME
     // hand-rolled HTTP facade listener as `/sparql` (no new HTTP dep). A build without
@@ -365,6 +361,22 @@ async fn handle_nl(
     state: &Arc<RwLock<ServerState>>,
     req: &HttpRequest,
 ) -> (&'static str, &'static str, String) {
+    // A18: `/nl` runs under a FIXED engine-owned service identity
+    // (`dispatch_authenticated_local_query`), not a per-caller verified one —
+    // there is no `eg2.` envelope (or any other credential) to check here, so no
+    // `CarrierAuthority` can ever be minted for this route yet. Deny explicitly
+    // (real, not the old blanket stub) rather than silently widen this fixed,
+    // read-only adapter to every local caller now that the stub is gone
+    // elsewhere in this file.
+    if crate::server::access::unauthenticated_carrier_denied(None) {
+        crate::metrics::access_denied();
+        return (
+            "403 Forbidden",
+            "application/json",
+            r#"{"error":"ACCESS_DENIED: /nl has no verified request-carrier mechanism yet"}"#
+                .to_string(),
+        );
+    }
     if req.method != "POST" {
         return (
             "405 Method Not Allowed",
@@ -445,6 +457,26 @@ async fn run_query(
     accept: &str,
     fmt_override: Option<&str>,
 ) -> (&'static str, &'static str, String) {
+    // A18: a SPARQL SELECT/CONSTRUCT/ASK read can span multiple named graphs in
+    // one query (FROM/FROM NAMED), so it does not fit the single-graph, envelope-
+    // bound `Method::Sparql` RPC contract (the `eg2.` MAC binds the exact
+    // request id/graph/method/body — there is no way to verify a caller's
+    // envelope for a federated, HTTP-native query shape that has no matching
+    // `Method`). No `CarrierAuthority` can be minted for this route yet; deny
+    // explicitly (real, not the old blanket stub) — see reports/issue-register.md
+    // (A18) for the federation-vs-envelope-contract decision this needs. Use the
+    // verified RPC client (`client.query.sparql(...)`) for an authenticated,
+    // single-graph SPARQL SELECT today.
+    if crate::server::access::unauthenticated_carrier_denied(None) {
+        crate::metrics::access_denied();
+        return (
+            "403 Forbidden",
+            "text/plain",
+            "ACCESS_DENIED: SPARQL SELECT/CONSTRUCT/ASK over HTTP has no verified \
+             request-carrier mechanism yet for federated (FROM NAMED) reads"
+                .to_string(),
+        );
+    }
     // Gather cores under a brief read lock, then snapshot off-lock.
     let (default_core, named_cores) = {
         let s = state.read().await;
@@ -875,6 +907,25 @@ async fn handle_graph_store(
 
     match req.method.as_str() {
         "GET" | "HEAD" => {
+            // A18: unlike PUT/POST/DELETE below (which build a real, verified
+            // `eg2.`-signed `Request` via `signed_request`+`dispatch()`), this
+            // read leg calls the registry directly with no credential check of
+            // its own — the single-graph `Method::GetRdf` exists but only
+            // serializes N-Triples, narrower than the `GRAPH_FORMS`-negotiated
+            // output this route already offers, so swapping it in would silently
+            // regress format negotiation rather than just add real auth. No
+            // `CarrierAuthority` can be minted for this route yet; deny
+            // explicitly (real, not the old blanket stub).
+            if crate::server::access::unauthenticated_carrier_denied(None) {
+                crate::metrics::access_denied();
+                return (
+                    "403 Forbidden",
+                    "text/plain",
+                    "ACCESS_DENIED: Graph Store HTTP GET/HEAD has no verified \
+                     request-carrier mechanism yet"
+                        .to_string(),
+                );
+            }
             let core = {
                 let s = state.read().await;
                 s.registry.get(&graph).map(|e| e.core.clone())

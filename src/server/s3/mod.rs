@@ -910,7 +910,14 @@ fn iso8601(ms: u64) -> String {
 /// Route + execute one S3 request → an [`S3Response`]. Pure (sync) so it is fully
 /// unit-testable without a socket (CONCEPT:EG-KG.ontology.object-put-get-head).
 fn handle(store: &S3Store, auth: &S3Auth, req: &S3Request) -> S3Response {
-    if !authorized(auth, req) {
+    // A18: SigV4 IS this surface's own carrier proof — mint the engine-owned
+    // authority only after it succeeds, then gate through the SAME shared check
+    // every other surface uses (real now: denies iff no carrier was minted).
+    let carrier = authorized(auth, req)
+        .then(crate::server::auth::VerifiedRequestContext::authenticated_s3_actor)
+        .and_then(Result::ok)
+        .and_then(|context| crate::server::access::CarrierAuthority::from_verified(&context).ok());
+    if crate::server::access::unauthenticated_carrier_denied(carrier.as_ref()) {
         return S3Response::error("403 Forbidden", "AccessDenied", "Access Denied");
     }
     handle_authorized(store, req)
@@ -1372,7 +1379,7 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
     let persist_dir = { state.read().await.persist_dir.clone() };
     let store = Arc::new(S3Store::open(persist_dir.as_deref()).map_err(std::io::Error::other)?);
     let auth = resolve_auth()?;
-    serve_with_store_inner(addr, store, auth, Some(state)).await
+    serve_with_store_inner(addr, store, auth).await
 }
 
 /// Resolve mandatory SigV4 credentials from the environment.
@@ -1395,19 +1402,10 @@ fn resolve_auth() -> std::io::Result<S3Auth> {
     }
 }
 
-async fn carrier_denied(state: Option<&Arc<RwLock<ServerState>>>) -> bool {
-    let Some(state) = state else {
-        return false;
-    };
-    let state = state.read().await;
-    crate::server::access::unauthenticated_carrier_denied(&state.isolation)
-}
-
 async fn serve_with_store_inner(
     addr: &str,
     store: Arc<S3Store>,
     auth: S3Auth,
-    security_state: Option<Arc<RwLock<ServerState>>>,
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     crate::server::require_loopback_listener(&listener)?;
@@ -1420,21 +1418,10 @@ async fn serve_with_store_inner(
         let (mut stream, _peer) = listener.accept().await?;
         let store = store.clone();
         let auth = auth.clone();
-        let security_state = security_state.clone();
         tokio::spawn(async move {
             let resp =
                 match tokio::time::timeout(HTTP_READ_TIMEOUT, read_request(&mut stream)).await {
-                    Ok(Some(req)) => {
-                        if carrier_denied(security_state.as_ref()).await {
-                            S3Response::error(
-                                "403 Forbidden",
-                                "AccessDenied",
-                                "S3 carrier has no verified tenant/object ownership",
-                            )
-                        } else {
-                            handle(&store, &auth, &req)
-                        }
-                    }
+                    Ok(Some(req)) => handle(&store, &auth, &req),
                     _ => S3Response::error("400 Bad Request", "InvalidRequest", "malformed"),
                 };
             let head = format!(
@@ -1608,6 +1595,119 @@ mod tests {
             &req("GET", "/", b"", &[("authorization", bad)]),
         );
         assert_eq!(r.status, "403 Forbidden");
+    }
+
+    /// Sign a request exactly as a real SigV4 client would, reusing the SAME
+    /// canonical-request helpers `verify_sigv4` reconstructs from
+    /// (`aws_uri_encode`/`canonical_query`/`hmac_bytes`) so this cannot drift
+    /// from what the server independently re-derives. Returns the headers a
+    /// caller must send: `(authorization, host, x-amz-content-sha256, x-amz-date)`.
+    fn sign_sigv4(
+        auth: &S3Auth,
+        method: &str,
+        path: &str,
+        query: &str,
+        body: &[u8],
+    ) -> (String, String, String, String) {
+        let host = "s3.example.test".to_string();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        // Epoch seconds -> civil Y/M/D H:M:S (Howard Hinnant's algorithm; the
+        // exact inverse of `valid_amz_date`'s forward conversion above).
+        let days = now.div_euclid(86_400);
+        let secs_of_day = now.rem_euclid(86_400);
+        let (hour, minute, second) = (
+            secs_of_day / 3600,
+            (secs_of_day % 3600) / 60,
+            secs_of_day % 60,
+        );
+        let z = days + 719_468;
+        let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+        let y = yoe + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        let y = if m <= 2 { y + 1 } else { y };
+        let amz_date = format!("{y:04}{m:02}{d:02}T{hour:02}{minute:02}{second:02}Z");
+        let date_stamp = format!("{y:04}{m:02}{d:02}");
+        let region = "us-east-1";
+        let payload_hash = hex::encode(Sha256::digest(body));
+        let signed_headers_raw = "host;x-amz-content-sha256;x-amz-date";
+        let canonical_headers =
+            format!("host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}");
+        let canonical_request = format!(
+            "{method}\n{}\n{}\n{canonical_headers}\n{signed_headers_raw}\n{payload_hash}",
+            aws_uri_encode(path, false),
+            canonical_query(query),
+        );
+        let scope = format!("{date_stamp}/{region}/s3/aws4_request");
+        let string_to_sign = format!(
+            "AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}",
+            hex::encode(Sha256::digest(canonical_request.as_bytes())),
+        );
+        let date_key = hmac_bytes(
+            format!("AWS4{}", auth.secret_key).as_bytes(),
+            date_stamp.as_bytes(),
+        )
+        .unwrap();
+        let region_key = hmac_bytes(&date_key, region.as_bytes()).unwrap();
+        let service_key = hmac_bytes(&region_key, b"s3").unwrap();
+        let signing_key = hmac_bytes(&service_key, b"aws4_request").unwrap();
+        let signature = hex::encode(hmac_bytes(&signing_key, string_to_sign.as_bytes()).unwrap());
+        let authorization = format!(
+            "AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders={signed_headers_raw}, Signature={signature}",
+            auth.access_key,
+        );
+        (authorization, host, payload_hash, amz_date)
+    }
+
+    #[test]
+    fn eg18_authenticated_carrier_allowed_unauthenticated_denied() {
+        // A18: the carrier-check stub used to deny EVERY request unconditionally.
+        // A genuinely authenticated (valid SigV4) carrier must now be let through;
+        // an unauthenticated one must still be denied — proving both directions of
+        // the fix, not just the fail-closed half the stub trivially satisfied.
+        let store = mem_store();
+        let auth = S3Auth {
+            access_key: "AKIA_TEST".into(),
+            secret_key: "shh".into(),
+        };
+
+        // Unauthenticated: no Authorization header at all → still denied.
+        let denied = handle(&store, &auth, &req("GET", "/", b"", &[]));
+        assert_eq!(denied.status, "403 Forbidden");
+
+        // Authenticated: a REAL SigV4 signature over this exact request → allowed
+        // (reaches ListBuckets and returns a well-formed bucket-listing body, not
+        // the AccessDenied error the stub always returned).
+        let (authorization, host, payload_hash, amz_date) = sign_sigv4(&auth, "GET", "/", "", b"");
+        let allowed = handle(
+            &store,
+            &auth,
+            &req(
+                "GET",
+                "/",
+                b"",
+                &[
+                    ("host", &host),
+                    ("x-amz-content-sha256", &payload_hash),
+                    ("x-amz-date", &amz_date),
+                    ("authorization", &authorization),
+                ],
+            ),
+        );
+        assert_ne!(
+            allowed.status,
+            "403 Forbidden",
+            "an authenticated carrier must be allowed through; got body: {}",
+            String::from_utf8_lossy(&allowed.body)
+        );
+        assert_eq!(allowed.status, "200 OK");
     }
 
     #[test]
