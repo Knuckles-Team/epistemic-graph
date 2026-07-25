@@ -393,15 +393,6 @@ pub struct WorkItem {
     pub work_item_id: String,
     pub context: RequestContext,
     pub kind: String,
-    // W2.5 control-plane migration: `WorkItemState` (the schema-only enum below this
-    // struct's former neighbor) was orphaned dead code — zero consumers in
-    // `redb_store.rs`'s native WorkItem handlers, which already hand-match the raw
-    // string state literals ("submitted"|"ready"|...) that ARE the one live vocabulary
-    // (see `agent_utilities.orchestration.work_item.WorkItemStatus` on the Python side,
-    // and `reports/w2_5-statechart-migration-design.md` §2.5). Retyped to the same
-    // validated state-id `String` the runtime already uses; the protocol gate
-    // (`scripts/check_epistemic_operations_protocol.py`) only binds STRUCT FIELD NAMES
-    // to the JSON Schema catalog, not field types, so this is a no-op for the gate.
     pub state: String,
     pub priority: i64,
     pub depends_on: Vec<String>,
