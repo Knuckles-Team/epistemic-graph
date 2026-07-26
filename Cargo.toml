@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format"]
+members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine"]
 # CONCEPT:INT-P2-1 -- eg-jobs: the durable analytics-job plane (async submit/status/
 # progress/cancel/resume over a redb-backed `AnalyticsJob` state machine, committing
 # results as provenance'd epistemic claims via `eg-core::GraphCore` +  the SAME
@@ -1078,6 +1078,26 @@ all = ["full"]
 # retired; the build targets Raspberry Pi 4+, not Pi 3.
 cluster = ["full", "raft", "compute-dist", "nonblocking", "matview"]
 
+# ── Unified single binary — the opt-in in-process pyo3-engine (unified-binary
+# program, workstream W-A; see docs/architecture/unified-inprocess-engine.md) ──
+#
+# Embeds `eg-core`'s `GraphCore`/`GraphRegistry` directly in the SAME process as a
+# Python extension module `epistemic_graph.engine`, so a self-contained deployment
+# (one `graph-os`, no horizontal fan-out) can reach the engine with NO socket
+# serialize/round-trip. This is the OTHER of the "two deployment shapes, one
+# performance discipline" (AGENTS.md): the out-of-process Tokio/UDS server above
+# remains the default, horizontal-scale-safe path; this feature is the opt-in
+# self-contained path, never linked unless explicitly requested.
+#
+# `dep:eg-pyengine` pulls in the crate; `eg-pyengine/python` turns on ITS OWN
+# Python-extension-gated `python` feature (mirroring eg-numeric's
+# Surface-A/Surface-B split), so enabling this facade feature is what actually
+# compiles the native binding, not just the inert rlib half. NOT in
+# `default`/`full`/`cluster` — the scale-out build's no-pyo3-engine gate
+# (`scripts/check_no_pyo3.sh`) only allows this to compile when a caller
+# explicitly opts in here.
+pyo3-engine = ["dep:eg-pyengine", "eg-pyengine/python"]
+
 [dependencies]
 eg-types = { path = "crates/eg-types" }
 eg-mutation-store = { path = "crates/eg-mutation-store", optional = true }
@@ -1102,6 +1122,14 @@ eg-epistemic = { path = "crates/eg-epistemic", optional = true }
 # in-database analytics. The separately compiled Python component is injected into the
 # same published wheel and does not change the server binary's dependency graph.
 eg-numeric = { path = "crates/eg-numeric", optional = true }
+# Unified single binary — the opt-in in-process pyo3-engine (feature `pyo3-engine`,
+# NOT in default/full/cluster; see docs/architecture/unified-inprocess-engine.md).
+# Links only the PURE rlib (eg-core + parking_lot, no Python-extension FFI) unless
+# `pyo3-engine` also turns on its OWN `python` feature (`eg-pyengine/python`,
+# above) — mirrors `eg-numeric`'s optional-dependency shape exactly. The
+# out-of-process scale-out build's no-pyo3-engine gate (`scripts/check_no_pyo3.sh`)
+# never enables this.
+eg-pyengine = { path = "crates/eg-pyengine", optional = true }
 # SQL query surface dependency (feature `query`, included in the main build); pulls
 # DataFusion when that composable feature is enabled.
 eg-query = { path = "crates/eg-query", optional = true }
@@ -1455,6 +1483,24 @@ name = "provenance_anchor_bench"
 path = "benches/provenance_anchor_bench.rs"
 harness = false
 required-features = ["security"]
+
+# In-process (the shape eg-pyengine embeds) vs out-of-process (UDS wire) latency
+# for the SAME AddNode/GetNodeProperties op (unified-binary program, workstream
+# W-A; see
+# docs/architecture/unified-inprocess-engine.md). Both arms call the IDENTICAL
+# `epistemic_graph::graph::GraphCore` mutation — the in-process arm calls it
+# directly (what `eg-pyengine` does), the out-of-process arm additionally pays
+# real length-prefixed MessagePack framing over a real Unix domain socket
+# (what the served transport does), isolating the transport tax the "two
+# deployment shapes, one performance discipline" edict is about. Needs the
+# redb-independent server runtime bits (tokio) only — `required-features =
+# ["server"]`; a default `cargo check --benches` skips it. DEV-only; never
+# linked into the binary.
+[[bench]]
+name = "pyo3_inprocess_vs_uds_bench"
+path = "benches/pyo3_inprocess_vs_uds_bench.rs"
+harness = false
+required-features = ["server"]
 
 [profile.release]
 opt-level = 3
