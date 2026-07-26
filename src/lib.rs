@@ -143,3 +143,13 @@ pub mod cost;
 // not even appear in a non-raft build.
 #[cfg(feature = "raft")]
 pub mod raft;
+
+// Unified single binary — the opt-in in-process pyo3-engine (unified-binary program,
+// workstream W-A; docs/architecture/unified-inprocess-engine.md). Re-exported ONLY
+// under the opt-in `pyo3-engine` feature (never in default/full/cluster) so a
+// Rust-only embedder can construct the SAME in-process engine handle the compiled
+// `epistemic_graph.engine` extension wraps, with no Python involved. The
+// out-of-process scale-out build links none of this crate and none of its optional
+// dependencies (`scripts/check_no_pyo3.sh` scopes to exactly that build).
+#[cfg(feature = "pyo3-engine")]
+pub use eg_pyengine;

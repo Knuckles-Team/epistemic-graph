@@ -1,0 +1,26 @@
+# Surface (Python) wheel build for the eg-pyengine in-process binding. Builds the
+# pyo3 extension `epistemic_graph.engine` (feature `python`). This is a SEPARATE
+# maturin target from the main epistemic-graph wheel (which is `bindings="bin"` —
+# the server binary, no pyo3), mirroring crates/eg-numeric/pyproject.toml exactly.
+# In a shipped unified build the CI wheel build folds this module into the
+# `epistemic_graph` package (see docs/architecture/unified-inprocess-engine.md);
+# here it builds standalone for local proving / smoke tests.
+#
+#   maturin build --release -m crates/eg-pyengine/Cargo.toml --features python
+#
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "eg-pyengine"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "epistemic-graph in-process engine binding — pyo3 extension epistemic_graph.engine (unified-binary program, workstream W-A)"
+
+[tool.maturin]
+# The #[pymodule] is `engine`; ship it inside the `epistemic_graph` package so it
+# imports as `epistemic_graph.engine`, exactly the way eg-numeric's `numeric`
+# #[pymodule] ships as `epistemic_graph.numeric`.
+module-name = "epistemic_graph.engine"
+features = ["python"]
