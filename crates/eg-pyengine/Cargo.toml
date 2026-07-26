@@ -1,0 +1,45 @@
+[package]
+name = "eg-pyengine"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "In-process PyO3 binding for the epistemic-graph engine core (unified-binary program, workstream W-A). Embeds eg-core's GraphCore/GraphRegistry directly in the Python process as the pyo3 extension module `epistemic_graph.engine`, so a self-contained deployment skips the socket entirely. Opt-in only: OFF by default, never linked by the out-of-process scale-out build (scripts/check_no_pyo3.sh)."
+license = "MIT"
+
+[lib]
+name = "eg_pyengine"
+# cdylib -> the pyo3 extension module `epistemic_graph.engine`, built standalone via
+# `maturin build -m crates/eg-pyengine/Cargo.toml --features python` (mirrors
+# crates/eg-numeric's proven "one kernel/engine, two surfaces" split: Surface A is the
+# pyo3 cdylib, Surface B is the plain rlib). rlib -> lets the facade (feature
+# `pyo3-engine`) and any other Rust crate depend on this as an ordinary Rust library
+# WITHOUT pulling pyo3 in `extension-module` mode.
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# pyo3 Python bindings -- the ONLY feature that pulls pyo3 into this crate. OFF by
+# default so `cargo build -p eg-pyengine` (no flags) links no pyo3 at all; only the
+# wheel build (maturin) or the facade's own `pyo3-engine` feature
+# (`eg-pyengine/python`) turns this on. Mirrors eg-numeric's `python` feature 1:1 --
+# same reasoning (keep an engine-linked rlib consumer, if one ever exists, free of
+# pyo3), same shape.
+python = ["dep:pyo3"]
+
+[dependencies]
+# The engine core this binding embeds directly -- the SAME `GraphCore`/
+# `GraphRegistry` the out-of-process Tokio server dispatches against
+# (src/server/dispatch.rs) and the facade's own `EmbeddedEngine` (src/embedded.rs)
+# calls. This crate cannot depend on the facade crate itself (workspace DAG: the
+# facade is TOP-of-DAG and optionally depends on THIS crate, so the reverse edge
+# would cycle) -- so it talks to eg-core directly, one layer below where
+# `EmbeddedEngine` sits. See the crate-level doc comment in src/lib.rs.
+eg-core = { path = "../eg-core" }
+# Sync interior-mutability for the registry handle, matching `EmbeddedEngine`'s own
+# choice (src/embedded.rs: `parking_lot::RwLock<GraphRegistry>`) -- no Tokio needed,
+# the wrapped GraphCore methods this prototype calls are plain synchronous functions.
+parking_lot = "0.12"
+
+# Surface (Python) only, feature `python`. abi3-py39 matches eg-numeric's floor so
+# both extensions target the same minimum stable ABI.
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
