@@ -2670,6 +2670,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-pyengine"
+version = "0.1.0"
+dependencies = [
+ "eg-core",
+ "parking_lot",
+ "pyo3",
+]
+
+[[package]]
 name = "eg-query"
 version = "0.31.0"
 dependencies = [
@@ -2909,6 +2918,7 @@ dependencies = [
  "eg-numeric",
  "eg-plan",
  "eg-program",
+ "eg-pyengine",
  "eg-query",
  "eg-rdf",
  "eg-shacl",
