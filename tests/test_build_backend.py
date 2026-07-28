@@ -51,9 +51,10 @@ def _record(entries: dict[str, bytes]) -> bytes:
     return output.getvalue().encode()
 
 
-def _editable_wheel(path: Path) -> None:
+def _editable_wheel(path: Path, *, source_root: Path | None = None) -> None:
+    source_root = source_root or build_backend.ROOT.resolve()
     entries = {
-        "epistemic_graph.pth": f"{build_backend.ROOT.resolve()}\n".encode(),
+        "epistemic_graph.pth": f"{source_root}\n".encode(),
         "epistemic_graph/numeric.abi3.so": b"numeric",
         "epistemic_graph-0.data/scripts/epistemic-graph-server": b"server",
         "epistemic_graph-0.dist-info/METADATA": b"Name: epistemic-graph\n",
@@ -346,4 +347,38 @@ def test_cached_editable_payload_preserves_source_and_permissions(
             ).external_attr
             >> 16
             & 0o111
+        )
+
+
+def test_publish_cached_wheel_accepts_symlinked_source_identity(
+    tmp_path: Path,
+) -> None:
+    source_alias = tmp_path / "hermetic-epistemic-graph"
+    source_alias.symlink_to(build_backend.ROOT, target_is_directory=True)
+    wheel = tmp_path / "epistemic_graph-0-py3-none-any.whl"
+    _editable_wheel(wheel, source_root=source_alias)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    entry = cache / "same-source"
+
+    build_backend._publish_cached_wheel(entry, "same-source", wheel)
+
+    assert build_backend._cached_wheel(entry, "same-source") is not None
+
+
+def test_publish_cached_wheel_rejects_different_source_checkout(
+    tmp_path: Path,
+) -> None:
+    different_checkout = tmp_path / "different-epistemic-graph"
+    different_checkout.mkdir()
+    wheel = tmp_path / "epistemic_graph-0-py3-none-any.whl"
+    _editable_wheel(wheel, source_root=different_checkout)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+
+    with pytest.raises(
+        RuntimeError, match="points at another source checkout"
+    ):
+        build_backend._publish_cached_wheel(
+            cache / "different-source", "different-source", wheel
         )
