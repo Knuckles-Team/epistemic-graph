@@ -2089,6 +2089,11 @@ fn apply_work_item_rows(
                 String,
                 serde_json::Map<String, serde_json::Value>,
             )>::new();
+            // The redb range cursor immutably borrows the table, so expired
+            // exhausted rows are collected here and written only after the
+            // scan. They still commit in this same MutationBatch transaction.
+            let mut exhausted = Vec::<(String, serde_json::Map<String, serde_json::Value>)>::new();
+            let mut changed_work_item_ids = Vec::<String>::new();
             for row in nodes
                 .range((graph, "")..=(graph, "\u{10ffff}"))
                 .map_err(|e| e.to_string())?
@@ -2112,6 +2117,9 @@ fn apply_work_item_rows(
                     inflight = inflight.saturating_add(1);
                     continue;
                 }
+                // Admission is tenant-wide even for an exact-id delivery.
+                // Filter only after live leases have contributed to the quota,
+                // but before an expired unrelated row can be reclaimed.
                 if request
                     .work_item_id
                     .as_deref()
@@ -2122,12 +2130,52 @@ fn apply_work_item_rows(
                 // Expired owners are fenced out before the item participates in
                 // selection. This update is still private to the held transaction.
                 if matches!(status.as_str(), "leased" | "running") {
+                    let attempts = property_u64(&props, "attempt");
+                    let max_attempts = property_u64(&props, "max_attempts").max(1);
                     let next_epoch = property_u64(&props, "lease_epoch").saturating_add(1);
+                    if attempts >= max_attempts {
+                        props.insert(
+                            "status".into(),
+                            serde_json::Value::String("dead_letter".into()),
+                        );
+                        props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
+                        props.insert("fencing_token".into(), serde_json::Value::from(next_epoch));
+                        props.insert("lease_owner".into(), serde_json::Value::Null);
+                        props.insert("lease_expires_at".into(), serde_json::Value::Null);
+                        props.insert("completed_at".into(), serde_json::Value::from(now_s));
+                        props.insert("updated_at".into(), serde_json::Value::from(now_s));
+                        props.insert(
+                            "error_ref".into(),
+                            serde_json::Value::String("lease_exhausted".into()),
+                        );
+                        #[cfg(feature = "statechart")]
+                        apply_work_item_mirror(
+                            &mut props,
+                            node_id,
+                            &status,
+                            crate::work_item_statechart::EV_LEASE_EXHAUSTED,
+                            serde_json::json!({}),
+                            Some("dead_letter"),
+                        );
+                        let node_id = node_id.to_string();
+                        changed_work_item_ids.push(node_id.clone());
+                        exhausted.push((node_id, props));
+                        continue;
+                    }
                     props.insert("status".into(), serde_json::Value::String("ready".into()));
                     props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
                     props.insert("fencing_token".into(), serde_json::Value::from(next_epoch));
                     props.insert("lease_owner".into(), serde_json::Value::Null);
                     props.insert("lease_expires_at".into(), serde_json::Value::Null);
+                    #[cfg(feature = "statechart")]
+                    apply_work_item_mirror(
+                        &mut props,
+                        node_id,
+                        &status,
+                        crate::work_item_statechart::EV_LEASE_RECLAIM,
+                        serde_json::json!({}),
+                        Some("ready"),
+                    );
                 }
                 if property_string(&props, "status") != "ready"
                     || request
@@ -2171,6 +2219,9 @@ fn apply_work_item_rows(
                     props,
                 ));
             }
+            for (node_id, props) in exhausted {
+                write_work_item_props(nodes, graph, &node_id, &props, crypto)?;
+            }
             if inflight >= tenant_in_flight_limit {
                 return Ok(Some(crate::protocol::ResultPayload::raw(
                     &ClaimWorkItemResult {
@@ -2187,7 +2238,7 @@ fn apply_work_item_rows(
                         attempt: None,
                         max_attempts: None,
                         tenant_in_flight: Some(u64::from(inflight)),
-                        changed_work_item_ids: Vec::new(),
+                        changed_work_item_ids,
                     },
                 )));
             }
@@ -2210,7 +2261,7 @@ fn apply_work_item_rows(
                         attempt: None,
                         max_attempts: None,
                         tenant_in_flight: Some(u64::from(inflight)),
-                        changed_work_item_ids: Vec::new(),
+                        changed_work_item_ids,
                     },
                 )));
             };
@@ -2261,7 +2312,10 @@ fn apply_work_item_rows(
                     attempt: Some(attempt),
                     max_attempts: Some(max_attempts),
                     tenant_in_flight: Some(u64::from(inflight.saturating_add(1))),
-                    changed_work_item_ids: vec![node_id],
+                    changed_work_item_ids: {
+                        changed_work_item_ids.push(node_id);
+                        changed_work_item_ids
+                    },
                 },
             )))
         }
@@ -7111,7 +7165,7 @@ mod mutation_batch_tests {
     }
 
     #[test]
-    fn work_item_claim_always_enforces_the_bounded_tenant_limit() {
+    fn generic_work_item_claim_enforces_tenant_in_flight_limit() {
         let path = temp_path("work-item-quota");
         let db = open(&path);
         let mut seed = batch("work-item-seed", "work-item-seed-key");
@@ -7196,6 +7250,433 @@ mod mutation_batch_tests {
         assert_eq!(result.reason, ClaimWorkItemResultReason::TenantQuota);
         assert_eq!(result.tenant_in_flight, Some(1));
 
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn exact_work_item_claim_cannot_bypass_tenant_in_flight_limit() {
+        use crate::epistemic_operations::{
+            ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion,
+        };
+
+        let path = temp_path("work-item-exact-quota");
+        let db = open(&path);
+        let mut seed = batch(
+            "work-item-exact-quota-seed",
+            "work-item-exact-quota-seed-key",
+        );
+        seed.operations = vec![
+            MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::AddNode {
+                    node_id: "live".into(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                        "node_type": "WorkItem",
+                        "tenant": "tenant-a",
+                        "status": "leased",
+                        "lease_expires_at": 60.0,
+                    }))
+                    .unwrap(),
+                },
+            },
+            MutationOperation {
+                ordinal: 1,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::AddNode {
+                    node_id: "ready".into(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                        "node_type": "WorkItem",
+                        "tenant": "tenant-a",
+                        "status": "ready",
+                    }))
+                    .unwrap(),
+                },
+            },
+        ];
+        commit_at(&db, &seed, None).unwrap();
+
+        let mut claim = batch(
+            "work-item-exact-quota-claim",
+            "work-item-exact-quota-claim-key",
+        );
+        claim.expected_graph_version = Some(4);
+        claim.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: Method::ClaimWorkItem {
+                request: ClaimWorkItemRequest {
+                    schema_version: ClaimWorkItemRequestSchemaVersion::V1,
+                    tenant_ref: "tenant-a".into(),
+                    work_item_id: Some("ready".into()),
+                    queue_ref: None,
+                    resource_class: None,
+                    fairness_group: None,
+                    worker_ref: "worker-a".into(),
+                    now_ms: 1_000,
+                    lease_ms: 10_000,
+                    max_tenant_in_flight: 1,
+                },
+            },
+        }];
+        let committed = commit_at(&db, &claim, None).unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("claim result"),
+        )
+        .unwrap();
+        let bytes = match payload {
+            crate::protocol::ResultPayload::Raw(inner)
+            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
+        };
+        let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
+        assert!(!result.claimed);
+        assert_eq!(result.reason, ClaimWorkItemResultReason::TenantQuota);
+        assert_eq!(result.tenant_in_flight, Some(1));
+
+        let ready = read_one_node(&db, "graph-a", "ready", DurableCrypto::none())
+            .unwrap()
+            .expect("exact candidate remains inspectable");
+        let ready: serde_json::Value = decode_durable(&ready).unwrap();
+        assert_eq!(ready["status"], "ready");
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn expired_exhausted_work_item_is_terminalized_without_an_over_ceiling_claim() {
+        use crate::epistemic_operations::{
+            ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion,
+        };
+
+        let path = temp_path("work-item-expired-attempt-ceiling");
+        let db = open(&path);
+        let mut seed = batch("work-item-expired-seed", "work-item-expired-seed-key");
+        seed.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: Method::AddNode {
+                node_id: "exhausted".into(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                    "node_type": "WorkItem",
+                    "tenant": "tenant-a",
+                    "status": "leased",
+                    "lease_owner": "dead-worker",
+                    "lease_epoch": 7,
+                    "fencing_token": 7,
+                    "lease_expires_at": 60.0,
+                    "attempt": 3,
+                    "max_attempts": 3,
+                }))
+                .unwrap(),
+            },
+        }];
+        commit_at(&db, &seed, None).unwrap();
+
+        let mut claim = batch("work-item-expired-claim", "work-item-expired-claim-key");
+        claim.expected_graph_version = Some(4);
+        claim.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: Method::ClaimWorkItem {
+                request: ClaimWorkItemRequest {
+                    schema_version: ClaimWorkItemRequestSchemaVersion::V1,
+                    tenant_ref: "tenant-a".into(),
+                    work_item_id: Some("exhausted".into()),
+                    queue_ref: None,
+                    resource_class: None,
+                    fairness_group: None,
+                    worker_ref: "replacement-worker".into(),
+                    now_ms: 100_000,
+                    lease_ms: 10_000,
+                    max_tenant_in_flight: 64,
+                },
+            },
+        }];
+        let committed = commit_at(&db, &claim, None).unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("claim result"),
+        )
+        .unwrap();
+        let bytes = match payload {
+            crate::protocol::ResultPayload::Raw(inner)
+            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
+        };
+        let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
+        assert!(!result.claimed);
+        assert_eq!(result.reason, ClaimWorkItemResultReason::Empty);
+        assert_eq!(result.changed_work_item_ids, vec!["exhausted"]);
+
+        let stored = read_one_node(&db, "graph-a", "exhausted", DurableCrypto::none())
+            .unwrap()
+            .expect("expired work item remains inspectable");
+        let stored: serde_json::Value = decode_durable(&stored).unwrap();
+        assert_eq!(stored["status"], "dead_letter");
+        assert_eq!(
+            stored["attempt"], 3,
+            "the exhausted attempt is never incremented"
+        );
+        assert_eq!(stored["max_attempts"], 3);
+        assert_eq!(stored["error_ref"], "lease_exhausted");
+        assert!(stored["lease_owner"].is_null());
+        assert!(stored["lease_expires_at"].is_null());
+        assert_eq!(stored["lease_epoch"], 8, "the dead holder is fenced out");
+        assert_eq!(stored["fencing_token"], 8);
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn generic_claim_reaps_exhausted_lease_then_claims_a_different_ready_item() {
+        use crate::epistemic_operations::{
+            ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion,
+        };
+
+        let path = temp_path("work-item-generic-expired-attempt-ceiling");
+        let db = open(&path);
+        let mut seed = batch(
+            "work-item-generic-expired-seed",
+            "work-item-generic-expired-seed-key",
+        );
+        seed.operations = vec![
+            MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::AddNode {
+                    node_id: "exhausted".into(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                        "node_type": "WorkItem",
+                        "tenant": "tenant-a",
+                        "status": "running",
+                        "lease_owner": "dead-worker",
+                        "lease_epoch": 4,
+                        "fencing_token": 4,
+                        "lease_expires_at": 60.0,
+                        "attempt": 3,
+                        "max_attempts": 3,
+                    }))
+                    .unwrap(),
+                },
+            },
+            MutationOperation {
+                ordinal: 1,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::AddNode {
+                    node_id: "runnable".into(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                        "node_type": "WorkItem",
+                        "tenant": "tenant-a",
+                        "status": "ready",
+                        "attempt": 0,
+                        "max_attempts": 3,
+                    }))
+                    .unwrap(),
+                },
+            },
+        ];
+        commit_at(&db, &seed, None).unwrap();
+
+        let mut claim = batch(
+            "work-item-generic-expired-claim",
+            "work-item-generic-expired-claim-key",
+        );
+        claim.expected_graph_version = Some(4);
+        claim.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: Method::ClaimWorkItem {
+                request: ClaimWorkItemRequest {
+                    schema_version: ClaimWorkItemRequestSchemaVersion::V1,
+                    tenant_ref: "tenant-a".into(),
+                    work_item_id: None,
+                    queue_ref: None,
+                    resource_class: None,
+                    fairness_group: None,
+                    worker_ref: "worker-b".into(),
+                    now_ms: 100_000,
+                    lease_ms: 10_000,
+                    max_tenant_in_flight: 64,
+                },
+            },
+        }];
+        let committed = commit_at(&db, &claim, None).unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("claim result"),
+        )
+        .unwrap();
+        let bytes = match payload {
+            crate::protocol::ResultPayload::Raw(inner)
+            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
+        };
+        let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
+        assert!(result.claimed);
+        assert_eq!(result.work_item_id.as_deref(), Some("runnable"));
+        assert_eq!(result.attempt, Some(1));
+        assert!(result
+            .changed_work_item_ids
+            .iter()
+            .any(|id| id == "exhausted"));
+        assert!(result
+            .changed_work_item_ids
+            .iter()
+            .any(|id| id == "runnable"));
+
+        let exhausted = read_one_node(&db, "graph-a", "exhausted", DurableCrypto::none())
+            .unwrap()
+            .expect("expired work item remains inspectable");
+        let exhausted: serde_json::Value = decode_durable(&exhausted).unwrap();
+        assert_eq!(exhausted["status"], "dead_letter");
+        assert_eq!(exhausted["attempt"], 3);
+        assert_eq!(exhausted["error_ref"], "lease_exhausted");
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn last_permitted_reclaim_survives_restart_but_the_next_reclaim_dead_letters() {
+        use crate::epistemic_operations::{
+            ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion,
+        };
+
+        let path = temp_path("work-item-attempt-boundary-restart");
+        {
+            let db = open(&path);
+            let mut seed = batch("work-item-boundary-seed", "work-item-boundary-seed-key");
+            seed.operations = vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::AddNode {
+                    node_id: "boundary".into(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                        "node_type": "WorkItem",
+                        "tenant": "tenant-a",
+                        "status": "leased",
+                        "lease_owner": "dead-worker",
+                        "lease_epoch": 1,
+                        "fencing_token": 1,
+                        "lease_expires_at": 60.0,
+                        "attempt": 2,
+                        "max_attempts": 3,
+                    }))
+                    .unwrap(),
+                },
+            }];
+            commit_at(&db, &seed, None).unwrap();
+
+            let mut claim = batch("work-item-boundary-last", "work-item-boundary-last-key");
+            claim.expected_graph_version = Some(4);
+            claim.operations = vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::ClaimWorkItem {
+                    request: ClaimWorkItemRequest {
+                        schema_version: ClaimWorkItemRequestSchemaVersion::V1,
+                        tenant_ref: "tenant-a".into(),
+                        work_item_id: Some("boundary".into()),
+                        queue_ref: None,
+                        resource_class: None,
+                        fairness_group: None,
+                        worker_ref: "last-permitted-worker".into(),
+                        now_ms: 100_000,
+                        lease_ms: 10_000,
+                        max_tenant_in_flight: 64,
+                    },
+                },
+            }];
+            let committed = commit_at(&db, &claim, None).unwrap();
+            let payload: crate::protocol::ResultPayload = decode_durable(
+                committed
+                    .record
+                    .result_msgpack
+                    .as_deref()
+                    .expect("claim result"),
+            )
+            .unwrap();
+            let bytes = match payload {
+                crate::protocol::ResultPayload::Raw(inner)
+                | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+                other => {
+                    panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}")
+                }
+            };
+            let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
+            assert!(result.claimed);
+            assert_eq!(result.attempt, Some(3));
+        }
+
+        let db = open(&path);
+        let mut claim = batch("work-item-boundary-over", "work-item-boundary-over-key");
+        claim.expected_graph_version = Some(5);
+        claim.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: Method::ClaimWorkItem {
+                request: ClaimWorkItemRequest {
+                    schema_version: ClaimWorkItemRequestSchemaVersion::V1,
+                    tenant_ref: "tenant-a".into(),
+                    work_item_id: Some("boundary".into()),
+                    queue_ref: None,
+                    resource_class: None,
+                    fairness_group: None,
+                    worker_ref: "would-be-fourth-worker".into(),
+                    now_ms: 200_000,
+                    lease_ms: 10_000,
+                    max_tenant_in_flight: 64,
+                },
+            },
+        }];
+        let committed = commit_at(&db, &claim, None).unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("claim result"),
+        )
+        .unwrap();
+        let bytes = match payload {
+            crate::protocol::ResultPayload::Raw(inner)
+            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
+        };
+        let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
+        assert!(!result.claimed);
+        let stored = read_one_node(&db, "graph-a", "boundary", DurableCrypto::none())
+            .unwrap()
+            .expect("boundary work item remains durable");
+        let stored: serde_json::Value = decode_durable(&stored).unwrap();
+        assert_eq!(stored["status"], "dead_letter");
+        assert_eq!(stored["attempt"], 3);
+        assert_eq!(stored["error_ref"], "lease_exhausted");
+
+        drop(db);
         let _ = std::fs::remove_file(path);
     }
 
