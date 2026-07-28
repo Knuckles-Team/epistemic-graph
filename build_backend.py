@@ -31,7 +31,7 @@ from scripts.inject_numeric_kernel import inject
 
 ROOT = Path(__file__).resolve().parent
 NUMERIC_MANIFEST = ROOT / "crates" / "eg-numeric" / "Cargo.toml"
-_CACHE_SCHEMA = 1
+_CACHE_SCHEMA = 2
 _CACHE_ENV = "EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE"
 _BUILD_ENV = (
     "AR",
@@ -167,12 +167,60 @@ def _cache_inputs(config_settings: Mapping[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _cache_key(inputs: Mapping[str, Any]) -> str:
+    return hashlib.sha256(_canonical(inputs).encode("utf-8")).hexdigest()
+
+
 def native_artifact_key(config_settings: Mapping[str, Any] | None) -> str:
     """Return the content-addressed key for one PEP-660 native payload."""
 
-    return hashlib.sha256(
-        _canonical(_cache_inputs(config_settings)).encode("utf-8")
-    ).hexdigest()
+    return _cache_key(_cache_inputs(config_settings))
+
+
+def _input_fingerprints(
+    inputs: Mapping[str, Any],
+    *,
+    prefix: str = "",
+) -> dict[str, str]:
+    """Return non-secret per-field digests for cache provenance diagnostics."""
+
+    fingerprints: dict[str, str] = {}
+    for name, value in sorted(inputs.items()):
+        escaped = str(name).replace("~", "~0").replace("/", "~1")
+        field = f"{prefix}/{escaped}"
+        if isinstance(value, Mapping) and value:
+            fingerprints.update(_input_fingerprints(value, prefix=field))
+        else:
+            fingerprints[field] = hashlib.sha256(
+                _canonical(value).encode("utf-8")
+            ).hexdigest()
+    return fingerprints
+
+
+def _changed_input_fields(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> list[str]:
+    """Identify changed cache-key fields without exposing their values."""
+
+    before_fingerprints = _input_fingerprints(before)
+    after_fingerprints = _input_fingerprints(after)
+    return sorted(
+        field
+        for field in before_fingerprints.keys() | after_fingerprints.keys()
+        if before_fingerprints.get(field) != after_fingerprints.get(field)
+    )
+
+
+def _assert_stable_cache_inputs(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> None:
+    changed = _changed_input_fields(before, after)
+    if changed:
+        raise RuntimeError(
+            "native artifact cache inputs changed during build: " + ", ".join(changed)
+        )
 
 
 @contextmanager
@@ -345,7 +393,11 @@ def _manifest_path(entry: Path) -> Path:
     return entry / "manifest.json"
 
 
-def _cached_wheel(entry: Path, key: str) -> tuple[Path, str] | None:
+def _cached_wheel(
+    entry: Path,
+    key: str,
+    inputs: Mapping[str, Any],
+) -> tuple[Path, str] | None:
     manifest_path = _manifest_path(entry)
     if entry.is_symlink() or manifest_path.is_symlink() or not manifest_path.is_file():
         return None
@@ -353,9 +405,17 @@ def _cached_wheel(entry: Path, key: str) -> tuple[Path, str] | None:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         filename = manifest["filename"]
         expected_hash = manifest["sha256"]
+        expected_inputs = _input_fingerprints(inputs)
+        recorded_inputs = manifest["input_fingerprints"]
         if (
             manifest["schema"] != _CACHE_SCHEMA
             or manifest["key"] != key
+            or _cache_key(inputs) != key
+            or recorded_inputs != expected_inputs
+            or not all(
+                isinstance(field, str) and isinstance(digest, str) and len(digest) == 64
+                for field, digest in recorded_inputs.items()
+            )
             or not isinstance(filename, str)
             or Path(filename).name != filename
             or not isinstance(expected_hash, str)
@@ -392,9 +452,16 @@ def _discard_entry(entry: Path) -> None:
         shutil.rmtree(entry)
 
 
-def _publish_cached_wheel(entry: Path, key: str, wheel: Path) -> None:
+def _publish_cached_wheel(
+    entry: Path,
+    key: str,
+    wheel: Path,
+    inputs: Mapping[str, Any],
+) -> None:
     """Publish a verified wheel atomically and make cache payloads immutable."""
 
+    if _cache_key(inputs) != key:
+        raise RuntimeError("native artifact cache key does not match its inputs")
     _validate_editable_wheel(wheel)
     temporary = Path(tempfile.mkdtemp(prefix=f".{key}.", dir=entry.parent))
     try:
@@ -404,6 +471,7 @@ def _publish_cached_wheel(entry: Path, key: str, wheel: Path) -> None:
         manifest = {
             "schema": _CACHE_SCHEMA,
             "key": key,
+            "input_fingerprints": _input_fingerprints(inputs),
             "filename": wheel.name,
             "sha256": _sha256(cached),
             "created_at": int(time.time()),
@@ -434,12 +502,13 @@ def _build_editable_cached(
 ) -> str:
     """Build once per immutable key, then reuse the verified PEP-660 wheel."""
 
-    key = native_artifact_key(config_settings)
+    inputs = _cache_inputs(config_settings)
+    key = _cache_key(inputs)
     cache_root = _cache_root()
     cache_root.mkdir(parents=True, exist_ok=True)
     entry = cache_root / key
     with _cache_lock(cache_root, key):
-        cached = _cached_wheel(entry, key)
+        cached = _cached_wheel(entry, key, inputs)
         if cached is not None:
             return _copy_cached_wheel(*cached, wheel_directory)
         _discard_entry(entry)
@@ -447,7 +516,9 @@ def _build_editable_cached(
             maturin.build_editable, wheel_directory, config_settings, metadata_directory
         )
         wheel = Path(wheel_directory) / filename
-        _publish_cached_wheel(entry, key, wheel)
+        final_inputs = _cache_inputs(config_settings)
+        _assert_stable_cache_inputs(inputs, final_inputs)
+        _publish_cached_wheel(entry, key, wheel, final_inputs)
         return filename
 
 
