@@ -1,6 +1,7 @@
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
-build-backend = "maturin"
+build-backend = "build_backend"
+backend-path = ["."]
 
 [project]
 name = "epistemic-graph"

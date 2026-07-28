@@ -111,12 +111,15 @@ or fails to import; it has no missing-kernel fallback
 pulls `numpy` for the kernel's zero-copy interop; the extension itself is
 self-contained and BLAS/LAPACK-free.
 
-**How release composition works.** The build compiles the kernel crate's pyo3
-cdylib with its `python` feature while the server binary stays pyo3-free. The
-`wheels` job in `.github/workflows/release-build.yml` builds the main server wheel,
-then compiles the kernel component for the same target and **injects its compiled
-`.so` into the server wheel** as `epistemic_graph/numeric.abi3.so`
-(`scripts/inject_numeric_kernel.py`, which recomputes `RECORD`). The result is one
+**How release and development composition works.** The build compiles the kernel
+crate's pyo3 cdylib with its `python` feature while the server binary stays
+pyo3-free. The PEP 517 backend (`build_backend.py`) composes every ordinary and
+editable local build: it builds the main server wheel, builds the host-native
+kernel component, then **injects its compiled `.so` into the server wheel** as
+`epistemic_graph/numeric.abi3.so` (`scripts/inject_numeric_kernel.py`, which
+recomputes `RECORD`). Editable installs keep the native overlay in the installed
+wheel, not the checkout. The release `wheels` job performs the same composition
+explicitly for each cross-compiled target. The result is one
 `epistemic_graph-<ver>` wheel carrying both the server binary and the numeric kernel.
 
 The parity job compiles the same intermediate component and injects it into the
