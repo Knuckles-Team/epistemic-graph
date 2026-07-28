@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,99 @@ def test_build_backend_folds_numeric_wheel(monkeypatch, tmp_path: Path) -> None:
     assert build_backend._compose(build, str(tmp_path), None, None) == server.name
     with zipfile.ZipFile(server) as archive:
         assert archive.read("epistemic_graph/numeric.abi3.so") == b"native-kernel"
+
+
+def test_regular_and_editable_builds_serialize_complete_maturin_staging(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A shared Cargo target has one staging owner through numeric injection."""
+
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path / "shared-target"))
+    first_numeric_started = threading.Event()
+    release_first_numeric = threading.Event()
+    second_lock_attempted = threading.Event()
+    second_server_started = threading.Event()
+    calls_lock = threading.Lock()
+    staging_lock_paths: list[Path] = []
+    numeric_calls = 0
+    failures: list[BaseException] = []
+    original_file_lock = build_backend._exclusive_file_lock
+
+    @contextmanager
+    def observed_file_lock(lock_path: Path):
+        staging_lock_paths.append(lock_path)
+        if threading.current_thread().name == "editable-builder":
+            second_lock_attempted.set()
+        with original_file_lock(lock_path):
+            yield
+
+    def server_builder(label: str):
+        def build(
+            wheel_directory: str,
+            _settings: object,
+            _metadata: object,
+        ) -> str:
+            if label == "editable":
+                second_server_started.set()
+            destination = Path(wheel_directory)
+            destination.mkdir(parents=True, exist_ok=True)
+            filename = f"{label}-py3-none-any.whl"
+            _wheel(
+                destination / filename,
+                "epistemic_graph-0.dist-info/METADATA",
+                b"Name: epistemic-graph\n",
+            )
+            return filename
+
+        return build
+
+    def build_numeric(directory: Path) -> Path:
+        nonlocal numeric_calls
+        with calls_lock:
+            numeric_calls += 1
+            call = numeric_calls
+        if call == 1:
+            first_numeric_started.set()
+            assert release_first_numeric.wait(timeout=5)
+        numeric = directory / f"numeric-{call}.whl"
+        _wheel(numeric, "numeric/numeric.abi3.so", b"native-kernel")
+        return numeric
+
+    monkeypatch.setattr(build_backend, "_build_numeric", build_numeric)
+    monkeypatch.setattr(build_backend, "_exclusive_file_lock", observed_file_lock)
+
+    def compose(label: str, output: Path) -> None:
+        try:
+            build_backend._compose(server_builder(label), str(output), None, None)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            failures.append(exc)
+
+    regular = threading.Thread(
+        target=compose, args=("regular", tmp_path / "regular")
+    )
+    editable = threading.Thread(
+        target=compose,
+        args=("editable", tmp_path / "editable"),
+        name="editable-builder",
+    )
+    regular.start()
+    assert first_numeric_started.wait(timeout=5)
+    editable.start()
+    assert second_lock_attempted.wait(timeout=5)
+
+    # The editable server build must remain outside Maturin while the regular
+    # composition is still in its numeric phase.
+    assert not second_server_started.is_set()
+    release_first_numeric.set()
+    regular.join(timeout=5)
+    editable.join(timeout=5)
+
+    assert not regular.is_alive()
+    assert not editable.is_alive()
+    assert failures == []
+    assert second_server_started.is_set()
+    assert numeric_calls == 2
+    assert len(set(staging_lock_paths)) == 1
 
 
 def test_editable_native_cache_hit_avoids_maturin(
