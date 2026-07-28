@@ -893,24 +893,49 @@ pub(crate) async fn commit_work_item(
     .map_err(|_| "committed WorkItem result is corrupt".to_string())?;
 
     if !committed.replayed {
-        let changed_ids = match &result {
-            ResultPayload::Json(value) => value
-                .get("changed_work_item_ids")
-                .and_then(serde_json::Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
-            _ => Vec::new(),
-        };
-        for node_id in changed_ids.iter().filter_map(serde_json::Value::as_str) {
+        for node_id in changed_work_item_ids(&result)? {
             let props = persistence
-                .read_node(&fname, node_id)
+                .read_node(&fname, &node_id)
                 .await?
                 .ok_or_else(|| format!("committed WorkItem projection '{}' is missing", node_id))?;
-            core.add_node(node_id.to_string(), props);
+            core.add_node(node_id, props);
         }
         core.mark_dirty();
     }
     Ok(result)
+}
+
+fn changed_work_item_ids(result: &ResultPayload) -> Result<Vec<String>, String> {
+    fn from_json(value: &serde_json::Value) -> Result<Vec<String>, String> {
+        value
+            .get("changed_work_item_ids")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| "committed WorkItem result has no changed_work_item_ids".to_string())?
+            .iter()
+            .map(|value| {
+                value.as_str().map(str::to_string).ok_or_else(|| {
+                    "committed WorkItem result has a non-string changed id".to_string()
+                })
+            })
+            .collect()
+    }
+
+    match result {
+        ResultPayload::Json(value) => from_json(value),
+        // ``ResultPayload::raw`` is wire-identical to ``PropertiesMsgpack``.
+        // Because ResultPayload is untagged, decoding the durable outer payload
+        // can legitimately select either byte variant. Both carry the same
+        // typed WorkItem result and must refresh the resident graph projection.
+        ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes) => {
+            let value: serde_json::Value = eg_types::msgpack::decode_bounded(
+                bytes,
+                eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 10_000, 32),
+            )
+            .map_err(|_| "committed WorkItem inner result is corrupt".to_string())?;
+            from_json(&value)
+        }
+        _ => Err("committed WorkItem result has an invalid payload shape".to_string()),
+    }
 }
 
 /// Publish the graph-row projection of a durably committed ChangeEnvelope.
@@ -1142,6 +1167,29 @@ mod tests {
         );
         let outcome = task.await.expect("lock-probe task panicked");
         assert_eq!(outcome.unwrap_err(), "lock-probe-stop");
+    }
+
+    #[test]
+    fn work_item_result_bytes_preserve_projection_refresh_ids() {
+        let value = serde_json::json!({
+            "status": "leased",
+            "changed_work_item_ids": ["work:one", "work:two"],
+        });
+        let bytes = rmp_serde::to_vec_named(&value).unwrap();
+        let expected = vec!["work:one".to_string(), "work:two".to_string()];
+
+        assert_eq!(
+            changed_work_item_ids(&ResultPayload::Raw(bytes.clone())).unwrap(),
+            expected
+        );
+        assert_eq!(
+            changed_work_item_ids(&ResultPayload::PropertiesMsgpack(bytes)).unwrap(),
+            expected
+        );
+        assert_eq!(
+            changed_work_item_ids(&ResultPayload::Json(value)).unwrap(),
+            expected
+        );
     }
 
     #[test]
