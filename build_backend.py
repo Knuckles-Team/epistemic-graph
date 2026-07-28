@@ -268,6 +268,33 @@ def _record_valid(archive: zipfile.ZipFile) -> bool:
     return True
 
 
+def _resolved_editable_source(payload: bytes) -> Path | None:
+    """Return one absolute, existing source pointer as its real path.
+
+    Hermetic uv workspaces expose the canonical epistemic-graph checkout through a
+    directory symlink.  Maturin may preserve either the requested symlink path or
+    its resolved path in the editable ``.pth`` file, so lexical comparison rejects
+    a wheel built from the very same checkout.  Resolve both identities while
+    retaining the one-line absolute-path contract; a genuinely different checkout
+    still resolves to a different path and is rejected.
+    """
+
+    try:
+        value = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    if not value.endswith("\n") or value.count("\n") != 1:
+        return None
+    source = Path(value.removesuffix("\n"))
+    if not source.is_absolute():
+        return None
+    try:
+        resolved = source.resolve(strict=True)
+    except OSError:
+        return None
+    return resolved if resolved.is_dir() else None
+
+
 def _validate_editable_wheel(wheel: Path) -> None:
     """Verify the cached PEP-660 payload before it can reach a venv."""
 
@@ -281,8 +308,10 @@ def _validate_editable_wheel(wheel: Path) -> None:
             pth = "epistemic_graph.pth"
             if pth not in names:
                 raise RuntimeError("cached editable wheel does not point at source")
-            expected_source = f"{ROOT.resolve()}\n"
-            if archive.read(pth).decode("utf-8") != expected_source:
+            embedded_source = _resolved_editable_source(archive.read(pth))
+            if embedded_source is None:
+                raise RuntimeError("cached editable wheel does not point at source")
+            if embedded_source != ROOT.resolve(strict=True):
                 raise RuntimeError(
                     "cached editable wheel points at another source checkout"
                 )
