@@ -86,16 +86,26 @@ numeric = []
 # lake-rest read-parity suite (`tests/test_lake_iceberg_delta_parity.py`): real
 # pyiceberg/deltalake open the engine's own materialized Delta + Iceberg artifacts and
 # assert they read back correctly. Not a runtime dependency of the engine or the
-# Python client — isolated in its own extra (like `owl`/`quant`) so the baseline
-# `test` extra every CI run installs stays light; `pip install
-# epistemic-graph[lake-parity]` pulls it explicitly.
-lake-parity = [
-    "pyiceberg[pyarrow]>=0.7.0",
-    "deltalake>=0.18.0",
-]
-all = [
-    "epistemic-graph[test,owl,quant,finance,ast,datascience,reasoning,server,full,lmcache,numeric,lake-parity]",
-]
+# Python client. The project extra remains a compatibility marker, while the
+# reference readers live in `tests/lake-parity-requirements.txt` and are installed
+# only in an isolated validation environment: uv resolves every workspace member's
+# extras together, and PyIceberg's Rich ceiling conflicts with the production Rich
+# floor even when no workspace package requests this extra.
+lake-parity = []
+# The bare install already provides every runtime capability.  Keep `all` as a
+# compatibility alias rather than quietly adding test frameworks or the external
+# lake reference readers to production environments. `test` and `lake-parity`
+# remain explicit validation extras; lake parity is installed in its documented
+# isolated environment because PyIceberg's current `rich<15` ceiling conflicts
+# with the workspace's Rich 15 production floor.
+all = []
+
+# Expose the engine's operator skills to the same provider federation used by
+# agent-utilities and every agents/* package.  This is metadata only: consumers
+# discover the entry point when agent-utilities is installed, without imposing it
+# as an epistemic-graph runtime dependency.
+[project.entry-points."agent_utilities.skill_providers"]
+epistemic-graph = "epistemic_graph.skills"
 
 [tool.ruff]
 line-length = 88

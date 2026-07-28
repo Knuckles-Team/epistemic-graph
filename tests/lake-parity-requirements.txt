@@ -1,0 +1,7 @@
+# Isolated validation dependencies for test_lake_iceberg_delta_parity.py.
+# Do not move these into a project extra: uv resolves every workspace member's
+# extras together, while PyIceberg currently requires Rich <15 and the production
+# workspace requires Rich >=15.
+pytest>=7.0.0
+pyiceberg[pyarrow]>=0.7.0
+deltalake>=0.18.0

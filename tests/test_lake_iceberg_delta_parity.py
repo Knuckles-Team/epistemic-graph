@@ -9,10 +9,10 @@ REAL, unmodified `deltalake` reads the Delta table back correctly. No HTTP, no l
 server, and no reimplementation of either format on the Python side: the engine writes
 the bytes, the reference readers open them.
 
-`pyiceberg[pyarrow]`/`deltalake` are TEST-ONLY dependencies (the `lake-parity` extra —
-``pip install epistemic-graph[lake-parity]``, per `pyproject.toml`'s dev-dependency
-pattern, mirroring the isolated `owl`/`quant` extras). Every test below is SKIPPED, not
-failed, when they are not installed.
+`pyiceberg[pyarrow]`/`deltalake` are TEST-ONLY dependencies (installed from
+``tests/lake-parity-requirements.txt`` in an isolated environment; the project extra
+is intentionally empty because uv resolves all workspace extras together). Every test
+below is SKIPPED, not failed, when they are not installed.
 
 Run standalone (bypass the slow shared-engine conftest fixture, matching
 `test_kvcache_connector.py`'s documented pattern)::
@@ -82,11 +82,11 @@ except ImportError:
 
 _SKIP_PYICEBERG = pytest.mark.skipif(
     not PYICEBERG_AVAILABLE,
-    reason="pyiceberg[pyarrow] extra is not installed (pip install epistemic-graph[lake-parity])",
+    reason="pyiceberg[pyarrow] is not installed (see tests/lake-parity-requirements.txt)",
 )
 _SKIP_DELTALAKE = pytest.mark.skipif(
     not DELTALAKE_AVAILABLE,
-    reason="deltalake extra is not installed (pip install epistemic-graph[lake-parity])",
+    reason="deltalake is not installed (see tests/lake-parity-requirements.txt)",
 )
 
 
