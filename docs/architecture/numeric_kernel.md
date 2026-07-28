@@ -126,6 +126,32 @@ The parity job compiles the same intermediate component and injects it into the
 main wheel before installation. The component is never installed or published as
 another package:
 
+### Editable native-artifact cache
+
+PEP-660 environments must still carry the real server executable and numeric
+extension; an editable source pointer alone is incomplete. To avoid rebuilding
+those native payloads for every Agent Utilities worktree virtual environment,
+`build_backend.build_editable` keeps a per-user, content-addressed immutable cache
+under `$XDG_CACHE_HOME/epistemic-graph/native-artifacts/v1` (override with
+`EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE`).
+
+The cache key binds the resolved source root and native/packaging source-content
+digest (including dirty and untracked Rust/build inputs), PEP build settings,
+Python implementation/cache-tag/ABI, target platform, Rust/maturin identities,
+and native compiler flags. A Rust or packaging edit therefore cannot silently use
+an earlier payload, while ordinary Python, documentation, and test edits remain
+live through the editable source pointer without forcing a native rebuild. The
+cached wheel remains a PEP-660 editable wheel: its `.pth` points to the current
+source checkout while its server and `epistemic_graph.numeric` payload remain
+wheel-owned. The installer, not the cache, records the environment-specific
+`direct_url.json`.
+
+Each key is file-locked. The first builder creates the composed wheel, validates
+its `RECORD`, source pointer, executable permissions, and both required native
+payloads, then atomically publishes it read-only. Concurrent builders reuse that
+single artifact. A missing, malformed, hash-mismatched, or structurally invalid
+entry is discarded and rebuilt while holding the key lock; it is never installed.
+
 ```bash
 # On CPython ≤ 3.13 (pyo3 0.22's supported range) no flag is needed.
 # On a newer interpreter (e.g. 3.14) pyo3 0.22 refuses to build unless you opt in:
