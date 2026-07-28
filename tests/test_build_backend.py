@@ -51,10 +51,19 @@ def _record(entries: dict[str, bytes]) -> bytes:
     return output.getvalue().encode()
 
 
-def _editable_wheel(path: Path, *, source_root: Path | None = None) -> None:
+def _editable_wheel(
+    path: Path,
+    *,
+    source_root: Path | None = None,
+    source_payload: bytes | None = None,
+) -> None:
     source_root = source_root or build_backend.ROOT.resolve()
     entries = {
-        "epistemic_graph.pth": f"{source_root}\n".encode(),
+        "epistemic_graph.pth": (
+            source_payload
+            if source_payload is not None
+            else f"{source_root}\n".encode()
+        ),
         "epistemic_graph/numeric.abi3.so": b"numeric",
         "epistemic_graph-0.data/scripts/epistemic-graph-server": b"server",
         "epistemic_graph-0.dist-info/METADATA": b"Name: epistemic-graph\n",
@@ -350,13 +359,17 @@ def test_cached_editable_payload_preserves_source_and_permissions(
         )
 
 
+@pytest.mark.parametrize("trailing_newline", [False, True])
 def test_publish_cached_wheel_accepts_symlinked_source_identity(
-    tmp_path: Path,
+    tmp_path: Path, trailing_newline: bool
 ) -> None:
     source_alias = tmp_path / "hermetic-epistemic-graph"
     source_alias.symlink_to(build_backend.ROOT, target_is_directory=True)
     wheel = tmp_path / "epistemic_graph-0-py3-none-any.whl"
-    _editable_wheel(wheel, source_root=source_alias)
+    source_payload = str(source_alias).encode()
+    if trailing_newline:
+        source_payload += b"\n"
+    _editable_wheel(wheel, source_payload=source_payload)
     cache = tmp_path / "cache"
     cache.mkdir()
     entry = cache / "same-source"
@@ -381,4 +394,29 @@ def test_publish_cached_wheel_rejects_different_source_checkout(
     ):
         build_backend._publish_cached_wheel(
             cache / "different-source", "different-source", wheel
+        )
+
+
+@pytest.mark.parametrize(
+    "source_payload",
+    [
+        b"",
+        b"relative/source",
+        b"import os",
+        f"{build_backend.ROOT}\r\n".encode(),
+        f"{build_backend.ROOT}\n{build_backend.ROOT}\n".encode(),
+        f"{build_backend.ROOT}\0".encode(),
+    ],
+)
+def test_publish_cached_wheel_rejects_invalid_source_pointer(
+    tmp_path: Path, source_payload: bytes
+) -> None:
+    wheel = tmp_path / "epistemic_graph-0-py3-none-any.whl"
+    _editable_wheel(wheel, source_payload=source_payload)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+
+    with pytest.raises(RuntimeError, match="does not point at source"):
+        build_backend._publish_cached_wheel(
+            cache / "invalid-source", "invalid-source", wheel
         )

@@ -283,9 +283,15 @@ def _resolved_editable_source(payload: bytes) -> Path | None:
         value = payload.decode("utf-8")
     except UnicodeDecodeError:
         return None
-    if not value.endswith("\n") or value.count("\n") != 1:
+    # Maturin currently emits no terminator, while synthetic/front-end wheels may
+    # include one LF.  Accept those two encodings only.  Removing at most one LF
+    # before the printable check rejects multiple entries, CRLF, embedded control
+    # characters, and executable ``import ...`` .pth forms.
+    if value.endswith("\n"):
+        value = value[:-1]
+    if not value or not value.isprintable():
         return None
-    source = Path(value.removesuffix("\n"))
+    source = Path(value)
     if not source.is_absolute():
         return None
     try:
