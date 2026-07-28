@@ -9162,6 +9162,8 @@ class SyncEpistemicGraphClient:
         self._client = async_client
         self._loop = loop
         self._thread = thread
+        self._close_lock = threading.Lock()
+        self._async_client_closed = False
 
         # We need to wrap the namespaces synchronously as well
         self.nodes = self._SyncWrapper(self._client.nodes, self._loop)
@@ -9234,8 +9236,6 @@ class SyncEpistemicGraphClient:
 
     @classmethod
     def connect(cls, **kwargs: Any) -> SyncEpistemicGraphClient:
-        import threading
-
         loop = asyncio.new_event_loop()
 
         def run_loop() -> None:
@@ -9248,18 +9248,72 @@ class SyncEpistemicGraphClient:
         future = asyncio.run_coroutine_threadsafe(
             EpistemicGraphClient.connect(**kwargs), loop
         )
-        async_client = future.result()
+        async_client: EpistemicGraphClient | None = None
+        try:
+            async_client = future.result()
+            return cls(async_client, loop, thread)
+        except BaseException:
+            if not future.done():
+                future.cancel()
+                with contextlib.suppress(BaseException):
+                    future.result(timeout=5)
+            if async_client is not None:
+                cls._close_async_client(async_client, loop)
+            cls._stop_loop(loop, thread)
+            raise
 
-        return cls(async_client, loop, thread)
-
-    def close(self) -> None:
-        future = asyncio.run_coroutine_threadsafe(self._client.close(), self._loop)
+    @staticmethod
+    def _close_async_client(
+        async_client: EpistemicGraphClient,
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        """Best-effort close of the async transport while its loop still runs."""
+        if loop.is_closed():
+            return
+        close_coro = async_client.close()
+        try:
+            future = asyncio.run_coroutine_threadsafe(close_coro, loop)
+        except RuntimeError:
+            close_coro.close()
+            logger.debug(
+                "Sync client loop stopped before async client close could be queued",
+                exc_info=True,
+            )
+            return
         try:
             future.result(timeout=5)
-        except Exception as e:
-            logger.debug("Error closing client (%s)", type(e).__name__)
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join(timeout=2)
+        except Exception:
+            logger.debug("Error closing sync client async transport", exc_info=True)
+
+    @staticmethod
+    def _stop_loop(
+        loop: asyncio.AbstractEventLoop,
+        thread: threading.Thread,
+    ) -> None:
+        """Stop one owned loop and release its selector resources after joining."""
+        if not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(loop.stop)
+            except RuntimeError:
+                logger.debug("Sync client loop closed before stop", exc_info=True)
+        if thread is not threading.current_thread():
+            thread.join(timeout=2)
+        if thread.is_alive():
+            logger.error("Sync client loop thread did not stop within two seconds")
+            return
+        if not loop.is_closed():
+            try:
+                loop.close()
+            except Exception:
+                logger.debug("Error closing sync client event loop", exc_info=True)
+
+    def close(self) -> None:
+        with self._close_lock:
+            close_async_client = not self._async_client_closed
+            self._async_client_closed = True
+        if close_async_client:
+            self._close_async_client(self._client, self._loop)
+        self._stop_loop(self._loop, self._thread)
 
     def __enter__(self) -> SyncEpistemicGraphClient:
         return self
