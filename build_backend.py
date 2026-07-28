@@ -176,20 +176,16 @@ def native_artifact_key(config_settings: Mapping[str, Any] | None) -> str:
 
 
 @contextmanager
-def _cache_lock(cache_root: Path, key: str):
-    """Serialize builders of one content-addressed payload."""
+def _exclusive_file_lock(lock_path: Path):
+    """Hold one process-safe POSIX lock without placing it in mutable build output."""
 
-    locks = cache_root / "locks"
-    locks.mkdir(parents=True, exist_ok=True)
-    lock_path = locks / f"{key}.lock"
+    try:
+        import fcntl
+    except ImportError as exc:  # pragma: no cover - Linux deployment contract
+        raise RuntimeError("epistemic-graph builds require POSIX file locking") from exc
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        try:
-            import fcntl
-        except ImportError as exc:  # pragma: no cover - Linux deployment contract
-            raise RuntimeError(
-                "native artifact cache requires POSIX file locking"
-            ) from exc
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         yield
     finally:
@@ -197,6 +193,41 @@ def _cache_lock(cache_root: Path, key: str):
             fcntl.flock(descriptor, fcntl.LOCK_UN)
         finally:
             os.close(descriptor)
+
+
+@contextmanager
+def _cache_lock(cache_root: Path, key: str):
+    """Serialize builders of one content-addressed payload."""
+
+    with _exclusive_file_lock(cache_root / "locks" / f"{key}.lock"):
+        yield
+
+
+def _cargo_target_dir() -> Path:
+    """Resolve the target directory Maturin and Cargo will share for this build."""
+
+    configured = os.environ.get("CARGO_TARGET_DIR")
+    target = Path(configured).expanduser() if configured else ROOT / "target"
+    if not target.is_absolute():
+        target = ROOT / target
+    return target.resolve()
+
+
+@contextmanager
+def _maturin_staging_lock():
+    """Serialize all Maturin staging that mutates one Cargo target directory.
+
+    Cargo's internal lock only covers compilation.  Maturin subsequently moves the
+    fixed server binary through ``<target>/release/maturin`` without holding that
+    lock, so regular and editable PEP 517 builds can otherwise steal one another's
+    staging input.  Keep this lock adjacent to the target rather than inside it:
+    ``cargo clean`` may remove the target directory while a build is in progress.
+    """
+
+    target = _cargo_target_dir()
+    lock_path = target.parent / f".{target.name}.epistemic-graph-maturin.lock"
+    with _exclusive_file_lock(lock_path):
+        yield
 
 
 def _sha256(path: Path) -> str:
@@ -420,15 +451,23 @@ def _compose(
     config_settings: Mapping[str, Any] | None,
     metadata_directory: str | None,
 ) -> str:
-    """Build the server wheel, then atomically fold in its native numeric module."""
+    """Build the server wheel, then atomically fold in its native numeric module.
 
-    filename = build(wheel_directory, config_settings, metadata_directory)
-    wheel = Path(wheel_directory) / filename
-    if not wheel.is_file():
-        raise RuntimeError("maturin did not produce the declared server wheel")
-    with tempfile.TemporaryDirectory(prefix="epistemic-graph-numeric-") as temporary:
-        inject(wheel, _build_numeric(Path(temporary)))
-    return filename
+    The lock spans both Maturin invocations and injection.  Releasing it after the
+    server build would recreate the race while the numeric build is using the same
+    Cargo target and the server wheel is still being composed.
+    """
+
+    with _maturin_staging_lock():
+        filename = build(wheel_directory, config_settings, metadata_directory)
+        wheel = Path(wheel_directory) / filename
+        if not wheel.is_file():
+            raise RuntimeError("maturin did not produce the declared server wheel")
+        with tempfile.TemporaryDirectory(
+            prefix="epistemic-graph-numeric-"
+        ) as temporary:
+            inject(wheel, _build_numeric(Path(temporary)))
+        return filename
 
 
 def build_wheel(
