@@ -110,7 +110,10 @@ Work scheduling is a native MutationBatch state machine:
   selection, priority/deadline ordering, admission quota, renewable leases, and
   monotonically increasing fencing tokens. `max_tenant_in_flight` is a required,
   validated 1..=4096 limit; zero and out-of-range values are rejected at the
-  protocol boundary, so callers cannot disable server admission.
+  protocol boundary, so callers cannot disable server admission. An expired lease
+  whose current attempt has already reached `max_attempts` is atomically fenced
+  and terminalized as `dead_letter` in that same claim transaction; it is never
+  re-leased for attempt `max_attempts + 1`.
 - `RenewWorkItemLease` rejects stale or expired ownership.
 - `CommitWorkItemResult` atomically publishes result/error references, retries with
   bounded exponential backoff, dead-letters exhausted work, and releases dependent

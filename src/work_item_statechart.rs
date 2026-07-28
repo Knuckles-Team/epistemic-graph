@@ -75,6 +75,7 @@ pub const EV_COMMIT_CANCELLED: &str = "commit_cancelled";
 pub const EV_CANCEL: &str = "cancel";
 pub const EV_DEFER: &str = "defer";
 pub const EV_LEASE_RECLAIM: &str = "lease_reclaim";
+pub const EV_LEASE_EXHAUSTED: &str = "lease_exhausted";
 
 fn event_true(key: &str) -> Guard {
     Guard::EventEq {
@@ -112,10 +113,15 @@ pub fn work_item_statechart_def() -> StatechartDef {
     // item's `ready → leased` edge is unconditional here (ADR-5 §2 / design §3.1). ──
     transitions.push(Transition::new("ready", EV_CLAIM, "leased").with_guard(Guard::Always));
 
-    // ── expiry sweep: an expired lease is fenced back to `ready` during selection. ──
+    // ── expiry sweep: an expired lease is fenced back to `ready` during selection,
+    // unless its claim already consumed the retry budget.  The latter transition
+    // is deliberately terminal: ClaimWorkItem must never create attempt N+1.
     for from in LEASED_OR_RUNNING {
         transitions
             .push(Transition::new(*from, EV_LEASE_RECLAIM, "ready").with_guard(Guard::Always));
+        transitions.push(
+            Transition::new(*from, EV_LEASE_EXHAUSTED, "dead_letter").with_guard(Guard::Always),
+        );
     }
 
     // ── renew / checkpoint heartbeat: leased|running → running under a valid fence. ──
@@ -193,6 +199,7 @@ pub fn work_item_statechart_def() -> StatechartDef {
             EV_CANCEL.to_string(),
             EV_DEFER.to_string(),
             EV_LEASE_RECLAIM.to_string(),
+            EV_LEASE_EXHAUSTED.to_string(),
         ],
         transitions,
         initial: "submitted".to_string(),
@@ -492,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn defer_and_lease_reclaim_return_to_ready() {
+    fn defer_reclaim_and_exhausted_lease_have_distinct_terminal_outcomes() {
         let d = def();
         let deferred = transition(
             &d,
@@ -510,6 +517,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(reclaimed.next_state, "ready");
+        let exhausted = transition(
+            &d,
+            "running",
+            &Context::new(),
+            &EventInput::new(EV_LEASE_EXHAUSTED),
+        )
+        .unwrap();
+        assert_eq!(exhausted.next_state, "dead_letter");
     }
 
     #[test]
