@@ -116,6 +116,14 @@ def _cache_entry(cache: Path) -> Path:
     )
 
 
+def _test_cache_inputs(label: str) -> dict[str, object]:
+    return {
+        "schema": build_backend._CACHE_SCHEMA,
+        "source_digest": label,
+        "environment": {"RUSTFLAGS": None},
+    }
+
+
 def test_build_backend_folds_numeric_wheel(monkeypatch, tmp_path: Path) -> None:
     server = tmp_path / "epistemic_graph-0-py3-none-any.whl"
     numeric = tmp_path / "numeric.whl"
@@ -197,9 +205,7 @@ def test_regular_and_editable_builds_serialize_complete_maturin_staging(
         except BaseException as exc:  # pragma: no cover - asserted below
             failures.append(exc)
 
-    regular = threading.Thread(
-        target=compose, args=("regular", tmp_path / "regular")
-    )
+    regular = threading.Thread(target=compose, args=("regular", tmp_path / "regular"))
     editable = threading.Thread(
         target=compose,
         args=("editable", tmp_path / "editable"),
@@ -306,6 +312,79 @@ def test_editable_native_cache_rebuilds_corruption(
     assert calls == [2]
 
 
+def test_editable_native_cache_manifest_records_only_input_fingerprints(
+    monkeypatch: pytest.MonkeyPatch, editable_cache: Path, tmp_path: Path
+) -> None:
+    sensitive_value = "do-not-persist-this-build-value"
+    monkeypatch.setenv("RUSTFLAGS", sensitive_value)
+    _mock_composer(monkeypatch)
+
+    build_backend.build_editable(str(tmp_path / "wheel"))
+
+    manifest_text = (_cache_entry(editable_cache) / "manifest.json").read_text()
+    manifest = __import__("json").loads(manifest_text)
+    assert sensitive_value not in manifest_text
+    assert "/environment/RUSTFLAGS" in manifest["input_fingerprints"]
+    assert all(len(digest) == 64 for digest in manifest["input_fingerprints"].values())
+
+
+def test_editable_native_cache_rebuilds_input_provenance_tampering(
+    monkeypatch: pytest.MonkeyPatch, editable_cache: Path, tmp_path: Path
+) -> None:
+    calls = _mock_composer(monkeypatch)
+    build_backend.build_editable(str(tmp_path / "first"))
+    entry = _cache_entry(editable_cache)
+    manifest_path = entry / "manifest.json"
+    manifest = __import__("json").loads(manifest_path.read_text())
+    entry.chmod(0o700)
+    manifest_path.chmod(0o600)
+    manifest["input_fingerprints"]["/source_digest"] = "0" * 64
+    manifest_path.write_text(__import__("json").dumps(manifest), encoding="utf-8")
+
+    build_backend.build_editable(str(tmp_path / "second"))
+
+    assert calls == [2]
+
+
+def test_editable_native_cache_rejects_inputs_changed_by_build(
+    monkeypatch: pytest.MonkeyPatch, editable_cache: Path, tmp_path: Path
+) -> None:
+    calls = _mock_composer(monkeypatch)
+    snapshots = iter(
+        (
+            {
+                "schema": build_backend._CACHE_SCHEMA,
+                "source_digest": "before",
+                "environment": {"RUSTFLAGS": None},
+            },
+            {
+                "schema": build_backend._CACHE_SCHEMA,
+                "source_digest": "after",
+                "environment": {"RUSTFLAGS": "-C target-cpu=native"},
+            },
+        )
+    )
+    monkeypatch.setattr(
+        build_backend, "_cache_inputs", lambda _settings: next(snapshots)
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(r"inputs changed during build: /environment/RUSTFLAGS, /source_digest"),
+    ) as error:
+        build_backend.build_editable(str(tmp_path / "wheel"))
+
+    assert calls == [1]
+    assert "before" not in str(error.value)
+    assert "after" not in str(error.value)
+    assert "target-cpu" not in str(error.value)
+    assert not [
+        entry
+        for entry in editable_cache.iterdir()
+        if entry.is_dir() and entry.name != "locks"
+    ]
+
+
 def test_parallel_editable_builds_publish_once(
     monkeypatch: pytest.MonkeyPatch, editable_cache: Path, tmp_path: Path
 ) -> None:
@@ -372,11 +451,15 @@ def test_publish_cached_wheel_accepts_symlinked_source_identity(
     _editable_wheel(wheel, source_payload=source_payload)
     cache = tmp_path / "cache"
     cache.mkdir()
-    entry = cache / "same-source"
+    inputs = _test_cache_inputs("same-source")
+    key = build_backend._cache_key(inputs)
+    entry = cache / key
 
-    build_backend._publish_cached_wheel(entry, "same-source", wheel)
+    build_backend._publish_cached_wheel(entry, key, wheel, inputs)
 
-    assert build_backend._cached_wheel(entry, "same-source") is not None
+    assert build_backend._cached_wheel(entry, key, inputs) is not None
+    changed_inputs = _test_cache_inputs("changed-source")
+    assert build_backend._cached_wheel(entry, key, changed_inputs) is None
 
 
 def test_publish_cached_wheel_rejects_different_source_checkout(
@@ -388,13 +471,11 @@ def test_publish_cached_wheel_rejects_different_source_checkout(
     _editable_wheel(wheel, source_root=different_checkout)
     cache = tmp_path / "cache"
     cache.mkdir()
+    inputs = _test_cache_inputs("different-source")
+    key = build_backend._cache_key(inputs)
 
-    with pytest.raises(
-        RuntimeError, match="points at another source checkout"
-    ):
-        build_backend._publish_cached_wheel(
-            cache / "different-source", "different-source", wheel
-        )
+    with pytest.raises(RuntimeError, match="points at another source checkout"):
+        build_backend._publish_cached_wheel(cache / key, key, wheel, inputs)
 
 
 @pytest.mark.parametrize(
@@ -415,8 +496,8 @@ def test_publish_cached_wheel_rejects_invalid_source_pointer(
     _editable_wheel(wheel, source_payload=source_payload)
     cache = tmp_path / "cache"
     cache.mkdir()
+    inputs = _test_cache_inputs("invalid-source")
+    key = build_backend._cache_key(inputs)
 
     with pytest.raises(RuntimeError, match="does not point at source"):
-        build_backend._publish_cached_wheel(
-            cache / "invalid-source", "invalid-source", wheel
-        )
+        build_backend._publish_cached_wheel(cache / key, key, wheel, inputs)
