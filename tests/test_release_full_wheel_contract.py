@@ -18,20 +18,39 @@ WORKFLOW = REPO / ".github" / "workflows" / "release-build.yml"
 def test_maturin_default_and_python_extra_are_full() -> None:
     project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     assert project["tool"]["maturin"]["features"] == ["full", "ast-extended"]
-    assert project["project"]["optional-dependencies"]["full"] == [
-        "epistemic-graph[owl,lmcache,numeric]"
-    ]
+    dependencies = project["project"]["dependencies"]
+    assert "numpy>=1.22.0" in dependencies
+    assert "pyoxigraph>=0.3.22" in dependencies
+    assert "httpx>=0.24.0" in dependencies
+    assert project["project"]["optional-dependencies"]["full"] == []
+    assert project["project"]["optional-dependencies"]["all"] == []
+    assert project["project"]["optional-dependencies"]["lake-parity"] == []
+    lake_requirements = (
+        REPO / "tests" / "lake-parity-requirements.txt"
+    ).read_text(encoding="utf-8")
+    assert "pyiceberg[pyarrow]>=0.7.0" in lake_requirements
+    assert "deltalake>=0.18.0" in lake_requirements
 
 
 def test_agent_skills_have_one_canonical_owner() -> None:
-    """The engine must not republish skills consolidated in Agent Utilities."""
+    """The engine wheel owns and publishes its operator skills exactly once."""
 
     project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     entry_points = project["project"].get("entry-points", {})
-    assert "agent_utilities.skill_providers" not in entry_points
+    assert entry_points["agent_utilities.skill_providers"] == {
+        "epistemic-graph": "epistemic_graph.skills"
+    }
     skills = REPO / "epistemic_graph" / "skills"
-    assert not (skills / "__init__.py").exists()
-    assert not list(skills.rglob("SKILL.md"))
+    assert (skills / "__init__.py").is_file()
+    assert {path.parent.name for path in skills.rglob("SKILL.md")} == {
+        "epistemic-graph-deploy",
+        "epistemic-graph-migrations",
+        "epistemic-graph-troubleshooting",
+        "kg-modality-consensus",
+        "kg-modality-reasoning",
+        "kg-modality-sparql",
+        "kg-modality-sql",
+    }
 
 
 def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:

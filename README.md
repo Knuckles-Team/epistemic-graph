@@ -150,10 +150,23 @@ epistemic-graph-server
 pip install epistemic-graph
 ```
 
-The published wheel already contains the main Rust `full` build. Python extras do
-not select Rust features: use `epistemic-graph[full]` when the Python environment
-also needs the OWL helpers, LMCache client acceleration, and the folded numeric
-extension dependencies. The `full` Python extra includes `numeric`; do not repeat it.
+The published wheel already contains the complete main Rust build **and** all
+runtime Python helpers (OWL/SPARQL, LMCache HTTP acceleration, and numeric
+interoperability). `epistemic-graph`, `epistemic-graph[full]`, and
+`epistemic-graph[all]` therefore provide the same production runtime. Python extras
+do not select Rust features. `test` and `lake-parity` are explicit validation suites;
+the latter uses an isolated environment for external Iceberg/Delta reference readers
+because their current Rich constraint conflicts with the production workspace.
+
+Run lake parity outside the workspace lock:
+
+```bash
+uv venv /tmp/epistemic-graph-lake-parity
+uv pip install --python /tmp/epistemic-graph-lake-parity/bin/python \
+  -e . -r tests/lake-parity-requirements.txt
+/tmp/epistemic-graph-lake-parity/bin/python -m pytest \
+  tests/test_lake_iceberg_delta_parity.py
+```
 
 ```python
 from epistemic_graph import SyncEpistemicGraphClient

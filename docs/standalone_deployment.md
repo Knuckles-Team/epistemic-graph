@@ -50,10 +50,14 @@ uv pip install --prerelease=allow epistemic-graph
 epistemic-graph-server --help
 ```
 
-The wheel's Rust binary is already built with Cargo `full`. Python extras do not
-change its compiled feature set. Install `epistemic-graph[full]` when this Python
-environment also needs the OWL helpers, LMCache client acceleration, and numeric
-extension dependencies; Python `[full]` already includes `[numeric]`.
+The wheel's Rust binary is already built with Cargo `full`, and the bare Python
+package includes the OWL helpers, LMCache client acceleration, and numeric
+interoperability dependencies. Python extras do not change its compiled feature set:
+`epistemic-graph`, `[full]`, and `[all]` are equivalent production installs. Use
+`[test]` only for its explicit validation suite. The `[lake-parity]` compatibility
+marker is empty because uv resolves all workspace extras together; install
+`tests/lake-parity-requirements.txt` in an isolated environment when validating
+against the external PyIceberg/DeltaLake reference readers.
 
 ### 2. Run — durable, authenticated, with the Postgres wire port
 
