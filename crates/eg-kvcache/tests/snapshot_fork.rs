@@ -12,7 +12,7 @@
 //! * a branch's copy-on-write write is isolated — siblings never observe it, and it adds
 //!   exactly ONE overlay page, not N.
 
-use eg_kvcache::{BranchId, SharedKvIndex};
+use eg_kvcache::{BranchId, ReleaseOutcome, SharedKvIndex};
 
 /// A distinct M-page "candidate set" of `page`-sized KV pages, put into the shared index.
 /// Returns the page keys (content-hash addresses).
@@ -123,7 +123,7 @@ fn snapshot_fork_lifecycle_frees_cleanly() {
     idx.branch_put(b, &keys[0], vec![9u8; 1024]);
     assert_eq!(idx.fork_stats().overlay_pages, 1);
 
-    assert!(idx.drop_branch(b));
+    assert_eq!(idx.drop_branch(b), ReleaseOutcome::Released);
     assert_eq!(idx.snapshot_branch_count(snap), Some(0));
     assert_eq!(
         idx.fork_stats().overlay_pages,
@@ -131,7 +131,7 @@ fn snapshot_fork_lifecycle_frees_cleanly() {
         "overlay freed with the branch"
     );
 
-    assert!(idx.release_snapshot(snap));
+    assert_eq!(idx.release_snapshot(snap), ReleaseOutcome::Released);
     assert_eq!(idx.fork_stats().shared_pages, 0, "snapshot pages released");
     assert_eq!(idx.snapshot_page_count(snap), None, "snapshot gone");
 }
