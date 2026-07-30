@@ -1,8 +1,8 @@
 # epistemic-graph
 
 <p align="center">
-  <b>One durable, Rust-native engine that is a multi-modal analytical database — graph · SQL · vector · RDF/OWL · time-series · key-value/blob — behind one query planner and one durable store.</b><br>
-  <sub>Every modality is a first-class view over one <code>RowSet</code> algebra, from a Raspberry Pi to a replicated Raft cluster, from one core.</sub>
+  <b>A durable database for connected knowledge, evidence, and multimodal data.</b><br>
+  <sub>Use it on its own, or use it as the storage and reasoning engine behind agent-utilities.</sub>
 </p>
 
 <p align="center">
@@ -11,90 +11,135 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
 
-> **Full documentation:** the architecture, per-interface guides, deployment recipes, the build-feature
-> map, and the concept registry live at the
-> [official docs site](https://knuckles-team.github.io/epistemic-graph/). Start with the
-> [capability & parity matrix](docs/capabilities.md) — every capability is tracked operation-by-operation
-> (✅ supported · 🔶 in-progress · 🗺 roadmap). **If a doc and the code disagree, the code wins.**
+> **Looking for technical detail?** The [capability matrix](docs/capabilities.md)
+> tracks support operation by operation. The
+> [documentation site](https://knuckles-team.github.io/epistemic-graph/) contains
+> the interface guides, deployment recipes, and architecture reference. If
+> documentation and code disagree, the code is authoritative.
 
 ---
 
 ## What it is
 
-A modern data platform usually needs a graph database **and** a vector index **and** a SQL warehouse
-**and** an RDF triple-store + reasoner **and** a time-series DB **and** a blob store **and** a full-text
-index — plus a broker, an observability stack, a GIS engine, and an LLM KV-cache. That is a dozen
-systems, a dozen copies of the data, brittle sync pipelines, and an application layer that stitches
-results back together.
+`epistemic-graph` is a standalone Rust database and compute engine for data whose
+meaning depends on connections.
 
-`epistemic-graph` collapses that rack into **one durable engine with one unified query planner**. Every
-modality is a view over the same `RowSet` algebra, so a single plan can seed candidates from an OWL
-inference or a SPARQL pattern, filter them with SQL, traverse the graph, re-rank by vector similarity
-*and* BM25 text, fuse the results, join a time-series and a lakehouse table, and run a sandboxed WASM or
-numeric UDF — **without ever leaving the engine or marshalling rows back to the client.**
+It can keep property graphs, tables, RDF/OWL knowledge, vectors, text,
+time-series, events, and files under one durable authority. Those forms of data
+are not isolated products that an application must synchronize. The engine can
+query and compute across them in one plan and commit related changes through one
+transaction boundary.
 
-It also speaks the **wire protocols** of the systems it replaces — Postgres, MySQL, MSSQL, SQLite,
-Neo4j Bolt, Redis, S3, AMQP/MQTT/STOMP, PromQL/OTLP — so existing clients, drivers, BI tools and ORMs
-connect **unmodified**, all resolving to ONE exec path over ONE store.
+The word *epistemic* refers to knowledge and how it is supported. In addition to
+ordinary records, the engine can represent claims, evidence, provenance,
+confidence, time, and relationships. This makes it useful when an answer must be
+traceable to what was observed, where it came from, and when it was valid.
 
-### It runs independently
+It is a database, not an agent framework. You do not need `agent-utilities`, an
+LLM, or an MCP server to use it.
 
-**epistemic-graph is a self-contained database.** It has no dependency on
-[`agent-utilities`](https://github.com/Knuckles-Team/agent-utilities) or any agent framework — any
-client, in any language, over any of its wire protocols, can use it directly:
+## What you get on its own
 
-Agent and engine control-plane DTOs share one
-[Epistemic Operations Protocol](docs/interfaces/epistemic_operations.md): twelve
-strict, current-only contracts with deterministic schema/Python/Rust parity and
-privacy-safe opaque identifiers/content references.
+Applications can use `epistemic-graph` directly through its Python client or
+supported database and service interfaces.
 
-```bash
-# Point DBeaver / psql / a JDBC app at the Postgres wire and just use SQL:
-psql -h 127.0.0.1 -p 5433 -U agent -d epistemic
-```
-```sql
-CREATE TABLE metrics (id TEXT PRIMARY KEY, value DOUBLE PRECISION);
-INSERT INTO metrics VALUES ('cpu', 0.42);
-SELECT id, value FROM metrics WHERE value > 0.1;
-```
+| Need | What epistemic-graph provides |
+|------|-------------------------------|
+| Store connected data | A durable property graph with traversal and graph algorithms |
+| Model shared meaning | RDF, SPARQL, OWL reasoning, and shape validation |
+| Search mixed content | Vector similarity, full-text search, structured filters, and hybrid ranking |
+| Work with operational data | SQL, time-series, events, blobs, streams, and analytical jobs |
+| Explain results | Claims, evidence locations, provenance, belief state, and as-of queries |
+| Protect shared data | Authenticated requests, tenant and row-level controls, audit history, and optional encryption at rest |
+| Grow beyond one node | A single-node default with an opt-in replicated cluster build |
 
-### It is greatly enhanced by agent-utilities
+Familiar clients can connect through interfaces such as Postgres, SPARQL, Bolt,
+Redis, and S3 where the corresponding surface is supported. Compatibility is
+tracked precisely in the [capability matrix](docs/capabilities.md); it should be
+checked before treating epistemic-graph as a drop-in replacement for a specific
+product.
 
-epistemic-graph is also the **compute & storage engine for `agent-utilities`**, which exercises *every*
-modality — using the graph + OWL/RDF layer as its ontology-driven knowledge graph, the vector/text
-surfaces for hybrid retrieval, the agent-memory primitives for durable memory, the broker/streams for
-dispatch, and the KV-cache tier under vLLM/LMCache. If you run the full ecosystem, agent-utilities turns
-this engine into a reasoning substrate; if you don't, it is still a complete, durable, multi-modal
-database on its own. See the agent-utilities
+## What agent-utilities adds
+
+[`agent-utilities`](https://github.com/Knuckles-Team/agent-utilities) uses
+epistemic-graph as its authoritative storage and compute layer. The two projects
+have separate responsibilities:
+
+| epistemic-graph owns | agent-utilities adds |
+|----------------------|----------------------|
+| Durable data, transactions, indexes, queries, reasoning, and native compute | Connectors and governed ingestion from external systems |
+| Tenant-aware storage, access control, audit, and provenance primitives | GraphOS APIs, MCP tools, identity policy, and user entry points |
+| Graph, RDF/OWL, vector, text, time, event, blob, and memory operations | Agent and workflow orchestration, skills, prompts, and model routing |
+| Durable jobs, streams, and change events | Background hydration, evaluation, and controlled evolution loops |
+
+Together, they form a persistent agent platform: agent-utilities decides what to
+ingest, which capabilities an agent may use, and how work should run;
+epistemic-graph stores the resulting knowledge and performs the data-intensive
+query, reasoning, and compute operations.
+
+If you only need the database, use epistemic-graph directly. If you need
+connectors, agent execution, skills, MCP, and a governed knowledge layer, put
+agent-utilities in front of it. See the agent-utilities
 [Graph Engine guide](https://github.com/Knuckles-Team/agent-utilities/blob/main/docs/guides/graph_engine.md).
 
 ---
 
-## Why it matters
+## Why use it
 
-- **One store, one transaction, one security model.** A graph mutation + a vector upsert + a blob
-  reference land in **one** redb `WriteTransaction` — all modalities commit together or none do. One
-  snapshot, one ACID boundary, one per-agent RLS model, one planner. → [Master-of-all engine](docs/architecture/engine.md)
-- **Durable by default.** Built redb-authoritative: the persist directory is the source of truth and an
-  acked write survives `kill -9` (commit-before-ack). Governed external ingestion uses one
-  `ChangeEnvelope` transaction for graph rows, material, policy, lineage, typed versions/cursors,
-  and the projection outbox. Every K uses canonical `graph-<n>.redb` shard files
-  (`graph-0.redb` for K=1); any non-canonical layout must be converted by the offline
-  migrator before startup. → [MutationBatch protocol](docs/architecture/mutation_batch.md) ·
-  [ChangeEnvelope protocol](docs/architecture/change_envelope.md) · [Service mode](docs/service_mode.md)
-- **Scales by configuration, not by rewrite.** The same Rust core runs through the embedded library
-  handle, the single durable server binary, or — with the opt-in `cluster` layer — as a multi-node Raft cluster with cross-shard
-  transactions. → [One build, opt-in layers](docs/architecture/tiers.md) · [Cluster deployment](docs/architecture/cluster_deployment.md)
-- **Drop-in wire compatibility.** Existing Postgres/Neo4j/Redis/S3/AMQP/PromQL clients connect
-  unmodified. → [Connecting (per-wire guide)](docs/interfaces/connecting.md)
-- **One full-featured build.** `cargo build` is the whole engine — every main feature that compiles
-  without a GPU/robotics toolchain, in one published wheel; `cluster` (HA raft) and `full-extras`
-  (GPU/ROS2) are opt-in build layers on top. Runs on Raspberry Pi 4+. → [One build, opt-in layers](docs/architecture/tiers.md)
-- **Measured to win the agent-memory workload.** Against a conventional stitched stack (separate vector
-  DB + BM25 + app-level fusion, no KV cache, no warm-fork), the unified engine matches recall (**1.000**)
-  while retrieving **~3.6× faster**, reusing cross-modal context across a fan-out with **`retrieval_calls == 1`**
-  (vs *N*), keeping writes **read-fresh in 25.7 ms** (incremental, not full-rebuild), and surviving a full
-  restart with a **durable KV cold-tier (100% survival, >300× vs recompute)**. → [Benchmarks](docs/benchmarks.md#phase-2-agent-memory--kv-cache-benchmark-measured)
+Choose epistemic-graph when the relationships between data are as important as
+the records themselves—for example, when documents support claims, events change
+business objects, ontology terms constrain records, or agents need memory with
+provenance.
+
+- **Keep one source of truth.** Related graph, vector, and content changes can
+  commit together instead of being copied through application-managed sync
+  pipelines.
+- **Ask cross-domain questions in the engine.** A query can combine semantic
+  reasoning, graph traversal, structured filters, text search, vector ranking,
+  and time without moving intermediate results between databases.
+- **Retain the reason behind an answer.** Evidence, provenance, temporal state,
+  and security context live beside the knowledge they qualify.
+- **Start small and retain the same core.** Run embedded or as one durable
+  service, then use the cluster build when replication and distribution are
+  required.
+- **Use familiar tools where practical.** Existing database clients can reach
+  supported interfaces while native clients access the complete engine API.
+
+See the [engine architecture](docs/architecture/engine.md), [engine
+modes](docs/engine_modes.md), and [measured benchmarks](docs/benchmarks.md) for
+the implementation details and current evidence.
+
+## How the pieces fit
+
+```mermaid
+flowchart TB
+    APP["Applications and database clients"]
+    ENTRY["Agent and user entry points"]
+    AU["agent-utilities / GraphOS<br/>connectors · policy · agents · skills · workflows"]
+    API["epistemic-graph interfaces<br/>native client · SQL · SPARQL · Bolt · other supported wires"]
+    ENGINE["epistemic-graph engine<br/>query · reason · search · compute · transact"]
+    STORE[("durable authoritative store")]
+
+    APP --> API
+    ENTRY --> AU --> API
+    API --> ENGINE --> STORE
+```
+
+Standalone applications connect to the engine interfaces directly.
+Agent-utilities is an optional control and orchestration layer; it does not
+replace the database. Both paths reach the same engine, transaction boundary,
+and durable state.
+
+### Choose a starting path
+
+| Goal | Start here |
+|------|------------|
+| Evaluate the standalone database | [Single-node deployment](docs/deployment.md#single-node-durable-recommended-start) |
+| Connect Python code | [Python client](#python-client) and [client guide](docs/interfaces/clients.md) |
+| Connect an existing database tool | [Connecting guide](docs/interfaces/connecting.md) |
+| Use it with agent-utilities | [agent-utilities Graph Engine guide](https://github.com/Knuckles-Team/agent-utilities/blob/main/docs/guides/graph_engine.md) |
+| Embed it in one process or choose a remote/shared service | [Engine modes](docs/engine_modes.md) |
+| Check whether a specific operation is supported | [Capability matrix](docs/capabilities.md) |
 
 ---
 
