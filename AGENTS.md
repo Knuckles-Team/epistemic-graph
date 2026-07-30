@@ -845,3 +845,35 @@ is what Dependabot flags. Rules:
    Dependabot/security surface.
 4. **Patch CVEs with a version floor at the source, then re-lock.** `uv` resolves one version
    graph-wide, so a lower-bound in the extra that pulls a dependency raises it for the whole lock.
+
+## crates.io-only Rust dependency edict (no `git = `, no out-of-workspace `path = `)
+
+Every Rust dependency in this workspace MUST come from crates.io, the official registry. Do
+not add a `git = ` source, and do not add a `path = ` to code outside this workspace, to any
+published crate's `Cargo.toml`. Rationale:
+
+- **Reproducible builds** — a registry version is immutable and content-addressed; a `git`
+  `rev` still depends on the upstream host staying reachable and the ref never being deleted,
+  and a bare `branch =`/`tag =` can silently move under you.
+- **Working supply-chain scanning** — `cargo audit`/`cargo deny check advisories` (the
+  fail-closed CVE gate in `deny.toml` / `scripts/check_cargo_advisories.sh`, W0.12) and OSV
+  reason over the crates.io index; a git dependency is invisible to that gate.
+- **No dependence on a third-party host's availability or a moving branch**, and
+  **vendorable/offline builds** (`cargo vendor` only works cleanly over registry sources).
+
+**The only acceptable exception** is a security fix that has not yet been released on
+crates.io. Such a pin:
+- MUST be to an immutable `rev` (a full commit hash) — never a branch or tag that can move.
+- MUST carry a comment naming the RUSTSEC/advisory ID and the exact crates.io version that will
+  replace it.
+- MUST be removed the moment that version publishes — swap back to a plain `version = "..."`
+  registry dependency in the same change that notices the release.
+
+This is exactly what happened with `object_store` at the root `Cargo.toml`: it was pinned via
+`git = "https://github.com/apache/arrow-rs-object-store.git", rev = "c7316d29..."` to pick up
+the upstream fix for RUSTSEC-2026-0194/0195 (a quick-xml 0.41.0 floor) before that revision
+shipped as a release; once crates.io published `object_store 0.14.1` with the same fix, the pin
+was replaced with a plain `version = "0.14.1"` registry dependency and the comment was updated
+to drop the now-satisfied "replace once published" instruction. The `check-crates-io-only`
+pre-commit hook fails the build if a `git = `/out-of-workspace `path = ` dependency or a
+`Cargo.lock` `git+` source reappears.
