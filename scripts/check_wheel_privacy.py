@@ -121,6 +121,7 @@ def runtime_deny_prefixes(
         for name in (
             "GITHUB_WORKSPACE",
             "RUNNER_WORKSPACE",
+            "CARGO_TARGET_DIR",
             "CARGO_HOME",
             "RUSTUP_HOME",
             "RUNNER_TOOL_CACHE",
@@ -285,13 +286,11 @@ def audit_wheel(
                 if _unsafe_member_name(info.filename):
                     findings.add(Finding(artifact, member_id, "unsafe-member-name"))
                 member_path = PurePosixPath(info.filename)
-                if (
-                    "__pycache__" in member_path.parts
-                    or member_path.suffix in {".pyc", ".pyo"}
-                ):
-                    findings.add(
-                        Finding(artifact, member_id, "python-bytecode-member")
-                    )
+                if "__pycache__" in member_path.parts or member_path.suffix in {
+                    ".pyc",
+                    ".pyo",
+                }:
+                    findings.add(Finding(artifact, member_id, "python-bytecode-member"))
                 for category in _categories(
                     info.filename.encode("utf-8", errors="surrogatepass"),
                     exact_patterns,

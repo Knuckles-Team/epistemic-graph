@@ -7,12 +7,13 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
-from scripts.check_wheel_privacy import audit_wheel
+from scripts.check_wheel_privacy import audit_wheel, runtime_deny_prefixes
 from scripts.check_wheel_privacy import main as audit_main
 from scripts.configure_rust_path_remap import (
     UNIT_SEPARATOR,
     encoded_rustflags,
     native_prefix_flags,
+    path_remaps,
 )
 from scripts.normalize_wheel_build_paths import normalize_wheel_build_paths
 from scripts.normalize_wheel_sbom import normalize_wheel
@@ -97,6 +98,15 @@ def test_native_flags_preserve_existing_values_and_remap_build_sources():
 
     assert flags.startswith("-O2 -fno-omit-frame-pointer ")
     assert flags.endswith(f"-ffile-prefix-map={checkout}=/build/source")
+
+
+def test_cargo_target_dir_is_remapped_and_denied_at_runtime():
+    target = PurePosixPath("/var", "tmp", "fixture-target")
+
+    remaps = path_remaps({"CARGO_TARGET_DIR": str(target)})
+
+    assert (str(target), "/build/cargo-target") in remaps
+    assert str(target) in runtime_deny_prefixes({"CARGO_TARGET_DIR": str(target)})
 
 
 def test_sanitized_wheel_allows_third_party_attribution_emails(tmp_path: Path):
@@ -240,10 +250,13 @@ def test_build_path_normalizer_rewrites_native_payload_and_rebuilds_record(
         wheel, deny_prefixes=(str(build_root),)
     )
     before_size = len(f"{build_root}".encode())
-    assert normalize_wheel_build_paths(
-        wheel,
-        environ={"HOME": str(build_root)},
-    ) == 1
+    assert (
+        normalize_wheel_build_paths(
+            wheel,
+            environ={"HOME": str(build_root)},
+        )
+        == 1
+    )
 
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
@@ -263,10 +276,32 @@ def test_build_path_normalizer_rewrites_native_payload_and_rebuilds_record(
         environ={},
         deny_prefixes=(str(build_root),),
     ).findings
-    assert normalize_wheel_build_paths(
-        wheel,
-        environ={"HOME": str(build_root)},
-    ) == 0
+    assert (
+        normalize_wheel_build_paths(
+            wheel,
+            environ={"HOME": str(build_root)},
+        )
+        == 0
+    )
+
+
+def test_build_path_normalizer_rewrites_cargo_target_dir(tmp_path: Path):
+    target = PurePosixPath("/var", "tmp", "fixture-target")
+    wheel = _wheel(
+        tmp_path,
+        {
+            "fixture_package-1.0.0.dist-info/METADATA": _neutral_metadata(),
+            "fixture_package-1.0.0.dist-info/RECORD": b"stale-record\n",
+            "fixture_package/native.so": f"ELF\x00{target}/release/build.rs\x00".encode(),
+        },
+    )
+    environ = {"CARGO_TARGET_DIR": str(target)}
+
+    assert "runtime-build-prefix" in _categories(
+        wheel, deny_prefixes=runtime_deny_prefixes(environ)
+    )
+    assert normalize_wheel_build_paths(wheel, environ=environ) == 1
+    assert not audit_wheel(wheel, environ=environ).findings
 
 
 def test_build_path_normalizer_rewrites_utf16le_windows_payload(tmp_path: Path):
@@ -284,10 +319,13 @@ def test_build_path_normalizer_rewrites_utf16le_windows_payload(tmp_path: Path):
     )
 
     assert "runtime-build-prefix" in _categories(wheel, deny_prefixes=(build_root,))
-    assert normalize_wheel_build_paths(
-        wheel,
-        environ={"USERPROFILE": build_root},
-    ) == 1
+    assert (
+        normalize_wheel_build_paths(
+            wheel,
+            environ={"USERPROFILE": build_root},
+        )
+        == 1
+    )
     with zipfile.ZipFile(wheel) as archive:
         payload = archive.read(member)
     assert build_root.encode("utf-16le") not in payload
@@ -347,11 +385,14 @@ def test_sbom_home_alias_is_not_shaped_like_a_posix_home_path(tmp_path: Path):
         },
     )
 
-    assert normalize_wheel(
-        wheel,
-        environ={"HOME": str(home)},
-        checkout=source_root,
-    ) == 1
+    assert (
+        normalize_wheel(
+            wheel,
+            environ={"HOME": str(home)},
+            checkout=source_root,
+        )
+        == 1
+    )
     with zipfile.ZipFile(wheel) as archive:
         sbom = archive.read(
             "fixture_package-1.0.0.dist-info/sboms/package.cyclonedx.json"
