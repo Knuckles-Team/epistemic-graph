@@ -30,6 +30,7 @@ ENVIRONMENT_ROOTS: tuple[tuple[str, str], ...] = (
     ("GITHUB_WORKSPACE", "/build/source"),
     ("CARGO_MANIFEST_DIR", "/build/source"),
     ("PWD", "/build/source"),
+    ("CARGO_TARGET_DIR", "/build/cargo-target"),
     ("RUNNER_WORKSPACE", "/build/runner-workspace"),
     ("CARGO_HOME", "/build/cargo"),
     ("RUSTUP_HOME", "/build/rustup"),
