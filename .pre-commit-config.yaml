@@ -193,6 +193,22 @@ repos:
     language: system
     files: ^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|deny\.toml|\.cargo-audit-allow\.txt)$
     pass_filenames: false
+  # crates.io-only dependency edict (AGENTS.md, "crates.io-only Rust dependency
+  # edict"): fails if any Cargo.toml adds a `git = ` source or an
+  # out-of-workspace `path = ` dependency, or Cargo.lock resolves anything from
+  # a `git+` source. Pure stdlib tomllib text-parse (no cargo invocation, no
+  # target dir) so it is fast and side-effect-free on every commit. The only
+  # sanctioned exception is an immutable `rev = ` pin for an unreleased
+  # security fix, commented with the advisory ID + the crates.io version that
+  # will replace it (see the object_store worked example in AGENTS.md) — this
+  # gate does not special-case that state; lifting the pin is what turns it
+  # green again.
+  - id: check-crates-io-only
+    name: crates.io-only Rust dependency edict
+    entry: python3 scripts/check_crates_io_only.py
+    language: system
+    files: ^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml)$
+    pass_filenames: false
   # release-build.yml parity — build the ONE main wheel (CONCEPT:EG-359: `full`, the
   # default MATURIN_FEATURES) through the real maturin bin-binding wheel path:
   #   * --locked        → catches Cargo.lock drift, the class of blocker that broke

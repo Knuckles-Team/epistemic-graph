@@ -1321,10 +1321,11 @@ eg-sqlite-format = { path = "crates/eg-sqlite-format", optional = true }
 # ONLY dep that pulls an object-store/AWS SDK, gated behind `blob-s3` (NOT `blob`),
 # so the main, cluster, and full-extras bundles link no object_store/AWS crate. Select
 # this explicit source feature only when the S3/MinIO backend is required.
-# 0.14.1 is pinned to the upstream Apache revision that raises quick-xml to
-# 0.41.0 (RUSTSEC-2026-0194/0195). Replace the revision with the crates.io
-# release once that exact version is published; never relax this to a branch.
-object_store = { git = "https://github.com/apache/arrow-rs-object-store.git", rev = "c7316d29face118e7409eead0cda098f38589428", optional = true, features = ["aws"] }
+# Pinned to the crates.io 0.14.1 release, which raises quick-xml to 0.41.0
+# (RUSTSEC-2026-0194/0195) — the fix an earlier `git` pin to the upstream Apache
+# revision existed to obtain before 0.14.1 was published. Per the crates.io-only
+# dependency edict (AGENTS.md), do not move this back to a `git = `/`rev = ` source.
+object_store = { version = "0.14.1", optional = true, features = ["aws"] }
 # rosbridge-WebSocket client for the CONCEPT:EG-325 ROS2 bridge. No-TLS pure-Rust build
 # (ws:// to a local rosbridge_server); `connect`+`handshake` only — links NO native-tls/
 # openssl. This dependency is selected only by the `full-extras` source-build layer.
