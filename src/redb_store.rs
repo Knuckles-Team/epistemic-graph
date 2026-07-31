@@ -2336,9 +2336,18 @@ fn apply_work_item_rows(
                 .map_err(|e| e.to_string())?
                 .map(|value| crypto.unseal(value.value()))
                 .transpose()?;
+            // Every WorkItem result — including one that changed no row — MUST carry
+            // `changed_work_item_ids`. The commit has already advanced the authoritative
+            // graph version by the time `commit_work_item` reads this field, so a shape
+            // missing it strands the serving projection one version behind and makes the
+            // graph permanently read-only (INCIDENT-kg-readonly-2026-07-31).
             let Some(bytes) = current else {
                 return Ok(Some(crate::protocol::ResultPayload::Json(
-                    serde_json::json!({"renewed": false, "reason": "missing"}),
+                    serde_json::json!({
+                        "renewed": false,
+                        "reason": "missing",
+                        "changed_work_item_ids": [],
+                    }),
                 )));
             };
             let mut props = decode(&bytes)?;
@@ -2350,7 +2359,11 @@ fn apply_work_item_rows(
                 && property_f64(&props, "lease_expires_at") >= *now_ms as f64 / 1000.0;
             if !valid {
                 return Ok(Some(crate::protocol::ResultPayload::Json(
-                    serde_json::json!({"renewed": false, "reason": "fenced"}),
+                    serde_json::json!({
+                        "renewed": false,
+                        "reason": "fenced",
+                        "changed_work_item_ids": [],
+                    }),
                 )));
             }
             // Phase-1 mirror: the lease was validated (fence_valid), so leased|running →

@@ -881,6 +881,34 @@ pub(crate) async fn commit_work_item(
     let committed = persistence
         .commit_mutation_batch(&fname, &batch, None, created_at_ms)
         .await?;
+    // Durability has already advanced the authoritative graph version. Everything
+    // below is RAM publication, and a failure in ANY of it must not strand the
+    // serving projection one version behind the authority: `authoritative_graph_version`
+    // then fails closed on every later write and the whole graph is permanently
+    // read-only until it is re-materialized. Repair the projection from the same
+    // authoritative image every replay path installs, then surface the original error
+    // — never swallowed, and never by equalizing a version counter.
+    match publish_committed_work_item(persistence, &fname, core, &committed).await {
+        Ok(result) => Ok(result),
+        Err(error) => match reconcile_projection_from_authority(persistence, &fname, core).await {
+            Ok(()) => Err(error),
+            Err(repair) => Err(format!(
+                "{error}; serving projection repair from authority also failed: {repair}"
+            )),
+        },
+    }
+}
+
+/// Decode a durably committed WorkItem batch's terminal result and publish its
+/// changed rows into the serving projection, advancing the serving version exactly
+/// once. Fallible only in the RAM-publication sense — the caller owns repairing the
+/// projection from authority when this fails.
+async fn publish_committed_work_item(
+    persistence: &Arc<dyn PersistenceBackend>,
+    graph_fname: &str,
+    core: &Arc<GraphCore>,
+    committed: &crate::mutation_batch::MutationBatchCommit,
+) -> Result<ResultPayload, String> {
     let bytes = committed
         .record
         .result_msgpack
@@ -895,7 +923,7 @@ pub(crate) async fn commit_work_item(
     if !committed.replayed {
         for node_id in changed_work_item_ids(&result)? {
             let props = persistence
-                .read_node(&fname, &node_id)
+                .read_node(graph_fname, &node_id)
                 .await?
                 .ok_or_else(|| format!("committed WorkItem projection '{}' is missing", node_id))?;
             core.add_node(node_id, props);
@@ -903,6 +931,23 @@ pub(crate) async fn commit_work_item(
         core.mark_dirty();
     }
     Ok(result)
+}
+
+/// Re-materialize the serving projection from the authoritative durable image at the
+/// authority's own version. This is the SAME primitive every idempotent-replay path
+/// uses (`read_authoritative_graph_snapshot` -> `install_committed_snapshot`): it
+/// installs the committed image and its committed version together, so it can never
+/// silence the authority check by writing a version the durable rows do not back.
+async fn reconcile_projection_from_authority(
+    persistence: &Arc<dyn PersistenceBackend>,
+    graph_fname: &str,
+    core: &Arc<GraphCore>,
+) -> Result<(), String> {
+    let (snapshot, version) = persistence
+        .read_authoritative_graph_snapshot(graph_fname)
+        .await?
+        .ok_or_else(|| "committed graph image is missing".to_string())?;
+    core.install_committed_snapshot(snapshot, version)
 }
 
 fn changed_work_item_ids(result: &ResultPayload) -> Result<Vec<String>, String> {
