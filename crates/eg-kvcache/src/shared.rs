@@ -85,6 +85,34 @@ pub struct SnapshotId(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BranchId(pub u64);
 
+/// Typed outcome of [`SharedKvIndex::release_snapshot`] / [`SharedKvIndex::drop_branch`]
+/// (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) — the release surface never panics and
+/// never silently corrupts a refcount; every non-release path is a named, matchable reason.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReleaseOutcome {
+    /// The id was live and is now released — pinned pages were unpinned (snapshot) or the
+    /// copy-on-write overlay was freed and the parent snapshot's branch count decremented
+    /// (branch). This call did the work.
+    Released,
+    /// The id is unknown: it never existed, OR a prior call already released it. Release is
+    /// implemented as a map removal with no tombstone (an unbounded tombstone set would be
+    /// its own leak over a long-running instance doing sustained fork fan-out), so a second
+    /// release of the same id is INDISTINGUISHABLE from one that was never minted — both are
+    /// reported here, cleanly, rather than guessed at. Double-release is therefore rejected
+    /// (not silently idempotent): the caller gets an explicit signal on the second call.
+    NotFound,
+    /// Only for [`SharedKvIndex::release_snapshot`]: the snapshot still has one or more live
+    /// branches forked off it. Releasing anyway would unpin (and potentially free) its
+    /// shared pages while a branch still resolves reads through them
+    /// ([`SharedKvIndex::branch_get`] falls through to `self.snapshots.get(&b.snapshot)`),
+    /// silently turning live branch reads into misses. The caller must
+    /// [`SharedKvIndex::drop_branch`] every dependent branch first.
+    StillReferenced {
+        /// How many branches still fork off this snapshot.
+        branch_count: usize,
+    },
+}
+
 /// A pinned, content-addressed view over a set of shared pages (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork).
 ///
 /// `pages` holds an `Arc` clone of each captured page — a pointer + ref-count bump, NOT a
@@ -356,37 +384,54 @@ impl SharedKvIndex {
     }
 
     /// Drop a branch (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork), freeing its copy-on-write overlay and
-    /// decrementing its snapshot's branch count. Returns `false` if the branch is unknown.
-    pub fn drop_branch(&mut self, branch: BranchId) -> bool {
-        if let Some(b) = self.branches.remove(&branch) {
-            if let Some(snap) = self.snapshots.get_mut(&b.snapshot) {
-                snap.branch_count = snap.branch_count.saturating_sub(1);
+    /// decrementing its snapshot's branch count. See [`ReleaseOutcome`] — `NotFound` if the
+    /// branch is unknown (never existed, or already dropped); a branch is never "still
+    /// referenced" by anything else in this model, so that outcome cannot occur here.
+    pub fn drop_branch(&mut self, branch: BranchId) -> ReleaseOutcome {
+        match self.branches.remove(&branch) {
+            Some(b) => {
+                if let Some(snap) = self.snapshots.get_mut(&b.snapshot) {
+                    snap.branch_count = snap.branch_count.saturating_sub(1);
+                }
+                ReleaseOutcome::Released
             }
-            true
-        } else {
-            false
+            None => ReleaseOutcome::NotFound,
         }
     }
 
     /// Release a snapshot (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork): drops its shared-page `Arc`s and
     /// UNPINS each captured block (mirrors [`release`](Self::release), freeing an entry
     /// when the snapshot held its last ref). Any pages still referenced by a live branch
-    /// or another holder survive (that is the whole point of ref-counting). Returns
-    /// `false` if the snapshot is unknown.
-    pub fn release_snapshot(&mut self, snapshot: SnapshotId) -> bool {
-        if let Some(snap) = self.snapshots.remove(&snapshot) {
-            for h in &snap.pinned {
-                if let Some(e) = self.blocks.get_mut(h) {
-                    e.refcount -= 1;
-                    if e.refcount == 0 {
-                        self.blocks.remove(h);
-                    }
+    /// or another holder survive (that is the whole point of ref-counting).
+    ///
+    /// Refuses (returns [`ReleaseOutcome::StillReferenced`], leaving all state untouched) if
+    /// the snapshot still has one or more live branches — see that variant's doc for why:
+    /// unpinning under a live branch would silently turn that branch's reads into misses,
+    /// not a byte-corruption but a correctness footgun this surface will not hand a caller.
+    /// [`ReleaseOutcome::NotFound`] if the snapshot is unknown (never existed, or already
+    /// released — see [`ReleaseOutcome::NotFound`] for why those are not distinguished).
+    pub fn release_snapshot(&mut self, snapshot: SnapshotId) -> ReleaseOutcome {
+        let Some(snap) = self.snapshots.get(&snapshot) else {
+            return ReleaseOutcome::NotFound;
+        };
+        if snap.branch_count > 0 {
+            return ReleaseOutcome::StillReferenced {
+                branch_count: snap.branch_count,
+            };
+        }
+        let snap = self
+            .snapshots
+            .remove(&snapshot)
+            .expect("just confirmed present above; no intervening mutation");
+        for h in &snap.pinned {
+            if let Some(e) = self.blocks.get_mut(h) {
+                e.refcount -= 1;
+                if e.refcount == 0 {
+                    self.blocks.remove(h);
                 }
             }
-            true
-        } else {
-            false
         }
+        ReleaseOutcome::Released
     }
 
     /// Number of pages captured by `snapshot` (`None` if unknown).
@@ -709,7 +754,7 @@ mod tests {
         assert_eq!(idx.release(&h), Some(1));
         assert!(idx.contains(&h), "snapshot pin keeps it addressable");
         // Release the snapshot ⇒ last ref gone ⇒ entry freed.
-        assert!(idx.release_snapshot(snap));
+        assert_eq!(idx.release_snapshot(snap), ReleaseOutcome::Released);
         assert!(!idx.contains(&h), "entry freed after snapshot release");
     }
 
@@ -720,7 +765,114 @@ mod tests {
         assert_eq!(idx.fork(SnapshotId(999)), None);
         assert_eq!(idx.branch_get(BranchId(999), "k"), None);
         assert!(!idx.branch_put(BranchId(999), "k", vec![0]));
-        assert!(!idx.drop_branch(BranchId(999)));
-        assert!(!idx.release_snapshot(SnapshotId(999)));
+        assert_eq!(idx.drop_branch(BranchId(999)), ReleaseOutcome::NotFound);
+        assert_eq!(
+            idx.release_snapshot(SnapshotId(999)),
+            ReleaseOutcome::NotFound
+        );
+    }
+
+    /// D-KVR (resource-leak fix) — releasing a snapshot that still has a live branch is
+    /// REJECTED with `StillReferenced`, not silently unpinned: unpinning here would let the
+    /// live branch's reads fall through to a snapshot that no longer exists, turning a valid
+    /// key into a silent miss. State (refcounts, snapshot, branch) is untouched by the
+    /// rejected attempt. Dropping the branch first then makes the release succeed.
+    #[test]
+    fn release_snapshot_rejects_while_branch_still_live() {
+        let mut idx = SharedKvIndex::new();
+        let h = idx.put_by_content(vec![4u8; 16]);
+        let snap = idx.snapshot(std::slice::from_ref(&h));
+        let b = idx.fork(snap).unwrap();
+
+        let before = idx.refcount(&h);
+        assert_eq!(
+            idx.release_snapshot(snap),
+            ReleaseOutcome::StillReferenced { branch_count: 1 },
+            "a live branch blocks the release"
+        );
+        // Rejected release must not have touched the refcount or removed the snapshot.
+        assert_eq!(
+            idx.refcount(&h),
+            before,
+            "refcount untouched by a rejected release"
+        );
+        assert!(
+            idx.snapshot_page_count(snap).is_some(),
+            "snapshot still live"
+        );
+        assert!(
+            idx.branch_get(b, &h).is_some(),
+            "branch read still resolves after the rejected release"
+        );
+
+        // Drop the dependent branch, then the release succeeds and the snapshot's pin falls
+        // — back to the ORIGINAL `put_by_content` holder's ref (still 1, not 0: the
+        // snapshot never owned the last reference here, only the pin it added).
+        assert_eq!(idx.drop_branch(b), ReleaseOutcome::Released);
+        assert_eq!(idx.release_snapshot(snap), ReleaseOutcome::Released);
+        assert_eq!(
+            idx.refcount(&h),
+            before - 1,
+            "the snapshot's pin fell; the original holder's ref remains"
+        );
+        assert!(
+            idx.contains(&h),
+            "still resident — the original put_by_content ref is untouched"
+        );
+    }
+
+    /// D-KVR (resource-leak fix) — a second release of the SAME snapshot/branch id is
+    /// rejected (`NotFound`), not silently accepted a second time: release is a one-shot
+    /// state transition, and double-release must never double-decrement a refcount that was
+    /// already dropped by the first call.
+    #[test]
+    fn double_release_is_rejected_not_idempotent() {
+        let mut idx = SharedKvIndex::new();
+        let h = idx.put_by_content(vec![5u8; 16]);
+        let snap = idx.snapshot(std::slice::from_ref(&h));
+        let b = idx.fork(snap).unwrap();
+
+        assert_eq!(idx.drop_branch(b), ReleaseOutcome::Released);
+        assert_eq!(
+            idx.drop_branch(b),
+            ReleaseOutcome::NotFound,
+            "second drop_branch of the same id is rejected, not a silent no-op success"
+        );
+
+        assert_eq!(idx.release_snapshot(snap), ReleaseOutcome::Released);
+        assert_eq!(
+            idx.release_snapshot(snap),
+            ReleaseOutcome::NotFound,
+            "second release_snapshot of the same id is rejected, not a silent no-op success"
+        );
+    }
+
+    /// D-KVR (resource-leak fix) — prove the refcount ACTUALLY falls on release, across a
+    /// multi-branch fan-out: N branches forked off one snapshot, drop every branch then
+    /// release the snapshot, and the pinned block's refcount returns to its pre-snapshot
+    /// value (proving no residual pin survives a clean release sequence).
+    #[test]
+    fn release_sequence_actually_drops_refcount_after_fanout() {
+        let mut idx = SharedKvIndex::new();
+        let h = idx.put_by_content(vec![6u8; 16]); // refcount 1
+        let baseline = idx.refcount(&h);
+
+        let snap = idx.snapshot(std::slice::from_ref(&h)); // pin ⇒ refcount 2
+        assert_eq!(idx.refcount(&h), baseline + 1);
+        let branches: Vec<BranchId> = (0..8).map(|_| idx.fork(snap).unwrap()).collect();
+        // Forking does not itself touch the block refcount (branches share the snapshot's
+        // pinned Arc, not a fresh pin each).
+        assert_eq!(idx.refcount(&h), baseline + 1);
+
+        for b in branches {
+            assert_eq!(idx.drop_branch(b), ReleaseOutcome::Released);
+        }
+        assert_eq!(idx.snapshot_branch_count(snap), Some(0));
+        assert_eq!(idx.release_snapshot(snap), ReleaseOutcome::Released);
+        assert_eq!(
+            idx.refcount(&h),
+            baseline,
+            "refcount returns to its pre-snapshot baseline once every branch + the snapshot are released"
+        );
     }
 }

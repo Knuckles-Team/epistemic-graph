@@ -69,7 +69,9 @@ pub mod graph_importance;
 
 pub use compress::{Codec, StoredBlock};
 pub use hash::content_hash;
-pub use shared::{BranchId, ForkStats, SharedKvBackend, SharedKvIndex, SharedStats, SnapshotId};
+pub use shared::{
+    BranchId, ForkStats, ReleaseOutcome, SharedKvBackend, SharedKvIndex, SharedStats, SnapshotId,
+};
 pub use tiered::{CacheStats, Tier, TieredCache};
 pub use value::{Block, CacheValue};
 pub use version::DataVersion;
