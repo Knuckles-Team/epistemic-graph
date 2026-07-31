@@ -504,6 +504,41 @@ def mutation_inventory_sources() -> dict[str, str]:
     }
 
 
+def check_work_item_projection_contract(graph_store: str, compiler: str) -> None:
+    """A durably committed WorkItem must always be publishable to the projection.
+
+    ``commit_work_item`` reads ``changed_work_item_ids`` from the terminal result
+    AFTER the redb commit has already advanced the authoritative graph version. A
+    result shape that omits the field therefore leaves the serving projection one
+    version behind for good, and ``authoritative_graph_version`` then fails closed on
+    every subsequent write — the whole graph goes read-only. Two mechanical rules keep
+    that from recurring: every WorkItem result shape carries the field, and the
+    post-commit publication repairs the projection from authority when it cannot.
+    """
+
+    body = _balanced_block(graph_store, "fn apply_work_item_rows(", "{", "}")
+    for match in re.finditer(r"ResultPayload::Json\(", body):
+        shape = _balanced_block(body[match.start() :], "ResultPayload::Json", "(", ")")
+        require(
+            "changed_work_item_ids" in shape,
+            "every WorkItem durable result shape must carry changed_work_item_ids; "
+            f"this one does not: {' '.join(shape.split())[:160]}",
+        )
+
+    require(
+        "reconcile_projection_from_authority" in compiler
+        and "read_authoritative_graph_snapshot" in compiler
+        and "install_committed_snapshot" in compiler,
+        "commit_work_item must repair the serving projection from the authoritative "
+        "image when post-commit publication fails",
+    )
+    publish = _balanced_block(compiler, "fn publish_committed_work_item(", "{", "}")
+    require(
+        "mark_dirty()" in publish,
+        "WorkItem projection publication must advance the serving version exactly once",
+    )
+
+
 def main() -> None:
     contract = read("crates/eg-types/src/mutation_batch.rs")
     graph_store = read("src/redb_store.rs")
@@ -610,6 +645,7 @@ def main() -> None:
         and "STALE_PROJECTION_CURSOR" in graph_store,
         "reasoning and durable projection watermarks must reject regression",
     )
+    check_work_item_projection_contract(graph_store, compiler)
     require(
         "lower_atomic_alias" not in compiler,
         "mutation compiler must not retain compatibility alias lowering",
