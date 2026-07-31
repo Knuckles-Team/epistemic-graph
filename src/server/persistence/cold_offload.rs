@@ -283,6 +283,11 @@ pub fn lazy_open_page_size() -> usize {
 /// [`page_in_remaining`] to fetch the rest off the request path. The graph is resident
 /// but explicitly partial on return; a paged open never blocks the triggering request
 /// on a full rehydrate of a very large graph.
+///
+/// Gated on `redb`: the ONLY caller (`dispatch.rs`'s durable-read path) invokes this
+/// from inside its own `#[cfg(feature = "redb")]` block, and the body reads
+/// `ServerState::cold_tracker`, which only exists on a `redb` build.
+#[cfg(feature = "redb")]
 pub async fn lazy_open(
     state: &Arc<RwLock<ServerState>>,
     graph_name: &str,
@@ -395,7 +400,10 @@ async fn page_in_remaining(
     }
 }
 
-#[cfg(test)]
+// Every test here drives a REAL `RedbBackend` through `lazy_open`/`admit_capacity`
+// (both `redb`-gated), so — like every other `ServerState`-constructing test module
+// in this crate — the whole module only builds under the `redb` feature.
+#[cfg(all(test, feature = "redb"))]
 mod admission_tests {
     //! Bounded hot-context cache + admission-control proofs over a REAL redb
     //! backend (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) — the durable tier a lazily-opened
@@ -444,6 +452,7 @@ mod admission_tests {
             RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, 64).expect("open"),
         );
         let state = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
             cold_tracker: Arc::new(ColdTenantTracker::new()),
             registry: GraphRegistry::new(),
             isolation: current_isolation(),
@@ -863,6 +872,7 @@ mod admission_tests {
         let backend2: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("reopen"));
         let state2 = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
             cold_tracker: Arc::new(ColdTenantTracker::new()),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
