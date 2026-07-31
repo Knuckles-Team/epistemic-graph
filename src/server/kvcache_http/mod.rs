@@ -48,6 +48,13 @@
 //!   isolated from siblings; `404` for an unknown branch.
 //! * `GET  /kv/fork/stats`             → JSON occupancy proving `resident_fork_bytes` stays
 //!   flat at the shared-page total regardless of branch count.
+//! * `DELETE /kv/branch/<bid>`         → drop a live branch (`204`); `404` if unknown/already
+//!   dropped. Frees its copy-on-write overlay and decrements its snapshot's branch count.
+//! * `DELETE /kv/snapshot/<id>`        → release a live snapshot (`204`), freeing its pinned
+//!   shared pages; `404` if unknown/already released, `409 Conflict` if a branch is still
+//!   forked off it (drop every dependent branch first). **The leak-fix pair**: without
+//!   these, a caller that snapshots/forks (the AU `fan_out` copy-on-write default) has no
+//!   way to give the pages back, so sustained fan-out only grows the resident set.
 //!
 //! ## Data-version invalidation (CONCEPT:EG-KG.storage.content-addressed-put)
 //!
@@ -85,7 +92,9 @@ use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
 use crate::server::ServerState;
-use eg_kvcache::{BranchId, DataVersion, SharedKvBackend, SharedKvIndex, SnapshotId};
+use eg_kvcache::{
+    BranchId, DataVersion, ReleaseOutcome, SharedKvBackend, SharedKvIndex, SnapshotId,
+};
 
 /// The networked (mutation-store-backed) shared backend — the durable, fleet-shared
 /// KV-cache over the engine's live `kv.redb` (feature `kv`). See [`shared_store`].
@@ -291,6 +300,26 @@ impl KvCacheStore {
             .map(|b| b.0)
     }
 
+    /// Release a snapshot (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) — the fork-layer
+    /// leak fix: without this, forking under the AU `fan_out` copy-on-write default has no
+    /// way to give back a snapshot's pinned pages, so sustained branch fan-out only grows
+    /// the resident set. See [`eg_kvcache::ReleaseOutcome`] for the typed not-found /
+    /// still-referenced (live-branch) outcomes; this call never panics and never mutates
+    /// state on a rejected attempt.
+    fn release_snapshot(&self, snapshot: u64) -> ReleaseOutcome {
+        self.index
+            .lock()
+            .unwrap()
+            .release_snapshot(SnapshotId(snapshot))
+    }
+
+    /// Drop a branch (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork), freeing its
+    /// copy-on-write overlay and decrementing its parent snapshot's branch count so a
+    /// subsequent [`release_snapshot`](Self::release_snapshot) can succeed.
+    fn drop_branch(&self, branch: u64) -> ReleaseOutcome {
+        self.index.lock().unwrap().drop_branch(BranchId(branch))
+    }
+
     /// Zero-copy branch read (overlay-then-shared). The `Arc` is cloned to owned bytes only
     /// at the HTTP boundary (the wire needs an owned body); in-process readers stay zero-copy.
     fn branch_get(&self, branch: u64, key: &str) -> Option<Vec<u8>> {
@@ -467,6 +496,29 @@ impl KvResponse {
     }
 }
 
+/// Map a [`ReleaseOutcome`] (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) to this
+/// surface's typed HTTP response. `204` on an actual release; `404` for an unknown id
+/// (never existed, or already released — double-release is rejected, not idempotent, see
+/// [`ReleaseOutcome::NotFound`]); `409` when a snapshot release is blocked by a still-live
+/// branch (drop the branch first).
+fn release_outcome_response(outcome: ReleaseOutcome) -> KvResponse {
+    match outcome {
+        ReleaseOutcome::Released => KvResponse::empty("204 No Content"),
+        ReleaseOutcome::NotFound => KvResponse::error(
+            "404 Not Found",
+            "NotFound",
+            "unknown snapshot/branch id (never existed, or already released)",
+        ),
+        ReleaseOutcome::StillReferenced { branch_count } => KvResponse::error(
+            "409 Conflict",
+            "StillReferenced",
+            &format!(
+                "snapshot still has {branch_count} live branch(es); drop_branch them before releasing"
+            ),
+        ),
+    }
+}
+
 /// Route + execute one request → a [`KvResponse`]. Pure (sync) so it is fully
 /// unit-testable without a socket (CONCEPT:EG-KG.backend.is-configured-so-co).
 fn handle(store: &KvCacheStore, auth: &KvAuth, req: &KvRequest) -> KvResponse {
@@ -590,12 +642,43 @@ fn handle_authorized(store: &KvCacheStore, req: &KvRequest) -> KvResponse {
             _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
         };
     }
+    // `DELETE /kv/snapshot/<id>` → release a live snapshot (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork):
+    // frees its pinned shared pages once no branch still forks off it. Rejected (`409`) if
+    // a branch is still live, `404` if the id is unknown or already released — see
+    // `release_outcome_response`. Guarded to the DELETE method only, so an existing
+    // GET/PUT/POST to a bare `/kv/snapshot/<id>` (never a defined route) keeps falling
+    // through to the same 404 it always has.
+    if req.method == "DELETE" {
+        if let Some(sid) = rest.strip_prefix("snapshot/").filter(|r| !r.contains('/')) {
+            return match sid.parse::<u64>() {
+                Ok(s) => release_outcome_response(store.release_snapshot(s)),
+                Err(_) => {
+                    KvResponse::error("400 Bad Request", "BadRequest", "snapshot id must be a u64")
+                }
+            };
+        }
+    }
     // `GET /kv/fork/stats` → the zero-copy occupancy proof (resident stays flat vs branch count).
     if rest == "fork/stats" {
         return match req.method.as_str() {
             "GET" | "HEAD" => KvResponse::json("200 OK", store.fork_stats_json()),
             _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
         };
+    }
+    // `DELETE /kv/branch/<bid>` → drop a live branch (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork):
+    // frees its copy-on-write overlay and decrements its parent snapshot's branch count
+    // (unblocking that snapshot's own `DELETE /kv/snapshot/<id>` once every branch is
+    // dropped). Guarded to DELETE only, ahead of the branch/<bid>/<key> block below, so a
+    // GET/PUT to the same bare path keeps its existing "expected branch/<id>/<key>" 400.
+    if req.method == "DELETE" {
+        if let Some(bid) = rest.strip_prefix("branch/").filter(|r| !r.contains('/')) {
+            return match bid.parse::<u64>() {
+                Ok(b) => release_outcome_response(store.drop_branch(b)),
+                Err(_) => {
+                    KvResponse::error("400 Bad Request", "BadRequest", "branch id must be a u64")
+                }
+            };
+        }
     }
     // `GET /kv/branch/<bid>/<key>` (zero-copy read) + `PUT /kv/branch/<bid>/<key>` (CoW write).
     if let Some(r) = rest.strip_prefix("branch/") {
@@ -1311,6 +1394,172 @@ mod tests {
         assert_eq!(
             handle_authorized(&s, &req("GET", "/kv/branch/9999/pageA", b"", &[])).status,
             "404 Not Found"
+        );
+    }
+
+    /// D-KVR (resource-leak fix) — the release routes over HTTP: snapshot → fork → drop the
+    /// branch → release the snapshot, and prove `/kv/stats` shows the block's ref-count fell
+    /// (the whole point: without this pair, a fan-out connector had no way to give a
+    /// snapshot's pinned pages back, so sustained forking only grew the resident set).
+    #[test]
+    fn release_routes_over_http_actually_drop_refcount() {
+        let s = store();
+        handle_authorized(&s, &req("PUT", "/kv/relpage", &[3u8; 128], &[]));
+
+        let snap = handle_authorized(
+            &s,
+            &req("POST", "/kv/snapshot", br#"{"keys":["relpage"]}"#, &[]),
+        );
+        let sid = serde_json::from_slice::<serde_json::Value>(&snap.body).unwrap()["snapshot"]
+            .as_u64()
+            .unwrap();
+        let fork = handle_authorized(
+            &s,
+            &req("POST", &format!("/kv/snapshot/{sid}/fork"), b"", &[]),
+        );
+        let bid = serde_json::from_slice::<serde_json::Value>(&fork.body).unwrap()["branch"]
+            .as_u64()
+            .unwrap();
+
+        // Drop the branch: 204, and now the snapshot's own branch count is 0.
+        let drop = handle_authorized(&s, &req("DELETE", &format!("/kv/branch/{bid}"), b"", &[]));
+        assert_eq!(drop.status, "204 No Content");
+        assert!(drop.body.is_empty());
+
+        // Release the now-unblocked snapshot: 204.
+        let release =
+            handle_authorized(&s, &req("DELETE", &format!("/kv/snapshot/{sid}"), b"", &[]));
+        assert_eq!(release.status, "204 No Content");
+
+        // The original PUT held refcount 1; the snapshot pinned it to 2. After the full
+        // release sequence, /kv/stats must show total_refs back down to 1 (the original
+        // holder), proving the release actually walked the refcount down, not just returned
+        // a success status with no effect.
+        let stats = handle_authorized(&s, &req("GET", "/kv/stats", b"", &[]));
+        let sj: serde_json::Value = serde_json::from_slice(&stats.body).unwrap();
+        assert_eq!(sj["unique_blocks"], 1, "the original PUT still resident");
+        assert_eq!(
+            sj["total_refs"], 1,
+            "the snapshot's pin was released — refcount back to the original holder only"
+        );
+    }
+
+    /// D-KVR (resource-leak fix) — releasing a snapshot while a branch is still forked off
+    /// it is REJECTED (`409 Conflict`), not silently applied: state is untouched, and the
+    /// branch's read still resolves after the rejected attempt.
+    #[test]
+    fn release_snapshot_still_referenced_over_http() {
+        let s = store();
+        handle_authorized(&s, &req("PUT", "/kv/guardpage", &[9u8; 64], &[]));
+        let snap = handle_authorized(
+            &s,
+            &req("POST", "/kv/snapshot", br#"{"keys":["guardpage"]}"#, &[]),
+        );
+        let sid = serde_json::from_slice::<serde_json::Value>(&snap.body).unwrap()["snapshot"]
+            .as_u64()
+            .unwrap();
+        let fork = handle_authorized(
+            &s,
+            &req("POST", &format!("/kv/snapshot/{sid}/fork"), b"", &[]),
+        );
+        let bid = serde_json::from_slice::<serde_json::Value>(&fork.body).unwrap()["branch"]
+            .as_u64()
+            .unwrap();
+
+        let blocked =
+            handle_authorized(&s, &req("DELETE", &format!("/kv/snapshot/{sid}"), b"", &[]));
+        assert_eq!(blocked.status, "409 Conflict");
+        let body: serde_json::Value = serde_json::from_slice(&blocked.body).unwrap();
+        assert_eq!(body["error"], "StillReferenced");
+
+        // The branch's read still resolves — the rejected release did not orphan it.
+        let g = handle_authorized(
+            &s,
+            &req("GET", &format!("/kv/branch/{bid}/guardpage"), b"", &[]),
+        );
+        assert_eq!(g.status, "200 OK");
+        assert_eq!(g.body, vec![9u8; 64]);
+    }
+
+    /// D-KVR (resource-leak fix) — unknown and double-release paths are typed 404s, never a
+    /// panic and never a silently-accepted second release.
+    #[test]
+    fn release_routes_unknown_and_double_release_are_404_over_http() {
+        let s = store();
+        // Never-existed ids.
+        assert_eq!(
+            handle_authorized(&s, &req("DELETE", "/kv/snapshot/424242", b"", &[])).status,
+            "404 Not Found"
+        );
+        assert_eq!(
+            handle_authorized(&s, &req("DELETE", "/kv/branch/424242", b"", &[])).status,
+            "404 Not Found"
+        );
+
+        // A real snapshot + branch, released once successfully, then a SECOND release of
+        // each is rejected (404), not silently accepted again.
+        handle_authorized(&s, &req("PUT", "/kv/dblpage", &[1u8; 32], &[]));
+        let snap = handle_authorized(
+            &s,
+            &req("POST", "/kv/snapshot", br#"{"keys":["dblpage"]}"#, &[]),
+        );
+        let sid = serde_json::from_slice::<serde_json::Value>(&snap.body).unwrap()["snapshot"]
+            .as_u64()
+            .unwrap();
+        let fork = handle_authorized(
+            &s,
+            &req("POST", &format!("/kv/snapshot/{sid}/fork"), b"", &[]),
+        );
+        let bid = serde_json::from_slice::<serde_json::Value>(&fork.body).unwrap()["branch"]
+            .as_u64()
+            .unwrap();
+
+        assert_eq!(
+            handle_authorized(&s, &req("DELETE", &format!("/kv/branch/{bid}"), b"", &[])).status,
+            "204 No Content"
+        );
+        assert_eq!(
+            handle_authorized(&s, &req("DELETE", &format!("/kv/branch/{bid}"), b"", &[])).status,
+            "404 Not Found",
+            "second drop of the same branch is rejected"
+        );
+        assert_eq!(
+            handle_authorized(&s, &req("DELETE", &format!("/kv/snapshot/{sid}"), b"", &[])).status,
+            "204 No Content"
+        );
+        assert_eq!(
+            handle_authorized(&s, &req("DELETE", &format!("/kv/snapshot/{sid}"), b"", &[])).status,
+            "404 Not Found",
+            "second release of the same snapshot is rejected"
+        );
+    }
+
+    /// The bearer-token guard also protects the new release routes — no auth, no release.
+    #[test]
+    fn release_routes_require_auth() {
+        let s = store();
+        let auth = KvAuth::Static("sekret".into());
+        assert_eq!(
+            handle(&s, &auth, &req("DELETE", "/kv/snapshot/1", b"", &[])).status,
+            "401 Unauthorized"
+        );
+        assert_eq!(
+            handle(&s, &auth, &req("DELETE", "/kv/branch/1", b"", &[])).status,
+            "401 Unauthorized"
+        );
+    }
+
+    /// A non-DELETE method against the bare release paths keeps its pre-existing behavior
+    /// (this route is DELETE-only; it must not swallow other verbs hitting the same path
+    /// shape, e.g. a malformed branch GET missing its `/key` suffix).
+    #[test]
+    fn release_route_guard_does_not_shadow_other_methods() {
+        let s = store();
+        // GET /kv/branch/<bid> (no key) is a pre-existing 400, not touched by the DELETE-only
+        // release route.
+        assert_eq!(
+            handle_authorized(&s, &req("GET", "/kv/branch/1", b"", &[])).status,
+            "400 Bad Request"
         );
     }
 }
