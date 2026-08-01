@@ -262,6 +262,29 @@ mod imp {
             &["graph"],
             lock_gap_buckets(),
         );
+        // ── Global dispatch state-lock wait (D-EIMG-2) ──
+        // The two histograms above cover the PER-GRAPH topology lock, reached only via the
+        // write coalescer. They say nothing about the single process-wide
+        // `Arc<RwLock<ServerState>>` that EVERY dispatched method acquires before it can
+        // do anything at all. That global lock is the suspected cause of the load-dependent
+        // latency tail seen live (`HasNode` — a hash lookup — at a 3.992s mean; bimodal
+        // `GetNodeProperties`/`GetNeighbors` with a small population of 0.25–30s calls
+        // against a >99% sub-0.0001s body). Without this histogram that hypothesis cannot
+        // be confirmed or refuted from the outside: per-method latency alone cannot
+        // separate "the work is slow" from "the work waited to start".
+        //
+        // `mode` (read|write) is the ONLY label, deliberately: a `method` label would
+        // multiply ~200 methods by 16 buckets on the hottest path in the process. Total
+        // wait split by read/write is what distinguishes contention from expensive work,
+        // which is the open question; per-method attribution can be layered on later if
+        // this confirms contention.
+        static ref DISPATCH_LOCK_WAIT: HistogramVec = histogram_vec(
+            "epistemic_graph_dispatch_lock_wait_seconds",
+            "Time a dispatched request blocked acquiring the process-wide ServerState \
+             lock (the global dispatch serialization point), by acquisition mode",
+            &["mode"],
+            lock_gap_buckets(),
+        );
         // ── Cost / efficiency autoscale signals (CONCEPT:EG-KG.compute.lane-v, Lane V) ──
         static ref GRAPH_MEMORY_BYTES: IntGaugeVec = gauge_vec(
             "epistemic_graph_graph_memory_bytes",
@@ -509,6 +532,16 @@ mod imp {
             .observe(seconds);
     }
 
+    /// Observe how long a dispatched request blocked acquiring the process-wide
+    /// `ServerState` lock (D-EIMG-2). `mode` is `"read"` or `"write"`. Called from the
+    /// `timed_read`/`timed_write` chokepoint helpers in `server::dispatch`, never
+    /// inline at an individual call site.
+    pub fn observe_dispatch_lock_wait(mode: &str, seconds: f64) {
+        DISPATCH_LOCK_WAIT
+            .with_label_values(&[mode])
+            .observe(seconds);
+    }
+
     /// Record one completed tick of an engine-native background interval loop
     /// (daemon-consolidation design, Phase 2): `name` is a fixed loop identifier
     /// (e.g. `"cold_offload"`), `seconds` is the tick's own work duration (the sweep
@@ -586,6 +619,7 @@ mod imp {
     pub fn write_batch_committed(_graph: &str, _ops: usize) {}
     pub fn observe_write_lock_wait(_graph: &str, _seconds: f64) {}
     pub fn observe_write_lock_hold(_graph: &str, _seconds: f64) {}
+    pub fn observe_dispatch_lock_wait(_mode: &str, _seconds: f64) {}
     pub fn loop_tick(_name: &str, _seconds: f64) {}
     pub fn set_epistemic_materializations_stale(_n: i64) {}
     pub fn epistemic_materializations_staled(_n: u64) {}

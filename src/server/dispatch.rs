@@ -5,6 +5,7 @@
 use std::sync::Arc;
 #[cfg(feature = "ast")]
 use std::sync::OnceLock;
+use std::time::Instant as DispatchLockInstant;
 use tokio::sync::RwLock;
 use tracing::info;
 
@@ -24,6 +25,43 @@ use super::handlers;
 use super::state::ServerState;
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Request, Response, ResultPayload};
+
+// ── D-EIMG-2: the process-wide dispatch lock, instrumented at its chokepoint ──
+//
+// Every dispatched method acquires this one `Arc<RwLock<ServerState>>` before it can do
+// anything. It is the single global serialization point in the engine, and it was
+// completely uninstrumented: `epistemic_graph_write_lock_wait_seconds` covers only the
+// PER-GRAPH topology lock inside the write coalescer, so nothing measured the wait here.
+//
+// These two helpers are the ONLY sanctioned way to take that lock inside this module, so
+// that instrumentation cannot be bypassed by a future call site the way it would be if
+// each of the ~50 acquisitions timed itself inline (and inline timing would also rot the
+// moment someone adds acquisition 51). The timing window is exactly enqueue → guard
+// acquired; the guard is returned unchanged, so borrow lifetimes at every call site are
+// identical to a bare `timed_read(state).await`.
+//
+// Cost on the fast path is one `Instant::now()` pair per acquisition — the same
+// instrumentation the write coalescer already pays per batch.
+
+/// Acquire the process-wide `ServerState` read lock, recording the wait (D-EIMG-2).
+pub(crate) async fn timed_read(
+    state: &Arc<RwLock<ServerState>>,
+) -> tokio::sync::RwLockReadGuard<'_, ServerState> {
+    let started = DispatchLockInstant::now();
+    let guard = state.read().await;
+    crate::metrics::observe_dispatch_lock_wait("read", started.elapsed().as_secs_f64());
+    guard
+}
+
+/// Acquire the process-wide `ServerState` write lock, recording the wait (D-EIMG-2).
+pub(crate) async fn timed_write(
+    state: &Arc<RwLock<ServerState>>,
+) -> tokio::sync::RwLockWriteGuard<'_, ServerState> {
+    let started = DispatchLockInstant::now();
+    let guard = state.write().await;
+    crate::metrics::observe_dispatch_lock_wait("write", started.elapsed().as_secs_f64());
+    guard
+}
 
 // Nested MessagePack values ride inside outer `bin` fields, which are opaque to
 // the transport's top-level grammar scan. Keep a second, tighter budget here so
@@ -211,7 +249,7 @@ async fn handle_register_server(
     // durability-relevant read (a race with a concurrent first-registration at
     // worst repeats `now_ms`, never loses data).
     let registered_at_ms = {
-        let s = state.read().await;
+        let s = timed_read(state).await;
         s.registry
             .get("__commons__")
             .and_then(|entry| entry.core.get_node_properties(&node_id))
@@ -665,7 +703,7 @@ async fn propose_native_mutation(
             op: eg_types::jobs::JobOp::WorkerPublish { .. }
         }
     );
-    let server_secret = state.read().await.auth_secret.clone();
+    let server_secret = timed_read(state).await.auth_secret.clone();
     let command = match crate::raft::NativeMutationCommand::from_public_method(
         method.clone(),
         &server_secret,
@@ -681,7 +719,7 @@ async fn propose_native_mutation(
     let graph_name =
         native_route_target(request_graph, authority.tenant_scope(), &method, &command);
     let (multi, graph_type) = {
-        let current = state.read().await;
+        let current = timed_read(state).await;
         let graph_type = match &method {
             Method::CreateGraph { graph_type, .. } => *graph_type,
             _ => current
@@ -1993,7 +2031,7 @@ async fn begin_session_control_saga(
         return Ok(None);
     }
     let backend =
-        state.read().await.persistence.clone().ok_or_else(|| {
+        timed_read(state).await.persistence.clone().ok_or_else(|| {
             "session control mutation requires durable redb coordination".to_string()
         })?;
     let redb = backend
@@ -2135,7 +2173,7 @@ async fn dispatch_inner(
     let verified_context = match context {
         Some(context) => context,
         None => {
-            let s = state.read().await;
+            let s = timed_read(state).await;
             match verify_request_with_security_dir(&s.auth_secret, &req, s.persist_dir.as_deref()) {
                 Ok(context) => context,
                 Err(msg) => {
@@ -2166,7 +2204,7 @@ async fn dispatch_inner(
     let method_policy = eg_capabilities::policy(&req.method);
     let action = method_policy.authz_action;
     let identity_bootstrap = !state_machine_authorized && {
-        let state = state.read().await;
+        let state = timed_read(state).await;
         state.isolation.identity_bootstrap_pending()
             && req.graph == "__commons__"
             && matches!(
@@ -2195,7 +2233,7 @@ async fn dispatch_inner(
     }
     {
         if !state_machine_authorized && is_admin_authz_action(action) && !identity_bootstrap {
-            let s = state.read().await;
+            let s = timed_read(state).await;
             let result = require_admin_capability(&s.isolation, req.agent_id.as_deref(), action);
             drop(s);
             if let Err(msg) = result {
@@ -2221,7 +2259,7 @@ async fn dispatch_inner(
             // the same command again.
         } else {
             let (standalone_raft, multi_raft) = {
-                let current = state.read().await;
+                let current = timed_read(state).await;
                 (current.raft.is_some(), current.multi_raft.is_some())
             };
             if standalone_raft || multi_raft {
@@ -2327,7 +2365,7 @@ async fn dispatch_inner(
 
         Method::Health => {
             let lifecycle = {
-                let state = state.read().await;
+                let state = timed_read(state).await;
                 let manifests = state.registry.materialization_manifests();
                 let complete = manifests
                     .iter()
@@ -2534,7 +2572,7 @@ async fn dispatch_inner(
             let _mutation_guard =
                 crate::server::mutation_batch::lock_graph(&graph_name).await;
             let (backend, already_exists) = {
-                let s = state.read().await;
+                let s = timed_read(state).await;
                 (s.persistence.clone(), s.registry.exists(&graph_name))
             };
             let Some(backend) = backend else {
@@ -2613,7 +2651,7 @@ async fn dispatch_inner(
                 }
             };
 
-            let mut s = state.write().await;
+            let mut s = timed_write(state).await;
             // Bounded hot-context cache admission (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3): a
             // new graph is about to be resident, so make room for it FIRST — evict
             // the coldest resident graph if the finite cap is already reached.
@@ -2654,7 +2692,7 @@ async fn dispatch_inner(
             // durable batch record.
             let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
             let (backend, exists) = {
-                let s = state.read().await;
+                let s = timed_read(state).await;
                 let record = s.registry.catalog_record(graph_name);
                 if !state_machine_authorized {
                     if let Some(record) = record.as_ref() {
@@ -2714,7 +2752,7 @@ async fn dispatch_inner(
                 return Response::err(req.id, format!("durable graph purge failed: {e}"));
             }
 
-            let mut s = state.write().await;
+            let mut s = timed_write(state).await;
             if !state_machine_authorized {
                 if let Some(entry) = s.registry.catalog_record(graph_name) {
                 if let Err(denied) = check_graph_access(
@@ -2758,7 +2796,7 @@ async fn dispatch_inner(
         }
 
         Method::ListGraphs => {
-            let s = state.read().await;
+            let s = timed_read(state).await;
             let read_authority = match GraphReadAuthority::from_verified(
                 &verified_context,
                 &s.isolation,
@@ -2969,7 +3007,7 @@ async fn dispatch_inner(
             if creator != carrier.agent_id() {
                 return Response::err(req.id, "ACCESS_DENIED: channel creator must be caller");
             }
-            let mut s = state.write().await;
+            let mut s = timed_write(state).await;
             match s
                 .channels
                 .create_channel_scoped(
@@ -2999,7 +3037,7 @@ async fn dispatch_inner(
             if agent_id != carrier.agent_id() {
                 return Response::err(req.id, "ACCESS_DENIED: channel join actor must be caller");
             }
-            let mut s = state.write().await;
+            let mut s = timed_write(state).await;
             if let Err(error) = s
                 .channels
                 .authorize_tenant(&channel_id, carrier.tenant_scope())
@@ -3023,7 +3061,7 @@ async fn dispatch_inner(
             if agent_id != carrier.agent_id() {
                 return Response::err(req.id, "ACCESS_DENIED: channel leave actor must be caller");
             }
-            let mut s = state.write().await;
+            let mut s = timed_write(state).await;
             if let Err(error) = s.channels.authorize_member(
                 &channel_id,
                 carrier.tenant_scope(),
@@ -3054,7 +3092,7 @@ async fn dispatch_inner(
                 Ok(authority) => authority,
                 Err(denied) => return Response::err(req.id, denied),
             };
-            let mut s = state.write().await;
+            let mut s = timed_write(state).await;
             if let Err(error) = s.channels.authorize_creator(
                 &channel_id,
                 carrier.tenant_scope(),
@@ -3091,7 +3129,7 @@ async fn dispatch_inner(
             if sender != carrier.agent_id() {
                 return Response::err(req.id, "ACCESS_DENIED: channel sender must be caller");
             }
-            let mut s = state.write().await;
+            let mut s = timed_write(state).await;
             if let Err(error) = s.channels.authorize_member(
                 &channel_id,
                 carrier.tenant_scope(),
@@ -3113,7 +3151,7 @@ async fn dispatch_inner(
                 Ok(authority) => authority,
                 Err(denied) => return Response::err(req.id, denied),
             };
-            let s = state.read().await;
+            let s = timed_read(state).await;
             if let Err(error) = s.channels.authorize_member(
                 &channel_id,
                 carrier.tenant_scope(),
@@ -3137,7 +3175,7 @@ async fn dispatch_inner(
                 Ok(authority) => authority,
                 Err(denied) => return Response::err(req.id, denied),
             };
-            let s = state.read().await;
+            let s = timed_read(state).await;
             let channels: Vec<serde_json::Value> = s.channels.list_channels_for(
                 carrier.tenant_scope(),
                 carrier.agent_id(),
@@ -3152,7 +3190,7 @@ async fn dispatch_inner(
                 Ok(authority) => authority,
                 Err(denied) => return Response::err(req.id, denied),
             };
-            let s = state.read().await;
+            let s = timed_read(state).await;
             if let Err(error) = s.channels.authorize_member(
                 &channel_id,
                 carrier.tenant_scope(),
@@ -3190,7 +3228,7 @@ async fn dispatch_inner(
                     return Response::err(req.id, message);
                 }
             }
-            let mut s = state.write().await;
+            let mut s = timed_write(state).await;
             let identity = crate::isolation::AgentIdentity {
                 agent_id: agent_id.clone(),
                 role,
@@ -3217,7 +3255,7 @@ async fn dispatch_inner(
         #[cfg(feature = "security")]
         Method::RbacAdmin { op } => {
             use crate::acl::RbacAdminOp;
-            let mut s = state.write().await;
+            let mut s = timed_write(state).await;
             match op {
                 RbacAdminOp::AddRole(role) => {
                     match s.isolation.try_add_role(role) {
@@ -3588,7 +3626,7 @@ async fn dispatch_inner(
                 Err(denied) => return Response::err(req.id, denied),
             };
             let read_authority = {
-                let s = state.read().await;
+                let s = timed_read(state).await;
                 match GraphReadAuthority::from_verified(&verified_context, &s.isolation) {
                     Ok(authority) => authority,
                     Err(denied) => return Response::err(req.id, denied),
@@ -3640,7 +3678,7 @@ async fn dispatch_inner(
         #[cfg(feature = "owl")]
         Method::OwlReasonDistributed { .. } => {
             let read_authority = {
-                let s = state.read().await;
+                let s = timed_read(state).await;
                 match GraphReadAuthority::from_verified(&verified_context, &s.isolation) {
                     Ok(authority) => authority,
                     Err(denied) => return Response::err(req.id, denied),
@@ -3699,7 +3737,7 @@ async fn dispatch_inner(
         }
         #[cfg(feature = "modality-serving")]
         Method::ServedModality { op } => {
-            let auth_secret = state.read().await.auth_secret.clone();
+            let auth_secret = timed_read(state).await.auth_secret.clone();
             let authority = match handlers::modality::ModalityAuthority::from_verified(
                 &auth_secret,
                 verified_context.claims(),
@@ -3720,7 +3758,7 @@ async fn dispatch_inner(
         }
         #[cfg(feature = "knowledge-batch")]
         Method::KnowledgeStream { request } => {
-            let auth_secret = state.read().await.auth_secret.clone();
+            let auth_secret = timed_read(state).await.auth_secret.clone();
             let authority = match handlers::knowledge_stream::KnowledgeStreamAuthority::from_verified(
                 &auth_secret,
                 verified_context.claims(),
@@ -4055,7 +4093,7 @@ async fn coordinated_sparql_http_update(
         event_type: crate::server::sparql_http::SPARQL_HTTP_UPDATE_EVENT.to_string(),
         query: query.clone(),
     };
-    let backend = state.read().await.persistence.clone();
+    let backend = timed_read(state).await.persistence.clone();
     let Some(backend) = backend else {
         return Response::err(req_id, "SPARQL HTTP update requires durable persistence");
     };
@@ -4129,7 +4167,7 @@ async fn coordinated_sparql_http_update(
             graphs.dedup();
         }
         let missing = {
-            let current = state.read().await;
+            let current = timed_read(state).await;
             for graph in &graphs {
                 if let Some(entry) = current.registry.get(graph) {
                     if let Err(error) = check_graph_access(
@@ -4202,7 +4240,7 @@ async fn coordinated_sparql_http_update(
     };
     if compensation_saga.is_none() {
         for update in plan.graphs.iter().filter(|update| !update.existed_before) {
-            if state.read().await.registry.exists(&update.graph) {
+            if timed_read(state).await.registry.exists(&update.graph) {
                 continue;
             }
             let request = Request {
@@ -4330,7 +4368,7 @@ async fn coordinated_sparql_http_update(
         .rev()
         .filter(|update| !update.existed_before)
     {
-        if !state.read().await.registry.exists(&update.graph) {
+        if !timed_read(state).await.registry.exists(&update.graph) {
             continue;
         }
         let request = Request {
@@ -4725,7 +4763,7 @@ async fn multi_graph_batch_update(
         Err(error) => return Response::err(req_id, error),
     };
     let backend = {
-        let s = state.read().await;
+        let s = timed_read(state).await;
         s.persistence.clone()
     };
     let Some(backend) = backend else {
@@ -4735,7 +4773,7 @@ async fn multi_graph_batch_update(
         return Response::err(req_id, "multi-graph batch requires durable redb");
     };
     #[cfg(feature = "raft")]
-    let clustered = state.read().await.multi_raft.is_some();
+    let clustered = timed_read(state).await.multi_raft.is_some();
     #[cfg(not(feature = "raft"))]
     let clustered = false;
     let saga = if clustered {
@@ -5188,7 +5226,7 @@ async fn replicate_served_modality(
         Ok(value) => value,
         Err(error) => return Response::err(req_id, error.to_string()),
     };
-    let server_secret = state.read().await.auth_secret.clone();
+    let server_secret = timed_read(state).await.auth_secret.clone();
     let command = match crate::raft::SanitizedModalityRaftCommand::new(
         &server_secret,
         modality,
@@ -5265,9 +5303,9 @@ async fn dispatch_graph_op_inner(
         return Response::err(req_id, error);
     }
     #[cfg(feature = "redb")]
-    let mut s = state.read().await;
+    let mut s = timed_read(state).await;
     #[cfg(not(feature = "redb"))]
-    let s = state.read().await;
+    let s = timed_read(state).await;
     // Cold-path lazy open (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3): the common case
     // (already resident) never pays for this — only a registry MISS escalates to a
     // write lock. The graph may be catalog-known but not yet materialized (a
@@ -5281,7 +5319,7 @@ async fn dispatch_graph_op_inner(
         let page_size = crate::server::persistence::cold_offload::lazy_open_page_size();
         crate::server::persistence::cold_offload::lazy_open(state, graph_name, cap, page_size)
             .await;
-        s = state.read().await;
+        s = timed_read(state).await;
     }
     let entry = match s.registry.get(graph_name) {
         Some(e) => e,
@@ -5563,7 +5601,7 @@ async fn dispatch_graph_op_inner(
                         Ok(context) => context,
                         Err(error) => return Response::err(req_id, error),
                     };
-                    let server_secret = state.read().await.auth_secret.clone();
+                    let server_secret = timed_read(state).await.auth_secret.clone();
                     let command = match crate::raft::ReplicatedMutation::change_envelope(
                         &envelope,
                         &server_secret,
@@ -6103,7 +6141,7 @@ async fn dispatch_graph_op_inner(
                 Ok(context) => context,
                 Err(error) => return Response::err(req_id, error),
             };
-            let server_secret = state.read().await.auth_secret.clone();
+            let server_secret = timed_read(state).await.auth_secret.clone();
             let command = match crate::raft::ReplicatedMutation::graph(method, &server_secret) {
                 Ok(command) => command,
                 Err(error) => return Response::err(req_id, error),
