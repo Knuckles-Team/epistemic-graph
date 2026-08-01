@@ -4561,20 +4561,6 @@ mod coordinator_restart_tests {
     }
 }
 
-/// Apply a batched cross-graph write (CONCEPT:EG-KG.storage.multi-graph-batch-write).
-///
-/// `batches_msgpack` decodes to `Vec<(graph_name, operations_msgpack)>` where each
-/// inner blob is exactly a [`Method::BatchUpdate`] payload. Every sub-batch is
-/// dispatched through the ordinary per-graph write path
-/// ([`dispatch_graph_op`]) CONCURRENTLY on the async runtime, so distinct graphs
-/// take DISTINCT per-graph write locks and commit across the K redb shard writers
-/// in parallel — the client pays ONE round-trip instead of N that each re-acquire
-/// a lock. Reuses the existing `BatchUpdate` primitive, so persistence /
-/// Raft / CDC / access-control all apply per sub-batch exactly as a normal batch.
-///
-/// The reply is `{"results": {graph: <batch_result>}, "errors": {graph: msg}}`;
-/// one graph's failure never aborts the others (partial-success contract).
-#[cfg(feature = "redb")]
 /// Batch envelope coordinator (CONCEPT:EG-KG.ingest.batched-change-envelopes). Validates
 /// each envelope's context against the verified request authority, groups envelopes
 /// by their `mutation.graph`, and routes each graph's envelopes to `dispatch_graph_op`
@@ -4712,6 +4698,19 @@ async fn dispatch_change_envelopes(
     )
 }
 
+/// Apply a batched cross-graph write (CONCEPT:EG-KG.storage.multi-graph-batch-write).
+///
+/// `batches_msgpack` decodes to `Vec<(graph_name, operations_msgpack)>` where each
+/// inner blob is exactly a [`Method::BatchUpdate`] payload. Every sub-batch is
+/// dispatched through the ordinary per-graph write path
+/// ([`dispatch_graph_op`]) CONCURRENTLY on the async runtime, so distinct graphs
+/// take DISTINCT per-graph write locks and commit across the K redb shard writers
+/// in parallel — the client pays ONE round-trip instead of N that each re-acquire
+/// a lock. Reuses the existing `BatchUpdate` primitive, so persistence /
+/// Raft / CDC / access-control all apply per sub-batch exactly as a normal batch.
+///
+/// The reply is `{"results": {graph: <batch_result>}, "errors": {graph: msg}}`;
+/// one graph's failure never aborts the others (partial-success contract).
 #[cfg(feature = "redb")]
 async fn multi_graph_batch_update(
     state: &Arc<RwLock<ServerState>>,

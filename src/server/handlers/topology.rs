@@ -24,6 +24,7 @@ use tokio::sync::RwLock;
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::state::ServerState;
 
+#[cfg(feature = "raft")]
 fn node_info_unavailable(req_id: u64) -> Response {
     Response::err(
         req_id,
@@ -31,6 +32,7 @@ fn node_info_unavailable(req_id: u64) -> Response {
     )
 }
 
+#[cfg(feature = "raft")]
 async fn handle_node_info_upsert(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
