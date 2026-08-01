@@ -584,6 +584,14 @@ pub struct GraphCore {
     /// procedures can populate/consult it. See `crate::projection_catalog`.
     #[cfg(feature = "result-cache")]
     graph_projections: Arc<crate::projection_catalog::ProjectionCatalog>,
+    /// D-OP-1 / D-OB-20 — bounded per-actor cache of `GraphReadAuthority::project_core`'s
+    /// RLS projection, invalidated by `version` advancing. See
+    /// `crate::rls_projection_cache` for the full rationale (mirrors the
+    /// invalidate-on-version-change idiom `ontology_index`/`label_index` already use,
+    /// extended to be per-actor). Only ever populated/consulted from the
+    /// `security`-gated half of `project_core` (`src/server/access.rs`).
+    #[cfg(feature = "security")]
+    rls_projection_cache: crate::rls_projection_cache::ProjectionCache,
 }
 
 impl Default for GraphCore {
@@ -2182,6 +2190,8 @@ impl GraphCore {
             result_cache: crate::result_cache::ResultCache::new(),
             #[cfg(feature = "result-cache")]
             graph_projections: Arc::new(crate::projection_catalog::ProjectionCatalog::new()),
+            #[cfg(feature = "security")]
+            rls_projection_cache: crate::rls_projection_cache::ProjectionCache::default(),
         }
     }
 
@@ -2836,6 +2846,30 @@ impl GraphCore {
     /// detect concurrent writes. Cheap atomic load — never on a read hot path.
     pub fn version(&self) -> u64 {
         self.version.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// D-OP-1 / D-OB-20 — look up a cached RLS projection for `actor`, valid only if
+    /// it was built at exactly `current_version`. `None` on a cold miss or a stale
+    /// (version-mismatched) entry; the caller then builds fresh and stores via
+    /// [`Self::put_cached_projection`]. See `crate::rls_projection_cache` for why the
+    /// (expensive) build must never happen while this lookup's lock is held.
+    ///
+    /// `pub` (not `pub(crate)`) so `GraphReadAuthority::project_core`, which lives in
+    /// the served-facade crate above `eg-core`, can reach it through the re-exported
+    /// `graph` module (`src/lib.rs`'s `pub use eg_core::{..., graph, ...}`) — not part
+    /// of a stable external API, just this crate's own internal facade boundary.
+    #[cfg(feature = "security")]
+    pub fn cached_projection(&self, actor: &str, current_version: u64) -> Option<Arc<GraphCore>> {
+        self.rls_projection_cache.get(actor, current_version)
+    }
+
+    /// D-OP-1 / D-OB-20 — store a freshly built RLS projection for `actor` at
+    /// `version`. Call this AFTER the projection is fully built, never while
+    /// holding any lock the build itself needed. See [`Self::cached_projection`]'s
+    /// doc for why this is `pub`.
+    #[cfg(feature = "security")]
+    pub fn put_cached_projection(&self, actor: String, version: u64, projected: Arc<GraphCore>) {
+        self.rls_projection_cache.put(actor, version, projected);
     }
 
     /// Atomically read-and-clear the dirty flag. The checkpoint calls this BEFORE
@@ -5435,6 +5469,12 @@ impl GraphCore {
             // fork rebuilds any projection it needs on first `gds.graph.project`.
             #[cfg(feature = "result-cache")]
             graph_projections: Arc::new(crate::projection_catalog::ProjectionCatalog::new()),
+            // A fork is a distinct graph (its own fresh OCC version line, above) — an
+            // RLS projection cached against the PARENT's version history would never
+            // hit (this fork's `version()` starts at 0, unrelated to the parent's),
+            // so a fresh, empty cache costs nothing and stays correct by construction.
+            #[cfg(feature = "security")]
+            rls_projection_cache: crate::rls_projection_cache::ProjectionCache::default(),
         }
     }
 
