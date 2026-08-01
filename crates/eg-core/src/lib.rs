@@ -62,6 +62,14 @@ pub mod read_through;
 pub mod registry;
 #[cfg(feature = "result-cache")]
 pub mod result_cache;
+/// CONCEPT:EG-KG.sharding.row-level-security (D-OP-1 / D-OB-20) — bounded per-actor
+/// cache for `GraphReadAuthority::project_core`'s RLS projection, so a repeat read
+/// by the same actor at an unchanged graph version reuses the materialized
+/// projection instead of rebuilding it (sort+clone every visible node/edge, copy
+/// every visible embedding) on every single call. Gated with `security` — it is
+/// only ever consulted from the `security`-gated half of `project_core`.
+#[cfg(feature = "security")]
+pub(crate) mod rls_projection_cache;
 /// CONCEPT:EG-KG.compute.scene-graph-primitives — scene-graph / 3D world-model primitives (poses, transform
 /// composition, AABBs). Pure deterministic math; the `GraphCore` scene methods
 /// (`add_scene_object`, `world_transform`, spatial relations) live in `graph`.

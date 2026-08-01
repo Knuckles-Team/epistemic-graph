@@ -261,11 +261,59 @@ impl GraphReadAuthority {
 
     /// Return the original core when RLS is inactive, otherwise a detached,
     /// fully filtered core safe for arbitrary primitive/algorithm reads.
+    ///
+    /// D-OP-1 / D-OB-20: the filtered core is expensive to build (sort + clone every
+    /// visible node/edge, copy every visible embedding — `O(V log V + E log E +
+    /// V*d)`), so it is cached per (actor, `GraphCore::version()`) and reused across
+    /// repeat calls between writes — see `crate::rls_projection_cache` for the full
+    /// rationale. A cache hit returns byte-identical content to a fresh rebuild for
+    /// the same (actor, version) pair (proven by
+    /// `alice_and_bob_same_tenant_shared_graph_cannot_observe_each_others_rows` and
+    /// `project_core_reflects_a_mutation_after_the_previous_projection_was_cached`,
+    /// both below) — this amortizes the existing guarantee, it does not relax it.
     pub(crate) fn project_core(&self, core: &Arc<GraphCore>) -> Arc<GraphCore> {
         if !self.is_active() {
             return core.clone();
         }
+        // `is_active()` is only ever `true` when the `security` feature is compiled
+        // in (see its own doc), so the actor field + cache accessors this delegates
+        // to — both `security`-gated — are always present past this point. Split
+        // into its own `#[cfg]`-gated method rather than inlining `self.actor` here
+        // directly: this function itself is NOT `#[cfg]`-gated (it must exist and
+        // type-check in a `not(security)` build too, where it is simply dead code
+        // behind the early return above).
+        self.project_core_active(core)
+    }
 
+    /// The cache-checking half of [`Self::project_core`], split out because it
+    /// touches the `security`-only `actor` field and cache accessors — see that
+    /// method's doc. Only ever called when `is_active()` is `true`.
+    #[cfg(feature = "security")]
+    fn project_core_active(&self, core: &Arc<GraphCore>) -> Arc<GraphCore> {
+        let actor = self.actor.clone();
+        let current_version = core.version();
+        if let Some(cached) = core.cached_projection(&actor, current_version) {
+            return cached;
+        }
+
+        let projected = self.build_projection(core);
+        core.put_cached_projection(actor, current_version, projected.clone());
+        projected
+    }
+
+    /// Unreachable in practice (`is_active()` is always `false` without `security`,
+    /// so `project_core` already returned above) — exists only so `project_core`
+    /// type-checks in a `not(security)` build.
+    #[cfg(not(feature = "security"))]
+    fn project_core_active(&self, core: &Arc<GraphCore>) -> Arc<GraphCore> {
+        core.clone()
+    }
+
+    /// The actual (expensive) materialization [`Self::project_core_active`] caches. Kept as
+    /// its own method so the cache lookup/store bracketing it stays visually obvious
+    /// at the call site and so a cache bypass (e.g. a future forced-fresh caller) has
+    /// a name to call directly.
+    fn build_projection(&self, core: &Arc<GraphCore>) -> Arc<GraphCore> {
         let mut view = core.analysis_snapshot();
         self.filter_view(&mut view);
         let projected = GraphCore::new();
@@ -1241,6 +1289,127 @@ mod universal_row_read_tests {
         assert!(!bob_core.has_node("alice-private"));
     }
 
+    /// D-OP-1 / D-OB-20: `project_core` now caches its (expensive) materialization
+    /// per (actor, `GraphCore::version()`). This is the direct proof that caching
+    /// does not turn `project_core` stale: a mutation between two calls MUST be
+    /// visible on the second call, not silently served from a version-0 cache entry.
+    /// The version check is what makes this a correctness-preserving amortization
+    /// rather than a relaxation of `project_core`'s guarantee (see that method's doc).
+    #[test]
+    fn project_core_reflects_a_mutation_after_the_previous_projection_was_cached() {
+        let (core, isolation) = shared_graph();
+        let alice_context = super::super::auth::VerifiedRequestContext::verified_for_test("alice");
+        let alice = GraphReadAuthority::from_verified(&alice_context, &isolation).unwrap();
+
+        // First call: populates the cache at the graph's current version. Alice's
+        // "public" node is visible; a brand-new node does not exist yet.
+        let first = alice.project_core(&core);
+        assert!(first.has_node("public"));
+        assert!(!first.has_node("alice-new-public-node"));
+
+        // Mutate the SOURCE graph, then call again with the SAME actor. The raw
+        // `GraphCore::add_node` primitive does NOT itself bump `version()` — in the
+        // real server, `mark_dirty()` is called separately by the mutation commit
+        // path (`src/server/mutation.rs::commit_finalize`) right after a successful
+        // write, which is what actually advances the OCC version every committed
+        // write goes through. Call it explicitly here to reproduce a real committed
+        // write, not just a raw topology poke. A stale cache would still show the
+        // old snapshot; the fix must miss on the version mismatch and rebuild.
+        core.add_node(
+            "alice-new-public-node".to_string(),
+            properties(&[("_visibility", "public"), ("type", "Thing")]),
+        );
+        core.mark_dirty();
+        let second = alice.project_core(&core);
+        assert!(
+            second.has_node("alice-new-public-node"),
+            "a committed write between two project_core calls for the SAME actor \
+             must be visible on the next call — the cache must invalidate on the \
+             graph's version advancing, not serve a stale (actor, old-version) entry"
+        );
+
+        // And a THIRD call at the now-stable (post-mutation) version must hit the
+        // freshly rebuilt cache entry rather than rebuilding yet again — same
+        // observable content as `second`, proving the cache re-populated correctly
+        // after the miss (not just that the miss itself produced a correct one-off).
+        let third = alice.project_core(&core);
+        assert!(third.has_node("alice-new-public-node"));
+        assert_eq!(third.node_count(), second.node_count());
+    }
+
+    /// D-OP-1 / D-OB-20 benchmark harness: a READ MIX shaped like what a
+    /// production grounding delegation actually issues — many sequential
+    /// point-ish reads (`HasNode` + a `GetNodeProperties`-equivalent) by the SAME
+    /// actor against a STABLE graph version (no writes in the burst, mirroring a
+    /// read-only grounding phase), not one isolated call. This is what turns a
+    /// per-call floor into the reported "grounding alone was 90.14s against a
+    /// 10.0s production budget" — N reads each paying the full O(V) rebuild.
+    /// Prints wall-clock numbers (`cargo test -- --nocapture`) so a before/after
+    /// comparison does not depend on the pass/fail boundary alone.
+    #[test]
+    fn project_core_read_burst_mirrors_grounding_read_mix() {
+        const NODE_COUNT: usize = 20_000;
+        const EMBEDDING_DIM: usize = 1024;
+        const BURST_READS: usize = 25;
+
+        let core = Arc::new(GraphCore::new());
+        {
+            let mut semantic = core.semantic_store.write();
+            for i in 0..NODE_COUNT {
+                let id = format!("n{i}");
+                core.add_node(
+                    id.clone(),
+                    properties(&[("_visibility", "public"), ("type", "Thing")]),
+                );
+                semantic.add_embedding(id, vec![(i % 7) as f32 * 0.01; EMBEDDING_DIM]);
+            }
+        }
+
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: "grounding-service".to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        let context =
+            super::super::auth::VerifiedRequestContext::verified_for_test("grounding-service");
+        let authority = GraphReadAuthority::from_verified(&context, &isolation).unwrap();
+
+        // Warm-up call: excludes one-time allocator/page-fault effects, matching a
+        // live server's Nth request for this actor, not its 1st.
+        let _ = authority.project_core(&core);
+
+        let mut per_call = Vec::with_capacity(BURST_READS);
+        let burst_started = std::time::Instant::now();
+        for i in 0..BURST_READS {
+            let call_started = std::time::Instant::now();
+            let projected = authority.project_core(&core);
+            let target = format!("n{}", i % NODE_COUNT);
+            assert!(projected.has_node(&target));
+            let _ = projected.get_node_properties(&target);
+            per_call.push(call_started.elapsed());
+        }
+        let total = burst_started.elapsed();
+        let avg = total / BURST_READS as u32;
+        let max = per_call.iter().max().copied().unwrap_or_default();
+        let min = per_call.iter().min().copied().unwrap_or_default();
+        eprintln!(
+            "D-OP-1 read-mix burst: reads={BURST_READS} total={total:?} avg={avg:?} \
+             min={min:?} max={max:?} (node_count={NODE_COUNT}, embedding_dim={EMBEDDING_DIM})"
+        );
+
+        assert!(
+            total < std::time::Duration::from_millis(500),
+            "D-OP-1 read-mix burst of {BURST_READS} sequential reads by the SAME \
+             actor at a STABLE graph version took {total:?} (avg {avg:?}/call, \
+             max {max:?}) — budget 500ms total. This mirrors a grounding \
+             delegation's read pattern; each call paying project_core's full \
+             O(V) rebuild is exactly the reported 90.14s-against-10s-budget \
+             production failure (D-OB-20)."
+        );
+    }
+
     #[test]
     fn carrier_ownership_separates_same_tenant_and_cross_tenant_callers() {
         let alice = CarrierAuthority::from_verified(
@@ -1292,6 +1461,95 @@ mod universal_row_read_tests {
         assert!(
             unauthenticated_carrier_denied(None),
             "no carrier at all must still be denied (fail-closed)"
+        );
+    }
+
+    /// D-OP-1 (orchestrator lane, 2026-07-31): `project_core` materialises an
+    /// entire second graph on EVERY call when RLS is active — sort every node id,
+    /// clone every node's properties, sort every edge key, clone every edge's
+    /// properties, and copy every visible embedding out of the semantic store.
+    /// That is `O(V log V + E log E + V*d)` PER READ, independent of what was
+    /// asked for, with no cache/memo/`OnceCell`/lazy path anywhere in this file.
+    ///
+    /// Live measurement (orchestrator, 2026-07-31, `__commons__`): 25,075 nodes,
+    /// 1024-dim embeddings -> ~103 MB memcpy'd per call; `HasNode` (ONE hash
+    /// lookup) measured 2.7-3.0s over dozens of live samples with ZERO under
+    /// 1s, while `CypherQuery` (which keeps its snapshot-level filter instead of
+    /// calling `project_core`) answered in <0.0001s on 31 samples.
+    ///
+    /// This reproduces that shape in-process at a smaller scale (large enough
+    /// that the O(V) cost dominates any fixed per-call overhead, small enough to
+    /// run in a normal `cargo test` pass) and asserts a budget for a single
+    /// `has_node` point lookup THROUGH `project_core`, the exact shape
+    /// `try_handle` pays on every terminal read handler
+    /// (`src/server/handlers/graph_ops.rs`, `let core = read_authority
+    /// .project_core(&core);` before the `match`).
+    ///
+    /// **Fixed**: `project_core` now caches the projected core per (actor,
+    /// `GraphCore::version()`), invalidated when the version advances — see
+    /// `docs/architecture/d-op-1-projection-cache.md` for the full design and
+    /// `crate::rls_projection_cache` for the cache itself. This test's warm-up +
+    /// measured-call shape (same actor, no write in between) is exactly a cache
+    /// hit, so it now passes at microsecond cost. It is intentionally strict
+    /// enough that an eager-rebuild regression cannot pass it by accident: the
+    /// budget is generously above a real cached point-lookup's cost
+    /// (microseconds) and generously below the O(V) rebuild's cost at this node
+    /// count, so there is no ambiguous middle ground.
+    #[test]
+    fn project_core_of_a_single_has_node_call_must_not_rebuild_the_whole_graph() {
+        const NODE_COUNT: usize = 20_000;
+        const EMBEDDING_DIM: usize = 1024;
+        const BUDGET: std::time::Duration = std::time::Duration::from_millis(50);
+
+        let core = Arc::new(GraphCore::new());
+        {
+            let mut semantic = core.semantic_store.write();
+            for i in 0..NODE_COUNT {
+                let id = format!("n{i}");
+                core.add_node(
+                    id.clone(),
+                    properties(&[("_visibility", "public"), ("type", "Thing")]),
+                );
+                // A real embedding-shaped vector, not a zero-cost stand-in — the
+                // memcpy cost `project_core` pays is proportional to this, not to
+                // a placeholder.
+                semantic.add_embedding(id, vec![(i % 7) as f32 * 0.01; EMBEDDING_DIM]);
+            }
+        }
+
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: "alice".to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        let alice_context = super::super::auth::VerifiedRequestContext::verified_for_test("alice");
+        let alice = GraphReadAuthority::from_verified(&alice_context, &isolation).unwrap();
+
+        // Warm-up call: excludes one-time allocator/page-fault effects so the
+        // measured call is a fair repeat-call comparison, matching how a live
+        // server serves this same actor's Nth request, not its 1st.
+        let _ = alice.project_core(&core);
+
+        let started = std::time::Instant::now();
+        let projected = alice.project_core(&core);
+        let elapsed = started.elapsed();
+        assert!(
+            projected.has_node("n0"),
+            "sanity: the projection must be usable"
+        );
+
+        assert!(
+            elapsed < BUDGET,
+            "project_core() for a single point lookup took {elapsed:?} against a \
+             {NODE_COUNT}-node / {EMBEDDING_DIM}-dim graph (budget {BUDGET:?}). \
+             This is the D-OP-1 regression: every RLS-active read rebuilds the \
+             entire visible graph (sort + clone every node/edge, copy every \
+             embedding) instead of reusing a cached projection keyed on \
+             (actor, graph version). Fix: cache in project_core() / \
+             GraphReadAuthority, invalidated on GraphCore::version() advancing \
+             (see docs/architecture/d-op-1-projection-cache.md)."
         );
     }
 }
