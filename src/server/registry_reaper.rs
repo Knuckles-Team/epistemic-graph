@@ -152,7 +152,13 @@ pub async fn reap_expired_servers(state: &Arc<RwLock<ServerState>>, now_ms: u64)
     reaped
 }
 
-#[cfg(test)]
+// The whole suite exercises DURABLE reap behavior against a real `RedbBackend`
+// (`redb_state` below), so — like every other `ServerState`-constructing test
+// module in this crate — it only builds under the `redb` feature. Individual
+// tests that additionally assert on the CDC feed are further gated on
+// `streaming` (see `#[cfg(feature = "streaming")]` on those fns and on the
+// `cdc` field of the `redb_state` literal).
+#[cfg(all(test, feature = "redb"))]
 mod tests {
     use super::*;
     use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
@@ -191,6 +197,7 @@ mod tests {
             RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, 64).expect("open"),
         );
         let state = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
             cold_tracker: Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
@@ -348,6 +355,7 @@ mod tests {
     /// `RemoveNode` event is observable on `__commons__`'s feed -- the
     /// acceptance-criteria proof for "killing one surfaces a lease-expiry CDC
     /// event within TTL".
+    #[cfg(feature = "streaming")]
     #[tokio::test(flavor = "multi_thread")]
     async fn expired_lease_is_reaped_and_emits_cdc() {
         let dir = std::env::temp_dir().join(format!("eg-reaper-expired-{}", std::process::id()));
@@ -495,6 +503,7 @@ mod tests {
     /// exactly one server's lease lapse (simulating it being killed and never
     /// heartbeating again) reaps ONLY that one, leaves the still-heartbeating
     /// others live, and the CDC event is scoped to the dead server's node id.
+    #[cfg(feature = "streaming")]
     #[tokio::test(flavor = "multi_thread")]
     async fn multiple_independent_servers_one_kill_reaps_only_that_one() {
         let dir = std::env::temp_dir().join(format!("eg-reaper-multi-{}", std::process::id()));
