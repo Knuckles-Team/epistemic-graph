@@ -319,6 +319,21 @@ impl GraphReadAuthority {
     /// its own method so the cache lookup/store bracketing it stays visually obvious
     /// at the call site and so a cache bypass (e.g. a future forced-fresh caller) has
     /// a name to call directly.
+    ///
+    /// D-EGP-1 (t1-grounding-0802): uses `add_node_no_ledger`/`add_edge_no_ledger`
+    /// rather than the ordinary `add_node`/`add_edge`. Construction used to go
+    /// through the ordinary mutation helpers, which append synthetic `ADD_*`
+    /// records that this method then threw away wholesale (`ledger.lock().clear()`)
+    /// because the original ledger cannot be safely row-filtered from its
+    /// unstructured string representation, so active RLS serves no ledger rather
+    /// than a fabricated or cross-row history. Every one of those records was a
+    /// `HexLedger`-formatted (per-byte `write!`) copy of the node/edge's full
+    /// property blob — on a live pod this measured as the DOMINANT cost of a cache
+    /// miss (`epistemic_graph_projection_cache_miss_build_seconds`: 2.4-15s per
+    /// miss on a 27,969-node graph). The `_no_ledger` variants skip the format +
+    /// hex-encode + ledger-mutex-push entirely; there is no longer a ledger to
+    /// clear, and the resulting `GraphCore` is byte-for-byte identical in every
+    /// OTHER respect (node_map/graph/node_properties/edge_properties/bloom).
     fn build_projection(&self, core: &Arc<GraphCore>) -> Arc<GraphCore> {
         let mut view = core.analysis_snapshot();
         self.filter_view(&mut view);
@@ -334,7 +349,7 @@ impl GraphReadAuthority {
                 .get(node_id)
                 .map(|value| value.as_ref().clone())
                 .unwrap_or_default();
-            projected.add_node(node_id.clone(), properties);
+            projected.add_node_no_ledger(node_id.clone(), properties);
         }
 
         let mut edge_keys: Vec<(String, String)> = view.edge_properties.keys().cloned().collect();
@@ -345,7 +360,7 @@ impl GraphReadAuthority {
                     // Both endpoints survived `filter_view`; failure would indicate
                     // an internally inconsistent snapshot, so simply omit that edge
                     // rather than reintroducing a topology side channel.
-                    let _ = projected.add_edge(
+                    let _ = projected.add_edge_no_ledger(
                         source.clone(),
                         target.clone(),
                         property.as_ref().clone(),
@@ -366,13 +381,6 @@ impl GraphReadAuthority {
                 }
             }
         }
-
-        // Construction uses the ordinary mutation helpers, which append synthetic
-        // ADD_* records. They are implementation detail, not source history. The
-        // original ledger cannot be safely row-filtered from its unstructured string
-        // representation, so active RLS serves no ledger rather than a fabricated
-        // or cross-row history.
-        projected.ledger.lock().clear();
 
         Arc::new(projected)
     }
