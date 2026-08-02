@@ -1,0 +1,110 @@
+# Merge-queue gate declaration for `epistemic-graph` (a RUST repository).
+#
+# Copy to the repository root as `.mergequeue.yaml`.
+#
+# This file is the proof that the queue in repository_manager/merge_queue.py is
+# genuinely generic: nothing below is Python, pytest, ruff, or agent-utilities,
+# and the queue needs no change to run it. Until this existed, epistemic-graph
+# had NO merge queue at all -- the engine lane had to hand-apply the discipline
+# from memory (verify the MERGED tree with `cargo check --all-features`,
+# fast-forward only, never merge in the canonical checkout). That is exactly the
+# discipline this file hands to the machine.
+
+base: main
+batch_size: 8
+
+# `cargo --version` + `rustc --version` fingerprint the toolchain. Folded into
+# the baseline cache key, so an in-place toolchain bump busts every cached
+# baseline instead of silently serving one computed against a compiler that no
+# longer exists (D-MQD-1). Without this the environment reads as "unpinned" and
+# the queue DISABLES the baseline cache rather than keying it on a fiction --
+# correct, but it re-runs `cargo check` on the base for every batch.
+environment_signature: ["sh", "-c", "cargo --version && rustc --version"]
+
+gates:
+  # The one gate the engine lane applied by hand. `--all-features` because the
+  # workspace's crates are feature-gated and a merge can break a crate that only
+  # a non-default feature compiles.
+  #
+  # `--target-dir target-isolated`: a shared CARGO_TARGET_DIR both SERIALISES and
+  # CORRUPTS concurrent worktree builds here (it is a PARTITION-class resource in
+  # agent-utilities' lane_resources.yaml). The gate runs in a throwaway
+  # materialized worktree, so a relative target dir keeps each gate run's build
+  # artifacts entirely its own.
+  - name: cargo-check
+    command:
+      - cargo
+      - check
+      - --all-features
+      - --message-format
+      - short
+      - --target-dir
+      - target-isolated
+    tier: fast
+    timeout: 1800
+    baseline_timeout: 3600
+    compare: lines
+    # DIFFERENTIAL GATING (behaviour 1). `main` is legitimately red here, so the
+    # verdict is "did THIS candidate introduce a diagnostic the base ref does not
+    # already produce" -- never "is the merged tree absolutely green", which
+    # deadlocked the au queue and stranded 19 branches.
+    #
+    # keep_lines is what makes a line-diff usable for cargo: `Compiling ...`,
+    # `Finished in 3.4s`, and `Blocking waiting for file lock` differ on EVERY
+    # run and would otherwise read as new violations on every candidate. Only
+    # diagnostics participate in the comparison.
+    keep_lines:
+      - '^error'
+      - '^warning'
+      - '^[^ ].*: (error|warning)'
+    ignore_lines:
+      - 'generated [0-9]+ warnings?'
+      - 'aborting due to'
+    when_changed:
+      - '*.rs'
+      - '**/*.rs'
+      - 'Cargo.toml'
+      - '**/Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'rust-toolchain.toml'
+
+  - name: clippy
+    command:
+      - cargo
+      - clippy
+      - --all-features
+      - --message-format
+      - short
+      - --target-dir
+      - target-isolated
+    tier: fast
+    timeout: 1800
+    baseline_timeout: 3600
+    compare: lines
+    keep_lines:
+      - '^error'
+      - '^warning'
+    when_changed:
+      - '*.rs'
+      - '**/*.rs'
+      - 'Cargo.toml'
+      - '**/Cargo.toml'
+
+  # Declared but NOT run inside the queue: at engine scale the full test suite
+  # makes the queue diverge at any concurrency, and a gate too costly to run gets
+  # bypassed. Keeping it declared means this file stays the single description of
+  # what guards the repo -- a gate too expensive for the queue is still a fact.
+  - name: cargo-test
+    command: [cargo, test, --all-features, --target-dir, target-isolated]
+    tier: slow
+    timeout: 5400
+    compare: lines
+
+# No generated files are regenerated on land for this repo yet. If
+# `docs/capabilities.generated.md` (eg-capabilities' generated ledger) starts
+# conflicting across candidates, declare it here together with its generator and
+# the queue will regenerate it from the already-merged tree instead of rejecting
+# the candidate or picking a side.
+generated_files: []
+regenerate: []
