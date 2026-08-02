@@ -293,10 +293,16 @@ impl GraphReadAuthority {
         let actor = self.actor.clone();
         let current_version = core.version();
         if let Some(cached) = core.cached_projection(&actor, current_version) {
+            crate::metrics::projection_cache_hit();
             return cached;
         }
 
+        // D-EGP-1 (t1-grounding-0802): time the rebuild a miss triggers — see
+        // `crate::metrics::projection_cache_miss` for why this is the decisive
+        // measurement for the RLS-cache-thrash hypothesis.
+        let build_started = std::time::Instant::now();
         let projected = self.build_projection(core);
+        crate::metrics::projection_cache_miss(build_started.elapsed().as_secs_f64());
         core.put_cached_projection(actor, current_version, projected.clone());
         projected
     }
@@ -1670,6 +1676,15 @@ const RLS_ROUTED: &[&str] = &[
     "MatchOntologyTerms",
     "MaterializationStatus",
     "MineClassifyFit",
+    // t1-grounding-0802 follow-up audit: `handlers::pipeline::try_handle` (module doc,
+    // `src/server/handlers/pipeline.rs`) receives the SAME `core.clone()` the mining/
+    // graphlearn handlers ahead of it in dispatch.rs's `'dispatch` block do -- the
+    // already-`project_core`-projected core built once at the top of
+    // `graph_ops::try_handle`. `Evaluate`/`Compare`'s feature-extraction steps read
+    // the live subgraph through that core; `Train`/`Serve`/`Predict` are separately
+    // GATEWAY_ROUTED writes.
+    "MiningPipelineCompare",
+    "MiningPipelineEvaluate",
     "MinimumSpanningTree",
     "NlQuery",
     "NodeCount",
@@ -1745,6 +1760,10 @@ const REASON_ADMIN_ONLY_CEP: &str =
 // `core`/`state`/`GraphView` at all.
 const REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE: &str =
     "src/server/handlers/query.rs's causal_estimate_wire/causal_counterfactual_wire/rank_by_provenance_wire (Method::CausalEstimate/CausalCounterfactual/RankByProvenance) build an ephemeral eg_epistemic::CausalGraph, or rank eg_epistemic::RetrievalCandidates, purely from the REQUEST's own variables/do_values/actual/candidates/weights fields -- these three handler arms never call core.analysis_snapshot() or reference state/core/GraphView at all (confirmed by reading each arm and its wire fn body), so there is no tenant-owned graph row in play to RLS-scope; the same posture as REASON_PURE_COMPUTE's finance/datascience primitives, just epistemic-causal's own request-scoped SCM/ranking inputs instead";
+// t1-grounding-0802 follow-up audit: `ClusterMembers` was added (ADR-1/W1.1
+// engine-authoritative cluster-topology discovery) without a classification here.
+const REASON_CLUSTER_TOPOLOGY_READ: &str =
+    "src/server/handlers/topology.rs::handle_cluster_members answers from the durable NodeInfoStore + live MultiRaft membership (self-reported node/raft-group topology) -- not one resolved graph's rows, never touches core/GraphView/project_core. Gated by its own authz_action `cluster:topology-read` (crates/eg-capabilities/src/lib.rs), deliberately NOT kg:admin (REASON_CLUSTER_ADMIN_GATED) so ordinary service roles can re-resolve after a failover -- a distinct, weaker gate than the admin-only cluster methods above, so it gets its own reason rather than being folded into theirs";
 
 const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_SERVER_LIFECYCLE
@@ -1766,6 +1785,8 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("ExportSqliteFile", REASON_CLUSTER_ADMIN_GATED),
     ("PlacementRoute", REASON_CLUSTER_ADMIN_GATED),
     ("RebalancePlan", REASON_CLUSTER_ADMIN_GATED),
+    // REASON_CLUSTER_TOPOLOGY_READ
+    ("ClusterMembers", REASON_CLUSTER_TOPOLOGY_READ),
     // REASON_CHANNEL_MEMBERSHIP
     ("GetChannelMembers", REASON_CHANNEL_MEMBERSHIP),
     ("GetChannelMessages", REASON_CHANNEL_MEMBERSHIP),

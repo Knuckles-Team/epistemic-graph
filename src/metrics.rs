@@ -285,6 +285,45 @@ mod imp {
             &["mode"],
             lock_gap_buckets(),
         );
+        // ── RLS projection-cache hit/miss + miss cost (D-EGP-1, t1-grounding-0802) ──
+        // `GraphReadAuthority::project_core` (`server/access.rs`) caches its expensive
+        // per-(actor, GraphCore::version()) materialization in `rls_projection_cache`
+        // (D-OP-1 / D-OB-20: cold miss measured 1.3-1.5s vs 7.57us warm — a ~190,000x
+        // ratio). The lock-contention hypothesis for grounding's 40-56s compile latency
+        // was REFUTED by `DISPATCH_LOCK_WAIT` (uncontended: 308 acquisitions totalled
+        // 0.000155s). The prime remaining suspect is that the cache THRASHES under
+        // interleaved reads/writes on a shared daemon — every committed write
+        // invalidates the cache for every actor (the version bump), so a compile
+        // spanning tens of seconds crosses several invalidation boundaries. There was
+        // NO hit/miss telemetry to confirm or refute this; these two series are it.
+        //
+        // `result` (hit|miss) is the ONLY label — mirrors `DISPATCH_LOCK_WAIT`'s
+        // `mode`-only cardinality discipline on the same hot path (every RLS-active
+        // read goes through this). Per-actor/per-graph attribution is deliberately
+        // NOT added here for the same reason.
+        static ref PROJECTION_CACHE_RESULT: IntCounterVec = counter_vec(
+            "epistemic_graph_projection_cache_result_total",
+            "RLS projection-cache (project_core) lookups, by result: hit (fast path, \
+             microseconds) or miss (cold/stale, triggers a full O(V log V + E log E + \
+             V*d) rebuild)",
+            &["result"],
+        );
+        static ref PROJECTION_CACHE_MISS_BUILD: Histogram = {
+            let m = Histogram::with_opts(
+                HistogramOpts::new(
+                    "epistemic_graph_projection_cache_miss_build_seconds",
+                    "Wall-clock cost of rebuilding the RLS projection on a cache miss \
+                     (the O(V log V + E log E + V*d) materialization project_core's cache \
+                     exists to amortize)",
+                )
+                .buckets(lock_gap_buckets()),
+            )
+            .expect("valid metric");
+            REGISTRY
+                .register(Box::new(m.clone()))
+                .expect("unique metric");
+            m
+        };
         // ── Cost / efficiency autoscale signals (CONCEPT:EG-KG.compute.lane-v, Lane V) ──
         static ref GRAPH_MEMORY_BYTES: IntGaugeVec = gauge_vec(
             "epistemic_graph_graph_memory_bytes",
@@ -542,6 +581,23 @@ mod imp {
             .observe(seconds);
     }
 
+    /// Record a hit against the RLS projection cache (D-EGP-1): the actor's
+    /// materialized `GraphCore` was reused, no rebuild needed. Called from
+    /// `GraphReadAuthority::project_core_active` on the fast path.
+    pub fn projection_cache_hit() {
+        PROJECTION_CACHE_RESULT.with_label_values(&["hit"]).inc();
+    }
+
+    /// Record a miss against the RLS projection cache (D-EGP-1) and the wall-clock
+    /// cost of the resulting rebuild, `seconds`. A miss is either cold (first read
+    /// for this actor) or stale (a committed write advanced `GraphCore::version()`
+    /// since the last projection for this actor). Called from
+    /// `GraphReadAuthority::project_core_active` after `build_projection` returns.
+    pub fn projection_cache_miss(seconds: f64) {
+        PROJECTION_CACHE_RESULT.with_label_values(&["miss"]).inc();
+        PROJECTION_CACHE_MISS_BUILD.observe(seconds);
+    }
+
     /// Record one completed tick of an engine-native background interval loop
     /// (daemon-consolidation design, Phase 2): `name` is a fixed loop identifier
     /// (e.g. `"cold_offload"`), `seconds` is the tick's own work duration (the sweep
@@ -620,6 +676,8 @@ mod imp {
     pub fn observe_write_lock_wait(_graph: &str, _seconds: f64) {}
     pub fn observe_write_lock_hold(_graph: &str, _seconds: f64) {}
     pub fn observe_dispatch_lock_wait(_mode: &str, _seconds: f64) {}
+    pub fn projection_cache_hit() {}
+    pub fn projection_cache_miss(_seconds: f64) {}
     pub fn loop_tick(_name: &str, _seconds: f64) {}
     pub fn set_epistemic_materializations_stale(_n: i64) {}
     pub fn epistemic_materializations_staled(_n: u64) {}
