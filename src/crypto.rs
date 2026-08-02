@@ -29,6 +29,31 @@ use std::sync::Arc;
 /// Env var holding the raw encryption key material (any length; hashed to 32 bytes).
 pub const ENCRYPTION_KEY_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_KEY";
 
+/// Env var holding the raw key material for the transaction-recovery-plan channel
+/// ONLY (D-ORC-50 encryption-bootstrap decoupling). This key seals the private
+/// admin-saga/recovery-plan bytes a multi-op OCC `Commit` (and the cross-shard/
+/// coordinator recovery plans in `server::dispatch`) durably logs so a crash mid-commit
+/// can resume — it is INDEPENDENT of [`ENCRYPTION_KEY_ENV`], which controls at-rest
+/// encryption of ordinary node/edge/property value blobs.
+///
+/// Why decoupled: before this, both concerns shared one cipher (`Shard::cipher`,
+/// resolved from `ENCRYPTION_KEY_ENV`). Configuring a key so multi-op transactions
+/// (e.g. a compare-and-set that stages a node property + an ANN vector together)
+/// could commit ALSO flipped every ordinary value read/write over to "expect sealed
+/// framing" — on a store that already holds plaintext values from before the key
+/// existed, every one of those reads then fails closed
+/// (`"encrypted durable value is missing sealed framing"`). That is a destructive-read
+/// operation on a populated plaintext store, not a config toggle, and is NOT what
+/// enabling transaction durability should require.
+///
+/// Setting ONLY `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` unblocks multi-op `Commit` (and
+/// coordinator/cross-shard recovery) while leaving `Shard::cipher` — and therefore
+/// every existing plaintext value in the store — completely untouched. A deployment
+/// that has ALREADY opted into full at-rest encryption (`ENCRYPTION_KEY_ENV` set) gets
+/// the old shared-key behavior automatically via the fallback in
+/// [`resolve_txn_recovery_key`], so this is additive, not a breaking change.
+pub const TXN_RECOVERY_KEY_ENV: &str = "EPISTEMIC_GRAPH_TXN_RECOVERY_KEY";
+
 /// First byte of an encrypted value blob.
 const MAGIC: u8 = 0xE6;
 const NONCE_LEN: usize = 12;
@@ -62,6 +87,17 @@ impl ValueCipher {
     /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` is unset/empty ⇒ encryption stays OFF.
     pub fn from_env() -> Option<Self> {
         resolve_key().map(|m| ValueCipher::from_key_material(&m))
+    }
+
+    /// Resolve the transaction-recovery-plan cipher (D-ORC-50): reads
+    /// `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` first — a key configured there seals ONLY the
+    /// private admin-saga/recovery-plan channel and never touches the data-at-rest
+    /// format — and falls back to the shared `EPISTEMIC_GRAPH_ENCRYPTION_KEY` so a
+    /// deployment that already has full at-rest encryption on keeps working exactly as
+    /// before. `None` when neither is set ⇒ multi-op transaction durability requires one
+    /// of the two to be configured, same as today.
+    pub fn from_env_for_txn_recovery() -> Option<Self> {
+        resolve_txn_recovery_key().map(|m| ValueCipher::from_key_material(&m))
     }
 
     /// Seal a plaintext value blob → `[MAGIC | nonce | ciphertext+tag]`. A random
@@ -115,6 +151,18 @@ pub fn resolve_key() -> Option<Vec<u8>> {
     }
 }
 
+/// Resolve raw key material for the transaction-recovery-plan channel (D-ORC-50):
+/// `TXN_RECOVERY_KEY_ENV` if set, else fall back to the shared `ENCRYPTION_KEY_ENV` (so
+/// deployments that already run with full at-rest encryption see no behavior change).
+/// `None` ⇒ neither is configured ⇒ multi-op transaction durability is unavailable,
+/// exactly as before this seam existed.
+pub fn resolve_txn_recovery_key() -> Option<Vec<u8>> {
+    match std::env::var(TXN_RECOVERY_KEY_ENV) {
+        Ok(v) if !v.is_empty() => Some(v.into_bytes()),
+        _ => resolve_key(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +212,121 @@ mod tests {
         let a = c.seal(b"same");
         let b = c.seal(b"same");
         assert_ne!(a, b, "nonce reuse: identical ciphertexts");
+    }
+
+    /// Serializes the tests below: `std::env::set_var`/`remove_var` on the two key env
+    /// vars is process-global, and `cargo test` runs this module's tests concurrently by
+    /// default.
+    static KEY_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct EnvGuard {
+        prev_data_key: Option<String>,
+        prev_recovery_key: Option<String>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl EnvGuard {
+        fn acquire() -> Self {
+            let lock = KEY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let prev_data_key = std::env::var(ENCRYPTION_KEY_ENV).ok();
+            let prev_recovery_key = std::env::var(TXN_RECOVERY_KEY_ENV).ok();
+            std::env::remove_var(ENCRYPTION_KEY_ENV);
+            std::env::remove_var(TXN_RECOVERY_KEY_ENV);
+            EnvGuard {
+                prev_data_key,
+                prev_recovery_key,
+                _lock: lock,
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match self.prev_data_key.take() {
+                Some(v) => std::env::set_var(ENCRYPTION_KEY_ENV, v),
+                None => std::env::remove_var(ENCRYPTION_KEY_ENV),
+            }
+            match self.prev_recovery_key.take() {
+                Some(v) => std::env::set_var(TXN_RECOVERY_KEY_ENV, v),
+                None => std::env::remove_var(TXN_RECOVERY_KEY_ENV),
+            }
+        }
+    }
+
+    /// D-ORC-50: neither key set ⇒ neither the data cipher nor the txn-recovery cipher
+    /// resolves — same "durability requires a key" failure mode as before this seam
+    /// existed, so nothing regresses for a deployment that has configured nothing.
+    #[test]
+    fn txn_recovery_key_unset_and_data_key_unset_resolves_to_none() {
+        let _guard = EnvGuard::acquire();
+        assert!(resolve_key().is_none());
+        assert!(resolve_txn_recovery_key().is_none());
+        assert!(ValueCipher::from_env().is_none());
+        assert!(ValueCipher::from_env_for_txn_recovery().is_none());
+    }
+
+    /// D-ORC-50 core proof: setting ONLY the dedicated recovery key resolves a
+    /// txn-recovery cipher WITHOUT resolving a data-at-rest cipher. This is exactly the
+    /// decoupling the destructive-read bug required — the data cipher (`from_env`,
+    /// which drives `Shard::cipher` / the value-blob read+write path) must stay `None`
+    /// so existing plaintext values are never expected to be sealed.
+    #[test]
+    fn only_recovery_key_set_unblocks_txn_recovery_without_enabling_data_encryption() {
+        let _guard = EnvGuard::acquire();
+        std::env::set_var(TXN_RECOVERY_KEY_ENV, "dedicated-recovery-key");
+
+        assert!(
+            resolve_key().is_none(),
+            "data-at-rest key must stay unresolved"
+        );
+        assert!(
+            ValueCipher::from_env().is_none(),
+            "data-at-rest cipher must stay uninstalled — existing plaintext values must \
+             not be expected to carry sealed framing"
+        );
+
+        assert!(resolve_txn_recovery_key().is_some());
+        let cipher =
+            ValueCipher::from_env_for_txn_recovery().expect("recovery cipher must resolve");
+        let sealed = cipher.seal(b"recovery-plan-bytes");
+        assert_eq!(cipher.unseal(&sealed).unwrap(), b"recovery-plan-bytes");
+    }
+
+    /// D-ORC-50 back-compat: a deployment that already opted into full at-rest
+    /// encryption (`ENCRYPTION_KEY_ENV` set, no dedicated recovery key) keeps sealing
+    /// the recovery-plan channel with THE SAME key material as before — byte-for-byte
+    /// the old shared-cipher behavior, so this is additive, not breaking.
+    #[test]
+    fn falls_back_to_shared_data_key_when_no_dedicated_recovery_key_is_set() {
+        let _guard = EnvGuard::acquire();
+        std::env::set_var(ENCRYPTION_KEY_ENV, "shared-key-material");
+
+        let data_cipher = ValueCipher::from_env().expect("data cipher must resolve");
+        let recovery_cipher =
+            ValueCipher::from_env_for_txn_recovery().expect("recovery cipher must resolve");
+
+        // Same key material ⇒ interoperable: what one seals, the other unseals.
+        let sealed = data_cipher.seal(b"payload");
+        assert_eq!(recovery_cipher.unseal(&sealed).unwrap(), b"payload");
+    }
+
+    /// D-ORC-50: when BOTH are set, the dedicated recovery key wins for the recovery
+    /// channel (and is independent of the data key) — an operator can rotate or scope
+    /// them separately.
+    #[test]
+    fn dedicated_recovery_key_takes_priority_over_shared_data_key() {
+        let _guard = EnvGuard::acquire();
+        std::env::set_var(ENCRYPTION_KEY_ENV, "data-key-material");
+        std::env::set_var(TXN_RECOVERY_KEY_ENV, "recovery-key-material");
+
+        let data_cipher = ValueCipher::from_env().expect("data cipher must resolve");
+        let recovery_cipher =
+            ValueCipher::from_env_for_txn_recovery().expect("recovery cipher must resolve");
+
+        let sealed_by_recovery = recovery_cipher.seal(b"payload");
+        assert!(
+            data_cipher.unseal(&sealed_by_recovery).is_err(),
+            "the two ciphers must use different key material when both env vars differ"
+        );
     }
 }
