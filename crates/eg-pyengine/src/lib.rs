@@ -44,7 +44,7 @@
 //! `GraphCore`/`GraphRegistry`, no engine logic duplicated. See the design
 //! doc's "remaining work" for the option of hoisting the shared glue (registry
 //! + resolve-core-by-name) down into `eg-core` so both callers share one
-//! implementation instead of two thin copies of it.
+//!   implementation instead of two thin copies of it.
 //!
 //! ## Batching discipline (non-negotiable, `AGENTS.md`)
 //!

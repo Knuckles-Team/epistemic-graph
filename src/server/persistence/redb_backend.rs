@@ -793,6 +793,18 @@ struct Shard {
     /// the read path is byte-for-byte the plaintext path.
     #[cfg(feature = "security")]
     cipher: Option<crate::crypto::ValueCipher>,
+    /// Transaction-recovery-plan cipher (D-ORC-50, CONCEPT:EG-KG.txn.multi-op-occ-acid) —
+    /// DELIBERATELY SEPARATE from `cipher` above. Resolved from
+    /// `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` (falling back to the shared data key when that
+    /// alone is set — see `crypto::resolve_txn_recovery_key`), so an operator can
+    /// unblock multi-op OCC `Commit` durability WITHOUT enabling at-rest encryption of
+    /// ordinary node/edge/property values. Turning this on never changes `cipher`, so it
+    /// never changes the durable value format existing rows were written in — no
+    /// read-path migration is implied. `None` ⇒ multi-op transaction commits that stage
+    /// more than one op (e.g. a compare-and-set touching a node property + an ANN
+    /// vector) fail durability with a "configure a key" error, same as before this seam.
+    #[cfg(feature = "security")]
+    txn_recovery_cipher: Option<crate::crypto::ValueCipher>,
     handle: parking_lot::Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -843,6 +855,19 @@ impl Shard {
         // writer thread takes ownership of the original below.
         #[cfg(feature = "security")]
         let cipher_for_reads = cipher.clone();
+        // Transaction-recovery-plan cipher (D-ORC-50) — resolved SEPARATELY from the
+        // data-at-rest cipher above so enabling multi-op OCC transaction durability never
+        // implies (and never requires) enabling at-rest encryption of existing plaintext
+        // values. See `crypto::TXN_RECOVERY_KEY_ENV` for the full rationale.
+        #[cfg(feature = "security")]
+        let txn_recovery_cipher = crate::crypto::ValueCipher::from_env_for_txn_recovery();
+        #[cfg(feature = "security")]
+        if txn_recovery_cipher.is_some() && cipher_for_reads.is_none() {
+            tracing::info!(
+                "redb transaction-recovery-plan sealing ENABLED via a dedicated key \
+                 (EPISTEMIC_GRAPH_TXN_RECOVERY_KEY) — data-at-rest encryption remains OFF"
+            );
+        }
         // A `Weak` for the off-writer snapshot-read path (CONCEPT:EG-KG.storage.snapshot-read-off-writer). The writer
         // thread below takes the SOLE STRONG `Arc`, so the redb file lock releases
         // exactly when that thread exits on shutdown — matching the pre-EG-027 lifetime
@@ -870,6 +895,8 @@ impl Shard {
             stats,
             #[cfg(feature = "security")]
             cipher: cipher_for_reads,
+            #[cfg(feature = "security")]
+            txn_recovery_cipher,
             handle: parking_lot::Mutex::new(Some(handle)),
         })
     }
@@ -1012,7 +1039,20 @@ impl RedbBackend {
                  (flush_threshold={flush_threshold})"
             );
         }
-        let mut shards = Vec::with_capacity(k);
+        // D-CDX-65: open all K shards CONCURRENTLY instead of one at a time. Each
+        // shard's `Database::create` (redb's own header/allocator validation pass over
+        // its file, proportional to file size, not row count) is completely independent
+        // of every other shard until the `Shard` structs are collected below — no
+        // cross-shard state is touched during open. The prior sequential loop paid
+        // sum(per-shard open time) with ZERO log lines in between (a multi-minute
+        // startup gap that reads as "dead" — see D-CDX-65: a live incident measured
+        // 5m26s of total silence loading 4 shards totalling ~10 GB). Opening
+        // concurrently instead pays max(per-shard open time), and each shard now logs
+        // its own start/duration so a still-loading start is visibly progressing rather
+        // than silent. On the common K=1 deployment this is one thread, so the shape
+        // and cost are unchanged.
+        let shard_open_start = std::time::Instant::now();
+        let mut shard_specs = Vec::with_capacity(k);
         for i in 0..k {
             let db_path = std::path::Path::new(&persist_dir)
                 .join(shard_filename(i))
@@ -1024,13 +1064,59 @@ impl RedbBackend {
             } else {
                 format!("eg-redb-writer-{i}")
             };
-            shards.push(Shard::open(
-                db_path,
-                thread_name,
-                policy,
-                capacity,
-                flush_threshold,
-            )?);
+            shard_specs.push((i, db_path, thread_name));
+        }
+        let opened: Vec<Result<Shard, String>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = shard_specs
+                .into_iter()
+                .map(|(i, db_path, thread_name)| {
+                    scope.spawn(move || {
+                        let bytes_on_disk = std::fs::metadata(&db_path).map(|m| m.len()).ok();
+                        tracing::info!(
+                            "redb: opening shard {i}/{k} ({db_path}, {} bytes on disk) ...",
+                            bytes_on_disk
+                                .map(|n| n.to_string())
+                                .unwrap_or_else(|| "new".to_string())
+                        );
+                        let t0 = std::time::Instant::now();
+                        let result = Shard::open(
+                            db_path.clone(),
+                            thread_name,
+                            policy,
+                            capacity,
+                            flush_threshold,
+                        );
+                        match &result {
+                            Ok(_) => tracing::info!(
+                                "redb: shard {i}/{k} open finished in {:?}",
+                                t0.elapsed()
+                            ),
+                            Err(e) => tracing::warn!(
+                                "redb: shard {i}/{k} open FAILED after {:?}: {e}",
+                                t0.elapsed()
+                            ),
+                        }
+                        result
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| {
+                    h.join()
+                        .unwrap_or_else(|_| Err("redb shard-open thread panicked".to_string()))
+                })
+                .collect()
+        });
+        let mut shards = Vec::with_capacity(k);
+        for shard in opened {
+            shards.push(shard?);
+        }
+        if k > 1 {
+            tracing::info!(
+                "redb: all {k} shard(s) open in {:?} (wall clock; ran concurrently)",
+                shard_open_start.elapsed()
+            );
         }
         let admin_mutations = Arc::new(
             Database::create(std::path::Path::new(&persist_dir).join("admin-mutations.redb"))
@@ -1078,13 +1164,25 @@ impl RedbBackend {
         self.node_info.clone()
     }
 
-    /// Stable data-key handle resolved when the durable backend opened.  Private
-    /// transaction staging uses this exact cipher (not a second environment read),
-    /// guaranteeing the parent plan, cross-shard prepares, graph rows, and Raft log
-    /// share one configured at-rest authority for the process lifetime.
+    /// Stable transaction-recovery-plan cipher handle resolved when the durable backend
+    /// opened (D-ORC-50). Private transaction staging (the parent plan, cross-shard
+    /// prepares, and coordinator recovery plans in `server::dispatch`) uses this exact
+    /// cipher, not a second environment read, so every private-payload site in one
+    /// process shares one configured recovery authority for its lifetime.
+    ///
+    /// DELIBERATELY NOT `self.shard0().cipher` (the data-at-rest cipher): that field
+    /// controls the on-disk format of every ordinary node/edge/property value blob,
+    /// including ones already durably written before any key existed. Returning it here
+    /// would mean "configure durability for a multi-op transaction" and "expect every
+    /// existing value in the store to already be sealed" are the same switch — which is
+    /// exactly the destructive-read failure mode D-ORC-50 found (enabling the shared key
+    /// on a populated plaintext store made every plaintext read fail with "encrypted
+    /// durable value is missing sealed framing"). `shard0().txn_recovery_cipher` is
+    /// resolved from its own env var (falling back to the shared key only when the
+    /// dedicated one is absent), so it can be turned on independently.
     #[cfg(feature = "security")]
     pub(crate) fn transaction_recovery_cipher(&self) -> Option<crate::crypto::ValueCipher> {
-        self.shard0().cipher.clone()
+        self.shard0().txn_recovery_cipher.clone()
     }
 
     /// Move ONE graph's rows from its current shard to `dst_shard` while the engine RUNS,

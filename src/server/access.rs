@@ -1566,6 +1566,84 @@ mod universal_row_read_tests {
              (see docs/architecture/d-op-1-projection-cache.md)."
         );
     }
+
+    /// D-OP-1 — the REMAINING structural cost after the (actor, version) memoization
+    /// fix above: a cache MISS (the version advanced since the last projection for
+    /// this actor — i.e. any write happened, even one unrelated node) still pays the
+    /// full `O(V log V + E log E + V*d)` rebuild, because the fix is a memo on top of
+    /// an eager full-materialization build, not an incremental/copy-on-write
+    /// projection. This is NOT a regression to fix in this test — it is the
+    /// documented remainder D-OP-1 is still open for (see `docs/architecture/
+    /// d-op-1-projection-cache.md`, "remaining work"): closing it needs the
+    /// projection itself to be maintained incrementally alongside writes (or lazily
+    /// per-row rather than eagerly for the whole visible set), which is a genuine
+    /// data-structure change to RLS-filtered read serving, not a caching layer, and
+    /// needs a security review before landing (this crate enforces row-level
+    /// isolation; an incremental-maintenance bug here is a data-leak bug). This test
+    /// exists to keep a REAL, current number attached to that remaining gap instead
+    /// of a stale one from a prior report.
+    #[test]
+    fn project_core_cache_miss_after_any_write_still_pays_the_full_rebuild_d_op_1() {
+        const NODE_COUNT: usize = 20_000;
+        const EMBEDDING_DIM: usize = 1024;
+
+        let core = Arc::new(GraphCore::new());
+        {
+            let mut semantic = core.semantic_store.write();
+            for i in 0..NODE_COUNT {
+                let id = format!("n{i}");
+                core.add_node(
+                    id.clone(),
+                    properties(&[("_visibility", "public"), ("type", "Thing")]),
+                );
+                semantic.add_embedding(id, vec![(i % 7) as f32 * 0.01; EMBEDDING_DIM]);
+            }
+        }
+
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: "alice".to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        let alice_context = super::super::auth::VerifiedRequestContext::verified_for_test("alice");
+        let alice = GraphReadAuthority::from_verified(&alice_context, &isolation).unwrap();
+
+        // Warm the cache for `alice` at the CURRENT version (a genuine hit baseline).
+        let _ = alice.project_core(&core);
+        let hit_started = std::time::Instant::now();
+        let _ = alice.project_core(&core);
+        let hit_elapsed = hit_started.elapsed();
+
+        // ONE unrelated write bumps `GraphCore::version()`, invalidating every cached
+        // projection for every actor — this is the realistic shape of a live server
+        // under any write traffic at all, not a contrived worst case.
+        core.add_node(
+            "unrelated-write".to_string(),
+            properties(&[("_visibility", "public"), ("type", "Thing")]),
+        );
+
+        let miss_started = std::time::Instant::now();
+        let projected = alice.project_core(&core);
+        let miss_elapsed = miss_started.elapsed();
+        assert!(
+            projected.has_node("n0"),
+            "sanity: the post-write projection must still be usable"
+        );
+
+        println!(
+            "[D-OP-1] {NODE_COUNT}-node / {EMBEDDING_DIM}-dim graph: cache-HIT project_core() \
+             = {hit_elapsed:?}; cache-MISS (after one unrelated write) project_core() = \
+             {miss_elapsed:?} — {:.0}x slower than the hit path, still O(V) per miss.",
+            miss_elapsed.as_secs_f64() / hit_elapsed.as_secs_f64().max(1e-9)
+        );
+
+        // Deliberately NOT a pass/fail budget assertion (unlike the hit-path test
+        // above): there is no fix landed yet for this path, so a strict budget here
+        // would just be a permanently-red or permanently-loosened gate. The point of
+        // this test is the printed measurement, kept current on every run.
+    }
 }
 
 // ── L-RLS-1 (next-level-analysis report §9 item #10): read-method RLS coverage ──
