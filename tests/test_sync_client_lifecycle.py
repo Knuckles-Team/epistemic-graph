@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import collections
+import asyncio
 import os
 import threading
+import time
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, SyncEpistemicGraphClient
+from epistemic_graph.client import (
+    EpistemicGraphClient,
+    SyncCallDeadlineExceeded,
+    SyncEpistemicGraphClient,
+    sync_call_deadline,
+)
 
 pytestmark = pytest.mark.no_engine
 
@@ -40,6 +47,50 @@ class _AsyncClient:
 
     async def close(self) -> None:
         self.close_calls += 1
+
+
+def test_sync_deadline_cancels_blocked_graph_future_without_asyncio_run_tail() -> None:
+    """A probe deadline cancels its graph future and releases its worker promptly."""
+    loop = asyncio.new_event_loop()
+    loop_thread = threading.Thread(target=loop.run_forever, name="dcdx98-graph-loop")
+    loop_thread.start()
+    cancelled = threading.Event()
+
+    class _BlockingNamespace:
+        async def read(self) -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+    wrapper = SyncEpistemicGraphClient._SyncWrapper(_BlockingNamespace(), loop)
+    baseline_workers = {
+        thread.ident
+        for thread in threading.enumerate()
+        if thread.name.startswith("asyncio_")
+    }
+
+    async def probe() -> None:
+        with sync_call_deadline(0.05):
+            with pytest.raises(SyncCallDeadlineExceeded):
+                await asyncio.to_thread(wrapper.read)
+
+    started = time.monotonic()
+    try:
+        asyncio.run(probe())
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        loop_thread.join(timeout=1)
+        loop.close()
+
+    assert time.monotonic() - started < 2
+    assert cancelled.wait(timeout=1)
+    assert {
+        thread.ident
+        for thread in threading.enumerate()
+        if thread.name.startswith("asyncio_")
+    } == baseline_workers
 
 
 @pytest.mark.skipif(
