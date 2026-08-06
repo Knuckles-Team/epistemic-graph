@@ -2850,6 +2850,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-viz-core"
+version = "0.1.0"
+dependencies = [
+ "eg-jobs",
+ "hex",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "eg-wasm"
 version = "0.1.0"
 dependencies = [
@@ -2931,6 +2943,7 @@ dependencies = [
  "eg-tsdb",
  "eg-types",
  "eg-video",
+ "eg-viz-core",
  "eg-wasm",
  "fs4 0.8.4",
  "futures",
