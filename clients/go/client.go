@@ -591,22 +591,22 @@ type brokerRejectParams struct {
 }
 
 type brokerAckTagParams struct {
-\tDeliveryTag int64  `msgpack:"delivery_tag"`
-\tConsumer    string `msgpack:"consumer"`
+	DeliveryTag int64  `msgpack:"delivery_tag"`
+	Consumer    string `msgpack:"consumer"`
 }
 
 type brokerNackTagParams struct {
-\tDeliveryTag int64  `msgpack:"delivery_tag"`
-\tConsumer    string `msgpack:"consumer"`
-\tRequeue     bool   `msgpack:"requeue"`
-\tNowMs       uint64 `msgpack:"now_ms"`
+	DeliveryTag int64  `msgpack:"delivery_tag"`
+	Consumer    string `msgpack:"consumer"`
+	Requeue     bool   `msgpack:"requeue"`
+	NowMs       uint64 `msgpack:"now_ms"`
 }
 
 type brokerRenewTagParams struct {
-\tDeliveryTag int64  `msgpack:"delivery_tag"`
-\tConsumer    string `msgpack:"consumer"`
-\tNowMs       uint64 `msgpack:"now_ms"`
-\tLeaseMs     uint64 `msgpack:"lease_ms"`
+	DeliveryTag int64  `msgpack:"delivery_tag"`
+	Consumer    string `msgpack:"consumer"`
+	NowMs       uint64 `msgpack:"now_ms"`
+	LeaseMs     uint64 `msgpack:"lease_ms"`
 }
 
 type nowParams struct {
@@ -771,21 +771,21 @@ func (c *Client) BrokerReject(queue, nodeID string, requeue bool, nowMs uint64) 
 }
 
 func (c *Client) BrokerAckTag(deliveryTag int64, consumer string) (any, error) {
-\treturn c.send("BrokerAckTag", brokerAckTagParams{
-\t\tDeliveryTag: deliveryTag, Consumer: consumer,
-\t}, "")
+	return c.send("BrokerAckTag", brokerAckTagParams{
+		DeliveryTag: deliveryTag, Consumer: consumer,
+	}, "")
 }
 
 func (c *Client) BrokerNackTag(deliveryTag int64, consumer string, requeue bool, nowMs uint64) (any, error) {
-\treturn c.send("BrokerNackTag", brokerNackTagParams{
-\t\tDeliveryTag: deliveryTag, Consumer: consumer, Requeue: requeue, NowMs: nowMs,
-\t}, "")
+	return c.send("BrokerNackTag", brokerNackTagParams{
+		DeliveryTag: deliveryTag, Consumer: consumer, Requeue: requeue, NowMs: nowMs,
+	}, "")
 }
 
 func (c *Client) BrokerRenewTag(deliveryTag int64, consumer string, nowMs, leaseMs uint64) (any, error) {
-\treturn c.send("BrokerRenewTag", brokerRenewTagParams{
-\t\tDeliveryTag: deliveryTag, Consumer: consumer, NowMs: nowMs, LeaseMs: leaseMs,
-\t}, "")
+	return c.send("BrokerRenewTag", brokerRenewTagParams{
+		DeliveryTag: deliveryTag, Consumer: consumer, NowMs: nowMs, LeaseMs: leaseMs,
+	}, "")
 }
 
 func (c *Client) SweepExpired(nowMs uint64) (any, error) {
