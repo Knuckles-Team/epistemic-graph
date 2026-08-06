@@ -2679,6 +2679,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-quantum-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "eg-query"
 version = "0.31.0"
 dependencies = [
@@ -2919,6 +2929,7 @@ dependencies = [
  "eg-plan",
  "eg-program",
  "eg-pyengine",
+ "eg-quantum-core",
  "eg-query",
  "eg-rdf",
  "eg-shacl",
