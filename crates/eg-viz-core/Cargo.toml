@@ -1,0 +1,61 @@
+[package]
+name = "eg-viz-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Native visualization contracts (D-VZ-1 / lane V0): the declarative ViewSpec chart IR, ViewResult exact-vs-approximated result metadata, the mark capability matrix, and the primitives/bytes LOD tier-selection rules. Reimplements the architecture of open-source-libraries/xy in-tree; no dependency on the xy PyPI package."
+license = "MIT"
+
+[lib]
+name = "eg_viz_core"
+
+# A true LEAF crate: V0 blocks V1-V8 and per the program charter has no dependency of
+# its own (contrast eg-jobs, which depends on eg-types + eg-core because it writes
+# through GraphCore). eg-viz-core defines the IR + result metadata + capability
+# matrix + tier-selection rules + the trait BOUNDARIES later lanes implement
+# (ColumnStore ingest, LOD kernels, render backends) without linking any of
+# eg-types/eg-core/eg-plan/eg-numeric itself. The facade wires this crate in behind
+# the `viz`/`viz-interactive`/`viz-gpu-export` features (see the root Cargo.toml),
+# all OFF by default -- exactly like the sibling quantum contract's `quantum`
+# feature family -- so a default `cargo build` links none of this and pays zero
+# binary-size/dependency/runtime cost.
+[features]
+default = []
+# No-op marker today (mirrors eg-core's `graph`/`algorithms` no-op features): the
+# base contracts in this crate (ViewSpec/ViewResult/capability matrix/tier rules/
+# trait boundaries/job-plane binding) compile unconditionally, with no feature gate
+# of their own, because none of them pulls a heavy or optional dependency. The
+# facade's OWN `viz` feature is the actual on/off switch for whether this crate is
+# linked into a given epistemic-graph build at all; this crate-local `viz` feature
+# exists only so that switch has a same-named target to depend on
+# (`eg-viz-core/viz`) once a later lane needs crate-local gating (e.g. an
+# `arrow`-ingest feature under V1).
+viz = []
+# Reserved for V3b (interactive binary-tile-protocol client + WebGPU/WebGL2
+# renderer). Implies `viz`. A later lane adds the real dependency (if any) behind
+# this flag; today it gates nothing beyond the `InteractiveRenderBackend` trait
+# definition in `traits.rs`, which itself has zero dependencies.
+viz-interactive = ["viz"]
+# Reserved for V3a/V6 GPU-accelerated static export backends. Implies `viz`. A
+# later lane adds the real dependency behind this flag; today it gates nothing
+# beyond the `StaticExportBackend` trait definition in `traits.rs`.
+viz-gpu-export = ["viz"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+
+# Dev-time only (never reaches a consumer's build): proves the `job` module's
+# viz-job values actually plug into the EXISTING `eg-jobs` analytics-job plane
+# (CONCEPT:INT-P2-1) idiom -- `AlgoVersion`/`InputSnapshotHandle`/
+# `compute_result_ref` -- with no adapter type, so "fits alongside the existing
+# job plane, do not invent a parallel one" is a tested fact, not prose. This edge
+# is dev-dependencies-only precisely so the crate itself (and any default/normal
+# build of it) never links eg-jobs, eg-types, eg-core, eg-mutation-store, or redb.
+[dev-dependencies]
+eg-jobs = { path = "../eg-jobs" }
+# Binary-codec round-trip test only (the engine's own durable-record codec, e.g.
+# `eg-jobs`) -- not a runtime dependency of this crate.
+rmp-serde = "1.3"
