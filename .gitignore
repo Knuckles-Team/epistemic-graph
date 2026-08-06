@@ -123,3 +123,7 @@ scratch/
 # the queue refuses to fast-forward a canonical checkout carrying uncommitted
 # changes and an untracked file counts as one.
 .target.*
+
+# clients/js (D-EGTC-2's sibling gate): `npm install` materializes this from
+# the committed package-lock.json every gate run — never commit the tree itself.
+node_modules/
