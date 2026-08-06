@@ -37,6 +37,11 @@ const HARD_MAX_MSGPACK_ITEMS: usize = 4_000_000;
 const MAX_MSGPACK_NESTING_DEPTH: usize = 64;
 const DEFAULT_CONNECTION_IO_TIMEOUT_SECS: u64 = 120;
 const DEFAULT_TLS_HANDSHAKE_TIMEOUT_SECS: u64 = 10;
+/// Hard ceiling on ONE dispatch, after which its admission permits are released and
+/// the client is answered with an error (see [`dispatch_within_deadline`]). Sized ~20x
+/// the widest dispatch-latency bucket the server records (30 s), so it can only ever
+/// fire on work that is genuinely stuck, never on a slow-but-live request.
+const DEFAULT_DISPATCH_DEADLINE_SECS: u64 = 600;
 
 /// Runtime-only TLS material for the native TCP service. Certificate contents
 /// are never copied into engine configuration or logs. Supplying
@@ -386,6 +391,67 @@ fn connection_io_timeout() -> std::time::Duration {
     std::time::Duration::from_secs(seconds)
 }
 
+/// CONCEPT:EG-KG.coordination.backpressure-busy-signal — the hard per-dispatch deadline.
+///
+/// Every admission permit the server issues (the QoS permit, the global pool permit, the
+/// per-graph permit, the reserved-read permit, and the per-connection permit) is held by
+/// the dispatch task and released only when that task returns. That makes an unbounded
+/// dispatch an unbounded RESERVATION: a dispatch that never completes retires none of
+/// them, ever. Bounding the dispatch is therefore what makes "a permanently-held
+/// admission slot" unrepresentable, at the one place every served request passes through.
+///
+/// Default 600 s; override with `EPISTEMIC_GRAPH_DISPATCH_DEADLINE_SECS` (clamped to
+/// `[1, 86_400]`), following the same idiom as the two timeouts above. It is a ceiling,
+/// not a target — the cooperative SQL deadline
+/// (`EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS`, `server::request_cancel`) is the tunable
+/// per-query bound and remains opt-in; this one exists so a NON-cooperative stall (a
+/// wedged durable-writer thread, a lost oneshot, a dropped completion) can still not
+/// strand the reservation.
+fn dispatch_deadline() -> std::time::Duration {
+    let seconds = std::env::var("EPISTEMIC_GRAPH_DISPATCH_DEADLINE_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_DISPATCH_DEADLINE_SECS)
+        .clamp(1, 86_400);
+    std::time::Duration::from_secs(seconds)
+}
+
+/// Run one dispatch under the hard deadline (CONCEPT:EG-KG.coordination.backpressure-busy-signal).
+///
+/// Returns the dispatch's own `Response` when it completes in time. When it does NOT,
+/// the future is dropped (releasing whatever it borrowed) and a typed error `Response`
+/// is synthesized for `req_id`, so the caller returns, its permits drop, and the client
+/// learns the request was abandoned instead of waiting forever on a reply that will
+/// never come. Fails LOUDLY: the expiry is logged at `error` and counted
+/// (`epistemic_graph_dispatch_deadline_exceeded_total`) — a silently-shed request is how
+/// this stall stayed invisible for days.
+async fn dispatch_within_deadline<F>(
+    dispatch: F,
+    deadline: std::time::Duration,
+    req_id: u64,
+) -> Response
+where
+    F: std::future::Future<Output = Response>,
+{
+    match tokio::time::timeout(deadline, dispatch).await {
+        Ok(resp) => resp,
+        Err(_) => {
+            crate::metrics::dispatch_deadline_exceeded();
+            error!(
+                req_id,
+                deadline_secs = deadline.as_secs(),
+                "dispatch exceeded the hard per-request deadline; abandoning it and \
+                 releasing its admission permits (CONCEPT:EG-KG.coordination.backpressure-busy-signal)"
+            );
+            Response::err(
+                req_id,
+                "TIMEOUT: request exceeded the server dispatch deadline and was abandoned",
+            )
+        }
+    }
+}
+
 fn tls_handshake_timeout() -> std::time::Duration {
     let seconds = std::env::var("EPISTEMIC_GRAPH_TLS_HANDSHAKE_TIMEOUT_SECS")
         .ok()
@@ -526,6 +592,11 @@ where
     let max_response_bytes = max_response_frame_bytes();
     let max_items = max_msgpack_items();
     let io_timeout = connection_io_timeout();
+    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — the hard ceiling on one
+    // dispatch, resolved once per connection (the same once-at-open discipline the other
+    // limits above follow). It is what guarantees every admission permit this connection
+    // hands out is eventually released; see `dispatch_within_deadline`.
+    let dispatch_deadline = dispatch_deadline();
 
     // The writer task: drain framed responses in completion order and write them.
     // It exits when ALL senders (the read loop's `tx` + every spawned task's clone)
@@ -712,9 +783,24 @@ where
         let qos_class = qos_permit.as_ref().map(|p| p.class());
         tokio::spawn(async move {
             let dispatch_start = std::time::Instant::now();
+            // CONCEPT:EG-KG.coordination.backpressure-busy-signal — bound the dispatch. Every
+            // permit below is released only when this task returns, so an unbounded
+            // dispatch is an unbounded reservation; the deadline is what stops one stalled
+            // subsystem from permanently retaining admission capacity it will never use.
+            let req_id = req.id;
             let resp = match verified_qos_context {
-                Some(context) => dispatch_verified_request(&task_state, req, context).await,
-                None => dispatch(&task_state, req).await,
+                Some(context) => {
+                    dispatch_within_deadline(
+                        dispatch_verified_request(&task_state, req, context),
+                        dispatch_deadline,
+                        req_id,
+                    )
+                    .await
+                }
+                None => {
+                    dispatch_within_deadline(dispatch(&task_state, req), dispatch_deadline, req_id)
+                        .await
+                }
             };
             // Observe per-class dispatch latency + release the per-class gauge (W2.4)
             // BEFORE the permit drop, so the class is still known.
@@ -925,6 +1011,111 @@ mod tests {
         assert!(
             (64..=1024).contains(&n),
             "per-conn cap {n} out of [64,1024]"
+        );
+    }
+
+    #[test]
+    fn dispatch_deadline_is_bounded_and_positive() {
+        // CONCEPT:EG-KG.coordination.backpressure-busy-signal — the hard dispatch ceiling
+        // always resolves to a finite, positive duration, so "no bound at all" is not a
+        // reachable configuration.
+        let d = dispatch_deadline();
+        assert!(d > std::time::Duration::ZERO);
+        assert!(d <= std::time::Duration::from_secs(86_400));
+    }
+
+    #[tokio::test]
+    async fn hung_dispatch_is_abandoned_with_a_typed_error() {
+        // A dispatch that never completes must still produce a reply for its id, so the
+        // caller returns (and its permits drop) instead of parking forever.
+        let resp = dispatch_within_deadline(
+            std::future::pending::<Response>(),
+            std::time::Duration::from_millis(20),
+            77,
+        )
+        .await;
+        assert_eq!(resp.id, 77, "the abandoned request is still answered by id");
+        assert!(
+            resp.error
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with("TIMEOUT:"),
+            "expected a typed timeout error, got {:?}",
+            resp.error
+        );
+    }
+
+    /// D-HYD-2 defect pin. THE livelock, reproduced in miniature.
+    ///
+    /// The live incident: the shard-3 durable writer thread wedged in an unbounded
+    /// userspace loop, so every dispatch that needed it parked forever on its completion
+    /// oneshot. Each of those tasks holds a `QosPermit`, and — because the deployment
+    /// resolves EVERY caller (server, host daemon, scheduler, MCP, external agents) to
+    /// ONE verified principal scope — they all draw on ONE per-principal in-flight quota.
+    /// 96 stranded dispatches pinned that principal at its quota (`capacity/4` of 384)
+    /// permanently, so for 2.5 days the engine shed 100% of requests, INCLUDING reads
+    /// that never touch the wedged shard, with `BUSY: QoS per-principal quota exhausted`.
+    ///
+    /// The invariant this pins: a dispatch that never completes must not permanently
+    /// retain its admission slot. Revert `dispatch_within_deadline`'s use at the dispatch
+    /// site (await the raw future) and this goes RED — the joins time out and the final
+    /// admit is still `Reject(Quota)`.
+    #[tokio::test]
+    async fn a_hung_dispatch_does_not_permanently_exhaust_the_principal_quota() {
+        use crate::server::qos::{
+            QosClass, QosConfig, QosDecision, QosReject, QosRequest, QosScheduler,
+        };
+
+        let mut cfg = QosConfig::auto(8);
+        cfg.per_principal_quota = 2; // the live value was 96; 2 keeps the test fast
+        cfg.bucket_refill_per_sec = 0.0; // isolate the QUOTA rule from the token bucket
+        let sched = QosScheduler::new(cfg);
+        let req = QosRequest {
+            class: QosClass::Orch,
+            principal: "one-shared-principal".to_string(),
+            deadline_micros: None,
+        };
+
+        let deadline = std::time::Duration::from_millis(50);
+        let mut stranded = Vec::new();
+        for _ in 0..2 {
+            let permit = match sched.try_admit(&req) {
+                QosDecision::Admit(permit) => permit,
+                QosDecision::Reject(why) => panic!("expected Admit, got Reject({why:?})"),
+            };
+            // EXACTLY the production shape: the permit rides the dispatch task and is
+            // released only when that task returns.
+            stranded.push(tokio::spawn(async move {
+                let resp =
+                    dispatch_within_deadline(std::future::pending::<Response>(), deadline, 1).await;
+                drop(permit);
+                resp
+            }));
+        }
+
+        // The observed live state: at quota, every further request is shed `Quota`.
+        assert!(
+            matches!(sched.try_admit(&req), QosDecision::Reject(QosReject::Quota)),
+            "a principal at its in-flight quota must be shed while the work is live"
+        );
+
+        // Bounded join: with the fix reverted these never resolve, so this FAILS rather
+        // than hanging the suite.
+        for task in stranded {
+            let resp = tokio::time::timeout(deadline * 20, task)
+                .await
+                .expect("a stranded dispatch must be abandoned at the deadline")
+                .expect("dispatch task must not panic");
+            assert!(
+                resp.error.is_some(),
+                "an abandoned dispatch answers with an error"
+            );
+        }
+
+        // The invariant: the quota recovered on its own, with no restart.
+        assert!(
+            matches!(sched.try_admit(&req), QosDecision::Admit(_)),
+            "a hung dispatch must not permanently retain its admission slot"
         );
     }
 
