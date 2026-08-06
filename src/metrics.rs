@@ -128,6 +128,13 @@ mod imp {
             "epistemic_graph_busy_rejections_total",
             "Requests shed with BUSY because the admission semaphore was exhausted",
         );
+        static ref DISPATCH_DEADLINE_EXCEEDED: IntCounter = counter(
+            "epistemic_graph_dispatch_deadline_exceeded_total",
+            "Requests abandoned because their dispatch exceeded the hard per-request \
+             deadline (CONCEPT:EG-KG.coordination.backpressure-busy-signal). Non-zero means a \
+             served request stalled long enough to strand its admission permits — the \
+             failure mode that once left every permit held and shed ALL later traffic",
+        );
         static ref READ_RESERVED_ADMITTED: IntCounter = counter(
             "epistemic_graph_read_reserved_admitted_total",
             "Read/query requests admitted via the RESERVED read lane (CONCEPT:EG-KG.coordination.reserved-read-lane) \
@@ -448,6 +455,13 @@ mod imp {
         READ_RESERVED_ADMITTED.inc();
     }
 
+    /// Record one dispatch abandoned at the hard per-request deadline
+    /// (CONCEPT:EG-KG.coordination.backpressure-busy-signal). Every increment is one
+    /// request whose admission permits would otherwise have been held forever.
+    pub fn dispatch_deadline_exceeded() {
+        DISPATCH_DEADLINE_EXCEEDED.inc();
+    }
+
     /// Record one request admitted by the QoS gate in priority class `class` (W2.4):
     /// bumps the per-class admit counter and the per-class in-flight gauge (released by
     /// `qos_dispatch_finished`).
@@ -657,6 +671,7 @@ mod imp {
     pub fn connection_request_finished(_permits_available: usize) {}
     pub fn busy_rejected() {}
     pub fn read_reserved_admitted() {}
+    pub fn dispatch_deadline_exceeded() {}
     pub fn qos_admitted(_class: &str) {}
     pub fn qos_shed(_class: &str, _reason: &str) {}
     pub fn qos_dispatch_finished(_class: &str, _seconds: f64) {}
