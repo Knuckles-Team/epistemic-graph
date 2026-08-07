@@ -432,6 +432,12 @@ pub struct PendingWrite<'a> {
     pub epoch: u64,
 }
 
+/// W0.3 in-memory routing index snapshot: the [`PLACEMENT_GRAPH`] core version
+/// it was built from, paired with `tenant → its entries`. Named (rather than a
+/// bare tuple) purely to satisfy `clippy::type_complexity` on
+/// [`PlacementCatalog::index`] — same shape, same semantics.
+type PlacementIndexSnapshot = (u64, HashMap<String, Vec<PlacementEntry>>);
+
 /// The ONE placement authority (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1). Reads/plans are
 /// pure queries over [`PLACEMENT_GRAPH`]'s current nodes; committing a plan's
 /// `methods` through Raft is the caller's job (see
@@ -454,7 +460,7 @@ pub struct PlacementCatalog {
     /// universal per-commit counter (bumped by `mark_dirty` on every committed
     /// write regardless of which path applied it), so it is the correct
     /// invalidation signal for either case. `None` until first access.
-    index: RwLock<Option<(u64, HashMap<String, Vec<PlacementEntry>>)>>,
+    index: RwLock<Option<PlacementIndexSnapshot>>,
     /// Monotonic high-water mark of every epoch this index has ever observed, so
     /// `plan_assign`/`plan_split`/`plan_fence_cutover` allocate `max_epoch + 1` in
     /// O(1) instead of a full-catalog `max()` scan. Recomputed from scratch on
