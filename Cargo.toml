@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core"]
+members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-durable"]
 # D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
 # governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
 # QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
@@ -403,6 +403,17 @@ program-optimization = ["jobs", "dep:eg-program", "eg-types/program-optimization
 viz = ["dep:eg-viz-core"]
 viz-interactive = ["viz"]
 viz-gpu-export = ["viz"]
+# D-DE-0 (lane w6-de0-contracts, `plans/au-eg-program/program/durable-execution-native.md`)
+# -- the durable-execution ROUTING contract. `durable` links `eg-durable` alone (the
+# CallShape/WorkShape/DurableBackendKind routing table + the DurableExecutionUnitMirror
+# DTO, no journal/lease/2PC/state-store code -- those already exist in eg-statechart/
+# eg-jobs/eg-mutation-store and are not reimplemented here, see that crate's own docs).
+# Deliberately EXCLUDED from `full`, same posture as `viz`/`quantum` above: DE0 ships
+# contracts only, nothing here is wired to a server handler yet, so folding it into the
+# one main build would add a dependency with zero behavior to show for it. `cargo
+# build`'s default feature set gains no `eg-durable` dependency at all -- confirmed by
+# `cargo tree` (no hit without `--features durable`).
+durable = ["dep:eg-durable"]
 # Concrete governed document/image/audio/video service. The dependency-light native
 # decoders feed the shared ServedModalityRuntime; graph snapshots and the universal
 # MutationBatch gateway provide the authoritative restart/idempotency boundary.
@@ -1265,6 +1276,12 @@ eg-statechart = { path = "crates/eg-statechart", optional = true }
 # to serve, and the posture matches the sibling quantum contract's default-off
 # feature family.
 eg-viz-core = { path = "crates/eg-viz-core", optional = true }
+# D-DE-0 (feature `durable`, see that feature's own comment above): the
+# durable-execution routing contract -- CallShape/WorkShape/DurableBackendKind + the
+# DurableExecutionUnitMirror DTO. Pure serde (already resolved workspace-wide); no
+# dependency on eg-statechart/eg-jobs/eg-mutation-store -- wiring an actual call
+# through to one of those crates is DE2, not this contracts-only crate.
+eg-durable = { path = "crates/eg-durable", optional = true }
 # Clean-room graph-native LM-program contracts, deterministic kernels, and governed
 # runtime plans. The crate deliberately has no provider SDK or HTTP client.
 eg-program = { path = "crates/eg-program", optional = true }
