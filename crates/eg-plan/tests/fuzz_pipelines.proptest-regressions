@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1d77511ea48d38fd4fc26a995e803567dbad9c178529592cf926760cfbfffd47 # minimal failing case: "MATCH (:Doc) |> FOREIGN \"peer\"" against a PlanCtx with no bound ForeignSourceRegistry -- fixed by binding one in fuzz_pipelines.rs (D-EGTC-10)
