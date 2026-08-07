@@ -1834,6 +1834,76 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_neighbors_batch_collapses_round_trips() {
+        // D-DPF-1: GetNeighborsBatch fetches neighbor ids for N nodes in one
+        // request/one topo-lock acquisition instead of N GetNeighbors round-trips.
+        let state = test_state();
+        let add_node = |id: &str| Method::AddNode {
+            node_id: id.into(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+        };
+        for (id, m) in [(1, add_node("a")), (2, add_node("b")), (3, add_node("c"))] {
+            assert_ok(&dispatch(&state, request(id, "__commons__", None, m)).await);
+        }
+        for (id, source, target) in [(4, "a", "b"), (5, "b", "c")] {
+            let m = Method::AddEdge {
+                source_id: source.into(),
+                target_id: target.into(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+            };
+            assert_ok(&dispatch(&state, request(id, "__commons__", None, m)).await);
+        }
+
+        let resp = dispatch(
+            &state,
+            request(
+                6,
+                "__commons__",
+                None,
+                Method::GetNeighborsBatch {
+                    node_ids: vec!["a".into(), "b".into(), "missing".into(), "c".into()],
+                },
+            ),
+        )
+        .await;
+        let raw = match resp.result {
+            Some(ResultPayload::Raw(b)) => b,
+            other => panic!("expected Raw, got {other:?} (err={:?})", resp.error),
+        };
+        let mut rows: Vec<(String, Vec<String>)> = rmp_serde::from_slice(&raw).unwrap();
+        for (_, neighbors) in rows.iter_mut() {
+            neighbors.sort();
+        }
+        assert_eq!(
+            rows,
+            vec![
+                ("a".to_string(), vec!["b".to_string()]),
+                ("b".to_string(), vec!["a".to_string(), "c".to_string()]),
+                ("missing".to_string(), Vec::<String>::new()),
+                ("c".to_string(), vec!["b".to_string()]),
+            ],
+            "one batched call returns every node's neighbors, in input order, \
+             absent id -> empty list rather than failing the batch"
+        );
+
+        // Oversize batches are rejected, not truncated (OOM guard) — same
+        // contract as GetNodePropertiesBatch/HasNodesBatch.
+        let resp = dispatch(
+            &state,
+            request(
+                7,
+                "__commons__",
+                None,
+                Method::GetNeighborsBatch {
+                    node_ids: vec!["x".to_string(); MAX_BATCH_IDS + 1],
+                },
+            ),
+        )
+        .await;
+        assert!(resp.error.is_some(), "oversize batch must be rejected");
+    }
+
+    #[tokio::test]
     async fn per_graph_backpressure_isolates_tenants() {
         // A hot graph that has exhausted its per-graph in-flight cap sheds WRITES with
         // BUSY, but OTHER graphs keep being served from the (ample) global pool — one
