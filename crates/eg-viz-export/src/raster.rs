@@ -41,8 +41,8 @@ impl Canvas {
             self.pixels[idx..idx + 4].copy_from_slice(&color);
             return;
         }
-        for c in 0..3 {
-            let src = color[c] as f32;
+        for (c, &channel) in color.iter().enumerate().take(3) {
+            let src = channel as f32;
             let dst = self.pixels[idx + c] as f32;
             self.pixels[idx + c] = (src * a + dst * (1.0 - a)).round().clamp(0.0, 255.0) as u8;
         }
@@ -148,8 +148,9 @@ mod tests {
     #[test]
     fn opaque_pixel_overwrites_background() {
         let mut canvas = Canvas::new(4, 4, [0, 0, 0, 255]);
-        canvas.blend_pixel(1, 1, [255, 0, 0, 255]);
-        let idx = 4 * (1 * 4 + 1);
+        let (x, y, width) = (1usize, 1usize, 4usize);
+        canvas.blend_pixel(x as i64, y as i64, [255, 0, 0, 255]);
+        let idx = 4 * (y * width + x);
         assert_eq!(&canvas.pixels[idx..idx + 4], &[255, 0, 0, 255]);
     }
 
