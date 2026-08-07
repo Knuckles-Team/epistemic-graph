@@ -123,6 +123,14 @@ jobs:
         run: cargo test -p epistemic-graph --features full bounded_memory -- --ignored --test-threads=1
       - name: Test (slim server — gated-out methods return the not-built error)
         run: cargo test -p epistemic-graph --no-default-features --features server
+      # DE7 (durable-execution-native.md): replay-determinism crash-and-reopen
+      # proofs for eg-jobs/eg-statechart — see crates/eg-jobs/tests/
+      # replay_determinism.rs and crates/eg-statechart/tests/
+      # replay_determinism.rs. Neither crate's own test suite is exercised by
+      # any other step in this job (a pre-existing, broader gap tracked
+      # separately, not closed by this step).
+      - name: Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)
+        run: cargo test -p eg-jobs -p eg-statechart --test replay_determinism
 
   protocol-parity:
     # The Python client mirrors the Rust `Method` enum by sending variant names
