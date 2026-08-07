@@ -20,20 +20,39 @@ use eg_viz_export::ColumnStoreExportBackend;
 
 const ROW_COUNT: usize = 100_000_000;
 
+/// Five deterministic cluster centers spread across a 0..1_000_000 domain —
+/// real (if synthetic) STRUCTURE, not a uniform hash spray, so the rendered
+/// density grid visibly shows what it aggregated rather than one flat block.
+const CLUSTERS: [(f64, f64); 5] = [
+    (150_000.0, 150_000.0),
+    (820_000.0, 200_000.0),
+    (400_000.0, 700_000.0),
+    (750_000.0, 850_000.0),
+    (120_000.0, 900_000.0),
+];
+
 fn main() {
     println!("ingesting {ROW_COUNT} rows into eg-viz-columnstore (real chunk/hash/zone-map path, not a shortcut)...");
     let started = Instant::now();
-    // Deterministic pseudo-scatter (Knuth multiplicative hashing), not a
-    // repeated constant — every one of the ~12,208 chunks per column gets
-    // genuinely distinct content, so this also exercises the content-addressed
-    // dedup path honestly (no free dedup from an all-identical fixture).
+    // Deterministic clustered pseudo-scatter: row `i` belongs to cluster
+    // `i % 5` and is jittered by a Knuth-multiplicative-hash offset. Every one
+    // of the ~12,208 chunks per column still gets genuinely distinct content
+    // (no free content-addressing dedup from an all-identical fixture), but
+    // the RESULT has visible structure for the rendered proof below, not a
+    // uniform spray that would render as a single flat block.
     let xs: Vec<f64> = (0..ROW_COUNT)
-        .map(|i| (i.wrapping_mul(2_654_435_761) % 1_000_003) as f64)
+        .map(|i| {
+            let (cx, _) = CLUSTERS[i % CLUSTERS.len()];
+            let jitter = (i.wrapping_mul(2_654_435_761) % 100_003) as f64 / 100_003.0 - 0.5;
+            (cx + jitter * 90_000.0).clamp(0.0, 1_000_000.0)
+        })
         .collect();
     let ys: Vec<f64> = (0..ROW_COUNT)
         .map(|i| {
-            (i.wrapping_mul(40_503).wrapping_add(7) % 998_244_353) as f64 / 998_244_353.0
-                * 1_000_000.0
+            let (_, cy) = CLUSTERS[i % CLUSTERS.len()];
+            let jitter =
+                (i.wrapping_mul(40_503).wrapping_add(7) % 100_003) as f64 / 100_003.0 - 0.5;
+            (cy + jitter * 90_000.0).clamp(0.0, 1_000_000.0)
         })
         .collect();
 
@@ -57,12 +76,14 @@ fn main() {
         stats.stored_bytes
     );
 
-    let spec = ViewSpec::new(vec![MarkSpec::new(MarkKind::Scatter, "ds:large-n")
+    let mut spec = ViewSpec::new(vec![MarkSpec::new(MarkKind::Scatter, "ds:large-n")
         .with_encodings(Encodings {
             x: Some(EncodingSpec::field("x")),
             y: Some(EncodingSpec::field("y")),
             ..Default::default()
         })]);
+    spec.theme.palette = vec!["#4C78A8".to_string()];
+    spec.theme.background = Some("#FFFFFF".to_string());
 
     let backend = ColumnStoreExportBackend::new(&store, 1200, 900);
     // The SAME "generous single-frame interactive budget" (~2M primitives,

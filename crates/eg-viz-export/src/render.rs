@@ -97,14 +97,14 @@ pub fn resolve(
     // `Column::range`), not a full rescan of a potentially huge column.
     let column = store
         .column(dataset_ref, &x_enc.field)
-        .ok_or_else(|| ExportError::MissingEncoding("x"))?;
+        .ok_or(ExportError::MissingEncoding("x"))?;
     let x_domain = resolve_domain(
         x_enc.scale.as_deref().and_then(|id| find_scale(spec, id)),
         column.range(),
     );
     let y_column = store
         .column(dataset_ref, &y_enc.field)
-        .ok_or_else(|| ExportError::MissingEncoding("y"))?;
+        .ok_or(ExportError::MissingEncoding("y"))?;
     let y_domain = resolve_domain(
         y_enc.scale.as_deref().and_then(|id| find_scale(spec, id)),
         y_column.range(),
