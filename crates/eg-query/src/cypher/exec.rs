@@ -4593,7 +4593,7 @@ mod tests {
         let node_pat = |var: &str, r: &mut dyn FnMut() -> u64| -> String {
             // ~2/3 of positions carry a label (so cost_reorder has asymmetric ends to
             // reorder); the rest are unlabeled.
-            if r() % 3 == 0 {
+            if r().is_multiple_of(3) {
                 format!("({var})")
             } else {
                 format!("({var}:{})", labels[(r() % labels.len() as u64) as usize])
