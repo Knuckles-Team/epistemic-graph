@@ -190,6 +190,24 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [pre-push, manual]
+  # DE7 (durable-execution-native.md, lane w6-de7-replay-determinism): replay-
+  # determinism proofs for the fenced-lease job-lifecycle state machine
+  # (`crates/eg-jobs/tests/replay_determinism.rs`, a proptest crash-and-reopen
+  # script) and the statechart event-transition machine
+  # (`crates/eg-statechart/tests/replay_determinism.rs`, an exhaustive
+  # cut-point grid). Neither `eg-jobs` nor `eg-statechart` is otherwise named by
+  # ANY existing test gate here (see this lane's report — a pre-existing,
+  # broader gap this hook does not attempt to close). Pre-push + manual: each
+  # crate's own crash simulation drops and reopens a real `redb::Database`
+  # (cold compile + real file I/O), too slow for every commit but well under a
+  # minute — CI is the always-on backstop.
+  - id: replay-determinism
+    name: cargo test replay_determinism -p eg-jobs -p eg-statechart (DE7 crash-replay proofs — pre-push/manual)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p eg-jobs -p eg-statechart --test replay_determinism; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-push, manual]
   # W0.12 — Rust dependency CVE gate: fail-closed `cargo deny check advisories`
   # against `deny.toml`, mirroring the Python side's fail-closed OSV gate
   # (`dependency-audit` hook / `scripts/audit_dependencies.py` +
