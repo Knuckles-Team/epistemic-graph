@@ -30,6 +30,13 @@ mod contract;
 // by `python`) so a `pi`/`default` engine build linking the rlib pulls no statrs.
 #[cfg(feature = "analytics")]
 pub mod stats;
+// Complex64 surface (D-QN-3 handoff, executed in Q1 lane w3-quantum-q1): a thin
+// `Complex64` re-export + generic dense-block index application that
+// `eg-quantum-sim`'s statevector backend consumes. Behind the crate's own opt-in
+// `complex` feature (default OFF) — see `src/complex.rs` for the numeric-stack
+// decision this executes.
+#[cfg(feature = "complex")]
+pub mod complex;
 
 pub use error::{NumericError, Result};
 
