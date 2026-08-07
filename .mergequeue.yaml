@@ -105,6 +105,37 @@ gates:
     timeout: 5400
     compare: lines
 
+  # DE7 (durable-execution-native.md, lane w6-de7-replay-determinism): the
+  # replay-determinism crash-and-reopen proofs for `eg-jobs`/`eg-statechart`
+  # (see the matching pre-commit `replay-determinism` hook). Scoped to exactly
+  # these two crates' `replay_determinism` integration test, not the general
+  # `cargo-test` gate above — cheap enough (well under a minute cold) to run in
+  # the queue where the repo-wide `cargo-test` is not. `compare: exit`
+  # deliberately: this is a brand-new test with no prior baseline run to diff
+  # lines against, and any failure at all on a candidate that touches this
+  # surface is, by construction, a regression worth blocking on.
+  - name: replay-determinism
+    command:
+      - cargo
+      - test
+      - -p
+      - eg-jobs
+      - -p
+      - eg-statechart
+      - --test
+      - replay_determinism
+      - --target-dir
+      - target-isolated
+    tier: fast
+    timeout: 300
+    baseline_timeout: 600
+    compare: exit
+    when_changed:
+      - 'crates/eg-jobs/**'
+      - 'crates/eg-statechart/**'
+      - 'crates/eg-mutation-store/**'
+      - 'crates/eg-types/src/mutation_batch.rs'
+
   # D-EGTC-1/D-EGTC-2 (w1-eg-test-census, 2026-08-06): `clients/go` had not
   # compiled for 17+ days -- gated NOWHERE (not here, not pre-commit, not any
   # CI workflow) -- and nobody noticed because nothing ever ran `go build`/

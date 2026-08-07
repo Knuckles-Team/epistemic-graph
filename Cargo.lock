@@ -2537,6 +2537,7 @@ dependencies = [
  "eg-mutation-store",
  "eg-types",
  "hex",
+ "proptest",
  "redb",
  "rmp-serde",
  "serde",
