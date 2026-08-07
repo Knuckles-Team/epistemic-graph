@@ -76,7 +76,8 @@ pub use backend::{
     JobStatus, QuantumBackend, RunOptions,
 };
 pub use estimate::{
-    density_matrix_bytes, estimate, statevector_bytes, Estimate, EstimateOptions, NoiseRequest,
+    density_matrix_bytes, estimate, statevector_bytes, EntanglingConnectivity, Estimate,
+    EstimateOptions, NoiseRequest,
 };
 pub use hash::{circuit_hash, CircuitHash, HashError};
 pub use ir::{
