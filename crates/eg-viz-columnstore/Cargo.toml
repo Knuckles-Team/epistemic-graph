@@ -1,0 +1,47 @@
+[package]
+name = "eg-viz-columnstore"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Native visualization ColumnStore (D-VZ-1 / lane V1): canonical typed columns, fixed-size zone maps, content-addressed chunks, validity bitmaps, and dictionary-encoded categoricals. Implements eg-viz-core's ColumnStoreIngest trait plus a real value-carrying ingest surface for RowSet, eg-numeric-shaped arrays, and (optional feature) Arrow IPC streams. Pure Rust on the hot path -- no Python."
+license = "MIT"
+
+[lib]
+name = "eg_viz_columnstore"
+
+# V1 sits directly right of V0 in the DAG (`eg-viz-core -> eg-viz-columnstore`): it
+# implements the `ColumnStoreIngest` trait boundary V0 defined and otherwise depends
+# on nothing else in the workspace. It does NOT depend on eg-plan/eg-numeric/eg-core
+# themselves -- RowSet/eg-numeric ingestion is bridged through plain slices/iterators
+# shaped exactly like those crates' own materialized output (`RowSet::rows()`,
+# `ArrayD<f64>::as_slice()`), so this crate never links petgraph/ndarray/nalgebra.
+[dependencies]
+eg-viz-core = { path = "../eg-viz-core" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+# Validity bitmaps. Already resolved in the workspace lockfile as a transitive
+# dependency (e.g. of eg-image's decode stack) at 1.1.1 -- declaring it here pins
+# the SAME already-resolved version, adding zero new crates.io packages.
+bitvec = "1.1"
+
+# Real Arrow IPC stream ingestion (the third source the charter names alongside
+# RowSet/eg-numeric). Kept behind its own feature, additive to `viz-columnstore`,
+# so a caller who only needs RowSet/eg-numeric ingest never links arrow's decode
+# stack. `default-features = false` + the narrow `ipc` feature keeps the pulled
+# subset to the arrow-{array,buffer,schema,data,ipc} family, not the full arrow
+# umbrella (no arrow-flight/arrow-csv/arrow-json/parquet).
+# Pinned to the SAME "58.3" constraint eg-plan/eg-query/eg-tsdb/the facade already
+# declare, so this resolves to their already-locked `arrow` 58.3.x rather than
+# adding a second arrow version family to the lockfile.
+[dependencies.arrow]
+version = "58.3"
+default-features = false
+features = ["ipc"]
+optional = true
+
+[features]
+default = []
+arrow-ipc = ["dep:arrow"]
