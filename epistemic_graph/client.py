@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import builtins
+import concurrent.futures
 import contextlib
 import contextvars
 import copy
@@ -29,6 +30,61 @@ from typing import Any, Literal, TypedDict, cast
 import msgpack
 
 logger = logging.getLogger(__name__)
+
+
+class SyncCallDeadlineExceeded(TimeoutError):
+    """A synchronous client call exceeded its caller-provided deadline."""
+
+
+_SYNC_CALL_DEADLINE: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "epistemic_graph_sync_call_deadline", default=None
+)
+
+
+@contextlib.contextmanager
+def sync_call_deadline(timeout_s: float):
+    """Bound synchronous graph calls made in this context.
+
+    The deadline is carried by ``ContextVar``, so callers using
+    :func:`asyncio.to_thread` propagate it into the synchronous worker.  On expiry
+    the submitted graph coroutine is cancelled before the worker returns, avoiding
+    a stranded executor worker that would otherwise delay ``asyncio.run()``
+    shutdown.
+    """
+    if timeout_s <= 0:
+        raise ValueError("sync call deadline must be positive")
+    inherited = _SYNC_CALL_DEADLINE.get()
+    deadline = time.monotonic() + timeout_s
+    if inherited is not None:
+        deadline = min(deadline, inherited)
+    token = _SYNC_CALL_DEADLINE.set(deadline)
+    try:
+        yield
+    finally:
+        _SYNC_CALL_DEADLINE.reset(token)
+
+
+def _sync_result_before_deadline(
+    future: concurrent.futures.Future[Any],
+) -> Any:
+    """Return a submitted coroutine's result or cancel it at the ambient deadline."""
+    deadline = _SYNC_CALL_DEADLINE.get()
+    if deadline is None:
+        return future.result()
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        future.cancel()
+        raise SyncCallDeadlineExceeded("synchronous graph call deadline expired")
+    try:
+        return future.result(timeout=remaining)
+    except concurrent.futures.TimeoutError as exc:
+        # A completed future can race the timeout; preserve its real result/error.
+        if future.done():
+            return future.result()
+        future.cancel()
+        raise SyncCallDeadlineExceeded(
+            "synchronous graph call deadline expired"
+        ) from exc
 
 
 class _RequiredRequestContextClaims(TypedDict):
@@ -9246,7 +9302,7 @@ class SyncEpistemicGraphClient:
                     future = asyncio.run_coroutine_threadsafe(
                         attr(*args, **kwargs), self._loop
                     )
-                    return future.result()
+                    return _sync_result_before_deadline(future)
 
                 return sync_wrapper
             return attr
@@ -9346,7 +9402,7 @@ class SyncEpistemicGraphClient:
                 future = asyncio.run_coroutine_threadsafe(
                     attr(*args, **kwargs), self._loop
                 )
-                return future.result()
+                return _sync_result_before_deadline(future)
 
             return sync_wrapper
         return attr
