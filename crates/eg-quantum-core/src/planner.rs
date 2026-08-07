@@ -23,13 +23,21 @@
 //!   planner walks it and picks the first family with a fitting, non-forbidden,
 //!   registered descriptor.
 //!
-//! **R3 honesty note:** `estimate()` does not compute a real entanglement / MPS
-//! bond-dimension estimate at Q0 (no simulator exists yet to derive one from), so
-//! `MatrixProductState` is offered as a candidate but ranked BELOW statevector in
-//! `Estimate::preferred` rather than preferentially selected for "low entanglement"
-//! circuits — claiming that preference without real analysis would be worse than not
-//! claiming it. A future lane (Q4, which implements the MPS backend) should add a
-//! genuine structural estimate before ranking MPS ahead of statevector.
+//! **R3 honesty note (updated — register `D-QN-4`):** `estimate()` now ranks
+//! `MatrixProductState` AHEAD of statevector in `Estimate::preferred` when its
+//! structural `EntanglingConnectivity` classification is `Product` or
+//! `NearestNeighborChain`, and omits `MatrixProductState` from `preferred` entirely
+//! when it is `Dense` ("reject if bond dim explodes" per PROGRAM.md's R3). This is
+//! still NOT a real Schmidt-rank / bond-dimension computation — it is a topology-only
+//! proxy over which qubits each multi-qubit gate connects, with no visibility into
+//! circuit depth or gate repetition. See `estimate.rs`'s `EntanglingConnectivity` doc
+//! for the exact algorithm and, importantly, what it is conservative about (biased
+//! toward `Dense`, i.e. toward NOT preferring MPS, in cases of doubt about gate kind
+//! or arity) versus its one known blind spot (a very deep nearest-neighbor-only
+//! circuit can still need a large bond dimension in practice; this classification has
+//! no way to detect that and will still report `NearestNeighborChain`). Proving that
+//! case honestly would require simulating or a real entanglement-entropy estimate —
+//! out of scope for a `QuantumProgram`-only structural pass, same as before.
 
 use crate::backend::{BackendDescriptor, BackendFamily, BackendId};
 use crate::estimate::Estimate;
@@ -238,14 +246,16 @@ fn rule_engine_pick(
     }
 
     // R2-R4 collapse into "walk Estimate::preferred in order, first fitting +
-    // registered family wins" — `estimate()` already encodes the R2 (noise-driven)
-    // and R4 (placement) priority ordering; see module docs for why R3 (MPS
-    // preference) is intentionally NOT expressed ahead of statevector at Q0. The
-    // rule LABEL attached to the pick is a semantic classification of the family
-    // itself (a noise-only family is always an R2 pick, MPS is always R3, anything
-    // else reaching this loop is R4 placement), not a re-derivation of what
-    // `estimate()` was thinking — that keeps the audit trail meaningful even though
-    // the actual selection logic is one uniform walk.
+    // registered family wins" — `estimate()` already encodes the R2 (noise-driven),
+    // R3 (structural entanglement-connectivity, see module docs), and R4 (placement)
+    // priority ordering: MatrixProductState appears ahead of the statevector families
+    // in `preferred` exactly when `Estimate::entangling_connectivity` says the
+    // circuit is genuinely low-entanglement, and is absent from `preferred` entirely
+    // when it is not. The rule LABEL attached to the pick is a semantic
+    // classification of the family itself (a noise-only family is always an R2 pick,
+    // MPS is always R3, anything else reaching this loop is R4 placement), not a
+    // re-derivation of what `estimate()` was thinking — that keeps the audit trail
+    // meaningful even though the actual selection logic is one uniform walk.
     for family in &estimate.preferred {
         if *family == BackendFamily::Stabilizer {
             continue; // already tried under R1 above; do not re-attempt here

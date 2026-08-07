@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-durable"]
+members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-durable"]
 # D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
 # governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
 # QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
@@ -392,10 +392,12 @@ program-optimization = ["jobs", "dep:eg-program", "eg-types/program-optimization
 # D-VZ-1 (lane V0, `plans/au-eg-program/deferred/lane-viz-native.md`) -- native
 # visualization contracts. `viz` links `eg-viz-core` alone (ViewSpec IR, ViewResult
 # metadata, capability matrix, tier-selection rules, trait boundaries only -- no
-# ColumnStore, no LOD kernel, no renderer). `viz-interactive`/`viz-gpu-export` are
-# reserved names for V3b/V3a-V6 to attach real dependencies behind once those lanes
-# land; today they gate nothing beyond a trait definition each (see
-# `eg-viz-core/src/traits.rs`). Deliberately EXCLUDED from `full` (contrast `jobs`/
+# ColumnStore, no LOD kernel, no renderer). `viz-interactive` is a reserved name
+# for V3b to attach its binary-tile-protocol/WebGPU client behind once that lane
+# lands; `viz-gpu-export` is reserved for a future GPU-accelerated static export
+# variant (V3a's CPU static export landed below as `viz-static-export`, lane V1's
+# ColumnStore as `viz-columnstore` -- both still gate real, dependency-free/
+# minimal-dependency work, not placeholders). Deliberately EXCLUDED from `full` (contrast `jobs`/
 # `statechart` above): unlike those, nothing here is wired to a server handler yet,
 # so including it in the one main build would add a dependency with zero behavior
 # to show for it. `cargo build`'s default feature set therefore gains no
@@ -403,6 +405,17 @@ program-optimization = ["jobs", "dep:eg-program", "eg-types/program-optimization
 viz = ["dep:eg-viz-core"]
 viz-interactive = ["viz"]
 viz-gpu-export = ["viz"]
+# D-VZ-1 lane V1: the ColumnStore (canonical columns, zone maps, content-addressed
+# chunks, validity bitmaps, dictionary categoricals) implementing `eg-viz-core`'s
+# `ColumnStoreIngest` trait. Pure Rust; adds zero new external crates.io
+# dependencies beyond what `eg-viz-core` itself already resolves (serde/sha2/hex)
+# plus `bitvec`, already resolved elsewhere in this lockfile at the same version.
+viz-columnstore = ["viz", "dep:eg-viz-columnstore"]
+# D-VZ-1 lane V3a: static PNG/SVG/PDF export -- "the matplotlib replacement" --
+# resolved from a ViewSpec against a viz-columnstore ColumnStore, honoring
+# (never re-deriving) the tier `select_tier` chose. Hand-rolled PNG/PDF encoders
+# and a plain-text SVG writer: zero new external crates.io dependencies.
+viz-static-export = ["viz-columnstore", "dep:eg-viz-export"]
 # D-DE-0 (lane w6-de0-contracts, `plans/au-eg-program/program/durable-execution-native.md`)
 # -- the durable-execution ROUTING contract. `durable` links `eg-durable` alone (the
 # CallShape/WorkShape/DurableBackendKind routing table + the DurableExecutionUnitMirror
@@ -1276,6 +1289,8 @@ eg-statechart = { path = "crates/eg-statechart", optional = true }
 # to serve, and the posture matches the sibling quantum contract's default-off
 # feature family.
 eg-viz-core = { path = "crates/eg-viz-core", optional = true }
+eg-viz-columnstore = { path = "crates/eg-viz-columnstore", optional = true }
+eg-viz-export = { path = "crates/eg-viz-export", optional = true }
 # D-DE-0 (feature `durable`, see that feature's own comment above): the
 # durable-execution routing contract -- CallShape/WorkShape/DurableBackendKind + the
 # DurableExecutionUnitMirror DTO. Pure serde (already resolved workspace-wide); no
