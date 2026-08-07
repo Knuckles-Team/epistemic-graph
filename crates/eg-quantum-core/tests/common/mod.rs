@@ -80,6 +80,73 @@ pub fn non_clifford_circuit(n_qubits: u32) -> QuantumProgram {
     }
 }
 
+/// A non-Clifford (the leading `Rx` breaks Cliffordness so R1 never preempts R3),
+/// nearest-neighbor-chain-structured circuit on `n_qubits` (`n_qubits >= 2`):
+/// `Rx(0)` then `CNOT(i, i+1)` for `i in 0..n_qubits-1`. Its entangling gates form a
+/// simple path in qubit-index order, so `estimate()`'s `EntanglingConnectivity`
+/// classifies it `NearestNeighborChain`.
+pub fn chain_entangled_circuit(n_qubits: u32) -> QuantumProgram {
+    let mut instructions = vec![Instruction::Gate(GateInstruction {
+        gate: GateKind::Rx,
+        qubits: vec![0],
+        controls: vec![],
+        params: vec![ParamValue::Literal(0.3)],
+    })];
+    for i in 0..n_qubits.saturating_sub(1) {
+        instructions.push(Instruction::Gate(GateInstruction {
+            gate: GateKind::X,
+            qubits: vec![i + 1],
+            controls: vec![ControlQubit {
+                qubit: i,
+                state: ControlState::One,
+            }],
+            params: vec![],
+        }));
+    }
+    QuantumProgram {
+        ir_version: IR_VERSION,
+        n_qubits,
+        classical_registers: vec![],
+        parameters: vec![],
+        instructions,
+        metadata: Default::default(),
+    }
+}
+
+/// A non-Clifford, densely/all-to-all entangled circuit on `n_qubits`: `Rx(0)` then
+/// a `CNOT(i, j)` for EVERY pair `i < j`. `estimate()`'s `EntanglingConnectivity`
+/// classifies it `Dense` (most pairs are long-range in IR index order, and the
+/// interior qubits each connect to 3+ others).
+pub fn dense_entangled_circuit(n_qubits: u32) -> QuantumProgram {
+    let mut instructions = vec![Instruction::Gate(GateInstruction {
+        gate: GateKind::Rx,
+        qubits: vec![0],
+        controls: vec![],
+        params: vec![ParamValue::Literal(0.3)],
+    })];
+    for i in 0..n_qubits {
+        for j in (i + 1)..n_qubits {
+            instructions.push(Instruction::Gate(GateInstruction {
+                gate: GateKind::X,
+                qubits: vec![j],
+                controls: vec![ControlQubit {
+                    qubit: i,
+                    state: ControlState::One,
+                }],
+                params: vec![],
+            }));
+        }
+    }
+    QuantumProgram {
+        ir_version: IR_VERSION,
+        n_qubits,
+        classical_registers: vec![],
+        parameters: vec![],
+        instructions,
+        metadata: Default::default(),
+    }
+}
+
 pub fn descriptor(id: &str, family: BackendFamily, caps: BackendCapabilities) -> BackendDescriptor {
     BackendDescriptor {
         id: BackendId(id.to_string()),
@@ -130,6 +197,17 @@ pub fn sv_gpu_descriptor(id: &str) -> BackendDescriptor {
         BackendFamily::StatevectorGpu,
         caps(|c| {
             c.supports_gpu = true;
+            c.is_exact_capable = true;
+        }),
+    )
+}
+
+pub fn mps_descriptor(id: &str) -> BackendDescriptor {
+    descriptor(
+        id,
+        BackendFamily::MatrixProductState,
+        caps(|c| {
+            c.supports_mps = true;
             c.is_exact_capable = true;
         }),
     )
