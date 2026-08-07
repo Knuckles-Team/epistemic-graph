@@ -42,6 +42,52 @@ ENVIRONMENT_ROOTS: tuple[tuple[str, str], ...] = (
     ("HOME", "/build/home"),
 )
 
+# The linux-x86_64 / linux-aarch64 release legs build via `PyO3/maturin-action`
+# with `manylinux: 2_28`, which does not compile on the outer GitHub runner at
+# all: it hands the whole build off to a throwaway `docker run` of the
+# manylinux image. That container always runs as root, so its `HOME` is
+# unconditionally `/root` and (because Cargo defaults `CARGO_HOME`/`RUSTUP_HOME`
+# from `HOME` when unset) its Cargo registry cache is `/root/.cargo/registry`.
+# This script only ever runs on the OUTER runner, so no environment variable it
+# can read ever names `/root` -- the outer runner's own `HOME` is something
+# else entirely (e.g. `/home/runner`). Worse, `maturin-action` explicitly
+# excludes `CARGO_HOME` from the env vars it forwards into the container (see
+# its `FORBIDDEN_ENVS`), specifically so the container does not try to reuse
+# the outer runner's host-path Cargo state -- which means the container's
+# `/root/.cargo` is not just unremapped, it is *guaranteed* by the action's own
+# design on every manylinux leg, every run, regardless of anything this script
+# or its caller does.
+#
+# A dependency crate fetched fresh into that container's registry cache embeds
+# `/root/.cargo/registry/src/<index>/<crate>-<version>/src/....rs` into
+# `file!()`/`#[track_caller]`/panic-location strings at compile time. Because
+# no `--remap-path-prefix`/`-ffile-prefix-map` flag this script emits ever
+# targets `/root`, that literal survives untouched into the compiled
+# `epistemic-graph-server` / kernel-tool binaries and the `numeric` cdylib --
+# confirmed against a real release wheel's `linux-x86_64` leg, where every one
+# of the five compiled/linked members (the four `.data/scripts/*` binaries and
+# `epistemic_graph/numeric.abi3.so`) trips `check_wheel_privacy.py`'s
+# `privileged-home-prefix` pattern category. That category exists specifically
+# to catch `/root` and `/github/home` by broad PATTERN match (not exact-prefix
+# match) precisely because no per-run environment variable can describe them
+# ahead of time -- this entry closes the corresponding gap on the build side so
+# the leak is prevented at compile time instead of merely being caught (but not
+# fixable) by that post-hoc audit.
+#
+# These roots are therefore denied UNCONDITIONALLY, independent of any
+# environment variable this process can observe. `/github/home` is included
+# alongside `/root` for the same reason: GitHub's own container actions also
+# default `HOME` to `/github/home` when they run as a containerized action
+# rather than a composite/script step, so it is exactly the same class of
+# container convention this script cannot otherwise see. Both reuse the
+# existing `/build/home` neutral target rather than minting a new alias, which
+# keeps them indistinguishable in the normalized SBOM from an ordinary HOME
+# leak -- the correct level of detail to expose.
+ALWAYS_DENIED_ROOTS: tuple[tuple[str, str], ...] = (
+    ("/root", "/build/home"),
+    ("/github/home", "/build/home"),
+)
+
 
 def _safe_root(value: str | None) -> str | None:
     """Return a usable build prefix, excluding roots and malformed values."""
@@ -93,6 +139,8 @@ def path_remaps(
         source = _safe_root(env.get(name))
         if source:
             candidates.append((source, replacement))
+
+    candidates.extend(ALWAYS_DENIED_ROOTS)
 
     unique: dict[str, tuple[str, str]] = {}
     for source, replacement in candidates:
