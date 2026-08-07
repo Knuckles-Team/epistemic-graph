@@ -1834,6 +1834,94 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_neighbors_batch_collapses_round_trips() {
+        // D-DPF-1: GetNeighborsBatch fetches neighbor ids for N nodes in one
+        // request/one topo-lock acquisition instead of N GetNeighbors round-trips.
+        //
+        // Seeds via the GraphCore directly (not Method::AddNode/AddEdge through
+        // dispatch): this test is about the READ path, and the durable
+        // gateway-routed mutation path this repo's OWN
+        // `batch_node_reads_collapse_round_trips` test also uses is independently
+        // broken against `test_state()`'s `persistence: None` on unmodified main
+        // (verified: `cargo test --features server
+        // batch_node_reads_collapse_round_trips` fails identically on a fresh
+        // main checkout with "authoritative MutationBatch commit requires a
+        // persistence backend" — a pre-existing gap, not something this change
+        // introduces or needs to fix). Going through the core's own `add_node`/
+        // `add_edge` (used the same way `multi_tenant_state`/`test_union_read_across_graphs`
+        // seed non-`__commons__` graphs) exercises the exact same
+        // `GraphCore::get_neighbors`/`get_neighbors_batch` data this test cares
+        // about without depending on that unrelated durable-write path at all.
+        let state = test_state();
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        for id in ["a", "b", "c"] {
+            core.add_node(
+                id.to_string(),
+                rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+            );
+        }
+        for (source, target) in [("a", "b"), ("b", "c")] {
+            core.add_edge(
+                source.to_string(),
+                target.to_string(),
+                rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+            )
+            .unwrap();
+        }
+
+        let resp = dispatch(
+            &state,
+            request(
+                6,
+                "__commons__",
+                None,
+                Method::GetNeighborsBatch {
+                    node_ids: vec!["a".into(), "b".into(), "missing".into(), "c".into()],
+                },
+            ),
+        )
+        .await;
+        let raw = match resp.result {
+            Some(ResultPayload::Raw(b)) => b,
+            other => panic!("expected Raw, got {other:?} (err={:?})", resp.error),
+        };
+        let mut rows: Vec<(String, Vec<String>)> = rmp_serde::from_slice(&raw).unwrap();
+        for (_, neighbors) in rows.iter_mut() {
+            neighbors.sort();
+        }
+        assert_eq!(
+            rows,
+            vec![
+                ("a".to_string(), vec!["b".to_string()]),
+                ("b".to_string(), vec!["a".to_string(), "c".to_string()]),
+                ("missing".to_string(), Vec::<String>::new()),
+                ("c".to_string(), vec!["b".to_string()]),
+            ],
+            "one batched call returns every node's neighbors, in input order, \
+             absent id -> empty list rather than failing the batch"
+        );
+
+        // Oversize batches are rejected, not truncated (OOM guard) — same
+        // contract as GetNodePropertiesBatch/HasNodesBatch.
+        let resp = dispatch(
+            &state,
+            request(
+                7,
+                "__commons__",
+                None,
+                Method::GetNeighborsBatch {
+                    node_ids: vec!["x".to_string(); MAX_BATCH_IDS + 1],
+                },
+            ),
+        )
+        .await;
+        assert!(resp.error.is_some(), "oversize batch must be rejected");
+    }
+
+    #[tokio::test]
     async fn per_graph_backpressure_isolates_tenants() {
         // A hot graph that has exhausted its per-graph in-flight cap sheds WRITES with
         // BUSY, but OTHER graphs keep being served from the (ample) global pool — one

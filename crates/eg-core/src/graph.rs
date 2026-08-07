@@ -4959,6 +4959,41 @@ impl GraphCore {
         Ok(neighbors.into_iter().collect())
     }
 
+    /// Batch form of [`Self::get_neighbors`] (D-DPF-1): neighbor ids for MANY
+    /// nodes under ONE `topo.read()` acquisition instead of one lock
+    /// acquisition per node. A node absent from the graph yields an empty
+    /// neighbor list at its position rather than failing the whole batch —
+    /// callers that need to distinguish "absent" from "no neighbors" should
+    /// pair this with `has_batch`. Order matches `node_ids`.
+    pub fn get_neighbors_batch(&self, node_ids: &[String]) -> Vec<(String, Vec<String>)> {
+        let topo = self.topo.read();
+        node_ids
+            .iter()
+            .map(|node_id| {
+                let neighbors = match topo.node_map.get(node_id) {
+                    Some(idx) => {
+                        let mut set = std::collections::HashSet::new();
+                        for e in topo
+                            .graph
+                            .edges_directed(*idx, petgraph::Direction::Incoming)
+                        {
+                            set.insert(topo.graph[e.source()].clone());
+                        }
+                        for e in topo
+                            .graph
+                            .edges_directed(*idx, petgraph::Direction::Outgoing)
+                        {
+                            set.insert(topo.graph[e.target()].clone());
+                        }
+                        set.into_iter().collect()
+                    }
+                    None => Vec::new(),
+                };
+                (node_id.clone(), neighbors)
+            })
+            .collect()
+    }
+
     // ── Serialization ────────────────────────────────────────────────────
 
     /// Owned, serializable snapshot of this graph's persistent state. Cheap
