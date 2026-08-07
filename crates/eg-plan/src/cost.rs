@@ -1398,6 +1398,13 @@ mod tests {
 
     /// Both registered index methods claim exactly the `Op` variants they should, and
     /// nothing else — the dispatch [`crate::optimizer::is_rank`] now delegates to.
+    ///
+    /// `is_index_method_op` (and the whole `index_method` module) is gated behind
+    /// `#[cfg(feature = "query")]` — this test must be gated the same way, or a
+    /// default-features `cargo test -p eg-plan` (no `query`) fails the WHOLE crate's
+    /// test build with `cannot find function is_index_method_op in this scope`,
+    /// taking every other test in the crate down with it.
+    #[cfg(feature = "query")]
     #[test]
     fn index_method_registry_dispatches_ann_and_bm25() {
         let rank = Op::Rank {
