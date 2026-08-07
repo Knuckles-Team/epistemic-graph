@@ -1453,6 +1453,23 @@ class NodeClient:
     async def neighbors(self, node_id: str) -> builtins.list[str]:
         return await self._client._send("GetNeighbors", {"node_id": node_id})
 
+    async def neighbors_batch(
+        self, node_ids: builtins.list[str]
+    ) -> dict[str, builtins.list[str]]:
+        """Neighbor ids for many nodes in ONE round-trip (D-DPF-1).
+
+        Returns a mapping ``node_id -> neighbor_ids`` in input order (an id
+        absent from the graph maps to ``[]``, matching the engine's
+        fail-open-per-id batch shape — see :meth:`properties_batch` for the
+        equivalent absent-id contract on node properties). Collapses what
+        would otherwise be N ``neighbors()`` calls — and N network round-trips
+        — into a single request, the same pattern as :meth:`properties_batch`
+        / :meth:`has_batch`.
+        """
+        ids = list(node_ids)
+        rows = await self._client._send("GetNeighborsBatch", {"node_ids": ids})
+        return {nid: list(neighbor_ids) for nid, neighbor_ids in (rows or [])}
+
     # ── Cross-graph union reads (CONCEPT:EG-KG.query.cross-graph-union) ───────────────────────
     # Read across a SET of content graphs as if one, so writes can be partitioned
     # across per-graph write locks (each lane its own graph) while reads see the

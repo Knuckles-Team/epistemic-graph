@@ -88,6 +88,7 @@
 | `GetPredecessors` | false | None | `edge:read` | true | false | false | Snapshot |  |
 | `GetSuccessors` | false | None | `edge:read` | true | false | false | Snapshot |  |
 | `GetNeighbors` | false | None | `edge:read` | true | false | false | Snapshot |  |
+| `GetNeighborsBatch` | false | None | `edge:read` | true | false | false | Snapshot |  |
 | `UnionGetNodeProperties` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `UnionGetNodesByLabel` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `UnionGetNeighbors` | false | None | `node:read` | true | false | false | Snapshot |  |

@@ -1741,6 +1741,7 @@ const RLS_ROUTED: &[&str] = &[
     "GetLedger",
     "GetMatView",
     "GetNeighbors",
+    "GetNeighborsBatch",
     "GetNodeProperties",
     "GetNodePropertiesBatch",
     "GetNodes",
