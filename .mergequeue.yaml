@@ -19,7 +19,11 @@ batch_size: 8
 # longer exists (D-MQD-1). Without this the environment reads as "unpinned" and
 # the queue DISABLES the baseline cache rather than keying it on a fiction --
 # correct, but it re-runs `cargo check` on the base for every batch.
-environment_signature: ["sh", "-c", "cargo --version && rustc --version"]
+#
+# `go version` + `node --version` + `npm --version` extend the same fingerprint
+# to the go-client/js-client gates below (D-EGTC-1/D-EGTC-2) -- same rationale,
+# a toolchain bump for either must not serve a baseline computed under the old one.
+environment_signature: ["sh", "-c", "cargo --version && rustc --version && go version && node --version && npm --version"]
 
 gates:
   # The one gate the engine lane applied by hand. `--all-features` because the
@@ -100,6 +104,54 @@ gates:
     tier: slow
     timeout: 5400
     compare: lines
+
+  # D-EGTC-1/D-EGTC-2 (w1-eg-test-census, 2026-08-06): `clients/go` had not
+  # compiled for 17+ days -- gated NOWHERE (not here, not pre-commit, not any
+  # CI workflow) -- and nobody noticed because nothing ever ran `go build`/
+  # `go test` against it. `clients/js` was undiscovered the same way, though it
+  # turned out to actually be green. Both are now gated, cheaply, via
+  # `when_changed` so an unrelated Rust-only candidate never pays for them.
+  #
+  # `sh -c 'cd clients/go && ...'`: clients/go is its own Go module (its own
+  # go.mod), not part of the Cargo workspace -- the `cd` is the same shell-step
+  # idiom `environment_signature` above already uses, not a new pattern.
+  #
+  # compare: exit, deliberately, not lines: this suite is 3 Go tests / 5 Node
+  # tests total, tiny enough that any failure at all is de facto a new one
+  # against a green baseline, and both tools print per-test timing (`ms`) that
+  # changes every run -- a `lines` compare would need the same kind of
+  # keep_lines/ignore_lines noise-filtering `cargo-check` needed for
+  # `Compiling .../Finished in ...s`, for no real precision gain at this scale.
+  #
+  # Timeouts are budgeted for the queue's actual execution shape: a throwaway
+  # `git worktree add --detach` checkout with NO `node_modules` and, in the
+  # worst case, an evicted Go module cache -- not the warm-cache numbers a dev
+  # machine sees. Measured cold (empty GOMODCACHE/GOCACHE, empty npm cache,
+  # this host, 2026-08-06): go build+test ~23s, npm install+node --test <2s
+  # (clients/js has exactly one dependency, @msgpack/msgpack). Both timeouts
+  # below carry >10x headroom over that measurement -- the same lesson the
+  # vitest gate's 90s->360s bump already paid for (its command also runs
+  # `pnpm install` inside the timed window; do not repeat that mistake by
+  # under-budgeting here).
+  - name: go-client
+    command: [sh, -c, "cd clients/go && go build ./... && go test ./..."]
+    tier: fast
+    timeout: 300
+    baseline_timeout: 600
+    compare: exit
+    when_changed:
+      - 'clients/go/*'
+      - 'clients/go/**'
+
+  - name: js-client
+    command: [sh, -c, "cd clients/js && npm install && node --test"]
+    tier: fast
+    timeout: 180
+    baseline_timeout: 300
+    compare: exit
+    when_changed:
+      - 'clients/js/*'
+      - 'clients/js/**'
 
 # No generated files are regenerated on land for this repo yet. If
 # `docs/capabilities.generated.md` (eg-capabilities' generated ledger) starts
