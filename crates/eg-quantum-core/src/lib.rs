@@ -68,6 +68,7 @@ pub mod estimate;
 pub mod hash;
 pub mod ir;
 pub mod planner;
+pub mod qasm;
 pub mod result;
 
 pub use backend::{
@@ -86,4 +87,5 @@ pub use ir::{
 pub use planner::{
     select_backend, AuditEntry, PlannerDecision, PlannerError, PlannerOptions, PlannerRule,
 };
+pub use qasm::{from_qasm2, to_qasm2, QasmError};
 pub use result::{Formalism, HardConstraint, NotExactError, Outcome, Proposal, QuantumResult};
