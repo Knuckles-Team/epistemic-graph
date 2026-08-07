@@ -1,5 +1,14 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-viz-core"]
+members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core"]
+# D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
+# governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
+# QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
+# the exactness-typed QuantumResult). A workspace member so `cargo build/test
+# --workspace -p eg-quantum-core` works standalone; the root package links it ONLY
+# behind the optional, default-off `quantum` feature below (see that feature's own
+# comment) -- a default `cargo build` here links NONE of it. Ships no simulator, no
+# vendored SDK (QuantRS2/QuEST), no CUDA/MPI -- see its own crate-level doc for the
+# numeric-stack decision (bridges to eg-numeric, does not carry its own).
 # D-VZ-1 (lane V0, `plans/au-eg-program/deferred/lane-viz-native.md`) -- eg-viz-core:
 # native visualization contracts (ViewSpec chart IR, ViewResult exact-vs-approximated
 # metadata, the mark capability matrix, and the primitives/bytes LOD tier-selection
@@ -1125,6 +1134,44 @@ cluster = ["full", "raft", "compute-dist", "nonblocking", "matview"]
 # explicitly opts in here.
 pyo3-engine = ["dep:eg-pyengine", "eg-pyengine/python"]
 
+# ── Quantum as a governed epistemic-graph capability (D-QN-1, lane
+# w0-eg-quantum-contracts, Q0 contracts) ──
+#
+# Mirrors the `pyo3-engine` posture directly above: an opt-in layer, NOT folded into
+# `default`/`full`/`cluster`/`full-extras`, so a build that never asks for it pays
+# nothing — no binary size, no new dependency, no runtime cost. Effectively all of
+# this runs on ordinary CPU/GPU (simulators); real QPUs are one optional backend
+# behind the same trait, never a requirement (see PROGRAM.md's quantum section,
+# "Does any of this run on classical hardware? Yes — effectively all of it.").
+#
+# `quantum` is the BASE contracts feature: it links `eg-quantum-core` (the IR, the
+# `QuantumBackend` trait, the planner, the exactness-typed result) and NOTHING else —
+# turning this on alone gets a caller a compilable surface to build against, not an
+# executable backend. `quantum-quest`/`quantum-gpu`/`quantum-hardware` are the three
+# REMAINING backend-family layers PROGRAM.md's quantum section names (Q3 QuEST-ffi,
+# Q4 pure-Rust GPU, Q10 hardware providers); each `implies quantum` and is currently
+# EMPTY beyond that (no backend code exists yet in this workspace for THOSE three) —
+# they exist now as the stable feature NAMES those future lanes wire `dep:` edges
+# onto, so enabling one today is a no-op beyond `quantum` itself, and a future lane
+# adding the real backend crate does not need to invent a new feature name or touch
+# any call site that already gates on these.
+#
+# `quantum-sim` (D-QN-1, lane Q1 vendoring, register `lane-quantum-native.md`) is the
+# FOURTH backend-family layer, delivered here: pure-Rust, in-process CPU backends
+# with NO third-party SDK/FFI at all -- `eg-quantum-gates` (dense unitary matrices,
+# content ported with attribution from QuantRS2/Apache-2.0, see its own NOTICE) and
+# `eg-quantum-sim` (the `StateVectorSimulator`/`StabilizerSimulator` `QuantumBackend`
+# impls: a dense-amplitude evolution loop and a clean-room Aaronson-Gottesman CHP
+# tableau). Planner rule R1 (a Clifford circuit always selects `stabilizer`, never
+# statevector -- the exponential-vs-polynomial routing decision PROGRAM.md's quantum
+# section calls the single highest-value rule in the whole program) has a REAL
+# backend pair to route between for the first time once this feature is on.
+quantum = ["dep:eg-quantum-core"]
+quantum-quest = ["quantum"]
+quantum-gpu = ["quantum"]
+quantum-hardware = ["quantum"]
+quantum-sim = ["quantum", "dep:eg-quantum-gates", "dep:eg-quantum-sim"]
+
 [dependencies]
 eg-types = { path = "crates/eg-types" }
 eg-mutation-store = { path = "crates/eg-mutation-store", optional = true }
@@ -1221,6 +1268,18 @@ eg-viz-core = { path = "crates/eg-viz-core", optional = true }
 # Clean-room graph-native LM-program contracts, deterministic kernels, and governed
 # runtime plans. The crate deliberately has no provider SDK or HTTP client.
 eg-program = { path = "crates/eg-program", optional = true }
+# D-QN-1 (feature `quantum`, see that feature's own comment above): the quantum IR /
+# QuantumBackend trait / planner contracts crate. No simulator, no vendor SDK; pure
+# serde + thiserror + sha2 (all already resolved workspace-wide).
+eg-quantum-core = { path = "crates/eg-quantum-core", optional = true }
+# D-QN-1 (feature `quantum-sim`, see that feature's own comment above): dense unitary
+# gate matrices (content ported with Apache-2.0 attribution from QuantRS2, see
+# crates/eg-quantum-gates/NOTICE) for eg-quantum-core's GateKind vocabulary.
+eg-quantum-gates = { path = "crates/eg-quantum-gates", optional = true }
+# D-QN-1 (feature `quantum-sim`): the pure-Rust statevector + stabilizer
+# QuantumBackend implementations -- the first real backends planner rule R1 (Clifford
+# -> stabilizer, never statevector) has to route between.
+eg-quantum-sim = { path = "crates/eg-quantum-sim", optional = true }
 # Live CEP standing-query engine (feature `stream`, included in the main build,
 # CONCEPT:EG-088/EG-299). The
 # BATCH `Op::Cep` executor already pulls eg-stream transitively via `eg-plan/stream`; this

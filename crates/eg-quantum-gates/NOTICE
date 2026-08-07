@@ -1,0 +1,29 @@
+eg-quantum-gates
+Copyright 2026 Repository Maintainers
+
+This crate's dense unitary matrix definitions (single- and two-qubit gate matrices
+in `src/lib.rs`) are ported, with adaptation, from:
+
+  QuantRS - Quantum Computing Toolkit in Rust
+  Copyright 2026 COOLJAPAN OU (Team KitaSan)
+  https://github.com/ (open-source-libraries/quantrs in this workspace)
+  Source file: core/src/gate/functions.rs
+
+QuantRS is licensed under the Apache License, Version 2.0 (see LICENSE in this
+directory, or http://www.apache.org/licenses/LICENSE-2.0).
+
+What was ported: the mathematical matrix definitions themselves (which complex
+entries a gate's unitary matrix has, for every gate in eg-quantum-core's `GateKind`
+vocabulary that QuantRS2 also defines: Id/X/Y/Z/H/S/Sdg/T/Tdg/Rx/Ry/Rz/Phase/Swap/
+Rxx/Ryy/Rzz).
+
+What was NOT ported (register D-QN-1, "strip aggressively" charter directive): the
+`GateOp` trait object system, `QubitId`/`Any`-downcasting/`clone_gate` boilerplate,
+Python-facing bindings, and every other QuantRS2 crate (`device`, `ml`, `anneal`,
+`py`) -- eg-quantum-core's own `GateKind` enum and `u32` qubit indices already cover
+the role QuantRS2's `GateOp`/`QubitId` types play, so re-vendoring that scaffolding
+would duplicate a contract this workspace already owns. Numeric types were
+re-targeted from QuantRS2's `scirs2_core::Complex64` to this workspace's own
+`eg-numeric` `Complex64` surface (the numeric-stack decision recorded in
+`crates/eg-quantum-core/src/lib.rs`, register D-QN-3) -- no SciRS2 dependency is
+present anywhere in this crate.
