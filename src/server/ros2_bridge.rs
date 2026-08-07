@@ -236,6 +236,24 @@ pub async fn apply_inbound(
 /// publishes to the engine. Spawned from `main` when [`Ros2BridgeConfig::from_env`] is
 /// `Some`; a dropped connection returns so the caller can reconnect with backoff.
 ///
+/// True when the outbound CDC→ROS2 leg must refuse to publish (CONCEPT:EG-KG.sharding.row-level-security
+/// fail-closed obligation — the same predicate the `unauthenticated_carrier_denied`
+/// check enforces across the SPARQL/obs/federation/lake HTTP surfaces, applied here).
+///
+/// The bridge streams a graph's raw CDC feed to an external rosbridge server with no
+/// per-subscriber identity: whoever is listening on the ROS2 topic is never asked to
+/// present a credential, so no [`crate::server::access::CarrierAuthority`] can ever be
+/// minted for them (`unauthenticated_carrier_denied(None)` is always `true` for this
+/// leg). That is harmless while the target graph carries no row-ownership rules — there
+/// is nothing a verified reader could see that an unfiltered feed doesn't. But once
+/// authenticated row ownership IS registered for the engine (`isolation.has_rules()`),
+/// publishing the unfiltered feed would leak rows a verified reader would never be
+/// authorized to see, so the bridge must fail closed instead of blasting every change.
+#[cfg(feature = "server")]
+fn ros2_cdc_denied(isolation: &crate::isolation::IsolationLayer) -> bool {
+    isolation.has_rules() && crate::server::access::unauthenticated_carrier_denied(None)
+}
+
 /// Gated on `ros2-bridge` specifically (not just `server`): it is the tokio-tungstenite
 /// WebSocket driver, so a `ros2-dds`-only build (CONCEPT:EG-KG.ingest.dds-transport) — which links no
 /// tokio-tungstenite — must not compile it. The pure CDC↔ROS2 mapping above stays shared.
@@ -259,6 +277,19 @@ pub async fn run_ros2_bridge(
     // `auth_token` (`publish_to_request`, below) that `apply_inbound` verifies
     // through the full `dispatch()` path, unaffected by this change — an
     // unauthenticated inbound message is denied there, same as before.
+    //
+    // The OUTBOUND leg is a separate exposure: it publishes the graph's CDC feed
+    // to that same untrusted set of ROS2 subscribers. Fail closed up front when
+    // authenticated row ownership is already active for this engine, before ever
+    // opening the socket or advertising a topic.
+    if ros2_cdc_denied(&state.read().await.isolation) {
+        crate::metrics::access_denied();
+        return Err(format!(
+            "ACCESS_DENIED: ROS2 CDC bridge for graph {:?} refused — authenticated row \
+             ownership is active and this carrier has no verified per-subscriber identity",
+            cfg.graph
+        ));
+    }
     let (ws, _resp) = tokio_tungstenite::connect_async(&cfg.rosbridge_url)
         .await
         .map_err(|e| format!("rosbridge connect {} failed: {e}", cfg.rosbridge_url))?;
@@ -295,10 +326,17 @@ pub async fn run_ros2_bridge(
     let out_graph = cfg.graph.clone();
     let out_topic = cfg.out_topic.clone();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1024);
-    let _ = out_state; // reserved for future ack-back; state not needed to publish
     tokio::spawn(async move {
         let mut cursor: u64 = 0;
         while let Ok(batch) = out_cdc.watch_batch(&out_graph, cursor, "", 256) {
+            // Re-check on every batch, not just at connect time: authenticated row
+            // ownership can be registered for this engine while the bridge is
+            // already streaming, and this unauthenticated carrier must stop
+            // publishing the instant that happens rather than keep leaking rows a
+            // verified reader would not be authorized to see.
+            if ros2_cdc_denied(&out_state.read().await.isolation) {
+                return;
+            }
             for ev in &batch.events {
                 if tx
                     .send(cdc_to_publish(ev, &out_topic).to_json())
@@ -468,5 +506,30 @@ mod tests {
         let mut unsigned = message;
         unsigned["auth_token"] = serde_json::json!("legacy-token");
         assert!(publish_to_request(&unsigned, "robotics").is_none());
+    }
+
+    #[cfg(feature = "server")]
+    #[test]
+    fn ros2_cdc_fails_closed_only_once_row_ownership_is_active() {
+        use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
+
+        // No identities registered yet: nothing to protect, so the unauthenticated
+        // outbound leg is allowed to publish, same as before this fix.
+        let open = IsolationLayer::new();
+        assert!(!open.has_rules());
+        assert!(!ros2_cdc_denied(&open));
+
+        // Once ANY identity is registered, authenticated row ownership is active
+        // for this engine and the carrier — which can never present credentials
+        // for whoever is listening on the ROS2 topic — must fail closed.
+        let mut governed = IsolationLayer::new();
+        governed.register_agent(AgentIdentity {
+            agent_id: "agent-1".to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        assert!(governed.has_rules());
+        assert!(ros2_cdc_denied(&governed));
     }
 }
