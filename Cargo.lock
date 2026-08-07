@@ -2880,6 +2880,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-viz-columnstore"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "bitvec",
+ "eg-viz-core",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "eg-viz-core"
 version = "0.1.0"
 dependencies = [
@@ -2889,6 +2902,14 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "eg-viz-export"
+version = "0.1.0"
+dependencies = [
+ "eg-viz-columnstore",
+ "eg-viz-core",
 ]
 
 [[package]]
@@ -2976,7 +2997,9 @@ dependencies = [
  "eg-tsdb",
  "eg-types",
  "eg-video",
+ "eg-viz-columnstore",
  "eg-viz-core",
+ "eg-viz-export",
  "eg-wasm",
  "fs4 0.8.4",
  "futures",
