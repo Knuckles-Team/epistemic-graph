@@ -1,0 +1,19 @@
+[package]
+name = "eg-quantum-sim"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Pure-Rust statevector + stabilizer QuantumBackend implementations (register D-QN-1, lane Q1). Consumes eg-quantum-core's QuantumProgram IR + QuantumBackend trait directly; no vendored QuantRS2 circuit/simulator scaffolding -- statevector amplitude application is built on eg-numeric's Complex64 block-apply primitives and eg-quantum-gates' matrix catalog, and the stabilizer backend is a clean-room Aaronson-Gottesman tableau (not portable from QuantRS2's scirs2-coupled sim/src/stabilizer/*, which this crate's numeric-stack decision deliberately does not import)."
+license = "MIT"
+
+[lib]
+name = "eg_quantum_sim"
+
+[dependencies]
+eg-quantum-core = { path = "../eg-quantum-core" }
+eg-quantum-gates = { path = "../eg-quantum-gates" }
+eg-numeric = { path = "../eg-numeric", features = ["complex"] }
+thiserror = "1.0"
+
+[features]
+default = []

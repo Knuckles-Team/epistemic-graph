@@ -1,0 +1,18 @@
+[package]
+name = "eg-quantum-gates"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Dense unitary matrix definitions for eg-quantum-core's GateKind vocabulary (register D-QN-1, lane Q1 vendoring). The mathematical content of these matrices is ported from open-source-libraries/quantrs (QuantRS2, Apache-2.0) core/src/gate/functions.rs; see NOTICE for attribution. Pure math, no vendor OOP scaffolding (no GateOp trait objects, no QubitId struct, no Any downcasting) -- eg-quantum-core's own GateKind + qubit indices already cover that role."
+license = "Apache-2.0"
+
+[lib]
+name = "eg_quantum_gates"
+
+[dependencies]
+eg-quantum-core = { path = "../eg-quantum-core" }
+eg-numeric = { path = "../eg-numeric", features = ["complex"] }
+thiserror = "1.0"
+
+[features]
+default = []
