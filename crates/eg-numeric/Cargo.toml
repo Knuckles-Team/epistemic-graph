@@ -39,6 +39,20 @@ analytics = ["dep:statrs"]
 # `Array2<f64>: Serialize` at all. `cargo test -p eg-numeric --features contract`
 # runs the suite.
 contract = ["dep:eg-modality", "ndarray/serde"]
+# Complex64 array surface (D-QN-3 handoff from lane w0-eg-quantum-contracts / the
+# quantum numeric-stack decision): a thin `Complex64` re-export + generic dense-block
+# tensor-index application (`apply_block2`/`apply_block4`) that Q1's `eg-quantum-sim`
+# statevector backend uses to apply 1-/2-qubit unitaries. OFF by default, deliberately
+# NOT folded into `default`/`pi`/`node`/`full` — a build that never asks for `quantum`/
+# `quantum-sim` on the root `epistemic-graph` package pulls none of this. Adds ONE new
+# direct dependency EDGE (`num-complex`) but ZERO new crates to the resolved lockfile:
+# `nalgebra` (already a mandatory dependency above) already resolves `num-complex
+# 0.4.6` transitively (nalgebra needs `ComplexField` for its own generic linear
+# algebra) — see the workspace Cargo.lock. This is the numeric-stack decision recorded
+# in `crates/eg-quantum-core/src/lib.rs` and `crates/eg-quantum-sim/src/lib.rs`: the
+# quantum numeric path bridges to eg-numeric instead of importing QuantRS2's SciRS2
+# stack as a second/third numeric foundation.
+complex = ["dep:num-complex"]
 
 [dependencies]
 # arrays / reductions / element-wise / broadcasting — numpy-shaped, mature.
@@ -69,3 +83,9 @@ statrs = { version = "0.18", default-features = false, optional = true }
 # OFF) — a default/pi/node/full build links none of it and `KMeansResult` carries
 # no new required trait. See `src/contract.rs`.
 eg-modality = { path = "../eg-modality", optional = true }
+# Complex64 surface only (feature `complex`, default OFF). Same version nalgebra
+# already resolves transitively (0.4.6, workspace Cargo.lock) — promoting it to a
+# direct dependency here adds zero new packages to the lockfile. `default-features =
+# false` keeps out num-complex's own optional `rand`/`serde` integration features,
+# none of which this crate's `complex` module needs.
+num-complex = { version = "0.4", default-features = false, optional = true }
