@@ -9,8 +9,8 @@
 mod common;
 
 use eg_quantum_core::{
-    estimate, BackendFamily, BackendId, EstimateOptions, NoiseRequest, PlannerError,
-    PlannerOptions, PlannerRule, QuantumResult,
+    estimate, BackendFamily, BackendId, EntanglingConnectivity, EstimateOptions, NoiseRequest,
+    PlannerError, PlannerOptions, PlannerRule, QuantumResult,
 };
 
 // ── 1. Clifford never selects statevector when stabilizer is available ───────────
@@ -283,6 +283,78 @@ fn want_hardware_restricts_to_hardware_family_even_for_a_clifford_circuit() {
         .expect("must select the hardware backend");
     assert_eq!(decision.family, BackendFamily::Hardware);
     assert_eq!(decision.rule, PlannerRule::R0HardConstraint);
+}
+
+// ── R3 (register D-QN-4): MatrixProductState preferred over statevector for
+// genuinely low structural entanglement; never preferred for dense/all-to-all ─────
+
+#[test]
+fn low_entanglement_chain_circuit_prefers_mps_over_statevector() {
+    let program = common::chain_entangled_circuit(4);
+    let est = estimate(&program, &EstimateOptions::default());
+    assert!(
+        !est.is_clifford,
+        "Rx breaks Cliffordness so R1 does not preempt R3"
+    );
+    assert_eq!(
+        est.entangling_connectivity,
+        EntanglingConnectivity::NearestNeighborChain
+    );
+
+    let available = vec![
+        // Statevector registered FIRST, deliberately, so a naive "first registered"
+        // implementation would fail this test if it existed.
+        common::sv_cpu_descriptor("sv-cpu"),
+        common::mps_descriptor("mps"),
+    ];
+    let decision = eg_quantum_core::select_backend(&est, &available, &PlannerOptions::default())
+        .expect("must select");
+    assert_eq!(decision.family, BackendFamily::MatrixProductState);
+    assert_eq!(decision.chosen, BackendId("mps".to_string()));
+    assert_eq!(decision.rule, PlannerRule::R3Structure);
+}
+
+#[test]
+fn dense_entanglement_circuit_never_selects_mps_falls_back_to_statevector() {
+    let program = common::dense_entangled_circuit(4);
+    let est = estimate(&program, &EstimateOptions::default());
+    assert!(!est.is_clifford);
+    assert_eq!(est.entangling_connectivity, EntanglingConnectivity::Dense);
+    assert!(
+        !est.preferred.contains(&BackendFamily::MatrixProductState),
+        "a densely-entangled circuit must not offer MPS as a preferred candidate at all: {:?}",
+        est.preferred
+    );
+
+    let available = vec![
+        common::mps_descriptor("mps"),
+        common::sv_cpu_descriptor("sv-cpu"),
+    ];
+    let decision = eg_quantum_core::select_backend(&est, &available, &PlannerOptions::default())
+        .expect("must select");
+    assert_ne!(decision.family, BackendFamily::MatrixProductState);
+    assert_eq!(decision.family, BackendFamily::StatevectorCpu);
+    assert_eq!(decision.rule, PlannerRule::R4Placement);
+}
+
+#[test]
+fn low_entanglement_circuit_selects_mps_when_it_is_the_only_registered_family() {
+    // Proves the RANKING (MPS is genuinely present in Estimate::preferred for a
+    // low-entanglement circuit), not merely a tie-break against statevector: no
+    // statevector descriptor is registered at all here, so selection only succeeds
+    // if `estimate()` actually put MatrixProductState in `preferred`.
+    let program = common::chain_entangled_circuit(3);
+    let est = estimate(&program, &EstimateOptions::default());
+    assert_eq!(
+        est.entangling_connectivity,
+        EntanglingConnectivity::NearestNeighborChain
+    );
+
+    let available = vec![common::mps_descriptor("mps")];
+    let decision = eg_quantum_core::select_backend(&est, &available, &PlannerOptions::default())
+        .expect("must select");
+    assert_eq!(decision.family, BackendFamily::MatrixProductState);
+    assert_eq!(decision.rule, PlannerRule::R3Structure);
 }
 
 #[test]
