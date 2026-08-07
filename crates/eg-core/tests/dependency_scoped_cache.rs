@@ -19,12 +19,15 @@
 use eg_core::dep_scope::{DepSet, Dim};
 use eg_core::graph::GraphCore;
 use eg_core::index::{ChangeSet, NodeChange};
-use eg_core::result_cache::ResultCache;
 use serde_json::json;
 
 fn blob(v: &serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(v).expect("encode props")
 }
+
+/// A single graph mutation in a scripted write workload (see
+/// `dep_scoped_differential_under_interleaved_writes`).
+type GraphOp = Box<dyn Fn(&GraphCore)>;
 
 /// Commit an ADD the way the coalescer does: write the node, then maintain (incremental) + dirty.
 fn commit_add(core: &GraphCore, id: &str, props: serde_json::Value) {
@@ -314,7 +317,7 @@ fn dep_scoped_differential_under_interleaved_writes() {
     };
 
     // A mixed workload: adds/removes to A and to the disjoint B, plus relabels.
-    let ops: Vec<Box<dyn Fn(&GraphCore)>> = vec![
+    let ops: Vec<GraphOp> = vec![
         Box::new(|c| commit_add(c, "a1", json!({ "type": "A" }))),
         Box::new(|c| commit_add(c, "b1", json!({ "type": "B" }))), // disjoint
         Box::new(|c| commit_add(c, "a2", json!({ "type": "A" }))),

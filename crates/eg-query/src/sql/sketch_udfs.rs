@@ -465,8 +465,8 @@ mod tests {
     #[test]
     fn approx_frequency_never_underestimates() {
         let mut acc = ApproxFrequencyAcc::new();
-        let items: Vec<&str> = std::iter::repeat("heavy").take(40).collect();
-        let probes: Vec<&str> = std::iter::repeat("heavy").take(40).collect();
+        let items: Vec<&str> = std::iter::repeat_n("heavy", 40).collect();
+        let probes: Vec<&str> = std::iter::repeat_n("heavy", 40).collect();
         acc.update_batch(&[strings(&items), strings(&probes)])
             .unwrap();
         let ScalarValue::Float64(Some(est)) = acc.evaluate().unwrap() else {
