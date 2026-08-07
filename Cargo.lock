@@ -2476,6 +2476,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-durable"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-epistemic"
 version = "0.1.0"
 dependencies = [
@@ -2948,6 +2956,7 @@ dependencies = [
  "eg-compute",
  "eg-core",
  "eg-document",
+ "eg-durable",
  "eg-epistemic",
  "eg-geo",
  "eg-graphql",
