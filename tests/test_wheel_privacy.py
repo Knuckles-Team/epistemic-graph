@@ -18,6 +18,15 @@ from scripts.configure_rust_path_remap import (
 from scripts.normalize_wheel_build_paths import normalize_wheel_build_paths
 from scripts.normalize_wheel_sbom import normalize_wheel
 
+# This file's own module docstring says "no engine required" -- every test here
+# exercises pure-Python release-artifact scripts against in-memory zip fixtures,
+# nothing else. Without this marker, conftest.py's session-scoped autouse
+# `start_epistemic_graph_server` fixture doesn't know that and pays a full
+# `cargo build --features full` before a single test here runs, exactly like
+# `test_build_backend.py` and `test_release_full_wheel_contract.py` (the other
+# static release-artifact test files) already declare.
+pytestmark = pytest.mark.no_engine
+
 
 def _neutral_metadata(*, body: str = "") -> bytes:
     return (
@@ -71,9 +80,18 @@ def test_encoded_flags_preserve_existing_encoded_flags_and_remap_specific_first(
 
     assert flags[:2] == ["-C", "debuginfo=0"]
     assert preserved == 2
-    assert remaps == 2
+    # 4, not 2: the explicit checkout/HOME (environment-derived) roots PLUS the
+    # two unconditional container roots (/root, /github/home) that
+    # ALWAYS_DENIED_ROOTS adds regardless of environment -- see
+    # configure_rust_path_remap.py.
+    assert remaps == 4
     assert flags[2].endswith("=/build/source")
-    assert flags[3].endswith("=/build/home")
+    assert all(flag.endswith("=/build/home") for flag in flags[3:6])
+    assert {flag.rpartition("=/build/home")[0] for flag in flags[3:6]} == {
+        "--remap-path-prefix=/github/home",
+        "--remap-path-prefix=/root",
+        "--remap-path-prefix=/srv",
+    }
 
 
 def test_encoded_flags_convert_plain_flags_without_losing_quoted_values():
@@ -85,7 +103,8 @@ def test_encoded_flags_convert_plain_flags_without_losing_quoted_values():
 
     assert flags[:3] == ["-C", "opt-level=3", "-Ctarget-cpu=x86-64-v2"]
     assert preserved == 3
-    assert remaps == 1
+    # 3, not 1: the checkout PLUS the two unconditional container roots.
+    assert remaps == 3
 
 
 def test_native_flags_preserve_existing_values_and_remap_build_sources():
@@ -97,7 +116,13 @@ def test_native_flags_preserve_existing_values_and_remap_build_sources():
     )
 
     assert flags.startswith("-O2 -fno-omit-frame-pointer ")
-    assert flags.endswith(f"-ffile-prefix-map={checkout}=/build/source")
+    assert f"-ffile-prefix-map={checkout}=/build/source" in flags
+    # The unconditional container roots ride along on every remap call, not
+    # just the checkout -- native (C/C++) build scripts run inside the same
+    # manylinux container and need the same protection rustc's
+    # --remap-path-prefix gets.
+    assert "-ffile-prefix-map=/root=/build/home" in flags
+    assert "-ffile-prefix-map=/github/home=/build/home" in flags
 
 
 def test_cargo_target_dir_is_remapped_and_denied_at_runtime():
@@ -107,6 +132,38 @@ def test_cargo_target_dir_is_remapped_and_denied_at_runtime():
 
     assert (str(target), "/build/cargo-target") in remaps
     assert str(target) in runtime_deny_prefixes({"CARGO_TARGET_DIR": str(target)})
+
+
+def test_privileged_container_roots_are_always_denied_even_with_no_environment():
+    """The linux manylinux release legs hand off compilation to a throwaway
+    root-owned `docker run` (`PyO3/maturin-action` with `manylinux: 2_28`).
+    That container's `HOME` is unconditionally `/root`, and `maturin-action`
+    deliberately excludes `CARGO_HOME` from the env vars it forwards into the
+    container (its own `FORBIDDEN_ENVS`), so the container always resolves a
+    fresh `CARGO_HOME` of `/root/.cargo` regardless of what this script's
+    caller — running on the outer runner, which never has `HOME=/root` — sees
+    in its own environment. No environment variable this process reads can
+    ever name that path, so it must be denied unconditionally, not merely
+    when some environment variable says so."""
+
+    remaps = path_remaps({})
+
+    assert ("/root", "/build/home") in remaps
+    assert ("/github/home", "/build/home") in remaps
+
+
+def test_privileged_container_roots_survive_alongside_environment_roots():
+    checkout = PurePosixPath("/", "srv", "fixture-source")
+
+    remaps = path_remaps({"HOME": str(checkout)}, checkout=checkout)
+
+    # The explicit checkout/HOME root from the environment coexists with the
+    # two unconditional container roots -- they are never dropped by
+    # deduplication (their source strings, "/root" and "/github/home", never
+    # collide with anything environment-derived here).
+    assert (str(checkout), "/build/source") in remaps
+    assert ("/root", "/build/home") in remaps
+    assert ("/github/home", "/build/home") in remaps
 
 
 def test_sanitized_wheel_allows_third_party_attribution_emails(tmp_path: Path):
@@ -304,6 +361,72 @@ def test_build_path_normalizer_rewrites_cargo_target_dir(tmp_path: Path):
     assert not audit_wheel(wheel, environ=environ).findings
 
 
+def test_planted_root_container_leak_is_caught_by_the_audit_before_any_fix(
+    tmp_path: Path,
+):
+    """A privacy gate that passes only because it stopped looking is worse than
+    the leak it was meant to catch. This plants the exact class of leak the
+    manylinux/maturin-action release legs actually produce -- a Cargo registry
+    source path under a root-owned container's `/root/.cargo` -- directly into
+    an otherwise-untouched wheel member (no normalizer run first) and proves
+    `check_wheel_privacy.py`'s own `privileged-home-prefix` pattern still flags
+    it. This category is a broad PATTERN match (unlike the exact-prefix
+    `runtime-build-prefix` category), so it fires with NO `deny_prefixes` and
+    NO environment at all -- it is not contingent on the build-layer fix below
+    having run first."""
+
+    wheel = _wheel(
+        tmp_path,
+        {
+            "fixture_package-1.0.0.dist-info/METADATA": _neutral_metadata(),
+            "fixture_package/native.so": (
+                b"ELF\x00/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f"
+                b"/some-dep-1.2.3/src/lib.rs\x00"
+            ),
+        },
+    )
+
+    assert "privileged-home-prefix" in _categories(wheel)
+    result = audit_wheel(wheel, environ={})
+    assert any(f.category == "privileged-home-prefix" for f in result.findings)
+
+
+def test_build_path_normalizer_scrubs_root_container_leak_unconditionally(
+    tmp_path: Path,
+):
+    """The build-layer fix: `normalize_wheel_build_paths` derives its rewrite
+    roots from `configure_rust_path_remap.path_remaps()`, so once `/root` and
+    `/github/home` are unconditionally denied there (see
+    `test_privileged_container_roots_are_always_denied_even_with_no_environment`),
+    this normalizer scrubs a `/root/.cargo/registry/...` payload with an EMPTY
+    environment -- exactly the case the manylinux legs hit, where no env var
+    this process reads ever names the container's HOME. Before that fix this
+    payload survived normalization untouched (the operator-observed CI
+    failure: `normalize_wheel_sbom.py`/`normalize_wheel_build_paths.py` both
+    reported 0 rewritten occurrences immediately before `check_wheel_privacy.py`
+    failed on exactly these members)."""
+
+    wheel = _wheel(
+        tmp_path,
+        {
+            "fixture_package-1.0.0.dist-info/METADATA": _neutral_metadata(),
+            "fixture_package-1.0.0.dist-info/RECORD": b"stale-record\n",
+            "fixture_package/native.so": (
+                b"ELF\x00/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f"
+                b"/some-dep-1.2.3/src/lib.rs\x00"
+            ),
+        },
+    )
+
+    assert "privileged-home-prefix" in _categories(wheel)
+    assert normalize_wheel_build_paths(wheel, environ={}) == 1
+
+    with zipfile.ZipFile(wheel) as archive:
+        payload = archive.read("fixture_package/native.so")
+    assert b"/root" not in payload
+    assert not audit_wheel(wheel, environ={}).findings
+
+
 def test_build_path_normalizer_rewrites_utf16le_windows_payload(tmp_path: Path):
     build_root = str(
         PureWindowsPath("Z:/", "Users", "fixture-builder", "Workspace", "source")
@@ -368,6 +491,44 @@ def test_sbom_normalizer_rewrites_local_refs_and_rebuilds_record(tmp_path: Path)
     assert b"sha256=" in record
     assert not audit_wheel(wheel, environ={}).findings
     assert normalize_wheel(wheel, environ={}, checkout=source_root) == 0
+
+
+def test_sbom_normalizer_handles_cargo_target_dir_without_crashing(tmp_path: Path):
+    """Regression test for D-W5EG-2: `normalize_wheel_sbom.py`'s `_URI_ALIASES`
+    dict is what every `path_remaps()` replacement value must resolve through
+    (`_root_aliases` does a bare `_URI_ALIASES[replacement]` lookup with no
+    default). Every OTHER `ENVIRONMENT_ROOTS` replacement value
+    (`/build/source`, `/build/runner-workspace`, `/build/cargo`,
+    `/build/rustup`, `/build/tools`, `/build/temp`, `/build/local-data`,
+    `/build/app-data`, `/build/home`) had a matching alias already, but
+    `/build/cargo-target` (the `CARGO_TARGET_DIR` target) did not -- so setting
+    `CARGO_TARGET_DIR`, which the mandatory isolated-build-target discipline
+    means is ALWAYS set for a compliant local build, crashed this normalizer
+    with a bare `KeyError` before it ever reached a single wheel member."""
+
+    target = PurePosixPath("/var", "tmp", "fixture-target")
+    reference = f"path+file://{target / 'release' / 'crate'}#1.0.0"
+    wheel = _wheel(
+        tmp_path,
+        {
+            "fixture_package-1.0.0.dist-info/METADATA": _neutral_metadata(),
+            "fixture_package-1.0.0.dist-info/RECORD": b"stale-record\n",
+            "fixture_package-1.0.0.dist-info/sboms/package.cyclonedx.json": (
+                '{"metadata":{"component":{"bom-ref":"' + reference + '"}}}'
+            ).encode(),
+        },
+    )
+
+    assert (
+        normalize_wheel(wheel, environ={"CARGO_TARGET_DIR": str(target)}, checkout=None)
+        == 1
+    )
+    with zipfile.ZipFile(wheel) as archive:
+        sbom = archive.read(
+            "fixture_package-1.0.0.dist-info/sboms/package.cyclonedx.json"
+        )
+    assert b"build://cargo-target/release/crate#1.0.0" in sbom
+    assert not audit_wheel(wheel, environ={"CARGO_TARGET_DIR": str(target)}).findings
 
 
 def test_sbom_home_alias_is_not_shaped_like_a_posix_home_path(tmp_path: Path):

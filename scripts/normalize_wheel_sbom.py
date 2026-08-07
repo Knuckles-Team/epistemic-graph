@@ -42,6 +42,7 @@ _URI_ALIASES = {
     "/build/source": "repo://source",
     "/build/runner-workspace": "build://runner-workspace",
     "/build/cargo": "build://cargo",
+    "/build/cargo-target": "build://cargo-target",
     "/build/rustup": "build://rustup",
     "/build/tools": "build://tools",
     "/build/temp": "build://temp",
