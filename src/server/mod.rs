@@ -1837,21 +1837,39 @@ mod tests {
     async fn get_neighbors_batch_collapses_round_trips() {
         // D-DPF-1: GetNeighborsBatch fetches neighbor ids for N nodes in one
         // request/one topo-lock acquisition instead of N GetNeighbors round-trips.
+        //
+        // Seeds via the GraphCore directly (not Method::AddNode/AddEdge through
+        // dispatch): this test is about the READ path, and the durable
+        // gateway-routed mutation path this repo's OWN
+        // `batch_node_reads_collapse_round_trips` test also uses is independently
+        // broken against `test_state()`'s `persistence: None` on unmodified main
+        // (verified: `cargo test --features server
+        // batch_node_reads_collapse_round_trips` fails identically on a fresh
+        // main checkout with "authoritative MutationBatch commit requires a
+        // persistence backend" — a pre-existing gap, not something this change
+        // introduces or needs to fix). Going through the core's own `add_node`/
+        // `add_edge` (used the same way `multi_tenant_state`/`test_union_read_across_graphs`
+        // seed non-`__commons__` graphs) exercises the exact same
+        // `GraphCore::get_neighbors`/`get_neighbors_batch` data this test cares
+        // about without depending on that unrelated durable-write path at all.
         let state = test_state();
-        let add_node = |id: &str| Method::AddNode {
-            node_id: id.into(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
         };
-        for (id, m) in [(1, add_node("a")), (2, add_node("b")), (3, add_node("c"))] {
-            assert_ok(&dispatch(&state, request(id, "__commons__", None, m)).await);
+        for id in ["a", "b", "c"] {
+            core.add_node(
+                id.to_string(),
+                rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+            );
         }
-        for (id, source, target) in [(4, "a", "b"), (5, "b", "c")] {
-            let m = Method::AddEdge {
-                source_id: source.into(),
-                target_id: target.into(),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
-            };
-            assert_ok(&dispatch(&state, request(id, "__commons__", None, m)).await);
+        for (source, target) in [("a", "b"), ("b", "c")] {
+            core.add_edge(
+                source.to_string(),
+                target.to_string(),
+                rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+            )
+            .unwrap();
         }
 
         let resp = dispatch(
