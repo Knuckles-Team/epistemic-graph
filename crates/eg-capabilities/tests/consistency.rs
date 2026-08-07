@@ -853,7 +853,10 @@ fn all_methods_table_has_the_expected_variant_count() {
     // Plus W4.4 ML-pipeline Train/Serve/Predict/Evaluate/Compare (5 methods,
     // unconditional -- `ml-pipeline` is force-enabled on this crate's eg-types
     // dependency, exactly like the mining/graphlearn families): 363 + 5 = 368.
-    let expected = 368
+    // Plus D-DPF-1 `GetNeighborsBatch` (the batch sibling of `GetNeighbors`,
+    // unconditional -- closes the engine-side N+1 on multi-node neighbor
+    // reads): 368 + 1 = 369.
+    let expected = 369
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
