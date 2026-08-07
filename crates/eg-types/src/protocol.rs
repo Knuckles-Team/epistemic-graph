@@ -932,6 +932,15 @@ pub enum Method {
     GetNeighbors {
         node_id: String,
     },
+    /// Batch neighbor read: fetch neighbor ids for many nodes in ONE round-trip
+    /// instead of N `GetNeighbors` calls (D-DPF-1 — the N+1 this closes). Returns
+    /// a `Raw` list of `[node_id, Vec<String>]` in input order; a missing/absent
+    /// node yields an empty neighbor list rather than failing the whole batch, so
+    /// one bad id in a large discover-then-hydrate batch cannot sink the rest.
+    /// Bounded by `MAX_BATCH_IDS`.
+    GetNeighborsBatch {
+        node_ids: Vec<String>,
+    },
 
     // ── Cross-graph union reads (CONCEPT:EG-KG.query.cross-graph-union) ───────────────────
     // Read across a SET of content graphs as if they were one, so writes can be
