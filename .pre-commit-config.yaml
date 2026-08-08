@@ -1,5 +1,21 @@
 default_language_version:
   python: python3
+# `git push` must run the FULL gate, not a subset.
+#
+# Two independent holes made the heavy hooks dead code: (a) only the
+# `pre-commit` git hook was ever installed, so `git push` ran NOTHING, and
+# (b) the heavy hooks are staged pre-push/manual, so `pre-commit run
+# --all-files` (commit stage) skipped them too. Net effect: cargo-test-full,
+# cargo-clippy-all-features, replay-determinism, wheel-smoke and pytest --
+# the mirrors of CI's slowest, most failure-prone jobs -- never ran locally
+# at all, and CI was the first place anything found out.
+#
+# `default_install_hook_types` makes `pre-commit install` wire the pre-push
+# hook as well; `default_stages` makes every hook that does not name its own
+# stages run at BOTH stages, so a push runs the commit-stage gates PLUS the
+# heavy ones. Pushing is now the slow, complete gate on purpose.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit, pre-push]
 exclude: 'dotnet|node_modules|target'
 ci:
   autofix_prs: true
