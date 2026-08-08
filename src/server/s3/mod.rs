@@ -913,6 +913,10 @@ fn handle(store: &S3Store, auth: &S3Auth, req: &S3Request) -> S3Response {
     // A18: SigV4 IS this surface's own carrier proof — mint the engine-owned
     // authority only after it succeeds, then gate through the SAME shared check
     // every other surface uses (real now: denies iff no carrier was minted).
+    // S3 carrier has no verified tenant/object ownership until SigV4 mints one;
+    // the response body stays the plain AWS-standard "Access Denied" (an S3
+    // client expects the standard error code/message, not custom prose — unlike
+    // the KV-cache/observability surfaces, which own their own wire protocol).
     let carrier = authorized(auth, req)
         .then(crate::server::auth::VerifiedRequestContext::authenticated_s3_actor)
         .and_then(Result::ok)

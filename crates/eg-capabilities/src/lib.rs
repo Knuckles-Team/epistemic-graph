@@ -564,7 +564,8 @@ pub fn policy(m: &Method) -> MethodPolicy {
         | Method::OutDegree { .. }
         | Method::GetPredecessors { .. }
         | Method::GetSuccessors { .. }
-        | Method::GetNeighbors { .. } => MethodPolicy {
+        | Method::GetNeighbors { .. }
+        | Method::GetNeighborsBatch { .. } => MethodPolicy {
             mutates: false,
             durability_domain: DurabilityDomain::None,
             authz_action: "edge:read",
@@ -2214,6 +2215,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("GetPredecessors", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "edge:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("GetSuccessors", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "edge:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("GetNeighbors", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "edge:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
+        ("GetNeighborsBatch", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "edge:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("UnionGetNodeProperties", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "node:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("UnionGetNodesByLabel", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "node:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("UnionGetNeighbors", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "node:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
@@ -2623,7 +2625,10 @@ mod smoke_tests {
         // Plus W4.4 ML-pipeline Train/Serve/Predict/Evaluate/Compare (5 methods,
         // unconditional -- `ml-pipeline` is force-enabled on this crate's eg-types
         // dependency, exactly like the mining/graphlearn families): 363 + 5 = 368.
-        let expected = 368
+        // Plus D-DPF-1 `GetNeighborsBatch` (the batch sibling of `GetNeighbors`,
+        // unconditional -- closes the engine-side N+1 on multi-node neighbor
+        // reads): 368 + 1 = 369.
+        let expected = 369
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))

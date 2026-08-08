@@ -431,3 +431,77 @@ name = "adaptive_reopt"
 path = "benches/adaptive_reopt.rs"
 harness = false
 required-features = ["query"]
+
+# ── Integration test targets, explicitly gated (D-EGTC-10 / w5-eg-ci-truly-green) ──
+# Every file under `tests/` names `query`-gated (or narrower) public API
+# (`execute`/`PlanCtx`/`PlanDag`/`Circuit`/`federation::ForeignSourceRegistry`/
+# `learned_cost_artifacts`/…) directly at module scope, so it cannot compile at all
+# under the crate's own `default = []` (the Pi contract: a default build links no
+# DataFusion). Cargo auto-discovers every `tests/*.rs` file as an implicit test
+# target with NO required-features, so a plain `cargo test -p eg-plan` (no feature
+# flags) tried to build every one of them and failed the ENTIRE crate's test
+# build — not just the one file a given error happened to name. Declaring each
+# target explicitly here, mirroring the `[[bench]]` targets above, makes a default
+# `cargo test -p eg-plan` cleanly SKIP them (same as `cargo bench` already does)
+# instead of erroring; CI's `--features "query,owl,text,timeseries,federation"`
+# invocation (`.github/workflows/rust-ci.yml`) is unaffected — every required
+# feature it asks for is already enabled there.
+[[test]]
+name = "composition_matrix"
+path = "tests/composition_matrix.rs"
+required-features = ["query"]
+
+[[test]]
+name = "dag_multibranch_proptest"
+path = "tests/dag_multibranch_proptest.rs"
+required-features = ["query"]
+
+[[test]]
+name = "dag_oracle"
+path = "tests/dag_oracle.rs"
+required-features = ["query"]
+
+[[test]]
+name = "differential_oracle"
+path = "tests/differential_oracle.rs"
+required-features = ["query"]
+
+# Names `eg_plan::federation::ForeignSourceRegistry` directly — `federation`
+# specifically (not just `query`), matching the module's own `#[cfg(feature =
+# "federation")]` gate in `src/lib.rs`.
+[[test]]
+name = "fuzz_pipelines"
+path = "tests/fuzz_pipelines.rs"
+required-features = ["federation"]
+
+[[test]]
+name = "incremental_execute_oracle"
+path = "tests/incremental_execute_oracle.rs"
+required-features = ["query"]
+
+[[test]]
+name = "incremental_o_delta"
+path = "tests/incremental_o_delta.rs"
+required-features = ["query"]
+
+[[test]]
+name = "incremental_oracle"
+path = "tests/incremental_oracle.rs"
+required-features = ["query"]
+
+# Names `learned_cost_artifacts`/`CostCorrectionArtifact`/`LearnedCostStore`,
+# gated on `learned-cost` in `src/lib.rs` (which itself implies `query`).
+[[test]]
+name = "learned_cost_ab"
+path = "tests/learned_cost_ab.rs"
+required-features = ["learned-cost"]
+
+[[test]]
+name = "plan_proptest"
+path = "tests/plan_proptest.rs"
+required-features = ["query"]
+
+[[test]]
+name = "plan_snapshots"
+path = "tests/plan_snapshots.rs"
+required-features = ["query"]

@@ -1,0 +1,61 @@
+[package]
+name = "eg-quantum-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Quantum-as-a-governed-epistemic-graph-capability contracts (D-QN-1, lane Q0): the versioned QuantumProgram IR, the vendor-neutral QuantumBackend trait with capability flags, the estimate()/planner rule engine (R0-R5), and the exactness-typed QuantumResult that keeps noisy/sampled results out of the epistemic hard-constraint path. Contracts only — no simulator, no vendor SDK, no CUDA/MPI/QuEST/QuantRS2 linked here."
+license = "MIT"
+
+[lib]
+name = "eg_quantum_core"
+
+# ── Q0 scope (lane w0-eg-quantum-contracts, register D-QN-1) ──────────────────────
+#
+# This crate is PURE control-plane: an IR, a trait, a deterministic planner, and a
+# result type. It hard-codes no CUDA, no MPI, no vendor SDK, and links no numeric
+# library at all — there is nothing here to run a circuit against yet (that is Q1
+# vendoring QuantRS2 + Q3 QuEST-ffi + Q4 pure-Rust backends). `estimate()`'s memory
+# projections are plain integer/float arithmetic (2^n, 4^n byte counts), not linear
+# algebra, so no numeric crate is needed even for that.
+#
+# NUMERIC-STACK DECISION (recorded here per the Q0 charge, confirmed against the
+# actual code in both repos — see `src/lib.rs` module doc for the full write-up):
+# the eventual quantum numeric path (complex statevectors/density matrices, unitary
+# gate application) BRIDGES TO `eg-numeric`, not a second stack. `eg-numeric`
+# (nalgebra 0.35 + ndarray 0.17) already resolves `num-complex` transitively via
+# nalgebra (see workspace Cargo.lock: nalgebra depends on num-complex 0.4.6), so
+# adding a thin `Complex64` array/matrix surface to `eg-numeric` in Q1 costs the
+# default build NOTHING NEW. QuantRS2, by contrast, has already migrated OFF
+# ndarray/nalgebra/num-complex onto its own `scirs2-core`/`scirs2-autograd`/
+# `scirs2-linalg`/`scirs2-optimize`/`scirs2-sparse`/`scirs2-special`/`optirs-core`
+# foundation (see `open-source-libraries/quantrs/core/Cargo.toml`, every line
+# explicitly commented "REMOVED: Use scirs2_core::* (SciRS2 POLICY)"). Vendoring
+# QuantRS2 as-is would therefore import a THIRD numeric stack (SciRS2) alongside
+# eg-numeric's nalgebra+ndarray — exactly the "numeric dualism" the charter's Risks
+# section flags. Q1 (vendoring) MUST strip every `scirs2_*` numeric/linalg/complex
+# call quantrs2-core/-circuit/-sim make and re-target `eg-numeric`, the same way Q1
+# is already chartered to strip Python-facing/research-only surface.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+# Canonical JSON serialization for `QuantumProgram::circuit_hash()` (stable,
+# platform-independent circuit content addressing) and for round-trip tests. Already
+# resolved workspace-wide (eg-types depends on it), so this adds no new crate to the
+# overall dependency tree even though this crate itself is optional/default-off.
+serde_json = "1.0"
+# Circuit-hash digest. Already used the same way by eg-modality/eg-jobs (see those
+# crates' Cargo.toml) — same rationale: zero new crate in the resolved tree.
+sha2 = "0.10"
+thiserror = "1.0"
+
+[dev-dependencies]
+# Round-trip / equality assertions across enum variants and float fields in tests.
+serde_json = "1.0"
+
+[features]
+# No internal features yet — Q0 ships one unconditional contracts surface. Backend-
+# family-specific cfg gates (quest/gpu/hardware) belong to the ROOT `epistemic-graph`
+# package's `quantum-quest`/`quantum-gpu`/`quantum-hardware` features (see root
+# Cargo.toml), which will grow their OWN `dep:` edges onto future sibling crates
+# (e.g. a future `eg-quantum-quest`, `eg-quantum-gpu`) in Q3/Q4/Q10 — this crate does
+# not need matching features until it has matching code.
+default = []

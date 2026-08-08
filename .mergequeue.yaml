@@ -73,15 +73,36 @@ gates:
       - 'build.rs'
       - 'rust-toolchain.toml'
 
+  # D-W6PC-1/D-W6TG-1: this MUST byte-match rust-ci.yml's "Clippy (every crate,
+  # all features)" step (`cargo clippy --workspace --all-features --all-targets
+  # -- -D warnings`) or it is not a gate, it is theater. Proven wrong the hard
+  # way on 2026-08-07: this command previously omitted `--workspace`,
+  # `--all-targets`, and `-- -D warnings`. `--all-targets` is the load-bearing
+  # one -- without it, cargo never even TYPE-CHECKS `tests/`/`benches/`/
+  # `examples/` (their `#[cfg(test)]`/harness code isn't compiled by a bare
+  # `cargo clippy`), so a lint living in a `#[test]` fn produces literally no
+  # output line on EITHER side of the differential diff -- not "no new line",
+  # NO LINE AT ALL, ever, by construction. That let `e0c2c39` (5 clippy errors,
+  # 3 of them in `tests/dependency_scoped_cache.rs`) land clean through this
+  # gate and fail on real CI minutes later. `--target-dir target-isolated` and
+  # `--message-format short` are output-shaping only (isolation + diff-
+  # friendliness) and do not change what gets linted, so they don't break the
+  # byte-match; `-D warnings` does change behaviour (denies rather than warns)
+  # and is required to match CI's actual failure semantics, not just its text.
   - name: clippy
     command:
       - cargo
       - clippy
+      - --workspace
       - --all-features
+      - --all-targets
       - --message-format
       - short
       - --target-dir
       - target-isolated
+      - --
+      - -D
+      - warnings
     tier: fast
     timeout: 1800
     baseline_timeout: 3600
@@ -95,15 +116,233 @@ gates:
       - 'Cargo.toml'
       - '**/Cargo.toml'
 
-  # Declared but NOT run inside the queue: at engine scale the full test suite
-  # makes the queue diverge at any concurrency, and a gate too costly to run gets
-  # bypassed. Keeping it declared means this file stays the single description of
-  # what guards the repo -- a gate too expensive for the queue is still a fact.
+  # rust-ci.yml gate 3 ("Clippy (slim lib)") — the lib-only feature slice with
+  # NO --all-targets (matching CI exactly: this is the one CI clippy step that
+  # does not pass it), so a change reaching up out of a lower crate into the
+  # slim `graph,algorithms` build breaks here, not silently in a shipped slim
+  # artifact.
+  - name: clippy-slim-lib
+    command:
+      - cargo
+      - clippy
+      - --no-default-features
+      - --features
+      - graph,algorithms
+      - --message-format
+      - short
+      - --target-dir
+      - target-isolated
+      - --
+      - -D
+      - warnings
+    tier: fast
+    timeout: 900
+    baseline_timeout: 1800
+    compare: lines
+    keep_lines:
+      - '^error'
+      - '^warning'
+    when_changed:
+      - '*.rs'
+      - '**/*.rs'
+      - 'Cargo.toml'
+      - '**/Cargo.toml'
+
+  # rust-ci.yml gate 4 ("Clippy (slim server)") — proves no compute leaks into
+  # the lean server build; WITH --all-targets, matching CI.
+  - name: clippy-slim-server
+    command:
+      - cargo
+      - clippy
+      - --no-default-features
+      - --features
+      - server
+      - --all-targets
+      - --message-format
+      - short
+      - --target-dir
+      - target-isolated
+      - --
+      - -D
+      - warnings
+    tier: fast
+    timeout: 900
+    baseline_timeout: 1800
+    compare: lines
+    keep_lines:
+      - '^error'
+      - '^warning'
+    when_changed:
+      - '*.rs'
+      - '**/*.rs'
+      - 'Cargo.toml'
+      - '**/Cargo.toml'
+
+  # w5-ci-gates-local (D-W5CG-1), correcting the previous comment here: `tier:
+  # slow` is not a policy choice the queue makes at runtime -- it is STRUCTURALLY
+  # UNREACHABLE. repository_manager/merge_queue.py's `slow_gates()` (the tier!=
+  # "fast" filter) has exactly ONE caller in the whole file, a read-only status
+  # dump (`"slow_gates": [g.name for g in config.slow_gates()]`); `run_queue`/
+  # `run_fast_gates` never invoke it. There is no post-merge-suite runner
+  # anywhere in this codebase. So this declaration was not "too costly, skip it
+  # this time" -- it was, and remains, dead config that nothing will ever
+  # execute, no matter how the queue is configured.
+  #
+  # `cargo test --all-features` for real (not this declaration) is also
+  # currently RED: the 2026-08-06 test census (D-EGTC-1..12,
+  # plans/au-eg-program/audits/audit-eg-test-census-2026-08-06.md) found 64
+  # failing tests + 9 crashing binaries under this exact command, needs a
+  # dedicated 64-core host to complete in reasonable time, and needs `cmake`
+  # (CycloneDDS vendor build) just to link. Wiring it here as a blocking gate,
+  # even if the queue engine could run it, would deadlock every candidate on
+  # pre-existing failures this lane does not own fixing -- exactly the failure
+  # mode the differential `compare: lines` gates above exist to avoid.
+  #
+  # DECISION (pick one, per the audit): run it PRE-PUSH, not in the queue.
+  # `.pre-commit-config.yaml`'s `cargo-test` hook (lower crates: eg-types,
+  # eg-core, eg-compute, every commit) and `cargo-test-full` hook (facade
+  # `--features full`, pre-push+manual stage) already do this -- narrower than
+  # `--all-features` (skips the crash-prone `cluster`/`full-extras` opt-in
+  # layers) but real, green, and enforced today, unlike this declaration ever
+  # was. GitHub CI's rust-ci.yml `lint-and-test` job declares the same
+  # `--all-features` surface as a backstop, but CI is dark (stale origin) so it
+  # is not presently executing either. Kept declared below (not deleted) so
+  # this file stays the one place that names the fact "no automation gates the
+  # full `--all-features` workspace test suite today" -- but the tier is now
+  # honestly labelled instead of implying a mechanism that does not exist.
   - name: cargo-test
     command: [cargo, test, --all-features, --target-dir, target-isolated]
-    tier: slow
+    tier: slow  # NEVER EXECUTED by this queue (see comment above) -- real
+                # enforcement is pre-commit's pre-push stage (narrower scope)
+                # + dark CI (same scope, not presently running).
     timeout: 5400
     compare: lines
+
+  # DE7 (durable-execution-native.md, lane w6-de7-replay-determinism): the
+  # replay-determinism crash-and-reopen proofs for `eg-jobs`/`eg-statechart`
+  # (see the matching pre-commit `replay-determinism` hook). Scoped to exactly
+  # these two crates' `replay_determinism` integration test, not the general
+  # `cargo-test` gate above — cheap enough (well under a minute cold) to run in
+  # the queue where the repo-wide `cargo-test` is not. `compare: exit`
+  # deliberately: this is a brand-new test with no prior baseline run to diff
+  # lines against, and any failure at all on a candidate that touches this
+  # surface is, by construction, a regression worth blocking on.
+  - name: replay-determinism
+    command:
+      - cargo
+      - test
+      - -p
+      - eg-jobs
+      - -p
+      - eg-statechart
+      - --test
+      - replay_determinism
+      - --target-dir
+      - target-isolated
+    tier: fast
+    timeout: 300
+    baseline_timeout: 600
+    compare: exit
+    when_changed:
+      - 'crates/eg-jobs/**'
+      - 'crates/eg-statechart/**'
+      - 'crates/eg-mutation-store/**'
+      - 'crates/eg-types/src/mutation_batch.rs'
+
+  # D-W6EFS-1 (w6-eg-facade-stackoverflow, 2026-08-07): rust-ci.yml's "Test
+  # (facade full)" step -- `cargo test -p epistemic-graph --features full` --
+  # was gated NOWHERE that actually runs on land. The pre-commit `cargo-test`
+  # hook only covers `-p eg-types -p eg-core -p eg-compute` (lower crates); a
+  # SECOND pre-commit hook does match this exact command, but declares
+  # `stages: [pre-push, manual]`, and lanes land through THIS queue, never
+  # `git push` -- so that hook never fires, and the general `cargo-test` gate
+  # above is `tier: slow` (declared, not run) for cost reasons. A stack
+  # overflow in `server::handlers::query::result_cache_dispatch_tests::
+  # hit_on_unchanged_then_write_invalidates` (SIGABRT, the process aborting
+  # mid-suite) reached CI unguarded as a direct result -- collateral damage
+  # made it look like 16 unrelated failures. This gate closes that: it is
+  # scoped to exactly the ONE package/feature-combo CI's step runs (not the
+  # `cargo-test` gate's `--all-features --workspace` -- that stays too costly
+  # for the queue), so it shares most of its build artifacts with the
+  # `cargo-check`/`clippy` gates above in the same `target-isolated` dir and
+  # pays mostly link+run cost, not a cold compile. `compare: exit`, like
+  # replay-determinism: `cargo test`'s plain-text output has no itemized
+  # per-test parser here (unlike pytest's `FAILED <nodeid>` contract), so the
+  # finest available signal is "was this red before" -- any failure/abort not
+  # already present on `main` is refused as a new regression.
+  - name: facade-test-full
+    command:
+      - cargo
+      - test
+      - -p
+      - epistemic-graph
+      - --features
+      - full
+      - --target-dir
+      - target-isolated
+    tier: fast
+    timeout: 2400
+    baseline_timeout: 4800
+    compare: exit
+    when_changed:
+      - 'src/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - '**/Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'rust-toolchain.toml'
+  # w5-ci-gates-local (D-W5CG-1): rust-ci.yml's `benchmarks` job runs this
+  # (query-pipeline fuzz + concurrency-chaos, CONCEPT:EG-KG.query.pipeline-fuzz)
+  # but CI is dark, and it was declared NOWHERE else -- not `.mergequeue.yaml`,
+  # not `.pre-commit-config.yaml` -- until now. This is exactly the operator's
+  # second live example: "cargo test -p eg-plan --test fuzz_pipelines -> FOREIGN
+  # fuzz failures" reached CI and only CI. Unlike the workspace-wide cargo-test
+  # above, this is ONE crate's ONE test binary with a fixed feature set -- cheap
+  # enough to run in the queue's FAST, differential tier exactly like
+  # cargo-check/clippy: it catches a NEW fuzz regression on the candidate
+  # without requiring the pre-existing findings (D-EGTC-10: FOREIGN registry
+  # validation gap, 4 known failures) to be fixed first. `when_changed` scopes
+  # it to eg-plan + its query/federation dependents so unrelated candidates
+  # never pay for it.
+  - name: eg-plan-fuzz-pipelines
+    command:
+      - cargo
+      - test
+      - -p
+      - eg-plan
+      - --features
+      - query,owl,text,timeseries,federation
+      - --test
+      - fuzz_pipelines
+      - --target-dir
+      - target-isolated
+    tier: fast
+    timeout: 1800
+    baseline_timeout: 3600
+    compare: lines
+    # Verified live (this lane, 2026-08-07, cold run: 6m24s, 2 tests FAILED,
+    # matching D-EGTC-10): only the per-test `... FAILED` summary lines are
+    # kept, deliberately NOT the `panicked at ...` detail lines beneath them.
+    # This suite's own proptest cases are persisted in
+    # crates/eg-plan/tests/fuzz_pipelines.proptest-regressions and replayed
+    # first, but each replay still re-panics once per shrink iteration (112
+    # `panicked at` lines observed for 2 failing tests here) -- an iteration
+    # count that is proptest-internal and not guaranteed stable across
+    # toolchain/dependency versions between the base and candidate run. Diffing
+    # on that noisy detail risked exactly the false-new-signal failure mode
+    # `.pre-commit-config.yaml`'s D-WUI-7-equivalent already had to fix
+    # elsewhere in this program (pnpm install's own non-reproducible progress
+    # lines) -- the stable, itemized identifier is the summary line, same
+    # discipline as agent-webui's vitest gate (`keep_lines: ["^FAIL "]`).
+    keep_lines:
+      - '^test .* \.\.\. FAILED'
+      - '^error\['
+    when_changed:
+      - 'crates/eg-plan/*'
+      - 'crates/eg-plan/**'
+      - 'crates/eg-query/**'
+      - 'Cargo.lock'
 
   # D-EGTC-1/D-EGTC-2 (w1-eg-test-census, 2026-08-06): `clients/go` had not
   # compiled for 17+ days -- gated NOWHERE (not here, not pre-commit, not any

@@ -3048,6 +3048,23 @@ pub(crate) async fn try_handle(
                 Err(e) => Response::err(req_id, e),
             }
         }
+        Method::GetNeighborsBatch { node_ids } => {
+            if node_ids.len() > MAX_BATCH_IDS {
+                return Response::err(
+                    req_id,
+                    format!(
+                        "batch too large: {} ids (max {})",
+                        node_ids.len(),
+                        MAX_BATCH_IDS
+                    ),
+                );
+            }
+            let g = &*core;
+            // [node_id, Vec<neighbor_id>] in input order — one round-trip and one
+            // topo-lock acquisition for N nodes (D-DPF-1) instead of N of each.
+            let out = g.get_neighbors_batch(node_ids);
+            Response::ok(req_id, ResultPayload::raw(&out))
+        }
         Method::GetBlastRadius { node_id, max_depth } => {
             let g = core.topology_snapshot();
             Response::ok(

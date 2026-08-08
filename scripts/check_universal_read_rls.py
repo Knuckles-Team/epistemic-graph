@@ -441,31 +441,39 @@ def main() -> None:
     )
     require(
         "pub async fn serve_with_security" in obs
-        and "unauthenticated_carrier_denied(&state.isolation)" in obs
+        and "unauthenticated_carrier_denied(None)" in obs
         and "observability read carriers require verified tenant ownership" in obs
         and "obs::serve_with_security" in main_rs,
         "PromQL/trace/log-search HTTP reads bypass live secure/RLS policy",
     )
     require(
         "S3 carrier has no verified tenant/object ownership" in s3_http
-        and "unauthenticated_carrier_denied(&state.isolation)" in s3_http
+        and "unauthenticated_carrier_denied(carrier.as_ref())" in s3_http
         and "KV-cache carrier has no verified tenant/page ownership" in kvcache_http
         and "pub async fn serve_with_security" in kvcache_http
         and "kvcache_http::serve_with_security" in main_rs,
         "S3 blob or KV-cache HTTP carriers bypass live secure/RLS policy",
     )
     require(
-        "federated HTTP reads require verified tenant ownership" in federation_http
-        and "unauthenticated_carrier_denied(&state.isolation)" in federation_http
+        "federated HTTP reads require a verified request carrier" in federation_http
+        and "unauthenticated_carrier_denied(None)" in federation_http
         and "Iceberg carrier has no verified tenant/table ownership" in lake_http
         and "pub async fn serve_with_security" in lake_http
         and "lake::rest::serve_with_security" in main_rs,
         "federated-search or Iceberg HTTP carriers bypass live secure/RLS policy",
     )
+    # A18 deliberately removed this sweep's client-carrier check (it is an
+    # engine-internal periodic task with no per-request caller to verify — the
+    # same precedent as `server::registry_reaper`), so the invariant this gate
+    # can still mechanically pin is the TWO things that make that removal safe:
+    # (1) the decision stays documented in place, not silently dropped, and
+    # (2) it materializes tenant/graph-scoped `SeriesKey`-encoded series ids
+    # (`tsdb.list_series()`), never a bare/raw series name, so tenants land in
+    # distinctly-named lake tables rather than one shared, commingled table.
     require(
-        "raw series export has no verified tenant ownership" in main_rs
-        and "server::unauthenticated_carrier_denied" in main_rs,
-        "configured lake materialization exports raw actor-scoped series under active RLS",
+        "engine-internal system maintenance, not a client" in main_rs
+        and "tsdb.list_series()" in main_rs,
+        "configured lake materialization writes un-tenant-scoped series ids",
     )
 
     digest = hashlib.sha256("\n".join(reads).encode()).hexdigest()
