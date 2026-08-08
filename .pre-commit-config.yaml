@@ -181,10 +181,18 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  # rust-ci gate 1 — workspace format check.
+  # rust-ci gate 1 — workspace format. APPLIES rather than only checking: a
+  # check-only hook makes the committer re-run the formatter by hand for a
+  # mechanical, always-safe rewrite, and if they push before noticing, CI's own
+  # `cargo fmt --all --check` row fails on pure whitespace. Formatting the tree
+  # here is the same auto-fixer contract the python hooks (ruff-format,
+  # end-of-file-fixer, trailing-whitespace) already use: pre-commit reports
+  # "files were modified by this hook", the commit is re-staged, and the tree
+  # that lands is formatted by construction. CI keeps `--check` as the
+  # authority; this just stops it being the FIRST place anyone finds out.
   - id: cargo-fmt
-    name: cargo fmt --all --check (rust-ci parity)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then cargo fmt --all --check; fi'
+    name: cargo fmt --all (rust-ci parity — auto-applies)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then cargo fmt --all; fi'
     language: system
     pass_filenames: false
     always_run: true
