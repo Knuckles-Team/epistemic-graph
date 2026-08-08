@@ -2708,6 +2708,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-quantum-hardware"
+version = "0.1.0"
+dependencies = [
+ "eg-quantum-core",
+ "hex",
+ "hmac 0.12.1",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "eg-quantum-sim"
 version = "0.1.0"
 dependencies = [
@@ -2994,6 +3008,7 @@ dependencies = [
  "eg-pyengine",
  "eg-quantum-core",
  "eg-quantum-gates",
+ "eg-quantum-hardware",
  "eg-quantum-sim",
  "eg-query",
  "eg-rdf",
@@ -6261,6 +6276,9 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
