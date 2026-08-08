@@ -132,7 +132,8 @@ pub fn induced_subgraph_ghz_program(n_qubits: u32, edges: &[(u32, u32)]) -> Quan
     // A breadth-first walk of the forest from each root so every CX's control qubit
     // has already been touched by the H (or a prior CX) before it fires -- otherwise
     // the entangling chain would not actually connect back to a superposed qubit.
-    let mut adjacency: std::collections::BTreeMap<u32, Vec<u32>> = std::collections::BTreeMap::new();
+    let mut adjacency: std::collections::BTreeMap<u32, Vec<u32>> =
+        std::collections::BTreeMap::new();
     for &(a, b) in &forest {
         adjacency.entry(a).or_default().push(b);
         adjacency.entry(b).or_default().push(a);
@@ -229,7 +230,10 @@ mod tests {
             .iter()
             .filter(|i| matches!(i, Instruction::Gate(g) if g.gate == GateKind::X && !g.controls.is_empty()))
             .count();
-        assert_eq!(h_count, 2, "one H per connected component (incl. singleton)");
+        assert_eq!(
+            h_count, 2,
+            "one H per connected component (incl. singleton)"
+        );
         assert_eq!(cx_count, 2, "one CX per spanning-forest edge");
     }
 

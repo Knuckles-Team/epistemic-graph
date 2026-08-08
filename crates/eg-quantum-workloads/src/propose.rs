@@ -478,7 +478,10 @@ mod tests {
         let run_b = run_qaoa_maxcut_local_sim(&subgraph, &config).unwrap();
         let proposal_b = MaxCutProposal::from_run(&subgraph, run_b);
         let second = commit_maxcut_proposal(&core, &proposal_b).unwrap();
-        assert!(matches!(second, ProposalCommitOutcome::AlreadyCommitted { .. }));
+        assert!(matches!(
+            second,
+            ProposalCommitOutcome::AlreadyCommitted { .. }
+        ));
         assert_eq!(first.claim_id(), second.claim_id());
     }
 }

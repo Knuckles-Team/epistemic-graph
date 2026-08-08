@@ -36,12 +36,14 @@ use eg_jobs::{
     JobPolicy, JobState, JobStore, ReproducibilityManifest, ResultColumn, SubmitSpec,
     TenantJobQuota, TypedJobResult,
 };
-use eg_quantum_core::backend::{BackendDescriptor, BackendError, BackendId, QuantumBackend, RunOptions};
+use eg_numeric::error::NumericError;
+use eg_quantum_core::backend::{
+    BackendDescriptor, BackendError, BackendId, QuantumBackend, RunOptions,
+};
 use eg_quantum_core::estimate::{estimate, EstimateOptions};
 use eg_quantum_core::ir::QuantumProgram;
 use eg_quantum_core::planner::{select_backend, PlannerDecision, PlannerOptions};
 use eg_quantum_core::result::{Outcome, QuantumResult};
-use eg_numeric::error::NumericError;
 use serde::{Deserialize, Serialize};
 
 use crate::circuit;
@@ -131,12 +133,13 @@ impl From<&EstimateOptions> for EstimateOptionsDto {
 impl From<&EstimateOptionsDto> for EstimateOptions {
     fn from(d: &EstimateOptionsDto) -> Self {
         EstimateOptions {
-            noise: d.noise_model_id.as_ref().map(|id| {
-                eg_quantum_core::estimate::NoiseRequest {
+            noise: d
+                .noise_model_id
+                .as_ref()
+                .map(|id| eg_quantum_core::estimate::NoiseRequest {
                     model_id: Some(id.clone()),
                     non_clifford: d.noise_non_clifford,
-                }
-            }),
+                }),
             want_exact_density_matrix: d.want_exact_density_matrix,
             shots: d.shots,
             memory_bound_bytes: d.memory_bound_bytes,
@@ -288,7 +291,8 @@ pub fn claim_and_run_quantum_job(
             // Best-effort: return the job to Submitted (if retries remain) or Failed,
             // per the REAL eg-jobs retry policy -- never leave a claimed lease
             // dangling on our own execution error.
-            let _ = store.fail_attempt_fenced(&job.job_id, worker_ref, epoch, err.to_string(), now_ms);
+            let _ =
+                store.fail_attempt_fenced(&job.job_id, worker_ref, epoch, err.to_string(), now_ms);
             Err(err)
         }
     }
@@ -526,7 +530,10 @@ fn build_typed_result(
             "quantum_marginal".to_string(),
             serde_json::json!(marginals[i]),
         );
-        row.insert("quantum_exact".to_string(), serde_json::json!(result.is_exact()));
+        row.insert(
+            "quantum_exact".to_string(),
+            serde_json::json!(result.is_exact()),
+        );
         rows.push(row);
     }
 

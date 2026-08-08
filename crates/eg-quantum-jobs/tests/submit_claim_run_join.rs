@@ -143,7 +143,11 @@ fn same_seed_reproduces_bit_exact_scores() {
         rows.sort_by(|a, b| a.0.cmp(&b.0));
         rows
     };
-    assert_eq!(run_once(), run_once(), "same circuit+seed+backend must be bit-exact");
+    assert_eq!(
+        run_once(),
+        run_once(),
+        "same circuit+seed+backend must be bit-exact"
+    );
 }
 
 /// A job whose `algo.family` is NOT `quantum.circuit` is refused loudly by the
@@ -184,5 +188,8 @@ fn wrong_family_job_is_rejected_not_silently_run() {
         60_000,
     )
     .unwrap_err();
-    assert!(matches!(err, eg_quantum_jobs::QuantumJobError::WrongFamily(_, _)));
+    assert!(matches!(
+        err,
+        eg_quantum_jobs::QuantumJobError::WrongFamily(_, _)
+    ));
 }

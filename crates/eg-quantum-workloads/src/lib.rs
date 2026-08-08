@@ -59,8 +59,7 @@ pub use propose::{
     CLAIM_VALIDATION_STATE,
 };
 pub use run::{
-    default_backend_id, run_qaoa_maxcut, run_qaoa_maxcut_local_sim, MaxCutRun, QaoaConfig,
-    RunError,
+    default_backend_id, run_qaoa_maxcut, run_qaoa_maxcut_local_sim, MaxCutRun, QaoaConfig, RunError,
 };
 pub use subgraph::{
     materialize_induced_subgraph, pull_candidate_subgraph, CandidateSubgraph, SubgraphError,
