@@ -4490,6 +4490,16 @@ mod tests {
         );
 
         backend.shutdown();
+        // `shutdown()` stops the writer threads but does NOT close each shard's
+        // `Database`; redb holds its advisory file lock for as long as any
+        // `Arc<RedbBackend>` lives, so an in-process reopen of the same directory
+        // fails with "Database already open. Cannot acquire lock." unless every
+        // reference is actually released first.
+        {
+            let mut s = state.write().await;
+            s.persistence = None;
+        }
+        drop(backend);
 
         let backend2 = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
             .expect("reopen redb backend");
@@ -4860,7 +4870,22 @@ mod tests {
         }
 
         // NO checkpoint. Drop the backend (flushes shutdown) and reload redb-only.
+        //
+        // `shutdown()` stops each shard's writer THREAD but does not close its
+        // `Database` -- the handle lives in the `Shard`, so redb keeps its advisory
+        // file lock for as long as ANY `Arc<RedbBackend>` survives. This test holds
+        // two: the local `backend` and the clone parked in `state.persistence`.
+        // Reopening the same directory in-process while either is alive fails with
+        // "Database already open. Cannot acquire lock." (In production the process
+        // exits and the OS releases the lock, which is why only an in-process
+        // reopen like this one is affected.) So actually drop both -- which is what
+        // this comment always claimed was happening.
         backend.shutdown();
+        {
+            let mut s = state.write().await;
+            s.persistence = None;
+        }
+        drop(backend);
 
         let backend2 =
             RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 256).expect("reopen");
@@ -7245,6 +7270,16 @@ mod tests {
             .collect();
         assert!(used.len() >= 2, "seed graphs span multiple shards");
         backend.shutdown();
+        // `shutdown()` stops the writer threads but does NOT close each shard's
+        // `Database`; redb holds its advisory file lock for as long as any
+        // `Arc<RedbBackend>` lives, so an in-process reopen of the same directory
+        // fails with "Database already open. Cannot acquire lock." unless every
+        // reference is actually released first.
+        {
+            let mut s = state.write().await;
+            s.persistence = None;
+        }
+        drop(backend);
 
         let backend2 = RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 64, K)
             .expect("reopen K=4");
