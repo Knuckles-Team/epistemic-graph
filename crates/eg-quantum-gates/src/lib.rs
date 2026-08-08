@@ -10,6 +10,11 @@
 //! `eg-quantum-gates` -- dense unitary matrices for `eg_quantum_core::ir::GateKind`
 //! (register D-QN-1, lane Q1 vendoring).
 //!
+//! CONCEPT:EG-KG.compute.quantum-gate-library -- the dense unitary matrix literals
+//! (Apache-2.0 attributed, ported from QuantRS2) for every `GateKind` that has one,
+//! expressed over `eg_numeric::complex::Complex64` -- no SciRS2/second numeric
+//! stack. Consumed by `eg-quantum-sim`'s backends.
+//!
 //! This crate is deliberately narrow: given a [`GateKind`] and its resolved
 //! (`f64`) parameters, return the gate's dense matrix as a fixed-size array of
 //! [`Complex64`]. It knows nothing about qubit indices, controls, or circuits --
