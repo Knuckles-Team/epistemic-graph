@@ -26,10 +26,14 @@ mod imp {
     use std::collections::HashSet;
 
     /// UDS round-trips are sub-millisecond; analytics can run for seconds —
-    /// span both regimes.
+    /// span both regimes. The tail (60/120/300/600/1800/3600) keeps a request
+    /// anywhere up to `EPISTEMIC_GRAPH_DISPATCH_DEADLINE_SECS`'s ceiling
+    /// observable instead of collapsing into the `+Inf` catch-all — a 30s-max
+    /// histogram could not distinguish an 82-request population that maxed
+    /// out at 31s from one that maxed out at 590s (D-EIMG-7).
     const DURATION_BUCKETS: &[f64] = &[
         0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5,
-        5.0, 10.0, 30.0,
+        5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0,
     ];
 
     /// Distinct `graph` label values tracked before aggregating into
