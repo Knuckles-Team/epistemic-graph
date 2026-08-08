@@ -73,18 +73,101 @@ gates:
       - 'build.rs'
       - 'rust-toolchain.toml'
 
+  # D-W6PC-1/D-W6TG-1: this MUST byte-match rust-ci.yml's "Clippy (every crate,
+  # all features)" step (`cargo clippy --workspace --all-features --all-targets
+  # -- -D warnings`) or it is not a gate, it is theater. Proven wrong the hard
+  # way on 2026-08-07: this command previously omitted `--workspace`,
+  # `--all-targets`, and `-- -D warnings`. `--all-targets` is the load-bearing
+  # one -- without it, cargo never even TYPE-CHECKS `tests/`/`benches/`/
+  # `examples/` (their `#[cfg(test)]`/harness code isn't compiled by a bare
+  # `cargo clippy`), so a lint living in a `#[test]` fn produces literally no
+  # output line on EITHER side of the differential diff -- not "no new line",
+  # NO LINE AT ALL, ever, by construction. That let `e0c2c39` (5 clippy errors,
+  # 3 of them in `tests/dependency_scoped_cache.rs`) land clean through this
+  # gate and fail on real CI minutes later. `--target-dir target-isolated` and
+  # `--message-format short` are output-shaping only (isolation + diff-
+  # friendliness) and do not change what gets linted, so they don't break the
+  # byte-match; `-D warnings` does change behaviour (denies rather than warns)
+  # and is required to match CI's actual failure semantics, not just its text.
   - name: clippy
     command:
       - cargo
       - clippy
+      - --workspace
       - --all-features
+      - --all-targets
       - --message-format
       - short
       - --target-dir
       - target-isolated
+      - --
+      - -D
+      - warnings
     tier: fast
     timeout: 1800
     baseline_timeout: 3600
+    compare: lines
+    keep_lines:
+      - '^error'
+      - '^warning'
+    when_changed:
+      - '*.rs'
+      - '**/*.rs'
+      - 'Cargo.toml'
+      - '**/Cargo.toml'
+
+  # rust-ci.yml gate 3 ("Clippy (slim lib)") — the lib-only feature slice with
+  # NO --all-targets (matching CI exactly: this is the one CI clippy step that
+  # does not pass it), so a change reaching up out of a lower crate into the
+  # slim `graph,algorithms` build breaks here, not silently in a shipped slim
+  # artifact.
+  - name: clippy-slim-lib
+    command:
+      - cargo
+      - clippy
+      - --no-default-features
+      - --features
+      - graph,algorithms
+      - --message-format
+      - short
+      - --target-dir
+      - target-isolated
+      - --
+      - -D
+      - warnings
+    tier: fast
+    timeout: 900
+    baseline_timeout: 1800
+    compare: lines
+    keep_lines:
+      - '^error'
+      - '^warning'
+    when_changed:
+      - '*.rs'
+      - '**/*.rs'
+      - 'Cargo.toml'
+      - '**/Cargo.toml'
+
+  # rust-ci.yml gate 4 ("Clippy (slim server)") — proves no compute leaks into
+  # the lean server build; WITH --all-targets, matching CI.
+  - name: clippy-slim-server
+    command:
+      - cargo
+      - clippy
+      - --no-default-features
+      - --features
+      - server
+      - --all-targets
+      - --message-format
+      - short
+      - --target-dir
+      - target-isolated
+      - --
+      - -D
+      - warnings
+    tier: fast
+    timeout: 900
+    baseline_timeout: 1800
     compare: lines
     keep_lines:
       - '^error'
