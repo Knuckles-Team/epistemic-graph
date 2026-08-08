@@ -4133,6 +4133,27 @@ mod tests {
     use sha2::Digest;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    /// Keep the full (`--features full`) dispatcher's state machine behind one heap
+    /// indirection — mirrors `src/cost.rs`'s and `src/server/handlers/query.rs`'s
+    /// `dispatch_on_heap`. `dispatch_on_heap()` bottoms out in `dispatch_inner`
+    /// (`src/server/dispatch.rs`), a single ~8k-line async fn whose generated
+    /// `Future` is sized to the UNION of every feature-gated `Method` match arm;
+    /// under `full` every arm is compiled in, so that future is large. Awaiting it
+    /// INLINE embeds the whole thing in the caller's own generated state machine,
+    /// and a test that awaits several in sequence exhausts the harness thread's
+    /// stack — which is exactly how
+    /// `delete_then_recreate_same_name_keeps_new_writes` aborted CI's
+    /// `Test (facade full)` step with `has overflowed its stack` / SIGABRT (and
+    /// took 29 sibling tests down with it as collateral, since the whole test
+    /// process dies). Route every `dispatch` call in this module through here.
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::protocol::Response> + Send + 'a>>
+    {
+        Box::pin(crate::server::dispatch(state, request))
+    }
+
     const TEST_AGENT: &str = "unit-test-agent";
     static AUTH_NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -4391,7 +4412,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn txn_commit_persists_to_redb() {
         use crate::protocol::ResultPayload;
-        use crate::server::dispatch;
 
         const SECRET: &str = "redb-txn-secret";
         let dir = std::env::temp_dir().join(format!("eg-redb-txn-{}", std::process::id()));
@@ -4414,7 +4434,7 @@ mod tests {
         }
 
         let req = |id: u64, method: Method| current_request(SECRET, id, "__commons__", method);
-        let txn = match dispatch(
+        let txn = match dispatch_on_heap(
             &state,
             req(
                 1,
@@ -4431,7 +4451,7 @@ mod tests {
             other => panic!("BeginTxn id, got {other:?}"),
         };
         for (rid, nid) in [(2u64, "x"), (3, "y")] {
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 req(
                     rid,
@@ -4446,7 +4466,7 @@ mod tests {
             .await;
             assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
         }
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 4,
@@ -4462,7 +4482,7 @@ mod tests {
         .await;
         assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
 
-        let r = dispatch(&state, req(5, Method::Commit { txn_id: txn })).await;
+        let r = dispatch_on_heap(&state, req(5, Method::Commit { txn_id: txn })).await;
         assert!(
             matches!(r.result, Some(ResultPayload::Bool(true))),
             "commit ok: {:?}",
@@ -4505,7 +4525,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn delete_then_recreate_same_name_keeps_new_writes() {
         use crate::protocol::ResultPayload;
-        use crate::server::dispatch;
         use crate::server::persistence::read_through::BackendReadThroughFactory;
 
         const SECRET: &str = "redb-recreate";
@@ -4555,12 +4574,12 @@ mod tests {
         };
 
         // First incarnation: create + write n1={v:1} and stale={v:9}.
-        assert!(dispatch(&state, create(1)).await.error.is_none());
-        assert!(dispatch(&state, add(2, "n1", 1)).await.error.is_none());
-        assert!(dispatch(&state, add(3, "stale", 9)).await.error.is_none());
+        assert!(dispatch_on_heap(&state, create(1)).await.error.is_none());
+        assert!(dispatch_on_heap(&state, add(2, "n1", 1)).await.error.is_none());
+        assert!(dispatch_on_heap(&state, add(3, "stale", 9)).await.error.is_none());
 
         // Delete the tenant.
-        let del = dispatch(
+        let del = dispatch_on_heap(
             &state,
             req(
                 4,
@@ -4574,19 +4593,19 @@ mod tests {
 
         // Recreate SAME name. The new tenant writes ONLY n1={v:2}; it never writes
         // "stale" — that node belongs to the deleted incarnation and must be gone.
-        let recreate = dispatch(&state, create(5)).await;
+        let recreate = dispatch_on_heap(&state, create(5)).await;
         assert!(recreate.error.is_none(), "recreate: {:?}", recreate.error);
-        assert!(dispatch(&state, add(6, "n1", 2)).await.error.is_none());
+        assert!(dispatch_on_heap(&state, add(6, "n1", 2)).await.error.is_none());
 
         // (a) LIVE read-through: force every node out of RAM so the next read
         // RAM-MISSES and falls to the durable read-through (the eviction path is real
         // under authoritative mode — it bounds memory per CONCEPT:EG-KG.storage.read-through-seam-exercised).
-        let ev = dispatch(&state, req(7, Method::EvictLRU { max_nodes: 0 })).await;
+        let ev = dispatch_on_heap(&state, req(7, Method::EvictLRU { max_nodes: 0 })).await;
         assert!(ev.error.is_none(), "evict: {:?}", ev.error);
 
         // The deleted incarnation's "stale" node must NOT resurrect from redb on a
         // RAM-miss read of the recreated graph.
-        let r = dispatch(&state, get(8, "stale")).await;
+        let r = dispatch_on_heap(&state, get(8, "stale")).await;
         let stale = match r.result {
             Some(ResultPayload::PropertiesMsgpack(b)) => Some(b),
             Some(ResultPayload::Json(serde_json::Value::Null)) | None => None,
@@ -4598,7 +4617,7 @@ mod tests {
         );
 
         // And n1 reads back as the NEW write {v:2}.
-        let r = dispatch(&state, get(9, "n1")).await;
+        let r = dispatch_on_heap(&state, get(9, "n1")).await;
         let got = match r.result {
             Some(ResultPayload::PropertiesMsgpack(b)) => Some(b),
             Some(ResultPayload::Json(serde_json::Value::Null)) | None => None,
@@ -4657,7 +4676,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn many_recreate_cycles_keep_inmemory_writes_visible() {
         use crate::protocol::ResultPayload;
-        use crate::server::dispatch;
         use crate::server::persistence::read_through::BackendReadThroughFactory;
 
         const SECRET: &str = "redb-churn";
@@ -4694,7 +4712,7 @@ mod tests {
 
             for cycle in 0..CYCLES {
                 // create
-                let c = dispatch(
+                let c = dispatch_on_heap(
                     &state,
                     req(
                         next(),
@@ -4709,7 +4727,7 @@ mod tests {
 
                 // write a node UNIQUE to this cycle
                 let node = format!("n{cycle}");
-                let a = dispatch(
+                let a = dispatch_on_heap(
                     &state,
                     req(
                         next(),
@@ -4725,7 +4743,7 @@ mod tests {
                 // read it back HOT from RAM (no eviction) — the new tenant's write
                 // MUST be visible. This is where a stale coalescer routes the write
                 // into the deleted core and the fresh core reads back empty.
-                let r = dispatch(
+                let r = dispatch_on_heap(
                     &state,
                     req(
                         next(),
@@ -4753,7 +4771,7 @@ mod tests {
                 // node. If the stale coalescer routed the write to the deleted core,
                 // the live core is empty and this is 0 — the durable read-through above
                 // would otherwise MASK the corruption by serving redb.
-                let nc = dispatch(&state, req(next(), Method::NodeCount)).await;
+                let nc = dispatch_on_heap(&state, req(next(), Method::NodeCount)).await;
                 let count = match nc.result {
                     Some(ResultPayload::Count(c)) => c,
                     other => panic!("cycle {cycle} unexpected node-count result: {other:?}"),
@@ -4766,7 +4784,7 @@ mod tests {
 
                 // delete (skip on the last cycle so we leave the graph live)
                 if cycle + 1 < CYCLES {
-                    let d = dispatch(
+                    let d = dispatch_on_heap(
                         &state,
                         req(
                             next(),
@@ -4794,7 +4812,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn dispatch_authoritative_durable_without_checkpoint() {
         use crate::protocol::ResultPayload;
-        use crate::server::dispatch;
 
         const SECRET: &str = "redb-auth-dispatch";
         let dir = std::env::temp_dir().join(format!("eg-redb-authd-{}", std::process::id()));
@@ -4812,7 +4829,7 @@ mod tests {
         let req = |id: u64, method: Method| current_request(SECRET, id, "g_auth", method);
         // Create graph (durably registered) then write nodes — each dispatch returns
         // only after the durable commit.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 1,
@@ -4825,7 +4842,7 @@ mod tests {
         .await;
         assert!(r.error.is_none(), "create: {:?}", r.error);
         for (rid, nid) in [(2u64, "a"), (3, "b"), (4, "c")] {
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 req(
                     rid,
@@ -6121,7 +6138,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn crossmodal_measurement_visible_via_public_tsrange_post_commit_and_restart() {
         use crate::protocol::ResultPayload;
-        use crate::server::dispatch;
         use eg_tsdb::store::SeriesStore;
 
         const SECRET: &str = "ts-unify-secret";
@@ -6147,7 +6163,7 @@ mod tests {
         let req = |id: u64, method: Method| current_request(SECRET, id, "media", method);
 
         // Stage a node + a measurement in ONE cross-modal txn, then commit.
-        let begin = dispatch(
+        let begin = dispatch_on_heap(
             &state,
             req(
                 1,
@@ -6162,7 +6178,7 @@ mod tests {
             Some(ResultPayload::String(id)) => id,
             other => panic!("BeginTxn id, got {other:?}"),
         };
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 2,
@@ -6176,7 +6192,7 @@ mod tests {
         )
         .await;
         assert!(r.error.is_none(), "stage node: {:?}", r.error);
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 3,
@@ -6193,7 +6209,7 @@ mod tests {
         .await;
         assert!(r.error.is_none(), "stage measurement: {:?}", r.error);
 
-        let commit = dispatch(&state, req(4, Method::Commit { txn_id })).await;
+        let commit = dispatch_on_heap(&state, req(4, Method::Commit { txn_id })).await;
         assert_eq!(
             as_bool(commit),
             Some(true),
@@ -6221,7 +6237,7 @@ mod tests {
                 other => panic!("expected Raw TsRange result, got {other:?}"),
             }
         };
-        let got = decode_ts(dispatch(&state, ts_range()).await);
+        let got = decode_ts(dispatch_on_heap(&state, ts_range()).await);
         assert_eq!(
             got, points,
             "measurement committed via the cross-modal txn path must be visible through \
@@ -6264,7 +6280,7 @@ mod tests {
             s.tsdb_store = Some(series_store2.clone());
         }
 
-        let got2 = decode_ts(dispatch(&state2, ts_range()).await);
+        let got2 = decode_ts(dispatch_on_heap(&state2, ts_range()).await);
         assert_eq!(
             got2, points,
             "measurement must STILL be visible through the PUBLIC TsRange API after a \
@@ -6290,7 +6306,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn startup_reconciliation_closes_the_crash_window_gap() {
         use crate::protocol::ResultPayload;
-        use crate::server::dispatch;
         use eg_tsdb::store::SeriesStore;
 
         const SECRET: &str = "ts-reconcile-secret";
@@ -6356,7 +6371,7 @@ mod tests {
         // opened directly on the shard here to double-check, since `backend` still
         // holds redb's exclusive per-process file lock on it, same constraint the
         // EG-P0-4 test works around by dropping its backend first.)
-        let before = decode_ts(dispatch(&state, ts_range(1)).await);
+        let before = decode_ts(dispatch_on_heap(&state, ts_range(1)).await);
         assert!(
             before.is_empty(),
             "before reconciliation, a measurement landed only via the authoritative shard \
@@ -6376,7 +6391,7 @@ mod tests {
         );
         assert_eq!(report.points_replayed, 3, "all 3 points replayed");
 
-        let after = decode_ts(dispatch(&state, ts_range(2)).await);
+        let after = decode_ts(dispatch_on_heap(&state, ts_range(2)).await);
         assert_eq!(
             after, points,
             "after reconciliation, the measurement must be visible through the PUBLIC \
@@ -6394,7 +6409,7 @@ mod tests {
             "a converged series must not be re-reconciled"
         );
         assert_eq!(report2.points_replayed, 0);
-        let after2 = decode_ts(dispatch(&state, ts_range(3)).await);
+        let after2 = decode_ts(dispatch_on_heap(&state, ts_range(3)).await);
         assert_eq!(
             after2, points,
             "running reconciliation twice must not duplicate any point"
@@ -6411,7 +6426,6 @@ mod tests {
     #[tokio::test]
     async fn audit_verify_dispatch_detects_tamper() {
         use crate::protocol::{AuditReport, ResultPayload};
-        use crate::server::dispatch;
 
         const SECRET: &str = "audit-secret";
         let dir = std::env::temp_dir().join(format!("eg-audit-{}", std::process::id()));
@@ -6432,7 +6446,7 @@ mod tests {
 
         // Two durable writes → two chained audit entries (commit-before-ack durable).
         for (rid, nid) in [(1u64, "n1"), (2, "n2")] {
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 req(
                     rid,
@@ -6453,7 +6467,7 @@ mod tests {
                 other => panic!("expected raw AuditReport, got {other:?}"),
             }
         };
-        let report = decode(dispatch(&state, req(3, Method::AuditVerify)).await);
+        let report = decode(dispatch_on_heap(&state, req(3, Method::AuditVerify)).await);
         assert!(report.ok, "clean chain should verify: {report:?}");
         assert_eq!(report.entries, 2);
 
@@ -6461,7 +6475,7 @@ mod tests {
         backend
             .test_tamper_audit_entry(&crate::persist::sanitize("__commons__"), 0)
             .expect("tamper");
-        let broken = decode(dispatch(&state, req(4, Method::AuditVerify)).await);
+        let broken = decode(dispatch_on_heap(&state, req(4, Method::AuditVerify)).await);
         assert!(!broken.ok, "tamper should be detected");
         assert_eq!(broken.first_broken_seq, Some(0));
 
@@ -6482,7 +6496,6 @@ mod tests {
     #[tokio::test]
     async fn provenance_anchor_inclusion_proof_detects_tamper() {
         use crate::protocol::{AuditReport, MerkleInclusionReport, ResultPayload};
-        use crate::server::dispatch;
         use crate::server::persistence::provenance_anchor;
 
         const SECRET: &str = "provenance-secret";
@@ -6508,7 +6521,7 @@ mod tests {
             (2, "rt-1", "RunTrace"),
             (3, "widget-1", "Widget"),
         ] {
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 req(
                     rid,
@@ -6541,7 +6554,7 @@ mod tests {
 
         // A clean, freshly-anchored ToolCall node verifies.
         let clean = decode_report(
-            dispatch(
+            dispatch_on_heap(
                 &state,
                 req(
                     4,
@@ -6560,7 +6573,7 @@ mod tests {
 
         // Overwrite tc-1's durable content through the ORDINARY served write path
         // (not a raw byte-flip) -- the realistic tamper/insider-edit scenario.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 5,
@@ -6578,7 +6591,7 @@ mod tests {
         // Same anchor (explicit `anchor_seq`), same node id: now fails
         // verification -- the acceptance property.
         let tampered = decode_report(
-            dispatch(
+            dispatch_on_heap(
                 &state,
                 req(
                     6,
@@ -6610,7 +6623,7 @@ mod tests {
         // A node that was never in the window reports included=false, never a
         // false "verified".
         let out_of_window = decode_report(
-            dispatch(
+            dispatch_on_heap(
                 &state,
                 req(
                     7,
@@ -6636,7 +6649,7 @@ mod tests {
         );
 
         let audit_report: AuditReport =
-            match dispatch(&state, req(8, Method::AuditVerify)).await.result {
+            match dispatch_on_heap(&state, req(8, Method::AuditVerify)).await.result {
                 Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
                 other => panic!("expected raw AuditReport, got {other:?}"),
             };
@@ -7389,7 +7402,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn admin_rpc_dispatch_roundtrip() {
         use crate::protocol::ResultPayload;
-        use crate::server::dispatch;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const SECRET: &str = "admin-rpc";
         const K: usize = 4;
@@ -7411,7 +7423,7 @@ mod tests {
         let req = |id: u64, method: Method| current_request(SECRET, id, "__commons__", method);
 
         // CatalogAssign → Bool(true).
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 1,
@@ -7430,7 +7442,7 @@ mod tests {
         );
 
         // CatalogList → JSON containing the placement we just wrote.
-        let r = dispatch(&state, req(2, Method::CatalogList)).await;
+        let r = dispatch_on_heap(&state, req(2, Method::CatalogList)).await;
         match r.result {
             Some(ResultPayload::Json(v)) => {
                 let placements = v
@@ -7450,7 +7462,7 @@ mod tests {
         }
 
         // RebalancePlan → JSON with `moves` + `shards` arrays (read-only).
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 3,
