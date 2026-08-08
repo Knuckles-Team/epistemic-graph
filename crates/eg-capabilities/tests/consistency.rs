@@ -867,7 +867,7 @@ fn all_methods_table_has_the_expected_variant_count() {
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))
-        + usize::from(cfg!(feature = "viz"));
+        + usize::from(cfg!(feature = "viz"))
         + usize::from(cfg!(feature = "quantum"));
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }

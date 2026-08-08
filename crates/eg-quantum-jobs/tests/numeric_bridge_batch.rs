@@ -45,7 +45,10 @@ fn ghz_bitstring_distribution_and_marginals_match_theory() {
 
     let marginals = marginal_probabilities(&result.outcome, 3).unwrap();
     for &p in marginals.iter() {
-        assert!((p - 0.5).abs() < 0.1, "GHZ marginal should be ~0.5, got {p}");
+        assert!(
+            (p - 0.5).abs() < 0.1,
+            "GHZ marginal should be ~0.5, got {p}"
+        );
     }
 }
 

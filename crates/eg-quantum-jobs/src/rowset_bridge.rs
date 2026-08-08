@@ -98,7 +98,12 @@ mod tests {
         .expect("a job was ready");
 
         let mut registry = ForeignSourceRegistry::new();
-        register_quantum_job_source(&mut registry, "quantum_demo", store.clone(), finished.job_id);
+        register_quantum_job_source(
+            &mut registry,
+            "quantum_demo",
+            store.clone(),
+            finished.job_id,
+        );
         let rows = registry.resolve("quantum_demo").expect("resolves");
         let mut ids = rows.ids();
         ids.sort();

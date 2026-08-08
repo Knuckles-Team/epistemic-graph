@@ -33,7 +33,10 @@ pub struct BitstringDistribution {
 /// `eg-numeric` array indexed `0..n_qubits` — the shape a caller wants to feed
 /// straight into `eg-numeric`'s reduction/stats surface (e.g. comparing observed
 /// marginals against a classical prior array element-wise).
-pub fn marginal_probabilities(outcome: &Outcome, n_qubits: u32) -> Result<Array1<f64>, NumericError> {
+pub fn marginal_probabilities(
+    outcome: &Outcome,
+    n_qubits: u32,
+) -> Result<Array1<f64>, NumericError> {
     match outcome {
         Outcome::Counts(counts) => {
             let total: u64 = counts.values().sum();
@@ -58,9 +61,7 @@ pub fn marginal_probabilities(outcome: &Outcome, n_qubits: u32) -> Result<Array1
                 }
             }
             Ok(Array1::from_vec(
-                ones.into_iter()
-                    .map(|c| c as f64 / total as f64)
-                    .collect(),
+                ones.into_iter().map(|c| c as f64 / total as f64).collect(),
             ))
         }
         Outcome::ExpectationValue { .. } => Err(NumericError::Shape(
@@ -82,12 +83,8 @@ pub fn bitstring_distribution(outcome: &Outcome) -> Result<BitstringDistribution
                 ));
             }
             let bitstrings: Vec<String> = counts.keys().cloned().collect(); // BTreeMap: already sorted
-            let probabilities = Array1::from_vec(
-                counts
-                    .values()
-                    .map(|&c| c as f64 / total as f64)
-                    .collect(),
-            );
+            let probabilities =
+                Array1::from_vec(counts.values().map(|&c| c as f64 / total as f64).collect());
             Ok(BitstringDistribution {
                 bitstrings,
                 probabilities,
@@ -105,7 +102,9 @@ pub fn bitstring_distribution(outcome: &Outcome) -> Result<BitstringDistribution
 /// a given result carried no `stderr`, e.g. an exact result — `NAN` rather than `0.0`
 /// so a caller cannot mistake "no error reported" for "zero error", and `eg-numeric`'s
 /// own reductions already treat `NAN` as the documented not-a-number sentinel).
-pub fn expectation_array(results: &[QuantumResult]) -> Result<(Array1<f64>, Array1<f64>), NumericError> {
+pub fn expectation_array(
+    results: &[QuantumResult],
+) -> Result<(Array1<f64>, Array1<f64>), NumericError> {
     let mut values = Vec::with_capacity(results.len());
     let mut stderrs = Vec::with_capacity(results.len());
     for result in results {
@@ -161,7 +160,10 @@ mod tests {
         let marginals = marginal_probabilities(&outcome, 3).unwrap();
         assert_eq!(marginals.len(), 3);
         for &p in marginals.iter() {
-            assert!((p - 0.5).abs() < 1e-9, "GHZ marginal must be exactly 0.5, got {p}");
+            assert!(
+                (p - 0.5).abs() < 1e-9,
+                "GHZ marginal must be exactly 0.5, got {p}"
+            );
         }
     }
 

@@ -209,7 +209,10 @@ fn rule_name(rule: PlannerRule) -> &'static str {
     }
 }
 
-fn planner_json(decision: &PlannerDecision, override_requested: &Option<String>) -> serde_json::Value {
+fn planner_json(
+    decision: &PlannerDecision,
+    override_requested: &Option<String>,
+) -> serde_json::Value {
     serde_json::json!({
         "chosen_backend": decision.chosen.0,
         "chosen_family": serde_json::to_value(decision.family).unwrap_or(serde_json::Value::Null),
@@ -247,12 +250,12 @@ fn result_json(result: &QuantumResult, proposal: bool) -> serde_json::Value {
 fn counts_of(outcome: &Outcome) -> Result<&BTreeMap<String, u64>, String> {
     match outcome {
         Outcome::Counts(counts) => Ok(counts),
-        Outcome::ExpectationValue { .. } => {
-            Err("backend returned an expectation-value outcome where shot counts were expected \
+        Outcome::ExpectationValue { .. } => Err(
+            "backend returned an expectation-value outcome where shot counts were expected \
                  (this build's registered backends never produce that shape directly — this is a \
                  defensive check, not an expected path)"
-                .to_string())
-        }
+                .to_string(),
+        ),
     }
 }
 
@@ -335,7 +338,11 @@ fn build_rank_program(candidates: &[QuantumRankCandidate]) -> Result<QuantumProg
         } else {
             0.5
         };
-        instructions.push(rotation(GateKind::Ry, &[i as u32], normalized * std::f64::consts::PI));
+        instructions.push(rotation(
+            GateKind::Ry,
+            &[i as u32],
+            normalized * std::f64::consts::PI,
+        ));
     }
     if n_qubits >= 2 {
         for i in 0..n_qubits {
@@ -453,7 +460,10 @@ fn build_qaoa_program(
             .get(e.target.as_str())
             .ok_or_else(|| format!("edge target '{}' is not in nodes", e.target))?;
         if u == v {
-            return Err(format!("self-loop edge on node '{}' is not a valid Max-Cut edge", e.source));
+            return Err(format!(
+                "self-loop edge on node '{}' is not a valid Max-Cut edge",
+                e.source
+            ));
         }
         resolved_edges.push((u, v, e.weight));
     }
@@ -568,7 +578,10 @@ fn resolve_observable_positions(
             classical_bit,
         } = instr
         {
-            qubit_to_bit.insert(*qubit, (classical_bit.register.as_str(), classical_bit.index));
+            qubit_to_bit.insert(
+                *qubit,
+                (classical_bit.register.as_str(), classical_bit.index),
+            );
         }
     }
     observable_qubits
@@ -582,7 +595,9 @@ fn resolve_observable_positions(
                 )
             })?;
             let base = offsets.get(register).ok_or_else(|| {
-                format!("classical register '{register}' is referenced by a Measure but not declared")
+                format!(
+                    "classical register '{register}' is referenced by a Measure but not declared"
+                )
             })?;
             Ok(base + *index as usize)
         })
