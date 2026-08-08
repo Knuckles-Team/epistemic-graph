@@ -55,11 +55,26 @@
 //!
 //! `serde` is the only dependency, already resolved workspace-wide by every other
 //! `eg-*` crate — this optional, default-off crate adds nothing new to `Cargo.lock`.
+//!
+//! # DE1 addition — [`project`]
+//!
+//! [`project`] is a pure `DurableExecutionUnitMirror -> KgNode/KgEdge` projection,
+//! the same shape and posture as `eg-statechart::kg::project` (a `StatechartDef`'s
+//! own KG projection): data, not a graph write, no engine dependency, fully
+//! unit-tested. Like that sibling function, it has **no live caller in this
+//! workspace yet** — wiring a real dispatch-handler call-through for
+//! `eg-statechart`/`eg-jobs`/`eg-mutation-store` is tracked, not silently claimed
+//! done (`agent-utilities` `docs/architecture/durable-execution.md`). The one
+//! backend with a REAL, wired mirror-on-write today is the Python-side
+//! `DurableRun`, via `agent_utilities.knowledge_graph.durable_execution_kg`
+//! (reached over the engine RPC boundary, not this crate).
 
 pub mod mirror;
+pub mod project;
 pub mod route;
 
 pub use mirror::DurableExecutionUnitMirror;
+pub use project::{project, unit_node_id, KgEdge, KgNode, KgProjection};
 pub use route::{
     route_call_shape, route_work_shape, CallShape, DurableBackendKind, DurableBackendRef,
     JobsBackend, MutationStoreSagaBackend, PythonDurableRunBackend, StatechartBackend, WorkShape,
