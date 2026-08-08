@@ -4965,12 +4965,12 @@ impl GraphCore {
     /// neighbor list at its position rather than failing the whole batch —
     /// callers that need to distinguish "absent" from "no neighbors" should
     /// pair this with `has_batch`. Order matches `node_ids`.
-    pub fn get_neighbors_batch(&self, node_ids: &[String]) -> Vec<(String, Vec<String>)> {
+    pub fn get_neighbors_batch(&self, node_ids: Vec<String>) -> Vec<(String, Vec<String>)> {
         let topo = self.topo.read();
         node_ids
-            .iter()
+            .into_iter()
             .map(|node_id| {
-                let neighbors = match topo.node_map.get(node_id) {
+                let neighbors = match topo.node_map.get(&node_id) {
                     Some(idx) => {
                         let mut set = std::collections::HashSet::new();
                         for e in topo
@@ -4989,7 +4989,7 @@ impl GraphCore {
                     }
                     None => Vec::new(),
                 };
-                (node_id.clone(), neighbors)
+                (node_id, neighbors)
             })
             .collect()
     }
