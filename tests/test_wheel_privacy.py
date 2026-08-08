@@ -18,6 +18,15 @@ from scripts.configure_rust_path_remap import (
 from scripts.normalize_wheel_build_paths import normalize_wheel_build_paths
 from scripts.normalize_wheel_sbom import normalize_wheel
 
+# This file's own docstring says "no engine required" -- it exercises pure-Python
+# release-artifact scripts against in-memory zip fixtures, nothing else. Without
+# this marker, conftest.py's session-scoped autouse `start_epistemic_graph_server`
+# fixture doesn't know that and pays a full `cargo build --features full` before a
+# single test here runs, exactly like test_build_backend.py and
+# test_release_full_wheel_contract.py (the other static release-artifact test
+# files) already declare.
+pytestmark = pytest.mark.no_engine
+
 
 def _neutral_metadata(*, body: str = "") -> bytes:
     return (
@@ -71,9 +80,17 @@ def test_encoded_flags_preserve_existing_encoded_flags_and_remap_specific_first(
 
     assert flags[:2] == ["-C", "debuginfo=0"]
     assert preserved == 2
-    assert remaps == 2
+    # 4, not 2: checkout + HOME (env-derived) PLUS the two unconditional
+    # container roots (/root, /github/home) that ALWAYS_DENIED_ROOTS adds
+    # regardless of environment -- see configure_rust_path_remap.py.
+    assert remaps == 4
     assert flags[2].endswith("=/build/source")
-    assert flags[3].endswith("=/build/home")
+    assert all(flag.endswith("=/build/home") for flag in flags[3:6])
+    assert {flag.rpartition("=/build/home")[0] for flag in flags[3:6]} == {
+        "--remap-path-prefix=/github/home",
+        "--remap-path-prefix=/root",
+        "--remap-path-prefix=/srv",
+    }
 
 
 def test_encoded_flags_convert_plain_flags_without_losing_quoted_values():
@@ -85,7 +102,8 @@ def test_encoded_flags_convert_plain_flags_without_losing_quoted_values():
 
     assert flags[:3] == ["-C", "opt-level=3", "-Ctarget-cpu=x86-64-v2"]
     assert preserved == 3
-    assert remaps == 1
+    # 3, not 1: checkout PLUS the two unconditional container roots.
+    assert remaps == 3
 
 
 def test_native_flags_preserve_existing_values_and_remap_build_sources():
@@ -97,7 +115,29 @@ def test_native_flags_preserve_existing_values_and_remap_build_sources():
     )
 
     assert flags.startswith("-O2 -fno-omit-frame-pointer ")
-    assert flags.endswith(f"-ffile-prefix-map={checkout}=/build/source")
+    assert f"-ffile-prefix-map={checkout}=/build/source" in flags
+    # The unconditional container roots ride along on every remap call, not
+    # just the checkout -- native (C/C++) build scripts run inside the same
+    # manylinux container and need the same protection rustc's
+    # --remap-path-prefix gets.
+    assert "-ffile-prefix-map=/root=/build/home" in flags
+    assert "-ffile-prefix-map=/github/home=/build/home" in flags
+
+
+def test_privileged_container_roots_are_always_denied_even_with_no_environment():
+    """Regression test: manylinux/maturin-action builds hand off to a Docker
+    container that always runs as root (HOME=/root, CARGO_HOME=/root/.cargo,
+    RUSTUP_HOME=/root/.rustup), a path structure no environment variable this
+    script can read ever names -- the outer runner's own env is irrelevant to
+    what the container uses. A dependency fetched fresh into that container's
+    registry cache embeds `/root/.cargo/registry/src/.../<crate>/src/....rs`
+    into panic!/track_caller/file!() locations, and it must be remapped
+    unconditionally, not merely when some environment variable says so."""
+
+    remaps = path_remaps({})
+
+    assert ("/root", "/build/home") in remaps
+    assert ("/github/home", "/build/home") in remaps
 
 
 def test_cargo_target_dir_is_remapped_and_denied_at_runtime():
