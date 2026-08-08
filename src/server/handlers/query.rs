@@ -4476,10 +4476,28 @@ mod result_cache_dispatch_tests {
         current_request(SECRET, id, "__commons__", method)
     }
 
+    /// Keep the full (`--features full`) dispatcher's state machine behind one heap
+    /// indirection — mirrors `src/cost.rs`'s `dispatch_on_heap`. `dispatch()` bottoms
+    /// out in `dispatch_inner` (`src/server/dispatch.rs`), a single ~8k-line async fn
+    /// whose generated `Future` is sized to the UNION of every feature-gated
+    /// `Method` match arm; under `full` every arm is compiled in, so that future is
+    /// large. Awaiting it INLINE (never boxed) embeds the whole thing in the
+    /// caller's own generated state machine, and nesting a couple of calls deep (a
+    /// helper awaiting `dispatch` inside a test awaiting the helper) can exhaust the
+    /// test harness thread's stack before the first request is even polled — this is
+    /// exactly what crashed `hit_on_unchanged_then_write_invalidates` with a stack
+    /// overflow (SIGABRT) in CI. Route every call in this module through here.
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+        Box::pin(dispatch(state, request))
+    }
+
     async fn add_node(state: &Arc<RwLock<ServerState>>, id: u64, node: &str, label: &str) {
         let props = serde_json::json!({ "node_type": label });
         let bytes = rmp_serde::to_vec_named(&props).unwrap();
-        let r = dispatch(
+        let r = dispatch_on_heap(
             state,
             req(
                 id,
@@ -4527,7 +4545,7 @@ mod result_cache_dispatch_tests {
         let (h0, m0) = cache_stats(&core);
 
         // First query: cold MISS, computes + caches.
-        let r1 = dispatch(
+        let r1 = dispatch_on_heap(
             &state,
             req(
                 10,
@@ -4545,7 +4563,7 @@ mod result_cache_dispatch_tests {
 
         // Second identical query on the UNCHANGED graph: HIT, identical bytes, no
         // recompute (the hit counter moved, the miss counter did not).
-        let r2 = dispatch(
+        let r2 = dispatch_on_heap(
             &state,
             req(
                 11,
@@ -4566,7 +4584,7 @@ mod result_cache_dispatch_tests {
         assert_ne!(core.version(), v_before, "write must bump version");
 
         // Same query again: MISS (recompute), and the result is CORRECT (now 3 rows).
-        let r3 = dispatch(
+        let r3 = dispatch_on_heap(
             &state,
             req(
                 12,
@@ -4591,7 +4609,7 @@ mod result_cache_dispatch_tests {
         );
 
         // And it is cached again at the new version: the next identical query HITS.
-        let r4 = dispatch(
+        let r4 = dispatch_on_heap(
             &state,
             req(
                 13,
@@ -4621,7 +4639,7 @@ mod result_cache_dispatch_tests {
 
         // Warm B's cache: query B once (miss) then again (hit) — B is now serving a
         // cached result for the graph.
-        let _ = dispatch(
+        let _ = dispatch_on_heap(
             &b,
             req(
                 20,
@@ -4632,7 +4650,7 @@ mod result_cache_dispatch_tests {
             ),
         )
         .await;
-        let r_hit = dispatch(
+        let r_hit = dispatch_on_heap(
             &b,
             req(
                 21,
@@ -4674,7 +4692,7 @@ mod result_cache_dispatch_tests {
 
         // B's previously-cached result is now unreachable: the SAME query MISSES.
         let (h2, m2) = cache_stats(&core_b);
-        let r_after = dispatch(
+        let r_after = dispatch_on_heap(
             &b,
             req(
                 22,
