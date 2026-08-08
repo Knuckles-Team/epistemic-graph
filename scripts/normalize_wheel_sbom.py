@@ -45,6 +45,7 @@ _URI_ALIASES = {
     "/build/rustup": "build://rustup",
     "/build/tools": "build://tools",
     "/build/temp": "build://temp",
+    "/build/cargo-target": "build://cargo-target",
     "/build/local-data": "build://local-data",
     "/build/app-data": "build://app-data",
     # Avoid a ``//home/`` URI segment: byte-level privacy scanners correctly
