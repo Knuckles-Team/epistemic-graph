@@ -126,6 +126,49 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # w5-ci-gates-local (D-W5CG-1): rust-ci.yml `lint-and-test`'s first four
+  # architecture-gate steps ran ONLY in CI before this — pure-stdlib, no cargo,
+  # no wheel build, each <0.3s measured cold on this worktree. Same shape as
+  # documentation-contract/canonical-property-schema/epistemic-operations-protocol
+  # above (already local); this closes the rest of that job's cheap-script surface.
+  - id: p2-modality-architecture
+    name: P2 modality architecture gate
+    entry: python3 scripts/check_p2_modality_architecture.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: p2-analytics-reasoning-architecture
+    name: P2 analytics and reasoning architecture gate
+    entry: python3 scripts/check_p2_analytics_reasoning_architecture.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: lazy-lifecycle-architecture
+    name: Bounded lazy lifecycle architecture gate
+    entry: python3 scripts/check_lazy_lifecycle_architecture.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  # Currently RED on main pending w3-eg-ci-green landing (D-EGCG-1: ROS2 CDC does
+  # not fail closed under active row ownership, fix built+verified in that lane's
+  # worktree, not yet merged). Wiring it here is deliberate, not a mistake: this
+  # is the exact CI-only check the operator flagged (CI failed on it, pre-commit
+  # never saw it). Enabling it now means local `git commit` reproduces the real
+  # CI verdict instead of hiding it — same precedent already accepted for this
+  # repo's whole hook suite in D-CIP-11 ("this is the correct closing of the gap,
+  # not a new defect"). It will self-clear the moment w3-eg-ci-green lands.
+  - id: universal-read-rls-architecture
+    name: Universal served-read RLS and carrier-ownership architecture gate
+    entry: python3 scripts/check_universal_read_rls.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: exact-release-campaigns-architecture
+    name: Exact protocol/multimodal/KnowledgeBatch/reasoning campaign architecture gate
+    entry: python3 scripts/check_exact_release_campaigns.py
+    language: system
+    pass_filenames: false
+    always_run: true
   # rust-ci.yml `protocol-parity` job — the Python client mirrors the Rust `Method`
   # enum by sending variant-name strings (no PyO3/codegen), so a renamed/removed Rust
   # variant or an unbound new one silently drifts. This gate catches it on every
@@ -251,9 +294,23 @@ repos:
   # compile errors, maturin config) all reproduce in a debug build, which is the
   # lightest faithful check. CI still does the full --release manylinux build.
   # HEAVY-ish → pre-push + manual.
+  #
+  # w6-precommit-ci-parity (D-W6PC-2): this hook used to STOP after the build —
+  # it never ran the fold + normalize + audit + completeness chain
+  # release-build.yml's "Normalize and audit primary wheel" / "Require a
+  # complete primary wheel" steps run (normalize_wheel_sbom.py →
+  # normalize_wheel_build_paths.py → check_wheel_privacy.py →
+  # check_wheel_completeness.py). That gap is exactly how a wheel privacy
+  # audit failure (5 `privileged-home-prefix` leaks) shipped past every local
+  # gate straight into CI: nothing local ever ran check_wheel_privacy.py at
+  # all. scripts/wheel_privacy_gate.sh now runs the full sequence (mirroring
+  # the /home/apps/worktrees/epistemic-graph/w4-engine-down/run_gates.sh
+  # reproduction of release-build.yml's exact steps), folding a matching
+  # eg-numeric kernel wheel in first so check_wheel_completeness.py's
+  # numeric-kernel-present invariant is checkable too, not just privacy.
   - id: wheel-smoke
-    name: wheel smoke — maturin build main (full) wheel, --locked (HEAVY — pre-push/manual)
-    entry: bash -c 'if [ -f "pyproject.toml" ] && grep -q "tool.maturin" pyproject.toml; then maturin build --locked --no-default-features --features full,ast-extended --out "${TMPDIR:-/tmp}/eg-wheel-smoke"; fi'
+    name: wheel smoke + privacy/completeness audit — maturin build + fold + normalize + audit (HEAVY — pre-push/manual)
+    entry: bash -c 'if [ -f "pyproject.toml" ] && grep -q "tool.maturin" pyproject.toml; then bash scripts/wheel_privacy_gate.sh; fi'
     language: system
     pass_filenames: false
     always_run: true
