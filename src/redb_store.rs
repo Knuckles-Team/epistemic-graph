@@ -7636,7 +7636,10 @@ mod mutation_batch_tests {
         let path = temp_path("work-item-renew-fenced");
         let db = open(&path);
 
-        let mut seed = batch("work-item-renew-fenced-seed", "work-item-renew-fenced-seed-key");
+        let mut seed = batch(
+            "work-item-renew-fenced-seed",
+            "work-item-renew-fenced-seed-key",
+        );
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,

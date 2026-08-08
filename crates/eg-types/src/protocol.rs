@@ -5997,6 +5997,11 @@ mod tests {
         // `node` is `None` -- proving the change is genuinely additive for
         // clients (`clients/js`, `clients/go`, or an un-upgraded Python
         // client) that never send the claim at all.
+        //
+        // Deliberately mirrors `build_envelope_v2_bytes`'s own 8-argument
+        // shape (the fixed pre-ADR-3 wire fields) byte-for-byte, so it
+        // carries the same scoped allow that function already does above.
+        #[allow(clippy::too_many_arguments)]
         fn pre_adr3_bytes(
             request_id: u64,
             graph: &str,

@@ -59,7 +59,7 @@ fn turnstile() -> StatechartDef {
 /// — alternating `coin`/`push` keeps every step a FIRING transition (never a
 /// well-defined no-op), so every step is guaranteed to bump `version`.
 fn event_for_step(i: usize) -> EventInput {
-    if i % 2 == 0 {
+    if i.is_multiple_of(2) {
         EventInput::new("coin")
     } else {
         EventInput::new("push")
