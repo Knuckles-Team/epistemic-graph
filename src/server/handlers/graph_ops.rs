@@ -763,11 +763,57 @@ pub(crate) async fn try_handle_gateway(
         }
         Method::EvictLRU { max_nodes } => {
             let max_nodes = *max_nodes;
-            commit_gateway(&ctx, &plan, &method, move |core| {
-                let evicted = core.evict_lru(max_nodes);
-                Ok(ResultPayload::Json(serde_json::json!(evicted)))
+            // Eviction changes RAM RESIDENCY ONLY — never durable content.
+            //
+            // It used to run `core.evict_lru()` on the gateway's STAGED copy. The
+            // gateway then diffs `base_snapshot` (the live core, which holds the
+            // node) against the staged image (which no longer does) and publishes
+            // that delta, so every eviction durably DELETED exactly the rows it
+            // evicted. That is silent data loss, and it made the read-through seam
+            // unreachable by construction: `read_node_blocking`'s own contract says
+            // "eviction is durability-gated ... so an evicted node is always served
+            // here", and both `delete_then_recreate_same_name_keeps_new_writes` and
+            // `evicted_graph_lazy_reopens_with_data_intact` assert the row survives.
+            // Measured directly: read_node_blocking returned Some(4) before an
+            // EvictLRU and None immediately after it.
+            //
+            // So the staged image is left UNTOUCHED (an eviction is not a content
+            // change, so the correct delta is the empty one), and the residency
+            // change is applied to the LIVE core afterwards — durability-gated
+            // exactly like the background evictor in `persist::evict_oversized_all`,
+            // which never had this bug because it never went through the gateway.
+            // The gateway call stays so the op keeps its `node:admin` authz, its
+            // fencing, and its version/plan semantics.
+            let response = commit_gateway(&ctx, &plan, &method, move |_staged| {
+                Ok(ResultPayload::Json(serde_json::json!(0)))
             })
-            .await
+            .await;
+            if response.error.is_some() {
+                return Ok(response);
+            }
+            let candidates = ctx.core.lru_eviction_candidates(max_nodes);
+            let evicted = if candidates.is_empty() {
+                0
+            } else if let Some(backend) = ctx.persistence {
+                let fname = crate::persist::sanitize(ctx.graph_name);
+                match backend.durable_node_presence(&fname, &candidates) {
+                    Ok(presence) if presence.len() == candidates.len() => {
+                        let durable = candidates
+                            .into_iter()
+                            .zip(presence)
+                            .filter_map(|(node_id, present)| present.then_some(node_id))
+                            .collect::<Vec<_>>();
+                        ctx.core.evict_resident_nodes(&durable)
+                    }
+                    // Durability unconfirmed: keep the nodes resident rather than
+                    // risk evicting something that is not on disk yet.
+                    Ok(_) | Err(_) => 0,
+                }
+            } else {
+                // No durable tier to fall back to, so eviction would lose the node.
+                0
+            };
+            Response::ok(ctx.req_id, ResultPayload::Json(serde_json::json!(evicted)))
         }
         Method::DecaySweep {
             half_life_secs,
