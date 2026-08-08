@@ -2708,6 +2708,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-quantum-jobs"
+version = "0.1.0"
+dependencies = [
+ "eg-jobs",
+ "eg-numeric",
+ "eg-plan",
+ "eg-quantum-core",
+ "eg-quantum-sim",
+ "eg-types",
+ "ndarray",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "eg-quantum-sim"
 version = "0.1.0"
 dependencies = [
@@ -2994,6 +3011,7 @@ dependencies = [
  "eg-pyengine",
  "eg-quantum-core",
  "eg-quantum-gates",
+ "eg-quantum-jobs",
  "eg-quantum-sim",
  "eg-query",
  "eg-rdf",
