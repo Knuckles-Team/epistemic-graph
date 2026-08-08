@@ -42,6 +42,37 @@ ENVIRONMENT_ROOTS: tuple[tuple[str, str], ...] = (
     ("HOME", "/build/home"),
 )
 
+# The manylinux leg (`maturin-action` with `manylinux: 2_28`) does not compile on
+# the runner directly -- it hands off to a throwaway Docker container
+# (`ghcr.io/pyo3/maturin`) that always runs as **root**, with its own
+# `HOME=/root` (and therefore `CARGO_HOME=/root/.cargo`, `RUSTUP_HOME=/root/.rustup`
+# by Cargo's own defaulting) and the checkout mounted at `/io`. This script runs
+# BEFORE that handoff, on the *outer* runner, so no environment variable it can
+# read ever names those container-side paths -- `ENVIRONMENT_ROOTS` above is
+# necessarily blind to them. A dependency crate fetched fresh into the
+# container's registry cache embeds
+# `/root/.cargo/registry/src/<index>/<crate>-<version>/src/....rs` into
+# `file!()`/`#[track_caller]`/panic-location strings at compile time, and
+# because that literal was never in the remap list, it survives straight into
+# the compiled artifact -- confirmed by inspecting the live `rustc` invocation
+# inside a `docker run ghcr.io/pyo3/maturin` reproduction: the forwarded
+# `CARGO_ENCODED_RUSTFLAGS` carried only the two *outer*-runner remaps, while
+# the crate actually being compiled lived under `/root/.cargo/registry/...`.
+#
+# These roots are therefore denied UNCONDITIONALLY -- not derived from any
+# environment variable -- because they are a container *convention*, not a
+# per-run fact this process can observe. They mirror, on purpose,
+# `check_wheel_privacy.py`'s own "privileged-home-prefix" category, which
+# flags exactly these two literals for the identical reason: a container's
+# root-owned build state is sensitive by construction, independent of whatever
+# environment variable set it up. Reusing the "/build/home" alias (rather than
+# minting a new one) keeps them indistinguishable from an ordinary HOME leak in
+# the normalized SBOM, which is the correct level of detail to expose.
+ALWAYS_DENIED_ROOTS: tuple[tuple[str, str], ...] = (
+    ("/root", "/build/home"),
+    ("/github/home", "/build/home"),
+)
+
 
 def _safe_root(value: str | None) -> str | None:
     """Return a usable build prefix, excluding roots and malformed values."""
@@ -93,6 +124,8 @@ def path_remaps(
         source = _safe_root(env.get(name))
         if source:
             candidates.append((source, replacement))
+
+    candidates.extend(ALWAYS_DENIED_ROOTS)
 
     unique: dict[str, tuple[str, str]] = {}
     for source, replacement in candidates:

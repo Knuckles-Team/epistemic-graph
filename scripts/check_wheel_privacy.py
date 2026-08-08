@@ -348,6 +348,33 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"category={finding.category}",
                 file=sys.stderr,
             )
+        # A "normalized 0 occurrence(s)" line from normalize_wheel_sbom.py /
+        # normalize_wheel_build_paths.py directly above a nonzero FAIL here is
+        # NOT a contradiction, though it reads like one -- this note exists so
+        # the next reader doesn't lose time re-diagnosing that mismatch (as
+        # happened once already, tracked in the wheel-privacy incident that
+        # added this note). Both normalizers only rewrite EXACT, KNOWN build
+        # roots surfaced by configure_rust_path_remap.py's ``path_remaps()``
+        # (the checkout, CARGO_HOME/RUSTUP_HOME, and the unconditional
+        # container roots ``/root``/``/github/home``). This audit ALSO matches
+        # broader byte-level PATTERNS -- an arbitrary posix/Windows/WSL home
+        # directory, or a workspace-named path -- that no normalizer can
+        # preemptively rewrite because the concrete string isn't knowable ahead
+        # of time (see ``_PATH_PATTERNS`` in this file). If a finding recurs
+        # after a rebuild: a pattern-based category (anything in
+        # ``_PATH_PATTERNS`` below) needs a fix at the BUILD -- typically a new
+        # ``--remap-path-prefix`` root in ``configure_rust_path_remap.py`` so
+        # the path never enters the artifact -- not a normalizer change; only
+        # ``runtime-build-prefix`` is inherently normalizer-coverable already.
+        print(
+            "note: 'normalized N occurrence(s)' above covers only EXACT roots "
+            "known to configure_rust_path_remap.py's path_remaps(); the "
+            "categories found here may be broader PATTERNS (_PATH_PATTERNS in "
+            "check_wheel_privacy.py) that no normalizer can fix after the "
+            "fact -- the fix belongs at the build (stop the path from being "
+            "embedded), not in a normalizer.",
+            file=sys.stderr,
+        )
         return 1
 
     print(
