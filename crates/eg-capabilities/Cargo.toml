@@ -73,3 +73,11 @@ knowledge-batch = ["eg-types/knowledge-batch"]
 # Mirrors the facade/eg-types governed modality feature so the exhaustive policy
 # match sees `Method::ServedModality` exactly when that wire surface exists.
 modality-serving = ["eg-types/modality-serving"]
+# CONCEPT:EG-KG.compute.quantum-agent-api (Q8) -- see the module doc above for why
+# `jobs`/`statechart`-shaped Method-gating features are never forced on
+# unconditionally by this crate. Mirrors `eg-types/quantum` 1:1 (same lockstep
+# contract as `jobs`): this feature enables `eg-types/quantum` AND cfg-gates
+# `policy()`'s one `Method::Quantum` arm together, so the two can never drift. The
+# root `epistemic-graph` package's `quantum-agent-api` facade feature enables BOTH
+# `eg-types/quantum` and `eg-capabilities/quantum` in lockstep.
+quantum = ["eg-types/quantum"]

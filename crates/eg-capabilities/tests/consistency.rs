@@ -856,11 +856,15 @@ fn all_methods_table_has_the_expected_variant_count() {
     // Plus D-DPF-1 `GetNeighborsBatch` (the batch sibling of `GetNeighbors`,
     // unconditional -- closes the engine-side N+1 on multi-node neighbor
     // reads): 368 + 1 = 369.
+    // Plus Q8 `Quantum { op }` (feature-gated `quantum`, mirrors `jobs`/`statechart`'s
+    // lockstep contract -- see `eg-capabilities/Cargo.toml`): 369, +1 when `quantum`
+    // is on.
     let expected = 369
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
-        + usize::from(cfg!(feature = "knowledge-batch"));
+        + usize::from(cfg!(feature = "knowledge-batch"))
+        + usize::from(cfg!(feature = "quantum"));
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 
