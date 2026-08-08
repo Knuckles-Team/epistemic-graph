@@ -2,6 +2,12 @@
 //! D-QN-1, lane Q1: "get a minimal pure-Rust statevector + stabilizer path
 //! compiling and passing smoke tests").
 //!
+//! CONCEPT:EG-KG.compute.quantum-backends -- the pure-Rust `QuantumBackend`
+//! implementations (statevector + stabilizer) that the planner
+//! (`CONCEPT:EG-KG.compute.quantum-circuit-ir`) routes `QuantumProgram`s to; both
+//! noiseless and exact-capable, both reject rather than mis-simulate what they
+//! cannot represent.
+//!
 //! Two backends, both in-process, both noiseless, both `is_exact_capable: true`:
 //!
 //! - [`statevector::StateVectorSimulator`] ([`eg_quantum_core::backend::BackendFamily::StatevectorCpu`]):
