@@ -191,7 +191,8 @@ jobs:
           root=Path(os.environ['RUNNER_TEMP']).resolve();
           target=(root/'epistemic-graph-release-target').resolve();
           assert target.parent==root and target.name=='epistemic-graph-release-target';
-          shutil.rmtree(target)"
+          print('removing' if target.exists() else 'already absent:', target);
+          shutil.rmtree(target) if target.exists() else None"
 
       - name: Build reproduction wheel (${{ matrix.name }})
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
