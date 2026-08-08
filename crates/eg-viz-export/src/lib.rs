@@ -29,6 +29,7 @@
 
 pub mod backend;
 pub mod error;
+pub mod graph_layout;
 pub mod pdf_writer;
 pub mod plan;
 pub mod png_encoder;

@@ -856,11 +856,15 @@ fn all_methods_table_has_the_expected_variant_count() {
     // Plus D-DPF-1 `GetNeighborsBatch` (the batch sibling of `GetNeighbors`,
     // unconditional -- closes the engine-side N+1 on multi-node neighbor
     // reads): 368 + 1 = 369.
+    // Plus D-VZ-1 (lanes V4/V6) `Viz { op }` (feature-gated `viz`, mirrored to
+    // `lib.rs::all_methods_table_matches_policy_fn...`'s sibling constant): +1 when
+    // `viz` is enabled.
     let expected = 369
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
-        + usize::from(cfg!(feature = "knowledge-batch"));
+        + usize::from(cfg!(feature = "knowledge-batch"))
+        + usize::from(cfg!(feature = "viz"));
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 
