@@ -1,0 +1,56 @@
+[package]
+name = "eg-quantum-hardware"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Optional third-party quantum hardware/cloud QuantumBackend adapters (register D-QN-1, lane Q10 -- plans/au-eg-program/program/quantum-external-providers.md ss1.3): IBM Quantum (Qiskit Runtime REST), Amazon Braket, and Azure Quantum, all implementing eg-quantum-core's vendor-neutral QuantumBackend trait, all default-off behind their own Cargo feature, none a hard dependency of eg-quantum-core itself. Never the front door -- eg-quantum-sim stays the default backend; these exist for validation, noise studies, and workloads exceeding local capacity. Every backend here is BackendFamily::Hardware and, per the Q0 contract's load-bearing exactness rule, NEVER constructs an exact QuantumResult."
+license = "MIT"
+
+[lib]
+name = "eg_quantum_hardware"
+
+[dependencies]
+eg-quantum-core = { path = "../eg-quantum-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+# Only pulled in when at least one provider feature needs an outbound HTTP client
+# (see the `reqwest-transport` feature below); NOT a dependency of the base crate.
+# Already resolved workspace-wide (root `epistemic-graph` pulls it transitively via
+# `opentelemetry-http`/`opentelemetry-otlp` in its default observability build) --
+# adding it here does not add a new package to Cargo.lock, only activates the
+# `blocking`+`json` feature flags on an already-present crate for builds that opt
+# into a `quantum-hardware*` feature.
+reqwest = { version = "0.13", default-features = false, features = [
+    "blocking",
+    "json",
+    "form",
+    "rustls",
+], optional = true }
+# Only pulled in for the Braket adapter's AWS SigV4 request signing. Both already
+# resolved workspace-wide at the SAME versions the root package pins for the S3
+# gateway's own SigV4 guard (`src/server/s3/mod.rs`) -- reusing, not duplicating,
+# the numeric/crypto surface, per this program's "prefer zero new crates.io
+# dependencies" bar.
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+
+[dev-dependencies]
+eg-quantum-core = { path = "../eg-quantum-core" }
+
+[features]
+default = []
+# Shared HTTP-transport layer, implied by every provider feature that talks to a
+# real REST API. Kept as its own feature (rather than folding `reqwest` directly
+# into each provider feature) so `transport.rs`'s `HttpTransport` trait + the
+# `ReqwestTransport` default impl compile exactly once no matter how many provider
+# features are combined.
+reqwest-transport = ["dep:reqwest"]
+# AWS SigV4 request signing, needed only by `braket` (Braket's control-plane API is
+# a signed AWS API Gateway endpoint, not a bearer-token REST API like IBM/Azure).
+sigv4 = ["dep:hmac", "dep:sha2", "dep:hex"]
+
+ibm = ["reqwest-transport"]
+braket = ["reqwest-transport", "sigv4"]
+azure = ["reqwest-transport"]
