@@ -2773,6 +2773,137 @@ class VizClient:
         )
 
 
+class QuantumClient:
+    """Q8 (CONCEPT:EG-KG.compute.quantum-agent-api) — the agent-facing quantum
+    control plane: ``Method::Quantum { op }`` over a registered
+    ``eg_quantum_core::backend::QuantumBackend`` (today ``eg-quantum-sim``'s
+    ``sv-cpu``/``stabilizer``).
+
+    The agent never sees qubits. Each method takes a plain problem statement
+    (candidates and weights, a Max-Cut instance, or a ``QuantumProgram`` in the
+    native IR) and returns a result plus the planner's full audit trail.
+
+    EVERY result is a PROPOSAL. This surface reads no persisted graph state and
+    writes nothing durable — nothing here is committed to the graph, and only an
+    ``exact: true`` result may later become a hard constraint through the
+    epistemic commit path. Because the handler self-routes before
+    ``dispatch_graph_op``, results never enter the per-graph tamper-evident audit
+    chain; the ``PlannerDecision.audit`` trail returned in every response is the
+    Q9 observability record, which the agent-utilities caller persists into the
+    same ``:ToolCall``/``RunTrace`` provenance model as everything else.
+
+    ``backend_id`` is the R5 escape hatch on every op: ``None`` (the default)
+    lets the planner choose via rules R0-R4 and is the only path needing no
+    hardware quota check; naming a backend is always honoured, if registered,
+    and always audited.
+
+    Example::
+
+        result = await client.quantum.rank(
+            candidates=[{"id": "a", "weight": 0.9}, {"id": "b", "weight": 0.2}],
+            shots=1024,
+            seed=7,
+        )
+        ordering = result["ranked"]
+        assert result["audit"]  # planner decision trail (Q9)
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def rank(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        shots: int | None = None,
+        seed: int | None = None,
+        backend_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Rank ``candidates`` through amplitude encoding + interference.
+
+        ``candidates`` is a list of ``eg_types::quantum::QuantumRankCandidate``
+        dicts (``{"id": str, "weight": float}``). One qubit is used per
+        candidate, so the count is bounded server-side by the facade's
+        ``MAX_RANK_CANDIDATES``; an oversized request is rejected outright,
+        never silently truncated.
+        """
+        return await self._client._send(
+            "Quantum",
+            {
+                "op": {
+                    "Rank": {
+                        "candidates": candidates,
+                        "shots": shots,
+                        "seed": seed,
+                        "backend_id": backend_id,
+                    }
+                }
+            },
+        )
+
+    async def optimize_qaoa(
+        self,
+        nodes: list[str],
+        edges: list[dict[str, Any]],
+        *,
+        p_layers: int | None = None,
+        shots: int | None = None,
+        seed: int | None = None,
+        backend_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Run ONE fixed-parameter QAOA layer set over a Max-Cut instance.
+
+        ``edges`` is a list of ``eg_types::quantum::QuantumQaoaEdge`` dicts.
+        This is NOT a variational optimizer loop: there is no classical outer
+        loop, just one evaluation at a canonical fixed angle schedule, and the
+        sampled cut assignment comes back as a proposal. ``p_layers`` defaults
+        server-side when omitted.
+        """
+        op: dict[str, Any] = {
+            "nodes": nodes,
+            "edges": edges,
+            "shots": shots,
+            "seed": seed,
+            "backend_id": backend_id,
+        }
+        if p_layers is not None:
+            op["p_layers"] = p_layers
+        return await self._client._send("Quantum", {"op": {"OptimizeQaoa": op}})
+
+    async def expectation(
+        self,
+        program: dict[str, Any],
+        observable_qubits: list[int],
+        *,
+        shots: int | None = None,
+        seed: int | None = None,
+        backend_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Sampled Pauli-Z-string expectation value over ``program``.
+
+        ``program`` is a plain dict matching ``eg_quantum_core::ir::
+        QuantumProgram``'s own JSON round-trip. Every qubit named in
+        ``observable_qubits`` MUST already be measured into a classical bit by
+        ``program``: the facade validates this and rejects otherwise rather than
+        silently appending measurements to a caller's circuit. Q8 v0 is
+        restricted to Pauli-Z strings.
+        """
+        return await self._client._send(
+            "Quantum",
+            {
+                "op": {
+                    "Expectation": {
+                        "program": program,
+                        "observable_qubits": observable_qubits,
+                        "shots": shots,
+                        "seed": seed,
+                        "backend_id": backend_id,
+                    }
+                }
+            },
+        )
+
+
 class WorkItemClient:
     """Engine-native durable WorkItem claim, lease, and result namespace."""
 
@@ -10474,6 +10605,7 @@ class EpistemicGraphClient:
         self.jobs = JobsClient(self)
         self.statechart = StatechartClient(self)
         self.viz = VizClient(self)
+        self.quantum = QuantumClient(self)
 
     @staticmethod
     def _resolve_tls(
@@ -11387,6 +11519,7 @@ class SyncEpistemicGraphClient:
         self.jobs = self._SyncWrapper(self._client.jobs, self._loop)
         self.statechart = self._SyncWrapper(self._client.statechart, self._loop)
         self.viz = self._SyncWrapper(self._client.viz, self._loop)
+        self.quantum = self._SyncWrapper(self._client.quantum, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""

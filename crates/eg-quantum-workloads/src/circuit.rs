@@ -266,8 +266,8 @@ pub fn optimize_qaoa_params(
             }
         }
         for gj in 0..grid_resolution {
-            let mixer_angle = best_mixer - mixer_step
-                + 2.0 * mixer_step * (gj as f64) / (grid_resolution as f64);
+            let mixer_angle =
+                best_mixer - mixer_step + 2.0 * mixer_step * (gj as f64) / (grid_resolution as f64);
             bindings.insert(cost_name.clone(), best_cost);
             bindings.insert(mixer_name.clone(), mixer_angle);
             let value = expected_cut_value(&program, &bindings, edges);
@@ -331,7 +331,13 @@ mod tests {
 
     #[test]
     fn deeper_qaoa_never_does_worse_than_shallower_on_the_same_instance() {
-        let edges = vec![(0, 1, 1.0), (1, 2, 1.0), (2, 3, 1.0), (0, 3, 1.0), (0, 2, 1.0)];
+        let edges = vec![
+            (0, 1, 1.0),
+            (1, 2, 1.0),
+            (2, 3, 1.0),
+            (0, 3, 1.0),
+            (0, 2, 1.0),
+        ];
         let p1 = optimize_qaoa_params(4, &edges, 1, 10);
         let p2 = optimize_qaoa_params(4, &edges, 2, 10);
         // p=2 strictly extends p=1's search space (extra layer can always mimic a
