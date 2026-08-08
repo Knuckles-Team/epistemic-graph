@@ -4585,8 +4585,14 @@ mod tests {
 
         // First incarnation: create + write n1={v:1} and stale={v:9}.
         assert!(dispatch_on_heap(&state, create(1)).await.error.is_none());
-        assert!(dispatch_on_heap(&state, add(2, "n1", 1)).await.error.is_none());
-        assert!(dispatch_on_heap(&state, add(3, "stale", 9)).await.error.is_none());
+        assert!(dispatch_on_heap(&state, add(2, "n1", 1))
+            .await
+            .error
+            .is_none());
+        assert!(dispatch_on_heap(&state, add(3, "stale", 9))
+            .await
+            .error
+            .is_none());
 
         // Delete the tenant.
         let del = dispatch_on_heap(
@@ -4605,7 +4611,10 @@ mod tests {
         // "stale" — that node belongs to the deleted incarnation and must be gone.
         let recreate = dispatch_on_heap(&state, create(5)).await;
         assert!(recreate.error.is_none(), "recreate: {:?}", recreate.error);
-        assert!(dispatch_on_heap(&state, add(6, "n1", 2)).await.error.is_none());
+        assert!(dispatch_on_heap(&state, add(6, "n1", 2))
+            .await
+            .error
+            .is_none());
 
         // (a) LIVE read-through: force every node out of RAM so the next read
         // RAM-MISSES and falls to the durable read-through (the eviction path is real
@@ -6673,11 +6682,13 @@ mod tests {
             "the tampered content changed the root, so it anchors again"
         );
 
-        let audit_report: AuditReport =
-            match dispatch_on_heap(&state, req(8, Method::AuditVerify)).await.result {
-                Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
-                other => panic!("expected raw AuditReport, got {other:?}"),
-            };
+        let audit_report: AuditReport = match dispatch_on_heap(&state, req(8, Method::AuditVerify))
+            .await
+            .result
+        {
+            Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+            other => panic!("expected raw AuditReport, got {other:?}"),
+        };
         assert!(
             audit_report.ok,
             "the audit chain itself (incl. both anchor entries) must still verify: {audit_report:?}"
