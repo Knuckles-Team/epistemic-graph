@@ -219,6 +219,50 @@ gates:
       - 'crates/eg-mutation-store/**'
       - 'crates/eg-types/src/mutation_batch.rs'
 
+  # D-W6EFS-1 (w6-eg-facade-stackoverflow, 2026-08-07): rust-ci.yml's "Test
+  # (facade full)" step -- `cargo test -p epistemic-graph --features full` --
+  # was gated NOWHERE that actually runs on land. The pre-commit `cargo-test`
+  # hook only covers `-p eg-types -p eg-core -p eg-compute` (lower crates); a
+  # SECOND pre-commit hook does match this exact command, but declares
+  # `stages: [pre-push, manual]`, and lanes land through THIS queue, never
+  # `git push` -- so that hook never fires, and the general `cargo-test` gate
+  # above is `tier: slow` (declared, not run) for cost reasons. A stack
+  # overflow in `server::handlers::query::result_cache_dispatch_tests::
+  # hit_on_unchanged_then_write_invalidates` (SIGABRT, the process aborting
+  # mid-suite) reached CI unguarded as a direct result -- collateral damage
+  # made it look like 16 unrelated failures. This gate closes that: it is
+  # scoped to exactly the ONE package/feature-combo CI's step runs (not the
+  # `cargo-test` gate's `--all-features --workspace` -- that stays too costly
+  # for the queue), so it shares most of its build artifacts with the
+  # `cargo-check`/`clippy` gates above in the same `target-isolated` dir and
+  # pays mostly link+run cost, not a cold compile. `compare: exit`, like
+  # replay-determinism: `cargo test`'s plain-text output has no itemized
+  # per-test parser here (unlike pytest's `FAILED <nodeid>` contract), so the
+  # finest available signal is "was this red before" -- any failure/abort not
+  # already present on `main` is refused as a new regression.
+  - name: facade-test-full
+    command:
+      - cargo
+      - test
+      - -p
+      - epistemic-graph
+      - --features
+      - full
+      - --target-dir
+      - target-isolated
+    tier: fast
+    timeout: 2400
+    baseline_timeout: 4800
+    compare: exit
+    when_changed:
+      - 'src/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - '**/Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'rust-toolchain.toml'
+
   # D-EGTC-1/D-EGTC-2 (w1-eg-test-census, 2026-08-06): `clients/go` had not
   # compiled for 17+ days -- gated NOWHERE (not here, not pre-commit, not any
   # CI workflow) -- and nobody noticed because nothing ever ran `go build`/
