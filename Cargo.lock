@@ -2476,6 +2476,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-durable"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-epistemic"
 version = "0.1.0"
 dependencies = [
@@ -2537,6 +2545,7 @@ dependencies = [
  "eg-mutation-store",
  "eg-types",
  "hex",
+ "proptest",
  "redb",
  "rmp-serde",
  "serde",
@@ -2606,6 +2615,7 @@ dependencies = [
  "eg-modality",
  "nalgebra",
  "ndarray",
+ "num-complex",
  "numpy",
  "pyo3",
  "rand 0.8.7",
@@ -2676,6 +2686,35 @@ dependencies = [
  "eg-core",
  "parking_lot",
  "pyo3",
+]
+
+[[package]]
+name = "eg-quantum-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "eg-quantum-gates"
+version = "0.1.0"
+dependencies = [
+ "eg-numeric",
+ "eg-quantum-core",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "eg-quantum-sim"
+version = "0.1.0"
+dependencies = [
+ "eg-numeric",
+ "eg-quantum-core",
+ "eg-quantum-gates",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2850,6 +2889,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-viz-columnstore"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "bitvec",
+ "eg-viz-core",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "eg-viz-core"
 version = "0.1.0"
 dependencies = [
@@ -2859,6 +2911,14 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "eg-viz-export"
+version = "0.1.0"
+dependencies = [
+ "eg-viz-columnstore",
+ "eg-viz-core",
 ]
 
 [[package]]
@@ -2918,6 +2978,7 @@ dependencies = [
  "eg-compute",
  "eg-core",
  "eg-document",
+ "eg-durable",
  "eg-epistemic",
  "eg-geo",
  "eg-graphql",
@@ -2931,6 +2992,9 @@ dependencies = [
  "eg-plan",
  "eg-program",
  "eg-pyengine",
+ "eg-quantum-core",
+ "eg-quantum-gates",
+ "eg-quantum-sim",
  "eg-query",
  "eg-rdf",
  "eg-shacl",
@@ -2943,7 +3007,9 @@ dependencies = [
  "eg-tsdb",
  "eg-types",
  "eg-video",
+ "eg-viz-columnstore",
  "eg-viz-core",
+ "eg-viz-export",
  "eg-wasm",
  "fs4 0.8.4",
  "futures",

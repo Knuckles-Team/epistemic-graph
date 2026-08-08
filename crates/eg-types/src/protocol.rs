@@ -932,6 +932,15 @@ pub enum Method {
     GetNeighbors {
         node_id: String,
     },
+    /// Batch neighbor read: fetch neighbor ids for many nodes in ONE round-trip
+    /// instead of N `GetNeighbors` calls (D-DPF-1 — the N+1 this closes). Returns
+    /// a `Raw` list of `[node_id, Vec<String>]` in input order; a missing/absent
+    /// node yields an empty neighbor list rather than failing the whole batch, so
+    /// one bad id in a large discover-then-hydrate batch cannot sink the rest.
+    /// Bounded by `MAX_BATCH_IDS`.
+    GetNeighborsBatch {
+        node_ids: Vec<String>,
+    },
 
     // ── Cross-graph union reads (CONCEPT:EG-KG.query.cross-graph-union) ───────────────────
     // Read across a SET of content graphs as if they were one, so writes can be
@@ -5988,6 +5997,11 @@ mod tests {
         // `node` is `None` -- proving the change is genuinely additive for
         // clients (`clients/js`, `clients/go`, or an un-upgraded Python
         // client) that never send the claim at all.
+        //
+        // Deliberately mirrors `build_envelope_v2_bytes`'s own 8-argument
+        // shape (the fixed pre-ADR-3 wire fields) byte-for-byte, so it
+        // carries the same scoped allow that function already does above.
+        #[allow(clippy::too_many_arguments)]
         fn pre_adr3_bytes(
             request_id: u64,
             graph: &str,

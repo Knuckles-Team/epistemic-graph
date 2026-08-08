@@ -777,9 +777,13 @@ async fn scram_login_succeeds_with_correct_password() {
         .await
         .expect("SCRAM login with correct derived password");
 
-    // A query after login runs (against the open __commons__).
+    // A query after login runs (against the open __commons__). `rank` is a node
+    // PROPERTY (seeded into the msgpack props blob), not a flat SQL column — the
+    // schema only exposes `nodes.id`/`nodes.props`, so filtering by it requires the
+    // JSON deep-index accessor (`props->>'k' = 'v'` matches a numeric prop via its
+    // canonical text form, see eg-core::jsonpath::path_eq) (D-EGTC-16).
     let rows = client
-        .query("SELECT id FROM nodes WHERE rank = 1", &[])
+        .query("SELECT id FROM nodes WHERE props->>'rank' = '1'", &[])
         .await
         .expect("post-login SELECT");
     let ids: Vec<String> = rows.iter().map(|r| r.get::<_, String>(0)).collect();

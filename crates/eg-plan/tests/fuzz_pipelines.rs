@@ -31,6 +31,7 @@ mod common;
 use common::*;
 use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::{GraphCore, GraphView};
+use eg_plan::federation::ForeignSourceRegistry;
 use eg_plan::{execute, PlanCtx};
 use proptest::prelude::*;
 use serde_json::json;
@@ -75,6 +76,29 @@ fn build_dense(n: usize) -> (GraphView, SemanticStore) {
         semantic.add_embedding(format!("d{k}"), vec![a, b, c]);
     }
     (core.analysis_snapshot(), semantic)
+}
+
+/// The registry bound to every `PlanCtx` these proptests build. `stage_strategy` below
+/// emits the UQL marker `FOREIGN "peer"` (`Op::Foreign`), which — by design
+/// (`eg073_foreign_marker_without_registry_fails_closed` in
+/// `federation_registry_tests.rs`) — is a clean, intentional, fail-closed error when no
+/// `ForeignSourceRegistry` is bound to the ctx: "a foreign marker without its required
+/// registry fails closed; it must never silently preserve local rows." That is the
+/// planner working as designed, not a bug, so the FIXTURE must bind a registry rather
+/// than the executor being made to tolerate an absent one. Registers "peer" against a
+/// handful of the SAME ids `build_dense` creates so a generated pipeline still composes
+/// into a well-formed RowSet.
+fn foreign_registry() -> ForeignSourceRegistry {
+    let mut registry = ForeignSourceRegistry::new();
+    registry.register_table(
+        "peer",
+        [
+            ("d1".to_string(), Some(0.9f32)),
+            ("d5".to_string(), Some(0.5f32)),
+            ("d10".to_string(), None),
+        ],
+    );
+    registry
 }
 
 // ── the random VALID-UQL pipeline generator (a superset of plan_proptest's, longer) ──
@@ -146,8 +170,9 @@ proptest! {
     #[test]
     fn long_pipelines_never_panic_and_are_wellformed(q in pipeline_strategy()) {
         let (view, semantic) = build_dense(40);
+        let registry = foreign_registry();
         let plan = eg_plan::uql::parse(&q).expect("generated UQL must be valid");
-        let ctx = PlanCtx::new(&view, &semantic);
+        let ctx = PlanCtx::new(&view, &semantic).with_foreign(&registry);
 
         let a = execute(&plan, &ctx).expect("a valid plan must execute without error");
 
@@ -181,6 +206,7 @@ proptest! {
         pipelines in prop::collection::vec(pipeline_strategy(), 8..24)
     ) {
         let (view, semantic) = build_dense(40);
+        let registry = foreign_registry();
 
         // Serial reference: each pipeline's canonical RowSet over the snapshot.
         let plans: Vec<_> = pipelines
@@ -188,7 +214,7 @@ proptest! {
             .map(|q| eg_plan::uql::parse(q).expect("valid UQL"))
             .collect();
         let reference: Vec<Vec<(String, Option<u32>)>> = {
-            let ctx = PlanCtx::new(&view, &semantic);
+            let ctx = PlanCtx::new(&view, &semantic).with_foreign(&registry);
             plans.iter().map(|p| stable_rows(&execute(p, &ctx).unwrap())).collect()
         };
 
@@ -199,11 +225,12 @@ proptest! {
         let reference_ref = &reference;
         let view_ref = &view;
         let semantic_ref = &semantic;
+        let registry_ref = &registry;
         std::thread::scope(|scope| {
             let handles: Vec<_> = (0..8)
                 .map(|_| {
                     scope.spawn(move || {
-                        let ctx = PlanCtx::new(view_ref, semantic_ref);
+                        let ctx = PlanCtx::new(view_ref, semantic_ref).with_foreign(registry_ref);
                         for (i, plan) in plans_ref.iter().enumerate() {
                             let got = stable_rows(&execute(plan, &ctx).unwrap());
                             assert_eq!(

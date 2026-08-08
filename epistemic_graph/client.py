@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import builtins
+import concurrent.futures
 import contextlib
 import contextvars
 import copy
@@ -29,6 +30,61 @@ from typing import Any, Literal, TypedDict, cast
 import msgpack
 
 logger = logging.getLogger(__name__)
+
+
+class SyncCallDeadlineExceeded(TimeoutError):
+    """A synchronous client call exceeded its caller-provided deadline."""
+
+
+_SYNC_CALL_DEADLINE: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "epistemic_graph_sync_call_deadline", default=None
+)
+
+
+@contextlib.contextmanager
+def sync_call_deadline(timeout_s: float):
+    """Bound synchronous graph calls made in this context.
+
+    The deadline is carried by ``ContextVar``, so callers using
+    :func:`asyncio.to_thread` propagate it into the synchronous worker.  On expiry
+    the submitted graph coroutine is cancelled before the worker returns, avoiding
+    a stranded executor worker that would otherwise delay ``asyncio.run()``
+    shutdown.
+    """
+    if timeout_s <= 0:
+        raise ValueError("sync call deadline must be positive")
+    inherited = _SYNC_CALL_DEADLINE.get()
+    deadline = time.monotonic() + timeout_s
+    if inherited is not None:
+        deadline = min(deadline, inherited)
+    token = _SYNC_CALL_DEADLINE.set(deadline)
+    try:
+        yield
+    finally:
+        _SYNC_CALL_DEADLINE.reset(token)
+
+
+def _sync_result_before_deadline(
+    future: concurrent.futures.Future[Any],
+) -> Any:
+    """Return a submitted coroutine's result or cancel it at the ambient deadline."""
+    deadline = _SYNC_CALL_DEADLINE.get()
+    if deadline is None:
+        return future.result()
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        future.cancel()
+        raise SyncCallDeadlineExceeded("synchronous graph call deadline expired")
+    try:
+        return future.result(timeout=remaining)
+    except concurrent.futures.TimeoutError as exc:
+        # A completed future can race the timeout; preserve its real result/error.
+        if future.done():
+            return future.result()
+        future.cancel()
+        raise SyncCallDeadlineExceeded(
+            "synchronous graph call deadline expired"
+        ) from exc
 
 
 class _RequiredRequestContextClaims(TypedDict):
@@ -1452,6 +1508,23 @@ class NodeClient:
 
     async def neighbors(self, node_id: str) -> builtins.list[str]:
         return await self._client._send("GetNeighbors", {"node_id": node_id})
+
+    async def neighbors_batch(
+        self, node_ids: builtins.list[str]
+    ) -> dict[str, builtins.list[str]]:
+        """Neighbor ids for many nodes in ONE round-trip (D-DPF-1).
+
+        Returns a mapping ``node_id -> neighbor_ids`` in input order (an id
+        absent from the graph maps to ``[]``, matching the engine's
+        fail-open-per-id batch shape — see :meth:`properties_batch` for the
+        equivalent absent-id contract on node properties). Collapses what
+        would otherwise be N ``neighbors()`` calls — and N network round-trips
+        — into a single request, the same pattern as :meth:`properties_batch`
+        / :meth:`has_batch`.
+        """
+        ids = list(node_ids)
+        rows = await self._client._send("GetNeighborsBatch", {"node_ids": ids})
+        return {nid: list(neighbor_ids) for nid, neighbor_ids in (rows or [])}
 
     # ── Cross-graph union reads (CONCEPT:EG-KG.query.cross-graph-union) ───────────────────────
     # Read across a SET of content graphs as if one, so writes can be partitioned
@@ -9229,7 +9302,7 @@ class SyncEpistemicGraphClient:
                     future = asyncio.run_coroutine_threadsafe(
                         attr(*args, **kwargs), self._loop
                     )
-                    return future.result()
+                    return _sync_result_before_deadline(future)
 
                 return sync_wrapper
             return attr
@@ -9329,7 +9402,7 @@ class SyncEpistemicGraphClient:
                 future = asyncio.run_coroutine_threadsafe(
                     attr(*args, **kwargs), self._loop
                 )
-                return future.result()
+                return _sync_result_before_deadline(future)
 
             return sync_wrapper
         return attr

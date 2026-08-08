@@ -1,0 +1,49 @@
+[package]
+name = "eg-durable"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Durable-execution ROUTING contracts (D-DE-1, lane DE0, register D-DE-0): the CallShape/WorkShape/DurableBackendKind routing table over the four already-real durable backends (eg-statechart, eg-jobs, eg-mutation-store's saga coordinator, agent-utilities' DurableExecutionManager) plus the DurableExecutionUnitMirror DTO matching the DE0 ontology reservation. Contracts only -- no journal, no lease, no 2PC, no state store: those already exist in the crates this routes to and are not reimplemented here."
+license = "MIT"
+
+[lib]
+name = "eg_durable"
+
+# ── DE0 scope (lane w6-de0-contracts, register D-DE-0, parent D-DE-1) ─────────────
+#
+# This crate is PURE routing control-plane, the Rust-side half of
+# `durable-execution-native.md` Part 3's "eg-durable" layer: an enum of the five
+# agent-facing call shapes DE2 will expose (`durable_run`/`durable_call`/
+# `durable_sleep`/`durable_state_get`/`durable_state_set`), an enum of the four real
+# work shapes the existing backends were independently built to serve, a total
+# (non-wildcard-match) routing function from one to the other, and a typed DTO
+# matching the ontology's mirrored-property schema (`AU-KG.storage.durable-execution-unit`
+# et al., reserved in the sibling `agent-utilities` change this same lane makes).
+#
+# It deliberately links NONE of `eg-statechart`/`eg-jobs`/`eg-mutation-store` --
+# adding those dependency edges is DE2 work (the actual routing *implementation*,
+# which calls into each backend's real, already-durable API). Wiring them here would
+# misrepresent DE0 as an implementation lane rather than the contract it is asked to
+# be. The Python-side `DurableExecutionManager`/`DurableRun` backend is cross-language
+# and reached only over the engine RPC boundary DE2 wires -- it is represented here
+# purely as a marker (`PythonDurableRunBackend`), never a dependency.
+#
+# Zero new crates.io dependencies: `serde`/`serde_json` are already resolved
+# workspace-wide (every `eg-*` crate depends on `serde`; `serde_json` is likewise
+# already resolved by dozens of crates, including this crate's own DE0 dev-profile),
+# so adding either to this optional/default-off crate adds nothing new to the
+# resolved dependency graph -- confirmed the same way the sibling
+# `eg-quantum-core`/`eg-viz-core` Cargo.tomls document their own zero-new-dep claim.
+# `serde_json` moved from [dev-dependencies] to [dependencies] at DE1: `project.rs`'s
+# `project()` (production code, not test-only) builds `serde_json::Value` properties.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[features]
+# No internal features yet -- DE0 ships one unconditional contracts surface, exactly
+# like eg-quantum-core's Q0. The ROOT `epistemic-graph` package's `durable` feature
+# (see root Cargo.toml) is what makes this crate optional/default-off in the main
+# build; this crate's own default feature set stays empty until it has behavior that
+# needs gating.
+default = []

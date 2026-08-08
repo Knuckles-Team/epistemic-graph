@@ -7569,6 +7569,145 @@ mod mutation_batch_tests {
         let _ = std::fs::remove_file(path);
     }
 
+    /// Regression for INCIDENT-kg-readonly-2026-07-31 / D-INC-1 / D-SH-5: a
+    /// `RenewWorkItemLease` against a work item that no longer exists MUST still
+    /// carry `changed_work_item_ids` (even if empty) in its committed result. If it
+    /// doesn't, `commit_work_item` (`src/server/mutation_batch.rs`) can no longer
+    /// read that field after the durable commit has already advanced the
+    /// authoritative graph version — the serving projection is stranded one
+    /// version behind for good, and `authoritative_graph_version` then fails
+    /// closed on every later write, taking the whole graph read-only. This test
+    /// exercises the REAL redb dispatch path, not a hand-built JSON fixture, so it
+    /// fails on the pre-fix shape (`{"renewed": false, "reason": "missing"}`) and
+    /// passes once the field is always present.
+    #[test]
+    fn renew_lease_on_a_missing_work_item_still_carries_changed_work_item_ids() {
+        let path = temp_path("work-item-renew-missing");
+        let db = open(&path);
+
+        let mut renew = batch("work-item-renew-missing", "work-item-renew-missing-key");
+        renew.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: Method::RenewWorkItemLease {
+                tenant: "tenant-a".into(),
+                work_item_id: "does-not-exist".into(),
+                worker_id: "worker-a".into(),
+                lease_epoch: 1,
+                fencing_token: 1,
+                now_ms: 1_000,
+                lease_ms: 10_000,
+            },
+        }];
+        let committed = commit_at(&db, &renew, None).unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("renew result"),
+        )
+        .unwrap();
+        let value = match payload {
+            crate::protocol::ResultPayload::Json(value) => value,
+            other => panic!("RenewWorkItemLease must return a JSON result, got {other:?}"),
+        };
+        assert_eq!(value["renewed"], false);
+        assert_eq!(value["reason"], "missing");
+        assert_eq!(
+            value.get("changed_work_item_ids"),
+            Some(&serde_json::json!([])),
+            "a missing-work-item renewal must still carry changed_work_item_ids so \
+             commit_work_item can call core.mark_dirty() and keep the serving \
+             projection from stranding behind the authoritative graph version; \
+             full result was: {value}"
+        );
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// Same incident, the other bricking shape: a lease renewal that is FENCED
+    /// (wrong fencing token/epoch/owner/status) must also carry
+    /// `changed_work_item_ids` in its result.
+    #[test]
+    fn renew_lease_that_is_fenced_still_carries_changed_work_item_ids() {
+        let path = temp_path("work-item-renew-fenced");
+        let db = open(&path);
+
+        let mut seed = batch(
+            "work-item-renew-fenced-seed",
+            "work-item-renew-fenced-seed-key",
+        );
+        seed.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: Method::AddNode {
+                node_id: "leased".into(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                    "node_type": "WorkItem",
+                    "tenant": "tenant-a",
+                    "status": "leased",
+                    "lease_owner": "worker-a",
+                    "lease_epoch": 1,
+                    "fencing_token": 1,
+                    "lease_expires_at": 60.0,
+                    "attempt": 0,
+                    "max_attempts": 3,
+                }))
+                .unwrap(),
+            },
+        }];
+        commit_at(&db, &seed, None).unwrap();
+
+        // Same work item, but the caller's fencing token is stale (2 vs the
+        // durable row's 1) — this must be rejected as "fenced", not applied.
+        let mut renew = batch("work-item-renew-fenced", "work-item-renew-fenced-key");
+        renew.expected_graph_version = Some(4);
+        renew.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: Method::RenewWorkItemLease {
+                tenant: "tenant-a".into(),
+                work_item_id: "leased".into(),
+                worker_id: "worker-a".into(),
+                lease_epoch: 1,
+                fencing_token: 2,
+                now_ms: 1_000,
+                lease_ms: 10_000,
+            },
+        }];
+        let committed = commit_at(&db, &renew, None).unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("renew result"),
+        )
+        .unwrap();
+        let value = match payload {
+            crate::protocol::ResultPayload::Json(value) => value,
+            other => panic!("RenewWorkItemLease must return a JSON result, got {other:?}"),
+        };
+        assert_eq!(value["renewed"], false);
+        assert_eq!(value["reason"], "fenced");
+        assert_eq!(
+            value.get("changed_work_item_ids"),
+            Some(&serde_json::json!([])),
+            "a fenced renewal must still carry changed_work_item_ids so \
+             commit_work_item can call core.mark_dirty() and keep the serving \
+             projection from stranding behind the authoritative graph version; \
+             full result was: {value}"
+        );
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
     #[test]
     fn last_permitted_reclaim_survives_restart_but_the_next_reclaim_dead_letters() {
         use crate::epistemic_operations::{

@@ -1,0 +1,23 @@
+[package]
+name = "eg-viz-export"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Static chart export (D-VZ-1 / lane V3a): PNG/SVG/PDF from a ViewSpec resolved against an eg-viz-columnstore ColumnStore, honoring the eg-viz-core tier decision rather than re-deriving its own limits. The matplotlib replacement -- pure Rust, hand-rolled PNG/PDF encoders, zero new external dependencies."
+license = "MIT"
+
+[lib]
+name = "eg_viz_export"
+
+# V3a sits right of V1 in the DAG (`eg-viz-core -> eg-viz-columnstore -> eg-viz-export`).
+# Deliberately NO new external crates: the PNG encoder (stored/uncompressed zlib
+# deflate blocks -- valid per RFC 1950/1951, just not size-optimal) and the PDF
+# writer (a minimal single-page vector-graphics document) are hand-rolled in this
+# crate rather than pulling `image`/`png`/`printpdf` -- keeping V3a's own dependency
+# footprint at zero beyond the two viz crates it naturally builds on.
+[dependencies]
+eg-viz-core = { path = "../eg-viz-core" }
+eg-viz-columnstore = { path = "../eg-viz-columnstore" }
+
+[features]
+default = []
