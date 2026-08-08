@@ -218,6 +218,65 @@ gates:
     timeout: 5400
     compare: lines
 
+  # D-W6TG-3: rust-ci.yml's "Test (facade full)" step (`cargo test -p
+  # epistemic-graph --features full`) had NO equivalent in this queue at all --
+  # the queue's own `cargo-test` gate above runs `--all-features` across the
+  # WHOLE workspace (broader scope, `slow` tier, not run in the queue), and the
+  # matching pre-commit hook (`cargo-clippy-facade-full`-shaped) exists but is
+  # staged `pre-push, manual` -- lanes land through THIS queue, not `git push`,
+  # so that hook structurally never fires for a queue-landed candidate. A gate
+  # that never runs enforces nothing: a stack overflow in
+  # `server::handlers::query::result_cache_dispatch_tests::
+  # hit_on_unchanged_then_write_invalidates` (root facade package, `--features
+  # full`) reached origin/main (08c6fe6) with NEITHER the commit-stage nor the
+  # queue gate ever having exercised that exact package/feature combination.
+  # Root-caused and fixed separately (lane w6-eg-facade-stackoverflow, out of
+  # this gate's own scope) -- this entry closes the STRUCTURAL gap that let it
+  # land undetected, mirroring `bf748fa`'s clippy fix one gate over.
+  #
+  # `tier: fast`, not `slow`: the ~9-minute cost that justified the pre-commit
+  # hook's opt-in staging was measured on the shared, saturated host; on r820
+  # (idle, 64c) the same command completes fast enough to gate the queue for
+  # real rather than being declared-but-bypassed like `cargo-test` above.
+  #
+  # `compare: lines`, not `exit`: a whole-suite exit-code compare would block
+  # EVERY candidate for as long as any pre-existing failure exists anywhere in
+  # the ~1000-test facade-full suite (main is legitimately red here right now,
+  # per 03-true-green-not-baselined-green.md) -- exactly the au queue's
+  # absolute-gate deadlock this program already learned from once. `keep_lines`
+  # isolates individual `... FAILED` lines and `panicked`/`stack overflow`
+  # abort signatures, and `test result: ... N failed` summaries, so the
+  # differential is per-test: a NEW failing test id blocks, a pre-existing one
+  # (like the stack-overflow cluster above, until w6-eg-facade-stackoverflow
+  # lands) does not.
+  - name: facade-full
+    command:
+      - cargo
+      - test
+      - -p
+      - epistemic-graph
+      - --features
+      - full
+      - --message-format
+      - short
+      - --target-dir
+      - target-isolated
+    tier: fast
+    timeout: 900
+    baseline_timeout: 1800
+    compare: lines
+    keep_lines:
+      - 'FAILED$'
+      - '^test result:'
+      - 'panicked at'
+      - 'stack overflow'
+      - 'fatal runtime error'
+    when_changed:
+      - '*.rs'
+      - '**/*.rs'
+      - 'Cargo.toml'
+      - '**/Cargo.toml'
+
   # DE7 (durable-execution-native.md, lane w6-de7-replay-determinism): the
   # replay-determinism crash-and-reopen proofs for `eg-jobs`/`eg-statechart`
   # (see the matching pre-commit `replay-determinism` hook). Scoped to exactly
