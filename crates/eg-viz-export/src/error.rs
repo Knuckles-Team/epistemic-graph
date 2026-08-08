@@ -20,9 +20,15 @@ pub enum ExportError {
     /// frame budget rather than expect V3a to page tiles.
     TieredNotSupportedByStaticExport,
     /// The mark kind has no static-export geometry implemented in this lane
-    /// (`Graph` is V6-only per the capability matrix; `Heatmap`'s direct/decimate
-    /// tiers need a z-matrix resolution path this lane does not implement).
+    /// (`Heatmap`'s direct/decimate tiers need a z-matrix resolution path this
+    /// lane does not implement; `Graph` gained real support in V6-lite — see
+    /// [`Self::GraphDatasetMissing`]).
     UnsupportedMark(eg_viz_core::MarkKind),
+    /// A `MarkKind::Graph` mark's `data_ref` did not resolve to a node dataset in
+    /// the `ColumnStore` (V6-lite's own convention: the mark's `dataset_ref`
+    /// itself must name a dataset whose row count IS the graph's node count —
+    /// see `crate::render::resolve_graph`'s doc for the full dataset shape).
+    GraphDatasetMissing(String),
     /// `export()` was called with a `ViewResult` this backend never `resolve()`d
     /// (no cached render plan under that `query_hash`) — `export` renders an
     /// already-resolved result, it never re-resolves one.
@@ -49,6 +55,10 @@ impl fmt::Display for ExportError {
             Self::UnsupportedMark(mark) => {
                 write!(f, "{mark:?} has no static-export geometry implemented in lane V3a")
             }
+            Self::GraphDatasetMissing(dataset_ref) => write!(
+                f,
+                "MarkKind::Graph mark's dataset_ref `{dataset_ref}` did not resolve to a node dataset in the ColumnStore"
+            ),
             Self::NotResolved => write!(
                 f,
                 "export() was called with a ViewResult this backend never resolve()d"

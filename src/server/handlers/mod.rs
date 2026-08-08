@@ -122,6 +122,18 @@ pub(crate) mod jobs;
 // `GraphCore`.
 #[cfg(feature = "statechart")]
 pub(crate) mod statechart;
+// Native visualization render surface (D-VZ-1 lanes V4 "engine integration" / V6
+// "graph-native marks", feature `viz-static-export`). `Method::Viz { op }` —
+// resolve a caller-provided `eg_viz_core::ViewSpec` against a dataset (inline
+// columns or deterministic engine-side synthetic data, including a
+// `MarkKind::Graph` node/edge dataset) and render it to static PNG/SVG/PDF bytes,
+// or fetch the mark x surface capability matrix. NOT graph-scoped (a render
+// builds a FRESH ephemeral per-request `ColumnStore`, never reads a live
+// `GraphCore`, like `AnalyticsJob`/`Statechart`) — self-routes in `dispatch.rs`
+// before the per-graph chain. V4-LITE only: no tile cache, no job-inherited
+// provenance, no resident-graph view — see the handler's own module doc.
+#[cfg(feature = "viz-static-export")]
+pub(crate) mod viz;
 // Governed document/image/audio/video serving. The wire carries an ephemeral
 // source body, while this handler persists only an encrypted, opaque runtime
 // snapshot through the graph mutation gateway.

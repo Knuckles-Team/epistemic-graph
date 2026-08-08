@@ -2116,6 +2116,25 @@ pub enum Method {
         op: crate::statechart::StatechartOp,
     },
 
+    /// Native visualization render surface (D-VZ-1 lanes V4 "engine integration" /
+    /// V6 "graph-native marks"): resolve a caller-provided `eg_viz_core::ViewSpec`
+    /// against a dataset (caller-supplied inline columns, or deterministic
+    /// engine-side synthetic data) and render it to static PNG/SVG/PDF bytes, or
+    /// fetch the mark x surface capability matrix. ONE variant wrapping an
+    /// internal op enum — mirrors `AnalyticsJob { op }`/`Statechart { op }` above
+    /// — so the whole render surface costs exactly one `Method` arm. Gated `viz`;
+    /// the handler (`src/server/handlers/viz.rs`, facade feature
+    /// `viz-static-export`) self-routes in `dispatch.rs` before the per-graph
+    /// chain — a render is NOT graph-scoped (it resolves a FRESH per-request
+    /// `ColumnStore`, never a live graph read), exactly like `AnalyticsJob`/
+    /// `Statechart` above. V4-LITE, not full V4: no tile cache, no provenance
+    /// inherited from a durable job, no view over a resident `GraphCore` — see
+    /// `crate::viz`'s module doc.
+    #[cfg(feature = "viz")]
+    Viz {
+        op: crate::viz::VizOp,
+    },
+
     // ── Query (SQL + Cypher) ──────────────────────────────────────────
     // Read-only relational query surface (CONCEPT:EG-KG.query.read-only-sql-query). `SELECT … FROM
     // nodes …` over ONE graph via DataFusion, gated behind the facade `query`

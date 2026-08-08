@@ -1330,6 +1330,23 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Atomic,
         },
+        // D-VZ-1 (lanes V4/V6) -- the native visualization render surface. Both
+        // `VizOp` variants (`Render`, `CapabilityMatrix`) are pure computations: a
+        // render resolves a FRESH per-request `eg_viz_columnstore::ColumnStore`
+        // (caller-supplied inline columns or deterministic engine-side synthetic
+        // data) and returns rendered bytes -- it never writes to any durable
+        // store, unlike `AnalyticsJob`/`Statechart`. `mutates: false` is therefore
+        // the EXACT answer, not a conservative upper bound.
+        #[cfg(feature = "viz")]
+        Method::Viz { .. } => MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::None,
+            authz_action: "viz:render",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::None,
+        },
         Method::Sql { .. } => MethodPolicy {
             mutates: true,
             durability_domain: DurabilityDomain::GraphRedb,
@@ -2396,6 +2413,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("AnalyticsJob", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::JobsRedb, authz_action: "jobs:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway"),
         #[cfg(feature = "statechart")]
         ("Statechart", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::StatechartRedb, authz_action: "statechart:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional: GetState/List are reads; Define/Instantiate/SendEvent commit to the native statecharts.redb store (CONCEPT:INT-P2-2)"),
+        #[cfg(feature = "viz")]
+        ("Viz", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "viz:render", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "pure compute: resolves a fresh per-request ColumnStore and returns rendered bytes, no durable write (D-VZ-1 lanes V4/V6)"),
         ("Sql", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:sql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"),
         ("CypherQuery", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:cypher", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; writes execute against a staged graph and publish only after durable MutationBatch commit"),
         ("GraphQl", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:graphql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox"),
@@ -2628,11 +2647,16 @@ mod smoke_tests {
         // Plus D-DPF-1 `GetNeighborsBatch` (the batch sibling of `GetNeighbors`,
         // unconditional -- closes the engine-side N+1 on multi-node neighbor
         // reads): 368 + 1 = 369.
+        // Plus D-VZ-1 (lanes V4/V6) `Viz { op }` (the native visualization render
+        // surface, feature-gated `viz` exactly like `jobs`/`statechart` -- see the
+        // Cargo.toml doc comment on this crate's own `viz` feature): +1 when `viz`
+        // is enabled.
         let expected = 369
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
-            + usize::from(cfg!(feature = "knowledge-batch"));
+            + usize::from(cfg!(feature = "knowledge-batch"))
+            + usize::from(cfg!(feature = "viz"));
         assert_eq!(
             seen.len(),
             expected,
