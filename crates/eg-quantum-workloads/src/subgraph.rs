@@ -16,8 +16,8 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use eg_core::graph::{GraphCore, GraphView};
 use eg_core::compute::semantic::SemanticStore;
+use eg_core::graph::{GraphCore, GraphView};
 use eg_plan::exec::PlanCtx;
 
 /// The induced subgraph over a UQL-selected candidate node set: node ids in
@@ -127,10 +127,7 @@ pub fn materialize_induced_subgraph(view: &GraphView, node_ids: Vec<String>) -> 
     // not a double-count bug; a single-direction pair (the common case for this
     // engine's directed relationship edges) is summed exactly once, from its one
     // direction's blob(s).
-    let edges = weights
-        .into_iter()
-        .map(|((i, j), w)| (i, j, w))
-        .collect();
+    let edges = weights.into_iter().map(|((i, j), w)| (i, j, w)).collect();
 
     CandidateSubgraph { node_ids, edges }
 }
@@ -151,8 +148,12 @@ mod tests {
             core.add_node(id.into(), blob(json!({ "type": "Concept" })));
         }
         for (s, t) in [("a", "b"), ("b", "c"), ("c", "a")] {
-            core.add_edge(s.into(), t.into(), blob(json!({ "relationship": "RELATED_TO" })))
-                .unwrap();
+            core.add_edge(
+                s.into(),
+                t.into(),
+                blob(json!({ "relationship": "RELATED_TO" })),
+            )
+            .unwrap();
         }
         core
     }

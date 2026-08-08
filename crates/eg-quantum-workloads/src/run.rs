@@ -12,7 +12,9 @@ use eg_quantum_core::backend::{BackendId, QuantumBackend, RunOptions};
 use eg_quantum_core::result::{Outcome, QuantumResult};
 use eg_quantum_sim::statevector::StateVectorSimulator;
 
-use crate::circuit::{brute_force_max_cut, build_qaoa_program, cut_value_of_bitstring, optimize_qaoa_params};
+use crate::circuit::{
+    brute_force_max_cut, build_qaoa_program, cut_value_of_bitstring, optimize_qaoa_params,
+};
 use crate::subgraph::CandidateSubgraph;
 
 /// Above this qubit count, `MaxCutRun` skips the `2^n`-enumeration brute-force
@@ -100,7 +102,8 @@ pub fn run_qaoa_maxcut(
     config: &QaoaConfig,
 ) -> Result<MaxCutRun, RunError> {
     let n_qubits = subgraph.n_qubits();
-    let optimized = optimize_qaoa_params(n_qubits, &subgraph.edges, config.p, config.grid_resolution);
+    let optimized =
+        optimize_qaoa_params(n_qubits, &subgraph.edges, config.p, config.grid_resolution);
 
     let measured_program = build_qaoa_program(n_qubits, &subgraph.edges, config.p, true);
     let opts = RunOptions {
@@ -133,7 +136,9 @@ pub fn run_qaoa_maxcut(
     let total_shots: u64 = counts.values().sum();
     let mean_sampled_cut_value: f64 = counts
         .iter()
-        .map(|(bs, count)| cut_value_of_bitstring(bitstring_to_index(bs), &subgraph.edges) * (*count as f64))
+        .map(|(bs, count)| {
+            cut_value_of_bitstring(bitstring_to_index(bs), &subgraph.edges) * (*count as f64)
+        })
         .sum::<f64>()
         / total_shots.max(1) as f64;
 
