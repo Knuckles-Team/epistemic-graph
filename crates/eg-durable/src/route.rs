@@ -110,6 +110,22 @@ pub const fn route_work_shape(shape: WorkShape) -> DurableBackendKind {
     }
 }
 
+impl DurableBackendKind {
+    /// The concrete `:DurableExecutionUnit` OWL subclass label this backend mirrors
+    /// into (DE1, `agent_utilities/knowledge_graph/ontology_orchestration.ttl`) — the
+    /// single source of truth for the label string, so [`crate::project::project`] and
+    /// any future Python/Rust caller never re-spell it independently.
+    #[must_use]
+    pub const fn unit_label(self) -> &'static str {
+        match self {
+            DurableBackendKind::Statechart => "StatechartInstance",
+            DurableBackendKind::Jobs => "AnalyticsJob",
+            DurableBackendKind::MutationStoreSaga => "SagaCoordination",
+            DurableBackendKind::PythonDurableRun => "DurableRun",
+        }
+    }
+}
+
 /// Convenience composition of [`route_call_shape`] then [`route_work_shape`] — the
 /// end-to-end answer to "which backend serves this call shape".
 #[must_use]
@@ -283,6 +299,27 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&CallShape::StateSet).unwrap(),
             "\"state_set\""
+        );
+    }
+
+    #[test]
+    fn unit_label_matches_the_de0_ontology_subclass_names() {
+        // Matches agent_utilities/knowledge_graph/ontology_orchestration.ttl's
+        // :StatechartInstance / :AnalyticsJob / :SagaCoordination / :DurableRun
+        // labels exactly -- a rename on either side without the other is a defect
+        // this test is the tripwire for.
+        assert_eq!(
+            DurableBackendKind::Statechart.unit_label(),
+            "StatechartInstance"
+        );
+        assert_eq!(DurableBackendKind::Jobs.unit_label(), "AnalyticsJob");
+        assert_eq!(
+            DurableBackendKind::MutationStoreSaga.unit_label(),
+            "SagaCoordination"
+        );
+        assert_eq!(
+            DurableBackendKind::PythonDurableRun.unit_label(),
+            "DurableRun"
         );
     }
 }

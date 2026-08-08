@@ -28,14 +28,16 @@ name = "eg_durable"
 # and reached only over the engine RPC boundary DE2 wires -- it is represented here
 # purely as a marker (`PythonDurableRunBackend`), never a dependency.
 #
-# Zero new crates.io dependencies: `serde` is already resolved workspace-wide (every
-# `eg-*` crate depends on it), so adding it to this optional/default-off crate adds
-# nothing new to the resolved dependency graph -- confirmed the same way the sibling
+# Zero new crates.io dependencies: `serde`/`serde_json` are already resolved
+# workspace-wide (every `eg-*` crate depends on `serde`; `serde_json` is likewise
+# already resolved by dozens of crates, including this crate's own DE0 dev-profile),
+# so adding either to this optional/default-off crate adds nothing new to the
+# resolved dependency graph -- confirmed the same way the sibling
 # `eg-quantum-core`/`eg-viz-core` Cargo.tomls document their own zero-new-dep claim.
+# `serde_json` moved from [dev-dependencies] to [dependencies] at DE1: `project.rs`'s
+# `project()` (production code, not test-only) builds `serde_json::Value` properties.
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-
-[dev-dependencies]
 serde_json = "1.0"
 
 [features]
