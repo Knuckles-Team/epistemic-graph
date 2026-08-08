@@ -3062,7 +3062,7 @@ pub(crate) async fn try_handle(
             let g = &*core;
             // [node_id, Vec<neighbor_id>] in input order — one round-trip and one
             // topo-lock acquisition for N nodes (D-DPF-1) instead of N of each.
-            let out = g.get_neighbors_batch(&node_ids);
+            let out = g.get_neighbors_batch(node_ids);
             Response::ok(req_id, ResultPayload::raw(&out))
         }
         Method::GetBlastRadius { node_id, max_depth } => {

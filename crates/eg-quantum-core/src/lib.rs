@@ -1,6 +1,13 @@
 //! `eg-quantum-core` — Quantum as a governed epistemic-graph capability, Lane Q0
 //! contracts (register `D-QN-1`).
 //!
+//! CONCEPT:EG-KG.compute.quantum-circuit-ir — the stable `QuantumProgram` IR, the
+//! vendor-neutral `QuantumBackend` trait + capability flags, the deterministic
+//! planner (rules R0-R5), and the exactness-typed `QuantumResult` that keeps
+//! sampled/noisy/hardware results out of the epistemic hard-constraint path by
+//! construction. This is the one contract every other quantum crate in this
+//! workspace (`eg-quantum-gates`, `eg-quantum-sim`) builds against.
+//!
 //! This crate is the CONTRACT for quantum-as-a-capability: a stable IR
 //! ([`ir::QuantumProgram`]), a vendor-neutral execution trait with capability flags
 //! ([`backend::QuantumBackend`]), a pure planner rule engine
@@ -68,6 +75,7 @@ pub mod estimate;
 pub mod hash;
 pub mod ir;
 pub mod planner;
+pub mod qasm;
 pub mod result;
 
 pub use backend::{
@@ -87,4 +95,5 @@ pub use ir::{
 pub use planner::{
     select_backend, AuditEntry, PlannerDecision, PlannerError, PlannerOptions, PlannerRule,
 };
+pub use qasm::{from_qasm2, to_qasm2, QasmError};
 pub use result::{Formalism, HardConstraint, NotExactError, Outcome, Proposal, QuantumResult};
