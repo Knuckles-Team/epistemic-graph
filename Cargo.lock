@@ -2718,6 +2718,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-quantum-workloads"
+version = "0.1.0"
+dependencies = [
+ "eg-core",
+ "eg-epistemic",
+ "eg-numeric",
+ "eg-plan",
+ "eg-quantum-core",
+ "eg-quantum-gates",
+ "eg-quantum-sim",
+ "eg-types",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "eg-query"
 version = "0.31.0"
 dependencies = [
