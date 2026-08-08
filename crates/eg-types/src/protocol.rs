@@ -2135,6 +2135,21 @@ pub enum Method {
         op: crate::viz::VizOp,
     },
 
+    /// The agent-facing quantum control-plane surface (Q8, CONCEPT:EG-KG.compute.quantum-agent-api):
+    /// `quantum_rank`/`optimize_with_qaoa`/`quantum_expectation` over a registered
+    /// `eg_quantum_core::backend::QuantumBackend` (today: `eg-quantum-sim`'s
+    /// `sv-cpu`/`stabilizer`). ONE variant wrapping an internal op enum — mirrors
+    /// `AnalyticsJob { op }`/`Statechart { op }` above — so the whole surface costs
+    /// exactly one `Method` arm. Gated `quantum`; the handler
+    /// (`src/server/handlers/quantum.rs`) self-routes in `dispatch.rs` before the
+    /// per-graph chain (a quantum run reads no persisted graph state and writes
+    /// nothing durable — every result is returned to the caller as a proposal,
+    /// never committed — like `AnalyticsJob`/`Statechart`/`TsAppend`/`Kv*`).
+    #[cfg(feature = "quantum")]
+    Quantum {
+        op: crate::quantum::QuantumOp,
+    },
+
     // ── Query (SQL + Cypher) ──────────────────────────────────────────
     // Read-only relational query surface (CONCEPT:EG-KG.query.read-only-sql-query). `SELECT … FROM
     // nodes …` over ONE graph via DataFusion, gated behind the facade `query`

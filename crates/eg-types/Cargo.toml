@@ -208,6 +208,21 @@ modality-serving = []
 # features, deliberately EXCLUDED from `full` (see root `Cargo.toml`) since it is
 # not yet an operator-facing default.
 viz = []
+# CONCEPT:EG-KG.compute.quantum-agent-api (Q8, quantum-native.md / quantum-external-
+# providers.md §1.5): gates the `Method::Quantum { op: QuantumOp }` variant + its
+# `QuantumOp`/`QuantumRankCandidate`/`QuantumQaoaEdge` wire DTOs -- the ONE wire op
+# that makes the quantum surface (`eg-quantum-core`/`eg-quantum-gates`/
+# `eg-quantum-sim`, all Rust-internal until this feature) callable through the
+# engine's own wire protocol. PURE serde: `QuantumOp::Expectation.program` rides an
+# opaque `serde_json::Value` (the same shape `eg_quantum_core::ir::QuantumProgram`
+# round-trips as JSON), so this crate does NOT depend on `eg-quantum-core` -- no new
+# crate in the dependency tree, exactly like every other Method-gating feature here.
+# A build without it drops the variant (-> the dispatch "not available in this
+# build" catch-all). Mirrors `jobs`/`statechart`: NEVER forced on unconditionally by
+# `eg-capabilities` (see that crate's own Cargo.toml doc) -- it carries its own
+# mirrored `quantum` feature turned on in lockstep by the root package's
+# `quantum-agent-api` facade feature.
+quantum = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }

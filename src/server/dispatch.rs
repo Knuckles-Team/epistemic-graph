@@ -3400,6 +3400,16 @@ async fn dispatch_inner(
             };
             handlers::viz::handle(state, req.id, &carrier, op).await
         }
+        // ── Agent-facing quantum control plane (Q8, CONCEPT:EG-KG.compute.quantum-agent-api,
+        // feature `quantum-agent-api`) ──────────────────────────────────────────
+        // NOT graph-scoped (pure compute -- reads no persisted graph state, writes
+        // nothing durable) — self-routes here, BEFORE the per-graph `dispatch_graph_op`
+        // chain, exactly like `AnalyticsJob`/`Statechart` above. See
+        // `handlers::quantum`'s module docs for the full reachability/exactness/audit
+        // contract this closes (program doc: "no job-plane, no wire protocol Method,
+        // and no KG concept mapping" — the wire protocol Method half ends here).
+        #[cfg(feature = "quantum-agent-api")]
+        Method::Quantum { op } => handlers::quantum::handle(req.id, op).await,
 
         // ── Transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID) ──────
         // Stateful + self-routing: a Txn* op targets the graph the txn was opened
