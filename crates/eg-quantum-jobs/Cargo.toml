@@ -1,0 +1,57 @@
+[package]
+name = "eg-quantum-jobs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Quantum-as-a-durable-job (lanes Q5/Q6, PROGRAM.md quantum-external-providers.md addendum): submits a QuantumProgram built from a candidate RowSet as an eg-jobs AnalyticsJob (NOT a synchronous Op -- real QPU queues are minutes to hours), runs it against a registered eg-quantum-sim/eg-quantum-core backend through the SAME planner rules R0-R5, and bridges QuantumResult outcomes (expectations/distributions/bitstrings) into eg-numeric arrays plus (id, score) RowSet rows. Reuses eg-jobs' durable store/fenced-lease state machine as-is -- no parallel job abstraction."
+license = "MIT"
+
+[lib]
+name = "eg_quantum_jobs"
+
+# ── Lane Q5/Q6 (register D-QN-1 family, `plans/au-eg-program/program/quantum-native.md`
+# + `quantum-external-providers.md` addendum) ──
+#
+# A leaf crate ALONG the DAG, mirroring `eg-quantum-sim`'s posture: depends directly on
+# `eg-jobs` (the durable job plane this crate reuses, NOT forks -- see the addendum's
+# "REUSE, DO NOT FORK" directive) and on `eg-quantum-core`/`eg-quantum-sim` (the IR,
+# planner, and the two in-process backends), plus `eg-numeric` for the Q6 numeric
+# bridge (expectation/probability-distribution arrays). NONE of these are new
+# crates.io dependencies -- every one is an existing workspace member already vendored
+# for the sibling quantum/jobs lanes.
+#
+# The optional `federation-bridge` feature additionally depends on `eg-plan` (its
+# `ForeignSource`/`ForeignSourceRegistry` federation seam, `crates/eg-plan/src/
+# federation.rs`) so a submitted quantum job's results can be registered as a named
+# FOREIGN source per the addendum's staging discipline step 2. It is optional and OFF
+# by default because `eg-plan/federation` pulls DataFusion + a TLS stack (the existing
+# federation posture, unrelated to this crate) -- step 1 (the plain submit/run/join
+# functions below) needs none of that.
+[dependencies]
+eg-types = { path = "../eg-types" }
+eg-jobs = { path = "../eg-jobs" }
+eg-quantum-core = { path = "../eg-quantum-core" }
+eg-quantum-sim = { path = "../eg-quantum-sim" }
+eg-numeric = { path = "../eg-numeric", features = ["complex"] }
+eg-plan = { path = "../eg-plan", optional = true }
+# Already resolved workspace-wide via `eg-numeric` (see its own Cargo.toml) --
+# declared directly here only so this crate can name `ndarray::Array1` in the Q6
+# numeric-bridge surface. Adds NO new crate to the resolved dependency tree.
+ndarray = "0.17"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []
+# Step 2 (staging discipline, addendum §1.2): register a submitted-job's eventual
+# (id, score) rows as a named `ForeignSource` through eg-plan's EXISTING federation
+# seam, so a UQL `FOREIGN "<name>"` clause composes a quantum result with local
+# graph/vector/SQL legs with NO change to eg-types::wire::Op. Do not confuse this
+# with a native `Op::SubmitQuantum`/`Op::JoinQuantumResults` (step 3) -- deliberately
+# NOT implemented here; see `src/lib.rs` module doc for why.
+federation-bridge = ["dep:eg-plan", "eg-plan/federation"]

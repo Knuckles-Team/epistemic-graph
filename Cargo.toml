@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-durable"]
+members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-durable", "crates/eg-quantum-jobs"]
 # D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
 # governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
 # QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
@@ -1195,6 +1195,23 @@ quantum-quest = ["quantum"]
 quantum-gpu = ["quantum"]
 quantum-hardware = ["quantum"]
 quantum-sim = ["quantum", "dep:eg-quantum-gates", "dep:eg-quantum-sim"]
+# Lanes Q5/Q6 (`quantum-external-providers.md` addendum) -- quantum as a DURABLE
+# `eg-jobs` job, never a synchronous `Op`: `eg-quantum-jobs` submits a
+# `QuantumProgram` built from a candidate RowSet through the REAL
+# `eg_jobs::JobStore` (no parallel job abstraction -- see that crate's own docs for
+# why this reuses, not forks, the durable-execution plane this workspace already
+# has), runs it via the SAME planner rules R0-R5 against `quantum-sim`'s backends,
+# and bridges the result (expectations/distributions/bitstrings) into `eg-numeric`
+# arrays. Mirrors `quantum-sim`'s posture exactly: NOT in `default`/`full`/`cluster`,
+# zero new crates.io dependencies (every edge below is an existing workspace
+# member). `quantum-jobs-federation` additionally wires the crate's `federation-
+# bridge` feature (a named `ForeignSource` reading a completed quantum job's
+# results through the EXISTING `crates/eg-plan/src/federation.rs` seam, staging-
+# discipline step 2 -- see the addendum) -- implies the facade's own `federation`
+# so the same DataFusion+TLS-bearing `eg-plan` build the server already links is
+# reused, not duplicated.
+quantum-jobs = ["quantum-sim", "dep:eg-quantum-jobs"]
+quantum-jobs-federation = ["quantum-jobs", "federation", "eg-quantum-jobs/federation-bridge"]
 
 [dependencies]
 eg-types = { path = "crates/eg-types" }
@@ -1312,6 +1329,10 @@ eg-quantum-gates = { path = "crates/eg-quantum-gates", optional = true }
 # QuantumBackend implementations -- the first real backends planner rule R1 (Clifford
 # -> stabilizer, never statevector) has to route between.
 eg-quantum-sim = { path = "crates/eg-quantum-sim", optional = true }
+# Lanes Q5/Q6 (feature `quantum-jobs`, see that feature's own comment above): quantum
+# as a durable `eg-jobs` job (submit/claim/run/join through the REAL JobStore state
+# machine, no parallel job abstraction) + the Q6 numeric bridge into eg-numeric.
+eg-quantum-jobs = { path = "crates/eg-quantum-jobs", optional = true }
 # Live CEP standing-query engine (feature `stream`, included in the main build,
 # CONCEPT:EG-088/EG-299). The
 # BATCH `Op::Cep` executor already pulls eg-stream transitively via `eg-plan/stream`; this
