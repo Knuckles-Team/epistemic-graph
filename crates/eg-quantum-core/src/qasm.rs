@@ -1,6 +1,11 @@
 //! OpenQASM 2.0 import/export for [`QuantumProgram`] (lane Q2, register `D-QN-1`/
 //! `D-QN-6`).
 //!
+//! CONCEPT:EG-KG.compute.quantum-qasm-interop — bidirectional `QuantumProgram` <->
+//! OpenQASM 2.0 text, hand-rolled (zero new Cargo dependencies), over the bounded
+//! subset the IR can express. See `crate::lib`'s
+//! `CONCEPT:EG-KG.compute.quantum-circuit-ir` for the IR this interoperates with.
+//!
 //! This is a hand-rolled lexer/parser for a **bounded subset** of OpenQASM 2.0 —
 //! exactly what [`crate::ir::GateKind`] can express, plus `measure`/`reset`/
 //! `barrier`/`qreg`/`creg`. It is not a general OpenQASM 2.0 toolchain: anything
