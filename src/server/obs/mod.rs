@@ -1696,8 +1696,8 @@ mod tests {
     /// "secured deployment" precondition -- this mirrors `server::mod::tests::test_state`
     /// exactly, duplicated here (not imported) because that helper is private to
     /// its own test module.
-    fn goc62_bug037_security_state() -> std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>
-    {
+    fn goc62_bug037_security_state(
+    ) -> std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>> {
         let isolation = crate::isolation::IsolationLayer::new();
         std::sync::Arc::new(tokio::sync::RwLock::new(crate::server::ServerState {
             #[cfg(feature = "redb")]
@@ -1726,6 +1726,10 @@ mod tests {
             blob: None,
             #[cfg(feature = "blob")]
             blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
             #[cfg(feature = "streaming")]

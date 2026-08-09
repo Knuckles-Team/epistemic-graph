@@ -381,7 +381,9 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "PublishConfirmed",
     "PublishEx",
     "PublishIdempotent",
+    "ReclaimWorkItemResources",
     "Reconcile",
+    "ReleaseWorkItemResources",
     "Reinforce",
     "RegisterServer",
     "RemoveEdge",
@@ -389,6 +391,7 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "RemoveTriples",
     "Reparent",
     "RenewWorkItemLease",
+    "ReserveWorkItemResources",
     "RunDatalogReasoning",
     "SetPose",
     "Sql",
@@ -400,12 +403,16 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "SupersedeEdge",
     "SweepExpired",
     "UnbindQueue",
+    "UpdateResourceHost",
     #[cfg(feature = "modality-serving")]
     "ServedModality",
 ];
 
 /// Mirrors `src/server/cdc.rs::emit_for_method`'s explicit match (everything else falls to
 /// its `_ => {}` catch-all, i.e. emits NO Change-Data-Capture event).
+/// Native resource rows are controller-plane capacity/accounting state, not
+/// GraphCore node/edge state; their typed results/status and audit lines are the
+/// reconciliation surfaces, so `emits_cdc: false` is deliberate.
 const CDC_RS_EMITS_CDC: &[&str] = &[
     "AddEdge",
     "AddNode",
@@ -787,6 +794,23 @@ fn emits_cdc_matches_cdc_rs_exactly() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn native_resource_mutations_are_audited_but_not_cdc() {
+    for expected_name in [
+        "ReserveWorkItemResources",
+        "ReleaseWorkItemResources",
+        "ReclaimWorkItemResources",
+        "UpdateResourceHost",
+    ] {
+        let (_, policy, _) = eg_capabilities::ALL_METHODS
+            .iter()
+            .find(|(name, _, _)| *name == expected_name)
+            .unwrap_or_else(|| panic!("missing resource capability policy: {expected_name}"));
+        assert!(policy.audited, "{expected_name} must remain audit chained");
+        assert!(!policy.emits_cdc, "{expected_name} must remain CDC-silent");
+    }
 }
 
 /// Not a pass/fail gate -- prints the full audit findings so `cargo test -p eg-capabilities

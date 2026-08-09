@@ -3278,11 +3278,15 @@ fn resource_extension_matches(
     let mut request_anti_affinity = request.anti_affinity.clone();
     request_anti_affinity.sort();
     let alias = resource_opaque_string(extension.get("target_alias"), "resource target_alias")?;
-    let work_item_digest = resource_metadata_string(
-        extension,
-        "work_item_input_fingerprint",
-        "work_item_input_fingerprint",
-    )?;
+    // This is the immutable outer WorkItem digest, not an opaque user field.
+    // Keep its frozen `v1:<lowercase-hex>` spelling separate from the nested
+    // opaque:v1 values so a valid resolved WorkItem is not rejected at the
+    // trust boundary.
+    let work_item_digest = extension
+        .get("work_item_input_fingerprint")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "work_item_input_fingerprint is missing".to_string())?
+        .to_string();
     resource_fingerprint(&work_item_digest, "work_item_input_fingerprint")?;
     let stored_work_item_digest = repository
         .get("immutable_input_digest")
@@ -3913,7 +3917,7 @@ fn resource_fairness_scope_key(tenant: &str, group: &str) -> String {
     resource_scope_key(&[tenant, group])
 }
 
-fn resource_record_target_kind(
+fn resource_record_target_kind_from_request(
     kind: ResourceReservationRequestTargetKind,
 ) -> ResourceReservationRecordTargetKind {
     match kind {
@@ -3958,7 +3962,7 @@ fn resource_build_record(
             alias: host.target_alias.clone(),
             capability_labels: labels,
         },
-        target_kind: resource_record_target_kind(request.target_kind),
+        target_kind: resource_record_target_kind_from_request(request.target_kind),
         target_alias: request.target_alias.clone(),
         repository_id: request.repository_id.clone(),
         branch: request.branch.clone(),
@@ -4347,7 +4351,7 @@ fn apply_resource_reservation_rows(
                     vec![],
                 )));
             }
-            let (repository, extension) = resource_metadata_maps(&props)
+            let (_repository, extension) = resource_metadata_maps(&props)
                 .map_err(|_| "WorkItem resource admission extension is invalid".to_string())?;
             if is_reserve {
                 let expected = resource_recomputed_fingerprint(&props, request)?;
@@ -4475,6 +4479,10 @@ fn apply_resource_reservation_rows(
                 next.record.lifecycle_revision = next.record.lifecycle_revision.saturating_add(1);
                 next.record.expected_lifecycle_revision = request.expected_lifecycle_revision;
                 next.record.tombstone = true;
+                next.held_cpu_weight = 0;
+                next.held_memory_mib = 0;
+                next.held_disk_mib = 0;
+                next.held_process_slots = 0;
                 let debt_row = resource_load_fairness(
                     fairness,
                     graph,
@@ -4511,14 +4519,13 @@ fn apply_resource_reservation_rows(
                     }
                 }
                 let disk_key = format!("{}\0{}", request.host_ref, request.disk_policy_key);
-                if let Some(mut policy) = disk_policies
+                let existing_policy = disk_policies
                     .get((graph, disk_key.as_str()))
                     .map_err(|error| error.to_string())?
-                    .map(|value| {
-                        resource_decode::<DurableResourceDiskPolicy>(value.value(), crypto)
-                    })
-                    .transpose()?
-                {
+                    .map(|value| value.value().to_vec());
+                if let Some(policy_bytes) = existing_policy {
+                    let mut policy: DurableResourceDiskPolicy =
+                        resource_decode(&policy_bytes, crypto)?;
                     if policy.low_watermark_mib == request.disk_low_watermark_mib
                         && policy.high_watermark_mib == request.disk_high_watermark_mib
                     {
@@ -4564,7 +4571,7 @@ fn apply_resource_reservation_rows(
                 // source of reservation truth.  Recharging an existing host
                 // when the index points at a missing authoritative row would
                 // turn partial/corrupt state into a second accepted hold.
-                if existing.is_none() {
+                if resource_load_reservation(reservations, graph, &winner, crypto)?.is_none() {
                     return Err(
                         "resource reservation attempt index references missing reservation".into(),
                     );
@@ -5062,8 +5069,10 @@ fn resource_record_work_item_live(
 fn resource_decode_result_payload(
     payload: crate::protocol::ResultPayload,
 ) -> Result<ResourceReservationResult, String> {
-    let crate::protocol::ResultPayload::Raw(bytes) = payload else {
-        return Err("resource query result encoding failed".into());
+    let bytes = match payload {
+        crate::protocol::ResultPayload::Raw(bytes)
+        | crate::protocol::ResultPayload::PropertiesMsgpack(bytes) => bytes,
+        _ => return Err("resource query result encoding failed".into()),
     };
     eg_types::msgpack::decode_bounded(
         &bytes,
@@ -5156,14 +5165,31 @@ pub(crate) fn read_resource_reservation(
         .get((graph, reservation_id))
         .map_err(|error| error.to_string())?
     else {
-        return Err("resource reservation is not found".into());
+        // A mirrorless RM admission query is an expected pre-reserve read.  A
+        // missing native row is a typed absence, not a transport failure; the
+        // scheduler then submits Reserve and lets that transaction revalidate
+        // the WorkItem/fence atomically.
+        return resource_decode_result_payload(resource_no_reservation_query_result(
+            request,
+            ResourceReservationResultDecision::NotFound,
+        ));
     };
     let stored: DurableResourceReservation = resource_decode(row.value(), crypto)?;
     let record = &stored.record;
     if record.tenant_ref != request.tenant_ref {
-        return Err("resource reservation is not found".into());
+        // Preserve tenant isolation while keeping the public query vocabulary
+        // typed and bounded.  Do not reveal whether another tenant owns this
+        // reservation id through a transport error.
+        return resource_decode_result_payload(resource_no_reservation_query_result(
+            request,
+            ResourceReservationResultDecision::NotFound,
+        ));
     }
     let correlations_match = request.work_item_id.as_deref() == Some(record.work_item_id.as_str())
+        && request
+            .host_ref
+            .as_deref()
+            .map_or(true, |host_ref| host_ref == record.host_ref)
         && request.owner_id.as_deref() == Some(record.owner_id.as_str())
         && request.fence.as_deref() == Some(record.fence.as_str())
         && request.attempt == Some(record.attempt)
@@ -6028,6 +6054,13 @@ fn apply_work_item_rows(
             // before the authority marks it cancelled.
             #[cfg(feature = "statechart")]
             let pre_status = property_string(&props, "status").to_string();
+            let lease_owner = property_string(&props, "lease_owner");
+            let last_lease_owner = if lease_owner.is_empty() {
+                property_string(&props, "last_lease_owner")
+            } else {
+                lease_owner
+            }
+            .to_string();
             let next_epoch = property_u64(&props, "lease_epoch").saturating_add(1);
             props.insert(
                 "status".into(),
@@ -6038,7 +6071,7 @@ fn apply_work_item_rows(
             props.insert("lease_owner".into(), serde_json::Value::Null);
             props.insert(
                 "last_lease_owner".into(),
-                serde_json::Value::String(worker_id.clone()),
+                serde_json::Value::String(last_lease_owner),
             );
             props.insert("lease_expires_at".into(), serde_json::Value::Null);
             props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
@@ -8826,6 +8859,112 @@ pub(crate) fn scan_matview_operator_state(db: &Database) -> Result<Vec<(String, 
     Ok(out)
 }
 
+/// Validate the WorkItem side of every active native reservation before replacing
+/// a graph image from a checkpoint.  Resource rows are deliberately preserved by
+/// ordinary GraphDump restore, so accepting a dump which omits a linked WorkItem
+/// would leave a held claim with no authoritative lifecycle/fence row to release.
+/// Keep this check inside the caller's write transaction: any missing, malformed,
+/// stale, or policy-mismatched WorkItem aborts the whole checkpoint before graph
+/// rows are cleared.  The checkpoint has no caller-supplied clock; the retained
+/// reservation timestamp is the lower-bound liveness instant, while subsequent
+/// linearizable resource reads/reconciliation re-check current lease expiry.
+/// Therefore an expiry after `reserved_at_ms` is intentionally accepted here,
+/// even if it is already past by wall-clock time; later expiry/reclaim belongs
+/// only to an explicit authoritative transaction carrying `now_ms`.
+#[allow(clippy::too_many_arguments)]
+fn validate_checkpoint_resource_links(
+    graph: &str,
+    incoming_nodes: &[(String, Vec<u8>)],
+    reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    const REFUSAL: &str = "checkpoint resource domain validation failed";
+    let refusal = || REFUSAL.to_string();
+    let mut scanned = 0usize;
+    let mut active_rows = Vec::new();
+    for row in reservations.range((graph, "")..).map_err(|_| refusal())? {
+        let (key, value) = row.map_err(|_| refusal())?;
+        let (row_graph, reservation_id) = key.value();
+        if row_graph != graph {
+            break;
+        }
+        scanned = scanned.saturating_add(1);
+        if scanned > MAX_RESOURCE_CLEAR_SCAN {
+            return Err(refusal());
+        }
+        let stored: DurableResourceReservation =
+            resource_decode(value.value(), crypto).map_err(|_| refusal())?;
+        if stored.record.reservation_id != reservation_id {
+            return Err(refusal());
+        }
+        let active = stored.record.state == ResourceReservationRecordState::Reserved
+            || stored.held_cpu_weight != 0
+            || stored.held_memory_mib != 0
+            || stored.held_disk_mib != 0
+            || stored.held_process_slots != 0;
+        if !active {
+            continue;
+        }
+        active_rows.push(stored);
+    }
+
+    // Index only the bounded set of WorkItems linked by active holds.  This is
+    // one O(nodes + active-holds) pass over the incoming image instead of an
+    // O(nodes * reservations) search, while keeping index allocation tied to
+    // the native reservation scan bound rather than graph size.
+    let active_ids: std::collections::HashSet<String> = active_rows
+        .iter()
+        .map(|stored| stored.record.work_item_id.clone())
+        .collect();
+    let mut incoming_active: std::collections::HashMap<&str, &[u8]> =
+        std::collections::HashMap::with_capacity(active_ids.len());
+    for (id, bytes) in incoming_nodes {
+        if active_ids.contains(id)
+            && incoming_active
+                .insert(id.as_str(), bytes.as_slice())
+                .is_some()
+        {
+            return Err(refusal());
+        }
+    }
+
+    for stored in active_rows {
+        // Validate the incoming replacement image, not the rows currently in
+        // redb.  `clear_graph_rows` runs immediately after this function, so
+        // checking the old table would accidentally approve a dump which then
+        // deletes the only linked WorkItem for an active hold.
+        let Some(item_bytes) = incoming_active
+            .get(stored.record.work_item_id.as_str())
+            .copied()
+        else {
+            return Err(refusal());
+        };
+        let props: serde_json::Map<String, serde_json::Value> =
+            decode_durable(item_bytes).map_err(|_| refusal())?;
+        let request = resource_request_from_record(&stored.record, stored.record.reserved_at_ms);
+        resource_validate_work_item(&props, &request, false).map_err(|_| refusal())?;
+        if !resource_record_work_item_live(&props, &stored.record, stored.record.reserved_at_ms) {
+            return Err(refusal());
+        }
+
+        let (_, extension) = resource_metadata_maps(&props).map_err(|_| refusal())?;
+        let host = resource_load_host(hosts, graph, &stored.record.host_ref, crypto)
+            .map_err(|_| refusal())?
+            .ok_or_else(refusal)?;
+        if host.host_ref != stored.record.host_ref
+            || host.target_kind != resource_record_target_kind(stored.record.target_kind)
+            || host.target_alias != stored.record.target_alias
+        {
+            return Err(refusal());
+        }
+        if !resource_target_selection_matches(&extension, &host).map_err(|_| refusal())? {
+            return Err(refusal());
+        }
+    }
+    Ok(())
+}
+
 /// Snapshot the full registry dump into redb, overwriting each graph's rows, and
 /// commit durably. Folds any buffered mutations into the SAME transaction first.
 pub(crate) fn apply_checkpoint(
@@ -8873,7 +9012,7 @@ pub(crate) fn apply_checkpoint(
             .open_table(RESOURCE_DISK_POLICIES)
             .map_err(|e| e.to_string())?;
 
-        for (graph, method) in pending.drain(..) {
+        for (graph, method) in pending.iter().cloned() {
             if matches!(&method, Method::ClearGraph | Method::DeleteGraph { .. }) {
                 clear_resource_rows(
                     &graph,
@@ -8901,10 +9040,29 @@ pub(crate) fn apply_checkpoint(
         }
 
         for dump in graphs {
+            let current_snapshot_version = versions
+                .get(dump.graph.as_str())
+                .map_err(|e| e.to_string())?
+                .map(|value| value.value())
+                .unwrap_or(0);
+            if dump.source_snapshot_version < current_snapshot_version {
+                // A checkpoint image must not move the graph authority backwards
+                // while native holds remain preserved outside the ordinary dump.
+                // Keep the refusal generic so graph identifiers cannot escape via
+                // storage errors.
+                return Err("checkpoint graph image is stale".to_string());
+            }
             // The dump's node/edge/semantic blobs are plaintext (from the live
             // GraphCore snapshot) — SEAL them on the way to disk (no-op when
             // encryption is off). The ledger lines stay plaintext (operational mirror
             // / audit-chain input).
+            validate_checkpoint_resource_links(
+                &dump.graph,
+                &dump.nodes,
+                &mut resource_reservations,
+                &mut resource_hosts,
+                crypto,
+            )?;
             clear_graph_rows(&dump.graph, &mut nodes, &mut edges, &mut ledger)?;
             // Resource rows are a separate native authority and are not part of
             // an ordinary GraphDump.  Preserve them across checkpoint image
@@ -8950,6 +9108,7 @@ pub(crate) fn apply_checkpoint(
         }
     }
     wtx.commit().map_err(|e| e.to_string())?;
+    pending.clear();
     Ok(count)
 }
 
