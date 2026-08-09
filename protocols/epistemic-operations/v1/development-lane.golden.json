@@ -1,0 +1,40 @@
+{
+  "protocol": "epistemic-operations",
+  "schema": "development_lane",
+  "version": "1",
+  "work_item_kinds": ["lane.lifecycle", "lane.cleanup"],
+  "verbs": [
+    "reserve",
+    "renew",
+    "observe",
+    "finish",
+    "cleanup-complete",
+    "exact-query",
+    "status",
+    "quota-policy-update"
+  ],
+  "refusal_decisions": [
+    "accepted",
+    "idempotent",
+    "stale",
+    "conflict",
+    "input_conflict",
+    "quota",
+    "policy",
+    "drained",
+    "not_found",
+    "wrong_kind",
+    "wrong_tenant",
+    "wrong_owner",
+    "wrong_attempt",
+    "wrong_lease_epoch",
+    "wrong_fence",
+    "expired",
+    "terminal",
+    "cleanup_required",
+    "exclusivity",
+    "invalid"
+  ],
+  "quota_policy_update_expected_revision": 7,
+  "intent_json": "{\"schema_version\":\"1\",\"tenant_ref\":\"tenant:golden\",\"request_id\":\"request:golden\",\"lane_id\":\"lane:golden\",\"repository_id\":\"repo:golden\",\"base_ref\":\"refs/heads/main\",\"base_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"branch\":\"rmdd-28/golden\",\"host_target_kind\":\"inventory_alias\",\"host_target_alias\":\"host:golden\",\"workspace_ref\":\"workspace:golden\",\"worktree_locator\":\"lanes/golden\",\"owner_id\":\"agent:golden\",\"session_id\":\"session:golden\",\"fairness_group\":\"fairness:golden\",\"quota_policy_name\":\"default\",\"quota_policy_version\":\"1\",\"predicted_disk_bytes\":4096,\"ttl_ms\":60000,\"input_fingerprint\":\"v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}"
+}

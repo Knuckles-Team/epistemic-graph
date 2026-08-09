@@ -241,6 +241,27 @@ pub struct ObdaExternalSource {
 
 // ── Method ──────────────────────────────────────────────────────────────
 
+/// The only WorkItem kinds admitted by the development-lane authority.
+///
+/// The lifecycle and cleanup effects deliberately use different WorkItems and
+/// therefore different fences.  A cleanup completion can never be mistaken for
+/// a lifecycle attempt, even when both refer to the same immutable lane id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneWorkItemKind {
+    #[serde(rename = "lane.lifecycle")]
+    Lifecycle,
+    #[serde(rename = "lane.cleanup")]
+    Cleanup,
+}
+
+pub const DEVELOPMENT_LANE_LIFECYCLE_KIND: &str = "lane.lifecycle";
+pub const DEVELOPMENT_LANE_CLEANUP_KIND: &str = "lane.cleanup";
+
+/// Lane request DTOs carry `now_ms` for deterministic replay and test vectors.
+/// Dispatch must normalize/overwrite that field from the authoritative engine
+/// clock before authorization or persistence; a client-supplied timestamp is
+/// never trusted as freshness, expiry, or lease authority (RMDD-27 convention).
+
 /// All operations supported by the service.
 // `IntoStaticStr` (metrics builds) yields the variant name as the bounded
 // `op` label for request counters/histograms (CONCEPT:EG-KG.txn.per-graph-write-isolation).
@@ -541,6 +562,51 @@ pub enum Method {
     /// native and cannot be overwritten by telemetry.
     UpdateResourceHost {
         request: crate::epistemic_operations::ResourceHostUpdateRequest,
+    },
+    /// Atomically allocate the typed development-lane hold for the exact
+    /// `lane.lifecycle` WorkItem attempt/fence. Branch and managed-worktree
+    /// uniqueness plus every configured quota scope are charged together.
+    /// `request.now_ms` is overwritten from the authoritative engine clock.
+    ReserveDevelopmentLane {
+        request: crate::epistemic_operations::DevelopmentLaneReserveRequest,
+    },
+    /// Renew one existing lane hold in place. This never appends a WorkItem or
+    /// history row and requires the current WorkItem lease/fence.
+    /// `request.now_ms` is overwritten from the authoritative engine clock.
+    RenewDevelopmentLane {
+        request: crate::epistemic_operations::DevelopmentLaneRenewRequest,
+    },
+    /// Replace the monotonic observed retained footprint on one exact hold.
+    /// `request.now_ms` is overwritten from the authoritative engine clock.
+    ObserveDevelopmentLane {
+        request: crate::epistemic_operations::DevelopmentLaneObserveRequest,
+    },
+    /// Release active-count charge after the exact lifecycle WorkItem reaches a
+    /// terminal state while retaining disk/exclusivity until cleanup.
+    /// `request.now_ms` is overwritten from the authoritative engine clock.
+    FinishDevelopmentLane {
+        request: crate::epistemic_operations::DevelopmentLaneFinishRequest,
+    },
+    /// Release retained disk and identity indexes after a distinct current
+    /// `lane.cleanup` WorkItem proves the guarded filesystem effect complete.
+    /// `request.now_ms` is overwritten from the authoritative engine clock.
+    CleanupDevelopmentLane {
+        request: crate::epistemic_operations::DevelopmentLaneCleanupCompleteRequest,
+    },
+    /// Exact authenticated read of one lane hold or tombstone.
+    /// `request.now_ms` is overwritten from the authoritative engine clock.
+    QueryDevelopmentLane {
+        request: crate::epistemic_operations::DevelopmentLaneQueryRequest,
+    },
+    /// Bounded authenticated status page with maintained native counters.
+    /// `request.now_ms` is overwritten from the authoritative engine clock.
+    DevelopmentLaneStatus {
+        request: crate::epistemic_operations::DevelopmentLaneStatusRequest,
+    },
+    /// Controller/admin-only monotonic quota-policy update.
+    /// `request.now_ms` is overwritten from the authoritative engine clock.
+    UpdateDevelopmentLaneQuota {
+        request: crate::epistemic_operations::DevelopmentLaneQuotaUpdateRequest,
     },
     /// Reaper sweep (CONCEPT:EG-KG.compute.message-ttl-expiry): dead-letter/drop messages whose `expires_at`
     /// has passed and return messages whose visibility lease has expired to claimable,
@@ -6177,6 +6243,150 @@ mod tests {
         let parsed: Request = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.id, 1);
         assert_eq!(parsed.graph, "agent:planner");
+    }
+
+    #[test]
+    fn development_lane_protocol_matches_cross_language_golden_vector() {
+        use crate::epistemic_operations::{
+            DevelopmentLaneIntent, DevelopmentLaneIntentHostTargetKind,
+            DevelopmentLaneIntentSchemaVersion, DevelopmentLaneQueryRequest,
+            DevelopmentLaneQueryRequestSchemaVersion, DevelopmentLaneQuotaUpdateRequest,
+            DevelopmentLaneResultDecision,
+        };
+
+        let vector: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../protocols/epistemic-operations/v1/development-lane.golden.json"
+        ))
+        .expect("golden vector must be valid JSON");
+        assert_eq!(
+            serde_json::to_string(&DevelopmentLaneWorkItemKind::Lifecycle).unwrap(),
+            "\"lane.lifecycle\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DevelopmentLaneWorkItemKind::Cleanup).unwrap(),
+            "\"lane.cleanup\""
+        );
+
+        let intent = DevelopmentLaneIntent {
+            schema_version: DevelopmentLaneIntentSchemaVersion::V1,
+            tenant_ref: "tenant:golden".into(),
+            request_id: "request:golden".into(),
+            lane_id: "lane:golden".into(),
+            repository_id: "repo:golden".into(),
+            base_ref: "refs/heads/main".into(),
+            base_sha: "0123456789abcdef0123456789abcdef01234567".into(),
+            branch: "rmdd-28/golden".into(),
+            host_target_kind: DevelopmentLaneIntentHostTargetKind::InventoryAlias,
+            host_target_alias: Some("host:golden".into()),
+            workspace_ref: "workspace:golden".into(),
+            worktree_locator: "lanes/golden".into(),
+            owner_id: "agent:golden".into(),
+            session_id: "session:golden".into(),
+            fairness_group: "fairness:golden".into(),
+            quota_policy_name: "default".into(),
+            quota_policy_version: "1".into(),
+            predicted_disk_bytes: 4096,
+            ttl_ms: 60000,
+            input_fingerprint:
+                "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+        };
+        let encoded = serde_json::to_string(&intent).unwrap();
+        assert_eq!(encoded, vector["intent_json"].as_str().unwrap());
+
+        let mut unknown: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        unknown["unexpected"] = serde_json::Value::Bool(true);
+        assert!(serde_json::from_value::<DevelopmentLaneIntent>(unknown).is_err());
+
+        let decisions = [
+            DevelopmentLaneResultDecision::Accepted,
+            DevelopmentLaneResultDecision::Idempotent,
+            DevelopmentLaneResultDecision::Stale,
+            DevelopmentLaneResultDecision::Conflict,
+            DevelopmentLaneResultDecision::InputConflict,
+            DevelopmentLaneResultDecision::Quota,
+            DevelopmentLaneResultDecision::Policy,
+            DevelopmentLaneResultDecision::Drained,
+            DevelopmentLaneResultDecision::NotFound,
+            DevelopmentLaneResultDecision::WrongKind,
+            DevelopmentLaneResultDecision::WrongTenant,
+            DevelopmentLaneResultDecision::WrongOwner,
+            DevelopmentLaneResultDecision::WrongAttempt,
+            DevelopmentLaneResultDecision::WrongLeaseEpoch,
+            DevelopmentLaneResultDecision::WrongFence,
+            DevelopmentLaneResultDecision::Expired,
+            DevelopmentLaneResultDecision::Terminal,
+            DevelopmentLaneResultDecision::CleanupRequired,
+            DevelopmentLaneResultDecision::Exclusivity,
+            DevelopmentLaneResultDecision::Invalid,
+        ];
+        let actual: Vec<String> = decisions
+            .iter()
+            .map(|decision| serde_json::to_string(decision).unwrap())
+            .collect();
+        let expected: Vec<String> = vector["refusal_decisions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| format!("\"{}\"", value.as_str().unwrap()))
+            .collect();
+        assert_eq!(actual, expected);
+
+        let query = DevelopmentLaneQueryRequest {
+            schema_version: DevelopmentLaneQueryRequestSchemaVersion::V1,
+            tenant_ref: "tenant:golden".into(),
+            hold_id: "hold:golden".into(),
+            now_ms: 123,
+        };
+        let query_json = serde_json::to_value(query).unwrap();
+        assert!(serde_json::from_value::<DevelopmentLaneQueryRequest>(query_json).is_ok());
+
+        let policy = serde_json::json!({
+            "schema_version": "1",
+            "policy_name": "default",
+            "policy_version": "2",
+            "tenant_count_limit": 1,
+            "owner_count_limit": 1,
+            "session_count_limit": 1,
+            "workspace_count_limit": 1,
+            "repository_count_limit": 1,
+            "host_count_limit": 1,
+            "global_count_limit": 1,
+            "tenant_predicted_disk_bytes": 4096,
+            "owner_predicted_disk_bytes": 4096,
+            "session_predicted_disk_bytes": 4096,
+            "workspace_predicted_disk_bytes": 4096,
+            "repository_predicted_disk_bytes": 4096,
+            "host_predicted_disk_bytes": 4096,
+            "global_predicted_disk_bytes": 4096,
+            "tenant_retained_disk_bytes": 4096,
+            "owner_retained_disk_bytes": 4096,
+            "session_retained_disk_bytes": 4096,
+            "workspace_retained_disk_bytes": 4096,
+            "repository_retained_disk_bytes": 4096,
+            "host_retained_disk_bytes": 4096,
+            "global_retained_disk_bytes": 4096,
+            "min_ttl_ms": 1000,
+            "max_ttl_ms": 60000,
+            "max_observation_staleness_ms": 1000,
+            "drain_only": false
+        });
+        let quota_update = serde_json::json!({
+            "schema_version": "1",
+            "tenant_ref": "tenant:golden",
+            "policy": policy,
+            "expected_policy_revision": vector["quota_policy_update_expected_revision"],
+            "expected_policy_version": "1",
+            "idempotency_key": "idem:golden",
+            "now_ms": 123
+        });
+        let parsed: DevelopmentLaneQuotaUpdateRequest =
+            serde_json::from_value(quota_update).expect("numeric policy CAS must be required");
+        assert_eq!(
+            parsed.expected_policy_revision,
+            vector["quota_policy_update_expected_revision"]
+                .as_u64()
+                .unwrap()
+        );
     }
 
     #[test]
