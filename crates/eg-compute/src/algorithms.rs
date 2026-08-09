@@ -3,6 +3,7 @@
 // PageRank, centrality, community detection, BFS/DFS traversals,
 // connected components — all operating on GraphCore.
 
+use eg_core::compute::semantic::MAX_EMBEDDING_DIMENSION;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{Bfs, EdgeRef, IntoEdgeReferences};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
@@ -1348,7 +1349,6 @@ const MAX_BATCH_UPDATE_ITEMS: usize = 500_000;
 const MAX_BATCH_OPERATIONS: usize = 50_000;
 const MAX_BATCH_ID_BYTES: usize = 4_096;
 const MAX_BATCH_PROPERTIES_BYTES: usize = 4 * 1024 * 1024;
-const MAX_BATCH_EMBEDDING_DIMENSIONS: usize = 65_536;
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
 struct BatchUpdateSummary {
@@ -1471,7 +1471,7 @@ pub fn decode_batch_operations(operations_msgpack: &[u8]) -> Result<Vec<BatchOpe
                             "BatchUpdate op[{index}] 'embedding' must be a non-empty number array"
                         )
                     })?;
-                if values.len() > MAX_BATCH_EMBEDDING_DIMENSIONS {
+                if values.len() > MAX_EMBEDDING_DIMENSION {
                     return Err(format!(
                         "BatchUpdate op[{index}] embedding exceeds the dimension limit"
                     ));
@@ -1502,10 +1502,19 @@ fn prepare_batch_operations_with(
     operations: &mut [BatchOperation],
     mut node_exists: impl FnMut(&str) -> bool,
     mut node_properties: impl FnMut(&str) -> Option<Vec<u8>>,
+    // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007). The store's CURRENT established
+    // embedding dimension (`0` = store empty / unset). Every `AddEmbedding` op in
+    // this batch is validated against it (and against each other, once the batch
+    // itself establishes a dimension for an empty store) BEFORE `batch_update`
+    // applies a single one to the LIVE `semantic_store` — that apply loop mutates
+    // the resident store directly (no rollback), so a mixed-dimension batch MUST be
+    // rejected here, whole, or it would partially apply.
+    store_dim: usize,
 ) -> Result<(), String> {
     // Track only ids touched by this batch. The property image is needed so two
     // ordered upserts merge cumulatively before the first RAM mutation occurs.
     let mut node_state = HashMap::<String, Option<Vec<u8>>>::new();
+    let mut expected_embedding_dim = store_dim;
     for (index, operation) in operations.iter_mut().enumerate() {
         match operation {
             BatchOperation::AddNode {
@@ -1557,7 +1566,7 @@ fn prepare_batch_operations_with(
                 }
             }
             BatchOperation::RemoveEdge { .. } => {}
-            BatchOperation::AddEmbedding { id, .. } => {
+            BatchOperation::AddEmbedding { id, embedding } => {
                 let node_exists = node_state
                     .get(id)
                     .map(Option::is_some)
@@ -1567,6 +1576,16 @@ fn prepare_batch_operations_with(
                         "BatchUpdate op[{index}] embedding node '{id}' does not exist"
                     ));
                 }
+                // Same guard as the arena/map chokepoint (`SemanticStore::add_embedding`),
+                // run for EVERY embedding op in the batch up front so a
+                // mixed-dimension batch (e.g. op[2] matches the store, op[5]
+                // doesn't) is rejected as a whole, before `batch_update` applies
+                // op[0]/op[1] to the live store.
+                expected_embedding_dim = eg_core::compute::semantic::check_embedding_dimension(
+                    embedding.len(),
+                    expected_embedding_dim,
+                )
+                .map_err(|error| format!("BatchUpdate op[{index}] {error}"))?;
             }
         }
     }
@@ -1581,6 +1600,7 @@ fn prepare_batch_operations(
         operations,
         |id| core.has_node(id),
         |id| core.get_node_properties(id),
+        core.semantic_store.read().dim(),
     )
 }
 
@@ -1651,6 +1671,13 @@ pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u
         &mut operations,
         |id| txn.has_node(id),
         |id| txn.get_node_properties(id),
+        // Embeddings are NEVER staged through `txn` (that guard covers node/edge
+        // topology only) — the apply loop below mutates `core.semantic_store`
+        // directly, live, regardless of txn state. So the dimension to validate
+        // against here is the SAME live store `prepare_batch_operations` reads,
+        // not anything txn-scoped; there is no separate "staged" dimension to be
+        // consistent with (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard, BUG-007).
+        core.semantic_store.read().dim(),
     )?;
     let source_version = core.version();
     for operation in operations {
@@ -1704,7 +1731,16 @@ pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u
         let mut semantic = core.semantic_store.write();
         for action in semantic_actions {
             match action {
-                SemanticAction::Upsert(id, embedding) => semantic.add_embedding(id, embedding),
+                // `prepare_batch_operations` already validated every embedding's
+                // dimension against the store and against the rest of this batch
+                // (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard, BUG-007), so this should never
+                // observe a mismatch — propagated rather than `.expect()`-panicked
+                // so a genuine surprise (e.g. a concurrent mutation between
+                // validation and apply) fails closed instead of crashing the
+                // dispatcher.
+                SemanticAction::Upsert(id, embedding) => semantic
+                    .add_embedding(id, embedding)
+                    .map_err(|error| error.to_string())?,
                 SemanticAction::Remove(id) => {
                     semantic.remove_embedding(&id);
                 }
@@ -2116,6 +2152,95 @@ mod community_tests {
             batch_update(&g, &[0xc1]).is_err(),
             "opaque MsgPack must fail"
         );
+    }
+
+    /// BUG-007 neighbouring hostile input: a batch where some `add_embedding` ops
+    /// match the store's dimension and others don't must be rejected AS A WHOLE —
+    /// none of it applies, including the structural `add_node` ops sharing the same
+    /// batch. `batch_update` mutates `core.semantic_store` and the node/edge topology
+    /// directly (no rollback), so this depends on `prepare_batch_operations`'s
+    /// upfront validation pass running before any apply.
+    #[test]
+    fn mixed_dimension_batch_is_rejected_without_partial_mutation() {
+        let g = GraphCore::new();
+        // Establish the store's dimension at 2.
+        g.add_node("a".into(), p());
+        g.semantic_store
+            .write()
+            .add_embedding("a".into(), vec![1.0, 0.0])
+            .unwrap();
+        let before = g.semantic_store.read().embeddings_snapshot();
+
+        let operations = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "add_node", "id": "b", "properties": {}},
+            {"op": "add_embedding", "id": "b", "embedding": [0.0, 1.0]},
+            {"op": "add_node", "id": "c", "properties": {}},
+            // Mismatched: 3 components instead of the batch/store's 2.
+            {"op": "add_embedding", "id": "c", "embedding": [1.0, 2.0, 3.0]}
+        ]))
+        .unwrap();
+
+        let error = batch_update(&g, &operations).unwrap_err();
+        assert!(
+            error.contains("dimension"),
+            "error must name the dimension problem: {error}"
+        );
+
+        // NOTHING from the batch applied — not "b" (which would have been valid
+        // alone), not "c", not even the add_node rows sharing the batch.
+        assert!(!g.has_node("b"), "no partial node application");
+        assert!(!g.has_node("c"), "no partial node application");
+        assert_eq!(
+            g.semantic_store.read().embeddings_snapshot(),
+            before,
+            "the pre-existing embedding corpus must be untouched (BUG-007)"
+        );
+        assert_eq!(g.semantic_store.read().len(), 1);
+    }
+
+    /// BUG-007 neighbouring hostile input: an empty batch (zero operations) is a
+    /// safe no-op, not an error and not a crash.
+    #[test]
+    fn empty_batch_is_a_safe_noop() {
+        let g = GraphCore::new();
+        let operations = rmp_serde::to_vec_named(&serde_json::json!([])).unwrap();
+        let applied = batch_update(&g, &operations).unwrap();
+        let preview = batch_update_preview(&g, &operations).unwrap();
+        assert_eq!(applied, preview);
+        assert_eq!(g.node_count(), 0);
+        assert_eq!(g.semantic_store.read().len(), 0);
+    }
+
+    /// BUG-007 neighbouring hostile input: a zero-length embedding in a batch is
+    /// rejected at decode time, before any operation in the batch applies.
+    #[test]
+    fn zero_dimension_embedding_in_batch_is_rejected() {
+        let g = GraphCore::new();
+        g.add_node("a".into(), p());
+        let operations = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "add_node", "id": "should-not-land", "properties": {}},
+            {"op": "add_embedding", "id": "a", "embedding": []}
+        ]))
+        .unwrap();
+        assert!(batch_update(&g, &operations).is_err());
+        assert!(!g.has_node("should-not-land"));
+    }
+
+    /// BUG-007 neighbouring hostile input: an embedding beyond the maximum
+    /// dimension is rejected at decode time, before any operation in the batch
+    /// applies.
+    #[test]
+    fn oversized_embedding_dimension_in_batch_is_rejected() {
+        let g = GraphCore::new();
+        g.add_node("a".into(), p());
+        let oversized = vec![0.0f64; MAX_EMBEDDING_DIMENSION + 1];
+        let operations = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "add_node", "id": "should-not-land", "properties": {}},
+            {"op": "add_embedding", "id": "a", "embedding": oversized}
+        ]))
+        .unwrap();
+        assert!(batch_update(&g, &operations).is_err());
+        assert!(!g.has_node("should-not-land"));
     }
 
     #[test]

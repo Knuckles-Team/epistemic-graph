@@ -413,10 +413,10 @@ impl EmbeddedEngine {
         embedding: Vec<f32>,
     ) -> Result<(), String> {
         let core = self.core(graph, true)?;
-        core.semantic_store
-            .write()
-            .add_embedding(node_id.to_string(), embedding);
-        Ok(())
+        let mut store = core.semantic_store.write();
+        store
+            .add_embedding(node_id.to_string(), embedding)
+            .map_err(|error| error.to_string())
     }
 
     /// k-NN semantic search over `graph`'s embeddings: `(node_id, similarity)`.

@@ -62,9 +62,12 @@ fn build_topology() -> (GraphView, SemanticStore) {
 
     let mut s = SemanticStore::new();
     // database's error log matches the incident signature the closest → the culprit.
-    s.add_embedding("database".into(), vec![0.98, 0.10, 0.0]);
-    s.add_embedding("api".into(), vec![0.55, 0.80, 0.0]);
-    s.add_embedding("cache".into(), vec![0.0, 0.20, 0.98]);
+    s.add_embedding("database".into(), vec![0.98, 0.10, 0.0])
+        .unwrap();
+    s.add_embedding("api".into(), vec![0.55, 0.80, 0.0])
+        .unwrap();
+    s.add_embedding("cache".into(), vec![0.0, 0.20, 0.98])
+        .unwrap();
     (core.analysis_snapshot(), s)
 }
 

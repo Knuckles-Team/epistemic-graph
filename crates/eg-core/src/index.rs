@@ -1176,9 +1176,9 @@ mod tests {
         let g = GraphCore::new();
         {
             let mut s = g.semantic_store.write();
-            s.add_embedding("a".into(), v3(1.0, 0.0, 0.0));
-            s.add_embedding("b".into(), v3(0.0, 1.0, 0.0));
-            s.add_embedding("c".into(), v3(0.0, 0.0, 1.0));
+            s.add_embedding("a".into(), v3(1.0, 0.0, 0.0)).unwrap();
+            s.add_embedding("b".into(), v3(0.0, 1.0, 0.0)).unwrap();
+            s.add_embedding("c".into(), v3(0.0, 0.0, 1.0)).unwrap();
         }
         let mut cs = ChangeSet::new();
         cs.record_remove_node("b".into());
@@ -1309,7 +1309,8 @@ mod tests {
         let g = GraphCore::new();
         g.semantic_store
             .write()
-            .add_embedding("a".into(), v3(1.0, 0.0, 0.0));
+            .add_embedding("a".into(), v3(1.0, 0.0, 0.0))
+            .unwrap();
         let tally = g.indexes().commit_batch(&g, &ChangeSet::new());
         assert_eq!(tally, BatchMaintenance::default());
         assert!(g.semantic_store.read().get_embedding("a").is_some());
@@ -1333,7 +1334,7 @@ mod tests {
         {
             let mut s = g.semantic_store.write();
             for (id, v) in &vectors {
-                s.add_embedding(id.clone(), v.clone());
+                s.add_embedding(id.clone(), v.clone()).unwrap();
             }
         }
 
@@ -1370,7 +1371,7 @@ mod tests {
         // Baseline: a store rebuilt from ONLY the survivors.
         let mut base = SemanticStore::new();
         for (id, v) in &survivors {
-            base.add_embedding(id.clone(), v.clone());
+            base.add_embedding(id.clone(), v.clone()).unwrap();
         }
         let mut baseline: Vec<String> = base
             .semantic_search(&query, 8)

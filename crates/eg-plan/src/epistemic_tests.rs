@@ -81,8 +81,12 @@ fn beliefs() -> (GraphView, SemanticStore) {
     .unwrap();
 
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("claim1".into(), vec![1.0, 0.0, 0.0, 0.0]);
-    semantic.add_embedding("evidence1".into(), vec![0.0, 1.0, 0.0, 0.0]);
+    semantic
+        .add_embedding("claim1".into(), vec![1.0, 0.0, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("evidence1".into(), vec![0.0, 1.0, 0.0, 0.0])
+        .unwrap();
 
     (core.analysis_snapshot(), semantic)
 }

@@ -73,7 +73,9 @@ fn build_dense(n: usize) -> (GraphView, SemanticStore) {
         let a = (k as f32 * 0.13).sin();
         let b = (k as f32 * 0.13).cos();
         let c = (k as f32 * 0.07).sin();
-        semantic.add_embedding(format!("d{k}"), vec![a, b, c]);
+        semantic
+            .add_embedding(format!("d{k}"), vec![a, b, c])
+            .unwrap();
     }
     (core.analysis_snapshot(), semantic)
 }

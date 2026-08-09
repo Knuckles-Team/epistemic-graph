@@ -101,7 +101,7 @@ fn build_skew_fixture() -> (GraphView, SemanticStore) {
     let mut rng = Lcg(0xA5A5_1234_9E37_79B9);
     for i in 0..REACHED {
         let v: Vec<f32> = (0..DIM).map(|_| rng.next_signed()).collect();
-        semantic.add_embedding(format!("r{i}"), v);
+        semantic.add_embedding(format!("r{i}"), v).unwrap();
     }
     (core.analysis_snapshot(), semantic)
 }

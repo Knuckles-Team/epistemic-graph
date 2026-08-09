@@ -2863,11 +2863,17 @@ pub(crate) async fn commit_cross_modal_txn(
         }
     }
     // Vectors: add to the in-memory semantic store (the durable SEMANTIC blob already
-    // carries them).
+    // carries them). The durable `commit_crossmodal` call above already validated
+    // every vector's dimension before it could land on disk (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard,
+    // BUG-007), so a rejection here would mean RAM and the durable store have
+    // already diverged — propagated via `?` rather than ignored so that surprise
+    // fails loudly instead of silently.
     {
         let mut store = core.semantic_store.write();
         for (node_id, embedding) in &txn.vectors {
-            store.add_embedding(node_id.clone(), embedding.clone());
+            store
+                .add_embedding(node_id.clone(), embedding.clone())
+                .map_err(|error| error.to_string())?;
         }
     }
     // ── Time-series SERVED read-path materialization (CONCEPT:EG-KG.backend.ts-served-materialize, EG-P0-4) ──

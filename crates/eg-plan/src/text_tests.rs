@@ -46,10 +46,18 @@ fn build_hybrid() -> HybridFx {
     // Query embedding is [1,0,0]. Distances: vec_only closest, target 2nd, then noise,
     // lex_only farthest.
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("vec_only".into(), vec![0.99, 0.10, 0.0]); // vector #1
-    semantic.add_embedding("target".into(), vec![0.90, 0.40, 0.0]); // vector #2
-    semantic.add_embedding("noise".into(), vec![0.50, 0.85, 0.0]); // vector #3
-    semantic.add_embedding("lex_only".into(), vec![0.0, 0.10, 0.99]); // vector last
+    semantic
+        .add_embedding("vec_only".into(), vec![0.99, 0.10, 0.0])
+        .unwrap(); // vector #1
+    semantic
+        .add_embedding("target".into(), vec![0.90, 0.40, 0.0])
+        .unwrap(); // vector #2
+    semantic
+        .add_embedding("noise".into(), vec![0.50, 0.85, 0.0])
+        .unwrap(); // vector #3
+    semantic
+        .add_embedding("lex_only".into(), vec![0.0, 0.10, 0.99])
+        .unwrap(); // vector last
 
     // Query text terms: "graph database search". BM25 density:
     //   lex_only — packed with all three terms (BM25 #1)
