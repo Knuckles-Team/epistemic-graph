@@ -51,12 +51,24 @@ pub fn build_docs() -> (GraphView, SemanticStore) {
     }
 
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("d1".into(), vec![0.2, 0.9, 0.0, 0.0]);
-    semantic.add_embedding("d2".into(), vec![0.98, 0.20, 0.0, 0.0]);
-    semantic.add_embedding("d3".into(), vec![0.80, 0.60, 0.0, 0.0]);
-    semantic.add_embedding("d4".into(), vec![0.90, 0.44, 0.0, 0.0]);
-    semantic.add_embedding("d5".into(), vec![0.0, 0.0, 1.0, 0.0]);
-    semantic.add_embedding("old".into(), vec![0.0, 1.0, 0.0, 0.0]);
+    semantic
+        .add_embedding("d1".into(), vec![0.2, 0.9, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("d2".into(), vec![0.98, 0.20, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("d3".into(), vec![0.80, 0.60, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("d4".into(), vec![0.90, 0.44, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("d5".into(), vec![0.0, 0.0, 1.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("old".into(), vec![0.0, 1.0, 0.0, 0.0])
+        .unwrap();
     (core.analysis_snapshot(), semantic)
 }
 
@@ -82,9 +94,15 @@ pub fn build_events() -> (GraphView, SemanticStore) {
         blob(json!({"type":"Event","valid_from":300,"valid_until":400,"level":9})),
     );
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("e1".into(), vec![0.8, 0.6, 0.0]);
-    semantic.add_embedding("e2".into(), vec![0.99, 0.1, 0.0]);
-    semantic.add_embedding("e3".into(), vec![0.0, 0.0, 1.0]);
+    semantic
+        .add_embedding("e1".into(), vec![0.8, 0.6, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("e2".into(), vec![0.99, 0.1, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("e3".into(), vec![0.0, 0.0, 1.0])
+        .unwrap();
     (core.analysis_snapshot(), semantic)
 }
 
@@ -165,15 +183,29 @@ ex:p4 a ex:Paper .
     }
 
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("<http://example.org/c1>".into(), vec![0.90, 0.44, 0.0]);
-    semantic.add_embedding("<http://example.org/c2>".into(), vec![0.99, 0.10, 0.0]);
-    semantic.add_embedding("<http://example.org/c3>".into(), vec![0.60, 0.80, 0.0]);
-    semantic.add_embedding("<http://example.org/c4>".into(), vec![0.0, 0.0, 1.0]);
+    semantic
+        .add_embedding("<http://example.org/c1>".into(), vec![0.90, 0.44, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/c2>".into(), vec![0.99, 0.10, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/c3>".into(), vec![0.60, 0.80, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/c4>".into(), vec![0.0, 0.0, 1.0])
+        .unwrap();
     // The inferred ScholarlyWorks ALSO carry embeddings so a `REASON → RANK → TRAVERSE`
     // chain (rank the members BEFORE walking CITES) retains them through the vector RANK
     // — RANK drops rows with no embedding, so a member-first rank needs member vectors.
-    semantic.add_embedding("<http://example.org/p1>".into(), vec![0.80, 0.60, 0.0]);
-    semantic.add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0]);
-    semantic.add_embedding("<http://example.org/p4>".into(), vec![0.50, 0.86, 0.0]);
+    semantic
+        .add_embedding("<http://example.org/p1>".into(), vec![0.80, 0.60, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p4>".into(), vec![0.50, 0.86, 0.0])
+        .unwrap();
     (core.analysis_snapshot(), semantic)
 }

@@ -673,7 +673,8 @@ pub(crate) async fn try_handle_gateway(
                 let source_version = core.version();
                 core.semantic_store
                     .write()
-                    .add_embedding(node_id, embedding);
+                    .add_embedding(node_id, embedding)
+                    .map_err(|error| error.to_string())?;
                 // Content-derived indexes are unchanged by a vector-only
                 // mutation, but their completeness manifest must advance with
                 // the graph version that commit_finalize publishes.

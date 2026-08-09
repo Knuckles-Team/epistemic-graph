@@ -21,6 +21,7 @@
 // cache-friendly and NUMA-friendly. CONCEPT:EG-KG.compute.cached-row-norm — each row's L2 norm is cached
 // so cosine is ONE dot product per candidate instead of two.
 
+use super::{check_embedding_dimension, EmbeddingDimensionError};
 use crate::compute::semantic_ann::{AnnIndex, ANN_BUILD_THRESHOLD};
 use parking_lot::RwLock;
 use rayon::prelude::*;
@@ -97,31 +98,16 @@ impl EmbeddingArena {
     }
 
     /// Insert (append a new dense row) or overwrite (in-place, arena stays dense).
-    /// Returns `true` if this insert changed the arena dimensionality (drift), which
-    /// re-initializes the arena at the new dim — matching the "re-embed = clean
-    /// slate" operational reality (the embedder dim is fixed in practice, so this is
-    /// the rare model-swap path, never the steady state).
-    fn insert(&mut self, id: String, emb: &[f32]) -> bool {
-        if emb.is_empty() {
-            return false;
-        }
-        let mut drift = false;
-        if self.dim == 0 {
-            self.dim = emb.len();
-        } else if emb.len() != self.dim {
-            // Flat arena is single-dim; a different dim cannot share the buffer.
-            tracing::warn!(
-                old_dim = self.dim,
-                new_dim = emb.len(),
-                "embedding dimensionality changed — re-initializing the arena (CONCEPT:EG-KG.storage.arena-row-append)"
-            );
-            self.data.clear();
-            self.ids.clear();
-            self.id_to_row.clear();
-            self.norms.clear();
-            self.dim = emb.len();
-            drift = true;
-        }
+    ///
+    /// CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007, P0 — data loss): a mismatched
+    /// dimension used to be silently "fixed" by clearing the WHOLE arena (`data`/
+    /// `ids`/`id_to_row`/`norms`) and re-initializing at the new width, erasing every
+    /// unrelated embedding on a single malformed write. That is now a hard reject:
+    /// `check_embedding_dimension` runs FIRST and returns `Err` before this method
+    /// touches `self` at all, so a rejected write leaves the arena byte-for-byte
+    /// unchanged — proven by `mismatched_dimension_insert_does_not_erase_corpus`.
+    fn insert(&mut self, id: String, emb: &[f32]) -> Result<(), EmbeddingDimensionError> {
+        self.dim = check_embedding_dimension(emb.len(), self.dim)?;
         let norm = l2_norm(emb);
         match self.id_to_row.get(&id).copied() {
             Some(r) => {
@@ -137,7 +123,7 @@ impl EmbeddingArena {
                 self.ids.push(id);
             }
         }
-        drift
+        Ok(())
     }
 
     /// Remove `id` from the dense arena via O(dim) swap-remove (CONCEPT:EG-KG.storage.incremental-ann):
@@ -311,19 +297,18 @@ impl SemanticStore {
         rows
     }
 
-    pub fn add_embedding(&mut self, node_id: String, embedding: Vec<f32>) {
+    /// CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): a mismatched-dimension `embedding` is
+    /// REJECTED with a typed error and leaves the store — arena, index, and
+    /// readiness state — completely untouched. Only a validated write reaches any
+    /// mutation below.
+    pub fn add_embedding(
+        &mut self,
+        node_id: String,
+        embedding: Vec<f32>,
+    ) -> Result<(), EmbeddingDimensionError> {
         // CONCEPT:EG-KG.storage.arena-row-append — append/overwrite a contiguous row (no per-vector alloc).
-        let drift = self.arena.insert(node_id.clone(), &embedding);
+        self.arena.insert(node_id.clone(), &embedding)?;
         let live_len = self.arena.len();
-
-        if drift {
-            // Dimensionality changed → the arena re-initialized; the index is stale.
-            // A background warm rebuilds it.
-            *self.index.write() = None;
-            *self.built_len.write() = 0;
-            self.state.store(STATE_COLD, Ordering::Release);
-            return;
-        }
 
         let mut idx = self.index.write();
         match idx.as_mut() {
@@ -333,12 +318,15 @@ impl SemanticStore {
             }
             Some(ann) => {
                 // Incremental insert (overwrite tombstones the prior row in the index).
+                // The arena guard above already guarantees `embedding` matches the
+                // arena's (and therefore the resident index's) established dimension,
+                // so this should never observe a dimension mismatch of its own; kept
+                // as defense-in-depth against any other reason `add` might decline.
                 if !ann.add(&node_id, &embedding) {
-                    // Dimension drift → drop the index; a background warm rebuilds it.
                     *idx = None;
                     *self.built_len.write() = 0;
                     self.state.store(STATE_COLD, Ordering::Release);
-                    return;
+                    return Ok(());
                 }
                 *self.built_len.write() = live_len;
                 // Deferred compaction once tombstones pile up.
@@ -347,6 +335,7 @@ impl SemanticStore {
                 }
             }
         }
+        Ok(())
     }
 
     /// Incrementally remove `node_id`'s embedding (CONCEPT:EG-KG.storage.incremental-ann): swap-remove
@@ -693,7 +682,7 @@ mod tests {
             let mut v = vec![0.0f32; 8];
             v[i % 8] = 1.0;
             v[(i + 1) % 8] = (i as f32) / 50.0;
-            store.add_embedding(format!("n{i}"), v);
+            store.add_embedding(format!("n{i}"), v).unwrap();
         }
         assert_eq!(store.len(), 50);
 
@@ -711,6 +700,148 @@ mod tests {
         assert!(
             hits.iter().all(|(id, _)| id != "n7"),
             "removed id must never surface: {hits:?}"
+        );
+    }
+
+    /// BUG-007 (P0, data-loss class): a write with a mismatched embedding dimension
+    /// used to clear the ENTIRE arena — `EmbeddingArena::insert` cleared
+    /// `data`/`ids`/`id_to_row`/`norms` and re-initialized at the new width on any
+    /// dimension change, destroying every unrelated embedding on one malformed
+    /// write. This test populates a known 10-vector corpus, hashes it, issues a
+    /// mismatched-dimension write, and proves BOTH that the write is rejected with a
+    /// typed error AND that the arena is byte-for-byte unchanged (not merely
+    /// unchanged in count) — via an exact snapshot comparison AND an independent
+    /// content hash of that snapshot.
+    #[test]
+    fn mismatched_dimension_insert_does_not_erase_corpus() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        fn digest(snapshot: &[(String, Vec<f32>)]) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            for (id, vector) in snapshot {
+                id.hash(&mut hasher);
+                for component in vector {
+                    component.to_bits().hash(&mut hasher);
+                }
+            }
+            hasher.finish()
+        }
+
+        let mut store = SemanticStore::new();
+        let known: Vec<(String, Vec<f32>)> = (0..10)
+            .map(|i| {
+                let mut v = vec![0.0f32; 8];
+                v[i % 8] = 1.0;
+                (format!("n{i}"), v)
+            })
+            .collect();
+        for (id, v) in &known {
+            store.add_embedding(id.clone(), v.clone()).unwrap();
+        }
+        assert_eq!(store.len(), 10, "setup: 10 known vectors resident");
+
+        let before_snapshot = store.embeddings_snapshot();
+        let before_digest = digest(&before_snapshot);
+
+        // A hostile write with a DIFFERENT dimension (4 instead of 8) arrives.
+        let result = store.add_embedding("intruder".into(), vec![1.0, 2.0, 3.0, 4.0]);
+
+        // It must be REJECTED with a typed error identifying expected/received...
+        assert_eq!(
+            result,
+            Err(EmbeddingDimensionError::Mismatch {
+                expected: 8,
+                received: 4
+            }),
+            "a mismatched-dimension write must be rejected with a typed error, not \
+             silently applied or silently dropped"
+        );
+        assert!(
+            store.get_embedding("intruder").is_none(),
+            "the rejected vector must not have been inserted either"
+        );
+
+        // ...and the pre-existing corpus must be PROVABLY untouched: same length,
+        // same digest, and byte-for-byte identical snapshot — not merely the same
+        // count (a count-only check would miss a corpus that was cleared and
+        // partially refilled to the same size).
+        let after_snapshot = store.embeddings_snapshot();
+        let after_digest = digest(&after_snapshot);
+        assert_eq!(
+            store.len(),
+            10,
+            "existing corpus must not be cleared (BUG-007)"
+        );
+        assert_eq!(
+            before_digest, after_digest,
+            "arena content digest must be identical after a rejected write"
+        );
+        assert_eq!(
+            before_snapshot, after_snapshot,
+            "arena content must be byte-for-byte identical after a rejected write"
+        );
+        for (id, v) in &known {
+            assert_eq!(
+                store.get_embedding(id).as_deref(),
+                Some(v.as_slice()),
+                "existing vector for {id} must survive a rejected mismatched write"
+            );
+        }
+    }
+
+    /// Neighbouring hostile input: a zero-length embedding must be rejected with a
+    /// typed error, never silently ignored and never accepted as establishing a
+    /// legitimate zero-width dimension.
+    #[test]
+    fn zero_dimension_embedding_is_rejected() {
+        let mut store = SemanticStore::new();
+        assert_eq!(
+            store.add_embedding("a".into(), vec![]),
+            Err(EmbeddingDimensionError::Empty)
+        );
+        assert!(
+            store.is_empty(),
+            "store must remain empty after a rejected empty vector"
+        );
+
+        // Also rejected once the store already has an established dimension.
+        store
+            .add_embedding("b".into(), vec![1.0, 0.0, 0.0])
+            .unwrap();
+        assert_eq!(
+            store.add_embedding("c".into(), vec![]),
+            Err(EmbeddingDimensionError::Empty)
+        );
+        assert_eq!(
+            store.len(),
+            1,
+            "existing vector must survive a rejected empty write"
+        );
+    }
+
+    /// Neighbouring hostile input: an embedding far beyond any realistic model width
+    /// must be rejected with a typed error before any allocation, rather than being
+    /// accepted and OOM-risking the arena.
+    #[test]
+    fn oversized_dimension_embedding_is_rejected() {
+        let mut store = SemanticStore::new();
+        store
+            .add_embedding("a".into(), vec![1.0, 0.0, 0.0])
+            .unwrap();
+        use super::super::MAX_EMBEDDING_DIMENSION;
+        let oversized = vec![0.0f32; MAX_EMBEDDING_DIMENSION + 1];
+        assert_eq!(
+            store.add_embedding("intruder".into(), oversized),
+            Err(EmbeddingDimensionError::Oversized {
+                received: MAX_EMBEDDING_DIMENSION + 1,
+                max: MAX_EMBEDDING_DIMENSION,
+            })
+        );
+        assert_eq!(
+            store.len(),
+            1,
+            "existing vector must survive a rejected oversized write"
         );
     }
 
@@ -733,7 +864,7 @@ mod tests {
             if i == 123 {
                 target = v.clone();
             }
-            store.add_embedding(format!("n{i}"), v);
+            store.add_embedding(format!("n{i}"), v).unwrap();
         }
         store.warm("test");
         assert!(store.is_ready(), "index should warm above threshold");
@@ -763,7 +894,7 @@ mod tests {
         for i in 0..n {
             let mut v = vec![0.0f32; dim];
             v[i % dim] = 1.0;
-            store.add_embedding(format!("n{i}"), v);
+            store.add_embedding(format!("n{i}"), v).unwrap();
         }
         assert!(!store.is_ready(), "not warmed yet");
 
@@ -808,7 +939,7 @@ mod tests {
         for i in 0..n {
             let mut v = vec![0.0f32; dim];
             v[i % dim] = 1.0;
-            store.add_embedding(format!("n{i}"), v);
+            store.add_embedding(format!("n{i}"), v).unwrap();
         }
         let store = std::sync::Arc::new(store);
         let handles: Vec<_> = (0..8)
@@ -845,7 +976,7 @@ mod tests {
         let mut vecs: Vec<(String, Vec<f32>)> = Vec::new();
         for i in 0..n {
             let v: Vec<f32> = (0..dim).map(|_| rng()).collect();
-            store.add_embedding(format!("n{i}"), v.clone());
+            store.add_embedding(format!("n{i}"), v.clone()).unwrap();
             vecs.push((format!("n{i}"), v));
         }
         let query: Vec<f32> = (0..dim).map(|_| rng()).collect();
@@ -881,9 +1012,15 @@ mod tests {
     #[test]
     fn brute_force_below_threshold() {
         let mut store = SemanticStore::new();
-        store.add_embedding("a".into(), vec![1.0, 0.0, 0.0]);
-        store.add_embedding("b".into(), vec![0.0, 1.0, 0.0]);
-        store.add_embedding("c".into(), vec![0.9, 0.1, 0.0]);
+        store
+            .add_embedding("a".into(), vec![1.0, 0.0, 0.0])
+            .unwrap();
+        store
+            .add_embedding("b".into(), vec![0.0, 1.0, 0.0])
+            .unwrap();
+        store
+            .add_embedding("c".into(), vec![0.9, 0.1, 0.0])
+            .unwrap();
         let results = store.semantic_search(&[1.0, 0.0, 0.0], 2);
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].0, "a");
@@ -902,12 +1039,16 @@ mod tests {
         // data.len() == rows*dim, no tombstones) and the new vector wins in search.
         let mut store = SemanticStore::new();
         for i in 0..10 {
-            store.add_embedding(format!("n{i}"), vec![i as f32, 0.0, 0.0]);
+            store
+                .add_embedding(format!("n{i}"), vec![i as f32, 0.0, 0.0])
+                .unwrap();
         }
         assert_eq!(store.arena.len(), 10);
         assert_eq!(store.arena.data.len(), 10 * 3);
         // Overwrite n3 to point a brand-new direction.
-        store.add_embedding("n3".into(), vec![0.0, 0.0, 99.0]);
+        store
+            .add_embedding("n3".into(), vec![0.0, 0.0, 99.0])
+            .unwrap();
         assert_eq!(store.arena.len(), 10, "overwrite must not add a row");
         assert_eq!(
             store.arena.data.len(),
@@ -928,7 +1069,7 @@ mod tests {
             let mut emb = vec![0.0f32; 8];
             emb[i % 8] = 1.0;
             emb[(i + 1) % 8] = 0.5;
-            store.add_embedding(format!("node_{i}"), emb);
+            store.add_embedding(format!("node_{i}"), emb).unwrap();
         }
         let bytes = rmp_serde::to_vec_named(&store).unwrap();
         let restored: SemanticStore = rmp_serde::from_slice(&bytes).unwrap();
@@ -983,7 +1124,7 @@ mod tests {
         for i in 0..n {
             let c = &centers[i % centers.len()];
             let v: Vec<f32> = (0..dim).map(|j| c[j] + rng() * 0.2).collect();
-            store.add_embedding(format!("n{i}"), v.clone());
+            store.add_embedding(format!("n{i}"), v.clone()).unwrap();
             vecs.push((format!("n{i}"), v));
         }
         // Build the index OFF the query path (warm), then query the ANN path.
@@ -1042,7 +1183,7 @@ mod tests {
             if i == 100 {
                 query = v.clone();
             }
-            store.add_embedding(format!("n{i}"), v);
+            store.add_embedding(format!("n{i}"), v).unwrap();
         }
 
         // COLD: no index has ever been built (no warm, no save).

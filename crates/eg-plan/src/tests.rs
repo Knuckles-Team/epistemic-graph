@@ -216,7 +216,9 @@ fn adaptive_reopt_auto_wires_into_ordinary_execution() {
     let mut semantic = SemanticStore::new();
     // A handful of reached nodes get real embeddings so the Rank leg has candidates.
     for i in 0..20 {
-        semantic.add_embedding(format!("r{i}"), vec![1.0, (i as f32) * 0.01, 0.0, 0.0]);
+        semantic
+            .add_embedding(format!("r{i}"), vec![1.0, (i as f32) * 0.01, 0.0, 0.0])
+            .unwrap();
     }
     let ctx = PlanCtx::new(&view, &semantic);
     let card = ModalityCardinality::new(PlanStats::collect(&ctx));
@@ -466,7 +468,9 @@ mod rank_dim_mismatch_tests {
         let view = core.analysis_snapshot();
         let mut semantic = SemanticStore::new();
         // Stored embeddings are 8-dim.
-        semantic.add_embedding("d1".into(), vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]);
+        semantic
+            .add_embedding("d1".into(), vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+            .unwrap();
         let ctx = PlanCtx::new(&view, &semantic);
 
         // The query vector is 4-dim — a real dimension mismatch.
@@ -494,7 +498,9 @@ mod rank_dim_mismatch_tests {
         core.add_node("d1".into(), blob(json!({"type":"Doc"})));
         let view = core.analysis_snapshot();
         let mut semantic = SemanticStore::new();
-        semantic.add_embedding("d1".into(), vec![1.0, 0.0, 0.0, 0.0]);
+        semantic
+            .add_embedding("d1".into(), vec![1.0, 0.0, 0.0, 0.0])
+            .unwrap();
         let ctx = PlanCtx::new(&view, &semantic);
 
         let plan = Plan::new(vec![
@@ -601,9 +607,10 @@ mod temporal_tests {
         let view = core.analysis_snapshot();
         let mut sem = SemanticStore::new();
         // rank order to [1,0,0]: e2 > e1 ; e3 far. All live at @175 except e3.
-        sem.add_embedding("e1".into(), vec![0.8, 0.6, 0.0]);
-        sem.add_embedding("e2".into(), vec![0.99, 0.1, 0.0]);
-        sem.add_embedding("e3".into(), vec![0.0, 0.0, 1.0]);
+        sem.add_embedding("e1".into(), vec![0.8, 0.6, 0.0]).unwrap();
+        sem.add_embedding("e2".into(), vec![0.99, 0.1, 0.0])
+            .unwrap();
+        sem.add_embedding("e3".into(), vec![0.0, 0.0, 1.0]).unwrap();
         let ctx = PlanCtx::new(&view, &sem);
 
         let ranked_then_filtered = Plan::new(vec![
@@ -897,9 +904,10 @@ mod rerank_tests {
         }
         let view = core.analysis_snapshot();
         let mut sem = SemanticStore::new();
-        sem.add_embedding("a".into(), vec![1.0, 0.0, 0.0]);
-        sem.add_embedding("b".into(), vec![0.99, 0.01, 0.0]); // ~duplicate of a
-        sem.add_embedding("c".into(), vec![0.0, 1.0, 0.0]); // orthogonal
+        sem.add_embedding("a".into(), vec![1.0, 0.0, 0.0]).unwrap();
+        sem.add_embedding("b".into(), vec![0.99, 0.01, 0.0])
+            .unwrap(); // ~duplicate of a
+        sem.add_embedding("c".into(), vec![0.0, 1.0, 0.0]).unwrap(); // orthogonal
         let ctx = PlanCtx::new(&view, &sem);
 
         let out = Plan::new(vec![

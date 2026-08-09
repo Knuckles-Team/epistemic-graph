@@ -51,12 +51,24 @@ pub fn build() -> Fixture {
 
     let mut semantic = SemanticStore::new();
     // query target ≈ [1,0,0,0]; d2 closest, then d4, then d3, then d5/d1 farther.
-    semantic.add_embedding("d1".into(), vec![0.2, 0.9, 0.0, 0.0]);
-    semantic.add_embedding("d2".into(), vec![0.98, 0.20, 0.0, 0.0]);
-    semantic.add_embedding("d3".into(), vec![0.80, 0.60, 0.0, 0.0]);
-    semantic.add_embedding("d4".into(), vec![0.90, 0.44, 0.0, 0.0]);
-    semantic.add_embedding("d5".into(), vec![0.0, 0.0, 1.0, 0.0]);
-    semantic.add_embedding("old".into(), vec![0.0, 1.0, 0.0, 0.0]);
+    semantic
+        .add_embedding("d1".into(), vec![0.2, 0.9, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("d2".into(), vec![0.98, 0.20, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("d3".into(), vec![0.80, 0.60, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("d4".into(), vec![0.90, 0.44, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("d5".into(), vec![0.0, 0.0, 1.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("old".into(), vec![0.0, 1.0, 0.0, 0.0])
+        .unwrap();
 
     Fixture {
         view: core.analysis_snapshot(),

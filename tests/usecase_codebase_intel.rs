@@ -78,11 +78,16 @@ fn build_repo() -> (GraphView, SemanticStore) {
 
     // Signature embeddings (query ≈ [1,0,0]).
     let mut s = SemanticStore::new();
-    s.add_embedding("old_parse".into(), vec![0.99, 0.10, 0.0]); // most similar overall (but unreachable)
-    s.add_embedding("py_helper".into(), vec![0.97, 0.20, 0.0]); // most similar in-neighborhood (wrong lang)
-    s.add_embedding("parse_config".into(), vec![0.95, 0.30, 0.0]); // the answer
-    s.add_embedding("stale_fn".into(), vec![0.90, 0.40, 0.0]);
-    s.add_embedding("load_file".into(), vec![0.80, 0.55, 0.0]);
+    s.add_embedding("old_parse".into(), vec![0.99, 0.10, 0.0])
+        .unwrap(); // most similar overall (but unreachable)
+    s.add_embedding("py_helper".into(), vec![0.97, 0.20, 0.0])
+        .unwrap(); // most similar in-neighborhood (wrong lang)
+    s.add_embedding("parse_config".into(), vec![0.95, 0.30, 0.0])
+        .unwrap(); // the answer
+    s.add_embedding("stale_fn".into(), vec![0.90, 0.40, 0.0])
+        .unwrap();
+    s.add_embedding("load_file".into(), vec![0.80, 0.55, 0.0])
+        .unwrap();
     // main_handler (the focal seed) is excluded from results by the `min:1` traverse.
     (core.analysis_snapshot(), s)
 }
