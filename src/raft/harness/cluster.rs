@@ -11,6 +11,7 @@
 //! `LoadGen` drives writes through its leader.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -33,6 +34,8 @@ use crate::protocol::{GraphType, Method};
 
 /// The graph every harness write targets.
 pub const GRAPH: &str = "__commons__";
+
+static HARNESS_ROOT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 /// One member of the managed cluster — running OR killed (slot kept so it can be
 /// restarted over the same files).
@@ -165,10 +168,10 @@ impl Cluster {
     /// Start an `n`-node cluster (n should be odd: 3/5). `tag` namespaces the temp
     /// dir. Returns once every node is up; the caller waits for a leader.
     pub async fn start(n: usize, tag: &str) -> Result<Self, String> {
+        let sequence = HARNESS_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
-            "eg-harness-{tag}-{}-{}",
+            "eg-harness-{tag}-{}-{sequence}",
             std::process::id(),
-            Instant::now().elapsed().as_nanos()
         ));
         let _ = std::fs::remove_dir_all(&root);
         let ports = free_ports(n);
@@ -220,7 +223,7 @@ impl Cluster {
             if let Some(l) = self.current_leader().await {
                 // Confirm the reported leader is itself alive AND actually thinks it
                 // is the leader (avoids a stale follower hint).
-                if self.is_running(l) {
+                if self.is_local_leader(l) {
                     return Some(l);
                 }
             }
@@ -238,7 +241,7 @@ impl Cluster {
         let start = Instant::now();
         while start.elapsed() < timeout {
             if let Some(l) = self.current_leader().await {
-                if l != excluded && self.is_running(l) {
+                if l != excluded && self.is_local_leader(l) {
                     return Some(l);
                 }
             }
@@ -282,6 +285,24 @@ impl Cluster {
             .get(&id)
             .map(|m| m.started.is_some())
             .unwrap_or(false)
+    }
+
+    /// Require the candidate's own Raft metrics to say Leader.  `current_leader()`
+    /// is a last-known hint and may remain stale on a follower after an election;
+    /// returning that hint as an authority would make harness writes race a redirect.
+    fn is_local_leader(&self, id: NodeId) -> bool {
+        let Some(started) = self
+            .members
+            .get(&id)
+            .and_then(|member| member.started.as_ref())
+        else {
+            return false;
+        };
+        let metrics = started.handle.raft.metrics();
+        matches!(
+            metrics.borrow_watched().state,
+            openraft::ServerState::Leader
+        )
     }
 
     /// The `RaftRequest` for an AddNode write of `n{seq}`.
@@ -524,6 +545,34 @@ impl Cluster {
         Ok(())
     }
 
+    /// Best-effort synchronous abort used only by test cleanup when async
+    /// unwinding cannot await [`Self::teardown`].  The normal path must use
+    /// `teardown`, which awaits each Raft shutdown before dropping persistence.
+    #[cfg(test)]
+    pub fn abort_sync(&mut self) {
+        for member in self.members.values_mut() {
+            if let Some(started) = member.started.take() {
+                started.multi.stop_listener();
+                let raft = started.handle.raft.clone();
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        let _ = raft.shutdown().await;
+                    });
+                }
+                drop(started);
+            }
+            if let Some(state) = member.state.take() {
+                if let Ok(mut state) = state.try_write() {
+                    state.persistence = None;
+                    state.raft = None;
+                    state.multi_raft = None;
+                }
+            }
+        }
+        super::super::network::partition::heal();
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+
     pub fn size(&self) -> usize {
         self.n
     }
@@ -538,3 +587,7 @@ impl Cluster {
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
+
+#[cfg(test)]
+#[path = "resource_acceptance_test.rs"]
+mod resource_acceptance_test;
