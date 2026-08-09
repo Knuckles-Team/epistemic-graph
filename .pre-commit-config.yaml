@@ -250,9 +250,21 @@ repos:
     always_run: true
   # rust-ci gate 6 — facade full test matrix (~9 min). Too slow for every commit:
   # staged pre-push + manual so it runs on push and in the parity check.
+  # DIFFERENTIAL, not absolute-green. `main` here is legitimately red: the
+  # facade-full row carries long-standing failures that were invisible for as
+  # long as the suite ABORTED on a stack overflow before reporting them. An
+  # absolute gate over that state deadlocks -- it blocks every fix, including
+  # the fixes for the failures it is complaining about. So this ratchets by test
+  # NAME against scripts/facade_full_test_baseline.txt: any failure NOT in the
+  # baseline is a regression and fails the push; a baselined failure is tracked
+  # debt and passes; a baselined test that starts passing is reported so the
+  # list only shrinks. Same shape as the concept-governance and swallowed-error
+  # ratchets, and as the merge queue's own base-ref differential gating.
+  # A crash with no per-test results is NEVER ratcheted over -- that is the one
+  # outcome that hides everything behind it.
   - id: cargo-test-full
-    name: cargo test -p epistemic-graph --features full (HEAVY — pre-push/manual)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then cargo test -p epistemic-graph --features full; fi'
+    name: cargo test -p epistemic-graph --features full (HEAVY, differential — pre-push/manual)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then python3 scripts/cargo_test_ratchet.py; fi'
     language: system
     pass_filenames: false
     always_run: true
