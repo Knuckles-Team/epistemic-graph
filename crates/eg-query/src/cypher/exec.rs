@@ -3863,6 +3863,72 @@ mod tests {
         assert_eq!(cells_of(&eq_owner, 0)[0], cells_of(&in_owner, 0)[0]);
     }
 
+    /// Coordinator disproof check (2026-08-09): the earlier `bug_035_null_and_...`
+    /// test mixed present + absent `_owner_id` on the SAME query. This isolates the
+    /// claim precisely: a property NO node in the graph carries at all. If the
+    /// coordinator is right, `IS NULL` on a universally-absent property returns 0
+    /// instead of the total, and `IS NULL` + `IS NOT NULL` do not sum to the total.
+    #[test]
+    fn coordinator_disproof_universally_absent_property_is_null_check() {
+        let core = GraphCore::new();
+        core.add_node("n1".into(), pbytes(serde_json::json!({"node_type":"Widget"})));
+        core.add_node("n2".into(), pbytes(serde_json::json!({"node_type":"Widget"})));
+        core.add_node("n3".into(), pbytes(serde_json::json!({"node_type":"Gadget"})));
+        core.add_node("n4".into(), pbytes(serde_json::json!({"node_type":"Gadget"})));
+        let v = core.analysis_snapshot();
+
+        let total = exec_cypher(&v, "MATCH (n) RETURN count(n)").unwrap();
+        assert_eq!(cells_of(&total, 0)[0], Value::Number(4.into()));
+
+        let is_null = exec_cypher(
+            &v,
+            "MATCH (n) WHERE n.zzz_definitely_absent_property_xyz IS NULL RETURN count(n)",
+        )
+        .unwrap();
+        let is_not_null = exec_cypher(
+            &v,
+            "MATCH (n) WHERE n.zzz_definitely_absent_property_xyz IS NOT NULL RETURN count(n)",
+        )
+        .unwrap();
+        eprintln!("IS NULL result: {is_null:?}");
+        eprintln!("IS NOT NULL result: {is_not_null:?}");
+        assert_eq!(
+            cells_of(&is_null, 0)[0],
+            Value::Number(4.into()),
+            "openCypher: a universally-absent property must satisfy IS NULL for every row"
+        );
+        assert_eq!(
+            cells_of(&is_not_null, 0)[0],
+            Value::Number(0.into()),
+            "a universally-absent property must satisfy IS NOT NULL for no row"
+        );
+    }
+
+    /// Coordinator disproof check, point 4: `=` vs `IN` against a UNIVERSALLY-absent
+    /// property. Both must agree (both false for every row, since the property is
+    /// absent everywhere) — this isolates whether the earlier `node_type = 'X'` vs
+    /// `IN ['X']` divergence reproduces for an absent (as opposed to present) property.
+    #[test]
+    fn coordinator_disproof_absent_property_eq_vs_in_agree() {
+        let core = GraphCore::new();
+        core.add_node("n1".into(), pbytes(serde_json::json!({"node_type":"Widget"})));
+        core.add_node("n2".into(), pbytes(serde_json::json!({"node_type":"Gadget"})));
+        let v = core.analysis_snapshot();
+
+        let eq = exec_cypher(
+            &v,
+            "MATCH (n) WHERE n.zzz_definitely_absent_property_xyz = 'nope' RETURN count(n)",
+        )
+        .unwrap();
+        let inn = exec_cypher(
+            &v,
+            "MATCH (n) WHERE n.zzz_definitely_absent_property_xyz IN ['nope'] RETURN count(n)",
+        )
+        .unwrap();
+        assert_eq!(cells_of(&eq, 0)[0], Value::Number(0.into()));
+        assert_eq!(cells_of(&eq, 0)[0], cells_of(&inn, 0)[0], "= and IN must agree on an absent property too");
+    }
+
     /// BUG-035 hardening: a WHERE predicate over a node whose STORED property blob is
     /// undecodable (corrupted bytes / a cross-version encoding mismatch) must abort the
     /// query with an explicit error — never silently read the property as absent, which
