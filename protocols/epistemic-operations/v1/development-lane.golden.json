@@ -36,6 +36,7 @@
     "invalid"
   ],
   "disk_counter_dimensions": ["predicted", "observed", "retained"],
+  "public_result_redactions": ["worktree_locator", "host_ref", "host_target_alias"],
   "lane_intent_extension_key": "development_lane_intent",
   "lane_cleanup_extension_key": "development_lane_cleanup",
   "global_policy_tenant_ref": "*",
