@@ -600,6 +600,9 @@ pub enum NativeMutationCommand {
         sealed_method: SealedNativeMethod,
     },
     /// Durable work-item lease/result transitions.
+    /// Resource reservations and host-capacity updates use this same sealed
+    /// command domain so their result-producing native apply path is ordered
+    /// with the WorkItem lifecycle without introducing a second authority.
     WorkItem {
         sealed_method: SealedNativeMethod,
     },
@@ -785,6 +788,10 @@ pub const NATIVE_CONSENSUS_METHODS: &[&str] = &[
     "CommitWorkItemResult",
     "CancelWorkItem",
     "DeferWorkItem",
+    "ReserveWorkItemResources",
+    "ReleaseWorkItemResources",
+    "ReclaimWorkItemResources",
+    "UpdateResourceHost",
     "BlobBegin",
     "BlobChunkPut",
     "BlobCommit",
@@ -901,7 +908,11 @@ fn native_domain(method: &Method) -> Option<NativeMutationDomain> {
         | Method::RenewWorkItemLease { .. }
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
-        | Method::DeferWorkItem { .. } => Some(NativeMutationDomain::WorkItem),
+        | Method::DeferWorkItem { .. }
+        | Method::ReserveWorkItemResources { .. }
+        | Method::ReleaseWorkItemResources { .. }
+        | Method::ReclaimWorkItemResources { .. }
+        | Method::UpdateResourceHost { .. } => Some(NativeMutationDomain::WorkItem),
 
         #[cfg(feature = "blob")]
         Method::BlobBegin { .. }
@@ -1526,6 +1537,205 @@ mod raft_authority_contract_tests {
     fn method() -> Method {
         Method::RemoveNode {
             node_id: "node".to_string(),
+        }
+    }
+
+    fn work_item_mutations() -> Vec<Method> {
+        use crate::epistemic_operations::{
+            ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion, ResourceCapacity,
+            ResourceHostUpdateRequest, ResourceHostUpdateRequestSchemaVersion,
+            ResourceHostUpdateRequestTargetKind, ResourceRequirement, ResourceReservationRequest,
+            ResourceReservationRequestSchemaVersion, ResourceReservationRequestTargetKind,
+        };
+
+        let requirement = ResourceRequirement {
+            cpu_weight: 2,
+            memory_mib: 128,
+            disk_mib: 256,
+            process_slots: 1,
+        };
+        let reservation = ResourceReservationRequest {
+            schema_version: ResourceReservationRequestSchemaVersion::V1,
+            tenant_ref: "tenant-ref".to_string(),
+            work_item_id: "work-item".to_string(),
+            owner_id: "worker".to_string(),
+            fence: "fence".to_string(),
+            lease_epoch: 3,
+            fencing_token: 7,
+            attempt: 1,
+            reservation_id: "reservation".to_string(),
+            input_fingerprint: "input-fingerprint".to_string(),
+            profile_name: "cpu-small".to_string(),
+            profile_version: "1".to_string(),
+            host_ref: "host".to_string(),
+            requirement,
+            target_kind: ResourceReservationRequestTargetKind::Local,
+            target_alias: None,
+            repository_id: "repository".to_string(),
+            branch: "main".to_string(),
+            concurrency_key: "tenant:repository".to_string(),
+            concurrency_limit: Some(2),
+            repository_exclusive: false,
+            branch_exclusive: true,
+            required_labels: vec!["linux".to_string()],
+            anti_affinity: vec!["gpu".to_string()],
+            fairness_group: "default".to_string(),
+            fairness_cost: 4,
+            disk_low_watermark_mib: Some(512),
+            disk_high_watermark_mib: Some(1024),
+            disk_policy_key: "default".to_string(),
+            reserved_at_ms: 10,
+            expires_at_ms: 20,
+            idempotency_key: "reservation-idempotency".to_string(),
+            now_ms: 10,
+            expected_host_revision: Some(4),
+            expected_lifecycle_revision: Some(8),
+        };
+        let host = ResourceHostUpdateRequest {
+            schema_version: ResourceHostUpdateRequestSchemaVersion::V1,
+            tenant_ref: "tenant-ref".to_string(),
+            host_ref: "host".to_string(),
+            revision: 5,
+            capacity: ResourceCapacity {
+                cpu_weight: 16,
+                memory_mib: 4096,
+                disk_mib: 8192,
+                process_slots: 8,
+            },
+            observed: ResourceCapacity {
+                cpu_weight: 12,
+                memory_mib: 3072,
+                disk_mib: 6144,
+                process_slots: 6,
+            },
+            heartbeat_at_ms: 10,
+            heartbeat_ttl_ms: 100,
+            now_ms: 10,
+            draining: false,
+            quarantined: false,
+            labels: vec!["linux".to_string()],
+            target_kind: ResourceHostUpdateRequestTargetKind::Local,
+            target_alias: None,
+            disk_used_mib: 2048,
+            disk_capacity_mib: 8192,
+        };
+
+        vec![
+            Method::ClaimWorkItem {
+                request: ClaimWorkItemRequest {
+                    schema_version: ClaimWorkItemRequestSchemaVersion::V1,
+                    tenant_ref: "tenant-ref".to_string(),
+                    work_item_id: Some("work-item".to_string()),
+                    queue_ref: Some("queue".to_string()),
+                    resource_class: Some("cpu-small".to_string()),
+                    fairness_group: Some("default".to_string()),
+                    worker_ref: "worker".to_string(),
+                    now_ms: 10,
+                    lease_ms: 100,
+                    max_tenant_in_flight: 2,
+                },
+            },
+            Method::RenewWorkItemLease {
+                tenant: "tenant-ref".to_string(),
+                work_item_id: "work-item".to_string(),
+                worker_id: "worker".to_string(),
+                lease_epoch: 3,
+                fencing_token: 7,
+                now_ms: 20,
+                lease_ms: 100,
+            },
+            Method::CommitWorkItemResult {
+                tenant: "tenant-ref".to_string(),
+                work_item_id: "work-item".to_string(),
+                worker_id: "worker".to_string(),
+                lease_epoch: 3,
+                fencing_token: 7,
+                idempotency_key: "result-idempotency".to_string(),
+                outcome: "succeeded".to_string(),
+                result_ref: Some("result-ref".to_string()),
+                error_ref: None,
+                retryable: false,
+                now_ms: 30,
+            },
+            Method::CancelWorkItem {
+                tenant: "tenant-ref".to_string(),
+                work_item_id: "work-item".to_string(),
+                idempotency_key: "cancel-idempotency".to_string(),
+                reason_ref: Some("reason-ref".to_string()),
+                now_ms: 40,
+            },
+            Method::DeferWorkItem {
+                tenant: "tenant-ref".to_string(),
+                work_item_id: "work-item".to_string(),
+                worker_id: "worker".to_string(),
+                lease_epoch: 3,
+                fencing_token: 7,
+                idempotency_key: "defer-idempotency".to_string(),
+                next_retry_at_ms: 80,
+                reason_ref: Some("barrier".to_string()),
+                now_ms: 50,
+            },
+            Method::ReserveWorkItemResources {
+                request: reservation.clone(),
+            },
+            Method::ReleaseWorkItemResources {
+                request: reservation.clone(),
+            },
+            Method::ReclaimWorkItemResources {
+                request: reservation,
+            },
+            Method::UpdateResourceHost { request: host },
+        ]
+    }
+
+    #[test]
+    fn work_item_mutations_round_trip_through_sealed_native_command() {
+        for method in work_item_mutations() {
+            let expected = rmp_serde::to_vec_named(&method).unwrap();
+            let command =
+                NativeMutationCommand::from_public_method(method.clone(), "cluster-work-item-key")
+                    .expect("work-item mutation has a native consensus command");
+            assert!(matches!(&command, NativeMutationCommand::WorkItem { .. }));
+            assert_eq!(command.domain(), Some(NativeMutationDomain::WorkItem));
+
+            let opened = command
+                .open_public_method("cluster-work-item-key")
+                .unwrap()
+                .expect("sealed work-item method opens");
+            assert_eq!(rmp_serde::to_vec_named(&opened).unwrap(), expected);
+
+            let replicated = ReplicatedMutation::native_method(method, "cluster-work-item-key")
+                .expect("work-item mutation enters ReplicatedMutation::Native");
+            assert!(replicated
+                .open_graph("cluster-work-item-key")
+                .unwrap()
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn work_item_native_inventory_excludes_read_only_reservation_queries() {
+        for method in [
+            "ClaimWorkItem",
+            "RenewWorkItemLease",
+            "CommitWorkItemResult",
+            "CancelWorkItem",
+            "DeferWorkItem",
+            "ReserveWorkItemResources",
+            "ReleaseWorkItemResources",
+            "ReclaimWorkItemResources",
+            "UpdateResourceHost",
+        ] {
+            assert!(
+                NATIVE_CONSENSUS_METHODS.contains(&method),
+                "missing WorkItem native inventory entry: {method}"
+            );
+        }
+        for query in ["QueryWorkItemReservation", "ResourceReservationStatus"] {
+            assert!(
+                !NATIVE_CONSENSUS_METHODS.contains(&query),
+                "read-only reservation query must not enter consensus: {query}"
+            );
         }
     }
 

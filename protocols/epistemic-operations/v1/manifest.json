@@ -397,9 +397,386 @@
       "python_model": "OperationRedirect",
       "rust_type": "OperationRedirect",
       "schema": "operation_result"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "tenant_ref",
+        "work_item_id",
+        "owner_id",
+        "fence",
+        "lease_epoch",
+        "fencing_token",
+        "attempt",
+        "reservation_id",
+        "input_fingerprint",
+        "profile_name",
+        "profile_version",
+        "host_ref",
+        "requirement",
+        "target_kind",
+        "target_alias",
+        "repository_id",
+        "branch",
+        "concurrency_key",
+        "concurrency_limit",
+        "repository_exclusive",
+        "branch_exclusive",
+        "required_labels",
+        "anti_affinity",
+        "fairness_group",
+        "fairness_cost",
+        "disk_low_watermark_mib",
+        "disk_high_watermark_mib",
+        "disk_policy_key",
+        "reserved_at_ms",
+        "expires_at_ms",
+        "idempotency_key",
+        "now_ms",
+        "expected_host_revision",
+        "expected_lifecycle_revision"
+      ],
+      "pointer": "#",
+      "python_model": "ResourceReservationRequest",
+      "rust_type": "ResourceReservationRequest",
+      "schema": "resource_reservation"
+    },
+    {
+      "fields": [
+        "cpu_weight",
+        "memory_mib",
+        "disk_mib",
+        "process_slots",
+        "host_revision"
+      ],
+      "pointer": "#/$defs/resource_capacity_snapshot",
+      "python_model": "ResourceCapacitySnapshot",
+      "rust_type": "ResourceCapacitySnapshot",
+      "schema": "resource_reservation"
+    },
+    {
+      "fields": [
+        "cpu_weight",
+        "memory_mib",
+        "disk_mib",
+        "process_slots"
+      ],
+      "pointer": "#/$defs/resource_requirement",
+      "python_model": "ResourceRequirement",
+      "rust_type": "ResourceRequirement",
+      "schema": "resource_reservation"
+    },
+    {
+      "fields": [
+        "reservation_id",
+        "tenant_ref",
+        "owner_id",
+        "work_item_id",
+        "fence",
+        "attempt",
+        "lease_epoch",
+        "fencing_token",
+        "input_fingerprint",
+        "host_ref",
+        "profile_name",
+        "profile_version",
+        "requirement",
+        "capacity_snapshot",
+        "selected_target",
+        "target_kind",
+        "target_alias",
+        "repository_id",
+        "branch",
+        "concurrency_key",
+        "concurrency_limit",
+        "repository_exclusive",
+        "branch_exclusive",
+        "required_labels",
+        "anti_affinity",
+        "fairness_group",
+        "fairness_cost",
+        "disk_low_watermark_mib",
+        "disk_high_watermark_mib",
+        "disk_policy_key",
+        "reserved_at_ms",
+        "expires_at_ms",
+        "expected_host_revision",
+        "expected_lifecycle_revision",
+        "state",
+        "revision",
+        "lifecycle_revision",
+        "tombstone"
+      ],
+      "pointer": "#/$defs/resource_reservation_record",
+      "python_model": "ResourceReservationRecord",
+      "rust_type": "ResourceReservationRecord",
+      "schema": "resource_reservation"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "decision",
+        "reservation_id",
+        "work_item_id",
+        "attempt",
+        "lease_epoch",
+        "fencing_token",
+        "lifecycle_revision",
+        "host_ref",
+        "host_revision",
+        "record",
+        "state",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "fairness_debt",
+        "tombstone",
+        "changed_work_item_ids"
+      ],
+      "pointer": "#/$defs/resource_reservation_result",
+      "python_model": "ResourceReservationResult",
+      "rust_type": "ResourceReservationResult",
+      "schema": "resource_reservation"
+    },
+    {
+      "fields": [
+        "kind",
+        "alias",
+        "capability_labels"
+      ],
+      "pointer": "#/$defs/resource_target_snapshot",
+      "python_model": "ResourceTargetSnapshot",
+      "rust_type": "ResourceTargetSnapshot",
+      "schema": "resource_reservation"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "tenant_ref",
+        "work_item_id",
+        "reservation_id",
+        "host_ref",
+        "owner_id",
+        "fence",
+        "attempt",
+        "lease_epoch",
+        "fencing_token",
+        "input_fingerprint",
+        "fairness_group",
+        "limit",
+        "cursor",
+        "now_ms"
+      ],
+      "pointer": "#",
+      "python_model": "ResourceReservationStatusRequest",
+      "rust_type": "ResourceReservationStatusRequest",
+      "schema": "resource_reservation_status"
+    },
+    {
+      "fields": [
+        "policy_key",
+        "blocked",
+        "low_watermark_mib",
+        "high_watermark_mib",
+        "revision"
+      ],
+      "pointer": "#/$defs/resource_disk_policy_snapshot",
+      "python_model": "ResourceReservationDiskPolicySnapshot",
+      "rust_type": "ResourceReservationDiskPolicySnapshot",
+      "schema": "resource_reservation_status"
+    },
+    {
+      "fields": [
+        "cpu_weight",
+        "memory_mib",
+        "disk_mib",
+        "process_slots"
+      ],
+      "pointer": "#/$defs/resource_host_capacity_snapshot",
+      "python_model": "ResourceReservationHostCapacitySnapshot",
+      "rust_type": "ResourceReservationHostCapacitySnapshot",
+      "schema": "resource_reservation_status"
+    },
+    {
+      "fields": [
+        "host_ref",
+        "revision",
+        "capacity",
+        "observed",
+        "heartbeat_at_ms",
+        "heartbeat_ttl_ms",
+        "draining",
+        "quarantined",
+        "labels",
+        "target_kind",
+        "target_alias",
+        "disk_used_mib",
+        "disk_capacity_mib",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "disk_policies"
+      ],
+      "pointer": "#/$defs/resource_host_snapshot",
+      "python_model": "ResourceReservationHostSnapshot",
+      "rust_type": "ResourceReservationHostSnapshot",
+      "schema": "resource_reservation_status"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "complete",
+        "next_cursor",
+        "host_snapshot",
+        "host_ref",
+        "host_revision",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "fairness_debt",
+        "reservations",
+        "orphan_count",
+        "superseded_count"
+      ],
+      "pointer": "#/$defs/resource_reservation_status_result",
+      "python_model": "ResourceReservationStatusResult",
+      "rust_type": "ResourceReservationStatusResult",
+      "schema": "resource_reservation_status"
+    },
+    {
+      "fields": [
+        "reservation_id",
+        "work_item_id",
+        "attempt",
+        "host_ref",
+        "profile_name",
+        "fairness_group",
+        "state",
+        "revision",
+        "expires_at_ms",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "tombstone"
+      ],
+      "pointer": "#/$defs/resource_reservation_summary",
+      "python_model": "ResourceReservationSummary",
+      "rust_type": "ResourceReservationSummary",
+      "schema": "resource_reservation_status"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "tenant_ref",
+        "host_ref",
+        "revision",
+        "capacity",
+        "observed",
+        "heartbeat_at_ms",
+        "heartbeat_ttl_ms",
+        "now_ms",
+        "draining",
+        "quarantined",
+        "labels",
+        "target_kind",
+        "target_alias",
+        "disk_used_mib",
+        "disk_capacity_mib"
+      ],
+      "pointer": "#",
+      "python_model": "ResourceHostUpdateRequest",
+      "rust_type": "ResourceHostUpdateRequest",
+      "schema": "resource_host_update"
+    },
+    {
+      "fields": [
+        "cpu_weight",
+        "memory_mib",
+        "disk_mib",
+        "process_slots"
+      ],
+      "pointer": "#/$defs/resource_capacity",
+      "python_model": "ResourceCapacity",
+      "rust_type": "ResourceCapacity",
+      "schema": "resource_host_update"
+    },
+    {
+      "fields": [
+        "cpu_weight",
+        "memory_mib",
+        "disk_mib",
+        "process_slots"
+      ],
+      "pointer": "#/$defs/resource_host_update_capacity_snapshot",
+      "python_model": "ResourceHostUpdateCapacitySnapshot",
+      "rust_type": "ResourceHostUpdateCapacitySnapshot",
+      "schema": "resource_host_update"
+    },
+    {
+      "fields": [
+        "policy_key",
+        "blocked",
+        "low_watermark_mib",
+        "high_watermark_mib",
+        "revision"
+      ],
+      "pointer": "#/$defs/resource_host_update_disk_policy_snapshot",
+      "python_model": "ResourceHostUpdateDiskPolicySnapshot",
+      "rust_type": "ResourceHostUpdateDiskPolicySnapshot",
+      "schema": "resource_host_update"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "accepted",
+        "reason",
+        "host_ref",
+        "host_snapshot",
+        "revision",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "draining",
+        "quarantined"
+      ],
+      "pointer": "#/$defs/resource_host_update_result",
+      "python_model": "ResourceHostUpdateResult",
+      "rust_type": "ResourceHostUpdateResult",
+      "schema": "resource_host_update"
+    },
+    {
+      "fields": [
+        "host_ref",
+        "revision",
+        "capacity",
+        "observed",
+        "heartbeat_at_ms",
+        "heartbeat_ttl_ms",
+        "draining",
+        "quarantined",
+        "labels",
+        "target_kind",
+        "target_alias",
+        "disk_used_mib",
+        "disk_capacity_mib",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "disk_policies"
+      ],
+      "pointer": "#/$defs/resource_host_update_snapshot",
+      "python_model": "ResourceHostUpdateSnapshot",
+      "rust_type": "ResourceHostUpdateSnapshot",
+      "schema": "resource_host_update"
     }
   ],
-  "catalog_sha256": "8d0127572c190704ac8de393457de96a0c2f83b29ab9e491892bec88c8eb58ca",
+  "catalog_sha256": "9e790120eff4dc1d0dc2dba984c5cdb15a96b79c28a9a8dd9881ee027c4c8138",
   "compatibility_policy": "current-only",
   "privacy_contract": {
     "content": "content-addressed-reference",
@@ -504,6 +881,30 @@
       "name": "operation_result",
       "sha256": "76e3ee6c19843968d7e40d6a56aefc1a595935451c1f5eaee370adc78e9a4966",
       "title": "OperationResult",
+      "version": "1"
+    },
+    {
+      "file": "resource-reservation.schema.json",
+      "id": "urn:epistemic-operations:v1:resource-reservation",
+      "name": "resource_reservation",
+      "sha256": "a4c382833345514f6cb55cb565b8de18536f32eb6c88522e6e837f96c56fa1c6",
+      "title": "ResourceReservationRequest",
+      "version": "1"
+    },
+    {
+      "file": "resource-reservation-status.schema.json",
+      "id": "urn:epistemic-operations:v1:resource-reservation-status",
+      "name": "resource_reservation_status",
+      "sha256": "ab25fff31aa3add7c784842ba2a7fffa2008698a4175c84405b45a84f94a8546",
+      "title": "ResourceReservationStatusRequest",
+      "version": "1"
+    },
+    {
+      "file": "resource-host-update.schema.json",
+      "id": "urn:epistemic-operations:v1:resource-host-update",
+      "name": "resource_host_update",
+      "sha256": "a127c8ea2e0a0006224012466a0d60173204162af3e4de4267b1de7c7f9b66ac",
+      "title": "ResourceHostUpdateRequest",
       "version": "1"
     }
   ],

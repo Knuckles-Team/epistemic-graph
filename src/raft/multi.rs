@@ -27,7 +27,8 @@
 //! replicated by the group that owns that graph.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use dashmap::DashMap;
@@ -240,7 +241,12 @@ pub struct MultiRaft {
     /// Shared per-peer outbound connection pool (CONCEPT:AU-KG.ontology.manage-arbitrary) — one per node,
     /// reused by every group's network clients.
     pool: Arc<network::PeerPool>,
-    listener_handle: tokio::task::JoinHandle<()>,
+    listener_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Accepted connection and deferred group-initialization tasks must be
+    /// cancelled with the listener. Otherwise a quiet keep-alive connection or
+    /// bootstrap task retains the read service/group store and its redb backend
+    /// after shutdown, preventing an in-process restart from reopening the files.
+    connection_tasks: Arc<ConnectionTaskSet>,
     /// Per-tenant migration locks (CONCEPT:EG-KG.storage.100m-tenant). A reshard or hibernate of a
     /// graph takes its lock so the two cannot race / interleave for one tenant; ops
     /// on DIFFERENT graphs proceed concurrently. Lazily created per graph name.
@@ -263,6 +269,64 @@ pub struct MultiRaft {
     /// Shared implementation used identically by local leaders and authenticated
     /// remote `ReadPage` RPCs.
     read_service: Arc<super::xread::ReadPageService>,
+    /// Serializes the idempotent full shutdown sequence.
+    shutdown_lock: tokio::sync::Mutex<()>,
+}
+
+#[derive(Default)]
+struct ConnectionTaskSet {
+    stopping: AtomicBool,
+    tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+}
+
+impl ConnectionTaskSet {
+    async fn register(&self, task: tokio::task::JoinHandle<()>) {
+        let late_task = {
+            let mut tasks = self
+                .tasks
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            tasks.retain(|task| !task.is_finished());
+            if self.stopping.load(Ordering::Acquire) {
+                Some(task)
+            } else {
+                tasks.push(task);
+                None
+            }
+        };
+        if let Some(task) = late_task {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+
+    fn stop(&self) {
+        self.stopping.store(true, Ordering::Release);
+        let tasks = self
+            .tasks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Retain the handles so a later full shutdown can await cancellation and
+        // prove that every backend-retaining future has actually dropped.
+        for task in tasks.iter() {
+            task.abort();
+        }
+    }
+
+    async fn stop_and_wait(&self) {
+        self.stopping.store(true, Ordering::Release);
+        let tasks = {
+            let mut tasks = self
+                .tasks
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            tasks.drain(..).collect::<Vec<_>>()
+        };
+        for task in tasks {
+            task.abort();
+            let _ = task.await;
+        }
+    }
 }
 
 /// Minimum interval between two balancer-triggered leader transfers for the SAME group
@@ -374,6 +438,8 @@ impl MultiRaft {
         let frame_budget = Arc::new(tokio::sync::Semaphore::new(
             network::RAFT_FRAME_BUDGET_UNITS,
         ));
+        let connection_tasks = Arc::new(ConnectionTaskSet::default());
+        let connection_tasks_for_listener = connection_tasks.clone();
         let listener = tokio::net::TcpListener::bind(&bind_addr)
             .await
             .map_err(|_| "unable to bind Raft multi-group listener".to_string())?;
@@ -392,7 +458,7 @@ impl MultiRaft {
                 let auth = auth_for_listener.clone();
                 let frame_budget = frame_budget.clone();
                 let read_service = read_service_for_listener.clone();
-                tokio::spawn(async move {
+                let task = tokio::spawn(async move {
                     let _permit = permit;
                     if let Err(e) =
                         serve_conn(stream, groups, auth, frame_budget, read_service).await
@@ -400,6 +466,7 @@ impl MultiRaft {
                         tracing::debug!("raft multi rpc conn ended: {e}");
                     }
                 });
+                connection_tasks_for_listener.register(task).await;
             }
         });
         let pool = match auth {
@@ -415,9 +482,11 @@ impl MultiRaft {
             read_service,
             ctx,
             pool,
-            listener_handle,
+            listener_handle: Mutex::new(Some(listener_handle)),
+            connection_tasks,
             tenant_locks: Arc::new(DashMap::new()),
             last_transfer: Arc::new(DashMap::new()),
+            shutdown_lock: tokio::sync::Mutex::new(()),
         }))
     }
 
@@ -690,7 +759,7 @@ impl MultiRaft {
 
         if is_bootstrap {
             let raft_for_init = raft.clone();
-            tokio::spawn(async move {
+            let task = tokio::spawn(async move {
                 // Give peers a moment to bind their listener / open their group.
                 tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                 match raft_for_init.initialize(peers).await {
@@ -702,6 +771,7 @@ impl MultiRaft {
                     }
                 }
             });
+            self.connection_tasks.register(task).await;
         }
         tracing::info!("Raft group {gid} created on node {}", self.node_id);
         Ok(())
@@ -1305,7 +1375,48 @@ impl MultiRaft {
     /// Shut down the listener (and, by drop, stop accepting). Groups keep running
     /// until dropped/closed; used by graceful shutdown + tests.
     pub fn stop_listener(&self) {
-        self.listener_handle.abort();
+        if let Some(listener) = self
+            .listener_handle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+        {
+            listener.abort();
+        }
+        self.connection_tasks.stop();
+    }
+
+    /// Fully stop this node's Raft resources in dependency order. The sequence is
+    /// idempotent so startup-error cleanup and an explicit caller shutdown may
+    /// safely race or run more than once: listener/tasks stop first, groups are
+    /// drained and joined, and only then are persistence writer threads stopped.
+    pub async fn shutdown(&self) {
+        let _shutdown = self.shutdown_lock.lock().await;
+
+        let listener = {
+            let mut listener = self
+                .listener_handle
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            listener.take()
+        };
+        if let Some(listener) = listener {
+            listener.abort();
+            let _ = listener.await;
+        }
+        self.connection_tasks.stop_and_wait().await;
+
+        let groups = {
+            let mut groups = self.groups.write().await;
+            std::mem::take(&mut *groups)
+        };
+        for (_, raft) in groups {
+            let _ = raft.shutdown().await;
+        }
+        let backend = self.backend.clone();
+        if let Err(error) = tokio::task::spawn_blocking(move || backend.shutdown()).await {
+            tracing::warn!(%error, "Raft persistence shutdown task failed");
+        }
     }
 }
 
