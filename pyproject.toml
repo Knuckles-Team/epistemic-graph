@@ -54,6 +54,15 @@ test = [
     "pytest-cov>=4.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-timeout>=2.1.0",
+    # BUG-045: tests/test_build_backend.py execs build_backend.py directly (outside
+    # PEP 517 build isolation), which `import maturin`s at module scope -- the
+    # `[build-system].requires` pin above only guarantees maturin during an
+    # isolated build, not a normal `pytest` run. tests/test_release_full_wheel_
+    # contract.py separately `import yaml`s. Neither was reachable from the `test`
+    # extra, so a plain `pip install -e .[test]` / `uv sync --extra test` failed
+    # collection on both files with ModuleNotFoundError before a single test ran.
+    "maturin>=1.0,<2.0",
+    "pyyaml>=6.0.3",
 ]
 owl = [
     "pyoxigraph>=0.3.22",
