@@ -1661,4 +1661,132 @@ mod tests {
         assert_eq!(v["hits"][0]["severity"], "ERROR");
         assert_eq!(v["hits"][0]["n"], 1);
     }
+
+    // ── GOC-62 D3(b): failing-first proof of BUG-037 ────────────────────────
+    //
+    // BUG-037 (P0, DEC-015 §1 finding #2 / GOC-62-keycloak-auth-standard.md §4):
+    // `is_observability_read_carrier` (above) matches ONLY GET/query-shaped
+    // paths, so `observability_read_denied`'s check in `handle` is never even
+    // REACHED for a POST/ingest path -- every ingest path (`/v1/logs`, `/_bulk`,
+    // `/<stream>/_doc`, `/`, and (feature `otel-export`) `/api/v1/write`) skips
+    // authorization entirely, in EVERY deployment configuration including
+    // `serve_with_security` (the production listener). This is materially worse
+    // than every other EG auxiliary surface (Iceberg REST, SPARQL reads,
+    // federation, `/nl`), which at minimum deny unconditionally.
+    //
+    // This test proves it by calling the SAME `handle()` this module's own
+    // `serve_inner`/`serve_with_security` route every real request through,
+    // with a non-`None` `security_state` (i.e. "a secured deployment") and NO
+    // credential at all on a POST /v1/logs ingest request. A read-shaped GET is
+    // exercised alongside as the contrast case (correctly denied), so this test
+    // fails for the RIGHT reason -- an ingest bypass -- not because the whole
+    // security posture is broken.
+    //
+    // Red today, by design (GOC-62 D3(b)). Turns green only once ingest paths
+    // are folded into the SAME carrier check `is_observability_read_carrier`
+    // gates reads with -- see GOC-62-keycloak-auth-standard.md §4/§5's method-
+    // sensitivity rule: "read-vs-mutation classification, never a route/path-
+    // shape heuristic".
+
+    /// A minimal, real `ServerState` -- `unauthenticated_carrier_denied`/
+    /// `observability_read_denied` only branch on `security_state.is_some()`
+    /// (verified by direct reading, `access.rs::unauthenticated_carrier_denied`:
+    /// `carrier.is_none()` unconditionally, since no carrier mechanism exists for
+    /// this surface today), so ANY validly-constructed `ServerState` proves the
+    /// "secured deployment" precondition -- this mirrors `server::mod::tests::test_state`
+    /// exactly, duplicated here (not imported) because that helper is private to
+    /// its own test module.
+    fn goc62_bug037_security_state() -> std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>
+    {
+        let isolation = crate::isolation::IsolationLayer::new();
+        std::sync::Arc::new(tokio::sync::RwLock::new(crate::server::ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
+            registry: crate::registry::GraphRegistry::new(),
+            isolation,
+            channels: crate::channels::ChannelManager::new(),
+            auth_secret: "goc62-bug037-test-secret".to_string(), // nosec B105 - test only
+            persist_dir: None,
+            persistence: None,
+            max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(16)),
+            read_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(16)),
+            per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: std::sync::Arc::new(
+                crate::write_coalescer::WriteCoalescerRegistry::new(),
+            ),
+            open_txns: std::sync::Arc::new(dashmap::DashMap::new()),
+            txn_id_gen: std::sync::Arc::new(crate::server::txn::TxnIdGen),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
+            #[cfg(feature = "streaming")]
+            cdc: None,
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
+        }))
+    }
+
+    #[tokio::test]
+    async fn bug_037_obs_ingest_post_bypasses_the_deny_gate() {
+        let obs = std::sync::Arc::new(ObsState::in_memory(1024).unwrap());
+        let security_state = goc62_bug037_security_state();
+
+        // Contrast case: a read-shaped GET IS correctly denied under a secured
+        // deployment -- proves the harness is exercising the real gate, not a
+        // vacuous stub.
+        let read_req = HttpRequest {
+            method: "GET".to_string(),
+            target: "/api/v1/query?query=up".to_string(),
+            content_type: "text/plain".to_string(),
+            body: String::new(),
+            #[cfg(feature = "otel-export")]
+            body_bytes: Vec::new(),
+        };
+        let (read_status, _, _) = handle(&obs, Some(&security_state), read_req).await;
+        assert_eq!(
+            read_status, "403 Forbidden",
+            "precondition: reads under a secured deployment must still deny with \
+             no carrier -- if this fails, the harness itself is broken, not just \
+             the ingest gate"
+        );
+
+        // The actual BUG-037 proof: an ingest POST, same secured deployment, same
+        // zero credential -- must ALSO deny, but does not.
+        let ingest_body = r#"{"resourceLogs":[]}"#;
+        let ingest_req = HttpRequest {
+            method: "POST".to_string(),
+            target: "/v1/logs".to_string(),
+            content_type: "application/json".to_string(),
+            body: ingest_body.to_string(),
+            #[cfg(feature = "otel-export")]
+            body_bytes: ingest_body.as_bytes().to_vec(),
+        };
+        let (ingest_status, _, ingest_body_out) =
+            handle(&obs, Some(&security_state), ingest_req).await;
+
+        assert_eq!(
+            ingest_status, "403 Forbidden",
+            "BUG-037 FAIL-OPEN: POST /v1/logs (an ingest/mutation path) was \
+             accepted with a secured deployment and ZERO credential -- \
+             is_observability_read_carrier only matches GET/query-shaped paths, \
+             so observability_read_denied's check in `handle` is never reached \
+             for this request. Got status {ingest_status:?}, body: \
+             {ingest_body_out:?}"
+        );
+    }
 }
