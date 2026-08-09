@@ -2,7 +2,7 @@
 
 pub const PROTOCOL_NAME: &str = "epistemic-operations";
 pub const PROTOCOL_VERSION: &str = "1";
-pub const CATALOG_SHA256: &str = "b0556eb4630fb534545797f5895002f4ba39a38ba05f37ba944817203989749b";
+pub const CATALOG_SHA256: &str = "a5146d24f93bcb2e20bc7f1c2a5377467e895d48c3cc609bea5afe4c4b36892d";
 pub const SCHEMA_VERSION: &[(&str, &str)] = &[
     ("request_context", "2"),
     ("mutation_batch", "1"),

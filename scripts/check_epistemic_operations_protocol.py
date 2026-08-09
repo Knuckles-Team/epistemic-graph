@@ -86,6 +86,16 @@ DEVELOPMENT_LANE_REFUSALS = (
     "exclusivity",
     "invalid",
 )
+DEVELOPMENT_LANE_DISK_COUNTER_DIMENSIONS = ("predicted", "observed", "retained")
+DEVELOPMENT_LANE_INTENT_EXTENSION_KEY = "development_lane_intent"
+DEVELOPMENT_LANE_CLEANUP_EXTENSION_KEY = "development_lane_cleanup"
+DEVELOPMENT_LANE_GLOBAL_POLICY_TENANT_REF = "*"
+DEVELOPMENT_LANE_CLEANUP_EXTENSION_FIELDS = (
+    "schema_version",
+    "hold_id",
+    "lane_id",
+    "expected_hold_revision",
+)
 RUST_STRUCT_RE = re.compile(r"\bpub\s+struct\s+([A-Za-z][A-Za-z0-9_]*)\s*\{")
 RUST_FIELD_RE = re.compile(r"^\s*pub\s+([a-z][A-Za-z0-9_]*)\s*:", re.MULTILINE)
 RUST_OPTION_FIELD_RE = re.compile(
@@ -137,6 +147,23 @@ def _check_development_lane_golden_vector() -> None:
         raise GateError("development-lane WorkItem kind vocabulary drifted")
     if vector.get("refusal_decisions") != list(DEVELOPMENT_LANE_REFUSALS):
         raise GateError("development-lane refusal vocabulary drifted")
+    if vector.get("disk_counter_dimensions") != list(
+        DEVELOPMENT_LANE_DISK_COUNTER_DIMENSIONS
+    ):
+        raise GateError("development-lane disk counter dimensions drifted")
+    if vector.get("lane_intent_extension_key") != DEVELOPMENT_LANE_INTENT_EXTENSION_KEY:
+        raise GateError("development-lane intent extension key drifted")
+    if vector.get("lane_cleanup_extension_key") != DEVELOPMENT_LANE_CLEANUP_EXTENSION_KEY:
+        raise GateError("development-lane cleanup extension key drifted")
+    if vector.get("global_policy_tenant_ref") != DEVELOPMENT_LANE_GLOBAL_POLICY_TENANT_REF:
+        raise GateError("development-lane global-policy sentinel drifted")
+    cleanup_json = vector.get("lane_cleanup_extension_json")
+    try:
+        cleanup = json.loads(cleanup_json, object_pairs_hook=_no_duplicate_keys)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise GateError(f"development-lane cleanup extension is invalid: {exc}") from exc
+    if list(cleanup) != list(DEVELOPMENT_LANE_CLEANUP_EXTENSION_FIELDS):
+        raise GateError("development-lane cleanup extension fields drifted")
     if vector.get("quota_policy_update_expected_revision") != 7:
         raise GateError("development-lane golden quota CAS revision drifted")
     intent_json = vector.get("intent_json")

@@ -490,6 +490,12 @@ pub enum DevelopmentLaneIntentHostTargetKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneCleanupIntentSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DevelopmentLaneCleanupCompleteRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -1683,6 +1689,12 @@ pub struct DevelopmentLaneIntent {
     pub host_target_kind: DevelopmentLaneIntentHostTargetKind,
     #[serde(deserialize_with = "deserialize_required_option")]
     pub host_target_alias: Option<String>,
+    /// Opaque selected host identity from the authorized WorkItem extension.
+    /// Local targets must still carry this identity; `host_target_alias` is
+    /// only the inventory-placement alias.
+    pub host_ref: String,
+    /// RMDD-27 native resource reservation bound to this WorkItem attempt.
+    pub resource_reservation_id: String,
     pub workspace_ref: String,
     pub worktree_locator: String,
     pub owner_id: String,
@@ -1693,6 +1705,15 @@ pub struct DevelopmentLaneIntent {
     pub predicted_disk_bytes: u64,
     pub ttl_ms: u64,
     pub input_fingerprint: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneCleanupIntent {
+    pub schema_version: DevelopmentLaneCleanupIntentSchemaVersion,
+    pub hold_id: String,
+    pub lane_id: String,
+    pub expected_hold_revision: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1787,6 +1808,7 @@ pub struct DevelopmentLaneHold {
     pub host_target_kind: DevelopmentLaneHoldHostTargetKind,
     #[serde(deserialize_with = "deserialize_required_option")]
     pub host_target_alias: Option<String>,
+    pub host_ref: String,
     pub quota_policy_name: String,
     pub quota_policy_version: String,
     pub input_fingerprint: String,
@@ -1892,6 +1914,13 @@ pub struct DevelopmentLaneQuotaCharge {
     pub repository_predicted_disk_bytes: u64,
     pub host_predicted_disk_bytes: u64,
     pub global_predicted_disk_bytes: u64,
+    pub tenant_observed_disk_bytes: u64,
+    pub owner_observed_disk_bytes: u64,
+    pub session_observed_disk_bytes: u64,
+    pub workspace_observed_disk_bytes: u64,
+    pub repository_observed_disk_bytes: u64,
+    pub host_observed_disk_bytes: u64,
+    pub global_observed_disk_bytes: u64,
     pub tenant_retained_disk_bytes: u64,
     pub owner_retained_disk_bytes: u64,
     pub session_retained_disk_bytes: u64,
@@ -1923,6 +1952,13 @@ pub struct DevelopmentLaneQuotaPolicy {
     pub repository_predicted_disk_bytes: u64,
     pub host_predicted_disk_bytes: u64,
     pub global_predicted_disk_bytes: u64,
+    pub tenant_observed_disk_bytes: u64,
+    pub owner_observed_disk_bytes: u64,
+    pub session_observed_disk_bytes: u64,
+    pub workspace_observed_disk_bytes: u64,
+    pub repository_observed_disk_bytes: u64,
+    pub host_observed_disk_bytes: u64,
+    pub global_observed_disk_bytes: u64,
     pub tenant_retained_disk_bytes: u64,
     pub owner_retained_disk_bytes: u64,
     pub session_retained_disk_bytes: u64,

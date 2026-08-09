@@ -6248,6 +6248,7 @@ mod tests {
     #[test]
     fn development_lane_protocol_matches_cross_language_golden_vector() {
         use crate::epistemic_operations::{
+            DevelopmentLaneCleanupIntent, DevelopmentLaneCleanupIntentSchemaVersion,
             DevelopmentLaneIntent, DevelopmentLaneIntentHostTargetKind,
             DevelopmentLaneIntentSchemaVersion, DevelopmentLaneQueryRequest,
             DevelopmentLaneQueryRequestSchemaVersion, DevelopmentLaneQuotaUpdateRequest,
@@ -6278,6 +6279,8 @@ mod tests {
             branch: "rmdd-28/golden".into(),
             host_target_kind: DevelopmentLaneIntentHostTargetKind::InventoryAlias,
             host_target_alias: Some("host:golden".into()),
+            host_ref: "host-ref:golden".into(),
+            resource_reservation_id: "reservation:golden".into(),
             workspace_ref: "workspace:golden".into(),
             worktree_locator: "lanes/golden".into(),
             owner_id: "agent:golden".into(),
@@ -6296,6 +6299,20 @@ mod tests {
         let mut unknown: serde_json::Value = serde_json::from_str(&encoded).unwrap();
         unknown["unexpected"] = serde_json::Value::Bool(true);
         assert!(serde_json::from_value::<DevelopmentLaneIntent>(unknown).is_err());
+
+        let cleanup = DevelopmentLaneCleanupIntent {
+            schema_version: DevelopmentLaneCleanupIntentSchemaVersion::V1,
+            hold_id: "v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            lane_id: "lane:golden".into(),
+            expected_hold_revision: 7,
+        };
+        assert_eq!(
+            serde_json::to_string(&cleanup).unwrap(),
+            vector["lane_cleanup_extension_json"].as_str().unwrap()
+        );
+        let mut unknown_cleanup: serde_json::Value = serde_json::to_value(&cleanup).unwrap();
+        unknown_cleanup["unexpected"] = serde_json::Value::Bool(true);
+        assert!(serde_json::from_value::<DevelopmentLaneCleanupIntent>(unknown_cleanup).is_err());
 
         let decisions = [
             DevelopmentLaneResultDecision::Accepted,

@@ -267,6 +267,9 @@ fn mutation_operations_retry_match(
 #[cfg(test)]
 mod resource_reservation_tests;
 
+#[cfg(feature = "redb")]
+pub(crate) mod development_lane;
+
 fn decode_durable<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     eg_types::msgpack::decode_bounded(bytes, durable_msgpack_limits())
         .map_err(|_| "durable value is invalid or exceeds resource limits".to_string())
@@ -708,6 +711,7 @@ pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Resul
         .map_err(|error| error.to_string())?;
     wtx.open_table(RESOURCE_DISK_POLICIES)
         .map_err(|error| error.to_string())?;
+    development_lane::initialize_tables(wtx)?;
     wtx.open_table(CHANGE_ENVELOPES)
         .map_err(|error| error.to_string())?;
     wtx.open_table(CONTENT_VERSIONS)
