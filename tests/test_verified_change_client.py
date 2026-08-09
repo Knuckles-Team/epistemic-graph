@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import re
+import subprocess
 from collections import Counter
 from pathlib import Path
 
@@ -488,11 +489,34 @@ def test_v2_signer_derives_idempotency_from_typed_f32_body() -> None:
     )
 
 
+def _tracked_or_walked_rs_files(root: Path) -> list[Path]:
+    """``.rs`` files under ``root``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output (a
+    stale target-isolated/ or an editor scratch copy), which could shift
+    this schema-location census away from real source. Falls back to a
+    filesystem walk only when ``root`` is not inside a git working tree.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--", "*.rs"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [root / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return list(root.rglob("*.rs"))
+
+
 def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
     root = Path(__file__).parents[1] / "crates" / "eg-types" / "src"
     declared = Counter(
         (path.relative_to(root).as_posix(), line.strip())
-        for path in root.rglob("*.rs")
+        for path in _tracked_or_walked_rs_files(root)
         for line in path.read_text(encoding="utf-8").splitlines()
         if re.search(r"\bf32\b", line) and not line.lstrip().startswith("//")
     )
@@ -514,7 +538,7 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
     )
     method_carriers = Counter(
         (path.relative_to(root).as_posix(), line.strip())
-        for path in root.rglob("*.rs")
+        for path in _tracked_or_walked_rs_files(root)
         for line in path.read_text(encoding="utf-8").splitlines()
         if re.search(r"\bpub method: Method,", line)
     )

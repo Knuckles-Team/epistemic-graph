@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -42,7 +43,22 @@ def test_agent_skills_have_one_canonical_owner() -> None:
     }
     skills = REPO / "epistemic_graph" / "skills"
     assert (skills / "__init__.py").is_file()
-    assert {path.parent.name for path in skills.rglob("SKILL.md")} == {
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(skills), "ls-files", "--", "SKILL.md", "*/SKILL.md"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        skill_md_files = [skills / line for line in out.splitlines() if line]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        skill_md_files = []
+    if not skill_md_files:
+        # BUG-043: prefer the git-tracked set (a raw rglob also picks up
+        # gitignored, generated build output); fall back to a filesystem
+        # walk only when this checkout is not inside a git working tree.
+        skill_md_files = list(skills.rglob("SKILL.md"))
+    assert {path.parent.name for path in skill_md_files} == {
         "epistemic-graph-deploy",
         "epistemic-graph-migrations",
         "epistemic-graph-troubleshooting",
