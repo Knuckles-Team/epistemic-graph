@@ -788,6 +788,8 @@
         "branch",
         "host_target_kind",
         "host_target_alias",
+        "host_ref",
+        "resource_reservation_id",
         "workspace_ref",
         "worktree_locator",
         "owner_id",
@@ -802,6 +804,18 @@
       "pointer": "#",
       "python_model": "DevelopmentLaneIntent",
       "rust_type": "DevelopmentLaneIntent",
+      "schema": "development_lane"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "hold_id",
+        "lane_id",
+        "expected_hold_revision"
+      ],
+      "pointer": "#/$defs/development_lane_cleanup_intent",
+      "python_model": "DevelopmentLaneCleanupIntent",
+      "rust_type": "DevelopmentLaneCleanupIntent",
       "schema": "development_lane"
     },
     {
@@ -902,6 +916,7 @@
         "worktree_locator",
         "host_target_kind",
         "host_target_alias",
+        "host_ref",
         "quota_policy_name",
         "quota_policy_version",
         "input_fingerprint",
@@ -1014,6 +1029,13 @@
         "repository_predicted_disk_bytes",
         "host_predicted_disk_bytes",
         "global_predicted_disk_bytes",
+        "tenant_observed_disk_bytes",
+        "owner_observed_disk_bytes",
+        "session_observed_disk_bytes",
+        "workspace_observed_disk_bytes",
+        "repository_observed_disk_bytes",
+        "host_observed_disk_bytes",
+        "global_observed_disk_bytes",
         "tenant_retained_disk_bytes",
         "owner_retained_disk_bytes",
         "session_retained_disk_bytes",
@@ -1048,6 +1070,13 @@
         "repository_predicted_disk_bytes",
         "host_predicted_disk_bytes",
         "global_predicted_disk_bytes",
+        "tenant_observed_disk_bytes",
+        "owner_observed_disk_bytes",
+        "session_observed_disk_bytes",
+        "workspace_observed_disk_bytes",
+        "repository_observed_disk_bytes",
+        "host_observed_disk_bytes",
+        "global_observed_disk_bytes",
         "tenant_retained_disk_bytes",
         "owner_retained_disk_bytes",
         "session_retained_disk_bytes",
@@ -1198,7 +1227,7 @@
       "schema": "development_lane"
     }
   ],
-  "catalog_sha256": "b0556eb4630fb534545797f5895002f4ba39a38ba05f37ba944817203989749b",
+  "catalog_sha256": "a5146d24f93bcb2e20bc7f1c2a5377467e895d48c3cc609bea5afe4c4b36892d",
   "compatibility_policy": "current-only",
   "privacy_contract": {
     "content": "content-addressed-reference",

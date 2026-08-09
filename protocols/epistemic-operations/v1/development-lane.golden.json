@@ -35,6 +35,11 @@
     "exclusivity",
     "invalid"
   ],
+  "disk_counter_dimensions": ["predicted", "observed", "retained"],
+  "lane_intent_extension_key": "development_lane_intent",
+  "lane_cleanup_extension_key": "development_lane_cleanup",
+  "global_policy_tenant_ref": "*",
+  "lane_cleanup_extension_json": "{\"schema_version\":\"1\",\"hold_id\":\"v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"lane_id\":\"lane:golden\",\"expected_hold_revision\":7}",
   "quota_policy_update_expected_revision": 7,
-  "intent_json": "{\"schema_version\":\"1\",\"tenant_ref\":\"tenant:golden\",\"request_id\":\"request:golden\",\"lane_id\":\"lane:golden\",\"repository_id\":\"repo:golden\",\"base_ref\":\"refs/heads/main\",\"base_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"branch\":\"rmdd-28/golden\",\"host_target_kind\":\"inventory_alias\",\"host_target_alias\":\"host:golden\",\"workspace_ref\":\"workspace:golden\",\"worktree_locator\":\"lanes/golden\",\"owner_id\":\"agent:golden\",\"session_id\":\"session:golden\",\"fairness_group\":\"fairness:golden\",\"quota_policy_name\":\"default\",\"quota_policy_version\":\"1\",\"predicted_disk_bytes\":4096,\"ttl_ms\":60000,\"input_fingerprint\":\"v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}"
+  "intent_json": "{\"schema_version\":\"1\",\"tenant_ref\":\"tenant:golden\",\"request_id\":\"request:golden\",\"lane_id\":\"lane:golden\",\"repository_id\":\"repo:golden\",\"base_ref\":\"refs/heads/main\",\"base_sha\":\"0123456789abcdef0123456789abcdef01234567\",\"branch\":\"rmdd-28/golden\",\"host_target_kind\":\"inventory_alias\",\"host_target_alias\":\"host:golden\",\"host_ref\":\"host-ref:golden\",\"resource_reservation_id\":\"reservation:golden\",\"workspace_ref\":\"workspace:golden\",\"worktree_locator\":\"lanes/golden\",\"owner_id\":\"agent:golden\",\"session_id\":\"session:golden\",\"fairness_group\":\"fairness:golden\",\"quota_policy_name\":\"default\",\"quota_policy_version\":\"1\",\"predicted_disk_bytes\":4096,\"ttl_ms\":60000,\"input_fingerprint\":\"v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}"
 }
