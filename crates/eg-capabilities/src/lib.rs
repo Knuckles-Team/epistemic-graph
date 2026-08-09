@@ -289,6 +289,37 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Atomic,
         },
+        Method::ReserveWorkItemResources { .. }
+        | Method::ReleaseWorkItemResources { .. }
+        | Method::ReclaimWorkItemResources { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::GraphRedb,
+            authz_action: "resource:reserve",
+            idempotent: true,
+            audited: true,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
+        },
+        Method::UpdateResourceHost { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::GraphRedb,
+            authz_action: "resource:host",
+            idempotent: true,
+            audited: true,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
+        },
+        Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. } => {
+            MethodPolicy {
+                mutates: false,
+                durability_domain: DurabilityDomain::None,
+                authz_action: "resource:read",
+                idempotent: true,
+                audited: false,
+                emits_cdc: false,
+                txn_participation: TxnParticipation::Snapshot,
+            }
+        }
         Method::DeclareExchange { .. }
         | Method::DeleteExchange { .. }
         | Method::BindQueue { .. }
@@ -2165,6 +2196,12 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("CommitWorkItemResult", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "terminal result references and outbox commit atomically"),
         ("CancelWorkItem", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "pending cancellation never steals an active lease"),
         ("DeferWorkItem", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "fenced lease release schedules retry without consuming an attempt"),
+        ("ReserveWorkItemResources", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "resource:reserve", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "controller-only atomic host admission and WorkItem fence validation"),
+        ("ReleaseWorkItemResources", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "resource:reserve", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "controller-only lifecycle release with retained tombstone"),
+        ("ReclaimWorkItemResources", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "resource:reserve", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "controller-only expiry/supersession reclaim with retained tombstone"),
+        ("QueryWorkItemReservation", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "resource:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "linearizable exact native authority read"),
+        ("ResourceReservationStatus", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "resource:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "bounded linearizable reconciliation read"),
+        ("UpdateResourceHost", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "resource:host", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "controller-only monotonic host telemetry update"),
         ("SweepExpired", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::Outbox, authz_action: "broker:admin", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),
         ("StreamDeclare", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::Outbox, authz_action: "stream:admin", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),
         ("StreamPublish", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::Outbox, authz_action: "stream:write", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),

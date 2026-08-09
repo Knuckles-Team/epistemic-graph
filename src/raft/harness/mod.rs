@@ -48,6 +48,70 @@ pub mod history;
 pub mod loadgen;
 pub mod nemesis;
 
+/// Shared test guard for harnesses that exercise the signed public dispatch
+/// boundary. The request verifier reads these values from process-global
+/// environment, so every harness using this helper must hold the guard for the
+/// complete test lifetime, including its async cluster work.
+#[cfg(test)]
+pub(crate) mod test_env {
+    use std::ffi::OsString;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, MutexGuard};
+
+    static AUTH_ENV_LOCK: Mutex<()> = Mutex::new(());
+    static AUTH_ENV_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+    pub(crate) struct AuthEnvGuard {
+        _lock: MutexGuard<'static, ()>,
+        previous: Vec<(&'static str, Option<OsString>)>,
+    }
+
+    impl Drop for AuthEnvGuard {
+        fn drop(&mut self) {
+            for (name, value) in self.previous.drain(..) {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+
+    pub(crate) fn configure_auth_test_environment(
+        tenant: &str,
+        state_dir_tag: &str,
+    ) -> AuthEnvGuard {
+        let lock = AUTH_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let names = [
+            "EPISTEMIC_GRAPH_AUDIENCE",
+            "EPISTEMIC_GRAPH_TENANT",
+            "EPISTEMIC_GRAPH_POLICY_VERSION",
+            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+        ];
+        let previous = names
+            .into_iter()
+            .map(|name| (name, std::env::var_os(name)))
+            .collect();
+        let sequence = AUTH_ENV_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+        std::env::set_var("EPISTEMIC_GRAPH_TENANT", tenant);
+        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+        std::env::set_var(
+            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+            std::env::temp_dir().join(format!(
+                "eg-{state_dir_tag}-{}-{sequence}",
+                std::process::id()
+            )),
+        );
+        AuthEnvGuard {
+            _lock: lock,
+            previous,
+        }
+    }
+}
+
 #[cfg(test)]
 mod gauntlet_test;
 
@@ -82,14 +146,24 @@ pub async fn run_gauntlet(
     load: LoadConfig,
     faults: Vec<Fault>,
 ) -> Result<GauntletOutcome, String> {
+    // The partition controller is process-global. Hold its test guard across
+    // cluster startup, fault injection, healing, checking, and teardown so a
+    // concurrent harness cannot clear this run's partition mid-RPC.
+    let _partition_guard = super::network::partition::test_guard();
+
     // ── Elect ──────────────────────────────────────────────────────────────
     let cluster = Cluster::start(n, tag).await?;
     let cluster = Arc::new(Mutex::new(cluster));
-    {
+    let initial_leader = {
         let c = cluster.lock().await;
-        c.wait_for_leader(Duration::from_secs(15))
-            .await
-            .ok_or_else(|| "no initial leader elected".to_string())?;
+        c.wait_for_leader(Duration::from_secs(15)).await
+    };
+    if initial_leader.is_none() {
+        let cleanup = cluster.lock().await.shutdown_in_place().await;
+        return Err(match cleanup {
+            Ok(()) => "no initial leader elected".to_string(),
+            Err(error) => format!("no initial leader elected; {error}"),
+        });
     }
 
     let history = Arc::new(History::new());
@@ -155,10 +229,16 @@ pub async fn run_gauntlet(
 
     // ── Teardown ────────────────────────────────────────────────────────────
     let _ = all_ids;
-    let cluster = Arc::try_unwrap(cluster)
-        .map_err(|_| "cluster still shared at teardown".to_string())?
-        .into_inner();
-    cluster.teardown().await;
+    match Arc::try_unwrap(cluster) {
+        Ok(cluster) => cluster.into_inner().teardown().await,
+        Err(cluster) => {
+            let cleanup = cluster.lock().await.shutdown_in_place().await;
+            return Err(match cleanup {
+                Ok(()) => "cluster still shared at teardown".to_string(),
+                Err(error) => format!("cluster still shared at teardown; {error}"),
+            });
+        }
+    }
 
     Ok(GauntletOutcome {
         verdict,

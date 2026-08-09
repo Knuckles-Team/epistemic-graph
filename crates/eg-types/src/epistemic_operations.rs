@@ -295,6 +295,186 @@ pub enum OperationRedirectKind {
     Placement,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationRequestTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationRecordTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationRecordState {
+    #[serde(rename = "reserved")]
+    Reserved,
+    #[serde(rename = "released")]
+    Released,
+    #[serde(rename = "reclaimed")]
+    Reclaimed,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "superseded")]
+    Superseded,
+    #[serde(rename = "absent")]
+    Absent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationResultDecision {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "idempotent")]
+    Idempotent,
+    #[serde(rename = "stale")]
+    Stale,
+    #[serde(rename = "conflict")]
+    Conflict,
+    #[serde(rename = "input_conflict")]
+    InputConflict,
+    #[serde(rename = "capacity")]
+    Capacity,
+    #[serde(rename = "policy")]
+    Policy,
+    #[serde(rename = "drained")]
+    Drained,
+    #[serde(rename = "quarantined")]
+    Quarantined,
+    #[serde(rename = "stale_host")]
+    StaleHost,
+    #[serde(rename = "labels")]
+    Labels,
+    #[serde(rename = "anti_affinity")]
+    AntiAffinity,
+    #[serde(rename = "disk")]
+    Disk,
+    #[serde(rename = "concurrency")]
+    Concurrency,
+    #[serde(rename = "exclusivity")]
+    Exclusivity,
+    #[serde(rename = "not_found")]
+    NotFound,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationResultState {
+    #[serde(rename = "reserved")]
+    Reserved,
+    #[serde(rename = "released")]
+    Released,
+    #[serde(rename = "reclaimed")]
+    Reclaimed,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "superseded")]
+    Superseded,
+    #[serde(rename = "absent")]
+    Absent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceTargetSnapshotKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationStatusRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationHostSnapshotTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationStatusResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationSummaryState {
+    #[serde(rename = "reserved")]
+    Reserved,
+    #[serde(rename = "released")]
+    Released,
+    #[serde(rename = "reclaimed")]
+    Reclaimed,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "superseded")]
+    Superseded,
+    #[serde(rename = "absent")]
+    Absent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceHostUpdateRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceHostUpdateRequestTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceHostUpdateResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceHostUpdateResultReason {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "stale_host")]
+    StaleHost,
+    #[serde(rename = "conflict")]
+    Conflict,
+    #[serde(rename = "not_found")]
+    NotFound,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceHostUpdateSnapshotTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RequestContext {
@@ -670,4 +850,365 @@ pub struct OperationRedirect {
     pub fencing_token: u64,
     #[serde(deserialize_with = "deserialize_required_option")]
     pub leader_ref: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationRequest {
+    pub schema_version: ResourceReservationRequestSchemaVersion,
+    pub tenant_ref: String,
+    pub work_item_id: String,
+    pub owner_id: String,
+    pub fence: String,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub attempt: u64,
+    pub reservation_id: String,
+    pub input_fingerprint: String,
+    pub profile_name: String,
+    pub profile_version: String,
+    pub host_ref: String,
+    pub requirement: ResourceRequirement,
+    pub target_kind: ResourceReservationRequestTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub target_alias: Option<String>,
+    pub repository_id: String,
+    pub branch: String,
+    pub concurrency_key: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub concurrency_limit: Option<u64>,
+    pub repository_exclusive: bool,
+    pub branch_exclusive: bool,
+    pub required_labels: Vec<String>,
+    pub anti_affinity: Vec<String>,
+    pub fairness_group: String,
+    pub fairness_cost: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub disk_low_watermark_mib: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub disk_high_watermark_mib: Option<u64>,
+    pub disk_policy_key: String,
+    pub reserved_at_ms: u64,
+    pub expires_at_ms: u64,
+    pub idempotency_key: String,
+    pub now_ms: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub expected_host_revision: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub expected_lifecycle_revision: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceCapacitySnapshot {
+    pub cpu_weight: u64,
+    pub memory_mib: u64,
+    pub disk_mib: u64,
+    pub process_slots: u64,
+    pub host_revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceRequirement {
+    pub cpu_weight: u64,
+    pub memory_mib: u64,
+    pub disk_mib: u64,
+    pub process_slots: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationRecord {
+    pub reservation_id: String,
+    pub tenant_ref: String,
+    pub owner_id: String,
+    pub work_item_id: String,
+    pub fence: String,
+    pub attempt: u64,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub input_fingerprint: String,
+    pub host_ref: String,
+    pub profile_name: String,
+    pub profile_version: String,
+    pub requirement: ResourceRequirement,
+    pub capacity_snapshot: ResourceCapacitySnapshot,
+    pub selected_target: ResourceTargetSnapshot,
+    pub target_kind: ResourceReservationRecordTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub target_alias: Option<String>,
+    pub repository_id: String,
+    pub branch: String,
+    pub concurrency_key: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub concurrency_limit: Option<u64>,
+    pub repository_exclusive: bool,
+    pub branch_exclusive: bool,
+    pub required_labels: Vec<String>,
+    pub anti_affinity: Vec<String>,
+    pub fairness_group: String,
+    pub fairness_cost: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub disk_low_watermark_mib: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub disk_high_watermark_mib: Option<u64>,
+    pub disk_policy_key: String,
+    pub reserved_at_ms: u64,
+    pub expires_at_ms: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub expected_host_revision: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub expected_lifecycle_revision: Option<u64>,
+    pub state: ResourceReservationRecordState,
+    pub revision: u64,
+    pub lifecycle_revision: u64,
+    pub tombstone: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationResult {
+    pub schema_version: ResourceReservationResultSchemaVersion,
+    pub decision: ResourceReservationResultDecision,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub reservation_id: Option<String>,
+    pub work_item_id: String,
+    pub attempt: u64,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub lifecycle_revision: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_ref: Option<String>,
+    pub host_revision: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub record: Option<ResourceReservationRecord>,
+    pub state: ResourceReservationResultState,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub fairness_debt: u64,
+    pub tombstone: bool,
+    pub changed_work_item_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceTargetSnapshot {
+    pub kind: ResourceTargetSnapshotKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub alias: Option<String>,
+    pub capability_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationStatusRequest {
+    pub schema_version: ResourceReservationStatusRequestSchemaVersion,
+    pub tenant_ref: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub work_item_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub reservation_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_ref: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub owner_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub fence: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub attempt: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub lease_epoch: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub fencing_token: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub input_fingerprint: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub fairness_group: Option<String>,
+    pub limit: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub cursor: Option<String>,
+    pub now_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationDiskPolicySnapshot {
+    pub policy_key: String,
+    pub blocked: bool,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub low_watermark_mib: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub high_watermark_mib: Option<u64>,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationHostCapacitySnapshot {
+    pub cpu_weight: u64,
+    pub memory_mib: u64,
+    pub disk_mib: u64,
+    pub process_slots: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationHostSnapshot {
+    pub host_ref: String,
+    pub revision: u64,
+    pub capacity: ResourceReservationHostCapacitySnapshot,
+    pub observed: ResourceReservationHostCapacitySnapshot,
+    pub heartbeat_at_ms: u64,
+    pub heartbeat_ttl_ms: u64,
+    pub draining: bool,
+    pub quarantined: bool,
+    pub labels: Vec<String>,
+    pub target_kind: ResourceReservationHostSnapshotTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub target_alias: Option<String>,
+    pub disk_used_mib: u64,
+    pub disk_capacity_mib: u64,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub disk_policies: Vec<ResourceReservationDiskPolicySnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationStatusResult {
+    pub schema_version: ResourceReservationStatusResultSchemaVersion,
+    pub complete: bool,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub next_cursor: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_snapshot: Option<ResourceReservationHostSnapshot>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_ref: Option<String>,
+    pub host_revision: u64,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub fairness_debt: u64,
+    pub reservations: Vec<ResourceReservationSummary>,
+    pub orphan_count: u64,
+    pub superseded_count: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationSummary {
+    pub reservation_id: String,
+    pub work_item_id: String,
+    pub attempt: u64,
+    pub host_ref: String,
+    pub profile_name: String,
+    pub fairness_group: String,
+    pub state: ResourceReservationSummaryState,
+    pub revision: u64,
+    pub expires_at_ms: u64,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub tombstone: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceHostUpdateRequest {
+    pub schema_version: ResourceHostUpdateRequestSchemaVersion,
+    pub tenant_ref: String,
+    pub host_ref: String,
+    pub revision: u64,
+    pub capacity: ResourceCapacity,
+    pub observed: ResourceCapacity,
+    pub heartbeat_at_ms: u64,
+    pub heartbeat_ttl_ms: u64,
+    pub now_ms: u64,
+    pub draining: bool,
+    pub quarantined: bool,
+    pub labels: Vec<String>,
+    pub target_kind: ResourceHostUpdateRequestTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub target_alias: Option<String>,
+    pub disk_used_mib: u64,
+    pub disk_capacity_mib: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceCapacity {
+    pub cpu_weight: u64,
+    pub memory_mib: u64,
+    pub disk_mib: u64,
+    pub process_slots: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceHostUpdateCapacitySnapshot {
+    pub cpu_weight: u64,
+    pub memory_mib: u64,
+    pub disk_mib: u64,
+    pub process_slots: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceHostUpdateDiskPolicySnapshot {
+    pub policy_key: String,
+    pub blocked: bool,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub low_watermark_mib: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub high_watermark_mib: Option<u64>,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceHostUpdateResult {
+    pub schema_version: ResourceHostUpdateResultSchemaVersion,
+    pub accepted: bool,
+    pub reason: ResourceHostUpdateResultReason,
+    pub host_ref: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_snapshot: Option<ResourceHostUpdateSnapshot>,
+    pub revision: u64,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub draining: bool,
+    pub quarantined: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceHostUpdateSnapshot {
+    pub host_ref: String,
+    pub revision: u64,
+    pub capacity: ResourceHostUpdateCapacitySnapshot,
+    pub observed: ResourceHostUpdateCapacitySnapshot,
+    pub heartbeat_at_ms: u64,
+    pub heartbeat_ttl_ms: u64,
+    pub draining: bool,
+    pub quarantined: bool,
+    pub labels: Vec<String>,
+    pub target_kind: ResourceHostUpdateSnapshotTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub target_alias: Option<String>,
+    pub disk_used_mib: u64,
+    pub disk_capacity_mib: u64,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub disk_policies: Vec<ResourceHostUpdateDiskPolicySnapshot>,
 }

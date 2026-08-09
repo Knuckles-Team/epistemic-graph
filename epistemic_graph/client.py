@@ -36,6 +36,16 @@ class SyncCallDeadlineExceeded(TimeoutError):
     """A synchronous client call exceeded its caller-provided deadline."""
 
 
+class NativeResourceReservationUnavailable(RuntimeError):
+    """The connected engine predates the dark native reservation protocol.
+
+    Resource admission must fail closed when an older engine does not expose the
+    additive methods; callers must not fall back to a local/JSON reservation.
+    """
+
+    code = "native_resource_reservation_unavailable"
+
+
 _SYNC_CALL_DEADLINE: contextvars.ContextVar[float | None] = contextvars.ContextVar(
     "epistemic_graph_sync_call_deadline", default=None
 )
@@ -817,10 +827,923 @@ def _integer(
     return value
 
 
+def _canonical_profile_version(name: str, value: Any) -> str:
+    value = _string(name, value)
+    try:
+        parsed = int(value, 10)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a canonical integer") from exc
+    if parsed < 0 or str(parsed) != value:
+        raise ValueError(f"{name} must be a canonical integer")
+    return value
+
+
 def _boolean(name: str, value: Any) -> bool:
     if not isinstance(value, bool):
         raise TypeError(f"{name} must be a boolean")
     return value
+
+
+_RESOURCE_RESERVATION_REQUEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "tenant_ref",
+        "work_item_id",
+        "owner_id",
+        "fence",
+        "lease_epoch",
+        "fencing_token",
+        "attempt",
+        "reservation_id",
+        "input_fingerprint",
+        "profile_name",
+        "profile_version",
+        "host_ref",
+        "requirement",
+        "target_kind",
+        "target_alias",
+        "repository_id",
+        "branch",
+        "concurrency_key",
+        "concurrency_limit",
+        "repository_exclusive",
+        "branch_exclusive",
+        "required_labels",
+        "anti_affinity",
+        "fairness_group",
+        "fairness_cost",
+        "disk_low_watermark_mib",
+        "disk_high_watermark_mib",
+        "disk_policy_key",
+        "reserved_at_ms",
+        "expires_at_ms",
+        "idempotency_key",
+        "now_ms",
+        "expected_host_revision",
+        "expected_lifecycle_revision",
+    }
+)
+
+
+def _resource_reservation_request(value: Any) -> dict[str, Any]:
+    request = _exact_mapping(
+        "ResourceReservation request", value, _RESOURCE_RESERVATION_REQUEST_FIELDS
+    )
+    if request["schema_version"] != "1":
+        raise ValueError("ResourceReservation schema_version must be 1")
+    for field in (
+        "tenant_ref",
+        "work_item_id",
+        "owner_id",
+        "fence",
+        "reservation_id",
+        "profile_name",
+        "profile_version",
+        "host_ref",
+        "target_kind",
+        "repository_id",
+        "branch",
+        "concurrency_key",
+        "fairness_group",
+        "disk_policy_key",
+        "idempotency_key",
+    ):
+        _string(f"ResourceReservation.{field}", request[field])
+        if len(request[field]) > 256:
+            raise ValueError(
+                f"ResourceReservation.{field} exceeds the 256-character bound"
+            )
+    _canonical_profile_version(
+        "ResourceReservation.profile_version", request["profile_version"]
+    )
+    fingerprint = _string(
+        "ResourceReservation.input_fingerprint", request["input_fingerprint"]
+    )
+    if len(fingerprint) != 67 or not fingerprint.startswith("v1:"):
+        raise ValueError("ResourceReservation.input_fingerprint must use v1 namespace")
+    if any(char not in "0123456789abcdef" for char in fingerprint[3:]):
+        raise ValueError("ResourceReservation.input_fingerprint must be lowercase hex")
+    for field in ("lease_epoch", "fencing_token"):
+        _integer(f"ResourceReservation.{field}", request[field])
+    _integer("ResourceReservation.attempt", request["attempt"], minimum=1)
+    requirement = _exact_mapping(
+        "ResourceReservation.requirement",
+        request["requirement"],
+        frozenset({"cpu_weight", "memory_mib", "disk_mib", "process_slots"}),
+    )
+    for field in ("cpu_weight", "memory_mib", "disk_mib", "process_slots"):
+        _integer(
+            f"ResourceReservation.requirement.{field}", requirement[field], minimum=1
+        )
+    request["requirement"] = requirement
+    if request["target_alias"] is not None:
+        _string("ResourceReservation.target_alias", request["target_alias"])
+    if request["target_kind"] not in {"local", "inventory_alias"}:
+        raise ValueError("ResourceReservation.target_kind is invalid")
+    if (request["target_kind"] == "local") != (request["target_alias"] is None):
+        raise ValueError("ResourceReservation target_alias does not match target_kind")
+    if request["concurrency_limit"] is not None:
+        _integer(
+            "ResourceReservation.concurrency_limit",
+            request["concurrency_limit"],
+            minimum=1,
+        )
+    for field in ("repository_exclusive", "branch_exclusive"):
+        _boolean(f"ResourceReservation.{field}", request[field])
+    for field in ("required_labels", "anti_affinity"):
+        labels = request[field]
+        if (
+            not isinstance(labels, list)
+            or any(
+                not isinstance(item, str) or not item or item != item.strip()
+                for item in labels
+            )
+            or len(labels) != len(set(labels))
+            or len(labels) > 128
+            or any(len(item) > 256 for item in labels)
+        ):
+            raise ValueError(f"ResourceReservation.{field} must be unique strings")
+    _integer("ResourceReservation.fairness_cost", request["fairness_cost"], minimum=1)
+    for field in ("disk_low_watermark_mib", "disk_high_watermark_mib"):
+        if request[field] is not None:
+            _integer(f"ResourceReservation.{field}", request[field])
+    if (
+        request["disk_low_watermark_mib"] is not None
+        and request["disk_high_watermark_mib"] is not None
+        and request["disk_low_watermark_mib"] > request["disk_high_watermark_mib"]
+    ):
+        raise ValueError(
+            "ResourceReservation disk low watermark exceeds high watermark"
+        )
+    _integer("ResourceReservation.reserved_at_ms", request["reserved_at_ms"])
+    _integer("ResourceReservation.expires_at_ms", request["expires_at_ms"], minimum=1)
+    _integer("ResourceReservation.now_ms", request["now_ms"])
+    if request["expires_at_ms"] <= request["reserved_at_ms"]:
+        raise ValueError("ResourceReservation expiry must be after reservation time")
+    for field in ("expected_host_revision", "expected_lifecycle_revision"):
+        if request[field] is not None:
+            _integer(f"ResourceReservation.{field}", request[field])
+    return request
+
+
+_RESOURCE_RESERVATION_DECISIONS = frozenset(
+    {
+        "accepted",
+        "idempotent",
+        "stale",
+        "conflict",
+        "input_conflict",
+        "capacity",
+        "policy",
+        "drained",
+        "quarantined",
+        "stale_host",
+        "labels",
+        "anti_affinity",
+        "disk",
+        "concurrency",
+        "exclusivity",
+        "not_found",
+    }
+)
+
+
+def _resource_reservation_record(value: Any) -> dict[str, Any]:
+    record = _exact_mapping(
+        "ResourceReservation record",
+        value,
+        frozenset(
+            {
+                "reservation_id",
+                "tenant_ref",
+                "owner_id",
+                "work_item_id",
+                "fence",
+                "attempt",
+                "lease_epoch",
+                "fencing_token",
+                "input_fingerprint",
+                "host_ref",
+                "profile_name",
+                "profile_version",
+                "requirement",
+                "capacity_snapshot",
+                "selected_target",
+                "target_kind",
+                "target_alias",
+                "repository_id",
+                "branch",
+                "concurrency_key",
+                "concurrency_limit",
+                "repository_exclusive",
+                "branch_exclusive",
+                "required_labels",
+                "anti_affinity",
+                "fairness_group",
+                "fairness_cost",
+                "disk_low_watermark_mib",
+                "disk_high_watermark_mib",
+                "disk_policy_key",
+                "reserved_at_ms",
+                "expires_at_ms",
+                "state",
+                "revision",
+                "lifecycle_revision",
+                "tombstone",
+            }
+        ),
+    )
+    for field in (
+        "reservation_id",
+        "tenant_ref",
+        "owner_id",
+        "work_item_id",
+        "fence",
+        "host_ref",
+        "profile_name",
+        "profile_version",
+        "target_kind",
+        "repository_id",
+        "branch",
+        "concurrency_key",
+        "fairness_group",
+        "disk_policy_key",
+    ):
+        _string(f"ResourceReservation record.{field}", record[field])
+        if len(record[field]) > 256:
+            raise ValueError(
+                f"ResourceReservation record.{field} exceeds the 256-character bound"
+            )
+    _canonical_profile_version(
+        "ResourceReservation record.profile_version", record["profile_version"]
+    )
+    fingerprint = _string(
+        "ResourceReservation record.input_fingerprint", record["input_fingerprint"]
+    )
+    if (
+        len(fingerprint) != 67
+        or not fingerprint.startswith("v1:")
+        or any(char not in "0123456789abcdef" for char in fingerprint[3:])
+    ):
+        raise ValueError("ResourceReservation record input_fingerprint is invalid")
+    for field in ("attempt", "revision"):
+        _integer(f"ResourceReservation record.{field}", record[field], minimum=1)
+    for field in (
+        "lease_epoch",
+        "fencing_token",
+        "lifecycle_revision",
+        "reserved_at_ms",
+        "expires_at_ms",
+        "fairness_cost",
+    ):
+        _integer(
+            f"ResourceReservation record.{field}",
+            record[field],
+            minimum=1 if field == "fairness_cost" else 0,
+        )
+    requirement = _exact_mapping(
+        "ResourceReservation record.requirement",
+        record["requirement"],
+        frozenset({"cpu_weight", "memory_mib", "disk_mib", "process_slots"}),
+    )
+    for field in requirement:
+        _integer(
+            f"ResourceReservation record.requirement.{field}",
+            requirement[field],
+            minimum=1,
+        )
+    snapshot = _exact_mapping(
+        "ResourceReservation record.capacity_snapshot",
+        record["capacity_snapshot"],
+        frozenset(
+            {"cpu_weight", "memory_mib", "disk_mib", "process_slots", "host_revision"}
+        ),
+    )
+    for field in snapshot:
+        _integer(
+            f"ResourceReservation record.capacity_snapshot.{field}", snapshot[field]
+        )
+    selected = _exact_mapping(
+        "ResourceReservation record.selected_target",
+        record["selected_target"],
+        frozenset({"kind", "alias", "capability_labels"}),
+    )
+    if selected["kind"] not in {"local", "inventory_alias"}:
+        raise ValueError("ResourceReservation record.selected_target.kind is invalid")
+    if (selected["kind"] == "local") != (selected["alias"] is None):
+        raise ValueError("ResourceReservation record.selected_target alias is invalid")
+    if selected["alias"] is not None:
+        _string("ResourceReservation record.selected_target.alias", selected["alias"])
+    labels = selected["capability_labels"]
+    if (
+        not isinstance(labels, list)
+        or len(labels) > 128
+        or len(labels) != len(set(labels))
+    ):
+        raise ValueError(
+            "ResourceReservation record.selected_target.capability_labels is invalid"
+        )
+    for label in labels:
+        _string("ResourceReservation selected target label", label)
+    if record["target_alias"] is not None:
+        _string("ResourceReservation record.target_alias", record["target_alias"])
+    if record["target_kind"] not in {"local", "inventory_alias"}:
+        raise ValueError("ResourceReservation record.target_kind is invalid")
+    if (record["target_kind"] == "local") != (record["target_alias"] is None):
+        raise ValueError(
+            "ResourceReservation record target_alias does not match target_kind"
+        )
+    if record["concurrency_limit"] is not None:
+        _integer(
+            "ResourceReservation record.concurrency_limit",
+            record["concurrency_limit"],
+            minimum=1,
+        )
+    for field in ("repository_exclusive", "branch_exclusive", "tombstone"):
+        _boolean(f"ResourceReservation record.{field}", record[field])
+    for field in ("required_labels", "anti_affinity"):
+        labels = record[field]
+        if (
+            not isinstance(labels, list)
+            or len(labels) > 128
+            or len(labels) != len(set(labels))
+            or any(
+                not isinstance(item, str)
+                or not item
+                or item != item.strip()
+                or len(item) > 256
+                for item in labels
+            )
+        ):
+            raise ValueError(f"ResourceReservation record.{field} is invalid")
+    for field in ("disk_low_watermark_mib", "disk_high_watermark_mib"):
+        if record[field] is not None:
+            _integer(f"ResourceReservation record.{field}", record[field])
+    if record["state"] not in {
+        "reserved",
+        "released",
+        "reclaimed",
+        "expired",
+        "superseded",
+        "absent",
+    }:
+        raise ValueError("ResourceReservation record state is invalid")
+    return record
+
+
+def _resource_reservation_result(value: Any) -> dict[str, Any]:
+    result = _exact_mapping(
+        "ResourceReservation result",
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "decision",
+                "reservation_id",
+                "work_item_id",
+                "attempt",
+                "lease_epoch",
+                "fencing_token",
+                "lifecycle_revision",
+                "host_ref",
+                "host_revision",
+                "record",
+                "state",
+                "held_cpu_weight",
+                "held_memory_mib",
+                "held_disk_mib",
+                "held_process_slots",
+                "fairness_debt",
+                "tombstone",
+                "changed_work_item_ids",
+            }
+        ),
+    )
+    if result["schema_version"] != "1":
+        raise ValueError("ResourceReservation result schema_version must be 1")
+    if result["decision"] not in _RESOURCE_RESERVATION_DECISIONS:
+        raise ValueError("ResourceReservation result decision is invalid")
+    _string("ResourceReservation result.work_item_id", result["work_item_id"])
+    if len(result["work_item_id"]) > 256:
+        raise ValueError(
+            "ResourceReservation result.work_item_id exceeds the 256-character bound"
+        )
+    if result["reservation_id"] is not None:
+        _string("ResourceReservation result.reservation_id", result["reservation_id"])
+        if len(result["reservation_id"]) > 256:
+            raise ValueError(
+                "ResourceReservation result.reservation_id exceeds the 256-character bound"
+            )
+    for field in (
+        "attempt",
+        "lease_epoch",
+        "fencing_token",
+        "lifecycle_revision",
+        "host_revision",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "fairness_debt",
+    ):
+        _integer(f"ResourceReservation result.{field}", result[field])
+    if result["host_ref"] is not None:
+        _string("ResourceReservation result.host_ref", result["host_ref"])
+        if len(result["host_ref"]) > 256:
+            raise ValueError(
+                "ResourceReservation result.host_ref exceeds the 256-character bound"
+            )
+    if result["record"] is not None:
+        _resource_reservation_record(result["record"])
+    if result["state"] not in {
+        "reserved",
+        "released",
+        "reclaimed",
+        "expired",
+        "superseded",
+        "absent",
+    }:
+        raise ValueError("ResourceReservation result state is invalid")
+    _boolean("ResourceReservation result.tombstone", result["tombstone"])
+    changed = result["changed_work_item_ids"]
+    if (
+        not isinstance(changed, list)
+        or len(changed) > 128
+        or any(
+            not isinstance(item, str)
+            or not item
+            or item != item.strip()
+            or len(item) > 256
+            for item in changed
+        )
+        or len(changed) != len(set(changed))
+    ):
+        raise ValueError("ResourceReservation result changed ids are invalid")
+    return result
+
+
+def _resource_status_request(value: Any) -> dict[str, Any]:
+    request = _exact_mapping(
+        "ResourceReservationStatus request",
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "tenant_ref",
+                "work_item_id",
+                "reservation_id",
+                "host_ref",
+                "owner_id",
+                "fence",
+                "attempt",
+                "lease_epoch",
+                "fencing_token",
+                "input_fingerprint",
+                "fairness_group",
+                "limit",
+                "cursor",
+                "now_ms",
+            }
+        ),
+    )
+    if request["schema_version"] != "1":
+        raise ValueError("ResourceReservationStatus schema_version must be 1")
+    _string("ResourceReservationStatus.tenant_ref", request["tenant_ref"])
+    if len(request["tenant_ref"]) > 256:
+        raise ValueError(
+            "ResourceReservationStatus.tenant_ref exceeds the 256-character bound"
+        )
+    for field in (
+        "work_item_id",
+        "reservation_id",
+        "host_ref",
+        "owner_id",
+        "fence",
+        "cursor",
+        "fairness_group",
+    ):
+        if request[field] is not None:
+            _string(f"ResourceReservationStatus.{field}", request[field])
+            if len(request[field]) > 256:
+                raise ValueError(
+                    f"ResourceReservationStatus.{field} exceeds the 256-character bound"
+                )
+    if request["input_fingerprint"] is not None:
+        fingerprint = _string(
+            "ResourceReservationStatus.input_fingerprint",
+            request["input_fingerprint"],
+        )
+        if (
+            len(fingerprint) != 67
+            or not fingerprint.startswith("v1:")
+            or any(char not in "0123456789abcdef" for char in fingerprint[3:])
+        ):
+            raise ValueError("ResourceReservationStatus input_fingerprint is invalid")
+    if request["fairness_group"] is not None:
+        _string("ResourceReservationStatus.fairness_group", request["fairness_group"])
+        if len(request["fairness_group"]) > 256:
+            raise ValueError(
+                "ResourceReservationStatus.fairness_group exceeds the 256-character bound"
+            )
+    for field in ("attempt", "lease_epoch", "fencing_token"):
+        if request[field] is not None:
+            _integer(
+                f"ResourceReservationStatus.{field}",
+                request[field],
+                minimum=1 if field == "attempt" else 0,
+            )
+    _integer(
+        "ResourceReservationStatus.limit", request["limit"], minimum=1, maximum=1000
+    )
+    _integer("ResourceReservationStatus.now_ms", request["now_ms"])
+    if (
+        request["work_item_id"] is None
+        and request["reservation_id"] is None
+        and request["host_ref"] is None
+    ):
+        raise ValueError(
+            "ResourceReservationStatus requires a reservation, WorkItem, or host filter"
+        )
+    return request
+
+
+def _resource_reservation_status_result(value: Any) -> dict[str, Any]:
+    result = _exact_mapping(
+        "ResourceReservationStatus result",
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "complete",
+                "next_cursor",
+                "host_snapshot",
+                "host_ref",
+                "host_revision",
+                "held_cpu_weight",
+                "held_memory_mib",
+                "held_disk_mib",
+                "held_process_slots",
+                "fairness_debt",
+                "reservations",
+                "orphan_count",
+                "superseded_count",
+            }
+        ),
+    )
+    if result["schema_version"] != "1":
+        raise ValueError("ResourceReservationStatus result schema_version must be 1")
+    _boolean("ResourceReservationStatus result.complete", result["complete"])
+    if result["next_cursor"] is not None:
+        _string("ResourceReservationStatus result.next_cursor", result["next_cursor"])
+        if len(result["next_cursor"]) > 256:
+            raise ValueError(
+                "ResourceReservationStatus result.next_cursor exceeds the 256-character bound"
+            )
+    if result["host_ref"] is not None:
+        _string("ResourceReservationStatus result.host_ref", result["host_ref"])
+        if len(result["host_ref"]) > 256:
+            raise ValueError(
+                "ResourceReservationStatus result.host_ref exceeds the 256-character bound"
+            )
+    _resource_host_snapshot(
+        result["host_snapshot"],
+        "ResourceReservationStatus result.host_snapshot",
+    )
+    for field in (
+        "host_revision",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "fairness_debt",
+        "orphan_count",
+        "superseded_count",
+    ):
+        _integer(f"ResourceReservationStatus result.{field}", result[field])
+    reservations = result["reservations"]
+    if not isinstance(reservations, list) or len(reservations) > 1000:
+        raise TypeError("ResourceReservationStatus result.reservations must be a list")
+    summary_fields = frozenset(
+        {
+            "reservation_id",
+            "work_item_id",
+            "attempt",
+            "host_ref",
+            "profile_name",
+            "fairness_group",
+            "state",
+            "revision",
+            "expires_at_ms",
+            "held_cpu_weight",
+            "held_memory_mib",
+            "held_disk_mib",
+            "held_process_slots",
+            "tombstone",
+        }
+    )
+    for index, summary in enumerate(reservations):
+        summary = _exact_mapping(
+            f"ResourceReservationStatus result.reservations[{index}]",
+            summary,
+            summary_fields,
+        )
+        _string(
+            f"reservation summary {index}.reservation_id", summary["reservation_id"]
+        )
+        _string(f"reservation summary {index}.work_item_id", summary["work_item_id"])
+        _string(f"reservation summary {index}.host_ref", summary["host_ref"])
+        _string(f"reservation summary {index}.profile_name", summary["profile_name"])
+        _string(
+            f"reservation summary {index}.fairness_group", summary["fairness_group"]
+        )
+        if any(
+            len(summary[field]) > 256
+            for field in (
+                "reservation_id",
+                "work_item_id",
+                "host_ref",
+                "profile_name",
+                "fairness_group",
+            )
+        ):
+            raise ValueError(
+                f"reservation summary {index} contains an overlong identifier"
+            )
+        _integer(f"reservation summary {index}.attempt", summary["attempt"], minimum=1)
+        _integer(
+            f"reservation summary {index}.revision", summary["revision"], minimum=1
+        )
+        _integer(f"reservation summary {index}.expires_at_ms", summary["expires_at_ms"])
+        for field in (
+            "held_cpu_weight",
+            "held_memory_mib",
+            "held_disk_mib",
+            "held_process_slots",
+        ):
+            _integer(f"reservation summary {index}.{field}", summary[field])
+        if summary["state"] not in {
+            "reserved",
+            "released",
+            "reclaimed",
+            "expired",
+            "superseded",
+            "absent",
+        }:
+            raise ValueError(f"reservation summary {index}.state is invalid")
+        _boolean(f"reservation summary {index}.tombstone", summary["tombstone"])
+    return result
+
+
+def _resource_host_snapshot(value: Any, name: str) -> dict[str, Any] | None:
+    """Validate the bounded, non-authoritative host reconciliation projection."""
+    if value is None:
+        return None
+    snapshot = _exact_mapping(
+        name,
+        value,
+        frozenset(
+            {
+                "host_ref",
+                "revision",
+                "capacity",
+                "observed",
+                "heartbeat_at_ms",
+                "heartbeat_ttl_ms",
+                "draining",
+                "quarantined",
+                "labels",
+                "target_kind",
+                "target_alias",
+                "disk_used_mib",
+                "disk_capacity_mib",
+                "held_cpu_weight",
+                "held_memory_mib",
+                "held_disk_mib",
+                "held_process_slots",
+                "disk_policies",
+            }
+        ),
+    )
+    _string(f"{name}.host_ref", snapshot["host_ref"])
+    if len(snapshot["host_ref"]) > 256:
+        raise ValueError(f"{name}.host_ref exceeds the 256-character bound")
+    _integer(f"{name}.revision", snapshot["revision"])
+    for capacity_name in ("capacity", "observed"):
+        capacity = _exact_mapping(
+            f"{name}.{capacity_name}",
+            snapshot[capacity_name],
+            frozenset({"cpu_weight", "memory_mib", "disk_mib", "process_slots"}),
+        )
+        for field in capacity:
+            _integer(f"{name}.{capacity_name}.{field}", capacity[field])
+        snapshot[capacity_name] = capacity
+    for field in (
+        "heartbeat_at_ms",
+        "heartbeat_ttl_ms",
+        "disk_used_mib",
+        "disk_capacity_mib",
+    ):
+        _integer(f"{name}.{field}", snapshot[field])
+    _integer(
+        f"{name}.heartbeat_ttl_ms",
+        snapshot["heartbeat_ttl_ms"],
+        minimum=1000,
+        maximum=86_400_000,
+    )
+    if snapshot["disk_used_mib"] > snapshot["disk_capacity_mib"]:
+        raise ValueError(f"{name}.disk_used_mib exceeds disk_capacity_mib")
+    for field in (
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+    ):
+        _integer(f"{name}.{field}", snapshot[field])
+    for field in ("draining", "quarantined"):
+        _boolean(f"{name}.{field}", snapshot[field])
+    labels = snapshot["labels"]
+    if (
+        not isinstance(labels, list)
+        or len(labels) > 128
+        or any(
+            not isinstance(item, str)
+            or not item
+            or item != item.strip()
+            or len(item) > 256
+            for item in labels
+        )
+        or len(labels) != len(set(labels))
+    ):
+        raise ValueError(f"{name}.labels must be unique bounded strings")
+    if snapshot["target_kind"] not in {"local", "inventory_alias"}:
+        raise ValueError(f"{name}.target_kind is invalid")
+    if snapshot["target_alias"] is not None:
+        _string(f"{name}.target_alias", snapshot["target_alias"])
+        if len(snapshot["target_alias"]) > 256:
+            raise ValueError(f"{name}.target_alias exceeds the 256-character bound")
+    if (snapshot["target_kind"] == "local") != (snapshot["target_alias"] is None):
+        raise ValueError(f"{name}.target_alias does not match target_kind")
+    policies = snapshot["disk_policies"]
+    if not isinstance(policies, list) or len(policies) > 128:
+        raise ValueError(f"{name}.disk_policies must be a bounded list")
+    seen: set[str] = set()
+    for index, policy_value in enumerate(policies):
+        policy = _exact_mapping(
+            f"{name}.disk_policies[{index}]",
+            policy_value,
+            frozenset(
+                {
+                    "policy_key",
+                    "blocked",
+                    "low_watermark_mib",
+                    "high_watermark_mib",
+                    "revision",
+                }
+            ),
+        )
+        _string(f"{name}.disk_policies[{index}].policy_key", policy["policy_key"])
+        if len(policy["policy_key"]) > 256 or policy["policy_key"] in seen:
+            raise ValueError(
+                f"{name}.disk_policies contains duplicate/overlong policy keys"
+            )
+        seen.add(policy["policy_key"])
+        _boolean(f"{name}.disk_policies[{index}].blocked", policy["blocked"])
+        _integer(f"{name}.disk_policies[{index}].revision", policy["revision"])
+        for field in ("low_watermark_mib", "high_watermark_mib"):
+            if policy[field] is not None:
+                _integer(f"{name}.disk_policies[{index}].{field}", policy[field])
+        if (
+            policy["low_watermark_mib"] is not None
+            and policy["high_watermark_mib"] is not None
+            and policy["low_watermark_mib"] > policy["high_watermark_mib"]
+        ):
+            raise ValueError(f"{name}.disk_policies[{index}] has inverted watermarks")
+    return snapshot
+
+
+def _resource_host_update_request(value: Any) -> dict[str, Any]:
+    request = _exact_mapping(
+        "ResourceHostUpdate request",
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "tenant_ref",
+                "host_ref",
+                "revision",
+                "capacity",
+                "observed",
+                "heartbeat_at_ms",
+                "heartbeat_ttl_ms",
+                "now_ms",
+                "draining",
+                "quarantined",
+                "labels",
+                "target_kind",
+                "target_alias",
+                "disk_used_mib",
+                "disk_capacity_mib",
+            }
+        ),
+    )
+    if request["schema_version"] != "1":
+        raise ValueError("ResourceHostUpdate schema_version must be 1")
+    for field in ("tenant_ref", "host_ref"):
+        _string(f"ResourceHostUpdate.{field}", request[field])
+    _integer("ResourceHostUpdate.revision", request["revision"], minimum=1)
+    for capacity_name in ("capacity", "observed"):
+        capacity = _exact_mapping(
+            f"ResourceHostUpdate.{capacity_name}",
+            request[capacity_name],
+            frozenset({"cpu_weight", "memory_mib", "disk_mib", "process_slots"}),
+        )
+        for field in capacity:
+            _integer(f"ResourceHostUpdate.{capacity_name}.{field}", capacity[field])
+        request[capacity_name] = capacity
+    for field in (
+        "heartbeat_at_ms",
+        "heartbeat_ttl_ms",
+        "now_ms",
+        "disk_used_mib",
+        "disk_capacity_mib",
+    ):
+        _integer(f"ResourceHostUpdate.{field}", request[field])
+    _integer(
+        "ResourceHostUpdate.heartbeat_ttl_ms",
+        request["heartbeat_ttl_ms"],
+        minimum=1000,
+        maximum=86_400_000,
+    )
+    if request["heartbeat_at_ms"] > request["now_ms"]:
+        raise ValueError("ResourceHostUpdate heartbeat_at_ms must not exceed now_ms")
+    if request["now_ms"] - request["heartbeat_at_ms"] > request["heartbeat_ttl_ms"]:
+        raise ValueError("ResourceHostUpdate heartbeat is stale")
+    if request["disk_used_mib"] > request["disk_capacity_mib"]:
+        raise ValueError("ResourceHostUpdate disk_used_mib exceeds disk_capacity_mib")
+    for field in ("draining", "quarantined"):
+        _boolean(f"ResourceHostUpdate.{field}", request[field])
+    labels = request["labels"]
+    if (
+        not isinstance(labels, list)
+        or any(
+            not isinstance(item, str) or not item or item != item.strip()
+            for item in labels
+        )
+        or len(labels) != len(set(labels))
+    ):
+        raise ValueError("ResourceHostUpdate.labels must be unique strings")
+    if request["target_kind"] not in {"local", "inventory_alias"}:
+        raise ValueError("ResourceHostUpdate.target_kind is invalid")
+    if request["target_alias"] is not None:
+        _string("ResourceHostUpdate.target_alias", request["target_alias"])
+    if (request["target_kind"] == "local") != (request["target_alias"] is None):
+        raise ValueError("ResourceHostUpdate target_alias does not match target_kind")
+    return request
+
+
+def _resource_host_update_result(value: Any) -> dict[str, Any]:
+    result = _exact_mapping(
+        "ResourceHostUpdate result",
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "accepted",
+                "reason",
+                "host_ref",
+                "host_snapshot",
+                "revision",
+                "held_cpu_weight",
+                "held_memory_mib",
+                "held_disk_mib",
+                "held_process_slots",
+                "draining",
+                "quarantined",
+            }
+        ),
+    )
+    if result["schema_version"] != "1":
+        raise ValueError("ResourceHostUpdate result schema_version must be 1")
+    _boolean("ResourceHostUpdate result.accepted", result["accepted"])
+    if result["reason"] not in {"accepted", "stale_host", "conflict", "not_found"}:
+        raise ValueError("ResourceHostUpdate result reason is invalid")
+    _string("ResourceHostUpdate result.host_ref", result["host_ref"])
+    _resource_host_snapshot(
+        result["host_snapshot"], "ResourceHostUpdate result.host_snapshot"
+    )
+    for field in (
+        "revision",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+    ):
+        _integer(f"ResourceHostUpdate result.{field}", result[field])
+    for field in ("draining", "quarantined"):
+        _boolean(f"ResourceHostUpdate result.{field}", result[field])
+    if result["accepted"] != (result["reason"] == "accepted"):
+        raise ValueError("ResourceHostUpdate result acceptance is inconsistent")
+    return result
 
 
 def _evidence_bundle(value: Any) -> dict[str, Any]:
@@ -1884,6 +2807,80 @@ class WorkItemClient:
                 "now_ms": int(now_ms),
             },
         )
+
+    async def _resource_call(
+        self, method: str, request: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Send one dark native reservation verb and fail closed on old engines."""
+
+        await self._require_resource_method(method)
+        value = await self._client._send(method, {"request": request})
+        return _resource_reservation_result(value)
+
+    async def _require_resource_method(self, method: str) -> None:
+        """Negotiate the additive method before sending it to an older engine."""
+
+        supports = getattr(self._client, "supports", None)
+        if supports is None:
+            raise NativeResourceReservationUnavailable(
+                NativeResourceReservationUnavailable.code
+            )
+        advertised = await supports(method)
+        if advertised is not True:
+            raise NativeResourceReservationUnavailable(
+                NativeResourceReservationUnavailable.code
+            )
+
+    async def reserve(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Atomically reserve host resources for one exact WorkItem attempt."""
+
+        return await self._resource_call(
+            "ReserveWorkItemResources", _resource_reservation_request(request)
+        )
+
+    async def release(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Atomically release a current/terminal reservation and retain its tombstone."""
+
+        return await self._resource_call(
+            "ReleaseWorkItemResources", _resource_reservation_request(request)
+        )
+
+    async def reclaim(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Atomically reclaim an expired or superseded reservation."""
+
+        return await self._resource_call(
+            "ReclaimWorkItemResources", _resource_reservation_request(request)
+        )
+
+    async def query_reservation(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Read one native reservation/tombstone; local mirrors are not authority."""
+
+        await self._require_resource_method("QueryWorkItemReservation")
+        value = await self._client._send(
+            "QueryWorkItemReservation", {"request": _resource_status_request(request)}
+        )
+        return _resource_reservation_result(value)
+
+    async def status(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Return bounded native reservation reconciliation/status."""
+
+        await self._require_resource_method("ResourceReservationStatus")
+        request = _resource_status_request(request)
+        value = await self._client._send(
+            "ResourceReservationStatus", {"request": request}
+        )
+        result = _resource_reservation_status_result(value)
+        if len(result["reservations"]) > request["limit"]:
+            raise ValueError("ResourceReservationStatus result exceeds requested limit")
+        return result
+
+    async def update_host(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Publish monotonic host telemetry while preserving native held totals."""
+
+        update = _resource_host_update_request(request)
+        await self._require_resource_method("UpdateResourceHost")
+        value = await self._client._send("UpdateResourceHost", {"request": update})
+        return _resource_host_update_result(value)
 
 
 class ChangeEnvelopeClient:
@@ -9286,6 +10283,17 @@ class SyncEpistemicGraphClient:
             self._client._send("ClearGraph"), self._loop
         )
         return future.result()
+
+    def supports(self, op: str) -> bool:
+        """Synchronously negotiate one advertised operation.
+
+        Keep this explicit rather than relying on ``__getattr__`` so adapters can
+        probe capability on both client variants without reaching into the owned
+        async client.  The same bounded future helper used by every synchronous
+        namespace preserves ``sync_call_deadline`` semantics.
+        """
+        future = asyncio.run_coroutine_threadsafe(self._client.supports(op), self._loop)
+        return bool(_sync_result_before_deadline(future))
 
     class _SyncWrapper:
         def __init__(

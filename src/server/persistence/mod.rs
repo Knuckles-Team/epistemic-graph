@@ -12,6 +12,9 @@ use tokio::sync::RwLock;
 use crate::change_envelope::{
     ChangeCursor, ChangeEnvelope, ChangeEnvelopeCommit, ChangeEnvelopeRecord, ContentVersion,
 };
+use crate::epistemic_operations::{
+    ResourceReservationResult, ResourceReservationStatusRequest, ResourceReservationStatusResult,
+};
 use crate::mutation_batch::{
     MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationOutboxLease,
     MutationOutboxRecord, MutationProjectionCursor,
@@ -101,6 +104,16 @@ pub struct CrossModalCommitArgs<'a> {
 /// so process teardown can stop the backend after request admission has closed.
 #[async_trait::async_trait]
 pub trait PersistenceBackend: Send + Sync {
+    /// Whether this backend exposes the complete native resource-reservation
+    /// authority (atomic MutationBatch rows plus the linearizable readers).
+    ///
+    /// Capability discovery must not infer support from a backend merely being
+    /// present: the trait's default is fail-closed for test/memory backends that
+    /// do not implement the native tables.
+    fn supports_native_resource_reservations(&self) -> bool {
+        false
+    }
+
     /// Reconstruct the registry from durable storage at boot. Returns the number
     /// of graphs loaded. No-op (Ok(0)) when nothing is configured.
     async fn load_all(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String>;
@@ -313,6 +326,28 @@ pub trait PersistenceBackend: Send + Sync {
         _partition: &str,
     ) -> Result<Option<ChangeCursor>, String> {
         Ok(None)
+    }
+
+    /// Linearizable native reservation query.  Implementations must read the
+    /// authoritative native rows, not a GraphCore mirror; the default fails
+    /// closed so an unsupported backend cannot silently answer from stale state.
+    async fn read_resource_reservation(
+        &self,
+        _graph_fname: &str,
+        _request: &ResourceReservationStatusRequest,
+    ) -> Result<ResourceReservationResult, String> {
+        Err("persistence backend does not support native reservation queries".to_string())
+    }
+
+    /// Bounded native reservation status/reconciliation read.  The default is
+    /// deliberately an error because status is an authority read, not an
+    /// optional local projection.
+    async fn read_resource_reservation_status(
+        &self,
+        _graph_fname: &str,
+        _request: &ResourceReservationStatusRequest,
+    ) -> Result<ResourceReservationStatusResult, String> {
+        Err("persistence backend does not support native reservation status".to_string())
     }
 
     /// Durably register a graph's identity (CONCEPT:EG-KG.backend.authoritative-dispatch). The
