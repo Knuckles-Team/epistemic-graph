@@ -18,26 +18,61 @@ pub enum AccessLevel {
 }
 
 /// Per-row owner/visibility derived from a node's property blob (CONCEPT:EG-KG.sharding.row-level-security).
-/// The reserved property keys (`_owner` / `_visibility` / `_grants`) form the RLS
-/// convention enforced by [`IsolationLayer::filter_view`].
+/// The reserved property keys (`_owner` / `_visibility` / `_grants`) form this
+/// crate's own native RLS convention, enforced by [`IsolationLayer::filter_view`].
+///
+/// **BUG-052 / GOC-61 read-both compatibility.** `agent-utilities`' independent
+/// governed-write chokepoint (`knowledge_graph/core/tenant_sharing.py`) stamps a
+/// DIFFERENTLY-NAMED but semantically equivalent pair — `_owner_id` (owner) and
+/// `_shared_scope` (`private`/`org`/`commons`, superset of this crate's binary
+/// `_visibility`) — and is, in practice, the authority that decides ownership for
+/// virtually all traffic that reaches the engine through `agent-utilities` (that
+/// caller's connection is provisioned as `AgentRole::System`, which bypasses
+/// `can_see_row` before a single row is inspected — see
+/// `plans/graph-os-completion-program/decisions/GOC-61-ownership-property-convention.md`
+/// for the full analysis of which layer actually decides a live access). Any
+/// caller that reaches THIS engine directly — Bolt/pgwire/mysql-wire/GraphQL/
+/// SPARQL/AMQP/MQTT/STOMP, none of which route through `tenant_sharing.py` — sees
+/// ONLY this crate's own `row_visibility` decision, so a node `agent-utilities`
+/// stamped `_owner_id`/`_shared_scope='private'` was, before this change,
+/// invisible to `can_see_row` as an *owner* row and fell through to the
+/// untagged/tagged-public branches instead — a real, not cosmetic, visibility gap
+/// for any direct caller. `row_visibility` below now falls back to `_owner_id`/
+/// `_shared_scope` whenever `_owner`/`_visibility` are absent, so a node tagged by
+/// EITHER convention resolves to the same [`RowVisibility`] regardless of which
+/// wire path reads it. This is READ-ONLY compatibility: nothing in this crate
+/// writes `_owner`/`_visibility`/`_grants` in production (grep-confirmed — every
+/// production write path that could stamp RLS properties is `agent-utilities`',
+/// which already writes only `_owner_id`/`_shared_scope`), so there is no
+/// persisted-format migration here, and the two decision records intentionally
+/// name `_owner_id`/`_shared_scope` the canonical convention going forward — this
+/// crate's own `_owner`/`_visibility`/`_grants` constants stay as a read-side
+/// fallback for any pre-existing/direct-write data, not the preferred write shape.
 #[cfg(feature = "security")]
 #[derive(Debug, Clone, Default)]
 pub struct RowVisibility {
-    /// Owning agent_id (`_owner`); `None` requires both [`Self::tagged`] and
-    /// [`Self::public`] under the default-deny posture.
+    /// Owning agent_id (`_owner`, falling back to `_owner_id`); `None` requires
+    /// both [`Self::tagged`] and [`Self::public`] under the default-deny posture.
     pub owner: Option<String>,
-    /// `true` when `_visibility` is absent OR `"public"`; `false` for `"private"`.
+    /// `true` when visible beyond the owner alone. Derived from `_visibility`
+    /// (absent-or-`"public"` ⇒ true, `"private"` ⇒ false) when present; else from
+    /// `_shared_scope` (`"org"`/`"commons"` ⇒ true, `"private"` ⇒ false) when
+    /// present; else `true` (the pre-existing bare-absent default).
     pub public: bool,
-    /// Agent_ids explicitly granted read (`_grants`, comma-separated).
+    /// Agent_ids explicitly granted read (`_grants`, comma-separated). No
+    /// `agent-utilities`-side equivalent exists yet (GOC-61 designs a distinct
+    /// `grant_id`-keyed model, not a per-node CSV list), so there is nothing to
+    /// fall back to here.
     pub grants: Vec<String>,
-    /// Whether this row carried ANY explicit RLS metadata at all — i.e. the decoded
-    /// property blob contained at least one of `_owner` / `_visibility` / `_grants`.
-    /// `false` for an undecodable blob OR a blob that decoded fine but declares none
-    /// of the three keys. Untagged rows fail the default-deny decision.
+    /// Whether this row carried ANY explicit RLS metadata at all, under EITHER
+    /// convention — i.e. the decoded property blob contained at least one of
+    /// `_owner` / `_visibility` / `_grants` / `_owner_id` / `_shared_scope`.
+    /// `false` for an undecodable blob OR a blob that decoded fine but declares
+    /// none of the five keys. Untagged rows fail the default-deny decision.
     pub tagged: bool,
 }
 
-/// Reserved RLS property keys.
+/// Reserved RLS property keys (this crate's own native convention).
 #[cfg(feature = "security")]
 pub const RLS_OWNER_KEY: &str = "_owner";
 #[cfg(feature = "security")]
@@ -45,11 +80,22 @@ pub const RLS_VISIBILITY_KEY: &str = "_visibility";
 #[cfg(feature = "security")]
 pub const RLS_GRANTS_KEY: &str = "_grants";
 
+/// `agent-utilities`' `tenant_sharing.py` convention (BUG-052 / GOC-61
+/// read-both compatibility — see [`RowVisibility`]'s doc comment). Named
+/// canonical going forward by
+/// `decisions/GOC-61-ownership-property-convention.md`; read here as a
+/// fallback, never written by this crate.
+#[cfg(feature = "security")]
+pub const RLS_OWNER_ID_KEY: &str = "_owner_id";
+#[cfg(feature = "security")]
+pub const RLS_SHARED_SCOPE_KEY: &str = "_shared_scope";
+
 /// Parse a node's msgpack property blob into its [`RowVisibility`].
 ///
 /// A blob that cannot be decoded as a string-keyed map, or that declares none of
-/// the RLS keys, yields `tagged = false` and is denied. Explicit ownership,
-/// visibility, and grants remain the only row authorization inputs.
+/// the RLS keys (under EITHER naming convention — see [`RowVisibility`]), yields
+/// `tagged = false` and is denied. Explicit ownership, visibility, and grants
+/// remain the only row authorization inputs.
 #[cfg(feature = "security")]
 pub fn row_visibility(blob: &[u8]) -> RowVisibility {
     use serde_json::Value;
@@ -66,12 +112,22 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
     };
     let owner = map
         .get(RLS_OWNER_KEY)
+        .or_else(|| map.get(RLS_OWNER_ID_KEY))
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
     let public = match map.get(RLS_VISIBILITY_KEY).and_then(|v| v.as_str()) {
         Some(v) => !v.eq_ignore_ascii_case("private"),
-        None => true,
+        None => match map.get(RLS_SHARED_SCOPE_KEY).and_then(|v| v.as_str()) {
+            // `tenant_sharing.SCOPE_ORG`/`SCOPE_COMMONS` — visible beyond the
+            // owner (tenant/graph-level isolation already happened upstream of
+            // this row, at graph selection, so "org" here correctly maps to
+            // "public within this graph" exactly as `visibility_predicate`
+            // treats it). `SCOPE_PRIVATE` ⇒ false. Absent ⇒ the pre-existing
+            // bare-absent default (true).
+            Some(v) => v.eq_ignore_ascii_case("org") || v.eq_ignore_ascii_case("commons"),
+            None => true,
+        },
     };
     let grants = map
         .get(RLS_GRANTS_KEY)
@@ -86,7 +142,9 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
         .unwrap_or_default();
     let tagged = map.contains_key(RLS_OWNER_KEY)
         || map.contains_key(RLS_VISIBILITY_KEY)
-        || map.contains_key(RLS_GRANTS_KEY);
+        || map.contains_key(RLS_GRANTS_KEY)
+        || map.contains_key(RLS_OWNER_ID_KEY)
+        || map.contains_key(RLS_SHARED_SCOPE_KEY);
     RowVisibility {
         owner,
         public,
@@ -1002,6 +1060,159 @@ mod tests {
                     layer.can_see_row("worker1", &explicit_public),
                     "explicit public metadata grants visibility"
                 );
+            }
+        }
+
+        // ── BUG-052 / GOC-61: read-both compatibility with agent-utilities'
+        // `_owner_id`/`_shared_scope` convention (`tenant_sharing.py`) ───────
+        mod bug_052_read_both_compat {
+            use super::*;
+
+            #[test]
+            fn owner_id_private_node_is_owner_and_manager_visible_only() {
+                let layer = setup();
+                let mut v = GraphView::default();
+                let idx = v.graph.add_node("au_private".to_string());
+                v.node_map.insert("au_private".to_string(), idx);
+                v.node_properties.insert(
+                    "au_private".to_string(),
+                    props(&[("_owner_id", "worker2"), ("_shared_scope", "private")]),
+                );
+
+                // Non-owner, non-manager: denied — this is the exact live gap
+                // BUG-052 named: before read-both, this node was invisible to
+                // `can_see_row` as an OWNED row (no `_owner` key) and fell
+                // through to the untagged/default-deny branch for worker1
+                // (denied) but would have been silently treated as PUBLIC for
+                // any identity landing in the tagged-absent-visibility branch —
+                // either way, disagreeing with `tenant_sharing.py`'s verdict
+                // that this node is private to worker2.
+                let mut v1 = v.clone();
+                layer.filter_view("worker1", &mut v1);
+                assert!(
+                    !v1.node_properties.contains_key("au_private"),
+                    "an agent-utilities-tagged private node must stay hidden from a non-owner"
+                );
+
+                // Owner sees it.
+                let mut v2 = v.clone();
+                layer.filter_view("worker2", &mut v2);
+                assert!(v2.node_properties.contains_key("au_private"));
+
+                // Owner's manager sees it (manager-of-owner rule composes
+                // unchanged with the fallback-derived owner).
+                let mut v3 = v.clone();
+                layer.filter_view("manager", &mut v3);
+                assert!(v3.node_properties.contains_key("au_private"));
+            }
+
+            #[test]
+            fn shared_scope_org_and_commons_are_visible_beyond_owner() {
+                let layer = setup();
+                for scope in ["org", "commons"] {
+                    let mut v = GraphView::default();
+                    let idx = v.graph.add_node("au_shared".to_string());
+                    v.node_map.insert("au_shared".to_string(), idx);
+                    v.node_properties.insert(
+                        "au_shared".to_string(),
+                        props(&[("_owner_id", "worker2"), ("_shared_scope", scope)]),
+                    );
+                    layer.filter_view("worker1", &mut v);
+                    assert!(
+                        v.node_properties.contains_key("au_shared"),
+                        "_shared_scope={scope} must be visible beyond the owner"
+                    );
+                }
+            }
+
+            #[test]
+            fn shared_scope_private_denies_non_owner_even_with_no_native_visibility_key() {
+                let layer = setup();
+                let mut v = GraphView::default();
+                let idx = v.graph.add_node("au_private2".to_string());
+                v.node_map.insert("au_private2".to_string(), idx);
+                // Owner tagged natively (`_owner`), scope tagged the
+                // agent-utilities way (`_shared_scope`) — a mixed-convention
+                // row, which must still resolve correctly from either side.
+                v.node_properties.insert(
+                    "au_private2".to_string(),
+                    props(&[("_owner", "worker2"), ("_shared_scope", "private")]),
+                );
+                layer.filter_view("worker1", &mut v);
+                assert!(!v.node_properties.contains_key("au_private2"));
+            }
+
+            #[test]
+            fn native_visibility_key_wins_when_both_conventions_present() {
+                // `_visibility` (native) is checked before falling back to
+                // `_shared_scope` — a row carrying both is decided by the
+                // native key, never silently overridden by the fallback.
+                let layer = setup();
+                let mut v = GraphView::default();
+                let idx = v.graph.add_node("mixed".to_string());
+                v.node_map.insert("mixed".to_string(), idx);
+                v.node_properties.insert(
+                    "mixed".to_string(),
+                    props(&[
+                        ("_owner", "worker2"),
+                        ("_visibility", "public"),
+                        ("_shared_scope", "private"),
+                    ]),
+                );
+                layer.filter_view("worker1", &mut v);
+                assert!(
+                    v.node_properties.contains_key("mixed"),
+                    "native `_visibility=public` must win over a conflicting `_shared_scope=private`"
+                );
+            }
+
+            #[test]
+            fn owner_id_alone_tags_the_row_as_owned_not_untagged() {
+                // A row carrying ONLY `_owner_id` (no `_visibility`/`_shared_scope`
+                // at all) must resolve via the pre-existing bare-absent-visibility
+                // default (public=true), exactly as a native `_owner`-only row
+                // already did — read-both must not change that default.
+                let vis = row_visibility(&props_bytes(&[("_owner_id", "worker2")]));
+                assert!(vis.tagged, "an `_owner_id` key alone must count as tagged");
+                assert_eq!(vis.owner.as_deref(), Some("worker2"));
+                assert!(
+                    vis.public,
+                    "bare-absent visibility still defaults to public"
+                );
+            }
+
+            #[test]
+            fn owner_id_and_grants_compose_across_conventions() {
+                // `_grants` (native-only — agent-utilities has no per-node grant
+                // list yet) must still apply to a row whose owner is tagged the
+                // agent-utilities way.
+                let mut layer = setup();
+                layer.register_agent(AgentIdentity {
+                    agent_id: "auditor".to_string(),
+                    role: AgentRole::Agent,
+                    teams: vec![],
+                    roles: vec![],
+                });
+                let mut v = GraphView::default();
+                let idx = v.graph.add_node("g2".to_string());
+                v.node_map.insert("g2".to_string(), idx);
+                v.node_properties.insert(
+                    "g2".to_string(),
+                    props(&[
+                        ("_owner_id", "worker2"),
+                        ("_shared_scope", "private"),
+                        ("_grants", "auditor"),
+                    ]),
+                );
+                layer.filter_view("auditor", &mut v);
+                assert!(
+                    v.node_properties.contains_key("g2"),
+                    "an explicit `_grants` entry must still be honored against an `_owner_id`-tagged row"
+                );
+            }
+
+            fn props_bytes(pairs: &[(&str, &str)]) -> Vec<u8> {
+                (*props(pairs)).clone()
             }
         }
     }
