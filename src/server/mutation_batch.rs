@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
+use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::change_envelope::ChangeEnvelope;
