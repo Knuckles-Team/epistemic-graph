@@ -53,10 +53,18 @@ ex:p4 a ex:Paper .
     // p2 closest, then p1, then p4 (far). p3 (Topic, NOT a ScholarlyWork) is vector-
     // VERY-close but must be excluded by the semantic candidate set.
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0, 0.0]);
-    semantic.add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0, 0.0]);
-    semantic.add_embedding("<http://example.org/p3>".into(), vec![1.00, 0.00, 0.0, 0.0]);
-    semantic.add_embedding("<http://example.org/p4>".into(), vec![0.20, 0.97, 0.0, 0.0]);
+    semantic
+        .add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p3>".into(), vec![1.00, 0.00, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p4>".into(), vec![0.20, 0.97, 0.0, 0.0])
+        .unwrap();
 
     (core.analysis_snapshot(), semantic)
 }

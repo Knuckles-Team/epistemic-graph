@@ -39,9 +39,9 @@ fn fixture() -> (eg_core::graph::GraphView, SemanticStore) {
         core.add_node(id.into(), blob(json!({ "type": "Doc" })));
     }
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("a".into(), vec![1.0, 0.0]); // closest to [1,0]
-    semantic.add_embedding("b".into(), vec![0.0, 1.0]); // farthest
-    semantic.add_embedding("c".into(), vec![0.7, 0.7]); // middle
+    semantic.add_embedding("a".into(), vec![1.0, 0.0]).unwrap(); // closest to [1,0]
+    semantic.add_embedding("b".into(), vec![0.0, 1.0]).unwrap(); // farthest
+    semantic.add_embedding("c".into(), vec![0.7, 0.7]).unwrap(); // middle
     (core.analysis_snapshot(), semantic)
 }
 

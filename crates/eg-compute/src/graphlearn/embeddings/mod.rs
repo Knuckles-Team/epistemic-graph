@@ -26,7 +26,7 @@ pub use node2vec::{node2vec, Node2VecConfig};
 use std::fmt::Display;
 use std::hash::Hash;
 
-use crate::compute::semantic::SemanticStore;
+use crate::compute::semantic::{check_embedding_dimension, EmbeddingDimensionError, SemanticStore};
 use crate::graph_algos::AdjacencyGraph;
 
 /// A batch of structural embeddings tied to their string node ids — the boundary
@@ -56,13 +56,24 @@ impl NodeEmbeddings {
 
     /// Write every embedding into `store` via the `SemanticStore` write API
     /// (`add_embedding`), so subsequent `semantic_search` / kNN queries rank over these
-    /// structural vectors. Returns the number of embeddings written.
+    /// structural vectors. Returns the number of embeddings written, or a typed
+    /// dimension-mismatch error if `store` already holds embeddings of a different
+    /// width (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard, BUG-007) — checked ONCE up front
+    /// against `self.rows`' single uniform width (guaranteed by every embedder that
+    /// builds a `NodeEmbeddings`), so a mismatch is rejected before ANY row is
+    /// written rather than after a partial write into the live store.
     /// CONCEPT:EG-KG.graphlearn.structural-embeddings
-    pub fn write_to_store(&self, store: &mut SemanticStore) -> usize {
-        for (id, row) in self.ids.iter().zip(self.rows.iter()) {
-            store.add_embedding(id.clone(), row.clone());
+    pub fn write_to_store(
+        &self,
+        store: &mut SemanticStore,
+    ) -> Result<usize, EmbeddingDimensionError> {
+        if let Some(row) = self.rows.first() {
+            check_embedding_dimension(row.len(), store.dim())?;
         }
-        self.ids.len()
+        for (id, row) in self.ids.iter().zip(self.rows.iter()) {
+            store.add_embedding(id.clone(), row.clone())?;
+        }
+        Ok(self.ids.len())
     }
 
     /// The embedding rows as `f64` (for the KAN feature builder).
@@ -480,7 +491,7 @@ mod tests {
         let ne = NodeEmbeddings::from_graph(&g, rows);
 
         let mut store = SemanticStore::new();
-        let written = ne.write_to_store(&mut store);
+        let written = ne.write_to_store(&mut store).unwrap();
         assert_eq!(written, n);
         assert_eq!(store.len(), n);
         assert_eq!(store.dim(), 64);

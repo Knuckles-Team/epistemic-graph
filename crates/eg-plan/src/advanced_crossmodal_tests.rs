@@ -96,10 +96,18 @@ fn bitemporal_scholarly() -> (GraphView, SemanticStore) {
     // query ≈ [1,0,0]: p2 > p1 > p4 > p3 among the p-nodes (p3 highest? no — give p3 a
     // farther vector so the rank order among MEMBERS is deterministic: p2 > p1 > p4).
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("p1".into(), vec![0.90, 0.44, 0.0]);
-    semantic.add_embedding("p2".into(), vec![0.99, 0.10, 0.0]);
-    semantic.add_embedding("p3".into(), vec![0.70, 0.71, 0.0]);
-    semantic.add_embedding("p4".into(), vec![0.80, 0.60, 0.0]);
+    semantic
+        .add_embedding("p1".into(), vec![0.90, 0.44, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("p2".into(), vec![0.99, 0.10, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("p3".into(), vec![0.70, 0.71, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("p4".into(), vec![0.80, 0.60, 0.0])
+        .unwrap();
     (core.analysis_snapshot(), semantic)
 }
 
@@ -316,10 +324,18 @@ fn places() -> (GraphView, SemanticStore) {
     mk("outside", 50.0, 50.0, None);
 
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("near_live".into(), vec![0.99, 0.10]);
-    semantic.add_embedding("near_dead".into(), vec![0.90, 0.44]);
-    semantic.add_embedding("far_in_box".into(), vec![0.80, 0.60]);
-    semantic.add_embedding("outside".into(), vec![0.70, 0.71]);
+    semantic
+        .add_embedding("near_live".into(), vec![0.99, 0.10])
+        .unwrap();
+    semantic
+        .add_embedding("near_dead".into(), vec![0.90, 0.44])
+        .unwrap();
+    semantic
+        .add_embedding("far_in_box".into(), vec![0.80, 0.60])
+        .unwrap();
+    semantic
+        .add_embedding("outside".into(), vec![0.70, 0.71])
+        .unwrap();
     (core.analysis_snapshot(), semantic)
 }
 
@@ -404,9 +420,15 @@ fn frames_deriving_docs() -> (GraphView, SemanticStore) {
         .unwrap();
     }
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("docA".into(), vec![0.90, 0.44]);
-    semantic.add_embedding("docB".into(), vec![0.99, 0.10]); // closest
-    semantic.add_embedding("docC".into(), vec![0.60, 0.80]);
+    semantic
+        .add_embedding("docA".into(), vec![0.90, 0.44])
+        .unwrap();
+    semantic
+        .add_embedding("docB".into(), vec![0.99, 0.10])
+        .unwrap(); // closest
+    semantic
+        .add_embedding("docC".into(), vec![0.60, 0.80])
+        .unwrap();
     (core.analysis_snapshot(), semantic)
 }
 
@@ -624,10 +646,18 @@ fn beliefs_reasoned() -> (GraphView, SemanticStore) {
 
     let mut semantic = SemanticStore::new();
     // m_hi and m_mid share the SAME vector (a near-duplicate pair); m_lo is orthogonal.
-    semantic.add_embedding("m_hi".into(), vec![1.0, 0.0]);
-    semantic.add_embedding("m_mid".into(), vec![1.0, 0.0]);
-    semantic.add_embedding("m_lo".into(), vec![0.0, 1.0]);
-    semantic.add_embedding("topic".into(), vec![1.0, 0.0]);
+    semantic
+        .add_embedding("m_hi".into(), vec![1.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("m_mid".into(), vec![1.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("m_lo".into(), vec![0.0, 1.0])
+        .unwrap();
+    semantic
+        .add_embedding("topic".into(), vec![1.0, 0.0])
+        .unwrap();
     (core.analysis_snapshot(), semantic)
 }
 

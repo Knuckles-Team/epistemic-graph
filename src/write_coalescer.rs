@@ -826,8 +826,8 @@ mod tests {
         core.add_node("drop".into(), node_props(2));
         {
             let mut s = core.semantic_store.write();
-            s.add_embedding("keep".into(), vec![1.0, 0.0, 0.0]);
-            s.add_embedding("drop".into(), vec![0.0, 1.0, 0.0]);
+            s.add_embedding("keep".into(), vec![1.0, 0.0, 0.0]).unwrap();
+            s.add_embedding("drop".into(), vec![0.0, 1.0, 0.0]).unwrap();
         }
         let cfg = CoalescerConfig {
             max_batch: 16,
@@ -874,7 +874,8 @@ mod tests {
             core.add_node(format!("n{i}"), node_props(i as i64));
             core.semantic_store
                 .write()
-                .add_embedding(format!("n{i}"), emb8(i, N));
+                .add_embedding(format!("n{i}"), emb8(i, N))
+                .unwrap();
         }
         let cfg = CoalescerConfig {
             max_batch: 8,

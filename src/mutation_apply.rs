@@ -346,10 +346,24 @@ pub fn apply(core: &GraphCore, m: &Method) {
         Method::ClearGraph => core.clear(),
         // Deterministic replay: the embedding upsert has no clock/randomness, so
         // re-running it over the same pre-image reproduces the identical vector.
+        // `apply` is void-returning (a best-effort replay applier, matching the
+        // `BatchUpdate` arm above) so a rejection can't propagate — but unlike that
+        // pre-existing `let _ =`, this is logged: a mismatch here means a
+        // pre-validated durable write is being replayed with the WRONG dimension,
+        // which should never happen and is worth surfacing (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard,
+        // BUG-007) rather than silently discarding it.
         Method::AddEmbedding { node_id, embedding } => {
-            core.semantic_store
+            if let Err(error) = core
+                .semantic_store
                 .write()
-                .add_embedding(node_id.clone(), embedding.clone());
+                .add_embedding(node_id.clone(), embedding.clone())
+            {
+                tracing::warn!(
+                    node_id = node_id.as_str(),
+                    %error,
+                    "AddEmbedding replay rejected — the durable pre-image had an unexpected dimension"
+                );
+            }
         }
         // `AddTriples` (feature `rdf`): deterministic replay = re-parse the SAME
         // source text and re-apply the complete property-graph projection. The

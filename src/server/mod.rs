@@ -2336,7 +2336,7 @@ mod tests {
                     rmp_serde::to_vec(&serde_json::json!({})).unwrap(),
                 );
                 let emb: Vec<f32> = (0..64).map(|d| ((i + d) % 97) as f32 / 97.0).collect();
-                g.semantic_store.write().add_embedding(id, emb);
+                g.semantic_store.write().add_embedding(id, emb).unwrap();
             }
         }
 
@@ -2420,7 +2420,7 @@ mod tests {
                 if i == 42 {
                     target = v.clone();
                 }
-                store.add_embedding(format!("n{i}"), v);
+                store.add_embedding(format!("n{i}"), v).unwrap();
             }
         }
         assert!(
@@ -2481,7 +2481,8 @@ mod tests {
             core.add_node(id.to_string(), rmp_serde::to_vec(&props).unwrap());
             core.semantic_store
                 .write()
-                .add_embedding(id.to_string(), emb);
+                .add_embedding(id.to_string(), emb)
+                .unwrap();
         };
         seed(
             "deployer",

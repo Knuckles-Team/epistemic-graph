@@ -5097,7 +5097,8 @@ mod tests {
             core.add_node(id.into(), node(serde_json::json!({"type": "Doc"})));
             core.semantic_store
                 .write()
-                .add_embedding(id.to_string(), e.to_vec());
+                .add_embedding(id.to_string(), e.to_vec())
+                .unwrap();
         }
         let m = Method::MineCluster {
             features: Vec::new(),
@@ -5157,7 +5158,8 @@ mod tests {
             core.add_node(id.into(), node(serde_json::json!({"type": "Doc"})));
             core.semantic_store
                 .write()
-                .add_embedding(id.to_string(), e.to_vec());
+                .add_embedding(id.to_string(), e.to_vec())
+                .unwrap();
         }
         // Upstream retrieval plan: scan all :Doc nodes, then rank by cosine
         // similarity to a query near the FIRST group — a cross-modal
@@ -5292,7 +5294,8 @@ mod tests {
             core.add_node(id.into(), node(serde_json::json!({"type": "Metric"})));
             core.semantic_store
                 .write()
-                .add_embedding(id.to_string(), e.to_vec());
+                .add_embedding(id.to_string(), e.to_vec())
+                .unwrap();
         }
         let m = Method::MineAnomaly {
             features: Vec::new(),
@@ -5405,7 +5408,8 @@ mod tests {
             core.add_node(id.into(), node(serde_json::json!({"type": "Sample"})));
             core.semantic_store
                 .write()
-                .add_embedding(id.to_string(), e.to_vec());
+                .add_embedding(id.to_string(), e.to_vec())
+                .unwrap();
         }
         let m = Method::MineClassifyPredict {
             model,
@@ -5448,7 +5452,8 @@ mod tests {
             core.add_node(id.into(), node(serde_json::json!({"type": "Vec"})));
             core.semantic_store
                 .write()
-                .add_embedding(id.to_string(), e.to_vec());
+                .add_embedding(id.to_string(), e.to_vec())
+                .unwrap();
         }
         let m = Method::MineReduce {
             x: Vec::new(),
@@ -6176,7 +6181,8 @@ mod tests {
                 core.add_node(id.into(), node(serde_json::json!({"type": "Doc"})));
                 core.semantic_store
                     .write()
-                    .add_embedding(id.to_string(), e.to_vec());
+                    .add_embedding(id.to_string(), e.to_vec())
+                    .unwrap();
             }
         };
         let mk = |as_claim: bool| Method::MineCluster {
@@ -6228,7 +6234,8 @@ mod tests {
                 core.add_node(id.into(), node(serde_json::json!({"type": "Metric"})));
                 core.semantic_store
                     .write()
-                    .add_embedding(id.to_string(), e.to_vec());
+                    .add_embedding(id.to_string(), e.to_vec())
+                    .unwrap();
             }
         };
         let mk = |as_claim: bool| Method::MineAnomaly {
@@ -6500,7 +6507,8 @@ mod tests {
                 core.add_node(id.into(), node(serde_json::json!({"type": "Sample"})));
                 core.semantic_store
                     .write()
-                    .add_embedding(id.to_string(), e.to_vec());
+                    .add_embedding(id.to_string(), e.to_vec())
+                    .unwrap();
             }
         };
         let mk = |model: FittedClassifier, as_claim: bool| Method::MineClassifyPredict {
@@ -6544,7 +6552,8 @@ mod tests {
                 core.add_node(id.into(), node(serde_json::json!({"type": "Vec"})));
                 core.semantic_store
                     .write()
-                    .add_embedding(id.to_string(), e.to_vec());
+                    .add_embedding(id.to_string(), e.to_vec())
+                    .unwrap();
             }
         };
         let mk = |as_claim: bool| Method::MineReduce {

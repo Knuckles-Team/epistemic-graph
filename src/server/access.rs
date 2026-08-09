@@ -377,7 +377,20 @@ impl GraphReadAuthority {
             let mut target = projected.semantic_store.write();
             for node_id in &node_ids {
                 if let Some(embedding) = source.get_embedding(node_id) {
-                    target.add_embedding(node_id.clone(), embedding);
+                    // `target` starts empty and every embedding copied here comes
+                    // from the SAME already-valid, uniform-dimension `source`, so
+                    // this cannot legitimately mismatch (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard,
+                    // BUG-007). `build_projection` returns `Arc<GraphCore>` (not a
+                    // Result), so a surprise here degrades gracefully — the node is
+                    // logged and simply absent from this read's kNN candidates —
+                    // rather than panicking a read path over a should-never-happen.
+                    if let Err(error) = target.add_embedding(node_id.clone(), embedding) {
+                        tracing::warn!(
+                            node_id = node_id.as_str(),
+                            %error,
+                            "RLS projection dropped a node's embedding — source store had an unexpected dimension"
+                        );
+                    }
                 }
             }
         }
@@ -1217,10 +1230,18 @@ mod universal_row_read_tests {
             .unwrap();
         {
             let mut semantic = core.semantic_store.write();
-            semantic.add_embedding("alice-private".into(), vec![1.0, 0.0]);
-            semantic.add_embedding("bob-private".into(), vec![0.0, 1.0]);
-            semantic.add_embedding("public".into(), vec![0.7, 0.7]);
-            semantic.add_embedding("untagged".into(), vec![-1.0, 0.0]);
+            semantic
+                .add_embedding("alice-private".into(), vec![1.0, 0.0])
+                .unwrap();
+            semantic
+                .add_embedding("bob-private".into(), vec![0.0, 1.0])
+                .unwrap();
+            semantic
+                .add_embedding("public".into(), vec![0.7, 0.7])
+                .unwrap();
+            semantic
+                .add_embedding("untagged".into(), vec![-1.0, 0.0])
+                .unwrap();
         }
 
         let mut isolation = IsolationLayer::new();
@@ -1375,7 +1396,9 @@ mod universal_row_read_tests {
                     id.clone(),
                     properties(&[("_visibility", "public"), ("type", "Thing")]),
                 );
-                semantic.add_embedding(id, vec![(i % 7) as f32 * 0.01; EMBEDDING_DIM]);
+                semantic
+                    .add_embedding(id, vec![(i % 7) as f32 * 0.01; EMBEDDING_DIM])
+                    .unwrap();
             }
         }
 
@@ -1527,7 +1550,9 @@ mod universal_row_read_tests {
                 // A real embedding-shaped vector, not a zero-cost stand-in — the
                 // memcpy cost `project_core` pays is proportional to this, not to
                 // a placeholder.
-                semantic.add_embedding(id, vec![(i % 7) as f32 * 0.01; EMBEDDING_DIM]);
+                semantic
+                    .add_embedding(id, vec![(i % 7) as f32 * 0.01; EMBEDDING_DIM])
+                    .unwrap();
             }
         }
 
@@ -1596,7 +1621,9 @@ mod universal_row_read_tests {
                     id.clone(),
                     properties(&[("_visibility", "public"), ("type", "Thing")]),
                 );
-                semantic.add_embedding(id, vec![(i % 7) as f32 * 0.01; EMBEDDING_DIM]);
+                semantic
+                    .add_embedding(id, vec![(i % 7) as f32 * 0.01; EMBEDDING_DIM])
+                    .unwrap();
             }
         }
 

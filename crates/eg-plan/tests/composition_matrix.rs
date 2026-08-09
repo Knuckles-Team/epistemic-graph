@@ -40,7 +40,9 @@ fn build_chain(n: usize) -> (GraphView, SemanticStore) {
         // A spread of directions so RANK imposes a real (non-trivial) order.
         let a = (k as f32 * 0.11).sin();
         let b = (k as f32 * 0.11).cos();
-        semantic.add_embedding(format!("i{k}"), vec![a, b, 0.0]);
+        semantic
+            .add_embedding(format!("i{k}"), vec![a, b, 0.0])
+            .unwrap();
     }
     (core.analysis_snapshot(), semantic)
 }

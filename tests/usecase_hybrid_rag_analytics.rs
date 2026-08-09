@@ -64,14 +64,20 @@ fn build_corpus() -> (GraphView, SemanticStore, TextIndex) {
     }
     let mut s = SemanticStore::new();
     // cluster A — databases (tight around [1,0,0,0]).
-    s.add_embedding("db1".into(), vec![0.98, 0.05, 0.02, 0.0]);
-    s.add_embedding("db2".into(), vec![0.95, 0.10, 0.05, 0.0]);
-    s.add_embedding("db3".into(), vec![0.93, 0.08, 0.10, 0.0]);
+    s.add_embedding("db1".into(), vec![0.98, 0.05, 0.02, 0.0])
+        .unwrap();
+    s.add_embedding("db2".into(), vec![0.95, 0.10, 0.05, 0.0])
+        .unwrap();
+    s.add_embedding("db3".into(), vec![0.93, 0.08, 0.10, 0.0])
+        .unwrap();
     // cluster B — ml (tight around [0,0,1,0]).
-    s.add_embedding("ml1".into(), vec![0.10, 0.05, 0.97, 0.0]);
-    s.add_embedding("ml2".into(), vec![0.08, 0.10, 0.95, 0.0]);
+    s.add_embedding("ml1".into(), vec![0.10, 0.05, 0.97, 0.0])
+        .unwrap();
+    s.add_embedding("ml2".into(), vec![0.08, 0.10, 0.95, 0.0])
+        .unwrap();
     // an off-topic doc that the fused retrieval should rank out of the top set.
-    s.add_embedding("far".into(), vec![0.0, 0.99, 0.0, 0.10]);
+    s.add_embedding("far".into(), vec![0.0, 0.99, 0.0, 0.10])
+        .unwrap();
 
     let mut text = TextIndex::in_memory().unwrap();
     text.upsert(

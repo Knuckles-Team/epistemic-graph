@@ -112,11 +112,21 @@ fn build_memory() -> MemoryFx {
     // Vectors (query ≈ [1,0,0]): vec_only closest, target 2nd, then expired, chatter,
     // lex_only farthest.
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("vec_only".into(), vec![0.99, 0.10, 0.0]); // vector #1
-    semantic.add_embedding("target".into(), vec![0.90, 0.40, 0.0]); // vector #2
-    semantic.add_embedding("expired".into(), vec![0.85, 0.52, 0.0]);
-    semantic.add_embedding("chatter".into(), vec![0.60, 0.80, 0.0]);
-    semantic.add_embedding("lex_only".into(), vec![0.0, 0.10, 0.99]); // vector last
+    semantic
+        .add_embedding("vec_only".into(), vec![0.99, 0.10, 0.0])
+        .unwrap(); // vector #1
+    semantic
+        .add_embedding("target".into(), vec![0.90, 0.40, 0.0])
+        .unwrap(); // vector #2
+    semantic
+        .add_embedding("expired".into(), vec![0.85, 0.52, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("chatter".into(), vec![0.60, 0.80, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("lex_only".into(), vec![0.0, 0.10, 0.99])
+        .unwrap(); // vector last
 
     // BM25 text: lex_only term-densest (#1), target has the terms less densely (#2).
     let mut text = TextIndex::in_memory().unwrap();

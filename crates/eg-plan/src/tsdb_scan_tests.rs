@@ -66,10 +66,18 @@ ex:p4 a ex:Paper .
 
     // Query ≈ [1,0,0,0]. p3 (NON-member Topic) is vector-CLOSEST, then p2, p1, p4.
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0, 0.0]);
-    semantic.add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0, 0.0]);
-    semantic.add_embedding("<http://example.org/p3>".into(), vec![1.00, 0.00, 0.0, 0.0]);
-    semantic.add_embedding("<http://example.org/p4>".into(), vec![0.20, 0.97, 0.0, 0.0]);
+    semantic
+        .add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p3>".into(), vec![1.00, 0.00, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p4>".into(), vec![0.20, 0.97, 0.0, 0.0])
+        .unwrap();
 
     (core.analysis_snapshot(), semantic)
 }
@@ -207,9 +215,15 @@ fn tsdb_in_plan_fusion() {
     // The scan emits rows keyed by ns-ts string. Embed them so 2s ranks first, then 1s,
     // then 3s — a vector order DIFFERENT from the tsdb ts order (proving the rerank).
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("1000000000".into(), vec![0.80, 0.60, 0.0, 0.0]); // 2nd
-    semantic.add_embedding("2000000000".into(), vec![0.99, 0.10, 0.0, 0.0]); // 1st
-    semantic.add_embedding("3000000000".into(), vec![0.10, 0.99, 0.0, 0.0]); // 3rd
+    semantic
+        .add_embedding("1000000000".into(), vec![0.80, 0.60, 0.0, 0.0])
+        .unwrap(); // 2nd
+    semantic
+        .add_embedding("2000000000".into(), vec![0.99, 0.10, 0.0, 0.0])
+        .unwrap(); // 1st
+    semantic
+        .add_embedding("3000000000".into(), vec![0.10, 0.99, 0.0, 0.0])
+        .unwrap(); // 3rd
 
     // A tsdb SOURCE plan needs no graph; a bare snapshot suffices for the (unused) view.
     let core = GraphCore::new();

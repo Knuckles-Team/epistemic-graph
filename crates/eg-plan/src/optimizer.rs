@@ -1000,7 +1000,7 @@ mod tests {
             // the `Rank` leg to score every node; the exact order is irrelevant to the SET.
             let mut v = vec![0.0f32; 4];
             v[k % 4] = 1.0;
-            semantic.add_embedding(id, v);
+            semantic.add_embedding(id, v).unwrap();
         }
         let view = core.analysis_snapshot();
         let ctx = PlanCtx::new(&view, &semantic);
@@ -1156,7 +1156,7 @@ mod tests {
             );
             let mut v = vec![0.0f32; 4];
             v[k % 4] = 1.0;
-            semantic.add_embedding(id, v);
+            semantic.add_embedding(id, v).unwrap();
         }
         let view = core.analysis_snapshot();
         let ctx = PlanCtx::new(&view, &semantic);
@@ -1289,10 +1289,18 @@ ex:p4 a ex:Paper .
         }
 
         let mut semantic = SemanticStore::new();
-        semantic.add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0, 0.0]);
-        semantic.add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0, 0.0]);
-        semantic.add_embedding("<http://example.org/p3>".into(), vec![1.00, 0.00, 0.0, 0.0]);
-        semantic.add_embedding("<http://example.org/p4>".into(), vec![0.20, 0.97, 0.0, 0.0]);
+        semantic
+            .add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0, 0.0])
+            .unwrap();
+        semantic
+            .add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0, 0.0])
+            .unwrap();
+        semantic
+            .add_embedding("<http://example.org/p3>".into(), vec![1.00, 0.00, 0.0, 0.0])
+            .unwrap();
+        semantic
+            .add_embedding("<http://example.org/p4>".into(), vec![0.20, 0.97, 0.0, 0.0])
+            .unwrap();
 
         let view = core.analysis_snapshot();
         let ctx = PlanCtx::new(&view, &semantic);
@@ -1468,7 +1476,7 @@ ex:p4 a ex:Paper .
             );
             let mut v = vec![0.0f32; 4];
             v[k % 4] = 1.0;
-            semantic.add_embedding(id, v);
+            semantic.add_embedding(id, v).unwrap();
         }
         let view = core.analysis_snapshot();
         let ctx = PlanCtx::new(&view, &semantic);
