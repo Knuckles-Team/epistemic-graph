@@ -547,6 +547,40 @@ mod tests {
             ),
             #[cfg(not(feature = "query"))]
             persist_dir: None,
+            // A REAL durable backend on its own uniquely-named temp dir (same
+            // reason the series store below is per-test: redb takes an exclusive
+            // per-process file lock).
+            //
+            // This was `None`, which made 31 of this module's tests fail closed
+            // the moment they touched anything durable -- 25 with "authoritative
+            // MutationBatch commit requires a persistence backend", 5 with
+            // "session control mutation requires durable redb coordination", and
+            // 1 with "graph creation requires durable persistence". Those errors
+            // are CORRECT: the dispatch path is deliberately fail-closed for
+            // durable-domain methods, so a state with no backend genuinely cannot
+            // exercise them. The TESTS were wrong, and it stayed invisible for as
+            // long as the facade-full suite aborted on a stack overflow before it
+            // ever reached them.
+            #[cfg(feature = "redb")]
+            persistence: Some(std::sync::Arc::new(
+                crate::server::persistence::redb_backend::RedbBackend::open(
+                    std::env::temp_dir()
+                        .join(format!(
+                            "eg-server-test-{}-{}",
+                            std::process::id(),
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_nanos())
+                                .unwrap_or(0)
+                        ))
+                        .to_string_lossy()
+                        .into_owned(),
+                    crate::durability::DurabilityPolicy::Each,
+                    256,
+                )
+                .expect("open test redb backend"),
+            )),
+            #[cfg(not(feature = "redb"))]
             persistence: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
