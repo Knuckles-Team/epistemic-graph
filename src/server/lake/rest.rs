@@ -292,7 +292,7 @@ mod tests {
     fn seed() -> (LakeManager, RedbChunkStore) {
         let store = RedbChunkStore::open_temp().unwrap();
         let tsdb = SeriesStore::open_in_dir(
-            &std::env::temp_dir().join(format!("eg-lake-rest-test-{}", std::process::id())),
+            &crate::server::unique_temp_dir("eg-lake-rest-test"),
         )
         .unwrap();
         tsdb.append_batch(
