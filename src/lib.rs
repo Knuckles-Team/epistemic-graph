@@ -1,5 +1,6 @@
 #![allow(non_local_definitions)]
 #![allow(dead_code)]
+#![cfg_attr(test, recursion_limit = "256")]
 // No unsafe anywhere except the single tree-sitter FFI block (ast/parser.rs),
 // which carries a scoped #[allow(unsafe_code)] with a soundness note. Any new
 // unsafe is a compile error until it is explicitly justified the same way.

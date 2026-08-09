@@ -36,6 +36,9 @@ REQUIRED_SCHEMAS = (
     "claim_work_item",
     "evidence_bundle",
     "operation_result",
+    "resource_reservation",
+    "resource_reservation_status",
+    "resource_host_update",
 )
 REQUIRED_SCHEMA_VERSIONS = {
     "request_context": "2",
@@ -50,6 +53,9 @@ REQUIRED_SCHEMA_VERSIONS = {
     "claim_work_item": "1",
     "evidence_bundle": "1",
     "operation_result": "1",
+    "resource_reservation": "1",
+    "resource_reservation_status": "1",
+    "resource_host_update": "1",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 RUST_STRUCT_RE = re.compile(r"\bpub\s+struct\s+([A-Za-z][A-Za-z0-9_]*)\s*\{")
@@ -185,7 +191,7 @@ def run() -> dict[str, Any]:
         raise GateError("schemas must be a list")
     names = tuple(entry.get("name") for entry in schemas if isinstance(entry, dict))
     if names != REQUIRED_SCHEMAS:
-        raise GateError(f"expected exactly twelve schemas in canonical order: {names}")
+        raise GateError(f"expected exactly {len(REQUIRED_SCHEMAS)} schemas in canonical order: {names}")
     if any(
         not isinstance(entry.get("sha256"), str)
         or not SHA256_RE.fullmatch(entry["sha256"])
