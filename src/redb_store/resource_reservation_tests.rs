@@ -2475,21 +2475,28 @@ fn native_retry_rebuilds_projection_outbox_after_authoritative_time_changes() {
     let stored_operations = vec![operation(stored_method)];
     let proposed_operations = vec![operation(proposed_method)];
     assert!(mutation_operations_retry_match(&stored_operations, &proposed_operations).unwrap());
-    let normalized = native_resource_retry_operations(&stored_operations).unwrap();
-    let payload =
-        crate::server::mutation_batch::projection_payload_for_operations(&normalized).unwrap();
+    let stored_payload =
+        crate::server::mutation_batch::projection_payload_for_operations(&stored_operations)
+            .unwrap();
+    let proposed_payload =
+        crate::server::mutation_batch::projection_payload_for_operations(&proposed_operations)
+            .unwrap();
+    assert_ne!(
+        stored_payload, proposed_payload,
+        "the producer binds each outbox to its historical authority timestamp"
+    );
     let metadata =
         std::collections::BTreeMap::from([("scope_sha256".to_string(), "digest".to_string())]);
     let stored_outbox = vec![MutationOutboxIntent {
         topic: "engine.projection.rebuild".to_string(),
         key: "batch-1".to_string(),
-        payload: payload.clone(),
+        payload: stored_payload,
         headers: metadata.clone(),
     }];
     let proposed_outbox = vec![MutationOutboxIntent {
         topic: "engine.projection.rebuild".to_string(),
         key: "batch-1".to_string(),
-        payload,
+        payload: proposed_payload,
         headers: metadata,
     }];
     assert!(native_resource_retry_outbox_match(

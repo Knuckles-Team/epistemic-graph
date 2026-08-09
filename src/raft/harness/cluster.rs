@@ -12,7 +12,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use openraft::async_runtime::watch::WatchReceiver;
@@ -46,6 +46,10 @@ struct Member {
     started: Option<StartedNode>,
     /// Held so a restart re-opens the SAME persist dir + ports.
     state: Option<Arc<RwLock<ServerState>>>,
+    /// A cleanup failure makes the cluster unsafe to remove. Keep it attached to
+    /// the slot so `teardown` cannot accidentally miss a failed `kill` after the
+    /// running handle has already been taken.
+    cleanup_error: Option<String>,
 }
 
 /// A managed N-node in-process Raft cluster the harness drives.
@@ -56,6 +60,10 @@ pub struct Cluster {
     /// Root temp dir (removed on `teardown`).
     root: std::path::PathBuf,
 }
+
+const CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
+const CLEANUP_POLL: Duration = Duration::from_millis(25);
+const PORT_ALLOCATION_ATTEMPTS: usize = 32;
 
 /// Build a redb-AUTHORITATIVE `ServerState` rooted at `dir` (mirrors `tests::make_state`)
 /// and REHYDRATE its registry from the durable redb store — exactly the M2
@@ -117,10 +125,13 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
     // M2 rehydration: load the durable graph data from redb into the registry before
     // Raft starts (the real boot path's `load_all`). A fresh dir loads 0; a restarted
     // node loads back every committed-before-kill entry.
-    backend
-        .load_all(&state)
-        .await
-        .map_err(|e| format!("load_all {dir}: {e}"))?;
+    if let Err(error) = backend.load_all(&state).await {
+        // `make_state` is also used by the partial-start path. If recovery fails,
+        // stop the writer before returning so the failed attempt does not retain a
+        // redb file lock while the caller removes its temporary root.
+        backend.shutdown();
+        return Err(format!("load_all {dir}: {error}"));
+    }
     Ok(state)
 }
 
@@ -152,55 +163,232 @@ fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
     }
 }
 
-/// Pick `n` currently-free localhost ports by binding then dropping.
-fn free_ports(n: usize) -> Vec<u16> {
-    let mut listeners = Vec::new();
-    let mut ports = Vec::new();
-    for _ in 0..n {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        ports.push(l.local_addr().unwrap().port());
-        listeners.push(l);
+fn cluster_start_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+/// Pick `n` currently-free localhost ports. `Cluster::start` holds the process-wide
+/// startup lock until every selected port is occupied by its real Raft listener,
+/// eliminating the parallel in-process allocator race without presenting probe
+/// listeners that peers could mistake for Raft endpoints.
+fn free_ports(n: usize) -> Result<Vec<u16>, String> {
+    for _attempt in 0..PORT_ALLOCATION_ATTEMPTS {
+        let mut listeners = Vec::with_capacity(n);
+        let mut ports = Vec::with_capacity(n);
+        let mut failed = false;
+        for _ in 0..n {
+            match std::net::TcpListener::bind("127.0.0.1:0") {
+                Ok(listener) => match listener.local_addr() {
+                    Ok(address) => {
+                        ports.push(address.port());
+                        listeners.push(Some(listener));
+                    }
+                    Err(_) => {
+                        failed = true;
+                        break;
+                    }
+                },
+                Err(_) => {
+                    failed = true;
+                    break;
+                }
+            }
+        }
+        if !failed && ports.len() == n {
+            return Ok(ports);
+        }
+        // The listeners are dropped here before trying the next allocation set.
     }
-    ports
+    Err(format!("unable to reserve {n} localhost Raft port(s)"))
+}
+
+fn allocate_root(tag: &str) -> Result<std::path::PathBuf, String> {
+    for _attempt in 0..PORT_ALLOCATION_ATTEMPTS {
+        let sequence = HARNESS_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "eg-harness-{tag}-{}-{sequence}",
+            std::process::id(),
+        ));
+        match std::fs::create_dir(&root) {
+            Ok(()) => return Ok(root),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("create harness root {}: {error}", root.display())),
+        }
+    }
+    Err(format!(
+        "unable to allocate a unique harness root for tag {tag:?}"
+    ))
+}
+
+fn port_is_free(port: u16) -> bool {
+    std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+async fn wait_for_backend_drop(
+    backend: std::sync::Weak<dyn PersistenceBackend>,
+    label: &str,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + CLEANUP_TIMEOUT;
+    loop {
+        let remaining = backend.strong_count();
+        if remaining == 0 {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!(
+                "{label} persistence still has {remaining} live handle(s) after cleanup"
+            ));
+        }
+        tokio::time::sleep(CLEANUP_POLL).await;
+    }
+}
+
+async fn shutdown_backend(backend: Arc<dyn PersistenceBackend>, label: &str) -> Result<(), String> {
+    let weak = Arc::downgrade(&backend);
+    let join = tokio::task::spawn_blocking(move || backend.shutdown());
+    match tokio::time::timeout(CLEANUP_TIMEOUT, join).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            return Err(format!("{label} persistence shutdown task failed: {error}"));
+        }
+        Err(_) => {
+            return Err(format!(
+                "{label} persistence shutdown exceeded {}s",
+                CLEANUP_TIMEOUT.as_secs()
+            ));
+        }
+    }
+    wait_for_backend_drop(weak, label).await
+}
+
+async fn clear_state_backend(state: Arc<RwLock<ServerState>>, label: &str) -> Result<(), String> {
+    let mut guard = tokio::time::timeout(CLEANUP_TIMEOUT, state.write())
+        .await
+        .map_err(|_| format!("{label} state write lock did not drain before cleanup"))?;
+    let backend = guard.persistence.take();
+    guard.raft = None;
+    #[cfg(feature = "raft")]
+    {
+        guard.multi_raft = None;
+    }
+    drop(guard);
+    if let Some(backend) = backend {
+        shutdown_backend(backend, label).await?;
+    }
+    Ok(())
+}
+
+async fn cleanup_unstarted_state(
+    state: Arc<RwLock<ServerState>>,
+    label: &str,
+    port: u16,
+) -> Result<(), String> {
+    let result = clear_state_backend(state, label).await;
+    if !port_is_free(port) {
+        let port_error = format!("{label} listener port {port} remains bound after failed start");
+        return match result {
+            Ok(()) => Err(port_error),
+            Err(error) => Err(format!("{error}; {port_error}")),
+        };
+    }
+    result
 }
 
 impl Cluster {
     /// Start an `n`-node cluster (n should be odd: 3/5). `tag` namespaces the temp
     /// dir. Returns once every node is up; the caller waits for a leader.
     pub async fn start(n: usize, tag: &str) -> Result<Self, String> {
-        let sequence = HARNESS_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "eg-harness-{tag}-{}-{sequence}",
-            std::process::id(),
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        let ports = free_ports(n);
-        let mut members = BTreeMap::new();
+        if n == 0 {
+            return Err("cluster must contain at least one node".to_string());
+        }
+        let _startup_guard = cluster_start_lock().lock().await;
+        let ports = free_ports(n)?;
+        let root = allocate_root(tag)?;
+        let mut cluster = Self {
+            members: BTreeMap::new(),
+            ports,
+            n,
+            root,
+        };
         for i in 1..=n as u64 {
-            let dir = root.join(format!("node{i}"));
-            std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
+            let dir = cluster.root.join(format!("node{i}"));
+            if let Err(error) = std::fs::create_dir_all(&dir) {
+                return Err(cluster
+                    .fail_start(format!("mkdir node {i}: {error}"), false)
+                    .await);
+            }
             let dir = dir.to_string_lossy().to_string();
-            let state = make_state(&dir).await?;
-            let started = node::start(cluster_cfg(i, &ports), state.clone())
-                .await
-                .map_err(|e| format!("start node {i}: {e}"))?;
+            let state = match make_state(&dir).await {
+                Ok(state) => state,
+                Err(error) => {
+                    return Err(cluster.fail_start(error, false).await);
+                }
+            };
+            let started = match node::start(cluster_cfg(i, &cluster.ports), state.clone()).await {
+                Ok(started) => started,
+                Err(error) => {
+                    let startup_cleanup = cleanup_unstarted_state(
+                        state,
+                        &format!("node {i}"),
+                        cluster.ports[i as usize - 1],
+                    )
+                    .await;
+                    let startup_cleanup_failed = startup_cleanup.is_err();
+                    let reason = match startup_cleanup {
+                        Ok(()) => format!("start node {i}: {error}"),
+                        Err(cleanup_error) => {
+                            format!("start node {i}: {error}; cleanup: {cleanup_error}")
+                        }
+                    };
+                    return Err(cluster.fail_start(reason, startup_cleanup_failed).await);
+                }
+            };
             state.write().await.raft = Some(started.handle.clone());
-            members.insert(
+            cluster.members.insert(
                 i,
                 Member {
                     id: i,
                     dir,
                     started: Some(started),
                     state: Some(state),
+                    cleanup_error: None,
                 },
             );
         }
-        Ok(Self {
-            members,
-            ports,
-            n,
-            root,
-        })
+        Ok(cluster)
+    }
+
+    async fn fail_start(&mut self, reason: String, retain_root: bool) -> String {
+        let mut errors = vec![reason];
+        errors.extend(self.stop_live_members().await);
+        if retain_root
+            || self.members.values().any(|member| {
+                member.started.is_some() || member.state.is_some() || member.cleanup_error.is_some()
+            })
+        {
+            errors.push(format!(
+                "harness root retained at {} because live member handles remain",
+                self.root.display()
+            ));
+        } else if let Err(error) = std::fs::remove_dir_all(&self.root) {
+            errors.push(format!(
+                "remove failed-start harness root {}: {error}",
+                self.root.display()
+            ));
+        }
+        errors.join("; ")
+    }
+
+    async fn stop_live_members(&mut self) -> Vec<String> {
+        let ids: Vec<NodeId> = self.live_ids();
+        let mut errors = Vec::new();
+        for id in ids {
+            if let Err(error) = self.kill(id).await {
+                errors.push(format!("node {id} cleanup failed: {error}"));
+            }
+        }
+        errors
     }
 
     /// Node ids of CURRENTLY-RUNNING members.
@@ -299,10 +487,11 @@ impl Cluster {
             return false;
         };
         let metrics = started.handle.raft.metrics();
-        matches!(
+        let is_leader = matches!(
             metrics.borrow_watched().state,
             openraft::ServerState::Leader
-        )
+        );
+        is_leader
     }
 
     /// The `RaftRequest` for an AddNode write of `n{seq}`.
@@ -504,19 +693,59 @@ impl Cluster {
             .started
             .take()
             .ok_or_else(|| format!("node {id} already killed"))?;
-        // Release the state's backend Arc FIRST so the drop below actually closes the
-        // redb file lock (mirrors `tests::fault_injection_*`).
-        if let Some(state) = &m.state {
-            state.write().await.persistence = None;
-            state.write().await.raft = None;
+        let mut started = started;
+        // Close public admission first. A request that begins after this write
+        // cannot obtain a stale Raft route or a persistence handle while shutdown
+        // is draining the node. In-flight requests that already cloned a handle
+        // are crash semantics and are cancelled by the Raft/backend shutdown.
+        let state = m.state.clone();
+        let backend = if let Some(state) = &state {
+            let mut guard = match tokio::time::timeout(CLEANUP_TIMEOUT, state.write()).await {
+                Ok(guard) => guard,
+                Err(_) => {
+                    let error = format!("node {id} state write lock did not drain before cleanup");
+                    m.cleanup_error = Some(error.clone());
+                    m.started = Some(started);
+                    return Err(error);
+                }
+            };
+            let backend = guard.persistence.take();
+            guard.raft = None;
+            #[cfg(feature = "raft")]
+            {
+                // `attach_multi_raft` installs a clone in ServerState. Clear it
+                // before dropping StartedNode so it cannot retain the group store.
+                guard.multi_raft = None;
+            }
+            backend
+        } else {
+            None
+        };
+
+        // Stop and join the listener plus all accepted/deferred connection tasks
+        // only after the public state is fail-closed. The node-owned report task
+        // owns a MultiRaft clone outside that task registry and is joined first.
+        started.stop_background_tasks().await;
+        if let Err(error) = tokio::time::timeout(CLEANUP_TIMEOUT, started.multi.shutdown()).await {
+            let error = format!("node {id} MultiRaft shutdown exceeded cleanup timeout: {error}");
+            m.cleanup_error = Some(error.clone());
+            m.started = Some(started);
+            // `backend` is intentionally dropped here. MultiRaft retains the
+            // authority handle for the next idempotent cleanup attempt.
+            return Err(error);
         }
-        started.multi.stop_listener();
-        let _ = started.handle.raft.shutdown().await;
-        // Drop the MultiRaft (its groups + the shared backend handle it holds).
+
+        // Raft and every connection task have now been stopped and joined. Drop
+        // their backend handles before invoking the synchronous writer shutdown.
         drop(started);
-        // Drop the old ServerState so its backend Arc is the last one and the redb
-        // file lock releases — a true process-exit analog for restart.
         m.state = None;
+        if let Some(backend) = backend {
+            if let Err(error) = shutdown_backend(backend, &format!("node {id}")).await {
+                m.cleanup_error = Some(error.clone());
+                return Err(error);
+            }
+        }
+        m.cleanup_error = None;
         Ok(())
     }
 
@@ -535,13 +764,28 @@ impl Cluster {
             m.dir.clone()
         };
         let state = make_state(&dir).await?;
-        let started = node::start(cluster_cfg(id, &self.ports), state.clone())
-            .await
-            .map_err(|e| format!("restart node {id}: {e}"))?;
+        let started = match node::start(cluster_cfg(id, &self.ports), state.clone()).await {
+            Ok(started) => started,
+            Err(error) => {
+                let cleanup = cleanup_unstarted_state(
+                    state,
+                    &format!("restart node {id}"),
+                    self.ports[id as usize - 1],
+                )
+                .await;
+                return match cleanup {
+                    Ok(()) => Err(format!("restart node {id}: {error}")),
+                    Err(cleanup_error) => Err(format!(
+                        "restart node {id}: {error}; cleanup: {cleanup_error}"
+                    )),
+                };
+            }
+        };
         state.write().await.raft = Some(started.handle.clone());
         let m = self.members.get_mut(&id).unwrap();
         m.started = Some(started);
         m.state = Some(state);
+        m.cleanup_error = None;
         Ok(())
     }
 
@@ -550,41 +794,119 @@ impl Cluster {
     /// `teardown`, which awaits each Raft shutdown before dropping persistence.
     #[cfg(test)]
     pub fn abort_sync(&mut self) {
+        let runtime = tokio::runtime::Handle::try_current().ok();
+        let mut started_nodes = Vec::new();
+        let mut states = Vec::new();
         for member in self.members.values_mut() {
             if let Some(started) = member.started.take() {
                 started.multi.stop_listener();
-                let raft = started.handle.raft.clone();
-                if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                    handle.spawn(async move {
-                        let _ = raft.shutdown().await;
-                    });
-                }
-                drop(started);
+                started_nodes.push(started);
             }
             if let Some(state) = member.state.take() {
-                if let Ok(mut state) = state.try_write() {
-                    state.persistence = None;
-                    state.raft = None;
-                    state.multi_raft = None;
-                }
+                states.push(state);
             }
         }
         super::super::network::partition::heal();
-        let _ = std::fs::remove_dir_all(&self.root);
+        let root = self.root.clone();
+        let ports = self.ports.clone();
+        let Some(runtime) = runtime else {
+            // A synchronous Drop path cannot prove that Raft and its writer
+            // threads have drained. Leave the root in place rather than deleting
+            // data while detached handles may still own it.
+            tracing::error!(
+                root = %root.display(),
+                "cluster abort has no Tokio runtime; temporary root retained until an explicit teardown"
+            );
+            return;
+        };
+        runtime.spawn(async move {
+            let mut errors = Vec::new();
+            for mut started in started_nodes {
+                started.stop_background_tasks().await;
+                if let Err(error) =
+                    tokio::time::timeout(CLEANUP_TIMEOUT, started.multi.shutdown()).await
+                {
+                    errors.push(format!("MultiRaft shutdown timed out: {error}"));
+                }
+                drop(started);
+            }
+            for state in states {
+                if let Err(error) = clear_state_backend(state, "aborted cluster").await {
+                    errors.push(error);
+                }
+            }
+            if errors.is_empty() && ports.iter().copied().all(port_is_free) {
+                if let Err(error) = std::fs::remove_dir_all(&root) {
+                    errors.push(format!(
+                        "remove aborted harness root {}: {error}",
+                        root.display()
+                    ));
+                }
+            } else if errors.is_empty() {
+                errors.push("aborted cluster listener port remains bound".to_string());
+            }
+            if !errors.is_empty() {
+                tracing::error!(
+                    root = %root.display(),
+                    errors = ?errors,
+                    "cluster abort cleanup failed; temporary root retained"
+                );
+            }
+        });
     }
 
     pub fn size(&self) -> usize {
         self.n
     }
 
+    /// Shut everything down in place and remove the temp dir. This form lets an
+    /// `Arc<Mutex<Cluster>>` owner clean up even when an unexpected extra Arc
+    /// prevents ownership recovery.
+    pub async fn shutdown_in_place(&mut self) -> Result<(), String> {
+        let mut errors = self.stop_live_members().await;
+        super::super::network::partition::heal();
+        let unfinished: Vec<String> = self
+            .members
+            .values()
+            .filter_map(|member| {
+                if member.started.is_some() || member.state.is_some() {
+                    Some(format!(
+                        "node {} still owns live harness handles",
+                        member.id
+                    ))
+                } else {
+                    member.cleanup_error.clone()
+                }
+            })
+            .collect();
+        errors.extend(unfinished);
+        if errors.is_empty() && self.ports.iter().copied().all(port_is_free) {
+            if let Err(error) = std::fs::remove_dir_all(&self.root) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    errors.push(format!(
+                        "remove harness root {} failed: {error}",
+                        self.root.display()
+                    ));
+                }
+            }
+        } else if errors.is_empty() {
+            errors.push("cluster listener port remains bound after shutdown".to_string());
+        }
+        if !errors.is_empty() {
+            return Err(format!(
+                "cluster teardown failed; temporary root retained at {}: {}",
+                self.root.display(),
+                errors.join("; ")
+            ));
+        }
+        Ok(())
+    }
+
     /// Shut everything down and remove the temp dir.
     pub async fn teardown(mut self) {
-        let ids: Vec<NodeId> = self.live_ids();
-        for id in ids {
-            let _ = self.kill(id).await;
+        if let Err(error) = self.shutdown_in_place().await {
+            panic!("{error}");
         }
-        super::super::network::partition::heal();
-        let _ = std::fs::remove_dir_all(&self.root);
     }
 }
 

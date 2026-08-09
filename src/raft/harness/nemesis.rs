@@ -83,14 +83,27 @@ impl Nemesis {
                 };
                 match leader {
                     Some(l) => {
-                        cluster.lock().await.kill(l).await.ok();
+                        if let Err(error) = cluster.lock().await.kill(l).await {
+                            return FaultReport {
+                                fault: format!("KillLeader({l})"),
+                                recovered: false,
+                                detail: format!("failed to kill leader {l}: {error}"),
+                            };
+                        }
                         let recovered = wait_leader_excluding(cluster, l, Self::RECOVERY).await;
                         tokio::time::sleep(restart_after).await;
-                        cluster.lock().await.restart(l).await.ok();
+                        let restart = cluster.lock().await.restart(l).await;
                         FaultReport {
                             fault: format!("KillLeader({l})"),
-                            recovered,
-                            detail: format!("killed leader {l}, restarted after {restart_after:?}"),
+                            recovered: recovered && restart.is_ok(),
+                            detail: match restart {
+                                Ok(()) => {
+                                    format!("killed leader {l}, restarted after {restart_after:?}")
+                                }
+                                Err(error) => format!(
+                                    "killed leader {l}, but restart after {restart_after:?} failed: {error}"
+                                ),
+                            },
                         }
                     }
                     None => FaultReport {
@@ -101,14 +114,25 @@ impl Nemesis {
                 }
             }
             Fault::KillNode { id, restart_after } => {
-                cluster.lock().await.kill(id).await.ok();
+                if let Err(error) = cluster.lock().await.kill(id).await {
+                    return FaultReport {
+                        fault: format!("KillNode({id})"),
+                        recovered: false,
+                        detail: format!("failed to kill node {id}: {error}"),
+                    };
+                }
                 let recovered = wait_leader(cluster, Self::RECOVERY).await;
                 tokio::time::sleep(restart_after).await;
-                cluster.lock().await.restart(id).await.ok();
+                let restart = cluster.lock().await.restart(id).await;
                 FaultReport {
                     fault: format!("KillNode({id})"),
-                    recovered,
-                    detail: format!("killed node {id}, restarted after {restart_after:?}"),
+                    recovered: recovered && restart.is_ok(),
+                    detail: match restart {
+                        Ok(()) => format!("killed node {id}, restarted after {restart_after:?}"),
+                        Err(error) => format!(
+                            "killed node {id}, but restart after {restart_after:?} failed: {error}"
+                        ),
+                    },
                 }
             }
             Fault::Partition { groups, hold } => {

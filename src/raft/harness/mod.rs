@@ -146,14 +146,24 @@ pub async fn run_gauntlet(
     load: LoadConfig,
     faults: Vec<Fault>,
 ) -> Result<GauntletOutcome, String> {
+    // The partition controller is process-global. Hold its test guard across
+    // cluster startup, fault injection, healing, checking, and teardown so a
+    // concurrent harness cannot clear this run's partition mid-RPC.
+    let _partition_guard = super::network::partition::test_guard();
+
     // ── Elect ──────────────────────────────────────────────────────────────
     let cluster = Cluster::start(n, tag).await?;
     let cluster = Arc::new(Mutex::new(cluster));
-    {
+    let initial_leader = {
         let c = cluster.lock().await;
-        c.wait_for_leader(Duration::from_secs(15))
-            .await
-            .ok_or_else(|| "no initial leader elected".to_string())?;
+        c.wait_for_leader(Duration::from_secs(15)).await
+    };
+    if initial_leader.is_none() {
+        let cleanup = cluster.lock().await.shutdown_in_place().await;
+        return Err(match cleanup {
+            Ok(()) => "no initial leader elected".to_string(),
+            Err(error) => format!("no initial leader elected; {error}"),
+        });
     }
 
     let history = Arc::new(History::new());
@@ -219,10 +229,16 @@ pub async fn run_gauntlet(
 
     // ── Teardown ────────────────────────────────────────────────────────────
     let _ = all_ids;
-    let cluster = Arc::try_unwrap(cluster)
-        .map_err(|_| "cluster still shared at teardown".to_string())?
-        .into_inner();
-    cluster.teardown().await;
+    match Arc::try_unwrap(cluster) {
+        Ok(cluster) => cluster.into_inner().teardown().await,
+        Err(cluster) => {
+            let cleanup = cluster.lock().await.shutdown_in_place().await;
+            return Err(match cleanup {
+                Ok(()) => "cluster still shared at teardown".to_string(),
+                Err(error) => format!("cluster still shared at teardown; {error}"),
+            });
+        }
+    }
 
     Ok(GauntletOutcome {
         verdict,
