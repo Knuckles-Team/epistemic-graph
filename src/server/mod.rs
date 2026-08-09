@@ -202,6 +202,28 @@ pub fn validate_verified_request_context_startup(
 // behind the `blob` cargo feature. Default/server-only builds compile NONE of it;
 // the Blob* methods then fall to the dispatch "not available" catch-all.
 #[cfg(feature = "blob")]
+/// A temp dir guaranteed unique even across concurrent tests in one process.
+///
+/// `pid + nanos` is NOT sufficient: two threads can observe the same nanosecond,
+/// and redb takes an EXCLUSIVE per-file lock, so the loser fails with
+/// `Database already open. Cannot acquire lock.` That is exactly how
+/// `server::lake::rest::tests` began failing once the suite ran on a 64-core
+/// host -- more tests in flight at once, so the collision window is actually
+/// hit. The monotonic counter removes the race rather than narrowing it.
+pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    std::env::temp_dir().join(format!(
+        "{prefix}-{}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+        SEQ.fetch_add(1, Ordering::Relaxed),
+    ))
+}
+
 pub mod blob;
 // Generic namespaced Key→Value surface (CONCEPT:EG-KG.storage.namespaced-kv-surface). Self-routing (NOT graph-
 // scoped) like blob/tsdb, behind the `kv` cargo feature. A build without it compiles
@@ -564,15 +586,7 @@ mod tests {
             #[cfg(feature = "redb")]
             persistence: Some(std::sync::Arc::new(
                 crate::server::persistence::redb_backend::RedbBackend::open(
-                    std::env::temp_dir()
-                        .join(format!(
-                            "eg-server-test-{}-{}",
-                            std::process::id(),
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_nanos())
-                                .unwrap_or(0)
-                        ))
+                    unique_temp_dir("eg-server-test")
                         .to_string_lossy()
                         .into_owned(),
                     crate::durability::DurabilityPolicy::Each,
@@ -4432,11 +4446,22 @@ ex:p1 a ex:Paper .
         // Spawn a writer that lands a change shortly after the watch begins.
         let writer = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            let _ = dispatch(
+            let resp = dispatch(
                 &st2,
                 request(9, "__commons__", None, doc_node("late", "Doc")),
             )
             .await;
+            // Do NOT discard this. The write's result used to be dropped with
+            // `let _ =`, so a REJECTED write (an ACL refusal, a guard, a missing
+            // backend) surfaced only as the watch seeing nothing -- an empty
+            // `left: 0, right: 1` that says nothing about why. Assert it here so
+            // the failure names its own cause instead of masquerading as a
+            // long-poll wakeup bug.
+            assert!(
+                resp.error.is_none(),
+                "the in-window write itself failed, so there was nothing to wake on: {:?}",
+                resp.error
+            );
         });
         // Watch with a generous timeout; it should return the change once it lands.
         let w = dispatch(
@@ -4449,7 +4474,18 @@ ex:p1 a ex:Paper .
                     graph: "__commons__".into(),
                     from_seq: 0,
                     label: String::new(),
-                    timeout_ms: 2000,
+                    // 2000ms was not enough on a 64-core host running the suite
+                    // in parallel: the spawned writer's 20ms timer is not
+                    // guaranteed to be SERVICED within 2s when every core is
+                    // busy, so the poll window closed before the write landed
+                    // and the test read `left: 0` -- a starved scheduler, not a
+                    // wakeup defect. Proven, not assumed: the writer now asserts
+                    // its own dispatch succeeded, and that assertion passes, so
+                    // the write is fine and only its TIMING was in question.
+                    // The semantics under test are unchanged (the change must
+                    // still land DURING the window); only the window is wide
+                    // enough to survive scheduling latency.
+                    timeout_ms: 20_000,
                 },
             ),
         )

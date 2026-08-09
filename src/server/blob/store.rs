@@ -478,14 +478,7 @@ impl RedbChunkStore {
     /// the OS temp reaper; callers that want cleanup pass their own dir to `open`.
     #[cfg(test)]
     pub fn open_temp() -> Result<Self, String> {
-        let dir = std::env::temp_dir().join(format!(
-            "eg-blob-cas-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
+        let dir = crate::server::unique_temp_dir("eg-blob-cas");
         Self::open(&dir.to_string_lossy())
     }
 }
