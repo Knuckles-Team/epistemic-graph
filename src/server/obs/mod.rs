@@ -851,32 +851,77 @@ async fn serve_inner(
     }
 }
 
-fn is_observability_read_carrier(method: &str, path: &str) -> bool {
-    method == "GET"
-        || path.starts_with("/api/v1/query")
+/// Every distinct operation the observability surface serves, classified by
+/// **route**, never by HTTP-verb shape (GOC-62-keycloak-auth-standard.md §5:
+/// "classify by declared operation semantics ... never by guessing from the
+/// verb, the path shape, or which paths happened to be enumerated when the
+/// gate was written").
+///
+/// BUG-037 (P0): the prior gate (`is_observability_read_carrier`) matched
+/// `method == "GET"` plus a handful of named query-shaped paths. Every
+/// ingest path this module routes below — `POST /v1/logs` (OTLP), `POST
+/// /_bulk`/`POST */_bulk` (ES bulk), `POST /<stream>/_doc` (ES single-doc),
+/// `POST /`/`/api/logs`/`/logs` (JSON-lines), `POST /v1/traces` (OTLP trace
+/// ingest), and `POST /api/v1/write` (Prometheus `remote_write`, feature
+/// `otel-export`) — is a `Method::POST` that names none of the read paths,
+/// so the gate was never reached for any of them, in every deployment
+/// configuration including `serve_with_security`. A mutation must be
+/// authorized AT LEAST as strictly as a read, never less (same doc, same
+/// section).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ObsOperation {
+    /// A query/search/label-listing op: PromQL (`/api/v1/query*`,
+    /// `/api/v1/labels`, `/api/v1/label/*`), the EG-162 `_search` surface
+    /// (SQL or structured, any of `/api/_search`, `/_search`,
+    /// `*/_search`), or trace search/assembly/dependency-graph reads
+    /// (`/api/traces`, `/api/traces/*`, `/api/dependencies`,
+    /// `/api/services/dependencies`).
+    Read,
+    /// An ingest/write op — every other path this listener accepts (see the
+    /// enumeration above), and the fail-closed default for any path this
+    /// classifier does not explicitly recognize as a `Read`: a surface that
+    /// cannot mint a caller must refuse, never proceed
+    /// (GOC-62-keycloak-auth-standard.md §4), so an as-yet-unenumerated path
+    /// gets the HIGHER obligation rather than silently passing through the
+    /// way the old GET-shaped allowlist did.
+    Mutation,
+}
+
+/// Classify `path` (already stripped of query string) as a [`ObsOperation`].
+/// Never called for the two no-data control requests `handle` answers
+/// BEFORE reaching the gate — CORS preflight (`OPTIONS`) and the health
+/// probe (`GET /healthz` / `GET /`) — so every path this function sees
+/// carries observability data one way or the other.
+fn classify_observability_operation(path: &str) -> ObsOperation {
+    let is_read = path.starts_with("/api/v1/query")
         || path == "/api/v1/labels"
         || path.starts_with("/api/v1/label/")
         || path == "/api/_search"
         || path == "/_search"
         || path.ends_with("/_search")
-        || ((path == "/api/traces"
-            || path.starts_with("/api/traces/")
-            || path == "/api/dependencies"
-            || path == "/api/services/dependencies")
-            && !(method == "POST" && path == "/v1/traces"))
+        || path == "/api/traces"
+        || path.starts_with("/api/traces/")
+        || path == "/api/dependencies"
+        || path == "/api/services/dependencies";
+    if is_read {
+        ObsOperation::Read
+    } else {
+        ObsOperation::Mutation
+    }
 }
 
-async fn observability_read_denied(
+async fn observability_access_denied(
     security_state: Option<&Arc<tokio::sync::RwLock<crate::server::ServerState>>>,
 ) -> bool {
     if security_state.is_none() {
         return false;
     }
-    // A18: PromQL/trace/log-search reads carry no credential this surface can
-    // verify yet (no `eg2.` envelope, bearer token, or other proof — see
-    // reports/issue-register.md, A18), so no `CarrierAuthority` can ever be
-    // minted here today; this always denies under `serve_with_security`,
-    // honestly (via the real check) rather than via the old unconditional stub.
+    // A18: neither observability reads NOR ingest/mutations carry a
+    // credential this surface can verify yet (no `eg2.` envelope, bearer
+    // token, or other proof), so no `CarrierAuthority` can ever be minted
+    // here today; this always denies under `serve_with_security`, honestly
+    // (via the real check) rather than via the old unconditional stub —
+    // and, per BUG-037, applies identically to both `ObsOperation` arms.
     crate::server::access::unauthenticated_carrier_denied(None)
 }
 
@@ -897,14 +942,23 @@ async fn handle(
     if path == "/healthz" || path == "/" && req.method == "GET" {
         return ("200 OK", "text/plain", "ok".to_string());
     }
-    if is_observability_read_carrier(&req.method, path)
-        && observability_read_denied(security_state).await
-    {
+    // BUG-037: gate every remaining path (both `Read` and `Mutation`) — not
+    // just the ones that happen to be GET/query-shaped. `handle`'s two
+    // no-data control returns (OPTIONS above, the health probe just above)
+    // already ran, so anything reaching this point genuinely serves
+    // observability data one way or the other.
+    if observability_access_denied(security_state).await {
+        let op = classify_observability_operation(path);
+        let noun = match op {
+            ObsOperation::Read => "read",
+            ObsOperation::Mutation => "ingest",
+        };
         return (
             "403 Forbidden",
             "text/plain",
-            "ACCESS_DENIED: observability read carriers require verified tenant ownership"
-                .to_string(),
+            format!(
+                "ACCESS_DENIED: observability {noun} carriers require verified tenant ownership"
+            ),
         );
     }
 
@@ -1696,8 +1750,8 @@ mod tests {
     /// "secured deployment" precondition -- this mirrors `server::mod::tests::test_state`
     /// exactly, duplicated here (not imported) because that helper is private to
     /// its own test module.
-    fn goc62_bug037_security_state() -> std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>
-    {
+    fn goc62_bug037_security_state(
+    ) -> std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>> {
         let isolation = crate::isolation::IsolationLayer::new();
         std::sync::Arc::new(tokio::sync::RwLock::new(crate::server::ServerState {
             #[cfg(feature = "redb")]
