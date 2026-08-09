@@ -252,14 +252,7 @@ fn finish_batch(
     // properties, query text, document bodies, or identifiers. Bind the outbox row to
     // the canonical operation list with a digest-only manifest; the authoritative
     // batch/state remains the recovery source.
-    let encoded_operations = rmp_serde::to_vec_named(&operations).map_err(|e| e.to_string())?;
-    use sha2::{Digest, Sha256};
-    let summary = rmp_serde::to_vec_named(&serde_json::json!({
-        "schema": "epistemic.mutation.projection.v1",
-        "operations": operations.len(),
-        "operations_sha256": hex::encode(Sha256::digest(&encoded_operations)),
-    }))
-    .map_err(|e| e.to_string())?;
+    let summary = projection_payload_for_operations(&operations)?;
     let mut scope_digest = Sha256::new();
     scope_digest.update(ctx.tenant.as_bytes());
     scope_digest.update([0]);
@@ -297,6 +290,56 @@ fn finish_batch(
     };
     batch.validate()?;
     Ok(batch)
+}
+
+/// Encode the derived projection wake-up for an immutable operation list.
+///
+/// Native resource retries compare this derived intent after normalizing the
+/// authority-owned lifecycle timestamp. Keeping the digest construction here
+/// prevents the retry path from drifting from the producer in `finish_batch`.
+pub(crate) fn projection_summary_for_operations(
+    operations: &[MutationOperation],
+) -> Result<Vec<u8>, String> {
+    let encoded_operations = rmp_serde::to_vec_named(operations).map_err(|e| e.to_string())?;
+    use sha2::{Digest, Sha256};
+    rmp_serde::to_vec_named(&serde_json::json!({
+        "schema": "epistemic.mutation.projection.v1",
+        "operations": operations.len(),
+        "operations_sha256": hex::encode(Sha256::digest(&encoded_operations)),
+    }))
+    .map_err(|e| e.to_string())
+}
+
+/// Encode the feature-aware projection wake-up payload for an operation list.
+///
+/// `epistemic-tms` replaces the ordinary summary with a typed
+/// `ReasoningProjectionWakeup`. Retry reconciliation must derive the same
+/// payload as the producer, including that feature-specific shape.
+pub(crate) fn projection_payload_for_operations(
+    operations: &[MutationOperation],
+) -> Result<Vec<u8>, String> {
+    #[cfg(feature = "epistemic-tms")]
+    {
+        use sha2::{Digest, Sha256};
+
+        let encoded_operations =
+            rmp_serde::to_vec_named(operations).map_err(|error| error.to_string())?;
+        let methods = operations
+            .iter()
+            .map(|operation| operation.method.clone())
+            .collect::<Vec<_>>();
+        let wakeup = eg_epistemic::ReasoningProjectionWakeup::new(
+            operations.len(),
+            hex::encode(Sha256::digest(encoded_operations)),
+            eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),
+        )?;
+        return rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string());
+    }
+
+    #[cfg(not(feature = "epistemic-tms"))]
+    {
+        projection_summary_for_operations(operations)
+    }
 }
 
 /// Durable pseudonym used by every native coordinator retry check.
@@ -364,7 +407,11 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> MutationD
         | Method::RenewWorkItemLease { .. }
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
-        | Method::DeferWorkItem { .. } => MutationDomain::ControlPlane,
+        | Method::DeferWorkItem { .. }
+        | Method::ReserveWorkItemResources { .. }
+        | Method::ReleaseWorkItemResources { .. }
+        | Method::ReclaimWorkItemResources { .. }
+        | Method::UpdateResourceHost { .. } => MutationDomain::ControlPlane,
         #[cfg(feature = "query")]
         Method::Sql { .. } => MutationDomain::SqlCatalog,
         #[cfg(feature = "rdf")]
@@ -424,8 +471,15 @@ fn surface_for(method: &Method) -> Option<MutationSurface> {
             Some(MutationSurface::Rdf)
         }
         Method::CreateGraph { .. } | Method::DeleteGraph { .. } => Some(MutationSurface::Lifecycle),
+        Method::ReserveWorkItemResources { .. }
+        | Method::ReleaseWorkItemResources { .. }
+        | Method::ReclaimWorkItemResources { .. }
+        | Method::UpdateResourceHost { .. } => Some(MutationSurface::Job),
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => Some(MutationSurface::Job),
+        Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. } => {
+            Some(MutationSurface::Query)
+        }
         #[cfg(feature = "broker")]
         Method::DeclareExchange { .. }
         | Method::DeleteExchange { .. }
@@ -491,6 +545,34 @@ pub(crate) fn is_work_item_method(method: &Method) -> bool {
     )
 }
 
+/// Result-producing native lifecycle mutations that must bypass the graph-core
+/// coordinator. Resource reservation methods share the WorkItem transaction
+/// kernel, but are not WorkItem state transitions themselves; keeping the
+/// classifier distinct lets the durable-applier inventory account for their
+/// GraphRedb authority separately.
+pub(crate) fn is_work_item_mutation_method(method: &Method) -> bool {
+    is_work_item_method(method) || is_resource_reservation_method(method)
+}
+
+pub(crate) fn is_resource_reservation_query_method(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. }
+    )
+}
+
+pub(crate) fn is_resource_reservation_method(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::ReserveWorkItemResources { .. }
+            | Method::ReleaseWorkItemResources { .. }
+            | Method::ReclaimWorkItemResources { .. }
+            | Method::QueryWorkItemReservation { .. }
+            | Method::ResourceReservationStatus { .. }
+            | Method::UpdateResourceHost { .. }
+    )
+}
+
 pub(crate) fn opaque_request_key(
     namespace: &str,
     graph: &str,
@@ -540,8 +622,15 @@ pub(crate) fn work_item_batch_identity(
         }
         | Method::DeferWorkItem {
             idempotency_key, ..
-        } => Some(idempotency_key.as_str()),
+        } => Some(idempotency_key.clone()),
         Method::ClaimWorkItem { .. } | Method::RenewWorkItemLease { .. } => None,
+        Method::ReserveWorkItemResources { request }
+        | Method::ReleaseWorkItemResources { request }
+        | Method::ReclaimWorkItemResources { request } => Some(request.idempotency_key.clone()),
+        Method::UpdateResourceHost { request } => Some(format!(
+            "resource-host:{}:{}",
+            request.host_ref, request.revision
+        )),
         _ => {
             return Err("WorkItem identity requires a WorkItem operation".to_string());
         }
@@ -838,6 +927,10 @@ pub(crate) async fn commit_work_item(
         | Method::CommitWorkItemResult { tenant, .. }
         | Method::CancelWorkItem { tenant, .. }
         | Method::DeferWorkItem { tenant, .. } => tenant.clone(),
+        Method::ReserveWorkItemResources { request }
+        | Method::ReleaseWorkItemResources { request }
+        | Method::ReclaimWorkItemResources { request } => request.tenant_ref.clone(),
+        Method::UpdateResourceHost { request } => request.tenant_ref.clone(),
         _ => return Err("commit_work_item received a non-WorkItem operation".to_string()),
     };
     if tenant.trim().is_empty() {

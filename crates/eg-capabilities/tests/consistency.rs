@@ -255,8 +255,19 @@ const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "FromMsgpack",
     "GraphQl",
     "IcvConfigure",
+    // Mining pipeline writes are committed by the dedicated pipeline handler,
+    // not by mutation_apply's graph-core replay classifier.
+    "MiningPipelinePredict",
+    "MiningPipelineServe",
+    "MiningPipelineTrain",
     "PruneByLifecycle",
+    // RMDD-27: native GraphRedb reservation/host transactions bypass the
+    // graph-core mutation applier and commit their resource indexes in the
+    // MutationBatch transaction.
+    "ReclaimWorkItemResources",
     "Reconcile",
+    "ReleaseWorkItemResources",
+    "ReserveWorkItemResources",
     // W2.5: self-translates into `Method::AddNode` (dispatch.rs) BEFORE any durable
     // commit -- exactly the "ApplyMultisigMutation -> ApplyMutation" shape above --
     // so its real durability is AddNode's own MUTATION_APPLY_DURABLE_GRAPHREDB entry.
@@ -264,6 +275,7 @@ const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "RunDatalogReasoning",
     "Sql",
     "TouchNodes",
+    "UpdateResourceHost",
 ];
 
 /// Mirrors `src/mutation_apply.rs::is_durable_mutation`'s message-broker/stream true set.

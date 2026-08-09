@@ -79,6 +79,8 @@ use crate::redb_store::{
     read_mutation_lifecycle_head as read_mutation_lifecycle_head_record,
     read_mutation_outbox as read_mutation_outbox_records,
     read_mutation_projection_cursor as read_mutation_projection_cursor_record, read_one_node,
+    read_resource_reservation as read_resource_reservation_record,
+    read_resource_reservation_status as read_resource_reservation_status_record,
     scan_xshard_decisions, scan_xshard_prepares, write_graph_meta, GraphDump, XshardDecisionScan,
     XshardPrepareScan, RAFT_LOG,
 };
@@ -1784,6 +1786,10 @@ pub fn rehydrate_core_from_dump(core: &GraphCore, dump: &GraphDump) {
 
 #[async_trait::async_trait]
 impl PersistenceBackend for RedbBackend {
+    fn supports_native_resource_reservations(&self) -> bool {
+        true
+    }
+
     async fn load_all(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
         let n = self.load_into(state).await?;
         tracing::info!(
@@ -2406,6 +2412,40 @@ impl PersistenceBackend for RedbBackend {
         #[cfg(not(feature = "security"))]
         let crypto = crate::redb_store::DurableCrypto::none();
         read_change_cursor_record(&db, tenant, graph_fname, source, partition, crypto)
+    }
+
+    async fn read_resource_reservation(
+        &self,
+        graph_fname: &str,
+        request: &crate::epistemic_operations::ResourceReservationStatusRequest,
+    ) -> Result<crate::epistemic_operations::ResourceReservationResult, String> {
+        let shard = self.shard_for(graph_fname);
+        let db = shard
+            .db
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
+        #[cfg(not(feature = "security"))]
+        let crypto = crate::redb_store::DurableCrypto::none();
+        read_resource_reservation_record(&db, graph_fname, request, crypto)
+    }
+
+    async fn read_resource_reservation_status(
+        &self,
+        graph_fname: &str,
+        request: &crate::epistemic_operations::ResourceReservationStatusRequest,
+    ) -> Result<crate::epistemic_operations::ResourceReservationStatusResult, String> {
+        let shard = self.shard_for(graph_fname);
+        let db = shard
+            .db
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
+        #[cfg(not(feature = "security"))]
+        let crypto = crate::redb_store::DurableCrypto::none();
+        read_resource_reservation_status_record(&db, graph_fname, request, crypto)
     }
 
     /// **Cross-modal ACID (CONCEPT:EG-KG.txn.reader-never-sees-node).** Land graph + vectors + blob-refs for ONE
@@ -3451,7 +3491,7 @@ fn handle_cmd(
             // re-apply a buffered op for it out of order, then drop ALL of its rows
             // (incl. graph_meta) in one durable transaction.
             commit_and_notify(db, pending, Durability::Immediate, crypto);
-            let _ = done.send(purge_graph_rows(db, &graph));
+            let _ = done.send(purge_graph_rows(db, &graph, crypto));
             false
         }
         Cmd::ReadNode {

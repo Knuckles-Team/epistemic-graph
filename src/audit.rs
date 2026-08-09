@@ -267,6 +267,25 @@ pub fn audit_line(method: &Method) -> Option<String> {
             next_retry_at_ms,
             ..
         } => format!("DEFER_WORK_ITEM|{tenant}|{work_item_id}|{lease_epoch}|{next_retry_at_ms}"),
+        Method::ReserveWorkItemResources { request } => format!(
+            "RESERVE_WORK_ITEM_RESOURCES|{}|{}|{}",
+            request.tenant_ref, request.work_item_id, request.attempt
+        ),
+        Method::ReleaseWorkItemResources { request } => format!(
+            "RELEASE_WORK_ITEM_RESOURCES|{}|{}|{}",
+            request.tenant_ref, request.work_item_id, request.attempt
+        ),
+        Method::ReclaimWorkItemResources { request } => format!(
+            "RECLAIM_WORK_ITEM_RESOURCES|{}|{}|{}",
+            request.tenant_ref, request.work_item_id, request.attempt
+        ),
+        Method::UpdateResourceHost { request } => format!(
+            "UPDATE_RESOURCE_HOST|{}|{}|{}",
+            request.tenant_ref, request.host_ref, request.revision
+        ),
+        Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. } => {
+            return None
+        }
         Method::Sql { query, .. } => format!(
             "SQL_MUTATION|sha256:{}",
             hex::encode(Sha256::digest(query.as_bytes()))
