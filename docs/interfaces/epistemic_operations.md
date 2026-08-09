@@ -50,9 +50,16 @@ configuration and never enter the shared records.
 
 ## Privacy boundary
 
-These control records carry opaque identifiers and governed or
-content-addressed references. They do not define fields for credentials,
-deployment endpoints, trust-bundle locations, personal names, email addresses,
-or local filesystem paths. `TraceOutcome` is deliberately content-free: raw
-prompts, responses, and exception text belong in separately governed artifacts
-and are referenced only when policy permits.
+These public control/result records carry opaque identifiers and governed or
+content-addressed references. They do not expose credentials, deployment
+endpoints, trust-bundle locations, personal names, email addresses, or local
+filesystem paths. `TraceOutcome` is deliberately content-free: raw prompts,
+responses, and exception text belong in separately governed artifacts and are
+referenced only when policy permits.
+
+The native development-lane authority keeps the managed worktree locator and
+host placement identity only in its encrypted durable hold. Reserve, renew,
+observe, finish, cleanup, exact-query, and status results project the bounded
+public hold with `worktree_locator` and `host_ref` set to `redacted` and
+`host_target_alias` omitted; no result or status page leaks a local path or
+private host alias.

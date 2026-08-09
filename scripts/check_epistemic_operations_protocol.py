@@ -87,6 +87,11 @@ DEVELOPMENT_LANE_REFUSALS = (
     "invalid",
 )
 DEVELOPMENT_LANE_DISK_COUNTER_DIMENSIONS = ("predicted", "observed", "retained")
+DEVELOPMENT_LANE_PUBLIC_RESULT_REDACTIONS = (
+    "worktree_locator",
+    "host_ref",
+    "host_target_alias",
+)
 DEVELOPMENT_LANE_INTENT_EXTENSION_KEY = "development_lane_intent"
 DEVELOPMENT_LANE_CLEANUP_EXTENSION_KEY = "development_lane_cleanup"
 DEVELOPMENT_LANE_GLOBAL_POLICY_TENANT_REF = "*"
@@ -151,6 +156,10 @@ def _check_development_lane_golden_vector() -> None:
         DEVELOPMENT_LANE_DISK_COUNTER_DIMENSIONS
     ):
         raise GateError("development-lane disk counter dimensions drifted")
+    if vector.get("public_result_redactions") != list(
+        DEVELOPMENT_LANE_PUBLIC_RESULT_REDACTIONS
+    ):
+        raise GateError("development-lane public result redactions drifted")
     if vector.get("lane_intent_extension_key") != DEVELOPMENT_LANE_INTENT_EXTENSION_KEY:
         raise GateError("development-lane intent extension key drifted")
     if vector.get("lane_cleanup_extension_key") != DEVELOPMENT_LANE_CLEANUP_EXTENSION_KEY:

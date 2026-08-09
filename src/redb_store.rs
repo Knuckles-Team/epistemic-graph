@@ -895,6 +895,11 @@ pub(crate) fn commit_ops(
     // no checkpoint.
     let mut touched: std::collections::HashSet<String> = std::collections::HashSet::new();
     {
+        // `commit_ops` is the embedded/raft low-level graph-row path.  Even
+        // though it predates the canonical MutationBatch kernel, every method
+        // is still a possible WorkItem image replacement, so validate the
+        // post-image before this transaction can commit.
+        let mut lane_validation_graphs = std::collections::BTreeSet::new();
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
         let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
         let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
@@ -928,6 +933,7 @@ pub(crate) fn commit_ops(
         let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
         for (graph, method) in ops.drain(..) {
             touched.insert(graph.clone());
+            lane_validation_graphs.insert(graph.clone());
             if matches!(&method, Method::ClearGraph | Method::DeleteGraph { .. }) {
                 clear_resource_rows(
                     &graph,
@@ -942,6 +948,7 @@ pub(crate) fn commit_ops(
                     &mut resource_disk_policies,
                     crypto,
                 )?;
+                development_lane::clear_native_graph_rows_in_wtx(&wtx, &graph, crypto)?;
             }
             apply_method_rows(
                 &graph,
@@ -954,6 +961,13 @@ pub(crate) fn commit_ops(
             )?;
             #[cfg(feature = "security")]
             append_audit_entry(&mut audit, audit_tail, &graph, &method)?;
+        }
+        drop(nodes);
+        drop(edges);
+        drop(ledger);
+        drop(semantic);
+        for graph in &lane_validation_graphs {
+            development_lane::validate_current_lane_links_in_wtx(&wtx, graph, crypto)?;
         }
         let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
         for g in &touched {
@@ -1860,6 +1874,12 @@ fn apply_mutation_batch_in_wtx(
     let mut generated_result: Option<Vec<u8>> = None;
 
     if let Some(AuthoritativeGraphState::Snapshot(snapshot)) = staged_state.as_ref() {
+        let incoming_nodes = snapshot
+            .nodes
+            .iter()
+            .map(|(node_id, properties)| (node_id.clone(), properties.as_ref().clone()))
+            .collect::<Vec<_>>();
+        development_lane::validate_lane_links_in_wtx(wtx, graph_fname, &incoming_nodes, crypto)?;
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
         let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
         let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
@@ -1948,6 +1968,11 @@ fn apply_mutation_batch_in_wtx(
                     .map_err(|error| error.to_string())?;
             }
         }
+        drop(nodes);
+        drop(edges);
+        drop(ledger);
+        drop(semantic);
+        development_lane::validate_current_lane_links_in_wtx(wtx, graph_fname, crypto)?;
 
         // The delta is an authenticated projection detail. Audit the original
         // opaque operation receipt so sensitive row properties are not copied
@@ -2021,6 +2046,7 @@ fn apply_mutation_batch_in_wtx(
                         &mut resource_disk_policies,
                         crypto,
                     )?;
+                    development_lane::clear_native_graph_rows_in_wtx(wtx, graph_fname, crypto)?;
                 }
                 Method::ClearGraph => {
                     clear_graph_rows(graph_fname, &mut nodes, &mut edges, &mut ledger)?;
@@ -2037,6 +2063,7 @@ fn apply_mutation_batch_in_wtx(
                         &mut resource_disk_policies,
                         crypto,
                     )?;
+                    development_lane::clear_native_graph_rows_in_wtx(wtx, graph_fname, crypto)?;
                 }
                 method @ (Method::ClaimWorkItem { .. }
                 | Method::RenewWorkItemLease { .. }
@@ -2107,6 +2134,17 @@ fn apply_mutation_batch_in_wtx(
                 &operation.method,
             )?;
         }
+        // The compact graph/control path can replace or remove a linked
+        // WorkItem just as a snapshot/row-delta can.  Release the ordinary
+        // table guards, then run the same lane lifecycle validator inside this
+        // write transaction before status/outbox metadata is staged.
+        drop(nodes);
+        drop(edges);
+        drop(ledger);
+        drop(semantic);
+        #[cfg(feature = "security")]
+        drop(audit);
+        development_lane::validate_current_lane_links_in_wtx(wtx, graph_fname, crypto)?;
     }
     if let Some(rows) = crossmodal.as_ref() {
         if !rows.methods.is_empty() {
@@ -2157,6 +2195,7 @@ fn apply_mutation_batch_in_wtx(
                     &mut resource_disk_policies,
                     crypto,
                 )?;
+                development_lane::clear_native_graph_rows_in_wtx(wtx, graph_fname, crypto)?;
             }
             for method in rows.methods {
                 apply_method_rows(
@@ -2169,6 +2208,11 @@ fn apply_mutation_batch_in_wtx(
                     crypto,
                 )?;
             }
+            drop(nodes);
+            drop(edges);
+            drop(ledger);
+            drop(semantic);
+            development_lane::validate_current_lane_links_in_wtx(wtx, graph_fname, crypto)?;
         }
         if rows
             .methods
@@ -2186,6 +2230,10 @@ fn apply_mutation_batch_in_wtx(
             rows.measurements,
             crypto,
         )?;
+        // Blob/vector projection is also an in-transaction node/semantic
+        // replacement surface.  Re-run the lane policy after it so the final
+        // image, not only the pre-projection graph rows, is what can commit.
+        development_lane::validate_current_lane_links_in_wtx(wtx, graph_fname, crypto)?;
     }
     let clears_semantic = authoritative_state_msgpack.is_none()
         && (matches!(lifecycle, Some((false, _, _)))
@@ -6872,6 +6920,12 @@ pub(crate) fn commit_crossmodal(
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
+    if methods
+        .iter()
+        .any(|method| matches!(method, Method::ClearGraph | Method::DeleteGraph { .. }))
+    {
+        development_lane::clear_native_graph_rows_in_wtx(&wtx, graph, crypto)?;
+    }
     {
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
         let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
@@ -6895,57 +6949,139 @@ pub(crate) fn commit_crossmodal(
             append_audit_entry(&mut audit, audit_tail, graph, method)?;
         }
 
-        // 2. Blob refs — a reserved `__blob__` node property pointing at the digest.
-        // Read-modify-write the node's property blob so the ref rides the node row.
-        // Unseal the current blob before merging, re-seal the merged result.
-        for (node_id, digest) in blob_refs {
-            let current = nodes
-                .get((graph, node_id.as_str()))
-                .map_err(|e| e.to_string())?
-                .map(|v| crypto.unseal(v.value()))
-                .transpose()?;
-            let mut props: serde_json::Map<String, serde_json::Value> = match current {
-                Some(bytes) => decode_durable(&bytes)?,
-                None => serde_json::Map::new(),
-            };
-            props.insert(
-                "__blob__".to_string(),
-                serde_json::Value::String(digest.clone()),
-            );
-            let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
-            let blob = crypto.seal(&bytes);
-            nodes
-                .insert((graph, node_id.as_str()), blob.as_ref())
-                .map_err(|e| e.to_string())?;
+        if methods.iter().any(|method| {
+            matches!(
+                method,
+                Method::AddNode { .. }
+                    | Method::RemoveNode { .. }
+                    | Method::CompareAndSetNodeFields { .. }
+                    | Method::BatchUpdate { .. }
+                    | Method::ClearGraph
+                    | Method::DeleteGraph { .. }
+            )
+        }) {
+            drop(nodes);
+            drop(edges);
+            drop(ledger);
+            drop(semantic);
+            #[cfg(feature = "security")]
+            drop(audit);
+            development_lane::validate_current_lane_links_in_wtx(&wtx, graph, crypto)?;
+            let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+            let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+
+            // 2. Blob refs — a reserved `__blob__` node property pointing at the digest.
+            // Read-modify-write the node's property blob so the ref rides the node row.
+            // Unseal the current blob before merging, re-seal the merged result.
+            for (node_id, digest) in blob_refs {
+                let current = nodes
+                    .get((graph, node_id.as_str()))
+                    .map_err(|e| e.to_string())?
+                    .map(|v| crypto.unseal(v.value()))
+                    .transpose()?;
+                let mut props: serde_json::Map<String, serde_json::Value> = match current {
+                    Some(bytes) => decode_durable(&bytes)?,
+                    None => serde_json::Map::new(),
+                };
+                props.insert(
+                    "__blob__".to_string(),
+                    serde_json::Value::String(digest.clone()),
+                );
+                let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
+                let blob = crypto.seal(&bytes);
+                nodes
+                    .insert((graph, node_id.as_str()), blob.as_ref())
+                    .map_err(|e| e.to_string())?;
+            }
+
+            // 3. Vectors — read-modify-write the graph's SEMANTIC store blob in-txn.
+            if !vectors.is_empty() {
+                let current = semantic
+                    .get(graph)
+                    .map_err(|e| e.to_string())?
+                    .map(|v| crypto.unseal(v.value()))
+                    .transpose()?;
+                let mut store = match current {
+                    Some(bytes) => {
+                        decode_durable::<crate::compute::semantic::SemanticStore>(&bytes)?
+                    }
+                    None => crate::compute::semantic::SemanticStore::default(),
+                };
+                for (node_id, embedding) in vectors {
+                    // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): see the identical comment in
+                    // `apply_crossmodal_projection_rows` above — `store` is a scratch
+                    // decode discarded on this early return, and per this function's own
+                    // doc comment ANY error here drops the whole `WriteTransaction`
+                    // without committing, so a rejected write here never partially lands.
+                    store
+                        .add_embedding(node_id.clone(), embedding.clone())
+                        .map_err(|error| error.to_string())?;
+                }
+                let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
+                let blob = crypto.seal(&bytes);
+                semantic
+                    .insert(graph, blob.as_ref())
+                    .map_err(|e| e.to_string())?;
+            }
+        } else {
+            // 2. Blob refs — a reserved `__blob__` node property pointing at the digest.
+            // Read-modify-write the node's property blob so the ref rides the node row.
+            // Unseal the current blob before merging, re-seal the merged result.
+            for (node_id, digest) in blob_refs {
+                let current = nodes
+                    .get((graph, node_id.as_str()))
+                    .map_err(|e| e.to_string())?
+                    .map(|v| crypto.unseal(v.value()))
+                    .transpose()?;
+                let mut props: serde_json::Map<String, serde_json::Value> = match current {
+                    Some(bytes) => decode_durable(&bytes)?,
+                    None => serde_json::Map::new(),
+                };
+                props.insert(
+                    "__blob__".to_string(),
+                    serde_json::Value::String(digest.clone()),
+                );
+                let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
+                let blob = crypto.seal(&bytes);
+                nodes
+                    .insert((graph, node_id.as_str()), blob.as_ref())
+                    .map_err(|e| e.to_string())?;
+            }
+
+            // 3. Vectors — read-modify-write the graph's SEMANTIC store blob in-txn.
+            if !vectors.is_empty() {
+                let current = semantic
+                    .get(graph)
+                    .map_err(|e| e.to_string())?
+                    .map(|v| crypto.unseal(v.value()))
+                    .transpose()?;
+                let mut store = match current {
+                    Some(bytes) => {
+                        decode_durable::<crate::compute::semantic::SemanticStore>(&bytes)?
+                    }
+                    None => crate::compute::semantic::SemanticStore::default(),
+                };
+                for (node_id, embedding) in vectors {
+                    // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): see the identical comment in
+                    // `apply_crossmodal_projection_rows` above — `store` is a scratch
+                    // decode discarded on this early return, and per this function's own
+                    // doc comment ANY error here drops the whole `WriteTransaction`
+                    // without committing, so a rejected write here never partially lands.
+                    store
+                        .add_embedding(node_id.clone(), embedding.clone())
+                        .map_err(|error| error.to_string())?;
+                }
+                let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
+                let blob = crypto.seal(&bytes);
+                semantic
+                    .insert(graph, blob.as_ref())
+                    .map_err(|e| e.to_string())?;
+            }
         }
 
-        // 3. Vectors — read-modify-write the graph's SEMANTIC store blob in-txn.
-        if !vectors.is_empty() {
-            let current = semantic
-                .get(graph)
-                .map_err(|e| e.to_string())?
-                .map(|v| crypto.unseal(v.value()))
-                .transpose()?;
-            let mut store = match current {
-                Some(bytes) => decode_durable::<crate::compute::semantic::SemanticStore>(&bytes)?,
-                None => crate::compute::semantic::SemanticStore::default(),
-            };
-            for (node_id, embedding) in vectors {
-                // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): see the identical comment in
-                // `apply_crossmodal_projection_rows` above — `store` is a scratch
-                // decode discarded on this early return, and per this function's own
-                // doc comment ANY error here drops the whole `WriteTransaction`
-                // without committing, so a rejected write here never partially lands.
-                store
-                    .add_embedding(node_id.clone(), embedding.clone())
-                    .map_err(|error| error.to_string())?;
-            }
-            let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
-            let blob = crypto.seal(&bytes);
-            semantic
-                .insert(graph, blob.as_ref())
-                .map_err(|e| e.to_string())?;
-        }
+        // Blob references are read-modify-write node projections and must be
+        // covered by the same final lane lifecycle check as topology methods.
+        development_lane::validate_current_lane_links_in_wtx(&wtx, graph, crypto)?;
 
         // 4. Measurements (CONCEPT:EG-KG.backend.cross-modal-atomic-commit) — append each time-series batch into
         // SERIES_CHUNKS/SERIES_META ON THIS transaction (the shared eg-tsdb chunk
@@ -7321,6 +7457,15 @@ pub(crate) fn apply_method_rows(
             apply_batch_rows(graph, operations_msgpack, nodes, edges, semantic, crypto)?;
         }
         Method::ClearGraph => {
+            clear_graph_rows(graph, nodes, edges, ledger)?;
+            semantic.remove(graph).map_err(|error| error.to_string())?;
+        }
+        Method::DeleteGraph { .. } => {
+            // The lifecycle caller performs the native/resource drain guard
+            // before entering this row applier.  Keep DeleteGraph's ordinary
+            // graph effect here as well so every low-level path (including
+            // cross-modal and checkpoint pending methods) cannot silently
+            // commit a no-op graph delete.
             clear_graph_rows(graph, nodes, edges, ledger)?;
             semantic.remove(graph).map_err(|error| error.to_string())?;
         }
@@ -8565,6 +8710,7 @@ pub(crate) fn purge_graph_rows(
             &mut disk_policies,
             crypto,
         )?;
+        development_lane::clear_native_graph_rows_in_wtx(&wtx, graph, crypto)?;
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(())
@@ -9023,7 +9169,6 @@ pub(crate) fn apply_checkpoint(
         let mut resource_disk_policies = wtx
             .open_table(RESOURCE_DISK_POLICIES)
             .map_err(|e| e.to_string())?;
-
         for (graph, method) in pending.iter().cloned() {
             if matches!(&method, Method::ClearGraph | Method::DeleteGraph { .. }) {
                 clear_resource_rows(
@@ -9039,6 +9184,7 @@ pub(crate) fn apply_checkpoint(
                     &mut resource_disk_policies,
                     crypto,
                 )?;
+                development_lane::clear_native_graph_rows_in_wtx(&wtx, &graph, crypto)?;
             }
             apply_method_rows(
                 &graph,
@@ -9075,6 +9221,17 @@ pub(crate) fn apply_checkpoint(
                 &mut resource_hosts,
                 crypto,
             )?;
+            {
+                let lane_holds = wtx
+                    .open_table(development_lane::HOLDS)
+                    .map_err(|e| e.to_string())?;
+                development_lane::validate_checkpoint_lane_links(
+                    &dump.graph,
+                    &dump.nodes,
+                    &lane_holds,
+                    crypto,
+                )?;
+            }
             clear_graph_rows(&dump.graph, &mut nodes, &mut edges, &mut ledger)?;
             // Resource rows are a separate native authority and are not part of
             // an ordinary GraphDump.  Preserve them across checkpoint image

@@ -39,8 +39,12 @@ use sha2::{Digest, Sha256};
 const MAX_TEXT: usize = 512;
 const MAX_FINGERPRINT: usize = 67;
 const MAX_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
+const MAX_DISK_BYTES: u64 = 1 << 50;
+const MAX_COUNT: u64 = 1 << 32;
 const MAX_STATUS_LIMIT: u64 = 100;
 const MAX_STATUS_SCAN: usize = 512;
+const MAX_INVOCATIONS_PER_TENANT: usize = 256;
+const MAX_INVOCATION_REPAIR_SCAN: usize = 4_096;
 const GLOBAL_POLICY_KEY: &str = "*";
 const WORK_ITEM_METADATA_KEY: &str = "metadata";
 const REPOSITORY_WORK_ITEM_EXTENSION_KEY: &str = "repository_work_item";
@@ -58,13 +62,18 @@ pub(crate) const HOLDS: TableDefinition<(&str, &str), &[u8]> =
 /// cleanup so a terminal hold is still discoverable without a full-table scan.
 pub(crate) const TENANT_INDEX: TableDefinition<(&str, &str, &str), &str> =
     TableDefinition::new("development_lane_tenant_index");
-/// Immutable lane identity `(tenant, lane_id) -> hold_id`.
-pub(crate) const LANE_INDEX: TableDefinition<(&str, &str), &str> =
+/// Immutable lane identity `(graph, tenant, lane_id) -> hold_id`.
+///
+/// The tenant is part of the key, not merely a value checked after lookup:
+/// two tenants may intentionally use the same opaque lane id without
+/// contending for one another's hold.
+pub(crate) const LANE_INDEX: TableDefinition<(&str, &str, &str), &str> =
     TableDefinition::new("development_lane_lane_index");
 /// Repository/branch exclusivity `(tenant, repository, branch) -> hold_id`.
 pub(crate) const REPOSITORY_BRANCH_INDEX: TableDefinition<(&str, &str, &str), &str> =
     TableDefinition::new("development_lane_repository_branch_index");
-/// Managed worktree locator exclusivity `(tenant, workspace/locator) -> hold_id`.
+/// Managed worktree locator exclusivity `(host, workspace, locator) -> hold_id`.
+/// The key is graph-wide so two tenants cannot claim the same host path.
 pub(crate) const WORKTREE_INDEX: TableDefinition<(&str, &str), &str> =
     TableDefinition::new("development_lane_worktree_index");
 /// One allocation winner per WorkItem attempt.
@@ -123,10 +132,73 @@ struct DurableLaneCounter {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DurableLaneInvocation {
     method: String,
     request_digest: String,
     result: Vec<u8>,
+}
+
+/// Invocation replay is a bounded acknowledgement-loss cache, not an event
+/// log.  Lexical retention is deliberately deterministic because the native
+/// redb transaction has no server-side wall clock in its replay key.  The
+/// current key is always retained for the duration of the commit so an
+/// uncertain acknowledgement can replay the exact result bytes.
+fn prune_invocations(
+    invocations: &mut redb::Table<(&str, &str, &str), &[u8]>,
+    graph: &str,
+    tenant: &str,
+    current_key: &str,
+) -> Result<(), String> {
+    let mut keys = Vec::new();
+    for row in invocations
+        .range((graph, tenant, "")..)
+        .map_err(|e| e.to_string())?
+    {
+        let (key, _) = row.map_err(|e| e.to_string())?;
+        let (row_graph, row_tenant, invocation_key) = key.value();
+        if row_graph != graph || row_tenant != tenant {
+            break;
+        }
+        text(invocation_key, "stored lane invocation key")
+            .map_err(|decision| format!("stored lane invocation: {}", decision_name(decision)))?;
+        keys.push(invocation_key.to_string());
+        if keys.len() > MAX_INVOCATION_REPAIR_SCAN {
+            return Err("lane invocation table exceeds bounded repair capacity".to_string());
+        }
+    }
+    if keys.len() <= MAX_INVOCATIONS_PER_TENANT {
+        return Ok(());
+    }
+    if !keys.iter().any(|key| key == current_key) {
+        return Err("lane invocation repair could not find current key".to_string());
+    }
+
+    // Redb orders this key range lexically.  Retain the newest lexical keys as
+    // the deterministic bounded history, then force the just-written key into
+    // the retained set even when it sorts below that window.  Remove every
+    // other key from this exact graph/tenant prefix in the same transaction.
+    let mut retained = std::collections::BTreeSet::new();
+    for key in keys.iter().rev().take(MAX_INVOCATIONS_PER_TENANT) {
+        retained.insert(key.clone());
+    }
+    retained.insert(current_key.to_string());
+    while retained.len() > MAX_INVOCATIONS_PER_TENANT {
+        let victim = retained
+            .iter()
+            .find(|key| key.as_str() != current_key)
+            .cloned()
+            .ok_or_else(|| "lane invocation retention cannot evict current key".to_string())?;
+        retained.remove(&victim);
+    }
+    for key in keys {
+        if !retained.contains(&key) {
+            invocations
+                .remove((graph, tenant, key.as_str()))
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,6 +272,691 @@ pub(crate) fn initialize_tables(wtx: &WriteTransaction) -> Result<(), String> {
     Ok(())
 }
 
+/// Clear every native lane row for a graph as part of the graph lifecycle
+/// transaction.  A live or retained-unpruned hold is an authority, not cache
+/// data, so ClearGraph/DeleteGraph must fail closed until its fenced cleanup is
+/// complete.  Once all holds are terminally cleaned (or an explicitly aborted
+/// tombstone), every lane table/index/counter/policy/replay row is removed in
+/// the same write transaction; a same-name recreation cannot inherit it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn clear_native_graph_rows(
+    graph: &str,
+    holds: &mut redb::Table<(&str, &str), &[u8]>,
+    tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
+    lane_index: &mut redb::Table<(&str, &str, &str), &str>,
+    branch_index: &mut redb::Table<(&str, &str, &str), &str>,
+    worktree_index: &mut redb::Table<(&str, &str), &str>,
+    work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policies: &mut redb::Table<(&str, &str), &[u8]>,
+    invocations: &mut redb::Table<(&str, &str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    text(graph, "lane graph").map_err(|_| "development lane graph key is invalid".to_string())?;
+    let mut hold_keys = Vec::new();
+    for row in holds.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (key, value) = row.map_err(|e| e.to_string())?;
+        let (row_graph, hold_id) = key.value();
+        if row_graph != graph {
+            break;
+        }
+        let row: DurableLaneHold = resource_decode(value.value(), crypto)?;
+        durable_hold_bounds(&row)?;
+        if matches!(
+            row.hold.state,
+            DevelopmentLaneHoldState::Allocating
+                | DevelopmentLaneHoldState::Active
+                | DevelopmentLaneHoldState::Submitted
+                | DevelopmentLaneHoldState::Released
+                | DevelopmentLaneHoldState::Expired
+                | DevelopmentLaneHoldState::CleanupPending
+        ) || row.hold.active_count_charged
+            || row.hold.retained_disk_bytes != 0
+        {
+            return Err("development lane graph lifecycle requires drained holds".to_string());
+        }
+        hold_keys.push(hold_id.to_string());
+    }
+    for hold_id in hold_keys {
+        holds
+            .remove((graph, hold_id.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+
+    let tenant_keys: Vec<(String, String)> = tenant_index
+        .range((graph, "", "")..)
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let (row_graph, tenant, hold_id) = key.value();
+            Ok::<_, String>((row_graph == graph, tenant.to_string(), hold_id.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .take_while(|(same_graph, _, _)| *same_graph)
+        .map(|(_, tenant, hold_id)| (tenant, hold_id))
+        .collect();
+    for (tenant, hold_id) in tenant_keys {
+        tenant_index
+            .remove((graph, tenant.as_str(), hold_id.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+    let lane_keys: Vec<(String, String)> = lane_index
+        .range((graph, "", "")..)
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let (row_graph, tenant, lane_id) = key.value();
+            Ok::<_, String>((row_graph == graph, tenant.to_string(), lane_id.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .take_while(|(same_graph, _, _)| *same_graph)
+        .map(|(_, tenant, lane_id)| (tenant, lane_id))
+        .collect();
+    for (tenant, lane_id) in lane_keys {
+        lane_index
+            .remove((graph, tenant.as_str(), lane_id.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+    let branch_keys: Vec<(String, String)> = branch_index
+        .range((graph, "", "")..)
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let (row_graph, tenant, branch) = key.value();
+            Ok::<_, String>((row_graph == graph, tenant.to_string(), branch.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .take_while(|(same_graph, _, _)| *same_graph)
+        .map(|(_, tenant, branch)| (tenant, branch))
+        .collect();
+    for (tenant, branch) in branch_keys {
+        branch_index
+            .remove((graph, tenant.as_str(), branch.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+    let worktree_keys: Vec<String> = worktree_index
+        .range((graph, "")..)
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let (row_graph, worktree) = key.value();
+            Ok::<_, String>((row_graph == graph, worktree.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .take_while(|(same_graph, _)| *same_graph)
+        .map(|(_, worktree)| worktree)
+        .collect();
+    for key in worktree_keys {
+        worktree_index
+            .remove((graph, key.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+    let work_item_keys: Vec<(String, u64)> = work_item_index
+        .range((graph, "", 0u64)..)
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let (row_graph, work_item, attempt) = key.value();
+            Ok::<_, String>((row_graph == graph, work_item.to_string(), attempt))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .take_while(|(same_graph, _, _)| *same_graph)
+        .map(|(_, work_item, attempt)| (work_item, attempt))
+        .collect();
+    for (work_item_id, attempt) in work_item_keys {
+        work_item_index
+            .remove((graph, work_item_id.as_str(), attempt))
+            .map_err(|e| e.to_string())?;
+    }
+    let counter_keys: Vec<String> = counters
+        .range((graph, "")..)
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let (row_graph, counter_key) = key.value();
+            Ok::<_, String>((row_graph == graph, counter_key.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .take_while(|(same_graph, _)| *same_graph)
+        .map(|(_, counter_key)| counter_key)
+        .collect();
+    for key in counter_keys {
+        counters
+            .remove((graph, key.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+    let pressure_keys: Vec<(String, String, String, u64, String)> = pressure_index
+        .range((graph, "", "", "", 0u64, "")..)
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let (_, tenant, scope, metric, value, counter_key) = key.value();
+            Ok::<_, String>((
+                key.value().0 == graph,
+                tenant.to_string(),
+                scope.to_string(),
+                metric.to_string(),
+                value,
+                counter_key.to_string(),
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .take_while(|(same_graph, _, _, _, _, _)| *same_graph)
+        .map(|(_, tenant, scope, metric, value, counter_key)| {
+            (tenant, scope, metric, value, counter_key)
+        })
+        .collect();
+    for (tenant, scope, metric, value, counter_key) in pressure_keys {
+        pressure_index
+            .remove((
+                graph,
+                tenant.as_str(),
+                scope.as_str(),
+                metric.as_str(),
+                value,
+                counter_key.as_str(),
+            ))
+            .map_err(|e| e.to_string())?;
+    }
+    let policy_keys: Vec<String> = policies
+        .range((graph, "")..)
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let (row_graph, tenant) = key.value();
+            Ok::<_, String>((row_graph == graph, tenant.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .take_while(|(same_graph, _)| *same_graph)
+        .map(|(_, tenant)| tenant)
+        .collect();
+    for key in policy_keys {
+        policies
+            .remove((graph, key.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+    let invocation_keys: Vec<(String, String)> = invocations
+        .range((graph, "", "")..)
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let (row_graph, tenant, invocation_key) = key.value();
+            Ok::<_, String>((
+                row_graph == graph,
+                tenant.to_string(),
+                invocation_key.to_string(),
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .take_while(|(same_graph, _, _)| *same_graph)
+        .map(|(_, tenant, invocation_key)| (tenant, invocation_key))
+        .collect();
+    for (tenant, key) in invocation_keys {
+        invocations
+            .remove((graph, tenant.as_str(), key.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Write-transaction adapter used by graph Clear/Delete/checkpoint paths.  It
+/// deliberately opens the complete lane table family here so callers cannot
+/// clear the ordinary graph/resource rows and forget one lane index.
+pub(crate) fn clear_native_graph_rows_in_wtx(
+    wtx: &WriteTransaction,
+    graph: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut holds = wtx.open_table(HOLDS).map_err(|e| e.to_string())?;
+    let mut tenant_index = wtx.open_table(TENANT_INDEX).map_err(|e| e.to_string())?;
+    let mut lane_index = wtx.open_table(LANE_INDEX).map_err(|e| e.to_string())?;
+    let mut branch_index = wtx
+        .open_table(REPOSITORY_BRANCH_INDEX)
+        .map_err(|e| e.to_string())?;
+    let mut worktree_index = wtx.open_table(WORKTREE_INDEX).map_err(|e| e.to_string())?;
+    let mut work_item_index = wtx.open_table(WORK_ITEM_INDEX).map_err(|e| e.to_string())?;
+    let mut counters = wtx.open_table(COUNTERS).map_err(|e| e.to_string())?;
+    let mut pressure_index = wtx.open_table(PRESSURE_INDEX).map_err(|e| e.to_string())?;
+    let mut policies = wtx.open_table(POLICIES).map_err(|e| e.to_string())?;
+    let mut invocations = wtx.open_table(INVOCATIONS).map_err(|e| e.to_string())?;
+    clear_native_graph_rows(
+        graph,
+        &mut holds,
+        &mut tenant_index,
+        &mut lane_index,
+        &mut branch_index,
+        &mut worktree_index,
+        &mut work_item_index,
+        &mut counters,
+        &mut pressure_index,
+        &mut policies,
+        &mut invocations,
+        crypto,
+    )
+}
+
+/// Ordinary checkpoints do not carry lane tables in `GraphDump`; the native
+/// rows therefore remain in place and the replacement image must prove every
+/// retained hold still has its exact immutable/fenced lifecycle WorkItem (and,
+/// after cleanup, its distinct cleanup WorkItem correlation).
+/// This is the lane equivalent of RMDD-27's resource-link validation and
+/// prevents restore from either discarding a live authority or preserving one
+/// whose WorkItem vanished from the incoming image.
+pub(crate) fn validate_checkpoint_lane_links<T>(
+    graph: &str,
+    incoming_nodes: &[(String, Vec<u8>)],
+    holds: &T,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String>
+where
+    T: ReadableTable<(&'static str, &'static str), &'static [u8]>,
+{
+    text(graph, "lane graph").map_err(|_| "development lane graph key is invalid".to_string())?;
+    let mut incoming = std::collections::HashMap::with_capacity(incoming_nodes.len());
+    for (id, bytes) in incoming_nodes {
+        text(id, "checkpoint WorkItem id")
+            .map_err(|_| "checkpoint WorkItem id is outside the native bound".to_string())?;
+        if incoming.insert(id.as_str(), bytes.as_slice()).is_some() {
+            return Err("checkpoint contains duplicate WorkItem node".to_string());
+        }
+    }
+    for row in holds.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (key, value) = row.map_err(|e| e.to_string())?;
+        let (row_graph, _) = key.value();
+        if row_graph != graph {
+            break;
+        }
+        let row: DurableLaneHold = resource_decode(value.value(), crypto)?;
+        durable_hold_bounds(&row)?;
+        if matches!(
+            row.hold.state,
+            DevelopmentLaneHoldState::Absent | DevelopmentLaneHoldState::Aborted
+        ) {
+            continue;
+        }
+        let bytes = incoming
+            .get(row.hold.work_item_id.as_str())
+            .ok_or_else(|| "checkpoint would orphan a development lane hold".to_string())?;
+        let props: serde_json::Map<String, serde_json::Value> =
+            decode_durable(bytes).map_err(|_| "checkpoint WorkItem decode failed".to_string())?;
+        let status = super::property_string(&props, "status");
+        if super::property_string(&props, "node_type") != "WorkItem"
+            || super::property_string(&props, "tenant") != row.hold.tenant_ref
+            || super::property_string(&props, "kind")
+                != work_item_kind_name(DevelopmentLaneWorkItemKind::Lifecycle)
+            || super::property_u64(&props, "attempt") != row.hold.attempt
+            || super::property_u64(&props, "lease_epoch") != row.hold.lease_epoch
+            || super::property_u64(&props, "fencing_token") != row.hold.fencing_token
+            || super::property_string(&props, "work_item_fence") != row.hold.work_item_fence
+        {
+            return Err("checkpoint development lane WorkItem fence mismatch".to_string());
+        }
+        if !checkpoint_lifecycle_status_matches(&row, status) {
+            return Err("checkpoint development lane WorkItem status/state mismatch".to_string());
+        }
+        let intent = lane_intent_value(&props)
+            .map_err(|_| "checkpoint development lane intent missing".to_string())?;
+        if !lane_intent_matches_hold(
+            Some(&intent),
+            &row.hold,
+            row.ttl_ms,
+            &row.resource_reservation_id,
+        ) {
+            return Err("checkpoint development lane intent mismatch".to_string());
+        }
+        if row.hold.state == DevelopmentLaneHoldState::Cleaned {
+            let cleanup_id =
+                row.hold.cleanup_work_item_id.as_deref().ok_or_else(|| {
+                    "checkpoint cleaned lane cleanup WorkItem missing".to_string()
+                })?;
+            let cleanup_fence = row
+                .hold
+                .cleanup_work_item_fence
+                .as_deref()
+                .ok_or_else(|| "checkpoint cleaned lane cleanup fence missing".to_string())?;
+            let cleanup_attempt = row
+                .hold
+                .cleanup_attempt
+                .ok_or_else(|| "checkpoint cleaned lane cleanup attempt missing".to_string())?;
+            let cleanup_lease_epoch = row
+                .hold
+                .cleanup_lease_epoch
+                .ok_or_else(|| "checkpoint cleaned lane cleanup lease epoch missing".to_string())?;
+            let cleanup_fencing_token = row.hold.cleanup_fencing_token.ok_or_else(|| {
+                "checkpoint cleaned lane cleanup fencing token missing".to_string()
+            })?;
+            let expected_revision = row
+                .cleanup_expected_hold_revision
+                .ok_or_else(|| "checkpoint cleaned lane cleanup revision missing".to_string())?;
+            let cleanup_bytes = incoming.get(cleanup_id).ok_or_else(|| {
+                "checkpoint would orphan a cleaned lane cleanup WorkItem".to_string()
+            })?;
+            let cleanup_props: serde_json::Map<String, serde_json::Value> =
+                decode_durable(cleanup_bytes)
+                    .map_err(|_| "checkpoint cleanup WorkItem decode failed".to_string())?;
+            let cleanup_status = super::property_string(&cleanup_props, "status");
+            let cleanup_terminal = matches!(
+                cleanup_status,
+                "succeeded" | "failed" | "cancelled" | "dead_letter"
+            );
+            if super::property_string(&cleanup_props, "node_type") != "WorkItem"
+                || super::property_string(&cleanup_props, "tenant") != row.hold.tenant_ref
+                || super::property_string(&cleanup_props, "kind")
+                    != work_item_kind_name(DevelopmentLaneWorkItemKind::Cleanup)
+                || super::property_u64(&cleanup_props, "attempt") != cleanup_attempt
+                || super::property_u64(&cleanup_props, "lease_epoch") != cleanup_lease_epoch
+                || super::property_u64(&cleanup_props, "fencing_token") != cleanup_fencing_token
+                || super::property_string(&cleanup_props, "work_item_fence") != cleanup_fence
+                || (!cleanup_terminal && !matches!(cleanup_status, "leased" | "running"))
+            {
+                return Err("checkpoint cleaned lane cleanup WorkItem fence mismatch".to_string());
+            }
+            let cleanup = lane_cleanup_value(&cleanup_props)
+                .map_err(|_| "checkpoint cleaned lane cleanup intent missing".to_string())?;
+            if cleanup.hold_id != row.hold.hold_id
+                || cleanup.lane_id != row.hold.lane_id
+                || cleanup.expected_hold_revision != expected_revision
+            {
+                return Err("checkpoint cleaned lane cleanup intent mismatch".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validate a replacement image against the lane rows already staged in the
+/// caller's write transaction.  Snapshot/row-delta commits use this seam before
+/// their transaction can commit, so a WorkItem replacement cannot orphan a live
+/// or retained lane authority.
+pub(crate) fn validate_lane_links_in_wtx(
+    wtx: &WriteTransaction,
+    graph: &str,
+    incoming_nodes: &[(String, Vec<u8>)],
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let holds = wtx.open_table(HOLDS).map_err(|e| e.to_string())?;
+    validate_checkpoint_lane_links(graph, incoming_nodes, &holds, crypto)
+}
+
+/// Validate the current post-delta WorkItem image from the same write
+/// transaction.  Node values are unsealed before they are passed to the
+/// checkpoint validator, preserving the exact WorkItem extension checks while
+/// keeping the lane and graph replacement atomic.
+pub(crate) fn validate_current_lane_links_in_wtx(
+    wtx: &WriteTransaction,
+    graph: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let incoming_nodes = {
+        let nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let mut incoming_nodes = Vec::new();
+        for row in nodes.range((graph, "")..).map_err(|e| e.to_string())? {
+            let (key, value) = row.map_err(|e| e.to_string())?;
+            let (row_graph, node_id) = key.value();
+            if row_graph != graph {
+                break;
+            }
+            incoming_nodes.push((node_id.to_string(), crypto.unseal(value.value())?));
+        }
+        incoming_nodes
+    };
+    validate_lane_links_in_wtx(wtx, graph, &incoming_nodes, crypto)
+}
+
+fn checkpoint_lifecycle_status_matches(row: &DurableLaneHold, status: &str) -> bool {
+    let terminal = matches!(status, "succeeded" | "failed" | "cancelled" | "dead_letter");
+    let terminal_state_matches = row
+        .terminal_state
+        .as_deref()
+        .is_some_and(|expected| expected == status);
+    match row.hold.state {
+        // A live hold must still have the current lease claim and no terminal
+        // replay tuple.  Ready/pending rows are not authoritative claims.
+        DevelopmentLaneHoldState::Allocating
+        | DevelopmentLaneHoldState::Active
+        | DevelopmentLaneHoldState::Submitted => {
+            matches!(status, "leased" | "running")
+                && !terminal
+                && row.terminal_state.is_none()
+                && row.terminal_expected_hold_revision.is_none()
+        }
+        // Finish records the exact terminal outcome and the pre-finish hold
+        // revision; cleanup can reconcile this retained charge later.
+        DevelopmentLaneHoldState::CleanupPending => {
+            terminal
+                && terminal_state_matches
+                && row.terminal_expected_hold_revision.is_some()
+                && row.hold.tombstone
+                && !row.hold.active_count_charged
+                && row.hold.retained_disk_bytes != 0
+        }
+        // Expiry can race the WorkItem terminal transition.  Both a still-live
+        // leased/running claim and an exact terminal outcome remain cleanable,
+        // but neither may carry a finish terminal replay tuple.
+        DevelopmentLaneHoldState::Expired => {
+            (matches!(status, "leased" | "running") || terminal)
+                && row.terminal_state.is_none()
+                && row.terminal_expected_hold_revision.is_none()
+                && row.hold.tombstone
+                && !row.hold.active_count_charged
+        }
+        // Released is a terminal retained state in the durable vocabulary; it
+        // must carry the same exact outcome mapping as CleanupPending.
+        DevelopmentLaneHoldState::Released => {
+            terminal
+                && terminal_state_matches
+                && row.terminal_expected_hold_revision.is_some()
+                && row.hold.tombstone
+                && !row.hold.active_count_charged
+                && row.hold.retained_disk_bytes != 0
+        }
+        // Cleanup has released the retained charge, but the lifecycle terminal
+        // outcome and replay revision remain bound to the tombstone.
+        DevelopmentLaneHoldState::Cleaned => {
+            terminal
+                && terminal_state_matches
+                && row.terminal_expected_hold_revision.is_some()
+                && row.hold.tombstone
+                && !row.hold.active_count_charged
+                && row.hold.retained_disk_bytes == 0
+        }
+        DevelopmentLaneHoldState::Aborted | DevelopmentLaneHoldState::Absent => true,
+    }
+}
+
+/// Validate persisted hold identifiers before they can be used as a table
+/// lookup key or scope component.  Native rows are encrypted, but encryption
+/// authenticates bytes; it does not make a corrupt/old row safe to feed into
+/// redb or a pressure index.  Reconciliation and graph lifecycle therefore
+/// fail closed on the same bounded vocabulary as fresh requests.
+fn durable_hold_bounds(row: &DurableLaneHold) -> Result<(), String> {
+    bounded_texts(&[
+        (&row.hold.hold_id, "stored hold"),
+        (&row.hold.lane_id, "stored lane"),
+        (&row.hold.tenant_ref, "stored tenant"),
+        (&row.hold.request_id, "stored request"),
+        (&row.hold.work_item_id, "stored WorkItem"),
+        (&row.hold.owner_id, "stored owner"),
+        (&row.hold.session_id, "stored session"),
+        (&row.hold.fairness_group, "stored fairness group"),
+        (&row.hold.workspace_ref, "stored workspace"),
+        (&row.hold.repository_id, "stored repository"),
+        (&row.hold.base_ref, "stored base ref"),
+        (&row.hold.branch, "stored branch"),
+        (&row.hold.host_ref, "stored host"),
+        (&row.resource_reservation_id, "stored resource reservation"),
+        (&row.hold.work_item_fence, "stored WorkItem fence"),
+        (&row.hold.quota_policy_name, "stored policy name"),
+        (&row.hold.quota_policy_version, "stored policy version"),
+    ])
+    .map_err(|decision| format!("stored development lane hold: {}", decision_name(decision)))?;
+    fingerprint(&row.hold.hold_id)
+        .map_err(|decision| format!("stored development lane hold: {}", decision_name(decision)))?;
+    base_sha(&row.hold.base_sha)
+        .map_err(|decision| format!("stored development lane hold: {}", decision_name(decision)))?;
+    relative_locator(&row.hold.worktree_locator)
+        .map_err(|decision| format!("stored development lane hold: {}", decision_name(decision)))?;
+    fingerprint(&row.hold.input_fingerprint)
+        .map_err(|decision| format!("stored development lane hold: {}", decision_name(decision)))?;
+    if let Some(alias) = row.hold.host_target_alias.as_deref() {
+        text(alias, "stored host alias").map_err(|decision| {
+            format!("stored development lane hold: {}", decision_name(decision))
+        })?;
+    }
+    if matches!(
+        (
+            row.hold.host_target_kind,
+            row.hold.host_target_alias.is_some()
+        ),
+        (DevelopmentLaneHoldHostTargetKind::Local, true)
+            | (DevelopmentLaneHoldHostTargetKind::InventoryAlias, false)
+    ) {
+        return Err("stored lane host target does not match its alias".to_string());
+    }
+    for (value, name) in [
+        (row.hold.predicted_disk_bytes, "stored predicted disk"),
+        (row.hold.observed_disk_bytes, "stored observed disk"),
+        (row.hold.retained_disk_bytes, "stored retained disk"),
+    ] {
+        if value > MAX_DISK_BYTES {
+            return Err(format!("{name} exceeds native bound"));
+        }
+    }
+    if [
+        row.hold.quota_charge.tenant_count,
+        row.hold.quota_charge.owner_count,
+        row.hold.quota_charge.session_count,
+        row.hold.quota_charge.workspace_count,
+        row.hold.quota_charge.repository_count,
+        row.hold.quota_charge.host_count,
+        row.hold.quota_charge.global_count,
+    ]
+    .into_iter()
+    .any(|value| value > MAX_COUNT)
+    {
+        return Err("stored lane quota count exceeds native bound".to_string());
+    }
+    if [
+        row.hold.quota_charge.tenant_predicted_disk_bytes,
+        row.hold.quota_charge.owner_predicted_disk_bytes,
+        row.hold.quota_charge.session_predicted_disk_bytes,
+        row.hold.quota_charge.workspace_predicted_disk_bytes,
+        row.hold.quota_charge.repository_predicted_disk_bytes,
+        row.hold.quota_charge.host_predicted_disk_bytes,
+        row.hold.quota_charge.global_predicted_disk_bytes,
+        row.hold.quota_charge.tenant_observed_disk_bytes,
+        row.hold.quota_charge.owner_observed_disk_bytes,
+        row.hold.quota_charge.session_observed_disk_bytes,
+        row.hold.quota_charge.workspace_observed_disk_bytes,
+        row.hold.quota_charge.repository_observed_disk_bytes,
+        row.hold.quota_charge.host_observed_disk_bytes,
+        row.hold.quota_charge.global_observed_disk_bytes,
+        row.hold.quota_charge.tenant_retained_disk_bytes,
+        row.hold.quota_charge.owner_retained_disk_bytes,
+        row.hold.quota_charge.session_retained_disk_bytes,
+        row.hold.quota_charge.workspace_retained_disk_bytes,
+        row.hold.quota_charge.repository_retained_disk_bytes,
+        row.hold.quota_charge.host_retained_disk_bytes,
+        row.hold.quota_charge.global_retained_disk_bytes,
+    ]
+    .into_iter()
+    .any(|value| value > MAX_DISK_BYTES)
+    {
+        return Err("stored lane quota disk charge exceeds native bound".to_string());
+    }
+    if row.hold.quota_charge.revision > MAX_COUNT
+        || row.hold.quota_charge.policy_revision > MAX_COUNT
+    {
+        return Err("stored lane quota revision exceeds native bound".to_string());
+    }
+    if row.ttl_ms == 0 || row.ttl_ms > MAX_TTL_MS {
+        return Err("stored lane TTL exceeds native bound".to_string());
+    }
+    if row.observation_revision > MAX_COUNT
+        || row.hold.attempt == 0
+        || row.hold.attempt > MAX_COUNT
+        || row.hold.lease_epoch == 0
+        || row.hold.lease_epoch > MAX_COUNT
+        || row.hold.fencing_token == 0
+        || row.hold.fencing_token > MAX_COUNT
+        || row.hold.hold_revision > MAX_COUNT
+        || row.hold.lifecycle_revision > MAX_COUNT
+        || row.hold.allocation_revision > MAX_COUNT
+        || row.hold.cleanup_revision > MAX_COUNT
+    {
+        return Err("stored lane fence is invalid".to_string());
+    }
+    if row.hold.last_renewed_at_ms > row.hold.expires_at_ms
+        || row
+            .last_observed_at_ms
+            .is_some_and(|observed_at| observed_at > row.hold.expires_at_ms)
+    {
+        return Err("stored lane observation timestamp is invalid".to_string());
+    }
+    if let Some(value) = row.terminal_state.as_deref() {
+        text(value, "stored terminal state").map_err(|decision| {
+            format!("stored development lane hold: {}", decision_name(decision))
+        })?;
+        if !matches!(value, "succeeded" | "failed" | "cancelled" | "dead_letter") {
+            return Err("stored development lane terminal state is invalid".to_string());
+        }
+    }
+    for (value, name) in [
+        (
+            row.hold.cleanup_work_item_id.as_deref(),
+            "stored cleanup WorkItem",
+        ),
+        (
+            row.hold.cleanup_work_item_fence.as_deref(),
+            "stored cleanup fence",
+        ),
+    ] {
+        if let Some(value) = value {
+            text(value, name).map_err(|decision| {
+                format!("stored development lane hold: {}", decision_name(decision))
+            })?;
+        }
+    }
+    for (value, name) in [
+        (row.hold.cleanup_attempt, "stored cleanup attempt"),
+        (row.hold.cleanup_lease_epoch, "stored cleanup lease epoch"),
+        (
+            row.hold.cleanup_fencing_token,
+            "stored cleanup fencing token",
+        ),
+        (
+            row.terminal_expected_hold_revision,
+            "stored terminal hold revision",
+        ),
+        (
+            row.cleanup_expected_hold_revision,
+            "stored cleanup hold revision",
+        ),
+    ] {
+        if let Some(value) = value {
+            if value == 0 || value > MAX_COUNT {
+                return Err(format!("{name} exceeds native bound"));
+            }
+        }
+    }
+    if let Some(value) = row.cleanup_removal_proof_ref.as_deref() {
+        text(value, "stored cleanup removal proof").map_err(|decision| {
+            format!("stored development lane hold: {}", decision_name(decision))
+        })?;
+    }
+    Ok(())
+}
+
 fn text(value: &str, name: &str) -> Result<(), LaneDecision> {
     if value.is_empty()
         || value.len() > MAX_TEXT
@@ -265,7 +1022,11 @@ fn intent_validate(intent: &DevelopmentLaneIntent) -> Result<(), LaneDecision> {
     text(&intent.quota_policy_name, "intent policy")?;
     text(&intent.quota_policy_version, "intent policy version")?;
     fingerprint(&intent.input_fingerprint)?;
-    if intent.predicted_disk_bytes == 0 || intent.ttl_ms == 0 || intent.ttl_ms > MAX_TTL_MS {
+    if intent.predicted_disk_bytes == 0
+        || intent.predicted_disk_bytes > MAX_DISK_BYTES
+        || intent.ttl_ms == 0
+        || intent.ttl_ms > MAX_TTL_MS
+    {
         return Err(LaneDecision::Invalid);
     }
     match intent.host_target_kind {
@@ -288,35 +1049,6 @@ fn intent_validate(intent: &DevelopmentLaneIntent) -> Result<(), LaneDecision> {
         "intent resource reservation id",
     )?;
     Ok(())
-}
-
-fn work_item_kind(props: &serde_json::Map<String, serde_json::Value>) -> &str {
-    let direct = super::property_string(props, "kind");
-    if !direct.is_empty() {
-        direct
-    } else {
-        super::property_string(props, "work_item_kind")
-    }
-}
-
-fn nested_string<'a>(
-    props: &'a serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> Option<&'a str> {
-    if let Some(value) = props.get(key).and_then(serde_json::Value::as_str) {
-        return Some(value);
-    }
-    let metadata = props
-        .get("metadata")
-        .and_then(serde_json::Value::as_object)?;
-    if let Some(value) = metadata.get(key).and_then(serde_json::Value::as_str) {
-        return Some(value);
-    }
-    metadata
-        .get("repository_work_item")
-        .and_then(serde_json::Value::as_object)
-        .and_then(|row| row.get(key))
-        .and_then(serde_json::Value::as_str)
 }
 
 fn repository_work_item_extension<'a>(
@@ -365,12 +1097,6 @@ fn lane_cleanup_value(
     Ok(correlation)
 }
 
-fn stored_fence(props: &serde_json::Map<String, serde_json::Value>) -> Option<&str> {
-    ["work_item_fence", "fence"]
-        .into_iter()
-        .find_map(|key| nested_string(props, key))
-}
-
 fn load_work_item(
     nodes: &redb::Table<(&str, &str), &[u8]>,
     graph: &str,
@@ -406,7 +1132,10 @@ fn load_work_item(
     if super::property_string(&props, "tenant") != tenant {
         return Err(LaneDecision::WrongTenant);
     }
-    if work_item_kind(&props) != work_item_kind_name(expected_kind) {
+    // `kind` and `work_item_fence` are the only frozen WorkItem projection
+    // fields.  Do not search generic aliases or nested metadata: an echoed
+    // `work_item_kind`/`fence` must never become an authority claim.
+    if super::property_string(&props, "kind") != work_item_kind_name(expected_kind) {
         return Err(LaneDecision::WrongKind);
     }
     if attempt == 0 || lease_epoch == 0 || fencing_token == 0 || work_item_fence.is_empty() {
@@ -422,7 +1151,7 @@ fn load_work_item(
     if super::property_u64(&props, "fencing_token") != fencing_token {
         return Err(LaneDecision::WrongFence);
     }
-    if stored_fence(&props) != Some(work_item_fence) {
+    if super::property_string(&props, "work_item_fence") != work_item_fence {
         return Err(LaneDecision::WrongFence);
     }
     let status = super::property_string(&props, "status").to_string();
@@ -577,6 +1306,37 @@ enum Metric {
     Retained,
 }
 
+fn durable_policy_bounds(row: &DurableLanePolicy) -> Result<(), String> {
+    policy_validate(&row.policy).map_err(|decision| {
+        format!(
+            "stored development lane policy: {}",
+            decision_name(decision)
+        )
+    })?;
+    if row.policy_revision == 0
+        || row.policy_revision > MAX_COUNT
+        || row.global_policy_revision == 0
+        || row.global_policy_revision > MAX_COUNT
+    {
+        return Err("stored development lane policy revision is invalid".to_string());
+    }
+    Ok(())
+}
+
+fn durable_counter_bounds(value: &DurableLaneCounter) -> Result<(), String> {
+    if value.active_count > MAX_COUNT
+        || value.predicted_disk_bytes > MAX_DISK_BYTES
+        || value.observed_disk_bytes > MAX_DISK_BYTES
+        || value.retained_disk_bytes > MAX_DISK_BYTES
+        || value.revision > MAX_COUNT
+        || value.policy_revision > MAX_COUNT
+        || value.global_policy_revision > MAX_COUNT
+    {
+        return Err("stored development lane counter exceeds native bounds".to_string());
+    }
+    Ok(())
+}
+
 fn load_policy<T>(
     policies: &T,
     graph: &str,
@@ -589,7 +1349,11 @@ where
     policies
         .get((graph, tenant))
         .map_err(|e| e.to_string())?
-        .map(|row| resource_decode(row.value(), crypto))
+        .map(|row| {
+            let decoded: DurableLanePolicy = resource_decode(row.value(), crypto)?;
+            durable_policy_bounds(&decoded)?;
+            Ok::<DurableLanePolicy, String>(decoded)
+        })
         .transpose()
 }
 
@@ -638,7 +1402,11 @@ where
     let value: DurableLaneCounter = counters
         .get((graph, key))
         .map_err(|e| e.to_string())?
-        .map(|row| resource_decode(row.value(), crypto))
+        .map(|row| {
+            let decoded: DurableLaneCounter = resource_decode(row.value(), crypto)?;
+            durable_counter_bounds(&decoded)?;
+            Ok::<DurableLaneCounter, String>(decoded)
+        })
         .transpose()?
         .unwrap_or_default();
     if scope == Scope::Global {
@@ -1127,6 +1895,7 @@ fn hold_encode(
     row: &DurableLaneHold,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    durable_hold_bounds(row)?;
     let bytes = resource_encode(row, crypto)?;
     holds
         .insert((graph, row.hold.hold_id.as_str()), bytes.as_slice())
@@ -1146,7 +1915,11 @@ where
     holds
         .get((graph, hold_id))
         .map_err(|e| e.to_string())?
-        .map(|row| resource_decode(row.value(), crypto))
+        .map(|row| {
+            let decoded: DurableLaneHold = resource_decode(row.value(), crypto)?;
+            durable_hold_bounds(&decoded)?;
+            Ok(decoded)
+        })
         .transpose()
 }
 
@@ -1204,6 +1977,140 @@ fn normalize_now(method: &Method, now_ms: u64) -> Option<Method> {
     Some(method)
 }
 
+fn bounded_texts(values: &[(&str, &str)]) -> Result<(), LaneDecision> {
+    for (value, name) in values {
+        text(value, name)?;
+    }
+    Ok(())
+}
+
+/// Validate every caller-controlled key before opening a native table or
+/// consulting an index.  The individual transaction functions repeat the
+/// checks needed for their typed decision, but this early gate prevents an
+/// oversized opaque key/fence from reaching redb at all.
+fn validate_method_bounds(graph: &str, method: &Method) -> Result<(), LaneDecision> {
+    text(graph, "lane graph")?;
+    match method {
+        Method::ReserveDevelopmentLane { request } => {
+            intent_validate(&request.intent)?;
+            bounded_texts(&[
+                (&request.tenant_ref, "reserve tenant"),
+                (&request.work_item_id, "reserve WorkItem"),
+                (&request.owner_id, "reserve owner"),
+                (&request.work_item_fence, "reserve fence"),
+                (&request.idempotency_key, "reserve invocation"),
+            ])?;
+            if request.attempt == 0 || request.lease_epoch == 0 || request.fencing_token == 0 {
+                return Err(LaneDecision::Invalid);
+            }
+        }
+        Method::RenewDevelopmentLane { request } => {
+            bounded_texts(&[
+                (&request.tenant_ref, "renew tenant"),
+                (&request.work_item_id, "renew WorkItem"),
+                (&request.owner_id, "renew owner"),
+                (&request.work_item_fence, "renew fence"),
+                (&request.hold_id, "renew hold"),
+                (&request.idempotency_key, "renew invocation"),
+            ])?;
+            if request.attempt == 0
+                || request.lease_epoch == 0
+                || request.fencing_token == 0
+                || request.ttl_ms == 0
+                || request.ttl_ms > MAX_TTL_MS
+            {
+                return Err(LaneDecision::Invalid);
+            }
+        }
+        Method::ObserveDevelopmentLane { request } => {
+            bounded_texts(&[
+                (&request.tenant_ref, "observe tenant"),
+                (&request.work_item_id, "observe WorkItem"),
+                (&request.owner_id, "observe owner"),
+                (&request.work_item_fence, "observe fence"),
+                (&request.hold_id, "observe hold"),
+                (&request.idempotency_key, "observe invocation"),
+            ])?;
+            if request.attempt == 0
+                || request.lease_epoch == 0
+                || request.fencing_token == 0
+                || request.observed_disk_bytes > MAX_DISK_BYTES
+            {
+                return Err(LaneDecision::Invalid);
+            }
+        }
+        Method::FinishDevelopmentLane { request } => {
+            bounded_texts(&[
+                (&request.tenant_ref, "finish tenant"),
+                (&request.work_item_id, "finish WorkItem"),
+                (&request.owner_id, "finish owner"),
+                (&request.work_item_fence, "finish fence"),
+                (&request.hold_id, "finish hold"),
+                (&request.idempotency_key, "finish invocation"),
+            ])?;
+            if request.attempt == 0 || request.lease_epoch == 0 || request.fencing_token == 0 {
+                return Err(LaneDecision::Invalid);
+            }
+        }
+        Method::CleanupDevelopmentLane { request } => {
+            bounded_texts(&[
+                (&request.tenant_ref, "cleanup tenant"),
+                (&request.work_item_id, "cleanup lifecycle WorkItem"),
+                (&request.owner_id, "cleanup owner"),
+                (&request.work_item_fence, "cleanup lifecycle fence"),
+                (&request.cleanup_work_item_id, "cleanup WorkItem"),
+                (&request.cleanup_work_item_fence, "cleanup fence"),
+                (&request.hold_id, "cleanup hold"),
+                (&request.removal_proof_ref, "cleanup proof"),
+                (&request.idempotency_key, "cleanup invocation"),
+            ])?;
+            if request.attempt == 0
+                || request.lease_epoch == 0
+                || request.fencing_token == 0
+                || request.cleanup_attempt == 0
+                || request.cleanup_lease_epoch == 0
+                || request.cleanup_fencing_token == 0
+            {
+                return Err(LaneDecision::Invalid);
+            }
+        }
+        Method::UpdateDevelopmentLaneQuota { request } => {
+            text(&request.tenant_ref, "quota tenant")?;
+            text(&request.idempotency_key, "quota invocation")?;
+            if let Some(version) = request.expected_policy_version.as_deref() {
+                text(version, "quota expected policy version")?;
+            }
+            policy_validate(&request.policy)?;
+        }
+        Method::QueryDevelopmentLane { request } => {
+            bounded_texts(&[
+                (&request.tenant_ref, "query tenant"),
+                (&request.hold_id, "query hold"),
+            ])?;
+        }
+        Method::DevelopmentLaneStatus { request } => {
+            text(&request.tenant_ref, "status tenant")?;
+            if !(1..=MAX_STATUS_LIMIT).contains(&request.limit) {
+                return Err(LaneDecision::Invalid);
+            }
+            if let Some(value) = request.hold_id.as_deref() {
+                text(value, "status hold")?;
+            }
+            if let Some(value) = request.lane_id.as_deref() {
+                text(value, "status lane")?;
+            }
+            if let Some(value) = request.work_item_id.as_deref() {
+                text(value, "status WorkItem")?;
+            }
+            if let Some(value) = request.cursor.as_deref() {
+                text(value, "status cursor")?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn request_digest(method: &Method) -> Result<String, String> {
     let normalized = normalize_now(method, 0).ok_or_else(|| "not a lane method".to_string())?;
     let bytes = rmp_serde::to_vec_named(&normalized).map_err(|e| e.to_string())?;
@@ -1235,6 +2142,22 @@ fn decision_name(decision: LaneDecision) -> &'static str {
     }
 }
 
+const REDACTED_PRIVATE_ID: &str = "redacted";
+
+/// `DevelopmentLaneHold` is also the encrypted native record, so its private
+/// identity fields remain available to the authority internally.  Every
+/// public result/status projection passes through this copy and replaces the
+/// managed locator, opaque host identity, and inventory alias with a bounded
+/// redaction; callers can observe lifecycle/quota state without learning local
+/// filesystem or host-placement details.
+fn public_hold(hold: &DevelopmentLaneHold) -> DevelopmentLaneHold {
+    let mut projected = hold.clone();
+    projected.worktree_locator = REDACTED_PRIVATE_ID.to_string();
+    projected.host_ref = REDACTED_PRIVATE_ID.to_string();
+    projected.host_target_alias = None;
+    projected
+}
+
 fn typed_decision<T: serde::de::DeserializeOwned>(decision: LaneDecision) -> Result<T, String> {
     serde_json::from_value(serde_json::Value::String(
         decision_name(decision).to_string(),
@@ -1247,7 +2170,7 @@ fn reserve_result(
     row: Option<&DurableLaneHold>,
     policy_revision: u64,
 ) -> Result<Vec<u8>, String> {
-    let hold = row.map(|value| value.hold.clone());
+    let hold = row.map(|value| public_hold(&value.hold));
     let hold_revision = hold.as_ref().map_or(0, |value| value.hold_revision);
     let lifecycle_revision = hold.as_ref().map_or(0, |value| value.lifecycle_revision);
     let tombstone = hold.as_ref().is_some_and(|value| value.tombstone);
@@ -1272,7 +2195,7 @@ fn renew_result(
     row: Option<&DurableLaneHold>,
     policy_revision: u64,
 ) -> Result<Vec<u8>, String> {
-    let hold = row.map(|value| value.hold.clone());
+    let hold = row.map(|value| public_hold(&value.hold));
     let result = DevelopmentLaneRenewResult {
         schema_version: crate::epistemic_operations::DevelopmentLaneRenewResultSchemaVersion::V1,
         decision: typed_decision(decision)?,
@@ -1293,7 +2216,7 @@ fn observe_result(
     row: Option<&DurableLaneHold>,
     policy_revision: u64,
 ) -> Result<Vec<u8>, String> {
-    let hold = row.map(|value| value.hold.clone());
+    let hold = row.map(|value| public_hold(&value.hold));
     let result = DevelopmentLaneObserveResult {
         schema_version: DevelopmentLaneObserveResultSchemaVersion::V1,
         decision: typed_decision(decision)?,
@@ -1314,7 +2237,7 @@ fn finish_result(
     row: Option<&DurableLaneHold>,
     policy_revision: u64,
 ) -> Result<Vec<u8>, String> {
-    let hold = row.map(|value| value.hold.clone());
+    let hold = row.map(|value| public_hold(&value.hold));
     let result = DevelopmentLaneFinishResult {
         schema_version: DevelopmentLaneFinishResultSchemaVersion::V1,
         decision: typed_decision(decision)?,
@@ -1335,7 +2258,7 @@ fn cleanup_result(
     row: Option<&DurableLaneHold>,
     policy_revision: u64,
 ) -> Result<Vec<u8>, String> {
-    let hold = row.map(|value| value.hold.clone());
+    let hold = row.map(|value| public_hold(&value.hold));
     let result = DevelopmentLaneCleanupCompleteResult {
         schema_version: DevelopmentLaneCleanupCompleteResultSchemaVersion::V1,
         decision: typed_decision(decision)?,
@@ -1374,24 +2297,33 @@ fn query_result(
     Ok(DevelopmentLaneQueryResult {
         schema_version: DevelopmentLaneQueryResultSchemaVersion::V1,
         decision: typed_decision(decision)?,
-        hold: row.map(|value| value.hold.clone()),
+        hold: row.map(|value| public_hold(&value.hold)),
         hold_revision: row.map_or(0, |value| value.hold.hold_revision),
         lifecycle_revision: row.map_or(0, |value| value.hold.lifecycle_revision),
         tombstone: row.is_some_and(|value| value.hold.tombstone),
     })
 }
 
-fn load_invocation(
-    invocations: &redb::Table<(&str, &str, &str), &[u8]>,
+fn load_invocation<T>(
+    invocations: &T,
     graph: &str,
     tenant: &str,
     key: &str,
     method: &Method,
     crypto: DurableCrypto<'_>,
-) -> Result<Option<(bool, Vec<u8>)>, String> {
+) -> Result<Option<(bool, Vec<u8>)>, String>
+where
+    T: ReadableTable<(&'static str, &'static str, &'static str), &'static [u8]>,
+{
     if key.is_empty() {
         return Ok(None);
     }
+    bounded_texts(&[
+        (graph, "lane invocation graph"),
+        (tenant, "lane invocation tenant"),
+        (key, "lane invocation key"),
+    ])
+    .map_err(|decision| format!("lane invocation: {}", decision_name(decision)))?;
     let Some(row) = invocations
         .get((graph, tenant, key))
         .map_err(|e| e.to_string())?
@@ -1399,6 +2331,7 @@ fn load_invocation(
         return Ok(None);
     };
     let stored: DurableLaneInvocation = resource_decode(row.value(), crypto)?;
+    durable_invocation_bounds(&stored)?;
     let digest = request_digest(method)?;
     if stored.method == method_name(method) && stored.request_digest == digest {
         Ok(Some((true, stored.result)))
@@ -1419,15 +2352,37 @@ fn store_invocation(
     if key.is_empty() {
         return Ok(());
     }
+    bounded_texts(&[
+        (graph, "lane invocation graph"),
+        (tenant, "lane invocation tenant"),
+        (key, "lane invocation key"),
+    ])
+    .map_err(|decision| format!("lane invocation: {}", decision_name(decision)))?;
     let row = DurableLaneInvocation {
         method: method_name(method).to_string(),
         request_digest: request_digest(method)?,
         result: result.to_vec(),
     };
+    durable_invocation_bounds(&row)?;
     let bytes = resource_encode(&row, crypto)?;
     invocations
         .insert((graph, tenant, key), bytes.as_slice())
         .map_err(|e| e.to_string())?;
+    prune_invocations(invocations, graph, tenant, key)
+}
+
+fn durable_invocation_bounds(row: &DurableLaneInvocation) -> Result<(), String> {
+    if !matches!(
+        row.method.as_str(),
+        "reserve" | "renew" | "observe" | "finish" | "cleanup-complete" | "quota-policy-update"
+    ) {
+        return Err("stored lane invocation method is invalid".to_string());
+    }
+    fingerprint(&row.request_digest)
+        .map_err(|decision| format!("stored lane invocation: {}", decision_name(decision)))?;
+    if row.result.len() > 64 * 1024 {
+        return Err("stored lane invocation result exceeds native bound".to_string());
+    }
     Ok(())
 }
 
@@ -1437,8 +2392,25 @@ fn put_index(
     key: &str,
     hold_id: &str,
 ) -> Result<(), String> {
+    fingerprint(hold_id)
+        .map_err(|decision| format!("lane index hold: {}", decision_name(decision)))?;
     table
         .insert((graph, key), hold_id)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn put_lane_index(
+    table: &mut redb::Table<(&str, &str, &str), &str>,
+    graph: &str,
+    tenant: &str,
+    lane_id: &str,
+    hold_id: &str,
+) -> Result<(), String> {
+    fingerprint(hold_id)
+        .map_err(|decision| format!("lane index hold: {}", decision_name(decision)))?;
+    table
+        .insert((graph, tenant, lane_id), hold_id)
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -1449,6 +2421,8 @@ fn put_tenant_index(
     tenant: &str,
     hold_id: &str,
 ) -> Result<(), String> {
+    fingerprint(hold_id)
+        .map_err(|decision| format!("lane tenant index hold: {}", decision_name(decision)))?;
     table
         .insert((graph, tenant, hold_id), hold_id)
         .map_err(|e| e.to_string())?;
@@ -1459,10 +2433,34 @@ fn get_index<T>(table: &T, graph: &str, key: &str) -> Result<Option<String>, Str
 where
     T: ReadableTable<(&'static str, &'static str), &'static str>,
 {
-    Ok(table
-        .get((graph, key))
+    let Some(value) = table.get((graph, key)).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let value = value.value().to_string();
+    fingerprint(&value)
+        .map_err(|decision| format!("lane index hold: {}", decision_name(decision)))?;
+    Ok(Some(value))
+}
+
+fn get_lane_index<T>(
+    table: &T,
+    graph: &str,
+    tenant: &str,
+    lane_id: &str,
+) -> Result<Option<String>, String>
+where
+    T: ReadableTable<(&'static str, &'static str, &'static str), &'static str>,
+{
+    let Some(value) = table
+        .get((graph, tenant, lane_id))
         .map_err(|e| e.to_string())?
-        .map(|value| value.value().to_string()))
+    else {
+        return Ok(None);
+    };
+    let value = value.value().to_string();
+    fingerprint(&value)
+        .map_err(|decision| format!("lane index hold: {}", decision_name(decision)))?;
+    Ok(Some(value))
 }
 
 fn get_tenant_index<T>(
@@ -1474,10 +2472,16 @@ fn get_tenant_index<T>(
 where
     T: ReadableTable<(&'static str, &'static str, &'static str), &'static str>,
 {
-    Ok(table
+    let Some(value) = table
         .get((graph, tenant, hold_id))
         .map_err(|e| e.to_string())?
-        .map(|value| value.value().to_string()))
+    else {
+        return Ok(None);
+    };
+    let value = value.value().to_string();
+    fingerprint(&value)
+        .map_err(|decision| format!("lane tenant index hold: {}", decision_name(decision)))?;
+    Ok(Some(value))
 }
 
 fn empty_input_conflict(method: &Method) -> Result<Vec<u8>, String> {
@@ -1553,6 +2557,42 @@ fn policy_validate(policy: &DevelopmentLaneQuotaPolicy) -> Result<(), LaneDecisi
         || policy.repository_retained_disk_bytes == 0
         || policy.host_retained_disk_bytes == 0
         || policy.global_retained_disk_bytes == 0
+        || [
+            policy.tenant_count_limit,
+            policy.owner_count_limit,
+            policy.session_count_limit,
+            policy.workspace_count_limit,
+            policy.repository_count_limit,
+            policy.host_count_limit,
+            policy.global_count_limit,
+        ]
+        .into_iter()
+        .any(|value| value > MAX_COUNT)
+        || [
+            policy.tenant_predicted_disk_bytes,
+            policy.owner_predicted_disk_bytes,
+            policy.session_predicted_disk_bytes,
+            policy.workspace_predicted_disk_bytes,
+            policy.repository_predicted_disk_bytes,
+            policy.host_predicted_disk_bytes,
+            policy.global_predicted_disk_bytes,
+            policy.tenant_observed_disk_bytes,
+            policy.owner_observed_disk_bytes,
+            policy.session_observed_disk_bytes,
+            policy.workspace_observed_disk_bytes,
+            policy.repository_observed_disk_bytes,
+            policy.host_observed_disk_bytes,
+            policy.global_observed_disk_bytes,
+            policy.tenant_retained_disk_bytes,
+            policy.owner_retained_disk_bytes,
+            policy.session_retained_disk_bytes,
+            policy.workspace_retained_disk_bytes,
+            policy.repository_retained_disk_bytes,
+            policy.host_retained_disk_bytes,
+            policy.global_retained_disk_bytes,
+        ]
+        .into_iter()
+        .any(|value| value > MAX_DISK_BYTES)
     {
         return Err(LaneDecision::Invalid);
     }
@@ -1689,7 +2729,8 @@ fn index_hold_id(
     let Some(row) = holds.get((graph, hold_id)).map_err(|e| e.to_string())? else {
         return Err("development lane index points to a missing hold".to_string());
     };
-    let _: DurableLaneHold = resource_decode(row.value(), crypto)?;
+    let decoded: DurableLaneHold = resource_decode(row.value(), crypto)?;
+    durable_hold_bounds(&decoded)?;
     Ok(hold_id.to_string())
 }
 
@@ -1716,6 +2757,8 @@ fn put_branch_index(
     hold: &DevelopmentLaneHold,
 ) -> Result<(), String> {
     let key = branch_key(hold);
+    fingerprint(&hold.hold_id)
+        .map_err(|decision| format!("lane branch index hold: {}", decision_name(decision)))?;
     table
         .insert(
             (graph, hold.tenant_ref.as_str(), key.as_str()),
@@ -1734,10 +2777,16 @@ where
     T: ReadableTable<(&'static str, &'static str, &'static str), &'static str>,
 {
     let key = branch_key(hold);
-    Ok(table
+    let Some(value) = table
         .get((graph, hold.tenant_ref.as_str(), key.as_str()))
         .map_err(|e| e.to_string())?
-        .map(|value| value.value().to_string()))
+    else {
+        return Ok(None);
+    };
+    let value = value.value().to_string();
+    fingerprint(&value)
+        .map_err(|decision| format!("lane branch index hold: {}", decision_name(decision)))?;
+    Ok(Some(value))
 }
 
 fn remove_branch_index(
@@ -1757,6 +2806,8 @@ fn put_work_item_index(
     graph: &str,
     hold: &DevelopmentLaneHold,
 ) -> Result<(), String> {
+    fingerprint(&hold.hold_id)
+        .map_err(|decision| format!("lane WorkItem index hold: {}", decision_name(decision)))?;
     table
         .insert(
             (graph, hold.work_item_id.as_str(), hold.attempt),
@@ -1775,10 +2826,16 @@ fn work_item_index_id<T>(
 where
     T: ReadableTable<(&'static str, &'static str, u64), &'static str>,
 {
-    Ok(table
+    let Some(value) = table
         .get((graph, work_item_id, attempt))
         .map_err(|e| e.to_string())?
-        .map(|value| value.value().to_string()))
+    else {
+        return Ok(None);
+    };
+    let value = value.value().to_string();
+    fingerprint(&value)
+        .map_err(|decision| format!("lane WorkItem index hold: {}", decision_name(decision)))?;
+    Ok(Some(value))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1788,7 +2845,7 @@ fn apply_reserve(
     nodes: &redb::Table<(&str, &str), &[u8]>,
     holds: &mut redb::Table<(&str, &str), &[u8]>,
     tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
-    lane_index: &mut redb::Table<(&str, &str), &str>,
+    lane_index: &mut redb::Table<(&str, &str, &str), &str>,
     branch_index: &mut redb::Table<(&str, &str, &str), &str>,
     worktree_index: &mut redb::Table<(&str, &str), &str>,
     work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
@@ -1811,6 +2868,17 @@ fn apply_reserve(
         || request.idempotency_key.is_empty()
     {
         return Ok((reserve_result(LaneDecision::Invalid, None, 0)?, false));
+    }
+    for (value, name) in [
+        (&request.tenant_ref, "reserve tenant"),
+        (&request.work_item_id, "reserve WorkItem"),
+        (&request.owner_id, "reserve owner"),
+        (&request.work_item_fence, "reserve fence"),
+        (&request.idempotency_key, "reserve invocation"),
+    ] {
+        if text(value, name).is_err() {
+            return Ok((reserve_result(LaneDecision::Invalid, None, 0)?, false));
+        }
     }
     let policy = load_policy(policies, graph, &request.tenant_ref, crypto)?;
     let policy_revision = policy.as_ref().map_or(0, |value| value.policy_revision);
@@ -1989,7 +3057,12 @@ fn apply_reserve(
         retained_disk_bytes: 0,
         active_count_charged: true,
         quota_charge: empty_charge(policy_revision),
-        state: DevelopmentLaneHoldState::Allocating,
+        // No filesystem effect is performed by this checkpoint.  Persisting
+        // `Allocating` without a native activate/abort/reconcile transition
+        // would strand an authority row after a crash, so reserve commits the
+        // database-side hold directly as Active.  RMDD-09's guarded effect
+        // adapter will add the later two-phase activation protocol.
+        state: DevelopmentLaneHoldState::Active,
         attempt: request.attempt,
         lease_epoch: request.lease_epoch,
         fencing_token: request.fencing_token,
@@ -2009,10 +3082,12 @@ fn apply_reserve(
     };
     hold.quota_charge = hold_charge(&hold, hold.hold_revision, policy_revision);
 
-    let lane_existing = lane_index
-        .get((graph, hold.lane_id.as_str()))
-        .map_err(|e| e.to_string())?
-        .map(|value| value.value().to_string());
+    let lane_existing = get_lane_index(
+        lane_index,
+        graph,
+        hold.tenant_ref.as_str(),
+        hold.lane_id.as_str(),
+    )?;
     if let Err(decision) = exclusive_pair(lane_existing, &hold.hold_id, holds, graph, crypto) {
         return Ok((reserve_result(decision, None, policy_revision)?, false));
     }
@@ -2052,7 +3127,13 @@ fn apply_reserve(
         global_policy_revision,
         crypto,
     )?;
-    put_index(lane_index, graph, &hold.lane_id, &hold.hold_id)?;
+    put_lane_index(
+        lane_index,
+        graph,
+        &hold.tenant_ref,
+        &hold.lane_id,
+        &hold.hold_id,
+    )?;
     put_branch_index(branch_index, graph, &hold)?;
     put_index(worktree_index, graph, &worktree_key, &hold.hold_id)?;
     put_work_item_index(work_item_index, graph, &hold)?;
@@ -2601,6 +3682,46 @@ fn apply_finish(
         return Ok((finish_result(decision, Some(&row), policy_revision)?, false));
     }
     if !row.hold.active_count_charged {
+        // A fresh invocation against a terminal tombstone still proves the
+        // current lifecycle WorkItem and its typed intent.  Only the exact
+        // invocation key may bypass this check (the replay lookup happens
+        // before this function); knowing a hold id and old fence is not enough
+        // to manufacture a terminal outcome.
+        let work_item = match load_work_item(
+            nodes,
+            graph,
+            &request.work_item_id,
+            &request.tenant_ref,
+            Some(&request.owner_id),
+            request.attempt,
+            request.lease_epoch,
+            request.fencing_token,
+            &request.work_item_fence,
+            DevelopmentLaneWorkItemKind::Lifecycle,
+            true,
+            request.now_ms,
+            crypto,
+            None,
+            None,
+        ) {
+            Ok(value) => value,
+            Err(decision) => {
+                return Ok((finish_result(decision, Some(&row), policy_revision)?, false))
+            }
+        };
+        if !finish_state_matches(request.terminal_state, &work_item.status)
+            || !lane_intent_matches_hold(
+                work_item.lane_intent.as_ref(),
+                &row.hold,
+                row.ttl_ms,
+                &row.resource_reservation_id,
+            )
+        {
+            return Ok((
+                finish_result(LaneDecision::InputConflict, Some(&row), policy_revision)?,
+                false,
+            ));
+        }
         let requested = finish_state_name(request.terminal_state);
         let decision = row
             .terminal_state
@@ -2703,7 +3824,7 @@ fn apply_finish(
     ))
 }
 
-fn remove_lane_index(
+fn remove_index(
     table: &mut redb::Table<(&str, &str), &str>,
     graph: &str,
     key: &str,
@@ -2715,6 +3836,24 @@ fn remove_lane_index(
         return Err("development lane exclusivity index points to another hold".to_string());
     }
     table.remove((graph, key)).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn remove_lane_index(
+    table: &mut redb::Table<(&str, &str, &str), &str>,
+    graph: &str,
+    tenant: &str,
+    lane_id: &str,
+    hold_id: &str,
+) -> Result<(), String> {
+    let existing = get_lane_index(table, graph, tenant, lane_id)?
+        .ok_or_else(|| "development lane exclusivity index is missing".to_string())?;
+    if existing != hold_id {
+        return Err("development lane exclusivity index points to another hold".to_string());
+    }
+    table
+        .remove((graph, tenant, lane_id))
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -2903,7 +4042,7 @@ fn apply_cleanup(
     nodes: &redb::Table<(&str, &str), &[u8]>,
     holds: &mut redb::Table<(&str, &str), &[u8]>,
     tenant_index: &redb::Table<(&str, &str, &str), &str>,
-    lane_index: &mut redb::Table<(&str, &str), &str>,
+    lane_index: &mut redb::Table<(&str, &str, &str), &str>,
     branch_index: &mut redb::Table<(&str, &str, &str), &str>,
     worktree_index: &mut redb::Table<(&str, &str), &str>,
     work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
@@ -3171,9 +4310,15 @@ fn apply_cleanup(
         global_policy_revision,
         crypto,
     )?;
-    remove_lane_index(lane_index, graph, &row.hold.lane_id, &row.hold.hold_id)?;
-    remove_branch_index_checked(branch_index, graph, &row.hold)?;
     remove_lane_index(
+        lane_index,
+        graph,
+        &row.hold.tenant_ref,
+        &row.hold.lane_id,
+        &row.hold.hold_id,
+    )?;
+    remove_branch_index_checked(branch_index, graph, &row.hold)?;
+    remove_index(
         worktree_index,
         graph,
         &worktree_key(&row.hold),
@@ -3456,6 +4601,8 @@ fn apply_mutation_in_wtx(
     method: &Method,
     crypto: DurableCrypto<'_>,
 ) -> Result<(Vec<u8>, bool), String> {
+    validate_method_bounds(graph, method)
+        .map_err(|decision| format!("development lane request: {}", decision_name(decision)))?;
     let mut holds = wtx.open_table(HOLDS).map_err(|e| e.to_string())?;
     let mut tenant_index = wtx.open_table(TENANT_INDEX).map_err(|e| e.to_string())?;
     let mut lane_index = wtx.open_table(LANE_INDEX).map_err(|e| e.to_string())?;
@@ -3616,6 +4763,8 @@ pub(crate) fn commit_development_lane(
     ) {
         return Err("method is not a development-lane mutation".to_string());
     }
+    validate_method_bounds(graph, &method)
+        .map_err(|decision| format!("development lane request: {}", decision_name(decision)))?;
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
@@ -3658,6 +4807,13 @@ pub(crate) fn read_development_lane(
 ) -> Result<DevelopmentLaneQueryResult, String> {
     let mut request = request.clone();
     request.now_ms = authoritative_now_ms;
+    validate_method_bounds(
+        graph,
+        &Method::QueryDevelopmentLane {
+            request: request.clone(),
+        },
+    )
+    .map_err(|decision| format!("development lane query: {}", decision_name(decision)))?;
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
     read_query_in_rtx(&rtx, graph, &request, crypto)
 }
@@ -3724,14 +4880,17 @@ fn read_status_in_rtx(
         {
             continue;
         }
-        rows.push(row.hold);
-        last = Some(hold_id.to_string());
-        if rows.len() >= request.limit as usize {
-            // One additional key is needed to prove whether the page is
-            // complete; the bounded scan cap keeps this status path finite.
+        rows.push(public_hold(&row.hold));
+        if rows.len() > request.limit as usize {
+            // Read one row beyond the requested page before declaring a next
+            // page.  Exactly `limit` rows therefore produce a complete page;
+            // the extra row is only a bounded existence probe.
+            rows.pop();
+            last = rows.last().map(|value| value.hold_id.clone());
             has_more = true;
             break;
         }
+        last = Some(hold_id.to_string());
     }
     let probe = DevelopmentLaneHold {
         schema_version: crate::epistemic_operations::DevelopmentLaneHoldSchemaVersion::V1,
@@ -3820,6 +4979,13 @@ pub(crate) fn read_development_lane_status(
 ) -> Result<DevelopmentLaneStatusResult, String> {
     let mut request = request.clone();
     request.now_ms = authoritative_now_ms;
+    validate_method_bounds(
+        graph,
+        &Method::DevelopmentLaneStatus {
+            request: request.clone(),
+        },
+    )
+    .map_err(|decision| format!("development lane status: {}", decision_name(decision)))?;
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
     read_status_in_rtx(&rtx, graph, &request, crypto)
 }
@@ -4207,10 +5373,68 @@ mod tests {
             branch: &str,
             worktree_locator: &str,
         ) -> DevelopmentLaneReserveRequest {
+            self.candidate_for_tenant("tenant:a", suffix, branch, worktree_locator)
+        }
+
+        fn candidate_for_tenant(
+            &self,
+            tenant: &str,
+            suffix: &str,
+            branch: &str,
+            worktree_locator: &str,
+        ) -> DevelopmentLaneReserveRequest {
             let request =
-                test_reserve_request(test_intent("tenant:a", suffix, branch, worktree_locator));
+                test_reserve_request(test_intent(tenant, suffix, branch, worktree_locator));
             seed_lane_work_item(&self.db, &request).expect("seed lane candidate");
             request
+        }
+
+        fn update_policy(
+            &self,
+            tenant: &str,
+            policy: DevelopmentLaneQuotaPolicy,
+            expected_policy_revision: u64,
+            idempotency_key: &str,
+            now_ms: u64,
+        ) -> DevelopmentLaneQuotaUpdateResult {
+            self.decode(&self.commit(
+                Method::UpdateDevelopmentLaneQuota {
+                    request: DevelopmentLaneQuotaUpdateRequest {
+                        schema_version:
+                            crate::epistemic_operations::DevelopmentLaneQuotaUpdateRequestSchemaVersion::V1,
+                        tenant_ref: tenant.into(),
+                        policy,
+                        expected_policy_revision,
+                        expected_policy_version: None,
+                        idempotency_key: idempotency_key.into(),
+                        now_ms,
+                    },
+                },
+                now_ms,
+            ))
+        }
+
+        fn mutate_work_item<F>(&self, work_item_id: &str, mutate: F)
+        where
+            F: FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+        {
+            let wtx = self.db.begin_write().expect("begin WorkItem mutation");
+            {
+                let mut nodes = wtx.open_table(NODES).expect("open WorkItem table");
+                let mut props: serde_json::Map<String, serde_json::Value> = {
+                    let bytes = nodes
+                        .get((TEST_GRAPH, work_item_id))
+                        .expect("read WorkItem")
+                        .expect("WorkItem exists");
+                    decode_durable(bytes.value()).expect("decode WorkItem")
+                };
+                mutate(&mut props);
+                let encoded = rmp_serde::to_vec_named(&props).expect("encode WorkItem");
+                nodes
+                    .insert((TEST_GRAPH, work_item_id), encoded.as_slice())
+                    .expect("write WorkItem");
+            }
+            wtx.commit().expect("commit WorkItem mutation");
         }
 
         fn mark_lifecycle_terminal(&self, work_item_id: &str, status: &str) {
@@ -4289,6 +5513,74 @@ mod tests {
         assert_eq!(scope_key(Scope::Global, &a), scope_key(Scope::Global, &b));
         assert_ne!(scope_key(Scope::Tenant, &a), scope_key(Scope::Tenant, &b));
         assert_ne!(worktree_key(&a), worktree_key(&b));
+    }
+
+    #[test]
+    fn lane_index_is_tenant_scoped_for_reused_lane_ids() {
+        let fixture = NativeLaneFixture::new(policy());
+        let tenant_b_policy =
+            fixture.update_policy("tenant:b", policy(), 0, "policy:tenant-b", TEST_NOW);
+        assert_eq!(
+            tenant_b_policy.decision,
+            crate::epistemic_operations::DevelopmentLaneQuotaUpdateResultDecision::Accepted
+        );
+
+        let mut first = test_reserve_request(test_intent(
+            "tenant:a",
+            "shared-a",
+            "branch:shared-a",
+            "lanes/shared-a",
+        ));
+        first.intent.lane_id = "lane:shared".into();
+        seed_lane_work_item(&fixture.db, &first).expect("seed tenant-a shared lane");
+        let mut second = test_reserve_request(test_intent(
+            "tenant:b",
+            "shared-b",
+            "branch:shared-b",
+            "lanes/shared-b",
+        ));
+        second.intent.lane_id = "lane:shared".into();
+        seed_lane_work_item(&fixture.db, &second).expect("seed tenant-b shared lane");
+
+        let first_result: DevelopmentLaneResult = fixture.decode(&fixture.commit(
+            Method::ReserveDevelopmentLane {
+                request: first.clone(),
+            },
+            TEST_NOW,
+        ));
+        let second_result: DevelopmentLaneResult = fixture.decode(&fixture.commit(
+            Method::ReserveDevelopmentLane {
+                request: second.clone(),
+            },
+            TEST_NOW,
+        ));
+        assert_eq!(
+            first_result.decision,
+            DevelopmentLaneResultDecision::Accepted
+        );
+        assert_eq!(
+            second_result.decision,
+            DevelopmentLaneResultDecision::Accepted
+        );
+
+        let first_hold = first_result.hold.expect("tenant-a shared hold");
+        let second_hold = second_result.hold.expect("tenant-b shared hold");
+        let rtx = fixture.db.begin_read().expect("read tenant-scoped lanes");
+        let lane_index = rtx.open_table(LANE_INDEX).expect("open lane index");
+        assert_eq!(
+            lane_index
+                .get((TEST_GRAPH, "tenant:a", "lane:shared"))
+                .expect("read tenant-a lane")
+                .map(|value| value.value().to_string()),
+            Some(first_hold.hold_id)
+        );
+        assert_eq!(
+            lane_index
+                .get((TEST_GRAPH, "tenant:b", "lane:shared"))
+                .expect("read tenant-b lane")
+                .map(|value| value.value().to_string()),
+            Some(second_hold.hold_id)
+        );
     }
 
     #[test]
@@ -4376,6 +5668,277 @@ mod tests {
     }
 
     #[test]
+    fn checkpoint_restore_status_mapping_is_exact_for_retained_states() {
+        let active = DurableLaneHold {
+            hold: hold("tenant:a", "host:a"),
+            observation_revision: 0,
+            last_observed_at_ms: None,
+            terminal_state: None,
+            terminal_expected_hold_revision: None,
+            cleanup_removal_proof_ref: None,
+            cleanup_expected_hold_revision: None,
+            resource_reservation_id: "reservation:active".into(),
+            ttl_ms: 1_000,
+        };
+        assert!(checkpoint_lifecycle_status_matches(&active, "running"));
+        assert!(!checkpoint_lifecycle_status_matches(&active, "ready"));
+        assert!(!checkpoint_lifecycle_status_matches(&active, "succeeded"));
+
+        let mut cleanup_pending = active.clone();
+        cleanup_pending.hold.state = DevelopmentLaneHoldState::CleanupPending;
+        cleanup_pending.hold.tombstone = true;
+        cleanup_pending.hold.active_count_charged = false;
+        cleanup_pending.hold.retained_disk_bytes = 10;
+        cleanup_pending.terminal_state = Some("succeeded".into());
+        cleanup_pending.terminal_expected_hold_revision = Some(1);
+        assert!(checkpoint_lifecycle_status_matches(
+            &cleanup_pending,
+            "succeeded"
+        ));
+        assert!(!checkpoint_lifecycle_status_matches(
+            &cleanup_pending,
+            "failed"
+        ));
+        assert!(!checkpoint_lifecycle_status_matches(
+            &cleanup_pending,
+            "pending"
+        ));
+
+        let mut expired = active.clone();
+        expired.hold.state = DevelopmentLaneHoldState::Expired;
+        expired.hold.tombstone = true;
+        expired.hold.active_count_charged = false;
+        expired.hold.retained_disk_bytes = 10;
+        assert!(checkpoint_lifecycle_status_matches(&expired, "running"));
+        assert!(checkpoint_lifecycle_status_matches(&expired, "succeeded"));
+        expired.terminal_state = Some("succeeded".into());
+        assert!(!checkpoint_lifecycle_status_matches(&expired, "succeeded"));
+
+        let mut released = cleanup_pending.clone();
+        released.hold.state = DevelopmentLaneHoldState::Released;
+        assert!(checkpoint_lifecycle_status_matches(&released, "succeeded"));
+        released.terminal_state = Some("failed".into());
+        assert!(!checkpoint_lifecycle_status_matches(&released, "succeeded"));
+
+        let mut cleaned = released.clone();
+        cleaned.hold.state = DevelopmentLaneHoldState::Cleaned;
+        cleaned.hold.retained_disk_bytes = 0;
+        cleaned.terminal_state = Some("succeeded".into());
+        assert!(checkpoint_lifecycle_status_matches(&cleaned, "succeeded"));
+        assert!(!checkpoint_lifecycle_status_matches(&cleaned, "running"));
+    }
+
+    #[test]
+    fn corrupt_durable_rows_fail_closed_before_native_use() {
+        let fixture = NativeLaneFixture::new(policy());
+        {
+            let wtx = fixture.db.begin_write().expect("begin corrupt row seed");
+            let mut policies = wtx.open_table(POLICIES).expect("open corrupt policies");
+            let mut invalid_policy = policy();
+            invalid_policy.tenant_count_limit = 0;
+            let invalid_policy_row = DurableLanePolicy {
+                policy: invalid_policy,
+                policy_revision: 1,
+                global_policy_revision: 1,
+            };
+            let policy_bytes = resource_encode(&invalid_policy_row, DurableCrypto::none())
+                .expect("encode corrupt policy");
+            policies
+                .insert((TEST_GRAPH, "tenant:a"), policy_bytes.as_slice())
+                .expect("write corrupt policy");
+            drop(policies);
+
+            let mut counters = wtx.open_table(COUNTERS).expect("open corrupt counters");
+            let invalid_counter = DurableLaneCounter {
+                observed_disk_bytes: MAX_DISK_BYTES + 1,
+                ..DurableLaneCounter::default()
+            };
+            let counter_bytes = resource_encode(&invalid_counter, DurableCrypto::none())
+                .expect("encode corrupt counter");
+            counters
+                .insert((TEST_GRAPH, "corrupt-counter"), counter_bytes.as_slice())
+                .expect("write corrupt counter");
+            drop(counters);
+
+            let mut invocations = wtx
+                .open_table(INVOCATIONS)
+                .expect("open corrupt invocations");
+            let invocation_method = fixture.reserve_method("corrupt-invocation");
+            let invalid_invocation = DurableLaneInvocation {
+                method: method_name(&invocation_method).to_string(),
+                request_digest: request_digest(&invocation_method)
+                    .expect("digest corrupt invocation"),
+                result: vec![0; 64 * 1024 + 1],
+            };
+            let invocation_bytes = resource_encode(&invalid_invocation, DurableCrypto::none())
+                .expect("encode corrupt invocation");
+            invocations
+                .insert(
+                    (TEST_GRAPH, "tenant:a", "corrupt-invocation"),
+                    invocation_bytes.as_slice(),
+                )
+                .expect("write corrupt invocation");
+            drop(invocations);
+
+            let mut holds = wtx.open_table(HOLDS).expect("open corrupt holds");
+            let mut invalid_hold = DurableLaneHold {
+                hold: hold("tenant:a", "host:a"),
+                observation_revision: 0,
+                last_observed_at_ms: None,
+                terminal_state: None,
+                terminal_expected_hold_revision: None,
+                cleanup_removal_proof_ref: None,
+                cleanup_expected_hold_revision: None,
+                resource_reservation_id: "reservation:corrupt".into(),
+                ttl_ms: 1_000,
+            };
+            invalid_hold.hold.worktree_locator = "../escape".into();
+            let hold_bytes =
+                resource_encode(&invalid_hold, DurableCrypto::none()).expect("encode corrupt hold");
+            holds
+                .insert(
+                    (TEST_GRAPH, invalid_hold.hold.hold_id.as_str()),
+                    hold_bytes.as_slice(),
+                )
+                .expect("write corrupt hold");
+            drop(holds);
+            wtx.commit().expect("commit corrupt rows");
+        }
+
+        let rtx = fixture.db.begin_read().expect("read corrupt rows");
+        let policies = rtx.open_table(POLICIES).expect("read corrupt policies");
+        assert!(load_policy(&policies, TEST_GRAPH, "tenant:a", DurableCrypto::none()).is_err());
+        drop(policies);
+        let counters = rtx.open_table(COUNTERS).expect("read corrupt counters");
+        assert!(load_counter(
+            &counters,
+            TEST_GRAPH,
+            "corrupt-counter",
+            Scope::Tenant,
+            1,
+            1,
+            DurableCrypto::none()
+        )
+        .is_err());
+        drop(counters);
+        let invocations = rtx
+            .open_table(INVOCATIONS)
+            .expect("read corrupt invocations");
+        let invocation_method = fixture.reserve_method("corrupt-invocation");
+        assert!(load_invocation(
+            &invocations,
+            TEST_GRAPH,
+            "tenant:a",
+            "corrupt-invocation",
+            &invocation_method,
+            DurableCrypto::none()
+        )
+        .is_err());
+        drop(invocations);
+        let holds = rtx.open_table(HOLDS).expect("read corrupt holds");
+        let invalid_hold_id = hold("tenant:a", "host:a").hold_id;
+        assert!(hold_load(&holds, TEST_GRAPH, &invalid_hold_id, DurableCrypto::none()).is_err());
+        drop(holds);
+    }
+
+    #[test]
+    fn invocation_replay_retention_is_bounded_and_keeps_the_current_key() {
+        let fixture = NativeLaneFixture::new(policy());
+        {
+            let wtx = fixture
+                .db
+                .begin_write()
+                .expect("begin invocation retention");
+            let mut invocations = wtx.open_table(INVOCATIONS).expect("open invocations");
+            // Simulate a pre-existing overfull/corrupt replay range.  The
+            // repair must inspect the full bounded tenant prefix, not only a
+            // MAX+2 prefix, and must retain the current key even though it
+            // sorts before the newest lexical window.
+            for index in 0..1_000u64 {
+                let key = format!("invocation:{index:04}");
+                let method = fixture.reserve_method(&key);
+                let row = DurableLaneInvocation {
+                    method: method_name(&method).to_string(),
+                    request_digest: request_digest(&method).expect("digest pre-existing replay"),
+                    result: b"bounded-result".to_vec(),
+                };
+                let bytes = resource_encode(&row, DurableCrypto::none())
+                    .expect("encode pre-existing replay");
+                invocations
+                    .insert((TEST_GRAPH, "tenant:a", key.as_str()), bytes.as_slice())
+                    .expect("seed pre-existing replay");
+            }
+            let other_method = fixture.reserve_method("tenant-b-current");
+            let other_row = DurableLaneInvocation {
+                method: method_name(&other_method).to_string(),
+                request_digest: request_digest(&other_method).expect("digest other replay"),
+                result: b"other-result".to_vec(),
+            };
+            let other_bytes = resource_encode(&other_row, DurableCrypto::none())
+                .expect("encode other tenant replay");
+            invocations
+                .insert(
+                    (TEST_GRAPH, "tenant:b", "tenant-b-current"),
+                    other_bytes.as_slice(),
+                )
+                .expect("seed other tenant replay");
+            let current_key = "aaa-current";
+            let current_method = fixture.reserve_method(current_key);
+            store_invocation(
+                &mut invocations,
+                TEST_GRAPH,
+                "tenant:a",
+                current_key,
+                &current_method,
+                b"current-result",
+                DurableCrypto::none(),
+            )
+            .expect("repair bounded invocation range");
+            drop(invocations);
+            wtx.commit().expect("commit invocation retention");
+        }
+        let rtx = fixture.db.begin_read().expect("read invocation retention");
+        let invocations = rtx
+            .open_table(INVOCATIONS)
+            .expect("open retained invocations");
+        let mut retained = 0usize;
+        for row in invocations
+            .range((TEST_GRAPH, "tenant:a", "")..)
+            .expect("scan retained invocations")
+        {
+            let (key, _) = row.expect("read retained invocation");
+            let (graph, tenant, _) = key.value();
+            if graph != TEST_GRAPH || tenant != "tenant:a" {
+                break;
+            }
+            retained += 1;
+        }
+        assert_eq!(retained, MAX_INVOCATIONS_PER_TENANT);
+        assert!(invocations
+            .get((TEST_GRAPH, "tenant:a", "aaa-current"))
+            .expect("lookup current replay key")
+            .is_some());
+        let current_method = fixture.reserve_method("aaa-current");
+        assert_eq!(
+            load_invocation(
+                &invocations,
+                TEST_GRAPH,
+                "tenant:a",
+                "aaa-current",
+                &current_method,
+                DurableCrypto::none(),
+            )
+            .expect("load current replay"),
+            Some((true, b"current-result".to_vec()))
+        );
+        assert!(invocations
+            .get((TEST_GRAPH, "tenant:b", "tenant-b-current"))
+            .expect("lookup other tenant replay")
+            .is_some());
+        drop(invocations);
+    }
+
+    #[test]
     fn global_policy_allows_local_limits_but_freezes_shared_controls() {
         let first = policy();
         let mut local = first.clone();
@@ -4428,7 +5991,10 @@ mod tests {
             fixture.decode(&fixture.commit(fixture.reserve_method("reserve:one"), TEST_NOW));
         assert_eq!(accepted.decision, DevelopmentLaneResultDecision::Accepted);
         let hold = accepted.hold.clone().expect("accepted hold");
-        assert_eq!(hold.host_ref, "host:test");
+        assert_eq!(hold.state, DevelopmentLaneHoldState::Active);
+        assert_eq!(hold.host_ref, REDACTED_PRIVATE_ID);
+        assert_eq!(hold.worktree_locator, REDACTED_PRIVATE_ID);
+        assert!(hold.host_target_alias.is_none());
 
         let replay: DevelopmentLaneResult =
             fixture.decode(&fixture.commit(fixture.reserve_method("reserve:one"), TEST_NOW));
@@ -4462,6 +6028,369 @@ mod tests {
         )
         .expect("query accepted hold");
         assert_eq!(query.decision, DevelopmentLaneQueryResultDecision::Accepted);
+    }
+
+    #[test]
+    fn native_work_item_authority_rejects_generic_kind_and_fence_aliases() {
+        let fixture = NativeLaneFixture::new(policy());
+        let work_item_id = fixture.reserve.work_item_id.clone();
+        fixture.mutate_work_item(&work_item_id, |props| {
+            props.remove("kind");
+            props.insert("work_item_kind".into(), serde_json::json!("lane.lifecycle"));
+        });
+        let mut kind_request = fixture.reserve.clone();
+        kind_request.idempotency_key = "reserve:generic-kind".into();
+        let kind_refusal: DevelopmentLaneResult = fixture.decode(&fixture.commit(
+            Method::ReserveDevelopmentLane {
+                request: kind_request,
+            },
+            TEST_NOW,
+        ));
+        assert_eq!(
+            kind_refusal.decision,
+            DevelopmentLaneResultDecision::WrongKind
+        );
+
+        let fixture = NativeLaneFixture::new(policy());
+        let work_item_id = fixture.reserve.work_item_id.clone();
+        fixture.mutate_work_item(&work_item_id, |props| {
+            props.remove("work_item_fence");
+            props.insert("fence".into(), serde_json::json!("fence:request:initial"));
+        });
+        let mut fence_request = fixture.reserve.clone();
+        fence_request.idempotency_key = "reserve:generic-fence".into();
+        let fence_refusal: DevelopmentLaneResult = fixture.decode(&fixture.commit(
+            Method::ReserveDevelopmentLane {
+                request: fence_request,
+            },
+            TEST_NOW,
+        ));
+        assert_eq!(
+            fence_refusal.decision,
+            DevelopmentLaneResultDecision::WrongFence
+        );
+
+        let fixture = NativeLaneFixture::new(policy());
+        let work_item_id = fixture.reserve.work_item_id.clone();
+        let forged_intent = serde_json::to_value(&fixture.reserve.intent)
+            .expect("encode forged generic lane intent");
+        fixture.mutate_work_item(&work_item_id, |props| {
+            if let Some(metadata) = props
+                .get_mut("metadata")
+                .and_then(|value| value.as_object_mut())
+            {
+                metadata.remove("repository_work_item");
+            }
+            props.insert("development_lane_intent".into(), forged_intent);
+        });
+        let mut intent_request = fixture.reserve.clone();
+        intent_request.idempotency_key = "reserve:generic-intent".into();
+        let intent_refusal: DevelopmentLaneResult = fixture.decode(&fixture.commit(
+            Method::ReserveDevelopmentLane {
+                request: intent_request,
+            },
+            TEST_NOW,
+        ));
+        assert_eq!(
+            intent_refusal.decision,
+            DevelopmentLaneResultDecision::InputConflict
+        );
+    }
+
+    #[test]
+    fn graph_lifecycle_clear_fails_closed_while_lane_hold_is_live() {
+        let fixture = NativeLaneFixture::new(policy());
+        let accepted: DevelopmentLaneResult =
+            fixture.decode(&fixture.commit(fixture.reserve_method("reserve:clear-live"), TEST_NOW));
+        assert_eq!(accepted.decision, DevelopmentLaneResultDecision::Accepted);
+        let wtx = fixture.db.begin_write().expect("begin graph clear guard");
+        let refusal = clear_native_graph_rows_in_wtx(&wtx, TEST_GRAPH, DurableCrypto::none());
+        assert!(
+            refusal.is_err(),
+            "live lane authority must block graph clear"
+        );
+        drop(wtx);
+
+        let hold = accepted
+            .hold
+            .expect("live hold remains after refused clear");
+        let query = read_development_lane(
+            &fixture.db,
+            TEST_GRAPH,
+            &DevelopmentLaneQueryRequest {
+                schema_version:
+                    crate::epistemic_operations::DevelopmentLaneQueryRequestSchemaVersion::V1,
+                tenant_ref: hold.tenant_ref,
+                hold_id: hold.hold_id,
+                now_ms: 0,
+            },
+            TEST_NOW,
+            DurableCrypto::none(),
+        )
+        .expect("query live hold after refused clear");
+        assert_eq!(query.decision, DevelopmentLaneQueryResultDecision::Accepted);
+    }
+
+    #[test]
+    fn authoritative_snapshot_and_row_delta_paths_refuse_orphaning_lane_work_item() {
+        use crate::mutation_batch::{
+            MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
+            MutationStateDescriptor, MutationSurface, MUTATION_BATCH_VERSION,
+        };
+        use sha2::{Digest, Sha256};
+
+        let fixture = NativeLaneFixture::new(policy());
+        let accepted: DevelopmentLaneResult =
+            fixture.decode(&fixture.commit(fixture.reserve_method("reserve:state-path"), TEST_NOW));
+        let hold = accepted.hold.expect("state-path hold");
+        let mut linked = crate::graph::GraphCore::new().snapshot();
+        {
+            let rtx = fixture.db.begin_read().expect("read linked WorkItem");
+            let nodes = rtx.open_table(NODES).expect("open linked WorkItem table");
+            let bytes = nodes
+                .get((TEST_GRAPH, hold.work_item_id.as_str()))
+                .expect("lookup linked WorkItem")
+                .expect("linked WorkItem exists")
+                .value()
+                .to_vec();
+            linked
+                .nodes
+                .push((hold.work_item_id.clone(), std::sync::Arc::new(bytes)));
+        }
+
+        let make_batch =
+            |batch_id: &str, key: &str, algorithm: &str, state: &[u8], source_version: u64| {
+                crate::mutation_batch::MutationBatch {
+                    schema_version: MUTATION_BATCH_VERSION,
+                    batch_id: batch_id.into(),
+                    context: MutationRequestContext {
+                        request_id: 700,
+                        principal: format!("principal:sha256:{}", "a".repeat(64)),
+                        purpose: None,
+                        policy_fingerprint: None,
+                        trace_id: None,
+                    },
+                    tenant: "tenant:a".into(),
+                    graph: TEST_GRAPH.into(),
+                    placement_epoch: 1,
+                    idempotency_key: key.into(),
+                    expected_graph_version: Some(source_version),
+                    fencing_token: Some(1),
+                    authoritative_state: Some(MutationStateDescriptor {
+                        algorithm: algorithm.into(),
+                        digest: hex::encode(Sha256::digest(state)),
+                        source_graph_version: source_version,
+                        target_graph_version: source_version + 1,
+                    }),
+                    operations: vec![MutationOperation {
+                        ordinal: 0,
+                        surface: MutationSurface::Query,
+                        domain: MutationDomain::GraphSnapshot,
+                        method: Method::ApplyMutation {
+                            event_type: "authoritative_state_operation".into(),
+                            query: "sha256:state-path".into(),
+                        },
+                    }],
+                    outbox: vec![MutationOutboxIntent {
+                        topic: "state-path.test".into(),
+                        key: batch_id.into(),
+                        payload: Vec::new(),
+                        headers: std::collections::BTreeMap::new(),
+                    }],
+                    created_at_ms: TEST_NOW,
+                }
+            };
+
+        let mut orphaned = linked.clone();
+        orphaned.nodes.clear();
+        let orphaned_state = orphaned.to_msgpack().expect("encode orphaned snapshot");
+        let orphaned_batch = make_batch(
+            "state-path-orphaned",
+            "state-path-orphaned",
+            "sha256",
+            &orphaned_state,
+            0,
+        );
+        #[cfg(feature = "security")]
+        let mut orphaned_audit = super::super::AuditTailCache::new();
+        assert!(super::super::commit_mutation_batch_state(
+            &fixture.db,
+            super::super::StateCommitInput {
+                graph_fname: TEST_GRAPH,
+                batch: &orphaned_batch,
+                authoritative_state_msgpack: &orphaned_state,
+                result_msgpack: None,
+                committed_at_ms: TEST_NOW,
+                audited: true,
+            },
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut orphaned_audit,
+        )
+        .is_err());
+
+        let linked_state = linked.to_msgpack().expect("encode linked snapshot");
+        let linked_batch = make_batch(
+            "state-path-linked",
+            "state-path-linked",
+            "sha256",
+            &linked_state,
+            0,
+        );
+        #[cfg(feature = "security")]
+        let mut linked_audit = super::super::AuditTailCache::new();
+        super::super::commit_mutation_batch_state(
+            &fixture.db,
+            super::super::StateCommitInput {
+                graph_fname: TEST_GRAPH,
+                batch: &linked_batch,
+                authoritative_state_msgpack: &linked_state,
+                result_msgpack: None,
+                committed_at_ms: TEST_NOW,
+                audited: true,
+            },
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut linked_audit,
+        )
+        .expect("linked snapshot commit");
+
+        let after = crate::graph::GraphCore::new().snapshot();
+        let delta = crate::graph_delta::GraphRowDelta::between(&linked, &after)
+            .expect("build orphaning row delta");
+        let delta_state = delta.to_msgpack().expect("encode orphaning row delta");
+        let delta_batch = make_batch(
+            "state-path-delta",
+            "state-path-delta",
+            crate::graph_delta::ROW_DELTA_ALGORITHM,
+            &delta_state,
+            1,
+        );
+        #[cfg(feature = "security")]
+        let mut delta_audit = super::super::AuditTailCache::new();
+        assert!(super::super::commit_mutation_batch_state(
+            &fixture.db,
+            super::super::StateCommitInput {
+                graph_fname: TEST_GRAPH,
+                batch: &delta_batch,
+                authoritative_state_msgpack: &delta_state,
+                result_msgpack: None,
+                committed_at_ms: TEST_NOW,
+                audited: true,
+            },
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut delta_audit,
+        )
+        .is_err());
+
+        let query = read_development_lane(
+            &fixture.db,
+            TEST_GRAPH,
+            &DevelopmentLaneQueryRequest {
+                schema_version:
+                    crate::epistemic_operations::DevelopmentLaneQueryRequestSchemaVersion::V1,
+                tenant_ref: hold.tenant_ref,
+                hold_id: hold.hold_id,
+                now_ms: 0,
+            },
+            TEST_NOW,
+            DurableCrypto::none(),
+        )
+        .expect("query state-path hold after refused restore");
+        assert_eq!(query.decision, DevelopmentLaneQueryResultDecision::Accepted);
+    }
+
+    #[test]
+    fn every_low_level_graph_row_path_refuses_orphaning_a_lane_work_item() {
+        let fixture = NativeLaneFixture::new(policy());
+        let accepted: DevelopmentLaneResult =
+            fixture.decode(&fixture.commit(fixture.reserve_method("reserve:row-path"), TEST_NOW));
+        let hold = accepted.hold.expect("row-path hold");
+        let remove = Method::RemoveNode {
+            node_id: hold.work_item_id.clone(),
+        };
+
+        let mut ops = vec![(TEST_GRAPH.to_string(), remove.clone())];
+        let mut raft_log = Vec::new();
+        #[cfg(feature = "security")]
+        let mut audit_tail = super::super::AuditTailCache::new();
+        assert!(super::super::commit_ops(
+            &fixture.db,
+            &mut ops,
+            &mut raft_log,
+            Durability::Immediate,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit_tail,
+        )
+        .is_err());
+
+        #[cfg(feature = "security")]
+        let mut crossmodal_audit = super::super::AuditTailCache::new();
+        assert!(super::super::commit_crossmodal(
+            &fixture.db,
+            TEST_GRAPH,
+            std::slice::from_ref(&remove),
+            &[],
+            &[],
+            &[],
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut crossmodal_audit,
+        )
+        .is_err());
+
+        let query = read_development_lane(
+            &fixture.db,
+            TEST_GRAPH,
+            &DevelopmentLaneQueryRequest {
+                schema_version:
+                    crate::epistemic_operations::DevelopmentLaneQueryRequestSchemaVersion::V1,
+                tenant_ref: hold.tenant_ref,
+                hold_id: hold.hold_id,
+                now_ms: 0,
+            },
+            TEST_NOW,
+            DurableCrypto::none(),
+        )
+        .expect("query row-path hold after refused writes");
+        assert_eq!(query.decision, DevelopmentLaneQueryResultDecision::Accepted);
+    }
+
+    #[test]
+    fn checkpoint_restore_requires_the_exact_linked_lane_work_item() {
+        let fixture = NativeLaneFixture::new(policy());
+        let accepted: DevelopmentLaneResult =
+            fixture.decode(&fixture.commit(fixture.reserve_method("reserve:checkpoint"), TEST_NOW));
+        let hold = accepted.hold.expect("checkpoint hold");
+        let rtx = fixture
+            .db
+            .begin_read()
+            .expect("begin checkpoint validation");
+        let nodes = rtx.open_table(NODES).expect("open checkpoint nodes");
+        let holds = rtx.open_table(HOLDS).expect("open checkpoint holds");
+        assert!(
+            validate_checkpoint_lane_links(TEST_GRAPH, &[], &holds, DurableCrypto::none()).is_err()
+        );
+        let node = nodes
+            .get((TEST_GRAPH, hold.work_item_id.as_str()))
+            .expect("read linked checkpoint WorkItem")
+            .expect("linked checkpoint WorkItem exists");
+        let incoming = vec![(hold.work_item_id.clone(), node.value().to_vec())];
+        validate_checkpoint_lane_links(TEST_GRAPH, &incoming, &holds, DurableCrypto::none())
+            .expect("exact linked WorkItem preserves lane authority");
+        let mut stale_props: serde_json::Map<String, serde_json::Value> =
+            decode_durable(node.value()).expect("decode checkpoint WorkItem");
+        stale_props.insert("status".into(), serde_json::json!("succeeded"));
+        let stale_bytes = rmp_serde::to_vec_named(&stale_props).expect("encode stale WorkItem");
+        assert!(validate_checkpoint_lane_links(
+            TEST_GRAPH,
+            &[(hold.work_item_id, stale_bytes)],
+            &holds,
+            DurableCrypto::none()
+        )
+        .is_err());
     }
 
     #[test]
@@ -4603,13 +6532,21 @@ mod tests {
             .is_none());
         assert_eq!(
             lane_index
-                .get((TEST_GRAPH, accepted_request.intent.lane_id.as_str()))
+                .get((
+                    TEST_GRAPH,
+                    accepted_request.intent.tenant_ref.as_str(),
+                    accepted_request.intent.lane_id.as_str(),
+                ))
                 .expect("read lane winner")
                 .map(|value| value.value().to_string()),
             Some(expected_hold_id.clone())
         );
         assert!(lane_index
-            .get((TEST_GRAPH, refused_request.intent.lane_id.as_str()))
+            .get((
+                TEST_GRAPH,
+                refused_request.intent.tenant_ref.as_str(),
+                refused_request.intent.lane_id.as_str(),
+            ))
             .expect("read refused lane index")
             .is_none());
         assert!(work_item_index
@@ -4685,32 +6622,156 @@ mod tests {
         let fixture = NativeLaneFixture::new(policy());
         let first = fixture.candidate("tree-a", "branch:tree-a", "lanes/same");
         let second = fixture.candidate("tree-b", "branch:tree-b", "lanes/same");
-        let first_result: DevelopmentLaneResult = fixture.decode(&fixture.commit(
+        let first_for_indexes = first.clone();
+        let second_for_indexes = second.clone();
+        let db = &fixture.db;
+        let start = Arc::new(Barrier::new(3));
+        let (first_decision, second_decision) = std::thread::scope(|scope| {
+            let first_start = Arc::clone(&start);
+            let first_thread = scope.spawn({
+                let db = db;
+                move || {
+                    first_start.wait();
+                    let mut request = first;
+                    request.idempotency_key = "reserve:tree-a".into();
+                    let bytes = commit_development_lane(
+                        db,
+                        TEST_GRAPH,
+                        &Method::ReserveDevelopmentLane { request },
+                        TEST_NOW,
+                        DurableCrypto::none(),
+                    )
+                    .expect("worktree race transaction");
+                    rmp_serde::from_slice::<DevelopmentLaneResult>(&bytes)
+                        .expect("decode worktree race result")
+                        .decision
+                }
+            });
+            let second_start = Arc::clone(&start);
+            let second_thread = scope.spawn({
+                let db = db;
+                move || {
+                    second_start.wait();
+                    let mut request = second;
+                    request.idempotency_key = "reserve:tree-b".into();
+                    let bytes = commit_development_lane(
+                        db,
+                        TEST_GRAPH,
+                        &Method::ReserveDevelopmentLane { request },
+                        TEST_NOW,
+                        DurableCrypto::none(),
+                    )
+                    .expect("worktree race transaction");
+                    rmp_serde::from_slice::<DevelopmentLaneResult>(&bytes)
+                        .expect("decode worktree race result")
+                        .decision
+                }
+            });
+            start.wait();
+            (
+                first_thread.join().expect("first worktree race thread"),
+                second_thread.join().expect("second worktree race thread"),
+            )
+        });
+        let accepted_request = if first_decision == DevelopmentLaneResultDecision::Accepted {
+            &first_for_indexes
+        } else {
+            &second_for_indexes
+        };
+        let expected_hold_id = hold_id(&accepted_request.intent);
+        let worktree_key = format!(
+            "{}\0{}\0{}",
+            accepted_request.intent.host_ref,
+            accepted_request.intent.workspace_ref,
+            accepted_request.intent.worktree_locator
+        );
+        let rtx = fixture.db.begin_read().expect("read worktree race index");
+        let worktree_index = rtx
+            .open_table(WORKTREE_INDEX)
+            .expect("open worktree race index");
+        assert_eq!(
+            worktree_index
+                .get((TEST_GRAPH, worktree_key.as_str()))
+                .expect("read worktree race winner")
+                .map(|value| value.value().to_string()),
+            Some(expected_hold_id)
+        );
+        assert_eq!(
+            [first_decision, second_decision]
+                .into_iter()
+                .filter(|decision| *decision == DevelopmentLaneResultDecision::Accepted)
+                .count(),
+            1
+        );
+        assert_eq!(
+            [first_decision, second_decision]
+                .into_iter()
+                .filter(|decision| *decision == DevelopmentLaneResultDecision::Exclusivity)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn native_status_limit_uses_an_extra_row_probe() {
+        let fixture = NativeLaneFixture::new(policy());
+        let initial: DevelopmentLaneResult =
+            fixture.decode(&fixture.commit(fixture.reserve_method("reserve:initial"), TEST_NOW));
+        assert_eq!(initial.decision, DevelopmentLaneResultDecision::Accepted);
+        let status = |limit: u64, cursor: Option<String>| {
+            read_development_lane_status(
+                &fixture.db,
+                TEST_GRAPH,
+                &DevelopmentLaneStatusRequest {
+                    schema_version:
+                        crate::epistemic_operations::DevelopmentLaneStatusRequestSchemaVersion::V1,
+                    tenant_ref: "tenant:a".into(),
+                    hold_id: None,
+                    lane_id: None,
+                    work_item_id: None,
+                    limit,
+                    cursor,
+                    now_ms: 0,
+                },
+                TEST_NOW,
+                DurableCrypto::none(),
+            )
+            .expect("read bounded status page")
+        };
+        let exact = status(1, None);
+        assert_eq!(exact.holds.len(), 1);
+        assert_eq!(exact.tenant_active_count, 1);
+        assert_eq!(exact.holds[0].worktree_locator, REDACTED_PRIVATE_ID);
+        assert_eq!(exact.holds[0].host_ref, REDACTED_PRIVATE_ID);
+        assert!(exact.holds[0].host_target_alias.is_none());
+        assert!(exact.complete);
+        assert!(exact.next_cursor.is_none());
+
+        let candidate = fixture.candidate(
+            "status-second",
+            "branch:status-second",
+            "lanes/status-second",
+        );
+        let accepted: DevelopmentLaneResult = fixture.decode(&fixture.commit(
             Method::ReserveDevelopmentLane {
                 request: DevelopmentLaneReserveRequest {
-                    idempotency_key: "reserve:tree-a".into(),
-                    ..first
+                    idempotency_key: "reserve:status-second".into(),
+                    ..candidate
                 },
             },
             TEST_NOW,
         ));
-        assert_eq!(
-            first_result.decision,
-            DevelopmentLaneResultDecision::Accepted
-        );
-        let second_result: DevelopmentLaneResult = fixture.decode(&fixture.commit(
-            Method::ReserveDevelopmentLane {
-                request: DevelopmentLaneReserveRequest {
-                    idempotency_key: "reserve:tree-b".into(),
-                    ..second
-                },
-            },
-            TEST_NOW,
-        ));
-        assert_eq!(
-            second_result.decision,
-            DevelopmentLaneResultDecision::Exclusivity
-        );
+        assert_eq!(accepted.decision, DevelopmentLaneResultDecision::Accepted);
+        let first_page = status(1, None);
+        assert_eq!(first_page.holds.len(), 1);
+        assert_eq!(first_page.tenant_active_count, 2);
+        assert!(!first_page.complete);
+        let cursor = first_page.next_cursor.clone().expect("next status cursor");
+        let second_page = status(1, Some(cursor));
+        assert_eq!(second_page.holds.len(), 1);
+        assert_eq!(second_page.tenant_active_count, 2);
+        assert!(second_page.complete);
+        assert!(second_page.next_cursor.is_none());
     }
 
     #[test]
@@ -5151,6 +7212,19 @@ mod tests {
             200,
         ));
         assert_eq!(replay, finished);
+        let mut wrong_terminal = finish_request.clone();
+        wrong_terminal.idempotency_key = "finish:wrong-terminal".into();
+        wrong_terminal.terminal_state = DevelopmentLaneFinishRequestTerminalState::Failed;
+        let wrong_terminal: DevelopmentLaneFinishResult = fixture.decode(&fixture.commit(
+            Method::FinishDevelopmentLane {
+                request: wrong_terminal,
+            },
+            200,
+        ));
+        assert_eq!(
+            wrong_terminal.decision,
+            DevelopmentLaneFinishResultDecision::InputConflict
+        );
 
         fixture.seed_cleanup_work_item(&finished_hold, "cleanup:one", "cleanup-fence:one");
         let cleanup_request = DevelopmentLaneCleanupCompleteRequest {
@@ -5319,13 +7393,57 @@ mod tests {
         assert_eq!(status.holds.len(), 1);
         assert_eq!(status.tenant_active_count, 0);
         assert_eq!(status.tenant_retained_disk_bytes, 0);
+
+        // A cleaned tombstone remains queryable for bounded replay, so a
+        // checkpoint must carry both its terminal lifecycle WorkItem and the
+        // exact cleanup WorkItem correlation rather than silently preserving a
+        // native row after either node was dropped.
+        let cleaned_hold = cleaned.hold.as_ref().expect("cleaned hold link");
+        let rtx = fixture
+            .db
+            .begin_read()
+            .expect("begin cleaned checkpoint validation");
+        let nodes = rtx
+            .open_table(NODES)
+            .expect("open cleaned checkpoint nodes");
+        let holds = rtx
+            .open_table(HOLDS)
+            .expect("open cleaned checkpoint holds");
+        let lifecycle = nodes
+            .get((TEST_GRAPH, cleaned_hold.work_item_id.as_str()))
+            .expect("read cleaned lifecycle WorkItem")
+            .expect("cleaned lifecycle WorkItem exists");
+        let cleanup = nodes
+            .get((TEST_GRAPH, "cleanup:one"))
+            .expect("read cleaned cleanup WorkItem")
+            .expect("cleaned cleanup WorkItem exists");
+        let incoming = vec![
+            (
+                cleaned_hold.work_item_id.clone(),
+                lifecycle.value().to_vec(),
+            ),
+            ("cleanup:one".to_string(), cleanup.value().to_vec()),
+        ];
+        validate_checkpoint_lane_links(TEST_GRAPH, &incoming, &holds, DurableCrypto::none())
+            .expect("cleaned tombstone has exact linked WorkItems");
+        assert!(validate_checkpoint_lane_links(
+            TEST_GRAPH,
+            &[(
+                cleaned_hold.work_item_id.clone(),
+                lifecycle.value().to_vec()
+            )],
+            &holds,
+            DurableCrypto::none(),
+        )
+        .is_err());
     }
 
     #[test]
     fn native_global_and_tenant_drain_use_monotonic_cas_but_allow_lifecycle_cleanup() {
         let fixture = NativeLaneFixture::new(policy());
-        let accepted: DevelopmentLaneResult = fixture
-            .decode(&fixture.commit(fixture.reserve_method("reserve:drain-existing"), TEST_NOW));
+        let accepted_bytes =
+            fixture.commit(fixture.reserve_method("reserve:drain-existing"), TEST_NOW);
+        let accepted: DevelopmentLaneResult = fixture.decode(&accepted_bytes);
         let hold = accepted.hold.expect("drain test hold");
         let observed: DevelopmentLaneObserveResult = fixture.decode(&fixture.commit(
             Method::ObserveDevelopmentLane {
@@ -5373,6 +7491,14 @@ mod tests {
         assert_eq!(
             global_drain.decision,
             DevelopmentLaneQuotaUpdateResultDecision::Accepted
+        );
+
+        // Replay is checked before policy/drain/exclusivity evaluation.  An
+        // acknowledgement retry therefore returns the original Accepted
+        // bytes, even after the graph has entered drain-only mode.
+        assert_eq!(
+            fixture.commit(fixture.reserve_method("reserve:drain-existing"), 999),
+            accepted_bytes
         );
 
         let candidate = fixture.candidate("drain-new", "branch:drain-new", "lanes/drain-new");
