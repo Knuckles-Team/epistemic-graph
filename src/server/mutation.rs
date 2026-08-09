@@ -574,7 +574,7 @@ pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
         };
     }
     if crate::mutation_apply::is_durable_mutation(method)
-        && !crate::server::mutation_batch::is_work_item_method(method)
+        && !crate::server::mutation_batch::is_work_item_mutation_method(method)
     {
         ClusterMutationRoute::ConsensusGraph
     } else {
@@ -3417,6 +3417,10 @@ mod tests {
         ("CommitWorkItemResult", "dedicated engine-native MutationBatch result/dependency transition in mutation_batch.rs/redb_store.rs"),
         ("CancelWorkItem", "dedicated engine-native MutationBatch pending-cancellation transition in mutation_batch.rs/redb_store.rs"),
         ("DeferWorkItem", "dedicated engine-native MutationBatch fenced deferral transition in mutation_batch.rs/redb_store.rs"),
+        ("ReserveWorkItemResources", "dedicated engine-native MutationBatch host-reservation transaction in mutation_batch.rs/redb_store.rs"),
+        ("ReleaseWorkItemResources", "dedicated engine-native MutationBatch reservation-release transaction in mutation_batch.rs/redb_store.rs"),
+        ("ReclaimWorkItemResources", "dedicated engine-native MutationBatch reservation-reclaim transaction in mutation_batch.rs/redb_store.rs"),
+        ("UpdateResourceHost", "dedicated engine-native MutationBatch host-telemetry transaction in mutation_batch.rs/redb_store.rs"),
         // ── Non-graph-scoped stores: no GraphCore/graph_name in scope at all;
         // each self-routes in dispatch.rs BEFORE the per-graph chain, exactly
         // like Txn*, with its OWN dedicated redb file + commit path. ──

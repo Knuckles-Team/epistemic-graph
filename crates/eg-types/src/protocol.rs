@@ -511,6 +511,37 @@ pub enum Method {
         reason_ref: Option<String>,
         now_ms: u64,
     },
+    /// Atomically reserve the immutable shared-host resources for the exact
+    /// WorkItem attempt/fence.  The engine re-reads the WorkItem admission
+    /// extension and host records; request fields are assertions, never a
+    /// caller-owned reservation ledger.
+    ReserveWorkItemResources {
+        request: crate::epistemic_operations::ResourceReservationRequest,
+    },
+    /// Atomically release the exact current/terminal WorkItem reservation while
+    /// retaining its lifecycle tombstone for exact idempotent replay.
+    ReleaseWorkItemResources {
+        request: crate::epistemic_operations::ResourceReservationRequest,
+    },
+    /// Atomically reclaim an expired or superseded reservation.  A stale worker
+    /// cannot use this operation to release a newer attempt's capacity.
+    ReclaimWorkItemResources {
+        request: crate::epistemic_operations::ResourceReservationRequest,
+    },
+    /// Exact bounded read of a native reservation or retained lifecycle tombstone.
+    QueryWorkItemReservation {
+        request: crate::epistemic_operations::ResourceReservationStatusRequest,
+    },
+    /// Bounded native reservation reconciliation/status read.  No local mirror
+    /// is sufficient to answer this operation.
+    ResourceReservationStatus {
+        request: crate::epistemic_operations::ResourceReservationStatusRequest,
+    },
+    /// Monotonic host capacity/heartbeat/policy update.  Held accounting remains
+    /// native and cannot be overwritten by telemetry.
+    UpdateResourceHost {
+        request: crate::epistemic_operations::ResourceHostUpdateRequest,
+    },
     /// Reaper sweep (CONCEPT:EG-KG.compute.message-ttl-expiry): dead-letter/drop messages whose `expires_at`
     /// has passed and return messages whose visibility lease has expired to claimable,
     /// across every known queue. Called periodically by the scheduler with the current

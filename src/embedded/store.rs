@@ -129,6 +129,6 @@ impl EmbeddedRedbStore {
     /// from a clean durable slate — the embedded analogue of the server's
     /// `Cmd::PurgeGraph` tenant-delete teardown.
     pub(super) fn purge(&self, graph_fname: &str) -> Result<(), String> {
-        redb_store::purge_graph_rows(&self.db, graph_fname)
+        redb_store::purge_graph_rows(&self.db, graph_fname, self.crypto())
     }
 }
