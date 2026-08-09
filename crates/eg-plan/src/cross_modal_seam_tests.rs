@@ -85,10 +85,18 @@ ex:p4 a ex:Paper .
 
     let mut semantic = SemanticStore::new();
     // query ≈ [1,0,0]: c2 closest, then c1, then c3; c4 is orthogonal (never reached).
-    semantic.add_embedding("<http://example.org/c1>".into(), vec![0.90, 0.44, 0.0]);
-    semantic.add_embedding("<http://example.org/c2>".into(), vec![0.99, 0.10, 0.0]);
-    semantic.add_embedding("<http://example.org/c3>".into(), vec![0.60, 0.80, 0.0]);
-    semantic.add_embedding("<http://example.org/c4>".into(), vec![0.0, 0.0, 1.0]);
+    semantic
+        .add_embedding("<http://example.org/c1>".into(), vec![0.90, 0.44, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/c2>".into(), vec![0.99, 0.10, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/c3>".into(), vec![0.60, 0.80, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/c4>".into(), vec![0.0, 0.0, 1.0])
+        .unwrap();
 
     (core.analysis_snapshot(), semantic)
 }
@@ -230,8 +238,12 @@ fn string_typed_devices() -> (GraphView, SemanticStore) {
     core.add_node("mm1".into(), blob(json!({ "type": "Sensor" })));
     core.add_node("w1".into(), blob(json!({ "type": "Widget" })));
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("mm1".into(), vec![1.0, 0.0, 0.0]);
-    semantic.add_embedding("w1".into(), vec![1.0, 0.0, 0.0]);
+    semantic
+        .add_embedding("mm1".into(), vec![1.0, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("w1".into(), vec![1.0, 0.0, 0.0])
+        .unwrap();
     (core.analysis_snapshot(), semantic)
 }
 
@@ -351,7 +363,7 @@ fn sensors_with_instant_embeddings() -> (GraphView, SemanticStore) {
         (&(4 * NS).to_string(), [0.10, 0.99]),
     ];
     for (id, v) in emb {
-        semantic.add_embedding(id.to_string(), v.to_vec());
+        semantic.add_embedding(id.to_string(), v.to_vec()).unwrap();
     }
     (core.analysis_snapshot(), semantic)
 }
@@ -412,9 +424,15 @@ fn frames_with_embeddings() -> (GraphView, SemanticStore) {
 
     let mut semantic = SemanticStore::new();
     // query ≈ [1,0]: F2 > F1 > F3.
-    semantic.add_embedding("F1".into(), vec![0.90, 0.44]);
-    semantic.add_embedding("F2".into(), vec![0.99, 0.10]);
-    semantic.add_embedding("F3".into(), vec![0.60, 0.80]);
+    semantic
+        .add_embedding("F1".into(), vec![0.90, 0.44])
+        .unwrap();
+    semantic
+        .add_embedding("F2".into(), vec![0.99, 0.10])
+        .unwrap();
+    semantic
+        .add_embedding("F3".into(), vec![0.60, 0.80])
+        .unwrap();
     (core.analysis_snapshot(), semantic)
 }
 

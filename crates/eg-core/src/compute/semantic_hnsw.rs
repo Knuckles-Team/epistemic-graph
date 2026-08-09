@@ -9,6 +9,7 @@
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed), which reopens a persisted index without rebuilding from raw
 // vectors. `compute::semantic` re-exports whichever backend is active.
 
+use super::{check_embedding_dimension, EmbeddingDimensionError};
 use eg_ann::{HnswIndex as NativeHnswIndex, Metric};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -157,20 +158,32 @@ impl SemanticStore {
         rows
     }
 
-    pub fn add_embedding(&mut self, node_id: String, embedding: Vec<f32>) {
+    /// CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007, P0 — data loss): a mismatched
+    /// dimension is REJECTED with a typed error before `embeddings`/the resident
+    /// index are touched at all — `self.dim()` (the store's established
+    /// dimensionality, `0` while empty) is checked FIRST. This also closes a
+    /// pre-existing gap in this backend: without the guard, `embeddings` could hold
+    /// vectors of different widths simultaneously (only the resident index quietly
+    /// dropped a mismatched vector from search), contradicting this backend's own
+    /// documented invariant that embeddings are never mixed-width.
+    pub fn add_embedding(
+        &mut self,
+        node_id: String,
+        embedding: Vec<f32>,
+    ) -> Result<(), EmbeddingDimensionError> {
+        check_embedding_dimension(embedding.len(), self.dim())?;
+
         let is_update = self.embeddings.contains_key(&node_id);
         self.embeddings.insert(node_id.clone(), embedding.clone());
         let live_len = self.embeddings.len();
 
         let mut idx = self.index.write();
         if idx.hnsw.is_none() {
-            return; // not built yet → built lazily on next search
+            return Ok(()); // not built yet → built lazily on next search
         }
-        if embedding.len() != idx.dim {
-            idx.hnsw = None; // dimension drift → rebuild on next search
-            return;
-        }
-        // Incremental insert at a fresh internal id (append-only).
+        // The guard above already guarantees `embedding` matches the store's
+        // established dimension, so the resident index's dimension always matches
+        // too — no separate drift branch needed here anymore.
         let internal = idx.order.len();
         idx.hnsw
             .as_mut()
@@ -195,6 +208,7 @@ impl SemanticStore {
         {
             idx.hnsw = None;
         }
+        Ok(())
     }
 
     /// Incrementally remove `node_id`'s embedding (CONCEPT:EG-KG.storage.incremental-ann): drop it
@@ -454,8 +468,9 @@ impl SemanticStore {
     /// The store's embedding dimensionality — `0` until the first vector is
     /// inserted (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard). Lets a caller reject a query vector
     /// of the wrong width with a clear error before it ever reaches a search.
-    /// Cheap: an arbitrary stored vector's length (embeddings are never mixed-width
-    /// in practice — `add_embedding` drops the index on dimension drift).
+    /// Cheap: an arbitrary stored vector's length — embeddings are never
+    /// mixed-width, now ENFORCED by `add_embedding`'s dimension guard (BUG-007)
+    /// rather than merely assumed.
     pub fn dim(&self) -> usize {
         self.embeddings.values().next().map(Vec::len).unwrap_or(0)
     }
@@ -527,14 +542,100 @@ mod tests {
     #[test]
     fn test_add_and_search_brute_force() {
         let mut store = SemanticStore::new();
-        store.add_embedding("a".into(), vec![1.0, 0.0, 0.0]);
-        store.add_embedding("b".into(), vec![0.0, 1.0, 0.0]);
-        store.add_embedding("c".into(), vec![0.9, 0.1, 0.0]);
+        store
+            .add_embedding("a".into(), vec![1.0, 0.0, 0.0])
+            .unwrap();
+
+        store
+            .add_embedding("b".into(), vec![0.0, 1.0, 0.0])
+            .unwrap();
+
+        store
+            .add_embedding("c".into(), vec![0.9, 0.1, 0.0])
+            .unwrap();
 
         let results = store.semantic_search(&[1.0, 0.0, 0.0], 2);
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].0, "a");
         assert!(results[0].1 > 0.99);
+    }
+
+    /// BUG-007 (P0, data-loss class) — this backend's analog of the arena-erasure
+    /// bug fixed in `semantic_store_ann.rs`. This backend never CLEARED its
+    /// `embeddings` map on a mismatched write, but it also never REJECTED one: a
+    /// wrong-width vector was inserted right alongside the existing corpus (only
+    /// the resident HNSW index quietly dropped it from search), silently violating
+    /// this backend's own "never mixed-width" invariant. Proves the write is now
+    /// rejected with a typed error and the corpus is byte-for-byte unchanged.
+    #[test]
+    fn mismatched_dimension_insert_does_not_corrupt_corpus() {
+        let mut store = SemanticStore::new();
+        let known: Vec<(String, Vec<f32>)> = (0..10)
+            .map(|i| {
+                let mut v = vec![0.0f32; 8];
+                v[i % 8] = 1.0;
+                (format!("n{i}"), v)
+            })
+            .collect();
+        for (id, v) in &known {
+            store.add_embedding(id.clone(), v.clone()).unwrap();
+        }
+        assert_eq!(store.len(), 10, "setup: 10 known vectors resident");
+        let mut before = store.embeddings_snapshot();
+        before.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+        let result = store.add_embedding("intruder".into(), vec![1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(
+            result,
+            Err(EmbeddingDimensionError::Mismatch {
+                expected: 8,
+                received: 4
+            })
+        );
+        assert!(store.get_embedding("intruder").is_none());
+
+        let mut after = store.embeddings_snapshot();
+        after.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            store.len(),
+            10,
+            "existing corpus must not be touched (BUG-007)"
+        );
+        assert_eq!(
+            before, after,
+            "embeddings map must be byte-for-byte identical after a rejected write"
+        );
+    }
+
+    /// Neighbouring hostile input: a zero-length embedding must be rejected.
+    #[test]
+    fn zero_dimension_embedding_is_rejected() {
+        let mut store = SemanticStore::new();
+        assert_eq!(
+            store.add_embedding("a".into(), vec![]),
+            Err(EmbeddingDimensionError::Empty)
+        );
+        assert!(store.is_empty());
+    }
+
+    /// Neighbouring hostile input: an embedding beyond the maximum dimension must
+    /// be rejected before it is ever inserted.
+    #[test]
+    fn oversized_dimension_embedding_is_rejected() {
+        use super::super::MAX_EMBEDDING_DIMENSION;
+        let mut store = SemanticStore::new();
+        store
+            .add_embedding("a".into(), vec![1.0, 0.0, 0.0])
+            .unwrap();
+        let oversized = vec![0.0f32; MAX_EMBEDDING_DIMENSION + 1];
+        assert_eq!(
+            store.add_embedding("intruder".into(), oversized),
+            Err(EmbeddingDimensionError::Oversized {
+                received: MAX_EMBEDDING_DIMENSION + 1,
+                max: MAX_EMBEDDING_DIMENSION,
+            })
+        );
+        assert_eq!(store.len(), 1);
     }
 
     #[test]
@@ -545,7 +646,7 @@ mod tests {
             let mut emb = vec![0.0f32; 8];
             emb[i % 8] = 1.0;
             emb[(i + 1) % 8] = 0.5;
-            store.add_embedding(format!("node_{}", i), emb);
+            store.add_embedding(format!("node_{}", i), emb).unwrap();
         }
 
         let query = vec![1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
@@ -572,7 +673,7 @@ mod tests {
             let mut emb = vec![0.0f32; 8];
             emb[i % 8] = 1.0;
             emb[(i + 1) % 8] = 0.5;
-            store.add_embedding(format!("node_{}", i), emb);
+            store.add_embedding(format!("node_{}", i), emb).unwrap();
         }
         let bytes = rmp_serde::to_vec_named(&store).unwrap();
         let restored: SemanticStore = rmp_serde::from_slice(&bytes).unwrap();
@@ -596,14 +697,15 @@ mod tests {
         for i in 0..40 {
             let mut emb = vec![0.1f32; 8];
             emb[i % 8] = (i as f32) / 40.0;
-            store.add_embedding(format!("n{i}"), emb);
+            store.add_embedding(format!("n{i}"), emb).unwrap();
         }
         let _ = store.semantic_search(&[0.1; 8], 5); // build the index
 
         // Overwrite n0 toward a brand-new direction → the NEW n0 is searchable.
         // (HNSW is approximate, so assert top-k membership, not exact rank.)
         let newdir = vec![5.0f32; 8];
-        store.add_embedding("n0".into(), newdir.clone());
+        store.add_embedding("n0".into(), newdir.clone()).unwrap();
+
         let res = store.semantic_search(&newdir, 10);
         assert!(
             res.iter().any(|(id, _)| id == "n0"),
@@ -613,7 +715,9 @@ mod tests {
         // Hammer one node with overwrites to exceed the compaction ratio; results
         // must stay correct (latest embedding searchable) and free of dupes.
         for k in 0..40 {
-            store.add_embedding("n1".into(), vec![k as f32 + 10.0; 8]);
+            store
+                .add_embedding("n1".into(), vec![k as f32 + 10.0; 8])
+                .unwrap();
         }
         let target = vec![49.0f32; 8];
         let res = store.semantic_search(&target, 10);
@@ -634,9 +738,18 @@ mod tests {
         // CONCEPT:EG-KG.storage.incremental-ann — brute-force regime: a removed embedding
         // vanishes from the store and from search; survivors remain.
         let mut store = SemanticStore::new();
-        store.add_embedding("a".into(), vec![1.0, 0.0, 0.0]);
-        store.add_embedding("b".into(), vec![0.0, 1.0, 0.0]);
-        store.add_embedding("c".into(), vec![0.9, 0.1, 0.0]);
+        store
+            .add_embedding("a".into(), vec![1.0, 0.0, 0.0])
+            .unwrap();
+
+        store
+            .add_embedding("b".into(), vec![0.0, 1.0, 0.0])
+            .unwrap();
+
+        store
+            .add_embedding("c".into(), vec![0.9, 0.1, 0.0])
+            .unwrap();
+
         assert_eq!(store.len(), 3);
 
         assert!(store.remove_embedding("a"));
@@ -659,7 +772,7 @@ mod tests {
         for i in 0..40 {
             let mut emb = vec![0.1f32; 8];
             emb[i % 8] = (i as f32) / 40.0;
-            store.add_embedding(format!("n{i}"), emb);
+            store.add_embedding(format!("n{i}"), emb).unwrap();
         }
         let _ = store.semantic_search(&[0.1; 8], 5); // build the index
 
@@ -685,12 +798,14 @@ mod tests {
         for i in 0..40 {
             let mut emb = vec![0.1f32; 8];
             emb[i % 8] = (i as f32) / 40.0;
-            store.add_embedding(format!("n{}", i), emb);
+            store.add_embedding(format!("n{}", i), emb).unwrap();
         }
         let _ = store.semantic_search(&[0.1; 8], 5); // triggers the initial build
 
         let distinct = vec![9.0f32; 8];
-        store.add_embedding("late".into(), distinct.clone()); // incremental insert
+        store
+            .add_embedding("late".into(), distinct.clone())
+            .unwrap(); // incremental insert
         let results = store.semantic_search(&distinct, 3);
         assert!(
             results.iter().any(|(id, _)| id == "late"),

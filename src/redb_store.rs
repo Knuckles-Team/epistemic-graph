@@ -3341,7 +3341,13 @@ fn apply_crossmodal_projection_rows(
             None => crate::compute::semantic::SemanticStore::default(),
         };
         for (node_id, embedding) in vectors {
-            store.add_embedding(node_id.clone(), embedding.clone());
+            // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): a rejected write bails via `?`
+            // BEFORE `store` is reserialized/inserted below, so a mid-batch mismatch
+            // never reaches durable storage — `store` here is a scratch decode, not
+            // the live in-RAM store, discarded on this early return.
+            store
+                .add_embedding(node_id.clone(), embedding.clone())
+                .map_err(|error| error.to_string())?;
         }
         let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
         let sealed = crypto.seal(&bytes);
@@ -3489,7 +3495,14 @@ pub(crate) fn commit_crossmodal(
                 None => crate::compute::semantic::SemanticStore::default(),
             };
             for (node_id, embedding) in vectors {
-                store.add_embedding(node_id.clone(), embedding.clone());
+                // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): see the identical comment in
+                // `apply_crossmodal_projection_rows` above — `store` is a scratch
+                // decode discarded on this early return, and per this function's own
+                // doc comment ANY error here drops the whole `WriteTransaction`
+                // without committing, so a rejected write here never partially lands.
+                store
+                    .add_embedding(node_id.clone(), embedding.clone())
+                    .map_err(|error| error.to_string())?;
             }
             let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
             let blob = crypto.seal(&bytes);
@@ -3687,7 +3700,9 @@ fn upsert_durable_embedding(
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     let mut store = read_semantic_store(semantic, graph, crypto)?.unwrap_or_default();
-    store.add_embedding(node_id.to_string(), embedding.to_vec());
+    store
+        .add_embedding(node_id.to_string(), embedding.to_vec())
+        .map_err(|error| error.to_string())?;
     write_semantic_store(semantic, graph, &store, crypto)
 }
 
@@ -4616,7 +4631,16 @@ fn apply_batch_rows(
                         "BatchUpdate op[{index}] embedding node '{id}' does not exist"
                     ));
                 }
-                semantic_store.add_embedding(id, embedding);
+                // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): `semantic_store` is a scratch
+                // decode written back durably ONLY after this whole loop returns
+                // `Ok` (`if semantic_dirty { write_semantic_store(...) }` below), and
+                // this function's caller drops the enclosing `WriteTransaction`
+                // without committing on any `Err` — so, exactly like the existing
+                // "node does not exist" check two lines up, a rejected write here
+                // never partially lands durably.
+                semantic_store
+                    .add_embedding(id, embedding)
+                    .map_err(|error| format!("BatchUpdate op[{index}] {error}"))?;
                 semantic_dirty = true;
             }
         }
@@ -8321,7 +8345,8 @@ mod mutation_batch_tests {
         after
             .semantic_store
             .write()
-            .add_embedding("a".to_string(), vec![0.25, 0.75]);
+            .add_embedding("a".to_string(), vec![0.25, 0.75])
+            .unwrap();
         after.set_integrity_policy(crate::graph::IntegrityPolicy {
             shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
         });

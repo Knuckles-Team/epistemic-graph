@@ -71,8 +71,12 @@ fn add_embedding_then_reason_then_ann_consistent() {
     let core = owl_core();
     let q = vec![1.0f32, 0.0, 0.0];
     let mut semantic = SemanticStore::new();
-    semantic.add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0]);
-    semantic.add_embedding("<http://example.org/p2>".into(), vec![0.80, 0.60, 0.0]);
+    semantic
+        .add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p2>".into(), vec![0.80, 0.60, 0.0])
+        .unwrap();
 
     // BEFORE the write: only p1,p2 are inferred members (p2 closer to q than p1).
     let before = {
@@ -97,7 +101,9 @@ fn add_embedding_then_reason_then_ann_consistent() {
         "<http://example.org/p9>".into(),
         blob(json!({ "type": "<http://example.org/Article>" })),
     );
-    semantic.add_embedding("<http://example.org/p9>".into(), vec![0.999, 0.02, 0.0]);
+    semantic
+        .add_embedding("<http://example.org/p9>".into(), vec![0.999, 0.02, 0.0])
+        .unwrap();
 
     // AFTER: the next fused query sees p9 — reasoner-included (inferred ScholarlyWork)
     // AND ANN-ranked FIRST (closest to q). It cleared BOTH gates in one plan.
@@ -127,8 +133,12 @@ fn update_embedding_then_ann_reflects_new_vector() {
     let q = vec![1.0f32, 0.0, 0.0];
     let mut semantic = SemanticStore::new();
     // Initially p2 is closer to q than p1.
-    semantic.add_embedding("<http://example.org/p1>".into(), vec![0.70, 0.71, 0.0]);
-    semantic.add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0]);
+    semantic
+        .add_embedding("<http://example.org/p1>".into(), vec![0.70, 0.71, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0])
+        .unwrap();
 
     let view = core.analysis_snapshot();
     let before = reason_rank_plan(q.clone())
@@ -145,7 +155,9 @@ fn update_embedding_then_ann_reflects_new_vector() {
     );
 
     // ── UPDATE p1's embedding to be the nearest to q (overwrites the prior vector). ──
-    semantic.add_embedding("<http://example.org/p1>".into(), vec![1.0, 0.0, 0.0]);
+    semantic
+        .add_embedding("<http://example.org/p1>".into(), vec![1.0, 0.0, 0.0])
+        .unwrap();
 
     let after = reason_rank_plan(q)
         .execute(&PlanCtx::new(&view, &semantic))

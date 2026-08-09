@@ -461,7 +461,9 @@ mod tests {
         let view = core.analysis_snapshot();
         let mut semantic = SemanticStore::new();
         for i in 0..20 {
-            semantic.add_embedding(format!("r{i}"), vec![1.0, (i as f32) * 0.01, 0.0, 0.0]);
+            semantic
+                .add_embedding(format!("r{i}"), vec![1.0, (i as f32) * 0.01, 0.0, 0.0])
+                .unwrap();
         }
         let ctx = PlanCtx::new(&view, &semantic);
         let card = ModalityCardinality::new(PlanStats::collect(&ctx));

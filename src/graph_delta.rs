@@ -325,9 +325,9 @@ impl GraphRowDelta {
                     source_id,
                     target_id,
                 } => transaction.remove_edge(source_id.clone(), target_id.clone()),
-                Method::AddEmbedding { node_id, embedding } => {
-                    semantic.add_embedding(node_id.clone(), embedding.clone())
-                }
+                Method::AddEmbedding { node_id, embedding } => semantic
+                    .add_embedding(node_id.clone(), embedding.clone())
+                    .map_err(|error| error.to_string())?,
                 _ => return Err("graph row delta contains a non-projectable operation".to_string()),
             }
         }
@@ -389,7 +389,8 @@ mod tests {
         before
             .semantic_store
             .write()
-            .add_embedding("a".into(), vec![1.0, 0.0]);
+            .add_embedding("a".into(), vec![1.0, 0.0])
+            .unwrap();
         let before_snapshot = before.snapshot();
 
         let after = GraphCore::from_snapshot(before_snapshot.clone(), 0).unwrap();
@@ -400,7 +401,8 @@ mod tests {
         after
             .semantic_store
             .write()
-            .add_embedding("a".into(), vec![0.0, 1.0]);
+            .add_embedding("a".into(), vec![0.0, 1.0])
+            .unwrap();
         let after_snapshot = after.snapshot();
 
         let delta = GraphRowDelta::between(&before_snapshot, &after_snapshot).unwrap();

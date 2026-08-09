@@ -125,7 +125,7 @@ fn build_dataset(
 
     let mut semantic = SemanticStore::new();
     for (id, v) in &vectors {
-        semantic.add_embedding(id.clone(), v.clone());
+        semantic.add_embedding(id.clone(), v.clone()).unwrap();
     }
     (core.analysis_snapshot(), semantic, vectors)
 }
@@ -248,13 +248,15 @@ ex:p1 a ex:Paper . ex:p2 a ex:Article . ex:p3 a ex:Topic . ex:p4 a ex:Paper .
         core.add_node(id.clone(), blob(json!({ "type": "Doc" })));
         let mut v = vec![0.0f32; 3];
         v[i % 3] = 1.0;
-        semantic.add_embedding(id, v);
+        semantic.add_embedding(id, v).unwrap();
     }
     for (s, t) in [("p1", "c1"), ("p2", "c2"), ("p4", "c3")] {
         let sid = format!("<http://example.org/{s}>");
         let tid = format!("<http://example.org/{t}>");
         core.add_node(tid.clone(), blob(json!({ "type": "Doc" })));
-        semantic.add_embedding(tid.clone(), vec![0.5, 0.5, 0.0]);
+        semantic
+            .add_embedding(tid.clone(), vec![0.5, 0.5, 0.0])
+            .unwrap();
         core.add_edge(sid, tid, blob(json!({ "relationship": "CITES" })))
             .unwrap();
     }
