@@ -3904,6 +3904,95 @@ mod tests {
         );
     }
 
+    /// Coordinator lead #3 (2026-08-09), CORRECTED: the first attempt at this test
+    /// sent `$_visibility_owner_id` straight to `exec_cypher_params` and got a PARSE
+    /// ERROR — `Test::Cmp`'s operand is `plan::Value` (a resolved literal, see
+    /// `plan.rs:222-227`), not a parameterizable expression, so `parse_literal`
+    /// (`parser.rs:656-672`) has no `Tok::Param` arm and the WHERE-clause `=`/`IN`
+    /// grammar genuinely cannot reference `$name` AT ALL — confirmed independently by
+    /// `EpistemicGraphBackend._inline_cypher_params`'s own docstring
+    /// (`agent-utilities/.../backends/epistemic_graph_backend.py:172-180`): "the
+    /// engine's hand-written parser only implements `literal := string | number |
+    /// true | false`". That is why the Python backend renders every `$param`
+    /// reference into a literal via `_cypher_literal` BEFORE the query ever reaches
+    /// this parser — `execute_read`/`execute_write` never call `exec_cypher_params`
+    /// with bound parameters; they always send fully-inlined literal text. My first
+    /// attempt tested a shape the real system never sends. This version sends the
+    /// exact literal-inlined text `_inline_cypher_params` actually produces:
+    /// ```text
+    /// python3 -c "
+    /// from agent_utilities.knowledge_graph.core.cypher_scoping import inject_and_predicate
+    /// from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import EpistemicGraphBackend
+    /// cond = \"(n._owner_id = \$_visibility_owner_id OR n._shared_scope IN ['org', 'commons'] OR n._owner_id IS NULL)\"
+    /// scoped = inject_and_predicate('MATCH (n) WHERE n.node_type IS NOT NULL RETURN count(n)', cond)
+    /// print(EpistemicGraphBackend._inline_cypher_params(scoped, {'_visibility_owner_id': 'me'}))
+    /// "
+    /// ```
+    #[test]
+    fn coordinator_disproof_composed_visibility_and_predicate() {
+        let core = GraphCore::new();
+        // A mix: some nodes visible via owner match, some via org/commons scope, some
+        // via the owner-null branch (unowned/public), one node_type absent everywhere
+        // relevant, all node_type values present so IN/`=` have real rows to find.
+        core.add_node(
+            "owned_by_me".into(),
+            pbytes(serde_json::json!({"node_type":"InboundMessage","_owner_id":"me"})),
+        );
+        core.add_node(
+            "owned_by_other".into(),
+            pbytes(serde_json::json!({"node_type":"InboundMessage","_owner_id":"someone_else"})),
+        );
+        core.add_node(
+            "org_scoped".into(),
+            pbytes(
+                serde_json::json!({"node_type":"InboundMessage","_owner_id":"someone_else","_shared_scope":"org"}),
+            ),
+        );
+        core.add_node(
+            "unowned".into(),
+            pbytes(serde_json::json!({"node_type":"Thread"})),
+        );
+        let v = core.analysis_snapshot();
+
+        // Sanity: the bare, LITERAL-INLINED visibility predicate alone (mirrors the
+        // aggregate base query, which the live evidence shows returns the true total).
+        let base = exec_cypher(
+            &v,
+            "MATCH (n) WHERE (n._owner_id = 'me' OR n._shared_scope IN ['org', 'commons'] OR n._owner_id IS NULL) RETURN count(n)",
+        )
+        .unwrap();
+        // owned_by_me (owner match), org_scoped (org scope), unowned (owner IS NULL) are
+        // visible; owned_by_other is not (owned by someone else, not org/commons-scoped).
+        assert_eq!(cells_of(&base, 0)[0], Value::Number(3.into()), "bare visibility predicate sanity check");
+
+        let is_not_null = exec_cypher(
+            &v,
+            "MATCH (n) WHERE (n._owner_id = 'me' OR n._shared_scope IN ['org', 'commons'] OR n._owner_id IS NULL) AND (n.node_type IS NOT NULL) RETURN count(n)",
+        )
+        .unwrap();
+        let eq = exec_cypher(
+            &v,
+            "MATCH (n) WHERE (n._owner_id = 'me' OR n._shared_scope IN ['org', 'commons'] OR n._owner_id IS NULL) AND (n.node_type = 'InboundMessage') RETURN count(n)",
+        )
+        .unwrap();
+        let inn = exec_cypher(
+            &v,
+            "MATCH (n) WHERE (n._owner_id = 'me' OR n._shared_scope IN ['org', 'commons'] OR n._owner_id IS NULL) AND (n.node_type IN ['InboundMessage']) RETURN count(n)",
+        )
+        .unwrap();
+        eprintln!("composed IS NOT NULL: {is_not_null:?}");
+        eprintln!("composed =: {eq:?}");
+        eprintln!("composed IN: {inn:?}");
+
+        // Every node in this fixture HAS node_type, so IS NOT NULL should equal the
+        // base visibility count (3), same as the bare-form test already proved.
+        assert_eq!(cells_of(&is_not_null, 0)[0], Value::Number(3.into()));
+        // Visible InboundMessage nodes: owned_by_me + org_scoped = 2 (owned_by_other is
+        // filtered by visibility regardless of node_type).
+        assert_eq!(cells_of(&eq, 0)[0], Value::Number(2.into()));
+        assert_eq!(cells_of(&eq, 0)[0], cells_of(&inn, 0)[0], "composed = and composed IN must agree");
+    }
+
     /// Coordinator disproof check, point 4: `=` vs `IN` against a UNIVERSALLY-absent
     /// property. Both must agree (both false for every row, since the property is
     /// absent everywhere) — this isolates whether the earlier `node_type = 'X'` vs
