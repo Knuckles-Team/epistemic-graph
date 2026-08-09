@@ -309,6 +309,47 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Atomic,
         },
+        Method::ReserveDevelopmentLane { .. }
+        | Method::RenewDevelopmentLane { .. }
+        | Method::ObserveDevelopmentLane { .. }
+        | Method::FinishDevelopmentLane { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::GraphRedb,
+            authz_action: "lane:reserve",
+            idempotent: true,
+            audited: true,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
+        },
+        Method::CleanupDevelopmentLane { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::GraphRedb,
+            authz_action: "lane:cleanup",
+            idempotent: true,
+            audited: true,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
+        },
+        Method::UpdateDevelopmentLaneQuota { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::GraphRedb,
+            authz_action: "lane:quota",
+            idempotent: true,
+            audited: true,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
+        },
+        Method::QueryDevelopmentLane { .. } | Method::DevelopmentLaneStatus { .. } => {
+            MethodPolicy {
+                mutates: false,
+                durability_domain: DurabilityDomain::None,
+                authz_action: "lane:read",
+                idempotent: true,
+                audited: false,
+                emits_cdc: false,
+                txn_participation: TxnParticipation::Snapshot,
+            }
+        }
         Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. } => {
             MethodPolicy {
                 mutates: false,
@@ -2202,6 +2243,14 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("QueryWorkItemReservation", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "resource:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "linearizable exact native authority read"),
         ("ResourceReservationStatus", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "resource:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "bounded linearizable reconciliation read"),
         ("UpdateResourceHost", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "resource:host", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "controller-only monotonic host telemetry update"),
+        ("ReserveDevelopmentLane", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "lane:reserve", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "controller-only atomic branch/worktree uniqueness and multi-scope quota hold; now_ms is authority-normalized"),
+        ("RenewDevelopmentLane", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "lane:reserve", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "in-place O(1) hold renewal bound to the current WorkItem lease; now_ms is authority-normalized"),
+        ("ObserveDevelopmentLane", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "lane:reserve", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "monotonic retained-footprint observation replaces the prior native charge; now_ms is authority-normalized"),
+        ("FinishDevelopmentLane", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "lane:reserve", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "terminal lifecycle releases active count but retains cleanup charges and identity; now_ms is authority-normalized"),
+        ("CleanupDevelopmentLane", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "lane:cleanup", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "distinct cleanup WorkItem fence releases retained disk and exclusivity; now_ms is authority-normalized"),
+        ("QueryDevelopmentLane", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "lane:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "linearizable exact lane hold/tombstone read"),
+        ("DevelopmentLaneStatus", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "lane:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "bounded tenant-scoped status with maintained counters"),
+        ("UpdateDevelopmentLaneQuota", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "lane:quota", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "controller/admin-only monotonic server-owned quota policy with numeric expected_policy_revision CAS; now_ms is authority-normalized"),
         ("SweepExpired", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::Outbox, authz_action: "broker:admin", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),
         ("StreamDeclare", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::Outbox, authz_action: "stream:admin", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),
         ("StreamPublish", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::Outbox, authz_action: "stream:write", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),
@@ -2665,7 +2714,12 @@ mod smoke_tests {
         // Plus D-DPF-1 `GetNeighborsBatch` (the batch sibling of `GetNeighbors`,
         // unconditional -- closes the engine-side N+1 on multi-node neighbor
         // reads): 368 + 1 = 369.
-        let expected = 369
+        // The git-verified zero-feature baseline is 375 unconditional rows
+        // (the historical running comments above predate six existing rows).
+        // Plus RMDD-28 native development-lane reserve/renew/observe/finish/
+        // cleanup/query/status/quota operations (8 unconditional methods):
+        // 375 + 8 = 383.
+        let expected = 383
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))

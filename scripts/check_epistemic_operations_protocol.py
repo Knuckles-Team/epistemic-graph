@@ -23,6 +23,9 @@ RUST_GENERATED = (
     ROOT / "crates" / "eg-types" / "src" / "epistemic_operations_manifest.rs"
 )
 LIB_SOURCE = ROOT / "crates" / "eg-types" / "src" / "lib.rs"
+GOLDEN_VECTOR_PATH = (
+    ROOT / "protocols" / "epistemic-operations" / "v1" / "development-lane.golden.json"
+)
 REQUIRED_SCHEMAS = (
     "request_context",
     "mutation_batch",
@@ -39,6 +42,7 @@ REQUIRED_SCHEMAS = (
     "resource_reservation",
     "resource_reservation_status",
     "resource_host_update",
+    "development_lane",
 )
 REQUIRED_SCHEMA_VERSIONS = {
     "request_context": "2",
@@ -56,8 +60,32 @@ REQUIRED_SCHEMA_VERSIONS = {
     "resource_reservation": "1",
     "resource_reservation_status": "1",
     "resource_host_update": "1",
+    "development_lane": "1",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+DEVELOPMENT_LANE_KINDS = ("lane.lifecycle", "lane.cleanup")
+DEVELOPMENT_LANE_REFUSALS = (
+    "accepted",
+    "idempotent",
+    "stale",
+    "conflict",
+    "input_conflict",
+    "quota",
+    "policy",
+    "drained",
+    "not_found",
+    "wrong_kind",
+    "wrong_tenant",
+    "wrong_owner",
+    "wrong_attempt",
+    "wrong_lease_epoch",
+    "wrong_fence",
+    "expired",
+    "terminal",
+    "cleanup_required",
+    "exclusivity",
+    "invalid",
+)
 RUST_STRUCT_RE = re.compile(r"\bpub\s+struct\s+([A-Za-z][A-Za-z0-9_]*)\s*\{")
 RUST_FIELD_RE = re.compile(r"^\s*pub\s+([a-z][A-Za-z0-9_]*)\s*:", re.MULTILINE)
 RUST_OPTION_FIELD_RE = re.compile(
@@ -93,6 +121,33 @@ def _load_manifest() -> dict[str, Any]:
     if not isinstance(manifest, dict):
         raise GateError("generated manifest must be a JSON object")
     return manifest
+
+
+def _check_development_lane_golden_vector() -> None:
+    try:
+        vector = json.loads(
+            GOLDEN_VECTOR_PATH.read_text(encoding="utf-8"),
+            object_pairs_hook=_no_duplicate_keys,
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise GateError(f"cannot read development-lane golden vector: {exc}") from exc
+    if not isinstance(vector, dict):
+        raise GateError("development-lane golden vector must be an object")
+    if vector.get("work_item_kinds") != list(DEVELOPMENT_LANE_KINDS):
+        raise GateError("development-lane WorkItem kind vocabulary drifted")
+    if vector.get("refusal_decisions") != list(DEVELOPMENT_LANE_REFUSALS):
+        raise GateError("development-lane refusal vocabulary drifted")
+    if vector.get("quota_policy_update_expected_revision") != 7:
+        raise GateError("development-lane golden quota CAS revision drifted")
+    intent_json = vector.get("intent_json")
+    if not isinstance(intent_json, str):
+        raise GateError("development-lane intent golden vector is not a string")
+    try:
+        intent = json.loads(intent_json, object_pairs_hook=_no_duplicate_keys)
+    except json.JSONDecodeError as exc:
+        raise GateError(f"development-lane intent golden vector is invalid: {exc}") from exc
+    if not isinstance(intent, dict) or intent.get("schema_version") != "1":
+        raise GateError("development-lane intent golden vector must be v1")
 
 
 def _rust_fields() -> dict[str, list[str]]:
@@ -166,6 +221,7 @@ def _render_rust(manifest: dict[str, Any]) -> str:
 
 def run() -> dict[str, Any]:
     manifest = _load_manifest()
+    _check_development_lane_golden_vector()
     if manifest.get("protocol") != "epistemic-operations":
         raise GateError("protocol name drifted")
     if manifest.get("version") != "1":

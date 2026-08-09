@@ -38,6 +38,20 @@
 | `CommitWorkItemResult` | true | GraphRedb | `work:write` | true | true | false | Atomic | terminal result references and outbox commit atomically |
 | `CancelWorkItem` | true | GraphRedb | `work:write` | true | true | false | Atomic | pending cancellation never steals an active lease |
 | `DeferWorkItem` | true | GraphRedb | `work:write` | true | true | false | Atomic | fenced lease release schedules retry without consuming an attempt |
+| `ReserveWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only atomic host admission and WorkItem fence validation |
+| `ReleaseWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only lifecycle release with retained tombstone |
+| `ReclaimWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only expiry/supersession reclaim with retained tombstone |
+| `QueryWorkItemReservation` | false | None | `resource:read` | true | false | false | Snapshot | linearizable exact native authority read |
+| `ResourceReservationStatus` | false | None | `resource:read` | true | false | false | Snapshot | bounded linearizable reconciliation read |
+| `UpdateResourceHost` | true | GraphRedb | `resource:host` | true | true | false | Atomic | controller-only monotonic host telemetry update |
+| `ReserveDevelopmentLane` | true | GraphRedb | `lane:reserve` | true | true | false | Atomic | controller-only atomic branch/worktree uniqueness and multi-scope quota hold; now_ms is authority-normalized |
+| `RenewDevelopmentLane` | true | GraphRedb | `lane:reserve` | true | true | false | Atomic | in-place O(1) hold renewal bound to the current WorkItem lease; now_ms is authority-normalized |
+| `ObserveDevelopmentLane` | true | GraphRedb | `lane:reserve` | true | true | false | Atomic | monotonic retained-footprint observation replaces the prior native charge; now_ms is authority-normalized |
+| `FinishDevelopmentLane` | true | GraphRedb | `lane:reserve` | true | true | false | Atomic | terminal lifecycle releases active count but retains cleanup charges and identity; now_ms is authority-normalized |
+| `CleanupDevelopmentLane` | true | GraphRedb | `lane:cleanup` | true | true | false | Atomic | distinct cleanup WorkItem fence releases retained disk and exclusivity; now_ms is authority-normalized |
+| `QueryDevelopmentLane` | false | None | `lane:read` | true | false | false | Snapshot | linearizable exact lane hold/tombstone read |
+| `DevelopmentLaneStatus` | false | None | `lane:read` | true | false | false | Snapshot | bounded tenant-scoped status with maintained counters |
+| `UpdateDevelopmentLaneQuota` | true | GraphRedb | `lane:quota` | true | true | false | Atomic | controller/admin-only monotonic server-owned quota policy with numeric expected_policy_revision CAS; now_ms is authority-normalized |
 | `SweepExpired` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
 | `StreamDeclare` | true | Outbox | `stream:admin` | true | true | false | Atomic |  |
 | `StreamPublish` | true | Outbox | `stream:write` | false | true | false | Atomic |  |
