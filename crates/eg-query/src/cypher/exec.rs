@@ -222,7 +222,7 @@ fn run_stages(
                 let mut out: Vec<Binding> = Vec::new();
                 for b in &bindings {
                     let nb = project_with(b, items);
-                    if where_holds(view, &nb, where_clause) {
+                    if where_holds(view, &nb, where_clause)? {
                         out.push(nb);
                     }
                 }
@@ -713,7 +713,7 @@ fn resolve_match(
             if let Some(v) = &pattern.start.var {
                 b.insert(v.clone(), sid.clone());
             }
-            if !start_preds.iter().all(|w| where_expr_holds(view, &b, w)) {
+            if !all_where_hold(view, &b, &start_preds)? {
                 continue;
             }
             walk_metrics::note_start();
@@ -738,7 +738,7 @@ fn resolve_match(
             b.insert(v.clone(), sid.clone());
         }
         // Start-node WHERE conjuncts drop a candidate before ANY hop expands from it.
-        if !start_preds.iter().all(|w| where_expr_holds(view, &b, w)) {
+        if !all_where_hold(view, &b, &start_preds)? {
             continue;
         }
         walk_metrics::note_start();
@@ -749,7 +749,7 @@ fn resolve_match(
 
     let mut out: Vec<Binding> = Vec::new();
     for (b, _) in partials {
-        if final_preds.iter().all(|w| where_expr_holds(view, &b, w)) {
+        if all_where_hold(view, &b, &final_preds)? {
             out.push(b);
         }
     }
@@ -785,7 +785,7 @@ fn walk_hops(
                     walk_metrics::note_hop_expansion();
                     if let Some(nb) = bind_target_node(view, node, &group_binding, &target, params)
                     {
-                        if preds.iter().all(|w| where_expr_holds(view, &nb, w)) {
+                        if all_where_hold(view, &nb, preds)? {
                             next.push((nb, target));
                         }
                     }
@@ -808,7 +808,7 @@ fn walk_hops(
                     continue;
                 };
                 bind_edge_var(view, &mut nb, edge, cur, &t);
-                if preds.iter().all(|w| where_expr_holds(view, &nb, w)) {
+                if all_where_hold(view, &nb, preds)? {
                     next.push((nb, t));
                 }
             }
@@ -868,11 +868,7 @@ impl DfsWalk<'_> {
             return Ok(());
         }
         if hop_idx == self.hops.len() {
-            if self
-                .final_preds
-                .iter()
-                .all(|w| where_expr_holds(self.view, binding, w))
-            {
+            if all_where_hold(self.view, binding, self.final_preds)? {
                 out.push(binding.clone());
             }
             return Ok(());
@@ -896,7 +892,7 @@ impl DfsWalk<'_> {
                 continue;
             };
             bind_edge_var(self.view, &mut nb, edge, cur, &t);
-            if !preds.iter().all(|w| where_expr_holds(self.view, &nb, w)) {
+            if !all_where_hold(self.view, &nb, preds)? {
                 continue;
             }
             self.run(&nb, &t, hop_idx + 1, out)?;
@@ -1415,26 +1411,67 @@ fn scope_vars(stages: &[ReadStage]) -> Vec<String> {
 
 // ── WHERE evaluation (CONCEPT:EG-KG.query.eg-extend-read-side) ────────────────────────────────────────
 
-fn where_holds(view: &GraphView, binding: &Binding, where_clause: &Option<WhereExpr>) -> bool {
+/// BUG-035 hardening: WHERE evaluation is fallible now — a Condition whose bound
+/// variable's node carries an undecodable stored property blob (`node_prop_checked`)
+/// can no longer be silently read as "property absent" (which a predicate cannot tell
+/// apart from a genuine NULL). A row this can't be verified for aborts the query with
+/// an explicit error instead of silently being excluded — see `node_prop_checked`'s doc.
+fn where_holds(
+    view: &GraphView,
+    binding: &Binding,
+    where_clause: &Option<WhereExpr>,
+) -> Result<bool, String> {
     match where_clause {
-        None => true,
+        None => Ok(true),
         Some(e) => where_expr_holds(view, binding, e),
     }
 }
 
-fn where_expr_holds(view: &GraphView, binding: &Binding, e: &WhereExpr) -> bool {
+fn where_expr_holds(view: &GraphView, binding: &Binding, e: &WhereExpr) -> Result<bool, String> {
     match e {
-        WhereExpr::Or(alts) => alts.iter().any(|a| where_expr_holds(view, binding, a)),
-        WhereExpr::And(parts) => parts.iter().all(|p| where_expr_holds(view, binding, p)),
+        WhereExpr::Or(alts) => {
+            for a in alts {
+                if where_expr_holds(view, binding, a)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        WhereExpr::And(parts) => {
+            for p in parts {
+                if !where_expr_holds(view, binding, p)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
         WhereExpr::Cond(c) => cond_holds(view, binding, c),
     }
 }
 
-fn cond_holds(view: &GraphView, binding: &Binding, c: &Condition) -> bool {
-    let actual = binding
-        .get(&c.var)
-        .and_then(|id| node_prop(view, id, &c.prop));
-    test_holds(actual.as_ref(), &c.test)
+/// `Result`-propagating analogue of `[WhereExpr]::iter().all(...)` for the per-hop/
+/// per-start/final WHERE-pushdown call sites (CONCEPT:EG-KG.query.cypher-where-pushdown)
+/// — the same short-circuit-on-first-false shape `.all()` had, plus short-circuit on the
+/// first unevaluable predicate (BUG-035).
+fn all_where_hold(
+    view: &GraphView,
+    binding: &Binding,
+    preds: &[WhereExpr],
+) -> Result<bool, String> {
+    for w in preds {
+        if !where_expr_holds(view, binding, w)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn cond_holds(view: &GraphView, binding: &Binding, c: &Condition) -> Result<bool, String> {
+    let actual = match binding.get(&c.var) {
+        Some(id) => node_prop_checked(view, id, &c.prop)?,
+        None => None,
+    };
+    Ok(test_holds(actual.as_ref(), &c.test))
 }
 
 fn test_holds(actual: Option<&Value>, test: &Test) -> bool {
@@ -2005,6 +2042,36 @@ fn node_prop(view: &GraphView, node_id: &str, prop: &str) -> Option<Value> {
     let blob = view.node_properties.get(node_id)?;
     let val = eg_types::msgpack::decode_property_value(blob).ok()?;
     val.get(prop).cloned()
+}
+
+/// [`node_prop`]'s WHERE-clause counterpart (BUG-035 hardening): distinguishes a
+/// genuinely ABSENT property (`Ok(None)` — no stored blob, or the blob decodes but
+/// has no such key) from an UNDECODABLE stored blob (`Err`). `node_prop`'s `.ok()?`
+/// collapses both into `None`, which a predicate cannot tell apart from a real NULL —
+/// `IS NULL` would silently read a corrupted/unreadable node as matching, and `=`/`IN`
+/// would silently read it as not matching, with no error either way. That is exactly
+/// the failure class BUG-035 exists to close: a result that reads as a real answer
+/// when the underlying data could not actually be evaluated. Every WHERE-predicate
+/// evaluation path (`cond_holds`) goes through this, never through plain `node_prop`;
+/// every other property read (RETURN projection, ORDER BY, inline MATCH `{prop: val}`
+/// constraints) is unaffected and keeps today's `node_prop` behavior.
+fn node_prop_checked(view: &GraphView, node_id: &str, prop: &str) -> Result<Option<Value>, String> {
+    if prop == "id" {
+        return Ok(view
+            .node_map
+            .contains_key(node_id)
+            .then(|| Value::String(node_id.to_string())));
+    }
+    let Some(blob) = view.node_properties.get(node_id) else {
+        return Ok(None);
+    };
+    match eg_types::msgpack::decode_property_value(blob) {
+        Ok(val) => Ok(val.get(prop).cloned()),
+        Err(e) => Err(format!(
+            "cannot evaluate WHERE predicate on `{prop}`: node `{node_id}`'s stored \
+             property blob is undecodable ({e:?}) — refusing to silently treat it as NULL"
+        )),
+    }
 }
 
 // ── write path (CONCEPT:EG-KG.query.register-each-user-table / EG-061) ─────────────────────────────────────
@@ -3726,6 +3793,259 @@ mod tests {
         let c3 = cells_of(&qr3, 0);
         assert_eq!(c3[0], Value::String("Doc".into()));
         assert_eq!(c3[1], Value::Number(42.into()));
+    }
+
+    /// BUG-035 repro (CONCEPT:EG-KG.query.cypher-where-pushdown): `IS NULL` /
+    /// `IS NOT NULL` over an unlabeled `MATCH (n)` must partition the full node
+    /// count, and equality must agree with a singleton `IN` list, INCLUDING for a
+    /// leading-underscore property name (the reported failing case was `_owner_id`).
+    #[test]
+    fn bug_035_null_and_equality_predicates_on_unlabeled_match() {
+        let core = GraphCore::new();
+        // Two nodes carry `_owner_id`; two do not (mirrors "unowned" nodes).
+        core.add_node(
+            "n1".into(),
+            pbytes(serde_json::json!({"node_type":"Widget","_owner_id":"u1"})),
+        );
+        core.add_node(
+            "n2".into(),
+            pbytes(serde_json::json!({"node_type":"Widget","_owner_id":"u2"})),
+        );
+        core.add_node(
+            "n3".into(),
+            pbytes(serde_json::json!({"node_type":"Gadget"})),
+        );
+        core.add_node(
+            "n4".into(),
+            pbytes(serde_json::json!({"node_type":"Gadget"})),
+        );
+        let v = core.analysis_snapshot();
+
+        let total = exec_cypher(&v, "MATCH (n) RETURN count(n)").unwrap();
+        assert_eq!(cells_of(&total, 0)[0], Value::Number(4.into()));
+
+        let is_null =
+            exec_cypher(&v, "MATCH (n) WHERE n._owner_id IS NULL RETURN count(n)").unwrap();
+        let is_not_null = exec_cypher(
+            &v,
+            "MATCH (n) WHERE n._owner_id IS NOT NULL RETURN count(n)",
+        )
+        .unwrap();
+        let null_n = cells_of(&is_null, 0)[0].as_i64().unwrap();
+        let not_null_n = cells_of(&is_not_null, 0)[0].as_i64().unwrap();
+        // The two predicates must partition the total — this is the exact
+        // contradiction measured live: 47455 / 0 / 0.
+        assert_eq!(
+            null_n + not_null_n,
+            4,
+            "IS NULL + IS NOT NULL must sum to total"
+        );
+        assert_eq!(null_n, 2, "n3, n4 lack _owner_id");
+        assert_eq!(not_null_n, 2, "n1, n2 carry _owner_id");
+
+        // Equality vs IN must return the SAME rows for a normal property...
+        let eq_nt =
+            exec_cypher(&v, "MATCH (n) WHERE n.node_type = 'Widget' RETURN count(n)").unwrap();
+        let in_nt = exec_cypher(
+            &v,
+            "MATCH (n) WHERE n.node_type IN ['Widget'] RETURN count(n)",
+        )
+        .unwrap();
+        assert_eq!(cells_of(&eq_nt, 0)[0], Value::Number(2.into()));
+        assert_eq!(cells_of(&eq_nt, 0)[0], cells_of(&in_nt, 0)[0]);
+
+        // ...and for a leading-underscore property.
+        let eq_owner =
+            exec_cypher(&v, "MATCH (n) WHERE n._owner_id = 'u1' RETURN count(n)").unwrap();
+        let in_owner =
+            exec_cypher(&v, "MATCH (n) WHERE n._owner_id IN ['u1'] RETURN count(n)").unwrap();
+        assert_eq!(cells_of(&eq_owner, 0)[0], Value::Number(1.into()));
+        assert_eq!(cells_of(&eq_owner, 0)[0], cells_of(&in_owner, 0)[0]);
+    }
+
+    /// Coordinator disproof check (2026-08-09): the earlier `bug_035_null_and_...`
+    /// test mixed present + absent `_owner_id` on the SAME query. This isolates the
+    /// claim precisely: a property NO node in the graph carries at all. If the
+    /// coordinator is right, `IS NULL` on a universally-absent property returns 0
+    /// instead of the total, and `IS NULL` + `IS NOT NULL` do not sum to the total.
+    #[test]
+    fn coordinator_disproof_universally_absent_property_is_null_check() {
+        let core = GraphCore::new();
+        core.add_node("n1".into(), pbytes(serde_json::json!({"node_type":"Widget"})));
+        core.add_node("n2".into(), pbytes(serde_json::json!({"node_type":"Widget"})));
+        core.add_node("n3".into(), pbytes(serde_json::json!({"node_type":"Gadget"})));
+        core.add_node("n4".into(), pbytes(serde_json::json!({"node_type":"Gadget"})));
+        let v = core.analysis_snapshot();
+
+        let total = exec_cypher(&v, "MATCH (n) RETURN count(n)").unwrap();
+        assert_eq!(cells_of(&total, 0)[0], Value::Number(4.into()));
+
+        let is_null = exec_cypher(
+            &v,
+            "MATCH (n) WHERE n.zzz_definitely_absent_property_xyz IS NULL RETURN count(n)",
+        )
+        .unwrap();
+        let is_not_null = exec_cypher(
+            &v,
+            "MATCH (n) WHERE n.zzz_definitely_absent_property_xyz IS NOT NULL RETURN count(n)",
+        )
+        .unwrap();
+        eprintln!("IS NULL result: {is_null:?}");
+        eprintln!("IS NOT NULL result: {is_not_null:?}");
+        assert_eq!(
+            cells_of(&is_null, 0)[0],
+            Value::Number(4.into()),
+            "openCypher: a universally-absent property must satisfy IS NULL for every row"
+        );
+        assert_eq!(
+            cells_of(&is_not_null, 0)[0],
+            Value::Number(0.into()),
+            "a universally-absent property must satisfy IS NOT NULL for no row"
+        );
+    }
+
+    /// Coordinator lead #3 (2026-08-09), CORRECTED: the first attempt at this test
+    /// sent `$_visibility_owner_id` straight to `exec_cypher_params` and got a PARSE
+    /// ERROR — `Test::Cmp`'s operand is `plan::Value` (a resolved literal, see
+    /// `plan.rs:222-227`), not a parameterizable expression, so `parse_literal`
+    /// (`parser.rs:656-672`) has no `Tok::Param` arm and the WHERE-clause `=`/`IN`
+    /// grammar genuinely cannot reference `$name` AT ALL — confirmed independently by
+    /// `EpistemicGraphBackend._inline_cypher_params`'s own docstring
+    /// (`agent-utilities/.../backends/epistemic_graph_backend.py:172-180`): "the
+    /// engine's hand-written parser only implements `literal := string | number |
+    /// true | false`". That is why the Python backend renders every `$param`
+    /// reference into a literal via `_cypher_literal` BEFORE the query ever reaches
+    /// this parser — `execute_read`/`execute_write` never call `exec_cypher_params`
+    /// with bound parameters; they always send fully-inlined literal text. My first
+    /// attempt tested a shape the real system never sends. This version sends the
+    /// exact literal-inlined text `_inline_cypher_params` actually produces:
+    /// ```text
+    /// python3 -c "
+    /// from agent_utilities.knowledge_graph.core.cypher_scoping import inject_and_predicate
+    /// from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import EpistemicGraphBackend
+    /// cond = \"(n._owner_id = \$_visibility_owner_id OR n._shared_scope IN ['org', 'commons'] OR n._owner_id IS NULL)\"
+    /// scoped = inject_and_predicate('MATCH (n) WHERE n.node_type IS NOT NULL RETURN count(n)', cond)
+    /// print(EpistemicGraphBackend._inline_cypher_params(scoped, {'_visibility_owner_id': 'me'}))
+    /// "
+    /// ```
+    #[test]
+    fn coordinator_disproof_composed_visibility_and_predicate() {
+        let core = GraphCore::new();
+        // A mix: some nodes visible via owner match, some via org/commons scope, some
+        // via the owner-null branch (unowned/public), one node_type absent everywhere
+        // relevant, all node_type values present so IN/`=` have real rows to find.
+        core.add_node(
+            "owned_by_me".into(),
+            pbytes(serde_json::json!({"node_type":"InboundMessage","_owner_id":"me"})),
+        );
+        core.add_node(
+            "owned_by_other".into(),
+            pbytes(serde_json::json!({"node_type":"InboundMessage","_owner_id":"someone_else"})),
+        );
+        core.add_node(
+            "org_scoped".into(),
+            pbytes(
+                serde_json::json!({"node_type":"InboundMessage","_owner_id":"someone_else","_shared_scope":"org"}),
+            ),
+        );
+        core.add_node(
+            "unowned".into(),
+            pbytes(serde_json::json!({"node_type":"Thread"})),
+        );
+        let v = core.analysis_snapshot();
+
+        // Sanity: the bare, LITERAL-INLINED visibility predicate alone (mirrors the
+        // aggregate base query, which the live evidence shows returns the true total).
+        let base = exec_cypher(
+            &v,
+            "MATCH (n) WHERE (n._owner_id = 'me' OR n._shared_scope IN ['org', 'commons'] OR n._owner_id IS NULL) RETURN count(n)",
+        )
+        .unwrap();
+        // owned_by_me (owner match), org_scoped (org scope), unowned (owner IS NULL) are
+        // visible; owned_by_other is not (owned by someone else, not org/commons-scoped).
+        assert_eq!(cells_of(&base, 0)[0], Value::Number(3.into()), "bare visibility predicate sanity check");
+
+        let is_not_null = exec_cypher(
+            &v,
+            "MATCH (n) WHERE (n._owner_id = 'me' OR n._shared_scope IN ['org', 'commons'] OR n._owner_id IS NULL) AND (n.node_type IS NOT NULL) RETURN count(n)",
+        )
+        .unwrap();
+        let eq = exec_cypher(
+            &v,
+            "MATCH (n) WHERE (n._owner_id = 'me' OR n._shared_scope IN ['org', 'commons'] OR n._owner_id IS NULL) AND (n.node_type = 'InboundMessage') RETURN count(n)",
+        )
+        .unwrap();
+        let inn = exec_cypher(
+            &v,
+            "MATCH (n) WHERE (n._owner_id = 'me' OR n._shared_scope IN ['org', 'commons'] OR n._owner_id IS NULL) AND (n.node_type IN ['InboundMessage']) RETURN count(n)",
+        )
+        .unwrap();
+        eprintln!("composed IS NOT NULL: {is_not_null:?}");
+        eprintln!("composed =: {eq:?}");
+        eprintln!("composed IN: {inn:?}");
+
+        // Every node in this fixture HAS node_type, so IS NOT NULL should equal the
+        // base visibility count (3), same as the bare-form test already proved.
+        assert_eq!(cells_of(&is_not_null, 0)[0], Value::Number(3.into()));
+        // Visible InboundMessage nodes: owned_by_me + org_scoped = 2 (owned_by_other is
+        // filtered by visibility regardless of node_type).
+        assert_eq!(cells_of(&eq, 0)[0], Value::Number(2.into()));
+        assert_eq!(cells_of(&eq, 0)[0], cells_of(&inn, 0)[0], "composed = and composed IN must agree");
+    }
+
+    /// Coordinator disproof check, point 4: `=` vs `IN` against a UNIVERSALLY-absent
+    /// property. Both must agree (both false for every row, since the property is
+    /// absent everywhere) — this isolates whether the earlier `node_type = 'X'` vs
+    /// `IN ['X']` divergence reproduces for an absent (as opposed to present) property.
+    #[test]
+    fn coordinator_disproof_absent_property_eq_vs_in_agree() {
+        let core = GraphCore::new();
+        core.add_node("n1".into(), pbytes(serde_json::json!({"node_type":"Widget"})));
+        core.add_node("n2".into(), pbytes(serde_json::json!({"node_type":"Gadget"})));
+        let v = core.analysis_snapshot();
+
+        let eq = exec_cypher(
+            &v,
+            "MATCH (n) WHERE n.zzz_definitely_absent_property_xyz = 'nope' RETURN count(n)",
+        )
+        .unwrap();
+        let inn = exec_cypher(
+            &v,
+            "MATCH (n) WHERE n.zzz_definitely_absent_property_xyz IN ['nope'] RETURN count(n)",
+        )
+        .unwrap();
+        assert_eq!(cells_of(&eq, 0)[0], Value::Number(0.into()));
+        assert_eq!(cells_of(&eq, 0)[0], cells_of(&inn, 0)[0], "= and IN must agree on an absent property too");
+    }
+
+    /// BUG-035 hardening: a WHERE predicate over a node whose STORED property blob is
+    /// undecodable (corrupted bytes / a cross-version encoding mismatch) must abort the
+    /// query with an explicit error — never silently read the property as absent, which
+    /// `IS NULL` cannot tell apart from a genuine NULL. BEFORE this fix, `node_prop`'s
+    /// `.ok()?` collapsed a decode failure into `None`, so `n._owner_id IS NULL` would
+    /// silently (and wrongly) count the corrupted node as a real NULL match — exactly
+    /// the "0 reads as a real answer" failure class BUG-035 exists to close, just with
+    /// a genuinely unrecoverable input instead of a merely-absent one. AFTER this fix,
+    /// `exec_cypher` returns `Err` instead of a falsely-precise count.
+    #[test]
+    fn bug_035_corrupted_property_blob_errors_loudly_instead_of_reading_as_null() {
+        let core = GraphCore::new();
+        core.add_node(
+            "good1".into(),
+            pbytes(serde_json::json!({"node_type": "Widget"})),
+        );
+        // 0xC1 is a reserved MessagePack byte that never appears in a valid encoding —
+        // this blob cannot decode under any interpretation, simulating on-disk
+        // corruption or a cross-version encoding mismatch.
+        core.add_node("corrupt1".into(), vec![0xC1]);
+        let v = core.analysis_snapshot();
+
+        let result = exec_cypher(&v, "MATCH (n) WHERE n._owner_id IS NULL RETURN count(n)");
+        assert!(
+            result.is_err(),
+            "a corrupted property blob must abort the query with an explicit error, \
+             not silently read as NULL (got {result:?})"
+        );
     }
 
     /// ADR-5 / W2.2 item 5: the WorkItem lifecycle-state DISTRIBUTION is queryable via
