@@ -12,6 +12,7 @@
 //! exact-query/status dispatch is the externally visible evidence.  The direct-redb
 //! last-slot race remains a separate lower-level proof.
 
+use std::future::Future;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -36,7 +37,6 @@ use crate::epistemic_operations::{
 use crate::isolation::{AgentIdentity, AgentRole};
 use crate::protocol::{GraphType, Method, Request, ResultPayload};
 use crate::raft::NodeId;
-use crate::server::persistence::PersistenceBackend;
 use crate::server::{compute_verified_envelope_token, dispatch, VerifiedEnvelopeParams};
 
 const SECRET: &str = "harness";
@@ -63,6 +63,45 @@ const RACE_RESERVATION_B: &str = "rmdd27-resource-race-reservation-b";
 const IMMUTABLE_DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+// The debug-profile Raft/redb acceptance path legitimately exceeds libtest's
+// small default worker stack while materializing several independent native
+// stores. Keep the accommodation local to this heavy harness rather than making
+// callers set RUST_MIN_STACK or changing production runtime configuration.
+const CLUSTER_ACCEPTANCE_STACK_BYTES: usize = 16 * 1024 * 1024;
+const CLUSTER_ACCEPTANCE_SCENARIO_TIMEOUT: Duration = Duration::from_secs(180);
+const PUBLIC_DISPATCH_TIMEOUT: Duration = Duration::from_secs(15);
+
+fn run_cluster_acceptance<F, Fut>(name: &'static str, scenario: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + 'static,
+{
+    let outcome = std::thread::Builder::new()
+        .name(name.to_string())
+        .stack_size(CLUSTER_ACCEPTANCE_STACK_BYTES)
+        .spawn(move || {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(6)
+                .enable_all()
+                .build()
+                .expect("build cluster acceptance runtime");
+            runtime.block_on(async move {
+                tokio::time::timeout(CLUSTER_ACCEPTANCE_SCENARIO_TIMEOUT, scenario())
+                    .await
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "RMDD-27 cluster acceptance scenario exceeded {CLUSTER_ACCEPTANCE_SCENARIO_TIMEOUT:?}"
+                        )
+                    });
+            });
+        })
+        .expect("spawn cluster acceptance thread")
+        .join();
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
+}
 
 /// Own the cluster for the duration of the acceptance test.  The happy path
 /// awaits the full teardown; panic/unwind paths cannot await, so `Drop` invokes
@@ -547,6 +586,18 @@ fn state_for(cluster: &Cluster, node_id: NodeId) -> Arc<RwLock<crate::server::Se
         .expect("requested cluster member is running")
 }
 
+async fn dispatch_bounded(
+    state: &Arc<RwLock<crate::server::ServerState>>,
+    request: Request,
+) -> crate::protocol::Response {
+    let request_id = request.id;
+    tokio::time::timeout(PUBLIC_DISPATCH_TIMEOUT, dispatch(state, request))
+        .await
+        .unwrap_or_else(|_| {
+            panic!("public dispatch request {request_id} exceeded {PUBLIC_DISPATCH_TIMEOUT:?}")
+        })
+}
+
 async fn dispatch_host_update(
     cluster: &Cluster,
     node_id: NodeId,
@@ -554,7 +605,7 @@ async fn dispatch_host_update(
     revision: u64,
 ) -> crate::protocol::Response {
     let now_ms = unix_ms();
-    dispatch(
+    dispatch_bounded(
         &state_for(cluster, node_id),
         signed_request(request_id, host_method(revision, now_ms)),
     )
@@ -585,7 +636,7 @@ async fn dispatch_method_as(
     agent_id: &str,
     method: Method,
 ) -> crate::protocol::Response {
-    dispatch(
+    dispatch_bounded(
         &state_for(cluster, node_id),
         signed_request_as(request_id, agent_id, method),
     )
@@ -628,12 +679,12 @@ async fn race_public_reservation_calls(
     let first_barrier = barrier.clone();
     let first_task = tokio::spawn(async move {
         first_barrier.wait().await;
-        dispatch(&first_state, first_request).await
+        dispatch_bounded(&first_state, first_request).await
     });
     let second_barrier = barrier.clone();
     let second_task = tokio::spawn(async move {
         second_barrier.wait().await;
-        dispatch(&second_state, second_request).await
+        dispatch_bounded(&second_state, second_request).await
     });
 
     // Release both public clients only after both tasks are waiting.  Joining
@@ -667,15 +718,7 @@ async fn wait_for_node_leader(cluster: &Cluster, node_id: NodeId, expected_leade
 }
 
 fn decode_host_result(response: crate::protocol::Response, expected_revision: u64) {
-    assert_eq!(response.error, None, "native update returned an error");
-    let Some(ResultPayload::Raw(bytes)) = response.result else {
-        panic!("native update did not return a typed raw result: {response:?}");
-    };
-    let result: ResourceHostUpdateResult = eg_types::msgpack::decode_bounded(
-        &bytes,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
-    )
-    .expect("decode ResourceHostUpdateResult");
+    let result: ResourceHostUpdateResult = decode_raw(response, "native update");
     assert!(
         result.accepted,
         "native host update was rejected: {result:?}"
@@ -700,14 +743,17 @@ fn decode_raw<T: serde::de::DeserializeOwned>(
         response.error, None,
         "{label} returned an error: {response:?}"
     );
-    let Some(ResultPayload::Raw(bytes)) = response.result else {
-        panic!("{label} did not return a typed raw result: {response:?}");
+    let bytes = match response.result.as_ref() {
+        // These two untagged byte variants are wire-identical and either may be
+        // selected when the durable outer ResultPayload is decoded.
+        Some(ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) => bytes,
+        _ => panic!("{label} did not return a typed byte result: {response:?}"),
     };
     eg_types::msgpack::decode_bounded(
-        &bytes,
+        bytes,
         eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
     )
-    .unwrap_or_else(|error| panic!("decode {label} result: {error}"))
+    .unwrap_or_else(|error| panic!("decode {label} result: {error:?}"))
 }
 
 fn decode_claim_result(response: crate::protocol::Response) -> ClaimWorkItemResult {
@@ -762,15 +808,7 @@ fn decode_status_result(
     response: crate::protocol::Response,
     expected_revision: u64,
 ) -> ResourceReservationStatusResult {
-    assert_eq!(response.error, None, "native status returned an error");
-    let Some(ResultPayload::Raw(bytes)) = response.result else {
-        panic!("native status did not return a typed raw result: {response:?}");
-    };
-    let result: ResourceReservationStatusResult = eg_types::msgpack::decode_bounded(
-        &bytes,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
-    )
-    .expect("decode ResourceReservationStatusResult");
+    let result: ResourceReservationStatusResult = decode_raw(response, "native status");
     assert_eq!(
         result
             .host_snapshot
@@ -834,11 +872,12 @@ fn assert_released_status(status: &ResourceReservationStatusResult) {
 
 fn assert_redirect(response: crate::protocol::Response, expected_leader: NodeId) {
     assert_eq!(response.error.as_deref(), Some("OPERATION_REDIRECTED"));
-    let Some(ResultPayload::Raw(bytes)) = response.result else {
-        panic!("redirect did not carry the structured operation result: {response:?}");
+    let bytes = match response.result.as_ref() {
+        Some(ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) => bytes,
+        _ => panic!("redirect did not carry the structured operation result: {response:?}"),
     };
     let detail: OperationResult = eg_types::msgpack::decode_bounded(
-        &bytes,
+        bytes,
         eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
     )
     .expect("decode operation redirect");
@@ -907,7 +946,7 @@ async fn wait_for_public_active_status(
             last_error = error.to_string();
         } else {
             match response.result {
-                Some(ResultPayload::Raw(bytes)) => {
+                Some(ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) => {
                     match eg_types::msgpack::decode_bounded::<ResourceReservationStatusResult>(
                         &bytes,
                         eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
@@ -934,7 +973,7 @@ async fn wait_for_public_active_status(
                             return;
                         }
                         Ok(status) => last_error = format!("observed public status {status:?}"),
-                        Err(error) => last_error = format!("decode public status: {error}"),
+                        Err(error) => last_error = format!("decode public status: {error:?}"),
                     }
                 }
                 Some(result) => last_error = format!("public status returned {result:?}"),
@@ -1020,8 +1059,9 @@ async fn drive_public_work_item_resource_setup(
     assert_eq!(record.fairness_group, "default");
     assert_eq!(record.fairness_cost, 1);
 
-    // A public retry of the exact reservation is an idempotent result, not a
-    // second host hold or a generic successful Raft acknowledgement.
+    // A public transport retry returns the exact first durable result (Accepted),
+    // not a second host hold or a generic successful Raft acknowledgement. The
+    // separate authority query below uses the domain-level Idempotent decision.
     let reserve_retry = dispatch_method(
         cluster,
         leader,
@@ -1034,7 +1074,7 @@ async fn drive_public_work_item_resource_setup(
     let reserve_retry = decode_reservation_result(
         reserve_retry,
         "ReserveWorkItemResources retry",
-        ResourceReservationResultDecision::Idempotent,
+        ResourceReservationResultDecision::Accepted,
         ResourceReservationResultState::Reserved,
     );
     assert_eq!(
@@ -1137,6 +1177,10 @@ async fn drive_public_release_after_failover(
     assert_active_status(&status);
 
     let mut release_request = reserve_request.clone();
+    // Reserve and release are distinct durable commands. Their caller-stable
+    // transport identities must not alias even though they address one record.
+    release_request.idempotency_key =
+        "rmdd27-resource-release-after-failover-idempotency".to_string();
     release_request.expected_lifecycle_revision = Some(reserved.lifecycle_revision);
     release_request.now_ms = unix_ms();
     let released = dispatch_method(
@@ -1327,11 +1371,19 @@ async fn wait_for_backend_reservation_state(
 /// one real MultiRaft leader.  The distinct reservation identities must produce
 /// exactly one accepted durable winner and one conflict; the public status read
 /// then proves that only the winner charged the host.
-#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
-async fn native_resource_public_dispatch_concurrent_attempt_race_has_one_winner() {
-    let _auth_env_guard = configure_auth_test_environment(TENANT, "rmdd27-resource-public-auth");
+#[test]
+fn native_resource_public_dispatch_concurrent_attempt_race_has_one_winner() {
+    run_cluster_acceptance(
+        "rmdd27-resource-public-race",
+        native_resource_public_dispatch_concurrent_attempt_race_scenario,
+    );
+}
 
-    let mut cluster = ClusterGuard::new(
+async fn native_resource_public_dispatch_concurrent_attempt_race_scenario() {
+    let _auth_env_guard = configure_auth_test_environment(TENANT, "rmdd27-resource-public-auth");
+    let _partition_guard = crate::raft::network::partition::test_guard();
+
+    let cluster = ClusterGuard::new(
         Cluster::start(3, "rmdd27-resource-public-race")
             .await
             .expect("cluster starts"),
@@ -1435,9 +1487,17 @@ async fn native_resource_public_dispatch_concurrent_attempt_race_has_one_winner(
 /// leader failover, and restart catch-up in one bounded five-node cluster. Five
 /// members keep a three-node quorum after the initial leader is killed and one
 /// additional follower is isolated for the stale-read proof.
-#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
-async fn native_resource_public_dispatch_readindex_and_failover() {
+#[test]
+fn native_resource_public_dispatch_readindex_and_failover() {
+    run_cluster_acceptance(
+        "rmdd27-resource-public-failover",
+        native_resource_public_dispatch_readindex_and_failover_scenario,
+    );
+}
+
+async fn native_resource_public_dispatch_readindex_and_failover_scenario() {
     let _auth_env_guard = configure_auth_test_environment(TENANT, "rmdd27-resource-public-auth");
+    let _partition_guard = crate::raft::network::partition::test_guard();
 
     let mut cluster = ClusterGuard::new(
         Cluster::start(5, "rmdd27-resource-public")

@@ -944,6 +944,12 @@ pub(crate) async fn commit_work_item(
     // a background claim/renew/result transition (or vice versa).
     let _mutation_guard = lock_graph(graph).await;
     let identity = work_item_batch_identity(graph, &tenant, request_id, &method)?;
+    // Resource-host inventory is committed through the same native WorkItem
+    // mutation lane so it receives the same durability, ordering, and audit
+    // guarantees. Unlike claims and reservations, however, it has no graph-node
+    // mirror to refresh after commit. Its typed result therefore intentionally
+    // has no `changed_work_item_ids` field.
+    let publishes_work_item_rows = !matches!(&method, Method::UpdateResourceHost { .. });
     let created_at_ms = crate::server::dispatch::authoritative_now_ms();
     let fname = crate::persist::sanitize(graph);
     // Terminal WorkItem methods carry their own lease epoch/fencing CAS and are
@@ -982,7 +988,15 @@ pub(crate) async fn commit_work_item(
     // read-only until it is re-materialized. Repair the projection from the same
     // authoritative image every replay path installs, then surface the original error
     // — never swallowed, and never by equalizing a version counter.
-    match publish_committed_work_item(persistence, &fname, core, &committed).await {
+    match publish_committed_work_item(
+        persistence,
+        &fname,
+        core,
+        &committed,
+        publishes_work_item_rows,
+    )
+    .await
+    {
         Ok(result) => Ok(result),
         Err(error) => match reconcile_projection_from_authority(persistence, &fname, core).await {
             Ok(()) => Err(error),
@@ -1002,6 +1016,7 @@ async fn publish_committed_work_item(
     graph_fname: &str,
     core: &Arc<GraphCore>,
     committed: &crate::mutation_batch::MutationBatchCommit,
+    publishes_work_item_rows: bool,
 ) -> Result<ResultPayload, String> {
     let bytes = committed
         .record
@@ -1015,7 +1030,7 @@ async fn publish_committed_work_item(
     .map_err(|_| "committed WorkItem result is corrupt".to_string())?;
 
     if !committed.replayed {
-        for node_id in changed_work_item_ids(&result)? {
+        for node_id in changed_work_item_ids(&result, publishes_work_item_rows)? {
             let props = persistence
                 .read_node(graph_fname, &node_id)
                 .await?
@@ -1044,12 +1059,32 @@ async fn reconcile_projection_from_authority(
     core.install_committed_snapshot(snapshot, version)
 }
 
-fn changed_work_item_ids(result: &ResultPayload) -> Result<Vec<String>, String> {
-    fn from_json(value: &serde_json::Value) -> Result<Vec<String>, String> {
-        value
+fn changed_work_item_ids(
+    result: &ResultPayload,
+    publishes_work_item_rows: bool,
+) -> Result<Vec<String>, String> {
+    fn from_json(
+        value: &serde_json::Value,
+        publishes_work_item_rows: bool,
+    ) -> Result<Vec<String>, String> {
+        if !publishes_work_item_rows {
+            return if value.get("changed_work_item_ids").is_none() {
+                Ok(Vec::new())
+            } else {
+                Err(
+                    "committed resource-host result unexpectedly has changed_work_item_ids"
+                        .to_string(),
+                )
+            };
+        }
+        let values = value
             .get("changed_work_item_ids")
-            .and_then(serde_json::Value::as_array)
             .ok_or_else(|| "committed WorkItem result has no changed_work_item_ids".to_string())?
+            .as_array()
+            .ok_or_else(|| {
+                "committed WorkItem result has non-array changed_work_item_ids".to_string()
+            })?;
+        values
             .iter()
             .map(|value| {
                 value.as_str().map(str::to_string).ok_or_else(|| {
@@ -1060,7 +1095,7 @@ fn changed_work_item_ids(result: &ResultPayload) -> Result<Vec<String>, String> 
     }
 
     match result {
-        ResultPayload::Json(value) => from_json(value),
+        ResultPayload::Json(value) => from_json(value, publishes_work_item_rows),
         // ``ResultPayload::raw`` is wire-identical to ``PropertiesMsgpack``.
         // Because ResultPayload is untagged, decoding the durable outer payload
         // can legitimately select either byte variant. Both carry the same
@@ -1071,7 +1106,7 @@ fn changed_work_item_ids(result: &ResultPayload) -> Result<Vec<String>, String> 
                 eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 10_000, 32),
             )
             .map_err(|_| "committed WorkItem inner result is corrupt".to_string())?;
-            from_json(&value)
+            from_json(&value, publishes_work_item_rows)
         }
         _ => Err("committed WorkItem result has an invalid payload shape".to_string()),
     }
@@ -1318,16 +1353,39 @@ mod tests {
         let expected = vec!["work:one".to_string(), "work:two".to_string()];
 
         assert_eq!(
-            changed_work_item_ids(&ResultPayload::Raw(bytes.clone())).unwrap(),
+            changed_work_item_ids(&ResultPayload::Raw(bytes.clone()), true).unwrap(),
             expected
         );
         assert_eq!(
-            changed_work_item_ids(&ResultPayload::PropertiesMsgpack(bytes)).unwrap(),
+            changed_work_item_ids(&ResultPayload::PropertiesMsgpack(bytes), true).unwrap(),
             expected
         );
         assert_eq!(
-            changed_work_item_ids(&ResultPayload::Json(value)).unwrap(),
+            changed_work_item_ids(&ResultPayload::Json(value), true).unwrap(),
             expected
+        );
+    }
+
+    #[test]
+    fn resource_host_result_requires_no_work_item_projection_ids() {
+        let value = serde_json::json!({"accepted": true, "host_ref": "host:one"});
+        let bytes = rmp_serde::to_vec_named(&value).unwrap();
+
+        assert_eq!(
+            changed_work_item_ids(&ResultPayload::Raw(bytes.clone()), false).unwrap(),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            changed_work_item_ids(&ResultPayload::Json(value), true).unwrap_err(),
+            "committed WorkItem result has no changed_work_item_ids"
+        );
+        assert_eq!(
+            changed_work_item_ids(
+                &ResultPayload::Json(serde_json::json!({"changed_work_item_ids": []})),
+                false,
+            )
+            .unwrap_err(),
+            "committed resource-host result unexpectedly has changed_work_item_ids"
         );
     }
 

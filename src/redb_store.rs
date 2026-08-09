@@ -163,13 +163,21 @@ fn native_resource_retry_outbox_match(
     if !operations_match || stored_outbox.len() != proposed_outbox.len() {
         return Ok(false);
     }
-    let stored_payload =
+    let stored_normalized_payload =
         crate::server::mutation_batch::projection_payload_for_operations(&stored_normalized)?;
-    let proposed_payload =
+    let proposed_normalized_payload =
         crate::server::mutation_batch::projection_payload_for_operations(&proposed_normalized)?;
-    if stored_payload != proposed_payload {
+    if stored_normalized_payload != proposed_normalized_payload {
         return Ok(false);
     }
+    // The producer hashes the original operation list, including its historical
+    // authority-owned timestamp. Authenticate each stored/proposed intent against
+    // its own operation list before comparing the normalized retry meaning; never
+    // require an original intent to equal a digest that the producer did not emit.
+    let stored_original_payload =
+        crate::server::mutation_batch::projection_payload_for_operations(stored_operations)?;
+    let proposed_original_payload =
+        crate::server::mutation_batch::projection_payload_for_operations(proposed_operations)?;
     Ok(stored_outbox
         .iter()
         .zip(proposed_outbox)
@@ -177,8 +185,8 @@ fn native_resource_retry_outbox_match(
             stored.topic == proposed.topic
                 && stored.key == proposed.key
                 && stored.headers == proposed.headers
-                && stored.payload == stored_payload
-                && proposed.payload == proposed_payload
+                && stored.payload == stored_original_payload
+                && proposed.payload == proposed_original_payload
         }))
 }
 
