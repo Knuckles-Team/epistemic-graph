@@ -1780,6 +1780,10 @@ mod tests {
             blob: None,
             #[cfg(feature = "blob")]
             blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
             #[cfg(feature = "streaming")]

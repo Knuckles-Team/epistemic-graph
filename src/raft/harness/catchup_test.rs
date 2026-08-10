@@ -7,10 +7,48 @@
 //!
 //! `cargo test --features "raft harness" raft::harness::catchup_test` runs this.
 
+use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
 use super::cluster::Cluster;
 use crate::protocol::GraphType;
+
+struct ClusterGuard(Option<Cluster>);
+
+impl ClusterGuard {
+    fn new(cluster: Cluster) -> Self {
+        Self(Some(cluster))
+    }
+
+    async fn finish(mut self) {
+        if let Some(cluster) = self.0.take() {
+            cluster.teardown().await;
+        }
+    }
+}
+
+impl Deref for ClusterGuard {
+    type Target = Cluster;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().expect("catch-up cluster remains armed")
+    }
+}
+
+impl DerefMut for ClusterGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.as_mut().expect("catch-up cluster remains armed")
+    }
+}
+
+impl Drop for ClusterGuard {
+    fn drop(&mut self) {
+        if let Some(cluster) = self.0.as_mut() {
+            cluster.abort_sync();
+        }
+        self.0 = None;
+    }
+}
 
 /// KILL a follower, commit `CreateGraph(g)` then `AddNode(g, n0)` on the surviving
 /// quorum (so BOTH land as adjacent entries the killed node has never seen), RESTART
@@ -19,10 +57,13 @@ use crate::protocol::GraphType;
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn follower_catchup_replays_create_graph_then_write() {
     const NEW_GRAPH: &str = "raft-catchup-newgraph";
+    let _partition_guard = super::super::network::partition::test_guard();
 
-    let mut cluster = Cluster::start(3, "raft-catchup-newgraph")
-        .await
-        .expect("cluster starts");
+    let mut cluster = ClusterGuard::new(
+        Cluster::start(3, "raft-catchup-newgraph")
+            .await
+            .expect("cluster starts"),
+    );
 
     let leader = cluster
         .wait_for_leader(Duration::from_secs(15))
@@ -105,5 +146,5 @@ async fn follower_catchup_replays_create_graph_then_write() {
         "exactly the one replayed node must be present"
     );
 
-    cluster.teardown().await;
+    cluster.finish().await;
 }

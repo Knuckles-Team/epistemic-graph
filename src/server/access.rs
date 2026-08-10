@@ -624,6 +624,10 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::CommitWorkItemResult { .. }
             | Method::CancelWorkItem { .. }
             | Method::DeferWorkItem { .. }
+            | Method::ReserveWorkItemResources { .. }
+            | Method::ReleaseWorkItemResources { .. }
+            | Method::ReclaimWorkItemResources { .. }
+            | Method::UpdateResourceHost { .. }
             // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller):
             // each writes nodes/edges (summaries, semantic nodes, decay/evict
             // bookkeeping, scene objects, trajectories/steps) → Write access + WAL

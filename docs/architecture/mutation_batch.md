@@ -117,9 +117,18 @@ Work scheduling is a native MutationBatch state machine:
 - `RenewWorkItemLease` rejects stale or expired ownership.
 - `CommitWorkItemResult` atomically publishes result/error references, retries with
   bounded exponential backoff, dead-letters exhausted work, and releases dependent
-  items after success.
+  items after success. When the WorkItem owns a live development-lane hold, a
+  terminal result transitions the WorkItem, hold, retained charge, and replay
+  metadata in the same transaction. The live `lease_owner` must equal the
+  lane hold owner; after terminalization, the cleared lease is retained as
+  `last_lease_owner` and remains bound to that same owner. A retry-scheduled
+  result is refused rather than leaving a ready WorkItem paired with an active
+  hold.
 - `CancelWorkItem` cancels submitted/ready work without manufacturing a lease and
-  never steals an active lease.
+  never steals an active lease. For an expired linked development-lane lease, the
+  hold follows the cancellation's incremented lease epoch and fencing token in
+  that same transaction, while the pre-cancel tuple remains available for an
+  acknowledgement-loss `FinishDevelopmentLane` replay.
 - `DeferWorkItem` releases a fenced lease until `next_retry_at` without consuming an
   attempt, which supports polling barriers without exhausting retry budgets.
 

@@ -255,8 +255,19 @@ const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "FromMsgpack",
     "GraphQl",
     "IcvConfigure",
+    // Mining pipeline writes are committed by the dedicated pipeline handler,
+    // not by mutation_apply's graph-core replay classifier.
+    "MiningPipelinePredict",
+    "MiningPipelineServe",
+    "MiningPipelineTrain",
     "PruneByLifecycle",
+    // RMDD-27: native GraphRedb reservation/host transactions bypass the
+    // graph-core mutation applier and commit their resource indexes in the
+    // MutationBatch transaction.
+    "ReclaimWorkItemResources",
     "Reconcile",
+    "ReleaseWorkItemResources",
+    "ReserveWorkItemResources",
     // W2.5: self-translates into `Method::AddNode` (dispatch.rs) BEFORE any durable
     // commit -- exactly the "ApplyMultisigMutation -> ApplyMutation" shape above --
     // so its real durability is AddNode's own MUTATION_APPLY_DURABLE_GRAPHREDB entry.
@@ -264,6 +275,13 @@ const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "RunDatalogReasoning",
     "Sql",
     "TouchNodes",
+    "UpdateResourceHost",
+    "ReserveDevelopmentLane",
+    "RenewDevelopmentLane",
+    "ObserveDevelopmentLane",
+    "FinishDevelopmentLane",
+    "CleanupDevelopmentLane",
+    "UpdateDevelopmentLaneQuota",
 ];
 
 /// Mirrors `src/mutation_apply.rs::is_durable_mutation`'s message-broker/stream true set.
@@ -369,7 +387,9 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "PublishConfirmed",
     "PublishEx",
     "PublishIdempotent",
+    "ReclaimWorkItemResources",
     "Reconcile",
+    "ReleaseWorkItemResources",
     "Reinforce",
     "RegisterServer",
     "RemoveEdge",
@@ -377,6 +397,7 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "RemoveTriples",
     "Reparent",
     "RenewWorkItemLease",
+    "ReserveWorkItemResources",
     "RunDatalogReasoning",
     "SetPose",
     "Sql",
@@ -388,12 +409,22 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "SupersedeEdge",
     "SweepExpired",
     "UnbindQueue",
+    "UpdateResourceHost",
+    "ReserveDevelopmentLane",
+    "RenewDevelopmentLane",
+    "ObserveDevelopmentLane",
+    "FinishDevelopmentLane",
+    "CleanupDevelopmentLane",
+    "UpdateDevelopmentLaneQuota",
     #[cfg(feature = "modality-serving")]
     "ServedModality",
 ];
 
 /// Mirrors `src/server/cdc.rs::emit_for_method`'s explicit match (everything else falls to
 /// its `_ => {}` catch-all, i.e. emits NO Change-Data-Capture event).
+/// Native resource rows are controller-plane capacity/accounting state, not
+/// GraphCore node/edge state; their typed results/status and audit lines are the
+/// reconciliation surfaces, so `emits_cdc: false` is deliberate.
 const CDC_RS_EMITS_CDC: &[&str] = &[
     "AddEdge",
     "AddNode",
@@ -777,6 +808,46 @@ fn emits_cdc_matches_cdc_rs_exactly() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+#[test]
+fn native_resource_mutations_are_audited_but_not_cdc() {
+    for expected_name in [
+        "ReserveWorkItemResources",
+        "ReleaseWorkItemResources",
+        "ReclaimWorkItemResources",
+        "UpdateResourceHost",
+    ] {
+        let (_, policy, _) = eg_capabilities::ALL_METHODS
+            .iter()
+            .find(|(name, _, _)| *name == expected_name)
+            .unwrap_or_else(|| panic!("missing resource capability policy: {expected_name}"));
+        assert!(policy.audited, "{expected_name} must remain audit chained");
+        assert!(!policy.emits_cdc, "{expected_name} must remain CDC-silent");
+    }
+}
+
+#[test]
+fn development_lane_cleanup_has_a_distinct_least_privilege_scope() {
+    let policy = |method: &str| {
+        eg_capabilities::ALL_METHODS
+            .iter()
+            .find(|(name, _, _)| *name == method)
+            .map(|(_, policy, _)| policy)
+            .unwrap_or_else(|| panic!("missing development-lane policy: {method}"))
+    };
+    assert_eq!(
+        policy("ReserveDevelopmentLane").authz_action,
+        "lane:reserve"
+    );
+    assert_eq!(
+        policy("CleanupDevelopmentLane").authz_action,
+        "lane:cleanup"
+    );
+    assert_eq!(
+        policy("UpdateDevelopmentLaneQuota").authz_action,
+        "lane:quota"
+    );
+}
+
 /// Not a pass/fail gate -- prints the full audit findings so `cargo test -p eg-capabilities
 /// -- --nocapture` surfaces them for a human. This is the "valuable audit output" the task
 /// brief asks for.
@@ -856,7 +927,9 @@ fn all_methods_table_has_the_expected_variant_count() {
     // Plus D-DPF-1 `GetNeighborsBatch` (the batch sibling of `GetNeighbors`,
     // unconditional -- closes the engine-side N+1 on multi-node neighbor
     // reads): 368 + 1 = 369.
-    let expected = 369
+    // The git-verified zero-feature baseline is 375 unconditional rows; RMDD-28
+    // adds eight native development-lane methods, yielding 383.
+    let expected = 383
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
