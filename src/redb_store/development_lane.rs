@@ -557,6 +557,25 @@ pub(crate) fn clear_native_graph_rows_in_wtx(
     )
 }
 
+/// A lifecycle WorkItem's owner is authoritative while it is live and is
+/// retained in `last_lease_owner` after terminalization.  Keep the terminal
+/// shape strict as well: a terminal row must not retain a live lease owner that
+/// could be mistaken for a fresh claim.
+fn lifecycle_work_item_owner_matches(
+    props: &serde_json::Map<String, serde_json::Value>,
+    status: &str,
+    expected_owner: &str,
+) -> bool {
+    match status {
+        "leased" | "running" => super::property_string(props, "lease_owner") == expected_owner,
+        "succeeded" | "failed" | "cancelled" | "dead_letter" => {
+            super::property_string(props, "lease_owner").is_empty()
+                && super::property_string(props, "last_lease_owner") == expected_owner
+        }
+        _ => false,
+    }
+}
+
 /// Ordinary checkpoints do not carry lane tables in `GraphDump`; the native
 /// rows therefore remain in place and the replacement image must prove every
 /// retained hold still has its exact immutable/fenced lifecycle WorkItem (and,
@@ -610,6 +629,7 @@ where
             || super::property_u64(&props, "lease_epoch") != row.hold.lease_epoch
             || super::property_u64(&props, "fencing_token") != row.hold.fencing_token
             || super::property_string(&props, "work_item_fence") != row.hold.work_item_fence
+            || !lifecycle_work_item_owner_matches(&props, status, &row.hold.owner_id)
         {
             return Err("checkpoint development lane WorkItem fence mismatch".to_string());
         }
@@ -3760,6 +3780,7 @@ pub(crate) fn transition_work_item_terminal_hold(
         || row.hold.lease_epoch != super::property_u64(pre_props, "lease_epoch")
         || row.hold.fencing_token != super::property_u64(pre_props, "fencing_token")
         || row.hold.work_item_fence != super::property_string(pre_props, "work_item_fence")
+        || super::property_string(pre_props, "lease_owner") != row.hold.owner_id
     {
         return Err("development lane WorkItem/hold pre-terminal fence mismatch".to_string());
     }
@@ -5274,6 +5295,7 @@ pub(crate) fn read_development_lane_status(
 
 #[cfg(test)]
 mod tests {
+    use super::super::{property_string, read_one_node};
     use super::*;
     use crate::epistemic_operations::{
         DevelopmentLaneCleanupCompleteRequestSchemaVersion, DevelopmentLaneCleanupIntent,
@@ -5712,6 +5734,75 @@ mod tests {
                 &mut audit,
                 true,
                 crashpoint,
+            )
+        }
+
+        fn compare_and_set_work_item_owner(
+            &self,
+            expected_owner: &str,
+            updated_owner: &str,
+            batch_suffix: &str,
+            committed_at_ms: u64,
+        ) -> Result<MutationBatchCommit, String> {
+            let expected_graph_version =
+                super::super::read_mutation_graph_version(&self.db, TEST_GRAPH)?.unwrap_or(0);
+            let conditions_msgpack =
+                rmp_serde::to_vec_named(&serde_json::json!({"lease_owner": expected_owner}))
+                    .map_err(|error| error.to_string())?;
+            let updates_msgpack =
+                rmp_serde::to_vec_named(&serde_json::json!({"lease_owner": updated_owner}))
+                    .map_err(|error| error.to_string())?;
+            let batch = MutationBatch {
+                schema_version: MUTATION_BATCH_VERSION,
+                batch_id: format!("native-owner-cas:{batch_suffix}"),
+                context: MutationRequestContext {
+                    request_id: committed_at_ms,
+                    principal: format!("principal:sha256:{}", "a".repeat(64)),
+                    purpose: Some("native-lane-owner-test".into()),
+                    policy_fingerprint: None,
+                    trace_id: None,
+                },
+                tenant: self.reserve.tenant_ref.clone(),
+                graph: TEST_GRAPH.into(),
+                placement_epoch: 0,
+                idempotency_key: format!("native-owner-cas-idem:{batch_suffix}"),
+                expected_graph_version: Some(expected_graph_version),
+                fencing_token: None,
+                authoritative_state: None,
+                operations: vec![MutationOperation {
+                    ordinal: 0,
+                    surface: MutationSurface::Graph,
+                    domain: MutationDomain::GraphRows,
+                    method: Method::CompareAndSetNodeFields {
+                        node_id: self.reserve.work_item_id.clone(),
+                        conditions_msgpack,
+                        updates_msgpack,
+                    },
+                }],
+                outbox: vec![MutationOutboxIntent {
+                    topic: "native-lane.test".into(),
+                    key: format!("native-owner-cas:{batch_suffix}"),
+                    payload: Vec::new(),
+                    headers: Default::default(),
+                }],
+                created_at_ms: committed_at_ms,
+            };
+            #[cfg(feature = "security")]
+            let mut audit = super::super::AuditTailCache::new();
+            super::super::commit_mutation_batch_inner(
+                &self.db,
+                TEST_GRAPH,
+                &batch,
+                None,
+                None,
+                None,
+                None,
+                committed_at_ms,
+                DurableCrypto::none(),
+                #[cfg(feature = "security")]
+                &mut audit,
+                true,
+                None,
             )
         }
 
@@ -7641,6 +7732,245 @@ mod tests {
         assert_eq!(
             status.holds[0].state,
             DevelopmentLaneHoldState::CleanupPending
+        );
+    }
+
+    #[test]
+    fn native_public_owner_cas_drift_rolls_back_before_terminal_lane_transition() {
+        let fixture = NativeLaneFixture::new(policy());
+        let accepted: DevelopmentLaneResult =
+            fixture.decode(&fixture.commit(fixture.reserve_method("reserve:owner-cas"), TEST_NOW));
+        let hold = accepted.hold.expect("accepted owner binding hold");
+        let status_before = read_development_lane_status(
+            &fixture.db,
+            TEST_GRAPH,
+            &DevelopmentLaneStatusRequest {
+                schema_version:
+                    crate::epistemic_operations::DevelopmentLaneStatusRequestSchemaVersion::V1,
+                tenant_ref: hold.tenant_ref.clone(),
+                hold_id: Some(hold.hold_id.clone()),
+                lane_id: None,
+                work_item_id: Some(hold.work_item_id.clone()),
+                limit: 10,
+                cursor: None,
+                now_ms: 0,
+            },
+            TEST_NOW,
+            DurableCrypto::none(),
+        )
+        .expect("read owner binding baseline");
+
+        // This is the public compact MutationBatch CAS path, not a direct NODES
+        // edit.  A lane-linked WorkItem cannot change its authoritative owner
+        // while preserving the lifecycle tuple and intent.
+        let drift = fixture.compare_and_set_work_item_owner(
+            &hold.owner_id,
+            "owner:foreign",
+            "owner-drift",
+            200,
+        );
+        assert_eq!(
+            drift.unwrap_err(),
+            "checkpoint development lane WorkItem fence mismatch"
+        );
+
+        let stored = read_one_node(
+            &fixture.db,
+            TEST_GRAPH,
+            &hold.work_item_id,
+            DurableCrypto::none(),
+        )
+        .expect("read rolled-back WorkItem")
+        .expect("linked WorkItem remains present");
+        let stored: serde_json::Map<String, serde_json::Value> =
+            decode_durable(&stored).expect("decode rolled-back WorkItem");
+        assert_eq!(property_string(&stored, "status"), "running");
+        assert_eq!(
+            property_string(&stored, "lease_owner"),
+            hold.owner_id.as_str()
+        );
+
+        let status_after_drift = read_development_lane_status(
+            &fixture.db,
+            TEST_GRAPH,
+            &DevelopmentLaneStatusRequest {
+                schema_version:
+                    crate::epistemic_operations::DevelopmentLaneStatusRequestSchemaVersion::V1,
+                tenant_ref: hold.tenant_ref.clone(),
+                hold_id: Some(hold.hold_id.clone()),
+                lane_id: None,
+                work_item_id: Some(hold.work_item_id.clone()),
+                limit: 10,
+                cursor: None,
+                now_ms: 0,
+            },
+            TEST_NOW,
+            DurableCrypto::none(),
+        )
+        .expect("read unchanged lane after owner drift");
+        assert_eq!(status_after_drift.counters, status_before.counters);
+        assert_eq!(status_after_drift.holds, status_before.holds);
+        assert_eq!(status_after_drift.tenant_active_count, 1);
+        assert_eq!(status_after_drift.tenant_retained_disk_bytes, 0);
+
+        let finish_request = |tenant_ref: &str, owner_id: &str, idempotency_key: &str| {
+            DevelopmentLaneFinishRequest {
+                schema_version: DevelopmentLaneFinishRequestSchemaVersion::V1,
+                tenant_ref: tenant_ref.into(),
+                work_item_id: hold.work_item_id.clone(),
+                owner_id: owner_id.into(),
+                attempt: hold.attempt,
+                lease_epoch: hold.lease_epoch,
+                fencing_token: hold.fencing_token,
+                work_item_fence: hold.work_item_fence.clone(),
+                hold_id: hold.hold_id.clone(),
+                expected_hold_revision: hold.hold_revision,
+                terminal_state: DevelopmentLaneFinishRequestTerminalState::Succeeded,
+                idempotency_key: idempotency_key.into(),
+                now_ms: 0,
+            }
+        };
+        let foreign_policy =
+            fixture.update_policy("tenant:foreign", policy(), 0, "policy:foreign", 200);
+        assert_eq!(
+            foreign_policy.decision,
+            DevelopmentLaneQuotaUpdateResultDecision::Accepted
+        );
+        let wrong_tenant: DevelopmentLaneFinishResult = fixture.decode(&fixture.commit(
+            Method::FinishDevelopmentLane {
+                request: finish_request("tenant:foreign", &hold.owner_id, "finish:wrong-tenant"),
+            },
+            200,
+        ));
+        assert_eq!(
+            wrong_tenant.decision,
+            DevelopmentLaneFinishResultDecision::WrongTenant
+        );
+        let wrong_owner: DevelopmentLaneFinishResult = fixture.decode(&fixture.commit(
+            Method::FinishDevelopmentLane {
+                request: finish_request("tenant:a", "owner:foreign", "finish:wrong-owner"),
+            },
+            200,
+        ));
+        assert_eq!(
+            wrong_owner.decision,
+            DevelopmentLaneFinishResultDecision::WrongOwner
+        );
+
+        // A foreign worker cannot terminalize the hold even after the failed
+        // CAS attempt; the WorkItem CAS and lane state remain untouched.
+        let foreign_commit = fixture
+            .commit_work_item(
+                Method::CommitWorkItemResult {
+                    tenant: hold.tenant_ref.clone(),
+                    work_item_id: hold.work_item_id.clone(),
+                    worker_id: "owner:foreign".into(),
+                    lease_epoch: hold.lease_epoch,
+                    fencing_token: hold.fencing_token,
+                    idempotency_key: "work-item:foreign-owner".into(),
+                    outcome: "succeeded".into(),
+                    result_ref: None,
+                    error_ref: None,
+                    retryable: false,
+                    now_ms: 200,
+                },
+                "foreign-owner",
+                200,
+            )
+            .expect("foreign owner result is durably fenced");
+        let foreign_result: serde_json::Value = fixture.decode(
+            foreign_commit
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("foreign owner result bytes"),
+        );
+        assert_eq!(foreign_result["status"], "fenced");
+        let status_after_foreign = read_development_lane_status(
+            &fixture.db,
+            TEST_GRAPH,
+            &DevelopmentLaneStatusRequest {
+                schema_version:
+                    crate::epistemic_operations::DevelopmentLaneStatusRequestSchemaVersion::V1,
+                tenant_ref: hold.tenant_ref.clone(),
+                hold_id: Some(hold.hold_id.clone()),
+                lane_id: None,
+                work_item_id: Some(hold.work_item_id.clone()),
+                limit: 10,
+                cursor: None,
+                now_ms: 0,
+            },
+            200,
+            DurableCrypto::none(),
+        )
+        .expect("read unchanged lane after foreign result");
+        assert_eq!(status_after_foreign.counters, status_before.counters);
+        assert_eq!(status_after_foreign.holds, status_before.holds);
+        let stored = read_one_node(
+            &fixture.db,
+            TEST_GRAPH,
+            &hold.work_item_id,
+            DurableCrypto::none(),
+        )
+        .expect("read non-terminal WorkItem")
+        .expect("WorkItem remains present");
+        let stored: serde_json::Map<String, serde_json::Value> =
+            decode_durable(&stored).expect("decode non-terminal WorkItem");
+        assert_eq!(property_string(&stored, "status"), "running");
+        assert_eq!(
+            property_string(&stored, "lease_owner"),
+            hold.owner_id.as_str()
+        );
+
+        // The original owner still has the exact authority, and its replay is
+        // byte-identical after the terminal hold transition.
+        let committed = fixture
+            .commit_work_item_result("succeeded", false, "owner-correct", 200)
+            .expect("owner-correct terminal result");
+        assert!(!committed.replayed);
+        let replay = fixture
+            .commit_work_item_result("succeeded", false, "owner-correct", 200)
+            .expect("owner-correct terminal replay");
+        assert!(replay.replayed);
+        let final_status = read_development_lane_status(
+            &fixture.db,
+            TEST_GRAPH,
+            &DevelopmentLaneStatusRequest {
+                schema_version:
+                    crate::epistemic_operations::DevelopmentLaneStatusRequestSchemaVersion::V1,
+                tenant_ref: hold.tenant_ref.clone(),
+                hold_id: Some(hold.hold_id.clone()),
+                lane_id: None,
+                work_item_id: None,
+                limit: 10,
+                cursor: None,
+                now_ms: 0,
+            },
+            200,
+            DurableCrypto::none(),
+        )
+        .expect("read terminal lane");
+        assert_eq!(final_status.tenant_active_count, 0);
+        assert_eq!(final_status.tenant_retained_disk_bytes, 10);
+        assert_eq!(
+            final_status.holds[0].state,
+            DevelopmentLaneHoldState::CleanupPending
+        );
+        let stored = read_one_node(
+            &fixture.db,
+            TEST_GRAPH,
+            &hold.work_item_id,
+            DurableCrypto::none(),
+        )
+        .expect("read terminal WorkItem")
+        .expect("terminal WorkItem remains present");
+        let stored: serde_json::Map<String, serde_json::Value> =
+            decode_durable(&stored).expect("decode terminal WorkItem");
+        assert_eq!(property_string(&stored, "status"), "succeeded");
+        assert!(property_string(&stored, "lease_owner").is_empty());
+        assert_eq!(
+            property_string(&stored, "last_lease_owner"),
+            "owner:initial"
         );
     }
 
