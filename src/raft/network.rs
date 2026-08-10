@@ -1323,7 +1323,7 @@ mod wire_limit_tests {
 #[cfg(any(test, feature = "harness"))]
 pub mod partition {
     use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{Mutex, MutexGuard, OnceLock};
 
     use super::NodeId;
 
@@ -1331,6 +1331,31 @@ pub mod partition {
     fn table() -> &'static Mutex<HashMap<NodeId, u64>> {
         static T: OnceLock<Mutex<HashMap<NodeId, u64>>> = OnceLock::new();
         T.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    /// Serialize harnesses that use the process-global partition table. A test
+    /// must hold this guard for the complete lifetime of its cluster, including
+    /// teardown, because a concurrent `heal()` would otherwise affect another
+    /// test's in-flight Raft RPCs.
+    pub struct TestGuard {
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    /// Acquire exclusive ownership of the process-global partition table.
+    pub fn test_guard() -> TestGuard {
+        static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let lock = TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        heal();
+        TestGuard { _lock: lock }
+    }
+
+    impl Drop for TestGuard {
+        fn drop(&mut self) {
+            heal();
+        }
     }
 
     fn island_of(map: &HashMap<NodeId, u64>, n: NodeId) -> u64 {

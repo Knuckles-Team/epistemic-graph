@@ -49,6 +49,35 @@ class _AsyncClient:
         self.close_calls += 1
 
 
+class _CapabilityAsyncClient(_AsyncClient):
+    def __init__(self, advertised: set[str]) -> None:
+        super().__init__()
+        self.advertised = advertised
+        self.probes: list[str] = []
+
+    async def supports(self, operation: str) -> bool:
+        self.probes.append(operation)
+        return operation in self.advertised
+
+
+def test_sync_supports_matches_async_capability_probe() -> None:
+    """The sync wrapper exposes the same fail-closed capability result."""
+    loop = asyncio.new_event_loop()
+    loop_thread = threading.Thread(target=loop.run_forever, name="dcdx98-capability-loop")
+    loop_thread.start()
+    async_client = _CapabilityAsyncClient({"ReserveWorkItemResources"})
+    client = SyncEpistemicGraphClient(async_client, loop, loop_thread)
+    try:
+        assert client.supports("ReserveWorkItemResources") is True
+        assert client.supports("UpdateResourceHost") is False
+        assert async_client.probes == [
+            "ReserveWorkItemResources",
+            "UpdateResourceHost",
+        ]
+    finally:
+        client.close()
+
+
 def test_sync_deadline_cancels_blocked_graph_future_without_asyncio_run_tail() -> None:
     """A probe deadline cancels its graph future and releases its worker promptly."""
     loop = asyncio.new_event_loop()

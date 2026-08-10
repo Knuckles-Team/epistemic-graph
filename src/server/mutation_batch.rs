@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
+use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::change_envelope::ChangeEnvelope;
@@ -252,14 +253,7 @@ fn finish_batch(
     // properties, query text, document bodies, or identifiers. Bind the outbox row to
     // the canonical operation list with a digest-only manifest; the authoritative
     // batch/state remains the recovery source.
-    let encoded_operations = rmp_serde::to_vec_named(&operations).map_err(|e| e.to_string())?;
-    use sha2::{Digest, Sha256};
-    let summary = rmp_serde::to_vec_named(&serde_json::json!({
-        "schema": "epistemic.mutation.projection.v1",
-        "operations": operations.len(),
-        "operations_sha256": hex::encode(Sha256::digest(&encoded_operations)),
-    }))
-    .map_err(|e| e.to_string())?;
+    let summary = projection_payload_for_operations(&operations)?;
     let mut scope_digest = Sha256::new();
     scope_digest.update(ctx.tenant.as_bytes());
     scope_digest.update([0]);
@@ -297,6 +291,56 @@ fn finish_batch(
     };
     batch.validate()?;
     Ok(batch)
+}
+
+/// Encode the derived projection wake-up for an immutable operation list.
+///
+/// Native resource retries compare this derived intent after normalizing the
+/// authority-owned lifecycle timestamp. Keeping the digest construction here
+/// prevents the retry path from drifting from the producer in `finish_batch`.
+pub(crate) fn projection_summary_for_operations(
+    operations: &[MutationOperation],
+) -> Result<Vec<u8>, String> {
+    let encoded_operations = rmp_serde::to_vec_named(operations).map_err(|e| e.to_string())?;
+    use sha2::{Digest, Sha256};
+    rmp_serde::to_vec_named(&serde_json::json!({
+        "schema": "epistemic.mutation.projection.v1",
+        "operations": operations.len(),
+        "operations_sha256": hex::encode(Sha256::digest(&encoded_operations)),
+    }))
+    .map_err(|e| e.to_string())
+}
+
+/// Encode the feature-aware projection wake-up payload for an operation list.
+///
+/// `epistemic-tms` replaces the ordinary summary with a typed
+/// `ReasoningProjectionWakeup`. Retry reconciliation must derive the same
+/// payload as the producer, including that feature-specific shape.
+pub(crate) fn projection_payload_for_operations(
+    operations: &[MutationOperation],
+) -> Result<Vec<u8>, String> {
+    #[cfg(feature = "epistemic-tms")]
+    {
+        use sha2::{Digest, Sha256};
+
+        let encoded_operations =
+            rmp_serde::to_vec_named(operations).map_err(|error| error.to_string())?;
+        let methods = operations
+            .iter()
+            .map(|operation| operation.method.clone())
+            .collect::<Vec<_>>();
+        let wakeup = eg_epistemic::ReasoningProjectionWakeup::new(
+            operations.len(),
+            hex::encode(Sha256::digest(encoded_operations)),
+            eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),
+        )?;
+        return rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string());
+    }
+
+    #[cfg(not(feature = "epistemic-tms"))]
+    {
+        projection_summary_for_operations(operations)
+    }
 }
 
 /// Durable pseudonym used by every native coordinator retry check.
@@ -364,7 +408,11 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> MutationD
         | Method::RenewWorkItemLease { .. }
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
-        | Method::DeferWorkItem { .. } => MutationDomain::ControlPlane,
+        | Method::DeferWorkItem { .. }
+        | Method::ReserveWorkItemResources { .. }
+        | Method::ReleaseWorkItemResources { .. }
+        | Method::ReclaimWorkItemResources { .. }
+        | Method::UpdateResourceHost { .. } => MutationDomain::ControlPlane,
         #[cfg(feature = "query")]
         Method::Sql { .. } => MutationDomain::SqlCatalog,
         #[cfg(feature = "rdf")]
@@ -424,8 +472,15 @@ fn surface_for(method: &Method) -> Option<MutationSurface> {
             Some(MutationSurface::Rdf)
         }
         Method::CreateGraph { .. } | Method::DeleteGraph { .. } => Some(MutationSurface::Lifecycle),
+        Method::ReserveWorkItemResources { .. }
+        | Method::ReleaseWorkItemResources { .. }
+        | Method::ReclaimWorkItemResources { .. }
+        | Method::UpdateResourceHost { .. } => Some(MutationSurface::Job),
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => Some(MutationSurface::Job),
+        Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. } => {
+            Some(MutationSurface::Query)
+        }
         #[cfg(feature = "broker")]
         Method::DeclareExchange { .. }
         | Method::DeleteExchange { .. }
@@ -491,6 +546,34 @@ pub(crate) fn is_work_item_method(method: &Method) -> bool {
     )
 }
 
+/// Result-producing native lifecycle mutations that must bypass the graph-core
+/// coordinator. Resource reservation methods share the WorkItem transaction
+/// kernel, but are not WorkItem state transitions themselves; keeping the
+/// classifier distinct lets the durable-applier inventory account for their
+/// GraphRedb authority separately.
+pub(crate) fn is_work_item_mutation_method(method: &Method) -> bool {
+    is_work_item_method(method) || is_resource_reservation_method(method)
+}
+
+pub(crate) fn is_resource_reservation_query_method(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. }
+    )
+}
+
+pub(crate) fn is_resource_reservation_method(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::ReserveWorkItemResources { .. }
+            | Method::ReleaseWorkItemResources { .. }
+            | Method::ReclaimWorkItemResources { .. }
+            | Method::QueryWorkItemReservation { .. }
+            | Method::ResourceReservationStatus { .. }
+            | Method::UpdateResourceHost { .. }
+    )
+}
+
 pub(crate) fn opaque_request_key(
     namespace: &str,
     graph: &str,
@@ -540,8 +623,15 @@ pub(crate) fn work_item_batch_identity(
         }
         | Method::DeferWorkItem {
             idempotency_key, ..
-        } => Some(idempotency_key.as_str()),
+        } => Some(idempotency_key.clone()),
         Method::ClaimWorkItem { .. } | Method::RenewWorkItemLease { .. } => None,
+        Method::ReserveWorkItemResources { request }
+        | Method::ReleaseWorkItemResources { request }
+        | Method::ReclaimWorkItemResources { request } => Some(request.idempotency_key.clone()),
+        Method::UpdateResourceHost { request } => Some(format!(
+            "resource-host:{}:{}",
+            request.host_ref, request.revision
+        )),
         _ => {
             return Err("WorkItem identity requires a WorkItem operation".to_string());
         }
@@ -838,6 +928,10 @@ pub(crate) async fn commit_work_item(
         | Method::CommitWorkItemResult { tenant, .. }
         | Method::CancelWorkItem { tenant, .. }
         | Method::DeferWorkItem { tenant, .. } => tenant.clone(),
+        Method::ReserveWorkItemResources { request }
+        | Method::ReleaseWorkItemResources { request }
+        | Method::ReclaimWorkItemResources { request } => request.tenant_ref.clone(),
+        Method::UpdateResourceHost { request } => request.tenant_ref.clone(),
         _ => return Err("commit_work_item received a non-WorkItem operation".to_string()),
     };
     if tenant.trim().is_empty() {
@@ -850,6 +944,12 @@ pub(crate) async fn commit_work_item(
     // a background claim/renew/result transition (or vice versa).
     let _mutation_guard = lock_graph(graph).await;
     let identity = work_item_batch_identity(graph, &tenant, request_id, &method)?;
+    // Resource-host inventory is committed through the same native WorkItem
+    // mutation lane so it receives the same durability, ordering, and audit
+    // guarantees. Unlike claims and reservations, however, it has no graph-node
+    // mirror to refresh after commit. Its typed result therefore intentionally
+    // has no `changed_work_item_ids` field.
+    let publishes_work_item_rows = !matches!(&method, Method::UpdateResourceHost { .. });
     let created_at_ms = crate::server::dispatch::authoritative_now_ms();
     let fname = crate::persist::sanitize(graph);
     // Terminal WorkItem methods carry their own lease epoch/fencing CAS and are
@@ -888,7 +988,15 @@ pub(crate) async fn commit_work_item(
     // read-only until it is re-materialized. Repair the projection from the same
     // authoritative image every replay path installs, then surface the original error
     // — never swallowed, and never by equalizing a version counter.
-    match publish_committed_work_item(persistence, &fname, core, &committed).await {
+    match publish_committed_work_item(
+        persistence,
+        &fname,
+        core,
+        &committed,
+        publishes_work_item_rows,
+    )
+    .await
+    {
         Ok(result) => Ok(result),
         Err(error) => match reconcile_projection_from_authority(persistence, &fname, core).await {
             Ok(()) => Err(error),
@@ -908,6 +1016,7 @@ async fn publish_committed_work_item(
     graph_fname: &str,
     core: &Arc<GraphCore>,
     committed: &crate::mutation_batch::MutationBatchCommit,
+    publishes_work_item_rows: bool,
 ) -> Result<ResultPayload, String> {
     let bytes = committed
         .record
@@ -921,7 +1030,7 @@ async fn publish_committed_work_item(
     .map_err(|_| "committed WorkItem result is corrupt".to_string())?;
 
     if !committed.replayed {
-        for node_id in changed_work_item_ids(&result)? {
+        for node_id in changed_work_item_ids(&result, publishes_work_item_rows)? {
             let props = persistence
                 .read_node(graph_fname, &node_id)
                 .await?
@@ -950,12 +1059,32 @@ async fn reconcile_projection_from_authority(
     core.install_committed_snapshot(snapshot, version)
 }
 
-fn changed_work_item_ids(result: &ResultPayload) -> Result<Vec<String>, String> {
-    fn from_json(value: &serde_json::Value) -> Result<Vec<String>, String> {
-        value
+fn changed_work_item_ids(
+    result: &ResultPayload,
+    publishes_work_item_rows: bool,
+) -> Result<Vec<String>, String> {
+    fn from_json(
+        value: &serde_json::Value,
+        publishes_work_item_rows: bool,
+    ) -> Result<Vec<String>, String> {
+        if !publishes_work_item_rows {
+            return if value.get("changed_work_item_ids").is_none() {
+                Ok(Vec::new())
+            } else {
+                Err(
+                    "committed resource-host result unexpectedly has changed_work_item_ids"
+                        .to_string(),
+                )
+            };
+        }
+        let values = value
             .get("changed_work_item_ids")
-            .and_then(serde_json::Value::as_array)
             .ok_or_else(|| "committed WorkItem result has no changed_work_item_ids".to_string())?
+            .as_array()
+            .ok_or_else(|| {
+                "committed WorkItem result has non-array changed_work_item_ids".to_string()
+            })?;
+        values
             .iter()
             .map(|value| {
                 value.as_str().map(str::to_string).ok_or_else(|| {
@@ -966,7 +1095,7 @@ fn changed_work_item_ids(result: &ResultPayload) -> Result<Vec<String>, String> 
     }
 
     match result {
-        ResultPayload::Json(value) => from_json(value),
+        ResultPayload::Json(value) => from_json(value, publishes_work_item_rows),
         // ``ResultPayload::raw`` is wire-identical to ``PropertiesMsgpack``.
         // Because ResultPayload is untagged, decoding the durable outer payload
         // can legitimately select either byte variant. Both carry the same
@@ -977,7 +1106,7 @@ fn changed_work_item_ids(result: &ResultPayload) -> Result<Vec<String>, String> 
                 eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 10_000, 32),
             )
             .map_err(|_| "committed WorkItem inner result is corrupt".to_string())?;
-            from_json(&value)
+            from_json(&value, publishes_work_item_rows)
         }
         _ => Err("committed WorkItem result has an invalid payload shape".to_string()),
     }
@@ -1224,16 +1353,39 @@ mod tests {
         let expected = vec!["work:one".to_string(), "work:two".to_string()];
 
         assert_eq!(
-            changed_work_item_ids(&ResultPayload::Raw(bytes.clone())).unwrap(),
+            changed_work_item_ids(&ResultPayload::Raw(bytes.clone()), true).unwrap(),
             expected
         );
         assert_eq!(
-            changed_work_item_ids(&ResultPayload::PropertiesMsgpack(bytes)).unwrap(),
+            changed_work_item_ids(&ResultPayload::PropertiesMsgpack(bytes), true).unwrap(),
             expected
         );
         assert_eq!(
-            changed_work_item_ids(&ResultPayload::Json(value)).unwrap(),
+            changed_work_item_ids(&ResultPayload::Json(value), true).unwrap(),
             expected
+        );
+    }
+
+    #[test]
+    fn resource_host_result_requires_no_work_item_projection_ids() {
+        let value = serde_json::json!({"accepted": true, "host_ref": "host:one"});
+        let bytes = rmp_serde::to_vec_named(&value).unwrap();
+
+        assert_eq!(
+            changed_work_item_ids(&ResultPayload::Raw(bytes.clone()), false).unwrap(),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            changed_work_item_ids(&ResultPayload::Json(value), true).unwrap_err(),
+            "committed WorkItem result has no changed_work_item_ids"
+        );
+        assert_eq!(
+            changed_work_item_ids(
+                &ResultPayload::Json(serde_json::json!({"changed_work_item_ids": []})),
+                false,
+            )
+            .unwrap_err(),
+            "committed resource-host result unexpectedly has changed_work_item_ids"
         );
     }
 

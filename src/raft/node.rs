@@ -33,6 +33,19 @@ use super::multi::MultiRaft;
 use super::{AppCtx, RaftHandle, DEFAULT_GROUP};
 use crate::server::ServerState;
 
+async fn shutdown_after_start_error<T>(
+    multi: &Arc<MultiRaft>,
+    result: Result<T, String>,
+) -> Result<T, String> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            multi.shutdown().await;
+            Err(error)
+        }
+    }
+}
+
 /// Build + start the Raft node for this cluster member.
 ///
 /// * Builds the [`MultiRaft`] manager and its single shared RPC listener.
@@ -66,9 +79,10 @@ pub async fn start(
         ctx,
     )
     .await?;
-    multi
+    let result = multi
         .create_group(DEFAULT_GROUP, cfg.peers.clone(), cfg.is_bootstrap)
-        .await?;
+        .await;
+    shutdown_after_start_error(&multi, result).await?;
 
     // DIST-P2-2: multi-group production startup. `cfg.groups <= 1` (the default —
     // `EPISTEMIC_GRAPH_RAFT_GROUPS` unset) makes this call a documented no-op (see
@@ -77,9 +91,58 @@ pub async fn start(
     // `cfg.groups > 1` stands up the additional groups and sets the ring, so the
     // router (consulted only when the PlacementCatalog has no explicit entry for a
     // graph's tenant) spreads un-pinned graphs across all of them.
-    multi
+    let result = multi
         .configure_group_ring(cfg.groups, &cfg.peers, cfg.is_bootstrap)
-        .await?;
+        .await;
+    shutdown_after_start_error(&multi, result).await?;
+
+    // Crash-safe online-move recovery is driven by the placement-group leader only.
+    // Every other replica has the same journal, but must not race a second driver.
+    // Keep all temporary Raft handles inside this scope so they are dropped before
+    // startup-error cleanup drains the manager and stops persistence.
+    let recovery_result: Result<(), String> = async {
+        let pending_moves = !multi
+            .placement()
+            .validate_move_recovery_state()
+            .await?
+            .is_empty();
+        if !pending_moves {
+            return Ok(());
+        }
+        let control = multi
+            .group(DEFAULT_GROUP)
+            .await
+            .ok_or_else(|| "placement control group is unavailable during recovery".to_string())?;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        let leader = loop {
+            if let Some(leader) = control.current_leader().await {
+                break leader;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(
+                    "placement control group has no leader during move recovery".to_string()
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        };
+        if leader == cfg.node_id {
+            let manager = super::reshard::TenantManager::new(multi.clone(), backend.clone());
+            manager.reconcile_moves().await?;
+        }
+        Ok(())
+    }
+    .await;
+    shutdown_after_start_error(&multi, recovery_result).await?;
+
+    let handle = shutdown_after_start_error(
+        &multi,
+        multi
+            .handle_for_graph("__commons__")
+            .await
+            .ok_or_else(|| "default group not running after create".to_string()),
+    )
+    .await?
+    .handle;
 
     // ADR-1 / W1.1 (CONCEPT:EG-KG.sharding.cluster-topology, `reports/wave1/ADR-scale-trio.md` §ADR-1):
     // self-report this node's identity into the durable, Raft-replicated
@@ -96,7 +159,9 @@ pub async fn start(
     // exhaustion -- topology discovery is a best-effort convenience (the
     // client's static-map override / single-contact fallback still works,
     // ADR-1 decision 3b/3c), never a reason to fail this node's own startup.
-    {
+    // The handle stays on `StartedNode` so harnesses can cancel it before
+    // releasing the persistence backend during an in-process shutdown.
+    let topology_report = {
         let raft_addr = cfg
             .peers
             .get(&cfg.node_id)
@@ -145,44 +210,8 @@ pub async fn start(
                     }
                 }
             }
-        });
-    }
-
-    // Crash-safe online-move recovery is driven by the placement-group leader only.
-    // Every other replica has the same journal, but must not race a second driver.
-    let pending_moves = !multi
-        .placement()
-        .validate_move_recovery_state()
-        .await?
-        .is_empty();
-    if pending_moves {
-        let control = multi
-            .group(DEFAULT_GROUP)
-            .await
-            .ok_or_else(|| "placement control group is unavailable during recovery".to_string())?;
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
-        let leader = loop {
-            if let Some(leader) = control.current_leader().await {
-                break leader;
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(
-                    "placement control group has no leader during move recovery".to_string()
-                );
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        };
-        if leader == cfg.node_id {
-            let manager = super::reshard::TenantManager::new(multi.clone(), backend.clone());
-            manager.reconcile_moves().await?;
-        }
-    }
-
-    let handle = multi
-        .handle_for_graph("__commons__")
-        .await
-        .ok_or_else(|| "default group not running after create".to_string())?
-        .handle;
+        })
+    };
 
     tracing::info!(
         "Raft node {} started ({} peers, bootstrap={}, group {}, {} group(s) total)",
@@ -193,7 +222,11 @@ pub async fn start(
         cfg.groups.max(1),
     );
 
-    Ok(StartedNode { handle, multi })
+    Ok(StartedNode {
+        handle,
+        multi,
+        topology_report: Some(topology_report),
+    })
 }
 
 /// A started Raft node: the [`RaftHandle`] for routing writes + the [`MultiRaft`]
@@ -201,4 +234,17 @@ pub async fn start(
 pub struct StartedNode {
     pub handle: RaftHandle,
     pub multi: Arc<MultiRaft>,
+    topology_report: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl StartedNode {
+    /// Cancel and join the node-owned topology self-report task before dropping
+    /// the node's persistence/backend handles. Idempotent: after the first call
+    /// there is no task left to cancel.
+    pub async fn stop_background_tasks(&mut self) {
+        if let Some(task) = self.topology_report.take() {
+            task.abort();
+            let _ = task.await;
+        }
+    }
 }

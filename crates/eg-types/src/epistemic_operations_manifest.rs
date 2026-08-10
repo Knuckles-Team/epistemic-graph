@@ -2,7 +2,7 @@
 
 pub const PROTOCOL_NAME: &str = "epistemic-operations";
 pub const PROTOCOL_VERSION: &str = "1";
-pub const CATALOG_SHA256: &str = "8d0127572c190704ac8de393457de96a0c2f83b29ab9e491892bec88c8eb58ca";
+pub const CATALOG_SHA256: &str = "a5146d24f93bcb2e20bc7f1c2a5377467e895d48c3cc609bea5afe4c4b36892d";
 pub const SCHEMA_VERSION: &[(&str, &str)] = &[
     ("request_context", "2"),
     ("mutation_batch", "1"),
@@ -16,6 +16,10 @@ pub const SCHEMA_VERSION: &[(&str, &str)] = &[
     ("claim_work_item", "1"),
     ("evidence_bundle", "1"),
     ("operation_result", "1"),
+    ("resource_reservation", "1"),
+    ("resource_reservation_status", "1"),
+    ("resource_host_update", "1"),
+    ("development_lane", "1"),
 ];
 pub const SCHEMA_SHA256: &[(&str, &str)] = &[
     (
@@ -32,7 +36,7 @@ pub const SCHEMA_SHA256: &[(&str, &str)] = &[
     ),
     (
         "work_item",
-        "5edd9b24df5318c5d9a80e768601586c0c122a47cbc72a104a9feed4c2dfdbca",
+        "65e91ec79e7476e09a64978f39f24496b0eac57596cfc55066ac702f0303c730",
     ),
     (
         "artifact",
@@ -65,5 +69,21 @@ pub const SCHEMA_SHA256: &[(&str, &str)] = &[
     (
         "operation_result",
         "76e3ee6c19843968d7e40d6a56aefc1a595935451c1f5eaee370adc78e9a4966",
+    ),
+    (
+        "resource_reservation",
+        "a4c382833345514f6cb55cb565b8de18536f32eb6c88522e6e837f96c56fa1c6",
+    ),
+    (
+        "resource_reservation_status",
+        "ab25fff31aa3add7c784842ba2a7fffa2008698a4175c84405b45a84f94a8546",
+    ),
+    (
+        "resource_host_update",
+        "a127c8ea2e0a0006224012466a0d60173204162af3e4de4267b1de7c7f9b66ac",
+    ),
+    (
+        "development_lane",
+        "a6a59f28452bf7a30e0d91a5dc4cb99582a75c1a155624d18939e6ef00a23137",
     ),
 ];
