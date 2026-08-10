@@ -838,6 +838,44 @@ where
     let _ = writer.await;
 }
 
+/// Parse + validate a `--socket-mode`/`GRAPH_SERVICE_SOCKET_MODE` string (e.g.
+/// `"0600"`, `"0660"`, `"660"`) into the `u32` bit pattern
+/// [`std::fs::Permissions::from_mode`] expects.
+///
+/// Fails loudly (naming the exact value and why) rather than letting a bad
+/// setting surface later as a client-side `EACCES` — the same discipline that
+/// caught the original hardcoded-0600 lockout in the first place. Never widens
+/// the shipped default's intent: any `"other"` (world) permission bit is
+/// refused outright, so a misconfiguration can make the socket unreachable but
+/// can never make it world-accessible. Broaden access via the socket
+/// directory's owning group (`fsGroup` in Kubernetes) plus a group-permitting
+/// mode (e.g. `0660`), not via world bits.
+pub fn parse_unix_socket_mode(raw: &str) -> Result<u32, String> {
+    let trimmed = raw.trim();
+    let digits = trimmed.strip_prefix("0o").unwrap_or(trimmed);
+    if digits.is_empty() {
+        return Err(format!(
+            "{raw:?} is empty — expected an octal file mode, e.g. \"0600\""
+        ));
+    }
+    let mode = u32::from_str_radix(digits, 8).map_err(|_| {
+        format!("{raw:?} is not a valid octal file mode (expected e.g. \"0600\" or \"0660\")")
+    })?;
+    if mode > 0o777 {
+        return Err(format!(
+            "{raw:?} (parsed as octal {mode:#o}) is out of range for a file mode (max 0777)"
+        ));
+    }
+    if mode & 0o007 != 0 {
+        return Err(format!(
+            "{raw:?} (parsed as octal {mode:#o}) grants \"other\" (world) access to the UDS \
+             socket — refused. The socket must stay owner/group-only; widen access via the \
+             socket directory's owning group (e.g. Kubernetes `fsGroup`), not world bits."
+        ));
+    }
+    Ok(mode)
+}
+
 /// Start the server on a Unix Domain Socket (unix only; Windows uses TCP).
 ///
 /// The accept loop `select!`s the next connection against `coord`'s shutdown
@@ -845,9 +883,16 @@ where
 /// `main()` falls through to the persistence flush + final checkpoint. Each
 /// accepted connection is wrapped in a [`ConnGuard`] so the active-connection
 /// refcount the idle watcher observes stays correct.
+///
+/// `mode` is the already-validated (see [`parse_unix_socket_mode`]) file mode
+/// applied to the socket right after bind — configurable via
+/// `--socket-mode`/`GRAPH_SERVICE_SOCKET_MODE` so a non-root client container
+/// can be granted group access without an external `chmod` watcher; default
+/// `0o600` is byte-for-byte the prior hardcoded behavior.
 #[cfg(unix)]
 pub async fn serve_uds(
     socket_path: &str,
+    mode: u32,
     state: Arc<RwLock<ServerState>>,
     coord: Arc<ShutdownCoordinator>,
 ) -> std::io::Result<()> {
@@ -855,8 +900,9 @@ pub async fn serve_uds(
     let _ = std::fs::remove_file(socket_path);
     let listener = UnixListener::bind(socket_path)?;
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))?;
-    info!("Listening on a private Unix domain socket");
+    std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(mode))?;
+    let mode_octal = format!("{mode:#o}");
+    info!(mode = %mode_octal, "Listening on a private Unix domain socket");
 
     loop {
         // Latch check at the TOP catches a trigger() that fired between iterations
@@ -1000,6 +1046,49 @@ mod tests {
         );
         let decoded: Response = rmp_serde::from_slice(&frame[4..]).expect("decode body");
         assert_eq!(decoded.id, 42, "id preserved so the client demuxes by it");
+    }
+
+    #[test]
+    fn socket_mode_default_matches_prior_hardcoded_value() {
+        // The shipped clap default ("0600") must parse to exactly the value this
+        // code used to hardcode, so upgrading changes no deployment's behavior.
+        assert_eq!(parse_unix_socket_mode("0600").unwrap(), 0o600);
+    }
+
+    #[test]
+    fn socket_mode_accepts_group_readable_variants() {
+        assert_eq!(parse_unix_socket_mode("0660").unwrap(), 0o660);
+        assert_eq!(parse_unix_socket_mode("660").unwrap(), 0o660);
+        assert_eq!(parse_unix_socket_mode("0o660").unwrap(), 0o660);
+        assert_eq!(parse_unix_socket_mode(" 0640 ").unwrap(), 0o640);
+    }
+
+    #[test]
+    fn socket_mode_refuses_world_bits() {
+        // Never a path to "just make it writable" — any nonzero "other" bit is
+        // refused outright, whether read, write, or execute.
+        for world_open in ["0601", "0604", "0606", "0607", "0777"] {
+            let err = parse_unix_socket_mode(world_open)
+                .expect_err(&format!("{world_open} should be refused"));
+            assert!(
+                err.contains("world"),
+                "error for {world_open} should explain the world-bit refusal: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn socket_mode_refuses_garbage_and_out_of_range() {
+        assert!(parse_unix_socket_mode("").is_err());
+        assert!(parse_unix_socket_mode("not-octal").is_err());
+        assert!(
+            parse_unix_socket_mode("999").is_err(),
+            "9 is not a valid octal digit"
+        );
+        assert!(
+            parse_unix_socket_mode("07777").is_err(),
+            "exceeds a file mode's 0777 range"
+        );
     }
 
     #[test]
