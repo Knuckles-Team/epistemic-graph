@@ -1,4 +1,4 @@
-// CONCEPT:EG-KG.mining.retrieval-quality — Precision/recall/MRR over retrieval traces.
+// CONCEPT:EG-KG.mining.retrieval-quality — Precision/recall/MRR/NDCG over retrieval traces.
 //
 // Pure-Rust, dependency-light: given a set of stored RETRIEVAL TRACES — each the
 // ranked list of ids a query actually retrieved plus the ground-truth relevant
@@ -9,6 +9,17 @@
 //   * **MRR**         — mean reciprocal rank of the FIRST relevant hit (`0` if
 //     none of the top `k` are relevant) — rewards ranking a relevant result
 //     EARLY, complementing precision/recall's rank-agnostic view.
+//   * **NDCG@k** (GOC-08) — Normalized Discounted Cumulative Gain: like MRR, rank-
+//     sensitive (a relevant hit at rank 1 counts more than one at rank 10), but
+//     unlike MRR it credits EVERY relevant hit in the top `k`, not just the first.
+//     `RetrievalTrace.relevant` is unweighted (a set, not graded judgments), so
+//     the per-position gain is binary (`1` if `retrieved[i]` is relevant, else
+//     `0`) — the standard reduction of DCG to binary relevance, not an invented
+//     variant. `DCG@k = Σ gain_i / log2(i + 2)` (`i` is the 0-based rank, so the
+//     top result divides by `log2(2) = 1`); `IDCG@k` is the DCG of the best
+//     possible ordering (all relevant ids first, up to `min(k, |relevant|)`).
+//     `NDCG@k = DCG@k / IDCG@k`, in `[0, 1]`; `1.0` = every relevant id the query
+//     could possibly surface within the cutoff is surfaced, earliest first.
 //
 // averaged across every trace with a non-empty `relevant` set (a trace with no
 // declared ground truth contributes no signal and is skipped, not scored `0`).
@@ -31,8 +42,32 @@ pub struct RetrievalQuality {
     pub mrr: f64,
     /// Harmonic mean of `precision_at_k` and `recall_at_k`; `0.0` when both are `0.0`.
     pub f1: f64,
+    /// Mean Normalized Discounted Cumulative Gain at `k` (GOC-08) — see module docs.
+    pub ndcg_at_k: f64,
     pub n_queries: usize,
     pub k: usize,
+}
+
+/// DCG@`cutoff` for one ranked list under binary relevance (CONCEPT:EG-KG.mining.retrieval-quality,
+/// GOC-08): `Σ_{i=0}^{cutoff-1} gain(top[i]) / log2(i + 2)`. `relevant_set` decides
+/// `gain` (`1.0` if the id is relevant, else `0.0`).
+fn dcg(top: &[String], relevant_set: &std::collections::HashSet<&String>) -> f64 {
+    top.iter()
+        .enumerate()
+        .map(|(rank, id)| {
+            let gain = if relevant_set.contains(id) { 1.0 } else { 0.0 };
+            gain / (rank as f64 + 2.0).log2()
+        })
+        .sum()
+}
+
+/// Ideal DCG@`cutoff` under binary relevance (GOC-08): the best possible ordering
+/// puts all `n_relevant` relevant ids first, so it is just `dcg` of `n_relevant`
+/// leading `1`s truncated to `cutoff` — no ranked list needed.
+fn idcg(cutoff: usize, n_relevant: usize) -> f64 {
+    (0..cutoff.min(n_relevant))
+        .map(|rank| 1.0 / (rank as f64 + 2.0).log2())
+        .sum()
 }
 
 /// Evaluate `traces` at cutoff `k` (CONCEPT:EG-KG.mining.retrieval-quality).
@@ -43,6 +78,7 @@ pub fn evaluate(traces: &[RetrievalTrace], k: usize) -> RetrievalQuality {
     let mut sum_precision = 0.0f64;
     let mut sum_recall = 0.0f64;
     let mut sum_rr = 0.0f64;
+    let mut sum_ndcg = 0.0f64;
     let mut n = 0usize;
 
     for t in traces {
@@ -69,10 +105,17 @@ pub fn evaluate(traces: &[RetrievalTrace], k: usize) -> RetrievalQuality {
             .position(|id| relevant_set.contains(id))
             .map(|pos| 1.0 / (pos + 1) as f64)
             .unwrap_or(0.0);
+        let ideal = idcg(cutoff, t.relevant.len());
+        let ndcg = if ideal > 0.0 {
+            dcg(top, &relevant_set) / ideal
+        } else {
+            0.0 // cutoff == 0 (empty retrieved list): nothing possible to rank, no signal
+        };
 
         sum_precision += precision;
         sum_recall += recall;
         sum_rr += rr;
+        sum_ndcg += ndcg;
         n += 1;
     }
 
@@ -82,6 +125,7 @@ pub fn evaluate(traces: &[RetrievalTrace], k: usize) -> RetrievalQuality {
             recall_at_k: 0.0,
             mrr: 0.0,
             f1: 0.0,
+            ndcg_at_k: 0.0,
             n_queries: 0,
             k,
         };
@@ -90,6 +134,7 @@ pub fn evaluate(traces: &[RetrievalTrace], k: usize) -> RetrievalQuality {
     let precision_at_k = sum_precision / n as f64;
     let recall_at_k = sum_recall / n as f64;
     let mrr = sum_rr / n as f64;
+    let ndcg_at_k = sum_ndcg / n as f64;
     let f1 = if precision_at_k + recall_at_k > 0.0 {
         2.0 * precision_at_k * recall_at_k / (precision_at_k + recall_at_k)
     } else {
@@ -101,6 +146,7 @@ pub fn evaluate(traces: &[RetrievalTrace], k: usize) -> RetrievalQuality {
         recall_at_k,
         mrr,
         f1,
+        ndcg_at_k,
         n_queries: n,
         k,
     }
@@ -125,6 +171,58 @@ mod tests {
         assert!((q.recall_at_k - 1.0).abs() < 1e-9);
         assert!((q.mrr - 1.0).abs() < 1e-9);
         assert!((q.f1 - 1.0).abs() < 1e-9);
+        assert!(
+            (q.ndcg_at_k - 1.0).abs() < 1e-9,
+            "the retrieved order already IS the ideal order"
+        );
+    }
+
+    /// GOC-08: NDCG's distinguishing behaviour vs. MRR — it credits EVERY relevant
+    /// hit in the cutoff, not just the first. Two rankings with the same first-hit
+    /// rank (so identical MRR) but different SECOND-hit placement must score
+    /// differently on NDCG.
+    #[test]
+    fn ndcg_credits_every_relevant_hit_not_just_the_first() {
+        // Both relevant ids present, correct order (best possible) → NDCG == 1.0.
+        let best = vec![trace(&["a", "b", "x"], &["a", "b"])];
+        let q_best = evaluate(&best, 3);
+        assert!((q_best.ndcg_at_k - 1.0).abs() < 1e-9);
+
+        // Same first hit (rank 1, so identical MRR == 1.0) but the second relevant
+        // id is pushed to the LAST position — DCG loses the rank-2 gain the ideal
+        // ordering would have banked, so NDCG must be strictly less than 1.0 even
+        // though MRR is unchanged.
+        let worse = vec![trace(&["a", "x", "b"], &["a", "b"])];
+        let q_worse = evaluate(&worse, 3);
+        assert!(
+            (q_worse.mrr - 1.0).abs() < 1e-9,
+            "first hit still at rank 1"
+        );
+        assert!(
+            q_worse.ndcg_at_k < q_best.ndcg_at_k,
+            "delaying the SECOND relevant hit must lower NDCG even though MRR does not move: \
+             best={}, worse={}",
+            q_best.ndcg_at_k,
+            q_worse.ndcg_at_k
+        );
+        assert!(q_worse.ndcg_at_k < 1.0);
+    }
+
+    /// GOC-08: when there are more relevant ids than the cutoff can ever surface,
+    /// the IDEAL ranking is also capped at `k` — NDCG must still reach `1.0` for a
+    /// ranking that fills the cutoff entirely with relevant ids, rather than being
+    /// unfairly penalized for relevant ids beyond `k` it could never have shown.
+    #[test]
+    fn ndcg_ideal_is_capped_at_the_cutoff_not_all_relevant_ids() {
+        let traces = vec![trace(&["a", "b"], &["a", "b", "c", "d", "e"])];
+        let q = evaluate(&traces, 2);
+        assert!(
+            (q.ndcg_at_k - 1.0).abs() < 1e-9,
+            "top-2 is entirely relevant ids in the best possible order for a k=2 \
+             cutoff — must score 1.0 regardless of the 3 relevant ids k=2 could \
+             never have surfaced: got {}",
+            q.ndcg_at_k
+        );
     }
 
     #[test]
@@ -141,6 +239,22 @@ mod tests {
         assert_eq!(q.precision_at_k, 0.0);
         assert_eq!(q.recall_at_k, 0.0);
         assert_eq!(q.mrr, 0.0);
+        assert_eq!(q.ndcg_at_k, 0.0);
+    }
+
+    /// GOC-08 edge case: a trace with ground truth but an EMPTY retrieved list
+    /// (cutoff == 0) must report NDCG `0.0`, not `NaN` from a `0.0 / 0.0` IDCG
+    /// division — mirrors `precision_at_k`'s existing `cutoff > 0` guard.
+    #[test]
+    fn ndcg_is_zero_not_nan_for_an_empty_retrieved_list() {
+        let traces = vec![trace(&[], &["a"])];
+        let q = evaluate(&traces, 5);
+        assert_eq!(
+            q.n_queries, 1,
+            "ground truth is present, so this trace counts"
+        );
+        assert_eq!(q.ndcg_at_k, 0.0);
+        assert!(!q.ndcg_at_k.is_nan());
     }
 
     #[test]

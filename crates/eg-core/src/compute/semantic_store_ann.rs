@@ -107,7 +107,7 @@ impl EmbeddingArena {
     /// touches `self` at all, so a rejected write leaves the arena byte-for-byte
     /// unchanged — proven by `mismatched_dimension_insert_does_not_erase_corpus`.
     fn insert(&mut self, id: String, emb: &[f32]) -> Result<(), EmbeddingDimensionError> {
-        self.dim = check_embedding_dimension(emb.len(), self.dim)?;
+        self.dim = check_embedding_dimension(emb, self.dim)?;
         let norm = l2_norm(emb);
         match self.id_to_row.get(&id).copied() {
             Some(r) => {
@@ -788,6 +788,93 @@ mod tests {
                 "existing vector for {id} must survive a rejected mismatched write"
             );
         }
+    }
+
+    /// GOC-08: a NaN/Inf component passes every LENGTH check a mismatched-dimension
+    /// write would fail, so before this guard it would reach the arena/index fully
+    /// intact — its cached L2 norm and every downstream cosine score become `NaN`,
+    /// silently corrupting rankings rather than erroring (see
+    /// `EmbeddingDimensionError::NonFinite`'s doc comment). This is the BUG-007
+    /// erasure test's sibling for the *content*-validity axis rather than the
+    /// *length* axis: same digest + byte-for-byte proof that a rejected write
+    /// leaves the resident corpus completely untouched.
+    #[test]
+    fn non_finite_embedding_insert_does_not_erase_corpus() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        fn digest(snapshot: &[(String, Vec<f32>)]) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            for (id, vector) in snapshot {
+                id.hash(&mut hasher);
+                for component in vector {
+                    component.to_bits().hash(&mut hasher);
+                }
+            }
+            hasher.finish()
+        }
+
+        let mut store = SemanticStore::new();
+        let known: Vec<(String, Vec<f32>)> = (0..10)
+            .map(|i| {
+                let mut v = vec![0.0f32; 8];
+                v[i % 8] = 1.0;
+                (format!("n{i}"), v)
+            })
+            .collect();
+        for (id, v) in &known {
+            store.add_embedding(id.clone(), v.clone()).unwrap();
+        }
+        assert_eq!(store.len(), 10, "setup: 10 known vectors resident");
+
+        let before_snapshot = store.embeddings_snapshot();
+        let before_digest = digest(&before_snapshot);
+
+        // Same width as the store (8) so ONLY the non-finite check can catch it —
+        // proves this is a distinct guard, not a length check in disguise.
+        let mut poisoned = vec![0.0f32; 8];
+        poisoned[3] = f32::NAN;
+        let result = store.add_embedding("intruder".into(), poisoned);
+        assert_eq!(
+            result,
+            Err(EmbeddingDimensionError::NonFinite { index: 3 }),
+            "a NaN component must be rejected with a typed error naming its index"
+        );
+        assert!(
+            store.get_embedding("intruder").is_none(),
+            "the rejected vector must not have been inserted either"
+        );
+
+        let after_snapshot = store.embeddings_snapshot();
+        let after_digest = digest(&after_snapshot);
+        assert_eq!(store.len(), 10, "existing corpus must not be cleared");
+        assert_eq!(
+            before_digest, after_digest,
+            "arena content digest must be identical after a rejected write"
+        );
+        assert_eq!(
+            before_snapshot, after_snapshot,
+            "arena content must be byte-for-byte identical after a rejected write"
+        );
+
+        // +/-infinity are rejected the same way.
+        let mut plus_inf = vec![0.0f32; 8];
+        plus_inf[0] = f32::INFINITY;
+        assert_eq!(
+            store.add_embedding("inf-intruder".into(), plus_inf),
+            Err(EmbeddingDimensionError::NonFinite { index: 0 })
+        );
+        let mut minus_inf = vec![0.0f32; 8];
+        minus_inf[7] = f32::NEG_INFINITY;
+        assert_eq!(
+            store.add_embedding("neg-inf-intruder".into(), minus_inf),
+            Err(EmbeddingDimensionError::NonFinite { index: 7 })
+        );
+        assert_eq!(
+            store.len(),
+            10,
+            "existing corpus must survive both infinity rejections too"
+        );
     }
 
     /// Neighbouring hostile input: a zero-length embedding must be rejected with a

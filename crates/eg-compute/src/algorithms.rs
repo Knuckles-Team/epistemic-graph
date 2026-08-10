@@ -1578,11 +1578,11 @@ fn prepare_batch_operations_with(
                 }
                 // Same guard as the arena/map chokepoint (`SemanticStore::add_embedding`),
                 // run for EVERY embedding op in the batch up front so a
-                // mixed-dimension batch (e.g. op[2] matches the store, op[5]
-                // doesn't) is rejected as a whole, before `batch_update` applies
-                // op[0]/op[1] to the live store.
+                // mixed-dimension OR non-finite-component batch (e.g. op[2] matches
+                // the store, op[5] doesn't, or op[5] contains a NaN) is rejected as a
+                // whole, before `batch_update` applies op[0]/op[1] to the live store.
                 expected_embedding_dim = eg_core::compute::semantic::check_embedding_dimension(
-                    embedding.len(),
+                    embedding,
                     expected_embedding_dim,
                 )
                 .map_err(|error| format!("BatchUpdate op[{index}] {error}"))?;
@@ -2194,6 +2194,55 @@ mod community_tests {
             g.semantic_store.read().embeddings_snapshot(),
             before,
             "the pre-existing embedding corpus must be untouched (BUG-007)"
+        );
+        assert_eq!(g.semantic_store.read().len(), 1);
+    }
+
+    /// GOC-08: `decode_batch_operations` already rejects a non-finite `embedding`
+    /// component at DECODE time (`"embedding contains a non-finite component"`,
+    /// above `prepare_batch_operations_with` in this file) — this pins that
+    /// existing behaviour so a future refactor can't silently drop it, and
+    /// documents why `mixed_dimension_batch_is_rejected_without_partial_mutation`'s
+    /// sibling test isn't `check_embedding_dimension`-shaped here: the JSON `json!`
+    /// macro used by these tests converts `f64::NAN`/`f64::INFINITY` to JSON `null`
+    /// (`serde_json::Value::from(f64)` maps non-finite to `Value::Null`, matching
+    /// the JSON spec, which has no NaN/Infinity literal), so a non-finite float
+    /// can only be exercised through this decoder via an explicit `null` — never a
+    /// literal NaN — proving the DECODER's existing guard, not
+    /// `check_embedding_dimension` (which guards the non-JSON callers: WAL replay,
+    /// `redb_store.rs`, `graph_delta.rs`, `mutation_apply.rs`, the structural
+    /// `graphlearn::embeddings` writer, and every direct `SemanticStore::add_embedding`
+    /// caller — none of which round-trip through this JSON batch wire format).
+    #[test]
+    fn null_embedding_component_in_batch_is_rejected_without_partial_mutation() {
+        let g = GraphCore::new();
+        g.add_node("a".into(), p());
+        g.semantic_store
+            .write()
+            .add_embedding("a".into(), vec![1.0, 0.0])
+            .unwrap();
+        let before = g.semantic_store.read().embeddings_snapshot();
+
+        let operations = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "add_node", "id": "b", "properties": {}},
+            {"op": "add_embedding", "id": "b", "embedding": [0.0, 1.0]},
+            {"op": "add_node", "id": "c", "properties": {}},
+            {"op": "add_embedding", "id": "c", "embedding": [1.0, null]}
+        ]))
+        .unwrap();
+
+        let error = batch_update(&g, &operations).unwrap_err();
+        assert!(
+            error.contains("non-number"),
+            "error must name the decode-time problem: {error}"
+        );
+
+        assert!(!g.has_node("b"), "no partial node application");
+        assert!(!g.has_node("c"), "no partial node application");
+        assert_eq!(
+            g.semantic_store.read().embeddings_snapshot(),
+            before,
+            "the pre-existing embedding corpus must be untouched"
         );
         assert_eq!(g.semantic_store.read().len(), 1);
     }

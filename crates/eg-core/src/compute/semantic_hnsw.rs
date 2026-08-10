@@ -171,7 +171,7 @@ impl SemanticStore {
         node_id: String,
         embedding: Vec<f32>,
     ) -> Result<(), EmbeddingDimensionError> {
-        check_embedding_dimension(embedding.len(), self.dim())?;
+        check_embedding_dimension(&embedding, self.dim())?;
 
         let is_update = self.embeddings.contains_key(&node_id);
         self.embeddings.insert(node_id.clone(), embedding.clone());
@@ -601,6 +601,44 @@ mod tests {
             10,
             "existing corpus must not be touched (BUG-007)"
         );
+        assert_eq!(
+            before, after,
+            "embeddings map must be byte-for-byte identical after a rejected write"
+        );
+    }
+
+    /// GOC-08, this backend's analog of `semantic_store_ann`'s
+    /// `non_finite_embedding_insert_does_not_erase_corpus`: a NaN/Inf component
+    /// matches the store's established width byte-for-byte, so only a dedicated
+    /// finite-value scan (not the length check) can catch it. Before this guard it
+    /// would have landed in `embeddings` intact, same as the pre-fix mismatched-width
+    /// case this backend used to silently accept.
+    #[test]
+    fn non_finite_embedding_insert_does_not_corrupt_corpus() {
+        let mut store = SemanticStore::new();
+        let known: Vec<(String, Vec<f32>)> = (0..10)
+            .map(|i| {
+                let mut v = vec![0.0f32; 8];
+                v[i % 8] = 1.0;
+                (format!("n{i}"), v)
+            })
+            .collect();
+        for (id, v) in &known {
+            store.add_embedding(id.clone(), v.clone()).unwrap();
+        }
+        assert_eq!(store.len(), 10, "setup: 10 known vectors resident");
+        let mut before = store.embeddings_snapshot();
+        before.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+        let mut poisoned = vec![0.0f32; 8];
+        poisoned[5] = f32::NAN;
+        let result = store.add_embedding("intruder".into(), poisoned);
+        assert_eq!(result, Err(EmbeddingDimensionError::NonFinite { index: 5 }));
+        assert!(store.get_embedding("intruder").is_none());
+
+        let mut after = store.embeddings_snapshot();
+        after.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(store.len(), 10, "existing corpus must not be touched");
         assert_eq!(
             before, after,
             "embeddings map must be byte-for-byte identical after a rejected write"
