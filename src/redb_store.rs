@@ -2026,6 +2026,21 @@ fn apply_mutation_batch_in_wtx(
         let mut resource_disk_policies = wtx
             .open_table(RESOURCE_DISK_POLICIES)
             .map_err(|e| e.to_string())?;
+        let mut lane_holds = wtx
+            .open_table(development_lane::HOLDS)
+            .map_err(|e| e.to_string())?;
+        let lane_work_item_index = wtx
+            .open_table(development_lane::WORK_ITEM_INDEX)
+            .map_err(|e| e.to_string())?;
+        let mut lane_counters = wtx
+            .open_table(development_lane::COUNTERS)
+            .map_err(|e| e.to_string())?;
+        let mut lane_pressure_index = wtx
+            .open_table(development_lane::PRESSURE_INDEX)
+            .map_err(|e| e.to_string())?;
+        let lane_policies = wtx
+            .open_table(development_lane::POLICIES)
+            .map_err(|e| e.to_string())?;
         #[cfg(feature = "security")]
         let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
         for operation in &batch.operations {
@@ -2070,10 +2085,18 @@ fn apply_mutation_batch_in_wtx(
                 | Method::CommitWorkItemResult { .. }
                 | Method::CancelWorkItem { .. }
                 | Method::DeferWorkItem { .. }) => {
-                    let result = apply_work_item_rows(graph_fname, method, &mut nodes, crypto)?
-                        .ok_or_else(|| {
-                            "WorkItem mutation produced no durable result".to_string()
-                        })?;
+                    let result = apply_work_item_rows(
+                        graph_fname,
+                        method,
+                        &mut nodes,
+                        &mut lane_holds,
+                        &lane_work_item_index,
+                        &mut lane_counters,
+                        &mut lane_pressure_index,
+                        &lane_policies,
+                        crypto,
+                    )?
+                    .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
                     if generated_result.is_some() || batch.operations.len() != 1 {
                         return Err(
                             "WorkItem MutationBatch must contain exactly one result-producing operation"
@@ -2142,6 +2165,11 @@ fn apply_mutation_batch_in_wtx(
         drop(edges);
         drop(ledger);
         drop(semantic);
+        drop(lane_holds);
+        drop(lane_work_item_index);
+        drop(lane_counters);
+        drop(lane_pressure_index);
+        drop(lane_policies);
         #[cfg(feature = "security")]
         drop(audit);
         development_lane::validate_current_lane_links_in_wtx(wtx, graph_fname, crypto)?;
@@ -5520,10 +5548,16 @@ pub(crate) fn read_resource_reservation_status(
 /// transaction is held. The returned payload is persisted as the batch result in
 /// that same transaction, so a retry observes the exact original claim/commit
 /// outcome rather than running selection twice.
+#[allow(clippy::too_many_arguments)]
 fn apply_work_item_rows(
     graph: &str,
     method: &Method,
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    holds: &mut redb::Table<(&str, &str), &[u8]>,
+    work_item_index: &redb::Table<(&str, &str, u64), &str>,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policies: &redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let decode = |bytes: &[u8]| -> Result<serde_json::Map<String, serde_json::Value>, String> {
@@ -5892,6 +5926,7 @@ fn apply_work_item_rows(
                 )));
             };
             let mut props = decode(&bytes)?;
+            let pre_props = props.clone();
             if property_string(&props, "tenant") != tenant {
                 return Ok(Some(crate::protocol::ResultPayload::Json(
                     serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
@@ -5986,6 +6021,23 @@ fn apply_work_item_rows(
             );
             props.insert("lease_expires_at".into(), serde_json::Value::Null);
             props.insert("updated_at".into(), serde_json::Value::from(now_s));
+            development_lane::transition_work_item_terminal_hold(
+                graph,
+                &pre_props,
+                work_item_id,
+                committed_status,
+                false,
+                property_u64(&props, "attempt"),
+                property_u64(&props, "lease_epoch"),
+                property_u64(&props, "fencing_token"),
+                property_string(&props, "work_item_fence"),
+                holds,
+                work_item_index,
+                counters,
+                pressure_index,
+                policies,
+                crypto,
+            )?;
             // Phase-1 mirror: the commit outcome maps to the chart's commit_* event; the
             // authoritative next state is whatever the handler persisted (ready on a
             // scheduled retry, else the terminal). The chart must independently agree.
@@ -6069,6 +6121,7 @@ fn apply_work_item_rows(
                 )));
             };
             let mut props = decode(&bytes)?;
+            let pre_props = props.clone();
             if property_string(&props, "tenant") != tenant {
                 return Ok(Some(crate::protocol::ResultPayload::Json(
                     serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
@@ -6121,7 +6174,12 @@ fn apply_work_item_rows(
                 lease_owner
             }
             .to_string();
-            let next_epoch = property_u64(&props, "lease_epoch").saturating_add(1);
+            let next_epoch = property_u64(&props, "lease_epoch")
+                .checked_add(1)
+                .ok_or_else(|| "CancelWorkItem lease epoch overflow".to_string())?;
+            let next_fencing_token = property_u64(&props, "fencing_token")
+                .checked_add(1)
+                .ok_or_else(|| "CancelWorkItem fencing token overflow".to_string())?;
             props.insert(
                 "status".into(),
                 serde_json::Value::String("cancelled".into()),
@@ -6135,7 +6193,10 @@ fn apply_work_item_rows(
             );
             props.insert("lease_expires_at".into(), serde_json::Value::Null);
             props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
-            props.insert("fencing_token".into(), serde_json::Value::from(next_epoch));
+            props.insert(
+                "fencing_token".into(),
+                serde_json::Value::from(next_fencing_token),
+            );
             props.insert(
                 "cancel_reason_ref".into(),
                 reason_ref
@@ -6143,6 +6204,23 @@ fn apply_work_item_rows(
                     .map(serde_json::Value::String)
                     .unwrap_or(serde_json::Value::Null),
             );
+            development_lane::transition_work_item_terminal_hold(
+                graph,
+                &pre_props,
+                work_item_id,
+                "cancelled",
+                true,
+                property_u64(&props, "attempt"),
+                property_u64(&props, "lease_epoch"),
+                property_u64(&props, "fencing_token"),
+                property_string(&props, "work_item_fence"),
+                holds,
+                work_item_index,
+                counters,
+                pressure_index,
+                policies,
+                crypto,
+            )?;
             #[cfg(feature = "statechart")]
             apply_work_item_mirror(
                 &mut props,
@@ -6158,7 +6236,7 @@ fn apply_work_item_rows(
                     "status": "cancelled",
                     "work_item_id": work_item_id,
                     "lease_epoch": next_epoch,
-                    "fencing_token": next_epoch,
+                    "fencing_token": next_fencing_token,
                     "changed_work_item_ids": [work_item_id],
                 }),
             )))
