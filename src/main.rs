@@ -52,6 +52,18 @@ struct Args {
     #[arg(long, env = "GRAPH_SERVICE_SOCKET")]
     socket_path: Option<String>,
 
+    /// Octal file-mode applied to the UDS socket right after bind (e.g. `0600`,
+    /// `0660`). **Default `0600`** (owner-only) — byte-for-byte today's
+    /// hardcoded behavior; set this instead of relying on an external `chmod`
+    /// watcher when a non-root client container needs group access (e.g. a
+    /// `fsGroup`-owned socket directory under `readOnlyRootFilesystem`).
+    /// Validated at startup and REFUSED if it would be world-writable or
+    /// world-readable — this can loosen who may `connect()`, never who may
+    /// read the graph over that connection (`eg2.` auth still applies), but a
+    /// world-open UDS is refused outright rather than accepted and footgunned.
+    #[arg(long, default_value = "0600", env = "GRAPH_SERVICE_SOCKET_MODE")]
+    socket_mode: String,
+
     /// Optional TCP address (e.g., 0.0.0.0:9100). If set, TCP listener is started.
     #[arg(long, env = "GRAPH_SERVICE_TCP_ADDR")]
     tcp_addr: Option<String>,
@@ -354,6 +366,16 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     epistemic_graph::otel::init_tracing()?;
 
     let socket_path = resolve_socket_path(args.socket_path);
+    let socket_mode = match server::parse_unix_socket_mode(&args.socket_mode) {
+        Ok(mode) => mode,
+        Err(reason) => {
+            eprintln!(
+                "error: invalid --socket-mode/GRAPH_SERVICE_SOCKET_MODE {:?}: {reason}",
+                args.socket_mode
+            );
+            std::process::exit(2);
+        }
+    };
 
     // ── Security gate: an auth secret is mandatory ───────────────────────
     if args.auth_secret.is_empty() {
@@ -2102,7 +2124,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // UDS listener (main loop). Returns when the shutdown signal fires.
-        server::serve_uds(&socket_path, state.clone(), shutdown.clone()).await?;
+        server::serve_uds(&socket_path, socket_mode, state.clone(), shutdown.clone()).await?;
     }
 
     #[cfg(not(unix))]
@@ -2110,8 +2132,10 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         // Non-unix (Windows): Tokio has no UnixListener, so AF_UNIX is unavailable.
         // TCP loopback is the per-platform DEFAULT transport here — an explicit
         // --tcp-addr wins; otherwise the loopback-only platform default is used.
-        // `socket_path` is still resolved (above) for config/lock parity & logging.
+        // `socket_path`/`socket_mode` are still resolved+validated (above) for
+        // config/lock parity & logging.
         let _ = &socket_path;
+        let _ = socket_mode;
         let addr = args
             .tcp_addr
             .clone()
