@@ -3882,6 +3882,7 @@ pub(crate) fn handle_retrieval_quality(
             "recall_at_k": report.recall_at_k,
             "mrr": report.mrr,
             "f1": report.f1,
+            "ndcg_at_k": report.ndcg_at_k,
             "n_queries": report.n_queries,
             "k": report.k,
             "written_back": written,
@@ -3904,6 +3905,7 @@ fn materialize_retrieval_quality(
         "recall_at_k": report.recall_at_k,
         "mrr": report.mrr,
         "f1": report.f1,
+        "ndcg_at_k": report.ndcg_at_k,
         "n_queries": report.n_queries,
         "k": report.k,
         "query_id": query_id,
@@ -6939,9 +6941,26 @@ mod tests {
             panic!("expected json");
         };
         assert!((v["mrr"].as_f64().unwrap() - 0.5).abs() < 1e-9);
+        // GOC-08: NDCG must be present on both the API response AND the
+        // materialized node — not just internal to `RetrievalQuality`. Ground
+        // truth is a single relevant id ("a") at retrieved rank 2, so DCG@2 =
+        // 1/log2(3) and IDCG@2 = 1/log2(2) = 1 ⇒ NDCG = 1/log2(3).
+        let expected_ndcg = 1.0 / 3.0f64.log2();
+        assert!((v["ndcg_at_k"].as_f64().unwrap() - expected_ndcg).abs() < 1e-9);
         assert_eq!(v["written_back"], 1);
         core.mark_dirty();
         assert_eq!(core.get_nodes_by_label("RetrievalQuality", 0).len(), 1);
+        let (_node_id, props_blob) = core
+            .get_nodes_by_label("RetrievalQuality", 0)
+            .into_iter()
+            .next()
+            .unwrap();
+        let props: serde_json::Value = rmp_serde::from_slice(&props_blob).unwrap();
+        assert!(
+            (props["ndcg_at_k"].as_f64().unwrap() - expected_ndcg).abs() < 1e-9,
+            "the materialized :RetrievalQuality node must carry ndcg_at_k too, \
+             not only the API response"
+        );
         #[cfg(feature = "epistemic")]
         {
             assert_no_claims(&core);

@@ -68,7 +68,7 @@ impl NodeEmbeddings {
         store: &mut SemanticStore,
     ) -> Result<usize, EmbeddingDimensionError> {
         if let Some(row) = self.rows.first() {
-            check_embedding_dimension(row.len(), store.dim())?;
+            check_embedding_dimension(row, store.dim())?;
         }
         for (id, row) in self.ids.iter().zip(self.rows.iter()) {
             store.add_embedding(id.clone(), row.clone())?;
