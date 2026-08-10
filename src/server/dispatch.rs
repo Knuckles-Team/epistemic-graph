@@ -493,6 +493,14 @@ fn replicated_identity_bootstrap_authorized() -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(feature = "raft")]
+fn capability_authority_unavailable(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::MintWorkItemClaimCapability { .. } | Method::VerifyWorkItemClaimCapability { .. }
+    )
+}
+
 #[cfg(not(feature = "raft"))]
 fn replicated_identity_bootstrap_authorized() -> bool {
     false
@@ -511,6 +519,15 @@ pub(crate) async fn apply_replicated_native(
     authority: &crate::raft::RaftMutationContext,
     method: Method,
 ) -> Response {
+    if capability_authority_unavailable(&method) {
+        // RaftMutationContext intentionally contains only one-way routing
+        // identity.  It is not an authenticated principal/session envelope,
+        // so never reconstruct capability authority on a follower/replay.
+        return Response::err(
+            request_id,
+            crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE,
+        );
+    }
     let context = match VerifiedRequestContext::replicated_mutation(authority) {
         Ok(context) => context,
         Err(error) => return Response::err(request_id, error),
@@ -861,6 +878,37 @@ mod consensus_admin_route_tests {
             "__commons__"
         );
     }
+
+    #[test]
+    fn capability_consensus_paths_refuse_without_the_original_auth_envelope() {
+        use crate::epistemic_operations::{
+            WorkItemClaimCapabilityMintRequest, WorkItemClaimCapabilityRequestSchemaVersion,
+            WorkItemClaimCapabilityVerifyRequest,
+        };
+
+        let methods = [
+            Method::MintWorkItemClaimCapability {
+                request: WorkItemClaimCapabilityMintRequest {
+                    schema_version: WorkItemClaimCapabilityRequestSchemaVersion::V1,
+                    work_item_id: "work-item".to_string(),
+                },
+            },
+            Method::VerifyWorkItemClaimCapability {
+                request: WorkItemClaimCapabilityVerifyRequest {
+                    schema_version: WorkItemClaimCapabilityRequestSchemaVersion::V1,
+                    work_item_id: "work-item".to_string(),
+                    capability: vec![0; 36],
+                },
+            },
+        ];
+        for method in methods {
+            assert!(capability_authority_unavailable(&method));
+            assert_eq!(
+                crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE,
+                "authority_unavailable"
+            );
+        }
+    }
 }
 
 #[cfg(feature = "raft")]
@@ -872,6 +920,15 @@ async fn propose_native_mutation(
     identity_bootstrap: bool,
     method: Method,
 ) -> Response {
+    if capability_authority_unavailable(&method) {
+        // The proposal payload carries no raw authenticated principal/session
+        // envelope.  Refuse before CarrierAuthority, command construction,
+        // leader routing, barriers, or any private-store mutation.
+        return Response::err(
+            request_id,
+            crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE,
+        );
+    }
     let authority = match CarrierAuthority::from_verified(verified_context) {
         Ok(authority) => authority,
         Err(error) => return Response::err(request_id, error),
@@ -1580,6 +1637,9 @@ fn sanitize_native_proposal(
     authority: &CarrierAuthority,
     method: Method,
 ) -> Result<Method, String> {
+    if capability_authority_unavailable(&method) {
+        return Err(crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE.to_string());
+    }
     match method {
         // Transaction control is ordered by the placement group, not by the
         // transaction's data graph. Freeze the caller's original request graph
@@ -6270,6 +6330,16 @@ async fn dispatch_graph_op_inner(
         &method,
         Method::MintWorkItemClaimCapability { .. } | Method::VerifyWorkItemClaimCapability { .. }
     ) {
+        #[cfg(feature = "raft")]
+        if is_replicated_apply() {
+            // A replicated apply has only the bounded Raft routing context;
+            // capability authority requires the original cryptographically
+            // verified principal and session envelope.
+            return Response::err(
+                req_id,
+                crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE,
+            );
+        }
         #[cfg(feature = "raft")]
         if let Some(routed) = routed_raft.as_ref() {
             let leader = routed.handle.current_leader().await;
