@@ -30,11 +30,12 @@ pub use backend::SemanticStore;
 pub const MAX_EMBEDDING_DIMENSION: usize = 65_536;
 
 /// Typed rejection for `SemanticStore::add_embedding` (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard,
-/// BUG-007). A caller receiving this error is guaranteed the store was NOT mutated —
-/// neither backend touches its arena/map until every hostile-input check below has
-/// passed. Shared by both backends (`semantic_hnsw`/`semantic_store_ann`) so a
-/// consumer written against `compute::semantic::SemanticStore` sees the identical
-/// error type regardless of which backend the `ann` feature selects.
+/// BUG-007; GOC-08 adds [`Self::NonFinite`]). A caller receiving this error is
+/// guaranteed the store was NOT mutated — neither backend touches its arena/map
+/// until every hostile-input check below has passed. Shared by both backends
+/// (`semantic_hnsw`/`semantic_store_ann`) so a consumer written against
+/// `compute::semantic::SemanticStore` sees the identical error type regardless of
+/// which backend the `ann` feature selects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmbeddingDimensionError {
     /// A zero-length embedding vector.
@@ -44,6 +45,20 @@ pub enum EmbeddingDimensionError {
     /// An embedding vector whose length doesn't match the store's already
     /// established dimension (the historical erase-the-corpus defect, BUG-007).
     Mismatch { expected: usize, received: usize },
+    /// An embedding vector containing a NaN or +/-infinite component (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard,
+    /// GOC-08). Unlike a mismatched length, a non-finite component passes every
+    /// length check and would previously reach the arena/index intact: its cached L2
+    /// norm ([`super::semantic_store_ann`]'s `norms` row) and every downstream cosine
+    /// score become `NaN`, and — because the brute-force/HNSW/IVF-PQ comparators
+    /// already total-order `NaN` as "worst" — the poisoned row would silently sink to
+    /// the bottom of every ranking rather than error, so a single malformed write
+    /// degrades retrieval quality invisibly instead of failing loudly. Index-building
+    /// paths (k-means/SVD, used past `ANN_BUILD_THRESHOLD`) are more fragile still: a
+    /// single NaN/Inf row can NaN-poison a shared centroid or singular vector, which
+    /// would corrupt search quality for the WHOLE resident index, not just the one
+    /// row — the same "one malformed write, broad blast radius" failure class as
+    /// BUG-007's corpus erasure. `index` is the first offending component's position.
+    NonFinite { index: usize },
 }
 
 impl std::fmt::Display for EmbeddingDimensionError {
@@ -58,6 +73,10 @@ impl std::fmt::Display for EmbeddingDimensionError {
                 f,
                 "embedding dimension mismatch: store expects {expected}, received {received}"
             ),
+            Self::NonFinite { index } => write!(
+                f,
+                "embedding component at index {index} is NaN or infinite (must be finite)"
+            ),
         }
     }
 }
@@ -65,15 +84,22 @@ impl std::fmt::Display for EmbeddingDimensionError {
 impl std::error::Error for EmbeddingDimensionError {}
 
 /// Shared entry-point validation every `add_embedding` implementation runs BEFORE
-/// touching any state (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard, BUG-007). `store_dim == 0`
+/// touching any state (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard, BUG-007 + GOC-08). `store_dim == 0`
 /// means the store has no established dimension yet (empty store — the first vector
 /// establishes it). Returns the dimension the caller should now treat as established
 /// (unchanged from `store_dim` unless it was `0`).
+///
+/// Check order: length-only bounds (`Empty`/`Oversized`) first since they are `O(1)`;
+/// then a full scan for non-finite components (`NonFinite`) — absolute validity of
+/// `embedding` on its own, independent of any store; then `Mismatch`, which is
+/// relative to `store_dim` and therefore only meaningful once `embedding` is already
+/// known to be independently valid.
 #[inline]
 pub fn check_embedding_dimension(
-    embedding_len: usize,
+    embedding: &[f32],
     store_dim: usize,
 ) -> Result<usize, EmbeddingDimensionError> {
+    let embedding_len = embedding.len();
     if embedding_len == 0 {
         return Err(EmbeddingDimensionError::Empty);
     }
@@ -82,6 +108,12 @@ pub fn check_embedding_dimension(
             received: embedding_len,
             max: MAX_EMBEDDING_DIMENSION,
         });
+    }
+    if let Some(index) = embedding
+        .iter()
+        .position(|component| !component.is_finite())
+    {
+        return Err(EmbeddingDimensionError::NonFinite { index });
     }
     if store_dim == 0 {
         return Ok(embedding_len);
@@ -124,4 +156,97 @@ pub fn semantic_overlay(committed: SemanticStore, staged: &[(String, Vec<f32>)])
         }
     }
     store
+}
+
+#[cfg(test)]
+mod check_embedding_dimension_tests {
+    use super::*;
+
+    #[test]
+    fn establishes_dimension_on_first_finite_vector() {
+        assert_eq!(check_embedding_dimension(&[1.0, 2.0, 3.0], 0), Ok(3));
+    }
+
+    #[test]
+    fn empty_vector_rejected_regardless_of_store_dim() {
+        assert_eq!(
+            check_embedding_dimension(&[], 0),
+            Err(EmbeddingDimensionError::Empty)
+        );
+        assert_eq!(
+            check_embedding_dimension(&[], 5),
+            Err(EmbeddingDimensionError::Empty)
+        );
+    }
+
+    #[test]
+    fn oversized_vector_rejected() {
+        let oversized = vec![0.0f32; MAX_EMBEDDING_DIMENSION + 1];
+        assert_eq!(
+            check_embedding_dimension(&oversized, 0),
+            Err(EmbeddingDimensionError::Oversized {
+                received: MAX_EMBEDDING_DIMENSION + 1,
+                max: MAX_EMBEDDING_DIMENSION,
+            })
+        );
+    }
+
+    #[test]
+    fn nan_component_rejected_with_its_index() {
+        assert_eq!(
+            check_embedding_dimension(&[1.0, f32::NAN, 3.0], 0),
+            Err(EmbeddingDimensionError::NonFinite { index: 1 })
+        );
+    }
+
+    #[test]
+    fn positive_and_negative_infinity_rejected() {
+        assert_eq!(
+            check_embedding_dimension(&[f32::INFINITY, 0.0], 0),
+            Err(EmbeddingDimensionError::NonFinite { index: 0 })
+        );
+        assert_eq!(
+            check_embedding_dimension(&[0.0, f32::NEG_INFINITY], 0),
+            Err(EmbeddingDimensionError::NonFinite { index: 1 })
+        );
+    }
+
+    #[test]
+    fn first_non_finite_index_reported_when_several_present() {
+        assert_eq!(
+            check_embedding_dimension(&[0.0, f32::NAN, f32::NAN, f32::INFINITY], 0),
+            Err(EmbeddingDimensionError::NonFinite { index: 1 }),
+            "must report the FIRST offending index, not the last or a count"
+        );
+    }
+
+    #[test]
+    fn mismatch_still_detected_for_an_otherwise_finite_vector() {
+        assert_eq!(
+            check_embedding_dimension(&[1.0, 2.0, 3.0], 4),
+            Err(EmbeddingDimensionError::Mismatch {
+                expected: 4,
+                received: 3
+            })
+        );
+    }
+
+    /// Precedence: a vector that is BOTH the wrong length AND contains a NaN
+    /// reports `NonFinite`, not `Mismatch` — documented check order is
+    /// length-bounds, then finite-content, then store-relative mismatch, so
+    /// content validity is established before comparing against the store at all.
+    #[test]
+    fn non_finite_takes_precedence_over_mismatch() {
+        assert_eq!(
+            check_embedding_dimension(&[1.0, f32::NAN], 8),
+            Err(EmbeddingDimensionError::NonFinite { index: 1 }),
+            "a non-finite component must be caught before the length is even \
+             compared against the store's established dimension"
+        );
+    }
+
+    #[test]
+    fn valid_vector_matching_store_dim_is_accepted() {
+        assert_eq!(check_embedding_dimension(&[1.0, 2.0, 3.0], 3), Ok(3));
+    }
 }
