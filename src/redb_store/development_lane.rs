@@ -557,6 +557,44 @@ pub(crate) fn clear_native_graph_rows_in_wtx(
     )
 }
 
+/// Variant for the compact MutationBatch path, which already owns the lane
+/// hold/index/counter tables while applying the batch.  redb does not permit
+/// opening the same table twice in one write transaction, so this adapter
+/// opens only the remaining lane tables and reuses the existing guards.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn clear_native_graph_rows_in_wtx_with_lane_tables(
+    wtx: &WriteTransaction,
+    graph: &str,
+    holds: &mut redb::Table<(&str, &str), &[u8]>,
+    work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policies: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut tenant_index = wtx.open_table(TENANT_INDEX).map_err(|e| e.to_string())?;
+    let mut lane_index = wtx.open_table(LANE_INDEX).map_err(|e| e.to_string())?;
+    let mut branch_index = wtx
+        .open_table(REPOSITORY_BRANCH_INDEX)
+        .map_err(|e| e.to_string())?;
+    let mut worktree_index = wtx.open_table(WORKTREE_INDEX).map_err(|e| e.to_string())?;
+    let mut invocations = wtx.open_table(INVOCATIONS).map_err(|e| e.to_string())?;
+    clear_native_graph_rows(
+        graph,
+        holds,
+        &mut tenant_index,
+        &mut lane_index,
+        &mut branch_index,
+        &mut worktree_index,
+        work_item_index,
+        counters,
+        pressure_index,
+        policies,
+        &mut invocations,
+        crypto,
+    )
+}
+
 /// A lifecycle WorkItem's owner is authoritative while it is live and is
 /// retained in `last_lease_owner` after terminalization.  Keep the terminal
 /// shape strict as well: a terminal row must not retain a live lease owner that

@@ -844,6 +844,74 @@ def _boolean(name: str, value: Any) -> bool:
     return value
 
 
+_WORK_ITEM_CAPABILITY_DECISIONS = frozenset(
+    {
+        "minted",
+        "replayed",
+        "verified",
+        "input_conflict",
+        "not_found",
+        "unauthorized",
+        "expired",
+        "stale",
+        "malformed",
+        "retention_exhausted",
+    }
+)
+
+
+def _work_item_capability_result(
+    value: Any,
+    *,
+    verify: bool,
+) -> dict[str, Any]:
+    """Validate the generated capability result without modeling authority.
+
+    This is intentionally an internal wire-shape validator. It has no fields
+    for tenant, owner, lease, fence, attempt, or graph incarnation, and thus
+    cannot become a caller-constructible authority object.
+    """
+    result = _exact_mapping(
+        "WorkItemClaimCapability result",
+        value,
+        frozenset({"schema_version", "decision", "valid", "capability"}),
+    )
+    if result["schema_version"] != "1":
+        raise ValueError("WorkItemClaimCapability result schema_version must be 1")
+    decision = _string(
+        "WorkItemClaimCapability result.decision", result["decision"]
+    )
+    if decision not in _WORK_ITEM_CAPABILITY_DECISIONS:
+        raise ValueError("WorkItemClaimCapability result decision is invalid")
+    valid = _boolean("WorkItemClaimCapability result.valid", result["valid"])
+    capability = result["capability"]
+    if capability is not None:
+        if isinstance(capability, bytearray):
+            capability = bytes(capability)
+            result["capability"] = capability
+        if not isinstance(capability, bytes) or len(capability) > 128:
+            raise ValueError(
+                "WorkItemClaimCapability result.capability is invalid"
+            )
+    if verify:
+        if decision not in {"verified", "unauthorized"}:
+            raise ValueError(
+                "WorkItemClaimCapability verify result decision is invalid"
+            )
+        if decision == "verified" and not valid:
+            raise ValueError("verified capability result must be valid")
+        if decision == "unauthorized" and valid:
+            raise ValueError("unauthorized capability result must be invalid")
+        if capability is not None:
+            raise ValueError("verify result must not return capability bytes")
+    elif decision in {"minted", "replayed"}:
+        if not valid or not isinstance(capability, bytes) or len(capability) != 36:
+            raise ValueError("minted capability result is incomplete")
+    elif valid or capability is not None:
+        raise ValueError("refused capability result carries authority state")
+    return result
+
+
 _RESOURCE_RESERVATION_REQUEST_FIELDS = frozenset(
     {
         "schema_version",
@@ -2696,6 +2764,64 @@ class WorkItemClient:
         ):
             raise ValueError("negative ClaimWorkItem result carries lease state")
         return answer
+
+    async def mint_capability(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Mint/replay an opaque capability for the caller's live WorkItem lease.
+
+        The request deliberately contains only ``schema_version`` and
+        ``work_item_id``. Tenant, worker, principal, session, lease tuple, graph
+        incarnation, and expiry are derived by the authenticated engine; this
+        client exposes no authority DTO or tuple reconstruction helper.
+        """
+        value = _exact_mapping(
+            "WorkItemClaimCapability mint request",
+            request,
+            frozenset({"schema_version", "work_item_id"}),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("WorkItemClaimCapability schema_version must be 1")
+        _string("WorkItemClaimCapability.work_item_id", value["work_item_id"])
+        if len(value["work_item_id"]) > 512:
+            raise ValueError("WorkItemClaimCapability.work_item_id exceeds 512 bytes")
+        return _work_item_capability_result(
+            await self._client._send(
+                "MintWorkItemClaimCapability", {"request": value}
+            ),
+            verify=False,
+        )
+
+    async def verify_capability(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Verify opaque capability bytes against the live native lease.
+
+        Verification returns one privacy-safe denial shape for all invalid or
+        foreign capabilities. The engine performs the live control-row check
+        before any private payload lookup; callers cannot provide owner/lease
+        fields to alter that order.
+        """
+        value = _exact_mapping(
+            "WorkItemClaimCapability verify request",
+            request,
+            frozenset({"schema_version", "work_item_id", "capability"}),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("WorkItemClaimCapability schema_version must be 1")
+        _string("WorkItemClaimCapability.work_item_id", value["work_item_id"])
+        if len(value["work_item_id"]) > 512:
+            raise ValueError("WorkItemClaimCapability.work_item_id exceeds 512 bytes")
+        capability = value["capability"]
+        if isinstance(capability, bytearray):
+            capability = bytes(capability)
+            value["capability"] = capability
+        if not isinstance(capability, bytes) or len(capability) > 128:
+            raise ValueError(
+                "WorkItemClaimCapability.capability must be at most 128 bytes"
+            )
+        return _work_item_capability_result(
+            await self._client._send(
+                "VerifyWorkItemClaimCapability", {"request": value}
+            ),
+            verify=True,
+        )
 
     async def renew(
         self,

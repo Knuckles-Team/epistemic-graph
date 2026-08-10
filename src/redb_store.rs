@@ -903,6 +903,9 @@ pub(crate) fn commit_ops(
         // post-image before this transaction can commit.
         let mut lane_validation_graphs = std::collections::BTreeSet::new();
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let mut native_work_items = wtx
+            .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+            .map_err(|e| e.to_string())?;
         let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
         let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
         let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
@@ -951,7 +954,11 @@ pub(crate) fn commit_ops(
                     crypto,
                 )?;
                 development_lane::clear_native_graph_rows_in_wtx(&wtx, &graph, crypto)?;
-                work_item_capability::clear_graph_rows_in_wtx(&wtx, &graph)?;
+                work_item_capability::clear_graph_rows_in_wtx_with_native(
+                    &wtx,
+                    &graph,
+                    &mut native_work_items,
+                )?;
             }
             apply_method_rows(
                 &graph,
@@ -960,6 +967,7 @@ pub(crate) fn commit_ops(
                 &mut edges,
                 &mut ledger,
                 &mut semantic,
+                &native_work_items,
                 crypto,
             )?;
             #[cfg(feature = "security")]
@@ -1882,6 +1890,11 @@ fn apply_mutation_batch_in_wtx(
             .iter()
             .map(|(node_id, properties)| (node_id.clone(), properties.as_ref().clone()))
             .collect::<Vec<_>>();
+        // A snapshot replaces the native WorkItem image.  Validate that a
+        // generic restore cannot manufacture an active lease, then purge all
+        // private claim state atomically before installing the replacement.
+        work_item_capability::validate_snapshot_nodes(&incoming_nodes)?;
+        work_item_capability::clear_graph_rows_in_wtx(wtx, graph_fname)?;
         development_lane::validate_lane_links_in_wtx(wtx, graph_fname, &incoming_nodes, crypto)?;
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
         let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
@@ -1933,6 +1946,9 @@ fn apply_mutation_batch_in_wtx(
         }
     } else if let Some(AuthoritativeGraphState::RowDelta(delta)) = staged_state.as_ref() {
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let native_work_items = wtx
+            .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+            .map_err(|e| e.to_string())?;
         let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
         let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
         let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
@@ -1944,6 +1960,7 @@ fn apply_mutation_batch_in_wtx(
                 &mut edges,
                 &mut ledger,
                 &mut semantic,
+                &native_work_items,
                 crypto,
             )?;
         }
@@ -1975,6 +1992,7 @@ fn apply_mutation_batch_in_wtx(
         drop(edges);
         drop(ledger);
         drop(semantic);
+        drop(native_work_items);
         development_lane::validate_current_lane_links_in_wtx(wtx, graph_fname, crypto)?;
 
         // The delta is an authenticated projection detail. Audit the original
@@ -2001,6 +2019,9 @@ fn apply_mutation_batch_in_wtx(
         }
     } else {
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let mut native_work_items = wtx
+            .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+            .map_err(|e| e.to_string())?;
         let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
         let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
         let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
@@ -2032,7 +2053,7 @@ fn apply_mutation_batch_in_wtx(
         let mut lane_holds = wtx
             .open_table(development_lane::HOLDS)
             .map_err(|e| e.to_string())?;
-        let lane_work_item_index = wtx
+        let mut lane_work_item_index = wtx
             .open_table(development_lane::WORK_ITEM_INDEX)
             .map_err(|e| e.to_string())?;
         let mut lane_counters = wtx
@@ -2041,7 +2062,7 @@ fn apply_mutation_batch_in_wtx(
         let mut lane_pressure_index = wtx
             .open_table(development_lane::PRESSURE_INDEX)
             .map_err(|e| e.to_string())?;
-        let lane_policies = wtx
+        let mut lane_policies = wtx
             .open_table(development_lane::POLICIES)
             .map_err(|e| e.to_string())?;
         #[cfg(feature = "security")]
@@ -2064,8 +2085,21 @@ fn apply_mutation_batch_in_wtx(
                         &mut resource_disk_policies,
                         crypto,
                     )?;
-                    development_lane::clear_native_graph_rows_in_wtx(wtx, graph_fname, crypto)?;
-                    work_item_capability::clear_graph_rows_in_wtx(wtx, graph_fname)?;
+                    development_lane::clear_native_graph_rows_in_wtx_with_lane_tables(
+                        wtx,
+                        graph_fname,
+                        &mut lane_holds,
+                        &mut lane_work_item_index,
+                        &mut lane_counters,
+                        &mut lane_pressure_index,
+                        &mut lane_policies,
+                        crypto,
+                    )?;
+                    work_item_capability::clear_graph_rows_in_wtx_with_native(
+                        wtx,
+                        graph_fname,
+                        &mut native_work_items,
+                    )?;
                 }
                 Method::ClearGraph => {
                     clear_graph_rows(graph_fname, &mut nodes, &mut edges, &mut ledger)?;
@@ -2082,8 +2116,21 @@ fn apply_mutation_batch_in_wtx(
                         &mut resource_disk_policies,
                         crypto,
                     )?;
-                    development_lane::clear_native_graph_rows_in_wtx(wtx, graph_fname, crypto)?;
-                    work_item_capability::clear_graph_rows_in_wtx(wtx, graph_fname)?;
+                    development_lane::clear_native_graph_rows_in_wtx_with_lane_tables(
+                        wtx,
+                        graph_fname,
+                        &mut lane_holds,
+                        &mut lane_work_item_index,
+                        &mut lane_counters,
+                        &mut lane_pressure_index,
+                        &mut lane_policies,
+                        crypto,
+                    )?;
+                    work_item_capability::clear_graph_rows_in_wtx_with_native(
+                        wtx,
+                        graph_fname,
+                        &mut native_work_items,
+                    )?;
                 }
                 method @ (Method::ClaimWorkItem { .. }
                 | Method::RenewWorkItemLease { .. }
@@ -2099,6 +2146,7 @@ fn apply_mutation_batch_in_wtx(
                         &mut lane_counters,
                         &mut lane_pressure_index,
                         &lane_policies,
+                        &mut native_work_items,
                         crypto,
                     )?
                     .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
@@ -2151,6 +2199,7 @@ fn apply_mutation_batch_in_wtx(
                     &mut edges,
                     &mut ledger,
                     &mut semantic,
+                    &native_work_items,
                     crypto,
                 )?,
             }
@@ -2170,6 +2219,7 @@ fn apply_mutation_batch_in_wtx(
         drop(edges);
         drop(ledger);
         drop(semantic);
+        drop(native_work_items);
         drop(lane_holds);
         drop(lane_work_item_index);
         drop(lane_counters);
@@ -2182,6 +2232,9 @@ fn apply_mutation_batch_in_wtx(
     if let Some(rows) = crossmodal.as_ref() {
         if !rows.methods.is_empty() {
             let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+            let mut native_work_items = wtx
+                .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+                .map_err(|e| e.to_string())?;
             let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
             let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
             let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
@@ -2229,7 +2282,11 @@ fn apply_mutation_batch_in_wtx(
                     crypto,
                 )?;
                 development_lane::clear_native_graph_rows_in_wtx(wtx, graph_fname, crypto)?;
-                work_item_capability::clear_graph_rows_in_wtx(wtx, graph_fname)?;
+                work_item_capability::clear_graph_rows_in_wtx_with_native(
+                    wtx,
+                    graph_fname,
+                    &mut native_work_items,
+                )?;
             }
             for method in rows.methods {
                 apply_method_rows(
@@ -2239,6 +2296,7 @@ fn apply_mutation_batch_in_wtx(
                     &mut edges,
                     &mut ledger,
                     &mut semantic,
+                    &native_work_items,
                     crypto,
                 )?;
             }
@@ -2246,6 +2304,7 @@ fn apply_mutation_batch_in_wtx(
             drop(edges);
             drop(ledger);
             drop(semantic);
+            drop(native_work_items);
             development_lane::validate_current_lane_links_in_wtx(wtx, graph_fname, crypto)?;
         }
         if rows
@@ -5564,6 +5623,7 @@ fn apply_work_item_rows(
     counters: &mut redb::Table<(&str, &str), &[u8]>,
     pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
     policies: &redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &mut redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let decode = |bytes: &[u8]| -> Result<serde_json::Map<String, serde_json::Value>, String> {
@@ -5787,6 +5847,15 @@ fn apply_work_item_rows(
                 "lease_expires_at".into(),
                 serde_json::Value::from(lease_until_s),
             );
+            // The native claim authority owns the per-attempt WorkItem fence.
+            // Ready submissions cannot supply one through generic graph writes;
+            // deriving it from the authoritative lease epoch keeps the Raft
+            // transition deterministic while ensuring every capability-bound
+            // live lease has a non-empty fence that changes on reclaim.
+            props.insert(
+                "work_item_fence".into(),
+                serde_json::Value::String(format!("lease-fence-v1:{epoch}")),
+            );
             props.insert("heartbeat_at".into(), serde_json::Value::from(now_s));
             props.insert("updated_at".into(), serde_json::Value::from(now_s));
             props.insert("attempt".into(), serde_json::Value::from(attempt));
@@ -5806,6 +5875,14 @@ fn apply_work_item_rows(
                 Some("leased"),
             );
             write_work_item_props(nodes, graph, &node_id, &props, crypto)?;
+            work_item_capability::record_native_claim_in_wtx(
+                native_work_items,
+                graph,
+                &node_id,
+                &props,
+                now_ms,
+                crypto,
+            )?;
             Ok(Some(crate::protocol::ResultPayload::raw(
                 &ClaimWorkItemResult {
                     schema_version: ClaimWorkItemResultSchemaVersion::V1,
@@ -6875,12 +6952,29 @@ fn apply_crossmodal_projection_rows(
 ) -> Result<(), String> {
     if !blob_refs.is_empty() {
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let native_work_items = wtx
+            .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+            .map_err(|e| e.to_string())?;
         for (node_id, digest) in blob_refs {
             let current = nodes
                 .get((graph, node_id.as_str()))
                 .map_err(|e| e.to_string())?
                 .map(|value| crypto.unseal(value.value()))
                 .transpose()?;
+            if native_work_items
+                .get((graph, node_id.as_str()))
+                .map_err(|e| e.to_string())?
+                .is_some()
+                || current.as_ref().is_some_and(|bytes| {
+                    decode_durable::<serde_json::Map<String, serde_json::Value>>(bytes)
+                        .map(|props| property_string(&props, "node_type") == "WorkItem")
+                        .unwrap_or(true)
+                })
+            {
+                return Err(
+                    "native WorkItem authority required for generic blob update".to_string()
+                );
+            }
             let mut props: serde_json::Map<String, serde_json::Value> = match current {
                 Some(bytes) => decode_durable(&bytes)?,
                 None => serde_json::Map::new(),
@@ -7009,13 +7103,26 @@ pub(crate) fn commit_crossmodal(
         .any(|method| matches!(method, Method::ClearGraph | Method::DeleteGraph { .. }))
     {
         development_lane::clear_native_graph_rows_in_wtx(&wtx, graph, crypto)?;
-        work_item_capability::clear_graph_rows_in_wtx(&wtx, graph)?;
     }
     {
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let mut native_work_items = wtx
+            .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+            .map_err(|e| e.to_string())?;
         let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
         let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
         let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+
+        if methods
+            .iter()
+            .any(|method| matches!(method, Method::ClearGraph | Method::DeleteGraph { .. }))
+        {
+            work_item_capability::clear_graph_rows_in_wtx_with_native(
+                &wtx,
+                graph,
+                &mut native_work_items,
+            )?;
+        }
 
         // 1. Graph mutations (nodes/edges/properties) — the SAME row apply.
         #[cfg(feature = "security")]
@@ -7028,6 +7135,7 @@ pub(crate) fn commit_crossmodal(
                 &mut edges,
                 &mut ledger,
                 &mut semantic,
+                &native_work_items,
                 crypto,
             )?;
             #[cfg(feature = "security")]
@@ -7064,6 +7172,20 @@ pub(crate) fn commit_crossmodal(
                     .map_err(|e| e.to_string())?
                     .map(|v| crypto.unseal(v.value()))
                     .transpose()?;
+                if native_work_items
+                    .get((graph, node_id.as_str()))
+                    .map_err(|e| e.to_string())?
+                    .is_some()
+                    || current.as_ref().is_some_and(|bytes| {
+                        decode_durable::<serde_json::Map<String, serde_json::Value>>(bytes)
+                            .map(|props| property_string(&props, "node_type") == "WorkItem")
+                            .unwrap_or(true)
+                    })
+                {
+                    return Err(
+                        "native WorkItem authority required for generic blob update".to_string()
+                    );
+                }
                 let mut props: serde_json::Map<String, serde_json::Value> = match current {
                     Some(bytes) => decode_durable(&bytes)?,
                     None => serde_json::Map::new(),
@@ -7113,11 +7235,29 @@ pub(crate) fn commit_crossmodal(
             // Read-modify-write the node's property blob so the ref rides the node row.
             // Unseal the current blob before merging, re-seal the merged result.
             for (node_id, digest) in blob_refs {
+                if native_work_items
+                    .get((graph, node_id.as_str()))
+                    .map_err(|e| e.to_string())?
+                    .is_some()
+                {
+                    return Err(
+                        "native WorkItem authority required for generic blob update".to_string()
+                    );
+                }
                 let current = nodes
                     .get((graph, node_id.as_str()))
                     .map_err(|e| e.to_string())?
                     .map(|v| crypto.unseal(v.value()))
                     .transpose()?;
+                if current.as_ref().is_some_and(|bytes| {
+                    decode_durable::<serde_json::Map<String, serde_json::Value>>(bytes)
+                        .map(|props| property_string(&props, "node_type") == "WorkItem")
+                        .unwrap_or(true)
+                }) {
+                    return Err(
+                        "native WorkItem authority required for generic blob update".to_string()
+                    );
+                }
                 let mut props: serde_json::Map<String, serde_json::Value> = match current {
                     Some(bytes) => decode_durable(&bytes)?,
                     None => serde_json::Map::new(),
@@ -7456,8 +7596,10 @@ pub(crate) fn apply_method_rows(
     edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
     ledger: &mut redb::Table<(&str, u64), &str>,
     semantic: &mut redb::Table<&str, &[u8]>,
+    native_work_items: &redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    work_item_capability::validate_generic_method(graph, method, nodes, native_work_items, crypto)?;
     match method {
         Method::AddNode {
             node_id,
@@ -9229,6 +9371,9 @@ pub(crate) fn apply_checkpoint(
     let mut count = 0usize;
     {
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let mut native_work_items = wtx
+            .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+            .map_err(|e| e.to_string())?;
         let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
         let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
         let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
@@ -9277,7 +9422,11 @@ pub(crate) fn apply_checkpoint(
                     crypto,
                 )?;
                 development_lane::clear_native_graph_rows_in_wtx(&wtx, &graph, crypto)?;
-                work_item_capability::clear_graph_rows_in_wtx(&wtx, &graph)?;
+                work_item_capability::clear_graph_rows_in_wtx_with_native(
+                    &wtx,
+                    &graph,
+                    &mut native_work_items,
+                )?;
             }
             apply_method_rows(
                 &graph,
@@ -9286,9 +9435,12 @@ pub(crate) fn apply_checkpoint(
                 &mut edges,
                 &mut ledger,
                 &mut semantic,
+                &native_work_items,
                 crypto,
             )?;
         }
+
+        drop(native_work_items);
 
         for dump in graphs {
             let current_snapshot_version = versions
@@ -9303,6 +9455,13 @@ pub(crate) fn apply_checkpoint(
                 // storage errors.
                 return Err("checkpoint graph image is stale".to_string());
             }
+            let incoming_nodes = dump
+                .nodes
+                .iter()
+                .map(|(node_id, properties)| (node_id.clone(), properties.clone()))
+                .collect::<Vec<_>>();
+            work_item_capability::validate_snapshot_nodes(&incoming_nodes)?;
+            work_item_capability::clear_graph_rows_in_wtx(&wtx, &dump.graph)?;
             // The dump's node/edge/semantic blobs are plaintext (from the live
             // GraphCore snapshot) — SEAL them on the way to disk (no-op when
             // encryption is off). The ledger lines stay plaintext (operational mirror
@@ -10928,6 +11087,96 @@ mod mutation_batch_tests {
         }
     }
 
+    fn ready_work_item_method(work_item_id: &str, max_attempts: u64) -> Method {
+        Method::AddNode {
+            node_id: work_item_id.to_string(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                "node_type": "WorkItem",
+                "tenant": "tenant-a",
+                "status": "ready",
+                "max_attempts": max_attempts,
+            }))
+            .unwrap(),
+        }
+    }
+
+    fn native_claim_batch(
+        batch_id: &str,
+        idempotency_key: &str,
+        expected_graph_version: u64,
+        work_item_id: Option<&str>,
+        worker_id: &str,
+        now_ms: u64,
+        lease_ms: u64,
+        max_tenant_in_flight: u64,
+    ) -> MutationBatch {
+        let mut claim = batch(batch_id, idempotency_key);
+        claim.expected_graph_version = Some(expected_graph_version);
+        claim.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: Method::ClaimWorkItem {
+                request: crate::epistemic_operations::ClaimWorkItemRequest {
+                    schema_version:
+                        crate::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
+                    tenant_ref: "tenant-a".into(),
+                    work_item_id: work_item_id.map(str::to_string),
+                    queue_ref: None,
+                    resource_class: None,
+                    fairness_group: None,
+                    worker_ref: worker_id.into(),
+                    now_ms,
+                    lease_ms,
+                    max_tenant_in_flight,
+                },
+            },
+        }];
+        claim
+    }
+
+    fn commit_native_claim(
+        db: &Database,
+        batch_id: &str,
+        idempotency_key: &str,
+        expected_graph_version: u64,
+        work_item_id: Option<&str>,
+        worker_id: &str,
+        now_ms: u64,
+        lease_ms: u64,
+        max_tenant_in_flight: u64,
+    ) -> ClaimWorkItemResult {
+        let committed = commit_at(
+            db,
+            &native_claim_batch(
+                batch_id,
+                idempotency_key,
+                expected_graph_version,
+                work_item_id,
+                worker_id,
+                now_ms,
+                lease_ms,
+                max_tenant_in_flight,
+            ),
+            None,
+        )
+        .unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("claim result"),
+        )
+        .unwrap();
+        let bytes = match payload {
+            crate::protocol::ResultPayload::Raw(inner)
+            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
+        };
+        decode_durable(&bytes).unwrap()
+    }
+
     fn public_batch_method(operations: serde_json::Value) -> Method {
         Method::BatchUpdate {
             operations_msgpack: rmp_serde::to_vec_named(&operations).unwrap(),
@@ -11296,30 +11545,30 @@ mod mutation_batch_tests {
             ordinal: 0,
             surface: MutationSurface::Graph,
             domain: MutationDomain::GraphRows,
-            method: Method::AddNode {
-                node_id: "work-1".into(),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
-                    "node_type": "WorkItem",
-                    "tenant": "tenant-a",
-                    "status": "leased",
-                    "lease_owner": "worker-a",
-                    "lease_epoch": 2,
-                    "fencing_token": 9,
-                    "lease_expires_at": 60.0,
-                    "attempt": 1,
-                    "max_attempts": 3,
-                }))
-                .unwrap(),
-            },
+            method: ready_work_item_method("work-1", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
+        let claimed = commit_native_claim(
+            &db,
+            "work-item-terminal-claim",
+            "work-item-terminal-claim-key",
+            4,
+            Some("work-1"),
+            "worker-a",
+            0,
+            60_000,
+            64,
+        );
+        assert!(claimed.claimed);
+        assert_eq!(claimed.lease_epoch, Some(1));
+        assert_eq!(claimed.fencing_token, Some(1));
 
         let terminal_method = Method::CommitWorkItemResult {
             tenant: "tenant-a".into(),
             work_item_id: "work-1".into(),
             worker_id: "worker-a".into(),
-            lease_epoch: 2,
-            fencing_token: 9,
+            lease_epoch: 1,
+            fencing_token: 1,
             idempotency_key: "terminal-key".into(),
             outcome: "succeeded".into(),
             result_ref: Some("result:sha256:one".into()),
@@ -11348,7 +11597,7 @@ mod mutation_batch_tests {
         assert!(!first.replayed);
         assert_eq!(
             read_mutation_graph_version(&db, "graph-a").unwrap(),
-            Some(5)
+            Some(6)
         );
 
         // A fresh transport request is normalized to the same durable request id
@@ -11359,7 +11608,7 @@ mod mutation_batch_tests {
         assert!(replay.replayed);
         assert_eq!(
             read_mutation_graph_version(&db, "graph-a").unwrap(),
-            Some(5)
+            Some(6)
         );
 
         let mut conflicting_payload = retry.clone();
@@ -11378,7 +11627,7 @@ mod mutation_batch_tests {
         assert!(error.contains("IDEMPOTENCY_CONFLICT"));
         assert_eq!(
             read_mutation_graph_version(&db, "graph-a").unwrap(),
-            Some(5)
+            Some(6)
         );
 
         let stored = read_one_node(&db, "graph-a", "work-1", DurableCrypto::none())
@@ -11401,36 +11650,31 @@ mod mutation_batch_tests {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
                 domain: MutationDomain::GraphRows,
-                method: Method::AddNode {
-                    node_id: "leased".into(),
-                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
-                        "node_type": "WorkItem",
-                        "tenant": "tenant-a",
-                        "status": "leased",
-                        "lease_expires_at": 60.0,
-                    }))
-                    .unwrap(),
-                },
+                method: ready_work_item_method("leased", 3),
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Transaction,
                 domain: MutationDomain::GraphRows,
-                method: Method::AddNode {
-                    node_id: "ready".into(),
-                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
-                        "node_type": "WorkItem",
-                        "tenant": "tenant-a",
-                        "status": "ready",
-                    }))
-                    .unwrap(),
-                },
+                method: ready_work_item_method("ready", 3),
             },
         ];
         commit_at(&db, &seed, None).unwrap();
+        let claimed = commit_native_claim(
+            &db,
+            "work-item-native-lease",
+            "work-item-native-lease-key",
+            4,
+            Some("leased"),
+            "worker-a",
+            1_000,
+            10_000,
+            64,
+        );
+        assert!(claimed.claimed);
 
         let mut claim = batch("work-item-claim", "work-item-claim-key");
-        claim.expected_graph_version = Some(4);
+        claim.expected_graph_version = Some(5);
         claim.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
@@ -11497,39 +11741,34 @@ mod mutation_batch_tests {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
                 domain: MutationDomain::GraphRows,
-                method: Method::AddNode {
-                    node_id: "live".into(),
-                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
-                        "node_type": "WorkItem",
-                        "tenant": "tenant-a",
-                        "status": "leased",
-                        "lease_expires_at": 60.0,
-                    }))
-                    .unwrap(),
-                },
+                method: ready_work_item_method("live", 3),
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Transaction,
                 domain: MutationDomain::GraphRows,
-                method: Method::AddNode {
-                    node_id: "ready".into(),
-                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
-                        "node_type": "WorkItem",
-                        "tenant": "tenant-a",
-                        "status": "ready",
-                    }))
-                    .unwrap(),
-                },
+                method: ready_work_item_method("ready", 3),
             },
         ];
         commit_at(&db, &seed, None).unwrap();
+        let claimed = commit_native_claim(
+            &db,
+            "work-item-exact-native-lease",
+            "work-item-exact-native-lease-key",
+            4,
+            Some("live"),
+            "worker-a",
+            1_000,
+            10_000,
+            64,
+        );
+        assert!(claimed.claimed);
 
         let mut claim = batch(
             "work-item-exact-quota-claim",
             "work-item-exact-quota-claim-key",
         );
-        claim.expected_graph_version = Some(4);
+        claim.expected_graph_version = Some(5);
         claim.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
@@ -11579,10 +11818,6 @@ mod mutation_batch_tests {
 
     #[test]
     fn expired_exhausted_work_item_is_terminalized_without_an_over_ceiling_claim() {
-        use crate::epistemic_operations::{
-            ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion,
-        };
-
         let path = temp_path("work-item-expired-attempt-ceiling");
         let db = open(&path);
         let mut seed = batch("work-item-expired-seed", "work-item-expired-seed-key");
@@ -11590,60 +11825,58 @@ mod mutation_batch_tests {
             ordinal: 0,
             surface: MutationSurface::Transaction,
             domain: MutationDomain::GraphRows,
-            method: Method::AddNode {
-                node_id: "exhausted".into(),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
-                    "node_type": "WorkItem",
-                    "tenant": "tenant-a",
-                    "status": "leased",
-                    "lease_owner": "dead-worker",
-                    "lease_epoch": 7,
-                    "fencing_token": 7,
-                    "lease_expires_at": 60.0,
-                    "attempt": 3,
-                    "max_attempts": 3,
-                }))
-                .unwrap(),
-            },
+            method: ready_work_item_method("exhausted", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
-
-        let mut claim = batch("work-item-expired-claim", "work-item-expired-claim-key");
-        claim.expected_graph_version = Some(4);
-        claim.operations = vec![MutationOperation {
-            ordinal: 0,
-            surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
-            method: Method::ClaimWorkItem {
-                request: ClaimWorkItemRequest {
-                    schema_version: ClaimWorkItemRequestSchemaVersion::V1,
-                    tenant_ref: "tenant-a".into(),
-                    work_item_id: Some("exhausted".into()),
-                    queue_ref: None,
-                    resource_class: None,
-                    fairness_group: None,
-                    worker_ref: "replacement-worker".into(),
-                    now_ms: 100_000,
-                    lease_ms: 10_000,
-                    max_tenant_in_flight: 64,
-                },
-            },
-        }];
-        let committed = commit_at(&db, &claim, None).unwrap();
-        let payload: crate::protocol::ResultPayload = decode_durable(
-            committed
-                .record
-                .result_msgpack
-                .as_deref()
-                .expect("claim result"),
-        )
-        .unwrap();
-        let bytes = match payload {
-            crate::protocol::ResultPayload::Raw(inner)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
-            other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
-        };
-        let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
+        let first = commit_native_claim(
+            &db,
+            "work-item-expired-first",
+            "work-item-expired-first-key",
+            4,
+            Some("exhausted"),
+            "dead-worker",
+            0,
+            10_000,
+            64,
+        );
+        assert!(first.claimed);
+        let second = commit_native_claim(
+            &db,
+            "work-item-expired-second",
+            "work-item-expired-second-key",
+            5,
+            Some("exhausted"),
+            "dead-worker",
+            100_000,
+            10_000,
+            64,
+        );
+        assert!(second.claimed);
+        assert_eq!(second.attempt, Some(2));
+        let third = commit_native_claim(
+            &db,
+            "work-item-expired-third",
+            "work-item-expired-third-key",
+            6,
+            Some("exhausted"),
+            "dead-worker",
+            200_000,
+            10_000,
+            64,
+        );
+        assert!(third.claimed);
+        assert_eq!(third.attempt, Some(3));
+        let result = commit_native_claim(
+            &db,
+            "work-item-expired-claim",
+            "work-item-expired-claim-key",
+            7,
+            Some("exhausted"),
+            "replacement-worker",
+            300_000,
+            10_000,
+            64,
+        );
         assert!(!result.claimed);
         assert_eq!(result.reason, ClaimWorkItemResultReason::Empty);
         assert_eq!(result.changed_work_item_ids, vec!["exhausted"]);
@@ -11661,8 +11894,8 @@ mod mutation_batch_tests {
         assert_eq!(stored["error_ref"], "lease_exhausted");
         assert!(stored["lease_owner"].is_null());
         assert!(stored["lease_expires_at"].is_null());
-        assert_eq!(stored["lease_epoch"], 8, "the dead holder is fenced out");
-        assert_eq!(stored["fencing_token"], 8);
+        assert_eq!(stored["lease_epoch"], 6, "the dead holder is fenced out");
+        assert_eq!(stored["fencing_token"], 6);
 
         drop(db);
         let _ = std::fs::remove_file(path);
@@ -11670,10 +11903,6 @@ mod mutation_batch_tests {
 
     #[test]
     fn generic_claim_reaps_exhausted_lease_then_claims_a_different_ready_item() {
-        use crate::epistemic_operations::{
-            ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion,
-        };
-
         let path = temp_path("work-item-generic-expired-attempt-ceiling");
         let db = open(&path);
         let mut seed = batch(
@@ -11685,80 +11914,69 @@ mod mutation_batch_tests {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
                 domain: MutationDomain::GraphRows,
-                method: Method::AddNode {
-                    node_id: "exhausted".into(),
-                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
-                        "node_type": "WorkItem",
-                        "tenant": "tenant-a",
-                        "status": "running",
-                        "lease_owner": "dead-worker",
-                        "lease_epoch": 4,
-                        "fencing_token": 4,
-                        "lease_expires_at": 60.0,
-                        "attempt": 3,
-                        "max_attempts": 3,
-                    }))
-                    .unwrap(),
-                },
+                method: ready_work_item_method("exhausted", 3),
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Transaction,
                 domain: MutationDomain::GraphRows,
-                method: Method::AddNode {
-                    node_id: "runnable".into(),
-                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
-                        "node_type": "WorkItem",
-                        "tenant": "tenant-a",
-                        "status": "ready",
-                        "attempt": 0,
-                        "max_attempts": 3,
-                    }))
-                    .unwrap(),
-                },
+                method: ready_work_item_method("runnable", 3),
             },
         ];
         commit_at(&db, &seed, None).unwrap();
-
-        let mut claim = batch(
+        assert!(
+            commit_native_claim(
+                &db,
+                "work-item-generic-expired-first",
+                "work-item-generic-expired-first-key",
+                4,
+                Some("exhausted"),
+                "dead-worker",
+                0,
+                10_000,
+                64,
+            )
+            .claimed
+        );
+        assert!(
+            commit_native_claim(
+                &db,
+                "work-item-generic-expired-second",
+                "work-item-generic-expired-second-key",
+                5,
+                Some("exhausted"),
+                "dead-worker",
+                100_000,
+                10_000,
+                64,
+            )
+            .claimed
+        );
+        assert!(
+            commit_native_claim(
+                &db,
+                "work-item-generic-expired-third",
+                "work-item-generic-expired-third-key",
+                6,
+                Some("exhausted"),
+                "dead-worker",
+                200_000,
+                10_000,
+                64,
+            )
+            .claimed
+        );
+        let result = commit_native_claim(
+            &db,
             "work-item-generic-expired-claim",
             "work-item-generic-expired-claim-key",
+            7,
+            None,
+            "worker-b",
+            300_000,
+            10_000,
+            64,
         );
-        claim.expected_graph_version = Some(4);
-        claim.operations = vec![MutationOperation {
-            ordinal: 0,
-            surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
-            method: Method::ClaimWorkItem {
-                request: ClaimWorkItemRequest {
-                    schema_version: ClaimWorkItemRequestSchemaVersion::V1,
-                    tenant_ref: "tenant-a".into(),
-                    work_item_id: None,
-                    queue_ref: None,
-                    resource_class: None,
-                    fairness_group: None,
-                    worker_ref: "worker-b".into(),
-                    now_ms: 100_000,
-                    lease_ms: 10_000,
-                    max_tenant_in_flight: 64,
-                },
-            },
-        }];
-        let committed = commit_at(&db, &claim, None).unwrap();
-        let payload: crate::protocol::ResultPayload = decode_durable(
-            committed
-                .record
-                .result_msgpack
-                .as_deref()
-                .expect("claim result"),
-        )
-        .unwrap();
-        let bytes = match payload {
-            crate::protocol::ResultPayload::Raw(inner)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
-            other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
-        };
-        let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
         assert!(result.claimed);
         assert_eq!(result.work_item_id.as_deref(), Some("runnable"));
         assert_eq!(result.attempt, Some(1));
@@ -11858,28 +12076,26 @@ mod mutation_batch_tests {
             ordinal: 0,
             surface: MutationSurface::Transaction,
             domain: MutationDomain::GraphRows,
-            method: Method::AddNode {
-                node_id: "leased".into(),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
-                    "node_type": "WorkItem",
-                    "tenant": "tenant-a",
-                    "status": "leased",
-                    "lease_owner": "worker-a",
-                    "lease_epoch": 1,
-                    "fencing_token": 1,
-                    "lease_expires_at": 60.0,
-                    "attempt": 0,
-                    "max_attempts": 3,
-                }))
-                .unwrap(),
-            },
+            method: ready_work_item_method("leased", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
+        let claimed = commit_native_claim(
+            &db,
+            "work-item-renew-fenced-claim",
+            "work-item-renew-fenced-claim-key",
+            4,
+            Some("leased"),
+            "worker-a",
+            0,
+            60_000,
+            64,
+        );
+        assert!(claimed.claimed);
 
         // Same work item, but the caller's fencing token is stale (2 vs the
         // durable row's 1) — this must be rejected as "fenced", not applied.
         let mut renew = batch("work-item-renew-fenced", "work-item-renew-fenced-key");
-        renew.expected_graph_version = Some(4);
+        renew.expected_graph_version = Some(5);
         renew.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
@@ -11924,10 +12140,6 @@ mod mutation_batch_tests {
 
     #[test]
     fn last_permitted_reclaim_survives_restart_but_the_next_reclaim_dead_letters() {
-        use crate::epistemic_operations::{
-            ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion,
-        };
-
         let path = temp_path("work-item-attempt-boundary-restart");
         {
             let db = open(&path);
@@ -11936,103 +12148,63 @@ mod mutation_batch_tests {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
                 domain: MutationDomain::GraphRows,
-                method: Method::AddNode {
-                    node_id: "boundary".into(),
-                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
-                        "node_type": "WorkItem",
-                        "tenant": "tenant-a",
-                        "status": "leased",
-                        "lease_owner": "dead-worker",
-                        "lease_epoch": 1,
-                        "fencing_token": 1,
-                        "lease_expires_at": 60.0,
-                        "attempt": 2,
-                        "max_attempts": 3,
-                    }))
-                    .unwrap(),
-                },
+                method: ready_work_item_method("boundary", 3),
             }];
             commit_at(&db, &seed, None).unwrap();
-
-            let mut claim = batch("work-item-boundary-last", "work-item-boundary-last-key");
-            claim.expected_graph_version = Some(4);
-            claim.operations = vec![MutationOperation {
-                ordinal: 0,
-                surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
-                method: Method::ClaimWorkItem {
-                    request: ClaimWorkItemRequest {
-                        schema_version: ClaimWorkItemRequestSchemaVersion::V1,
-                        tenant_ref: "tenant-a".into(),
-                        work_item_id: Some("boundary".into()),
-                        queue_ref: None,
-                        resource_class: None,
-                        fairness_group: None,
-                        worker_ref: "last-permitted-worker".into(),
-                        now_ms: 100_000,
-                        lease_ms: 10_000,
-                        max_tenant_in_flight: 64,
-                    },
-                },
-            }];
-            let committed = commit_at(&db, &claim, None).unwrap();
-            let payload: crate::protocol::ResultPayload = decode_durable(
-                committed
-                    .record
-                    .result_msgpack
-                    .as_deref()
-                    .expect("claim result"),
-            )
-            .unwrap();
-            let bytes = match payload {
-                crate::protocol::ResultPayload::Raw(inner)
-                | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
-                other => {
-                    panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}")
-                }
-            };
-            let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
-            assert!(result.claimed);
-            assert_eq!(result.attempt, Some(3));
+            assert!(
+                commit_native_claim(
+                    &db,
+                    "work-item-boundary-first",
+                    "work-item-boundary-first-key",
+                    4,
+                    Some("boundary"),
+                    "dead-worker",
+                    0,
+                    10_000,
+                    64,
+                )
+                .claimed
+            );
+            let second = commit_native_claim(
+                &db,
+                "work-item-boundary-second",
+                "work-item-boundary-second-key",
+                5,
+                Some("boundary"),
+                "dead-worker",
+                100_000,
+                10_000,
+                64,
+            );
+            assert!(second.claimed);
+            assert_eq!(second.attempt, Some(2));
+            let third = commit_native_claim(
+                &db,
+                "work-item-boundary-last",
+                "work-item-boundary-last-key",
+                6,
+                Some("boundary"),
+                "last-permitted-worker",
+                200_000,
+                10_000,
+                64,
+            );
+            assert!(third.claimed);
+            assert_eq!(third.attempt, Some(3));
         }
 
         let db = open(&path);
-        let mut claim = batch("work-item-boundary-over", "work-item-boundary-over-key");
-        claim.expected_graph_version = Some(5);
-        claim.operations = vec![MutationOperation {
-            ordinal: 0,
-            surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
-            method: Method::ClaimWorkItem {
-                request: ClaimWorkItemRequest {
-                    schema_version: ClaimWorkItemRequestSchemaVersion::V1,
-                    tenant_ref: "tenant-a".into(),
-                    work_item_id: Some("boundary".into()),
-                    queue_ref: None,
-                    resource_class: None,
-                    fairness_group: None,
-                    worker_ref: "would-be-fourth-worker".into(),
-                    now_ms: 200_000,
-                    lease_ms: 10_000,
-                    max_tenant_in_flight: 64,
-                },
-            },
-        }];
-        let committed = commit_at(&db, &claim, None).unwrap();
-        let payload: crate::protocol::ResultPayload = decode_durable(
-            committed
-                .record
-                .result_msgpack
-                .as_deref()
-                .expect("claim result"),
-        )
-        .unwrap();
-        let bytes = match payload {
-            crate::protocol::ResultPayload::Raw(inner)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
-            other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
-        };
-        let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
+        let result = commit_native_claim(
+            &db,
+            "work-item-boundary-over",
+            "work-item-boundary-over-key",
+            7,
+            Some("boundary"),
+            "would-be-fourth-worker",
+            300_000,
+            10_000,
+            64,
+        );
         assert!(!result.claimed);
         let stored = read_one_node(&db, "graph-a", "boundary", DurableCrypto::none())
             .unwrap()
