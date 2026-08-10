@@ -6274,7 +6274,12 @@ async fn dispatch_graph_op_inner(
         // GATEWAY_ROUTED (writeback) and never reach this fallback. A build without
         // `ml-pipeline` omits this line.
         #[cfg(feature = "ml-pipeline")]
-        let method = match handlers::pipeline::try_handle(req_id, core.clone(), method) {
+        let method = match handlers::pipeline::try_handle(
+            req_id,
+            core.clone(),
+            read_authority.as_ref(),
+            method,
+        ) {
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
