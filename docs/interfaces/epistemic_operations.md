@@ -4,7 +4,7 @@
 Epistemic Operations Protocol. It gives the engine one current-only vocabulary
 for request authority, mutation, ingestion, delegation, artifacts, streamed
 knowledge, analytics jobs, trace outcomes, placement, atomic claims, evidence,
-and structured operation results.
+structured operation results, and native development-lane lease/quota authority.
 
 The authoritative JSON Schema catalog is packaged by agent-utilities. The
 engine does not depend on that Python package at runtime: it ships serde DTOs
@@ -27,7 +27,7 @@ flowchart LR
 
 The DTOs use `#[serde(deny_unknown_fields)]`. Catalog version `1` accepts only
 the current `RequestContext` schema version `"2"` and version `"1"` for the
-other eleven root schemas. There is no older-version parser, alias, or fallback
+other fifteen root schemas. There is no older-version parser, alias, or fallback
 branch. An intentional contract change updates all consumers in one ecosystem
 change.
 
@@ -37,19 +37,29 @@ Run the engine-local proof:
 python3 scripts/check_epistemic_operations_protocol.py
 ```
 
-This verifies all twelve schema digests, the full catalog digest, 23 bound
+This verifies all sixteen schema digests, the full catalog digest, 61 bound
 root/nested objects, both `eg-types` module exports, and the generated Rust
 constants. The workspace cross-repository gate remains the release authority.
 
-The live placement route, WorkItem claim, provenance-evidence, and placement
-redirect handlers serialize these generated DTOs directly. Deployment endpoints
-remain topology configuration and never enter the shared records.
+The live placement route, WorkItem claim, provenance-evidence, placement
+redirect, and development-lane protocol surfaces serialize these generated DTOs
+directly. Lane requests carry `now_ms` only as a deterministic replay field:
+dispatch overwrites/normalizes it from the authoritative engine clock before any
+freshness, expiry, or lease decision. Deployment endpoints remain topology
+configuration and never enter the shared records.
 
 ## Privacy boundary
 
-These control records carry opaque identifiers and governed or
-content-addressed references. They do not define fields for credentials,
-deployment endpoints, trust-bundle locations, personal names, email addresses,
-or local filesystem paths. `TraceOutcome` is deliberately content-free: raw
-prompts, responses, and exception text belong in separately governed artifacts
-and are referenced only when policy permits.
+These public control/result records carry opaque identifiers and governed or
+content-addressed references. They do not expose credentials, deployment
+endpoints, trust-bundle locations, personal names, email addresses, or local
+filesystem paths. `TraceOutcome` is deliberately content-free: raw prompts,
+responses, and exception text belong in separately governed artifacts and are
+referenced only when policy permits.
+
+The native development-lane authority keeps the managed worktree locator and
+host placement identity only in its encrypted durable hold. Reserve, renew,
+observe, finish, cleanup, exact-query, and status results project the bounded
+public hold with `worktree_locator` and `host_ref` set to `redacted` and
+`host_target_alias` omitted; no result or status page leaks a local path or
+private host alias.

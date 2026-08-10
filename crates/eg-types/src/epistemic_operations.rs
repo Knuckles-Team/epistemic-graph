@@ -295,6 +295,646 @@ pub enum OperationRedirectKind {
     Placement,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationRequestTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationRecordTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationRecordState {
+    #[serde(rename = "reserved")]
+    Reserved,
+    #[serde(rename = "released")]
+    Released,
+    #[serde(rename = "reclaimed")]
+    Reclaimed,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "superseded")]
+    Superseded,
+    #[serde(rename = "absent")]
+    Absent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationResultDecision {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "idempotent")]
+    Idempotent,
+    #[serde(rename = "stale")]
+    Stale,
+    #[serde(rename = "conflict")]
+    Conflict,
+    #[serde(rename = "input_conflict")]
+    InputConflict,
+    #[serde(rename = "capacity")]
+    Capacity,
+    #[serde(rename = "policy")]
+    Policy,
+    #[serde(rename = "drained")]
+    Drained,
+    #[serde(rename = "quarantined")]
+    Quarantined,
+    #[serde(rename = "stale_host")]
+    StaleHost,
+    #[serde(rename = "labels")]
+    Labels,
+    #[serde(rename = "anti_affinity")]
+    AntiAffinity,
+    #[serde(rename = "disk")]
+    Disk,
+    #[serde(rename = "concurrency")]
+    Concurrency,
+    #[serde(rename = "exclusivity")]
+    Exclusivity,
+    #[serde(rename = "not_found")]
+    NotFound,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationResultState {
+    #[serde(rename = "reserved")]
+    Reserved,
+    #[serde(rename = "released")]
+    Released,
+    #[serde(rename = "reclaimed")]
+    Reclaimed,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "superseded")]
+    Superseded,
+    #[serde(rename = "absent")]
+    Absent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceTargetSnapshotKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationStatusRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationHostSnapshotTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationStatusResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceReservationSummaryState {
+    #[serde(rename = "reserved")]
+    Reserved,
+    #[serde(rename = "released")]
+    Released,
+    #[serde(rename = "reclaimed")]
+    Reclaimed,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "superseded")]
+    Superseded,
+    #[serde(rename = "absent")]
+    Absent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceHostUpdateRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceHostUpdateRequestTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceHostUpdateResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceHostUpdateResultReason {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "stale_host")]
+    StaleHost,
+    #[serde(rename = "conflict")]
+    Conflict,
+    #[serde(rename = "not_found")]
+    NotFound,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceHostUpdateSnapshotTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneIntentSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneIntentHostTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneCleanupIntentSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneCleanupCompleteRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneCleanupCompleteResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneCleanupCompleteResultDecision {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "idempotent")]
+    Idempotent,
+    #[serde(rename = "stale")]
+    Stale,
+    #[serde(rename = "conflict")]
+    Conflict,
+    #[serde(rename = "input_conflict")]
+    InputConflict,
+    #[serde(rename = "quota")]
+    Quota,
+    #[serde(rename = "policy")]
+    Policy,
+    #[serde(rename = "drained")]
+    Drained,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "wrong_kind")]
+    WrongKind,
+    #[serde(rename = "wrong_tenant")]
+    WrongTenant,
+    #[serde(rename = "wrong_owner")]
+    WrongOwner,
+    #[serde(rename = "wrong_attempt")]
+    WrongAttempt,
+    #[serde(rename = "wrong_lease_epoch")]
+    WrongLeaseEpoch,
+    #[serde(rename = "wrong_fence")]
+    WrongFence,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "terminal")]
+    Terminal,
+    #[serde(rename = "cleanup_required")]
+    CleanupRequired,
+    #[serde(rename = "exclusivity")]
+    Exclusivity,
+    #[serde(rename = "invalid")]
+    Invalid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneFinishRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneFinishRequestTerminalState {
+    #[serde(rename = "succeeded")]
+    Succeeded,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "dead_letter")]
+    DeadLetter,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneFinishResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneFinishResultDecision {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "idempotent")]
+    Idempotent,
+    #[serde(rename = "stale")]
+    Stale,
+    #[serde(rename = "conflict")]
+    Conflict,
+    #[serde(rename = "input_conflict")]
+    InputConflict,
+    #[serde(rename = "quota")]
+    Quota,
+    #[serde(rename = "policy")]
+    Policy,
+    #[serde(rename = "drained")]
+    Drained,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "wrong_kind")]
+    WrongKind,
+    #[serde(rename = "wrong_tenant")]
+    WrongTenant,
+    #[serde(rename = "wrong_owner")]
+    WrongOwner,
+    #[serde(rename = "wrong_attempt")]
+    WrongAttempt,
+    #[serde(rename = "wrong_lease_epoch")]
+    WrongLeaseEpoch,
+    #[serde(rename = "wrong_fence")]
+    WrongFence,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "terminal")]
+    Terminal,
+    #[serde(rename = "cleanup_required")]
+    CleanupRequired,
+    #[serde(rename = "exclusivity")]
+    Exclusivity,
+    #[serde(rename = "invalid")]
+    Invalid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneHoldSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneHoldHostTargetKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "inventory_alias")]
+    InventoryAlias,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneHoldState {
+    #[serde(rename = "allocating")]
+    Allocating,
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "submitted")]
+    Submitted,
+    #[serde(rename = "released")]
+    Released,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "cleanup_pending")]
+    CleanupPending,
+    #[serde(rename = "cleaned")]
+    Cleaned,
+    #[serde(rename = "aborted")]
+    Aborted,
+    #[serde(rename = "absent")]
+    Absent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneObserveRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneObserveResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneObserveResultDecision {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "idempotent")]
+    Idempotent,
+    #[serde(rename = "stale")]
+    Stale,
+    #[serde(rename = "conflict")]
+    Conflict,
+    #[serde(rename = "input_conflict")]
+    InputConflict,
+    #[serde(rename = "quota")]
+    Quota,
+    #[serde(rename = "policy")]
+    Policy,
+    #[serde(rename = "drained")]
+    Drained,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "wrong_kind")]
+    WrongKind,
+    #[serde(rename = "wrong_tenant")]
+    WrongTenant,
+    #[serde(rename = "wrong_owner")]
+    WrongOwner,
+    #[serde(rename = "wrong_attempt")]
+    WrongAttempt,
+    #[serde(rename = "wrong_lease_epoch")]
+    WrongLeaseEpoch,
+    #[serde(rename = "wrong_fence")]
+    WrongFence,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "terminal")]
+    Terminal,
+    #[serde(rename = "cleanup_required")]
+    CleanupRequired,
+    #[serde(rename = "exclusivity")]
+    Exclusivity,
+    #[serde(rename = "invalid")]
+    Invalid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneQueryRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneQueryResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneQueryResultDecision {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "idempotent")]
+    Idempotent,
+    #[serde(rename = "stale")]
+    Stale,
+    #[serde(rename = "conflict")]
+    Conflict,
+    #[serde(rename = "input_conflict")]
+    InputConflict,
+    #[serde(rename = "quota")]
+    Quota,
+    #[serde(rename = "policy")]
+    Policy,
+    #[serde(rename = "drained")]
+    Drained,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "wrong_kind")]
+    WrongKind,
+    #[serde(rename = "wrong_tenant")]
+    WrongTenant,
+    #[serde(rename = "wrong_owner")]
+    WrongOwner,
+    #[serde(rename = "wrong_attempt")]
+    WrongAttempt,
+    #[serde(rename = "wrong_lease_epoch")]
+    WrongLeaseEpoch,
+    #[serde(rename = "wrong_fence")]
+    WrongFence,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "terminal")]
+    Terminal,
+    #[serde(rename = "cleanup_required")]
+    CleanupRequired,
+    #[serde(rename = "exclusivity")]
+    Exclusivity,
+    #[serde(rename = "invalid")]
+    Invalid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneQuotaChargeSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneQuotaPolicySchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneQuotaUpdateRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneQuotaUpdateResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneQuotaUpdateResultDecision {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "idempotent")]
+    Idempotent,
+    #[serde(rename = "stale")]
+    Stale,
+    #[serde(rename = "conflict")]
+    Conflict,
+    #[serde(rename = "quota")]
+    Quota,
+    #[serde(rename = "policy")]
+    Policy,
+    #[serde(rename = "drained")]
+    Drained,
+    #[serde(rename = "invalid")]
+    Invalid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneRenewRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneRenewResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneRenewResultDecision {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "idempotent")]
+    Idempotent,
+    #[serde(rename = "stale")]
+    Stale,
+    #[serde(rename = "conflict")]
+    Conflict,
+    #[serde(rename = "input_conflict")]
+    InputConflict,
+    #[serde(rename = "quota")]
+    Quota,
+    #[serde(rename = "policy")]
+    Policy,
+    #[serde(rename = "drained")]
+    Drained,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "wrong_kind")]
+    WrongKind,
+    #[serde(rename = "wrong_tenant")]
+    WrongTenant,
+    #[serde(rename = "wrong_owner")]
+    WrongOwner,
+    #[serde(rename = "wrong_attempt")]
+    WrongAttempt,
+    #[serde(rename = "wrong_lease_epoch")]
+    WrongLeaseEpoch,
+    #[serde(rename = "wrong_fence")]
+    WrongFence,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "terminal")]
+    Terminal,
+    #[serde(rename = "cleanup_required")]
+    CleanupRequired,
+    #[serde(rename = "exclusivity")]
+    Exclusivity,
+    #[serde(rename = "invalid")]
+    Invalid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneReserveRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneResultDecision {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "idempotent")]
+    Idempotent,
+    #[serde(rename = "stale")]
+    Stale,
+    #[serde(rename = "conflict")]
+    Conflict,
+    #[serde(rename = "input_conflict")]
+    InputConflict,
+    #[serde(rename = "quota")]
+    Quota,
+    #[serde(rename = "policy")]
+    Policy,
+    #[serde(rename = "drained")]
+    Drained,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "wrong_kind")]
+    WrongKind,
+    #[serde(rename = "wrong_tenant")]
+    WrongTenant,
+    #[serde(rename = "wrong_owner")]
+    WrongOwner,
+    #[serde(rename = "wrong_attempt")]
+    WrongAttempt,
+    #[serde(rename = "wrong_lease_epoch")]
+    WrongLeaseEpoch,
+    #[serde(rename = "wrong_fence")]
+    WrongFence,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "terminal")]
+    Terminal,
+    #[serde(rename = "cleanup_required")]
+    CleanupRequired,
+    #[serde(rename = "exclusivity")]
+    Exclusivity,
+    #[serde(rename = "invalid")]
+    Invalid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneStatusRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevelopmentLaneStatusResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RequestContext {
@@ -407,6 +1047,8 @@ pub struct WorkItem {
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
     pub idempotency_key: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub lane_intent: Option<DevelopmentLaneIntent>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -670,4 +1312,781 @@ pub struct OperationRedirect {
     pub fencing_token: u64,
     #[serde(deserialize_with = "deserialize_required_option")]
     pub leader_ref: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationRequest {
+    pub schema_version: ResourceReservationRequestSchemaVersion,
+    pub tenant_ref: String,
+    pub work_item_id: String,
+    pub owner_id: String,
+    pub fence: String,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub attempt: u64,
+    pub reservation_id: String,
+    pub input_fingerprint: String,
+    pub profile_name: String,
+    pub profile_version: String,
+    pub host_ref: String,
+    pub requirement: ResourceRequirement,
+    pub target_kind: ResourceReservationRequestTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub target_alias: Option<String>,
+    pub repository_id: String,
+    pub branch: String,
+    pub concurrency_key: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub concurrency_limit: Option<u64>,
+    pub repository_exclusive: bool,
+    pub branch_exclusive: bool,
+    pub required_labels: Vec<String>,
+    pub anti_affinity: Vec<String>,
+    pub fairness_group: String,
+    pub fairness_cost: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub disk_low_watermark_mib: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub disk_high_watermark_mib: Option<u64>,
+    pub disk_policy_key: String,
+    pub reserved_at_ms: u64,
+    pub expires_at_ms: u64,
+    pub idempotency_key: String,
+    pub now_ms: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub expected_host_revision: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub expected_lifecycle_revision: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceCapacitySnapshot {
+    pub cpu_weight: u64,
+    pub memory_mib: u64,
+    pub disk_mib: u64,
+    pub process_slots: u64,
+    pub host_revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceRequirement {
+    pub cpu_weight: u64,
+    pub memory_mib: u64,
+    pub disk_mib: u64,
+    pub process_slots: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationRecord {
+    pub reservation_id: String,
+    pub tenant_ref: String,
+    pub owner_id: String,
+    pub work_item_id: String,
+    pub fence: String,
+    pub attempt: u64,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub input_fingerprint: String,
+    pub host_ref: String,
+    pub profile_name: String,
+    pub profile_version: String,
+    pub requirement: ResourceRequirement,
+    pub capacity_snapshot: ResourceCapacitySnapshot,
+    pub selected_target: ResourceTargetSnapshot,
+    pub target_kind: ResourceReservationRecordTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub target_alias: Option<String>,
+    pub repository_id: String,
+    pub branch: String,
+    pub concurrency_key: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub concurrency_limit: Option<u64>,
+    pub repository_exclusive: bool,
+    pub branch_exclusive: bool,
+    pub required_labels: Vec<String>,
+    pub anti_affinity: Vec<String>,
+    pub fairness_group: String,
+    pub fairness_cost: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub disk_low_watermark_mib: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub disk_high_watermark_mib: Option<u64>,
+    pub disk_policy_key: String,
+    pub reserved_at_ms: u64,
+    pub expires_at_ms: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub expected_host_revision: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub expected_lifecycle_revision: Option<u64>,
+    pub state: ResourceReservationRecordState,
+    pub revision: u64,
+    pub lifecycle_revision: u64,
+    pub tombstone: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationResult {
+    pub schema_version: ResourceReservationResultSchemaVersion,
+    pub decision: ResourceReservationResultDecision,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub reservation_id: Option<String>,
+    pub work_item_id: String,
+    pub attempt: u64,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub lifecycle_revision: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_ref: Option<String>,
+    pub host_revision: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub record: Option<ResourceReservationRecord>,
+    pub state: ResourceReservationResultState,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub fairness_debt: u64,
+    pub tombstone: bool,
+    pub changed_work_item_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceTargetSnapshot {
+    pub kind: ResourceTargetSnapshotKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub alias: Option<String>,
+    pub capability_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationStatusRequest {
+    pub schema_version: ResourceReservationStatusRequestSchemaVersion,
+    pub tenant_ref: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub work_item_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub reservation_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_ref: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub owner_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub fence: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub attempt: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub lease_epoch: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub fencing_token: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub input_fingerprint: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub fairness_group: Option<String>,
+    pub limit: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub cursor: Option<String>,
+    pub now_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationDiskPolicySnapshot {
+    pub policy_key: String,
+    pub blocked: bool,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub low_watermark_mib: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub high_watermark_mib: Option<u64>,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationHostCapacitySnapshot {
+    pub cpu_weight: u64,
+    pub memory_mib: u64,
+    pub disk_mib: u64,
+    pub process_slots: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationHostSnapshot {
+    pub host_ref: String,
+    pub revision: u64,
+    pub capacity: ResourceReservationHostCapacitySnapshot,
+    pub observed: ResourceReservationHostCapacitySnapshot,
+    pub heartbeat_at_ms: u64,
+    pub heartbeat_ttl_ms: u64,
+    pub draining: bool,
+    pub quarantined: bool,
+    pub labels: Vec<String>,
+    pub target_kind: ResourceReservationHostSnapshotTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub target_alias: Option<String>,
+    pub disk_used_mib: u64,
+    pub disk_capacity_mib: u64,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub disk_policies: Vec<ResourceReservationDiskPolicySnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationStatusResult {
+    pub schema_version: ResourceReservationStatusResultSchemaVersion,
+    pub complete: bool,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub next_cursor: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_snapshot: Option<ResourceReservationHostSnapshot>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_ref: Option<String>,
+    pub host_revision: u64,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub fairness_debt: u64,
+    pub reservations: Vec<ResourceReservationSummary>,
+    pub orphan_count: u64,
+    pub superseded_count: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceReservationSummary {
+    pub reservation_id: String,
+    pub work_item_id: String,
+    pub attempt: u64,
+    pub host_ref: String,
+    pub profile_name: String,
+    pub fairness_group: String,
+    pub state: ResourceReservationSummaryState,
+    pub revision: u64,
+    pub expires_at_ms: u64,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub tombstone: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceHostUpdateRequest {
+    pub schema_version: ResourceHostUpdateRequestSchemaVersion,
+    pub tenant_ref: String,
+    pub host_ref: String,
+    pub revision: u64,
+    pub capacity: ResourceCapacity,
+    pub observed: ResourceCapacity,
+    pub heartbeat_at_ms: u64,
+    pub heartbeat_ttl_ms: u64,
+    pub now_ms: u64,
+    pub draining: bool,
+    pub quarantined: bool,
+    pub labels: Vec<String>,
+    pub target_kind: ResourceHostUpdateRequestTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub target_alias: Option<String>,
+    pub disk_used_mib: u64,
+    pub disk_capacity_mib: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceCapacity {
+    pub cpu_weight: u64,
+    pub memory_mib: u64,
+    pub disk_mib: u64,
+    pub process_slots: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceHostUpdateCapacitySnapshot {
+    pub cpu_weight: u64,
+    pub memory_mib: u64,
+    pub disk_mib: u64,
+    pub process_slots: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceHostUpdateDiskPolicySnapshot {
+    pub policy_key: String,
+    pub blocked: bool,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub low_watermark_mib: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub high_watermark_mib: Option<u64>,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceHostUpdateResult {
+    pub schema_version: ResourceHostUpdateResultSchemaVersion,
+    pub accepted: bool,
+    pub reason: ResourceHostUpdateResultReason,
+    pub host_ref: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_snapshot: Option<ResourceHostUpdateSnapshot>,
+    pub revision: u64,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub draining: bool,
+    pub quarantined: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceHostUpdateSnapshot {
+    pub host_ref: String,
+    pub revision: u64,
+    pub capacity: ResourceHostUpdateCapacitySnapshot,
+    pub observed: ResourceHostUpdateCapacitySnapshot,
+    pub heartbeat_at_ms: u64,
+    pub heartbeat_ttl_ms: u64,
+    pub draining: bool,
+    pub quarantined: bool,
+    pub labels: Vec<String>,
+    pub target_kind: ResourceHostUpdateSnapshotTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub target_alias: Option<String>,
+    pub disk_used_mib: u64,
+    pub disk_capacity_mib: u64,
+    pub held_cpu_weight: u64,
+    pub held_memory_mib: u64,
+    pub held_disk_mib: u64,
+    pub held_process_slots: u64,
+    pub disk_policies: Vec<ResourceHostUpdateDiskPolicySnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneIntent {
+    pub schema_version: DevelopmentLaneIntentSchemaVersion,
+    pub tenant_ref: String,
+    pub request_id: String,
+    pub lane_id: String,
+    pub repository_id: String,
+    pub base_ref: String,
+    pub base_sha: String,
+    pub branch: String,
+    pub host_target_kind: DevelopmentLaneIntentHostTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_target_alias: Option<String>,
+    /// Opaque selected host identity from the authorized WorkItem extension.
+    /// Local targets must still carry this identity; `host_target_alias` is
+    /// only the inventory-placement alias.
+    pub host_ref: String,
+    /// RMDD-27 native resource reservation bound to this WorkItem attempt.
+    pub resource_reservation_id: String,
+    pub workspace_ref: String,
+    pub worktree_locator: String,
+    pub owner_id: String,
+    pub session_id: String,
+    pub fairness_group: String,
+    pub quota_policy_name: String,
+    pub quota_policy_version: String,
+    pub predicted_disk_bytes: u64,
+    pub ttl_ms: u64,
+    pub input_fingerprint: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneCleanupIntent {
+    pub schema_version: DevelopmentLaneCleanupIntentSchemaVersion,
+    pub hold_id: String,
+    pub lane_id: String,
+    pub expected_hold_revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneCleanupCompleteRequest {
+    pub schema_version: DevelopmentLaneCleanupCompleteRequestSchemaVersion,
+    pub tenant_ref: String,
+    pub work_item_id: String,
+    pub owner_id: String,
+    pub attempt: u64,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub work_item_fence: String,
+    pub cleanup_work_item_id: String,
+    pub cleanup_work_item_fence: String,
+    pub cleanup_attempt: u64,
+    pub cleanup_lease_epoch: u64,
+    pub cleanup_fencing_token: u64,
+    pub hold_id: String,
+    pub expected_hold_revision: u64,
+    pub removal_proof_ref: String,
+    pub idempotency_key: String,
+    pub now_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneCleanupCompleteResult {
+    pub schema_version: DevelopmentLaneCleanupCompleteResultSchemaVersion,
+    pub decision: DevelopmentLaneCleanupCompleteResultDecision,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub hold: Option<DevelopmentLaneHold>,
+    pub hold_revision: u64,
+    pub lifecycle_revision: u64,
+    pub tombstone: bool,
+    pub changed_work_item_ids: Vec<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub quota_charge: Option<DevelopmentLaneQuotaCharge>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneFinishRequest {
+    pub schema_version: DevelopmentLaneFinishRequestSchemaVersion,
+    pub tenant_ref: String,
+    pub work_item_id: String,
+    pub owner_id: String,
+    pub attempt: u64,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub work_item_fence: String,
+    pub hold_id: String,
+    pub expected_hold_revision: u64,
+    pub terminal_state: DevelopmentLaneFinishRequestTerminalState,
+    pub idempotency_key: String,
+    pub now_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneFinishResult {
+    pub schema_version: DevelopmentLaneFinishResultSchemaVersion,
+    pub decision: DevelopmentLaneFinishResultDecision,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub hold: Option<DevelopmentLaneHold>,
+    pub hold_revision: u64,
+    pub lifecycle_revision: u64,
+    pub tombstone: bool,
+    pub changed_work_item_ids: Vec<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub quota_charge: Option<DevelopmentLaneQuotaCharge>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneHold {
+    pub schema_version: DevelopmentLaneHoldSchemaVersion,
+    pub hold_id: String,
+    pub lane_id: String,
+    pub tenant_ref: String,
+    pub request_id: String,
+    pub work_item_id: String,
+    pub owner_id: String,
+    pub session_id: String,
+    pub fairness_group: String,
+    pub workspace_ref: String,
+    pub repository_id: String,
+    pub base_ref: String,
+    pub base_sha: String,
+    pub branch: String,
+    pub worktree_locator: String,
+    pub host_target_kind: DevelopmentLaneHoldHostTargetKind,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub host_target_alias: Option<String>,
+    pub host_ref: String,
+    pub quota_policy_name: String,
+    pub quota_policy_version: String,
+    pub input_fingerprint: String,
+    pub predicted_disk_bytes: u64,
+    pub observed_disk_bytes: u64,
+    pub retained_disk_bytes: u64,
+    pub active_count_charged: bool,
+    pub quota_charge: DevelopmentLaneQuotaCharge,
+    pub state: DevelopmentLaneHoldState,
+    pub attempt: u64,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub work_item_fence: String,
+    pub hold_revision: u64,
+    pub lifecycle_revision: u64,
+    pub allocation_revision: u64,
+    pub cleanup_revision: u64,
+    pub expires_at_ms: u64,
+    pub last_renewed_at_ms: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub cleanup_work_item_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub cleanup_work_item_fence: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub cleanup_attempt: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub cleanup_lease_epoch: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub cleanup_fencing_token: Option<u64>,
+    pub tombstone: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneObserveRequest {
+    pub schema_version: DevelopmentLaneObserveRequestSchemaVersion,
+    pub tenant_ref: String,
+    pub work_item_id: String,
+    pub owner_id: String,
+    pub attempt: u64,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub work_item_fence: String,
+    pub hold_id: String,
+    pub expected_hold_revision: u64,
+    pub observed_disk_bytes: u64,
+    pub observation_revision: u64,
+    pub idempotency_key: String,
+    pub now_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneObserveResult {
+    pub schema_version: DevelopmentLaneObserveResultSchemaVersion,
+    pub decision: DevelopmentLaneObserveResultDecision,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub hold: Option<DevelopmentLaneHold>,
+    pub hold_revision: u64,
+    pub lifecycle_revision: u64,
+    pub tombstone: bool,
+    pub changed_work_item_ids: Vec<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub quota_charge: Option<DevelopmentLaneQuotaCharge>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneQueryRequest {
+    pub schema_version: DevelopmentLaneQueryRequestSchemaVersion,
+    pub tenant_ref: String,
+    pub hold_id: String,
+    pub now_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneQueryResult {
+    pub schema_version: DevelopmentLaneQueryResultSchemaVersion,
+    pub decision: DevelopmentLaneQueryResultDecision,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub hold: Option<DevelopmentLaneHold>,
+    pub hold_revision: u64,
+    pub lifecycle_revision: u64,
+    pub tombstone: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneQuotaCharge {
+    pub schema_version: DevelopmentLaneQuotaChargeSchemaVersion,
+    pub tenant_count: u64,
+    pub owner_count: u64,
+    pub session_count: u64,
+    pub workspace_count: u64,
+    pub repository_count: u64,
+    pub host_count: u64,
+    pub global_count: u64,
+    pub tenant_predicted_disk_bytes: u64,
+    pub owner_predicted_disk_bytes: u64,
+    pub session_predicted_disk_bytes: u64,
+    pub workspace_predicted_disk_bytes: u64,
+    pub repository_predicted_disk_bytes: u64,
+    pub host_predicted_disk_bytes: u64,
+    pub global_predicted_disk_bytes: u64,
+    pub tenant_observed_disk_bytes: u64,
+    pub owner_observed_disk_bytes: u64,
+    pub session_observed_disk_bytes: u64,
+    pub workspace_observed_disk_bytes: u64,
+    pub repository_observed_disk_bytes: u64,
+    pub host_observed_disk_bytes: u64,
+    pub global_observed_disk_bytes: u64,
+    pub tenant_retained_disk_bytes: u64,
+    pub owner_retained_disk_bytes: u64,
+    pub session_retained_disk_bytes: u64,
+    pub workspace_retained_disk_bytes: u64,
+    pub repository_retained_disk_bytes: u64,
+    pub host_retained_disk_bytes: u64,
+    pub global_retained_disk_bytes: u64,
+    pub revision: u64,
+    pub policy_revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneQuotaPolicy {
+    pub schema_version: DevelopmentLaneQuotaPolicySchemaVersion,
+    pub policy_name: String,
+    pub policy_version: String,
+    pub tenant_count_limit: u64,
+    pub owner_count_limit: u64,
+    pub session_count_limit: u64,
+    pub workspace_count_limit: u64,
+    pub repository_count_limit: u64,
+    pub host_count_limit: u64,
+    pub global_count_limit: u64,
+    pub tenant_predicted_disk_bytes: u64,
+    pub owner_predicted_disk_bytes: u64,
+    pub session_predicted_disk_bytes: u64,
+    pub workspace_predicted_disk_bytes: u64,
+    pub repository_predicted_disk_bytes: u64,
+    pub host_predicted_disk_bytes: u64,
+    pub global_predicted_disk_bytes: u64,
+    pub tenant_observed_disk_bytes: u64,
+    pub owner_observed_disk_bytes: u64,
+    pub session_observed_disk_bytes: u64,
+    pub workspace_observed_disk_bytes: u64,
+    pub repository_observed_disk_bytes: u64,
+    pub host_observed_disk_bytes: u64,
+    pub global_observed_disk_bytes: u64,
+    pub tenant_retained_disk_bytes: u64,
+    pub owner_retained_disk_bytes: u64,
+    pub session_retained_disk_bytes: u64,
+    pub workspace_retained_disk_bytes: u64,
+    pub repository_retained_disk_bytes: u64,
+    pub host_retained_disk_bytes: u64,
+    pub global_retained_disk_bytes: u64,
+    pub min_ttl_ms: u64,
+    pub max_ttl_ms: u64,
+    pub max_observation_staleness_ms: u64,
+    pub drain_only: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneQuotaUpdateRequest {
+    pub schema_version: DevelopmentLaneQuotaUpdateRequestSchemaVersion,
+    pub tenant_ref: String,
+    pub policy: DevelopmentLaneQuotaPolicy,
+    pub expected_policy_revision: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub expected_policy_version: Option<String>,
+    pub idempotency_key: String,
+    pub now_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneQuotaUpdateResult {
+    pub schema_version: DevelopmentLaneQuotaUpdateResultSchemaVersion,
+    pub decision: DevelopmentLaneQuotaUpdateResultDecision,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub policy: Option<DevelopmentLaneQuotaPolicy>,
+    pub counters: DevelopmentLaneQuotaCharge,
+    pub policy_revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneRenewRequest {
+    pub schema_version: DevelopmentLaneRenewRequestSchemaVersion,
+    pub tenant_ref: String,
+    pub work_item_id: String,
+    pub owner_id: String,
+    pub attempt: u64,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub work_item_fence: String,
+    pub hold_id: String,
+    pub expected_hold_revision: u64,
+    pub ttl_ms: u64,
+    pub idempotency_key: String,
+    pub now_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneRenewResult {
+    pub schema_version: DevelopmentLaneRenewResultSchemaVersion,
+    pub decision: DevelopmentLaneRenewResultDecision,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub hold: Option<DevelopmentLaneHold>,
+    pub hold_revision: u64,
+    pub lifecycle_revision: u64,
+    pub tombstone: bool,
+    pub changed_work_item_ids: Vec<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub quota_charge: Option<DevelopmentLaneQuotaCharge>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneReserveRequest {
+    pub schema_version: DevelopmentLaneReserveRequestSchemaVersion,
+    pub tenant_ref: String,
+    pub work_item_id: String,
+    pub owner_id: String,
+    pub attempt: u64,
+    pub lease_epoch: u64,
+    pub fencing_token: u64,
+    pub work_item_fence: String,
+    pub intent: DevelopmentLaneIntent,
+    pub idempotency_key: String,
+    pub now_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneResult {
+    pub schema_version: DevelopmentLaneResultSchemaVersion,
+    pub decision: DevelopmentLaneResultDecision,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub hold: Option<DevelopmentLaneHold>,
+    pub hold_revision: u64,
+    pub lifecycle_revision: u64,
+    pub tombstone: bool,
+    pub changed_work_item_ids: Vec<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub quota_charge: Option<DevelopmentLaneQuotaCharge>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneStatusRequest {
+    pub schema_version: DevelopmentLaneStatusRequestSchemaVersion,
+    pub tenant_ref: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub hold_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub lane_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub work_item_id: Option<String>,
+    pub limit: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub cursor: Option<String>,
+    pub now_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentLaneStatusResult {
+    pub schema_version: DevelopmentLaneStatusResultSchemaVersion,
+    pub complete: bool,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub next_cursor: Option<String>,
+    pub holds: Vec<DevelopmentLaneHold>,
+    pub counters: DevelopmentLaneQuotaCharge,
+    pub tenant_active_count: u64,
+    pub tenant_retained_disk_bytes: u64,
+    pub tombstone: bool,
 }

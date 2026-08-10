@@ -53,6 +53,152 @@ pub(crate) async fn timed_read(
     guard
 }
 
+#[cfg(test)]
+mod resource_status_privacy_tests {
+    use super::*;
+    use crate::epistemic_operations::{
+        ResourceReservationHostCapacitySnapshot, ResourceReservationHostSnapshot,
+        ResourceReservationHostSnapshotTargetKind, ResourceReservationStatusRequest,
+        ResourceReservationStatusRequestSchemaVersion, ResourceReservationStatusResult,
+        ResourceReservationStatusResultSchemaVersion, ResourceReservationSummary,
+        ResourceReservationSummaryState,
+    };
+
+    fn request(host_ref: &str) -> ResourceReservationStatusRequest {
+        ResourceReservationStatusRequest {
+            schema_version: ResourceReservationStatusRequestSchemaVersion::V1,
+            tenant_ref: "tenant-a".to_string(),
+            work_item_id: None,
+            reservation_id: None,
+            host_ref: Some(host_ref.to_string()),
+            owner_id: None,
+            fence: None,
+            attempt: None,
+            lease_epoch: None,
+            fencing_token: None,
+            input_fingerprint: None,
+            fairness_group: None,
+            limit: 10,
+            cursor: None,
+            now_ms: 10,
+        }
+    }
+
+    fn result(summary_host: &str) -> ResourceReservationStatusResult {
+        ResourceReservationStatusResult {
+            schema_version: ResourceReservationStatusResultSchemaVersion::V1,
+            complete: true,
+            next_cursor: None,
+            host_snapshot: Some(ResourceReservationHostSnapshot {
+                host_ref: "host-secret".to_string(),
+                revision: 4,
+                capacity: ResourceReservationHostCapacitySnapshot {
+                    cpu_weight: 8,
+                    memory_mib: 8_192,
+                    disk_mib: 10_000,
+                    process_slots: 4,
+                },
+                observed: ResourceReservationHostCapacitySnapshot {
+                    cpu_weight: 1,
+                    memory_mib: 1_024,
+                    disk_mib: 100,
+                    process_slots: 1,
+                },
+                heartbeat_at_ms: 9,
+                heartbeat_ttl_ms: 120_000,
+                draining: false,
+                quarantined: false,
+                labels: vec!["private".to_string()],
+                target_kind: ResourceReservationHostSnapshotTargetKind::Local,
+                target_alias: None,
+                disk_used_mib: 100,
+                disk_capacity_mib: 10_000,
+                held_cpu_weight: 7,
+                held_memory_mib: 700,
+                held_disk_mib: 70,
+                held_process_slots: 1,
+                disk_policies: Vec::new(),
+            }),
+            host_ref: Some("host-secret".to_string()),
+            host_revision: 4,
+            held_cpu_weight: 7,
+            held_memory_mib: 700,
+            held_disk_mib: 70,
+            held_process_slots: 1,
+            fairness_debt: 7,
+            reservations: vec![ResourceReservationSummary {
+                reservation_id: "reservation-1".to_string(),
+                work_item_id: "work-1".to_string(),
+                attempt: 1,
+                host_ref: summary_host.to_string(),
+                profile_name: "light-check".to_string(),
+                fairness_group: "default".to_string(),
+                state: ResourceReservationSummaryState::Reserved,
+                revision: 1,
+                expires_at_ms: 100,
+                held_cpu_weight: 2,
+                held_memory_mib: 200,
+                held_disk_mib: 20,
+                held_process_slots: 1,
+                tombstone: false,
+            }],
+            orphan_count: 0,
+            superseded_count: 0,
+        }
+    }
+
+    fn decode(payload: ResultPayload) -> ResourceReservationStatusResult {
+        let ResultPayload::Raw(bytes) = payload else {
+            panic!("status redaction must remain a typed raw result");
+        };
+        rmp_serde::from_slice(&bytes).expect("status result")
+    }
+
+    #[test]
+    fn ordinary_reader_cannot_probe_unrelated_host_telemetry() {
+        let redacted = decode(redact_resource_status_result(
+            result("other-host"),
+            &request("host-secret"),
+            false,
+        ));
+        assert!(redacted.host_snapshot.is_none());
+        assert!(redacted.host_ref.is_none());
+        assert_eq!(redacted.host_revision, 0);
+        assert_eq!(redacted.held_cpu_weight, 0);
+        assert_eq!(redacted.held_memory_mib, 0);
+        assert_eq!(redacted.held_disk_mib, 0);
+        assert_eq!(redacted.held_process_slots, 0);
+    }
+
+    #[test]
+    fn aggregate_reader_keeps_shared_host_totals_and_ordinary_relation_is_redacted() {
+        let aggregate = decode(redact_resource_status_result(
+            result("other-host"),
+            &request("host-secret"),
+            true,
+        ));
+        assert!(aggregate.host_snapshot.is_some());
+        assert_eq!(aggregate.held_cpu_weight, 7);
+        assert_eq!(
+            aggregate
+                .host_snapshot
+                .as_ref()
+                .expect("host snapshot")
+                .held_cpu_weight,
+            7
+        );
+
+        let related = decode(redact_resource_status_result(
+            result("host-secret"),
+            &request("host-secret"),
+            false,
+        ));
+        assert!(related.host_snapshot.is_none());
+        assert_eq!(related.held_cpu_weight, 0);
+        assert_eq!(related.host_ref.as_deref(), Some("host-secret"));
+    }
+}
+
 /// Acquire the process-wide `ServerState` write lock, recording the wait (D-EIMG-2).
 pub(crate) async fn timed_write(
     state: &Arc<RwLock<ServerState>>,
@@ -81,6 +227,45 @@ const MAX_SCREEN_TOTAL_TEXT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_SCREEN_DIMENSION: u32 = 32_768;
 const MAX_SCREEN_PIXELS: u64 = 100_000_000;
 const MAX_SCREEN_COORDINATE_ABS: i64 = 10_000_000;
+
+/// Keep the physical host ledger shared across tenants while making status
+/// responses tenant-safe.  A controller with the explicit aggregate-read
+/// capability may reconcile global capacity; an ordinary resource reader gets
+/// host telemetry only when one of its returned reservations proves a relation
+/// to that host, and never receives aggregate held totals.
+fn redact_resource_status_result(
+    mut result: crate::epistemic_operations::ResourceReservationStatusResult,
+    request: &crate::epistemic_operations::ResourceReservationStatusRequest,
+    aggregate_allowed: bool,
+) -> ResultPayload {
+    if !aggregate_allowed {
+        let host_visible = request.host_ref.as_deref().is_some_and(|host_ref| {
+            result
+                .reservations
+                .iter()
+                .any(|reservation| reservation.host_ref == host_ref)
+        });
+        result.held_cpu_weight = 0;
+        result.held_memory_mib = 0;
+        result.held_disk_mib = 0;
+        result.held_process_slots = 0;
+        if !host_visible {
+            result.host_snapshot = None;
+            result.host_ref = None;
+            result.host_revision = 0;
+        } else {
+            // A tenant-visible reservation proves only a relation to this
+            // physical host. It does not authorize probing private inventory
+            // labels/aliases or shared capacity/telemetry.  Do not construct
+            // a zeroed pseudo-snapshot: heartbeat TTL and target identity have
+            // schema invariants, and an invalid redacted object is worse than
+            // an omitted one. Aggregate reconciliation is the explicit
+            // controller capability below.
+            result.host_snapshot = None;
+        }
+    }
+    ResultPayload::raw(&result)
+}
 
 // ── Fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──────────
 // `RegisterServer.name` mirrors au's `_SERVER_NAME` bound
@@ -1448,6 +1633,42 @@ fn sanitize_native_proposal(
                 query,
             })
         }
+        Method::ReserveWorkItemResources { request } => {
+            if request.tenant_ref != verified_context.tenant() && !authority.is_admin() {
+                return Err(
+                    "ACCESS_DENIED: replicated resource tenant is not the verified tenant"
+                        .to_string(),
+                );
+            }
+            Ok(Method::ReserveWorkItemResources { request })
+        }
+        Method::ReleaseWorkItemResources { request } => {
+            if request.tenant_ref != verified_context.tenant() && !authority.is_admin() {
+                return Err(
+                    "ACCESS_DENIED: replicated resource tenant is not the verified tenant"
+                        .to_string(),
+                );
+            }
+            Ok(Method::ReleaseWorkItemResources { request })
+        }
+        Method::ReclaimWorkItemResources { request } => {
+            if request.tenant_ref != verified_context.tenant() && !authority.is_admin() {
+                return Err(
+                    "ACCESS_DENIED: replicated resource tenant is not the verified tenant"
+                        .to_string(),
+                );
+            }
+            Ok(Method::ReclaimWorkItemResources { request })
+        }
+        Method::UpdateResourceHost { request } => {
+            if request.tenant_ref != verified_context.tenant() && !authority.is_admin() {
+                return Err(
+                    "ACCESS_DENIED: replicated resource host tenant is not the verified tenant"
+                        .to_string(),
+                );
+            }
+            Ok(Method::UpdateResourceHost { request })
+        }
         Method::CreateChannel {
             channel_id,
             channel_type,
@@ -2087,6 +2308,45 @@ pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Respons
     dispatch_with_context(state, req, None).await
 }
 
+fn append_native_resource_ops(ops: &mut Vec<&'static str>, available: bool) {
+    if available {
+        ops.extend([
+            "ReserveWorkItemResources",
+            "ReleaseWorkItemResources",
+            "ReclaimWorkItemResources",
+            "QueryWorkItemReservation",
+            "ResourceReservationStatus",
+            "UpdateResourceHost",
+        ]);
+    }
+}
+
+#[cfg(test)]
+mod native_resource_capability_tests {
+    use super::append_native_resource_ops;
+
+    #[test]
+    fn native_resource_ops_are_advertised_only_when_backend_declares_support() {
+        let mut dark = Vec::new();
+        append_native_resource_ops(&mut dark, false);
+        assert!(dark.is_empty());
+
+        let mut served = Vec::new();
+        append_native_resource_ops(&mut served, true);
+        assert_eq!(
+            served,
+            vec![
+                "ReserveWorkItemResources",
+                "ReleaseWorkItemResources",
+                "ReclaimWorkItemResources",
+                "QueryWorkItemReservation",
+                "ResourceReservationStatus",
+                "UpdateResourceHost",
+            ]
+        );
+    }
+}
+
 /// Dispatch a native transport request whose current envelope was verified
 /// before optional QoS admission. This keeps authentication single-pass: the
 /// durable replay nonce is consumed exactly once, and admission plus dispatch
@@ -2221,6 +2481,64 @@ async fn dispatch_inner(
             )
             && verified_context.allows_identity_bootstrap()
     };
+    // Resource reservation authority is deliberately narrower than the coarse
+    // `kg:write` aggregate.  The resolved-profile assertion and host telemetry
+    // are controller inputs; an ordinary graph writer must not be able to forge
+    // a heavy reservation or overwrite shared physical-host accounting merely by
+    // carrying a WorkItem-shaped request.  Replicated apply already carries a
+    // verified native authority and bypasses the external gate here.
+    if !state_machine_authorized && !identity_bootstrap {
+        let required_resource_scope = match &req.method {
+            Method::ReserveWorkItemResources { .. }
+            | Method::ReleaseWorkItemResources { .. }
+            | Method::ReclaimWorkItemResources { .. } => Some("resource:reserve"),
+            Method::UpdateResourceHost { .. } => Some("resource:host"),
+            _ => None,
+        };
+        if let Some(required_scope) = required_resource_scope {
+            let controller_authorized = verified_context.allows_action(required_scope)
+                || verified_context.allows_action("kg:admin");
+            if !controller_authorized {
+                crate::metrics::access_denied();
+                return Response::err(
+                    req.id,
+                    format!(
+                        "ACCESS_DENIED: resource authority requires controller scope '{required_scope}'"
+                    ),
+                );
+            }
+        }
+    }
+    // The tenant in a resource body is a correlation, not an authority claim.
+    // Bind ordinary callers to the verified request tenant before the native
+    // backend sees the request.  Only an explicitly privileged aggregate reader
+    // (for reconciliation) or `kg:admin` may inspect another tenant's rows.
+    if !state_machine_authorized && !identity_bootstrap {
+        let requested_tenant = match &req.method {
+            Method::ReserveWorkItemResources { request }
+            | Method::ReleaseWorkItemResources { request }
+            | Method::ReclaimWorkItemResources { request } => Some(request.tenant_ref.as_str()),
+            Method::QueryWorkItemReservation { request }
+            | Method::ResourceReservationStatus { request } => Some(request.tenant_ref.as_str()),
+            Method::UpdateResourceHost { request } => Some(request.tenant_ref.as_str()),
+            _ => None,
+        };
+        if requested_tenant.is_some_and(|tenant| tenant != verified_context.tenant()) {
+            let cross_tenant_allowed = verified_context.allows_action("kg:admin")
+                || (matches!(
+                    &req.method,
+                    Method::QueryWorkItemReservation { .. }
+                        | Method::ResourceReservationStatus { .. }
+                ) && verified_context.allows_action("resource:read:aggregate"));
+            if !cross_tenant_allowed {
+                crate::metrics::access_denied();
+                return Response::err(
+                    req.id,
+                    "ACCESS_DENIED: resource tenant must match verified request tenant",
+                );
+            }
+        }
+    }
     if !state_machine_authorized
         && !identity_bootstrap
         && !verified_context.allows_method(action, method_policy.mutates)
@@ -2364,7 +2682,7 @@ async fn dispatch_inner(
         Method::Ping => Response::ok(req.id, ResultPayload::String("pong".to_string())),
 
         Method::Health => {
-            let lifecycle = {
+            let (lifecycle, native_resource_ops_available) = {
                 let state = timed_read(state).await;
                 let manifests = state.registry.materialization_manifests();
                 let complete = manifests
@@ -2383,14 +2701,19 @@ async fn dispatch_inner(
                         manifest.phase == crate::registry::MaterializationPhase::Failed
                     })
                     .count();
-                serde_json::json!({
-                    "catalog_graphs": state.registry.catalog_len(),
-                    "resident_graphs": state.registry.resident_len(),
-                    "complete_graphs": complete,
-                    "partial_graphs": partial,
-                    "failed_graphs": failed,
-                    "all_resident_materializations_valid": partial == 0 && failed == 0,
-                })
+                (
+                    serde_json::json!({
+                        "catalog_graphs": state.registry.catalog_len(),
+                        "resident_graphs": state.registry.resident_len(),
+                        "complete_graphs": complete,
+                        "partial_graphs": partial,
+                        "failed_graphs": failed,
+                        "all_resident_materializations_valid": partial == 0 && failed == 0,
+                    }),
+                    state.persistence.as_ref().is_some_and(|backend| {
+                        backend.supports_native_resource_reservations()
+                    }),
+                )
             };
             let uptime_s = 0; // you can capture start time in ServerState
             let mem_bytes = 0;
@@ -2406,6 +2729,8 @@ async fn dispatch_inner(
                 "GetChangeCursor",
                 "KnowledgeStream",
             ];
+            let mut served_ops = served_ops;
+            append_native_resource_ops(&mut served_ops, native_resource_ops_available);
             #[cfg(feature = "modality-serving")]
             let served_ops = {
                 let mut served_ops = served_ops;
@@ -5283,7 +5608,7 @@ struct GraphOpContext<'a> {
 async fn dispatch_graph_op_inner(
     state: &Arc<RwLock<ServerState>>,
     ctx: GraphOpContext<'_>,
-    method: Method,
+    mut method: Method,
     #[cfg(feature = "modality-serving")] modality_authority: Option<
         handlers::modality::ModalityAuthority,
     >,
@@ -5511,6 +5836,23 @@ async fn dispatch_graph_op_inner(
     } else {
         None
     };
+
+    // Resource lifecycle timestamps are authority inputs, not caller clocks.
+    // Bind one leader/replicated-apply timestamp before dispatching either the
+    // native MutationBatch or an authority read; followers replay the timestamp
+    // carried by the committed Raft scope through `authoritative_now_ms()`.
+    if crate::server::mutation_batch::is_resource_reservation_method(&method) {
+        let now_ms = authoritative_now_ms();
+        match &mut method {
+            Method::ReserveWorkItemResources { request }
+            | Method::ReleaseWorkItemResources { request }
+            | Method::ReclaimWorkItemResources { request } => request.now_ms = now_ms,
+            Method::QueryWorkItemReservation { request }
+            | Method::ResourceReservationStatus { request } => request.now_ms = now_ms,
+            Method::UpdateResourceHost { request } => request.now_ms = now_ms,
+            _ => unreachable!("resource method classifier and timestamp binding diverged"),
+        }
+    }
 
     // ChangeEnvelope is a first-class persistence operation, not a sequence of
     // direct graph calls. It executes only after graph ACL and placement
@@ -5833,12 +6175,73 @@ async fn dispatch_graph_op_inner(
         other => other,
     };
 
+    // Reservation reads are authority reads, not GraphCore snapshots.  Under
+    // placement they are served only by the current group leader; followers
+    // fail closed with the normal redirect instead of returning stale holds.
+    if crate::server::mutation_batch::is_resource_reservation_query_method(&method) {
+        #[cfg(feature = "raft")]
+        if let Some(routed) = routed_raft.as_ref() {
+            let leader = routed.handle.current_leader().await;
+            if leader != Some(routed.handle.node_id) {
+                return Response::stale_route(
+                    req_id,
+                    graph_name,
+                    routed.group_id,
+                    routed.epoch,
+                    leader,
+                    "native reservation reads require the current placement leader",
+                );
+            }
+            if let Some(multi) = multi_raft.as_ref() {
+                if let Err(error) = multi.read_barrier_group(routed.group_id).await {
+                    return Response::err(
+                        req_id,
+                        format!(
+                            "native reservation read linearizability barrier failed: {error:?}"
+                        ),
+                    );
+                }
+            }
+        }
+        let Some(backend) = persistence.as_ref() else {
+            return Response::err(req_id, "native reservation persistence is unavailable");
+        };
+        let fname = crate::persist::sanitize(graph_name);
+        let crate::protocol::Method::QueryWorkItemReservation { request } = &method else {
+            if let crate::protocol::Method::ResourceReservationStatus { request } = &method {
+                return match backend
+                    .read_resource_reservation_status(&fname, request)
+                    .await
+                {
+                    Ok(result) => Response::ok(
+                        req_id,
+                        redact_resource_status_result(
+                            result,
+                            request,
+                            verified_context.allows_action("resource:read:aggregate")
+                                || verified_context.allows_action("kg:admin"),
+                        ),
+                    ),
+                    Err(error) => Response::err(
+                        req_id,
+                        format!("native reservation status read failed: {error}"),
+                    ),
+                };
+            }
+            unreachable!("resource query classifier and dispatch method diverged");
+        };
+        return match backend.read_resource_reservation(&fname, request).await {
+            Ok(result) => Response::ok(req_id, ResultPayload::raw(&result)),
+            Err(error) => Response::err(req_id, format!("native reservation read failed: {error}")),
+        };
+    }
+
     // Engine-native WorkItem transitions are result-producing durable CAS
     // operations. They must execute at the current placement leader (a generic
     // Raft acknowledgement cannot carry the selected work-item result), and their
     // redb MutationBatch atomically persists the transition/result/outbox before
     // the in-memory graph projection is refreshed.
-    if crate::server::mutation_batch::is_work_item_method(&method) {
+    if crate::server::mutation_batch::is_work_item_mutation_method(&method) {
         #[cfg(feature = "raft")]
         let (placement_epoch, placement_fence) = if let Some(routed) = routed_raft.as_ref() {
             let leader = routed.handle.current_leader().await;
