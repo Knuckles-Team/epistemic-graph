@@ -1780,12 +1780,20 @@ mod tests {
             blob: None,
             #[cfg(feature = "blob")]
             blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
             #[cfg(feature = "streaming")]
             cdc: None,
             #[cfg(feature = "wasm-udf")]
             udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
             #[cfg(feature = "federation")]
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "kv")]
