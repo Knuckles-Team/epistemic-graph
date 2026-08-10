@@ -52,9 +52,21 @@ use eg_types::wire::{
 /// `GATEWAY_ROUTED`; `dispatch_graph_op` routes them through `try_handle_gateway`
 /// BEFORE this fallback (the `unreachable!()` arms are the structural proof, exactly
 /// like graphlearn's).
+///
+/// BUG-034: both arms read the graph through label-index scans (`Evaluate`'s
+/// `source`-driven feature build, `Compare`'s loaded `:Model` metrics) that must
+/// see only the caller's RLS-visible rows — same requirement `mining::try_handle`
+/// already enforces for its one non-gateway-routed read, `MineClassifyFit`
+/// (`authority.project_core(&core)` before the first primitive touches the
+/// graph). Before this fix `core` here was the raw, unfiltered live core: an
+/// `Evaluate`/`Compare` caller with graph-level Read access got `n`/metrics
+/// computed over EVERY node carrying the source label, including rows a
+/// non-grantee cannot see — an existence/count side channel identical in kind
+/// to the one `GraphReadAuthority::project_core`'s own doc names.
 pub(crate) fn try_handle(
     req_id: u64,
     core: Arc<GraphCore>,
+    read_authority: Option<&crate::server::access::GraphReadAuthority>,
     method: Method,
 ) -> Result<Response, Method> {
     match method {
@@ -64,12 +76,22 @@ pub(crate) fn try_handle(
             source,
             x,
             y,
-        } => Ok(handle_evaluate(req_id, &core, name, version, source, x, y)),
+        } => {
+            let authority = read_authority
+                .expect("MiningPipelineEvaluate must carry the universal served-read authority");
+            let core = authority.project_core(&core);
+            Ok(handle_evaluate(req_id, &core, name, version, source, x, y))
+        }
         Method::MiningPipelineCompare {
             name,
             version_a,
             version_b,
-        } => Ok(handle_compare(req_id, &core, name, version_a, version_b)),
+        } => {
+            let authority = read_authority
+                .expect("MiningPipelineCompare must carry the universal served-read authority");
+            let core = authority.project_core(&core);
+            Ok(handle_compare(req_id, &core, name, version_a, version_b))
+        }
         Method::MiningPipelineTrain { .. } => unreachable!(
             "MiningPipelineTrain is GATEWAY_ROUTED; dispatch_graph_op routes it through \
              try_handle_gateway before this fallback"
@@ -1161,11 +1183,22 @@ fn classify_classes(model: &FittedClassifier) -> Vec<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::isolation::IsolationLayer;
     use crate::protocol::GraphSource;
+    use crate::server::access::GraphReadAuthority;
+    use crate::server::auth::VerifiedRequestContext;
     use eg_types::wire::{FeatureStep, ModelSpec, SplitSpec};
 
     fn node(props: Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&props).unwrap()
+    }
+
+    /// A [`GraphReadAuthority`] for `agent_id` over a fresh, empty (default-deny)
+    /// RLS policy — the same construction `access.rs`'s own RLS proof tests use.
+    fn authority_for(agent_id: &str) -> GraphReadAuthority {
+        let isolation = IsolationLayer::new();
+        let ctx = VerifiedRequestContext::verified_for_test(agent_id);
+        GraphReadAuthority::from_verified(&ctx, &isolation).unwrap()
     }
 
     /// Two dense communities of `Person` nodes (a planted partition), each node tagged
@@ -1338,6 +1371,212 @@ mod tests {
         let b = cmp["metrics_b"]["test"]["accuracy"].as_f64().unwrap();
         let d = cmp["diff"]["accuracy"].as_f64().unwrap();
         assert!((d - (b - a)).abs() < 1e-9, "diff must be b - a");
+    }
+
+    // ── BUG-034: `MiningPipelineEvaluate`/`Compare` must not leak existence via
+    // the label-index read their feature source (`Evaluate`) or loaded `:Model`
+    // (`Compare`) touches ──────────────────────────────────────────────────
+
+    /// Community 0 ("pub*") is explicitly public; community 1 ("priv*") is owned
+    /// by `bob` and marked private. Same dense-intra/one-cross-edge topology as
+    /// [`seed_two_community_graph`], just RLS-tagged so a non-grantee's
+    /// `project_core` hides exactly community 1.
+    fn seed_two_community_graph_rls(core: &GraphCore) {
+        let pub_ids = ["pub_a", "pub_b", "pub_c", "pub_d", "pub_e", "pub_f"];
+        let priv_ids = ["priv_a", "priv_b", "priv_c", "priv_d", "priv_e", "priv_f"];
+        for id in pub_ids {
+            core.add_node(
+                id.into(),
+                node(json!({ "type": "Person", "label": 0, "_visibility": "public" })),
+            );
+        }
+        for id in priv_ids {
+            core.add_node(
+                id.into(),
+                node(json!({
+                    "type": "Person",
+                    "label": 1,
+                    "_owner": "bob",
+                    "_visibility": "private",
+                })),
+            );
+        }
+        for group in [&pub_ids, &priv_ids] {
+            for i in 0..group.len() {
+                for j in (i + 1)..group.len() {
+                    let _ = core.add_edge(
+                        group[i].into(),
+                        group[j].into(),
+                        node(json!({ "relationship": "KNOWS" })),
+                    );
+                }
+            }
+        }
+        let _ = core.add_edge(
+            "pub_a".into(),
+            "priv_a".into(),
+            node(json!({ "relationship": "KNOWS" })),
+        );
+        core.mark_dirty();
+    }
+
+    /// RED before the BUG-034 fix: `try_handle`'s `Evaluate`/`Compare` arms called
+    /// `handle_evaluate`/`handle_compare` against the raw, unfiltered core, so a
+    /// non-grantee's `n` (a label-index-derived row count — the exact `count(n)`-
+    /// shaped side channel BUG-034 names) and model visibility included bob's
+    /// private community. GREEN after: `try_handle` now projects `core` through
+    /// `GraphReadAuthority::project_core` before either read, exactly like
+    /// `mining::try_handle`'s `MineClassifyFit` already does.
+    #[test]
+    fn mining_pipeline_evaluate_hides_invisible_rows_from_non_grantee() {
+        let core = Arc::new(GraphCore::new());
+        seed_two_community_graph_rls(&core);
+
+        // Train once, in full, over the WHOLE graph (both communities) — training
+        // is not the surface under test here; only the later read (`Evaluate`) is.
+        let train = json_of(handle_train(
+            1,
+            &core,
+            "community".into(),
+            Some(person_source()),
+            vec![],
+            vec![],
+            classify_spec("logistic"),
+            true,
+        ));
+        assert_eq!(train["version"], 1);
+
+        // alice is neither bob nor bob's manager: `priv_*` must stay invisible.
+        let alice = authority_for("alice");
+        let resp = handlers_try_handle_evaluate(&core, &alice, "community", 1);
+        let ev = json_of(resp);
+        assert_eq!(
+            ev["n"], 6,
+            "a non-grantee's Evaluate must see only the 6 public rows, not all 12 \
+             (existence/count leak of bob's private community)"
+        );
+
+        // bob (the owner) gets the correct, COMPLETE count — the fix must not
+        // turn this into an unconditional deny.
+        let bob = authority_for("bob");
+        let resp = handlers_try_handle_evaluate(&core, &bob, "community", 1);
+        let ev = json_of(resp);
+        assert_eq!(
+            ev["n"], 12,
+            "the owner's own Evaluate must still see the complete, correct count"
+        );
+    }
+
+    /// Same existence-leak shape as above, but for `Compare`'s loaded `:Model`
+    /// nodes: a `:Model` trained/serving inside a graph a non-owner otherwise has
+    /// Read access to is itself just another RLS-tagged node. Confirms `Compare`
+    /// goes through the SAME `project_core` gate — a model visible to its trainer
+    /// must not silently resolve for anyone else once tagged private.
+    #[test]
+    fn mining_pipeline_compare_respects_model_visibility() {
+        let core = Arc::new(GraphCore::new());
+        seed_two_community_graph_rls(&core);
+        let train = json_of(handle_train(
+            1,
+            &core,
+            "community".into(),
+            Some(person_source()),
+            vec![],
+            vec![],
+            classify_spec("logistic"),
+            true,
+        ));
+        assert_eq!(train["version"], 1);
+        // Tag the trained `:Model` node itself private to bob — a real deployment
+        // shape (a model trained over a private cohort, e.g. `:Model` inheriting
+        // its source's ownership).
+        let model_id = "model:community:v1";
+        let mut props =
+            eg_types::msgpack::decode_property_value(&core.get_node_properties(model_id).unwrap())
+                .unwrap();
+        props["_owner"] = json!("bob");
+        props["_visibility"] = json!("private");
+        core.add_node(
+            model_id.to_string(),
+            rmp_serde::to_vec_named(&props).unwrap(),
+        );
+        core.mark_dirty();
+
+        let train2 = json_of(handle_train(
+            2,
+            &core,
+            "community".into(),
+            Some(person_source()),
+            vec![],
+            vec![],
+            classify_spec("knn"),
+            true,
+        ));
+        assert_eq!(train2["version"], 2);
+
+        let alice = authority_for("alice");
+        let resp = pipeline_try_handle(
+            &core,
+            &alice,
+            Method::MiningPipelineCompare {
+                name: "community".into(),
+                version_a: 1,
+                version_b: 2,
+            },
+        );
+        let err = match resp.result {
+            Some(_) => panic!("alice must not resolve bob's private v1 model"),
+            None => resp.error.unwrap(),
+        };
+        assert!(
+            err.contains("model") && err.contains("not found"),
+            "expected a not-found error for the invisible model, got: {err}"
+        );
+
+        let bob = authority_for("bob");
+        let resp = pipeline_try_handle(
+            &core,
+            &bob,
+            Method::MiningPipelineCompare {
+                name: "community".into(),
+                version_a: 1,
+                version_b: 2,
+            },
+        );
+        let cmp = json_of(resp);
+        assert_eq!(cmp["version_a"], 1);
+        assert_eq!(cmp["version_b"], 2);
+    }
+
+    /// Drive the real `try_handle` entry point (not the bare `handle_evaluate`
+    /// helper) so the proof exercises the actual dispatch-reachable code path,
+    /// including the `project_core` gate this fix adds.
+    fn handlers_try_handle_evaluate(
+        core: &Arc<GraphCore>,
+        authority: &GraphReadAuthority,
+        name: &str,
+        version: u64,
+    ) -> Response {
+        pipeline_try_handle(
+            core,
+            authority,
+            Method::MiningPipelineEvaluate {
+                name: name.to_string(),
+                version,
+                source: Some(person_source()),
+                x: vec![],
+                y: vec![],
+            },
+        )
+    }
+
+    fn pipeline_try_handle(
+        core: &Arc<GraphCore>,
+        authority: &GraphReadAuthority,
+        method: Method,
+    ) -> Response {
+        super::try_handle(1, Arc::clone(core), Some(authority), method)
+            .unwrap_or_else(|m| panic!("method should be handled by pipeline::try_handle: {m:?}"))
     }
 
     /// The estimator (regression) family shares the same feature→split→version→predict
