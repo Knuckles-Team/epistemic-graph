@@ -118,6 +118,7 @@ psql "host=127.0.0.1 port=5433 user=agent dbname=__commons__"
 | Flag | Env var | Default | Purpose |
 |------|---------|---------|---------|
 | `--socket-path` | `GRAPH_SERVICE_SOCKET` | platform runtime socket | Local UDS for the native client |
+| `--socket-mode` | `GRAPH_SERVICE_SOCKET_MODE` | `0600` | Octal mode applied to the UDS socket after bind; refused at startup if malformed or world-accessible |
 | `--tcp-addr` | `GRAPH_SERVICE_TCP_ADDR` | unset (no TCP) | Native TCP RPC listener; a routable address requires TLS |
 | `--tcp-tls-cert` / `--tcp-tls-key` | `GRAPH_SERVICE_TLS_CERT` / `GRAPH_SERVICE_TLS_KEY` | — | PEM identity required together for routable native TCP |
 | `--auth-secret` | `GRAPH_SERVICE_AUTH_SECRET` | — (**required**) | Non-empty HMAC-SHA256 secret for `eg2.` |
