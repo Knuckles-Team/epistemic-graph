@@ -277,6 +277,24 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Atomic,
         },
+        Method::MintWorkItemClaimCapability { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::GraphRedb,
+            authz_action: "work:claim-capability",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
+        },
+        Method::VerifyWorkItemClaimCapability { .. } => MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::GraphRedb,
+            authz_action: "work:claim-capability",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Snapshot,
+        },
         Method::RenewWorkItemLease { .. }
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
@@ -2233,6 +2251,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("BrokerAck", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::Outbox, authz_action: "broker:ack", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),
         ("BrokerReject", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::Outbox, authz_action: "broker:ack", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),
         ("ClaimWorkItem", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:claim", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "engine-native tenant/fair WorkItem lease claim"),
+        ("MintWorkItemClaimCapability", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:claim-capability", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "opaque native capability is retained in a private ledger and never projected"),
+        ("VerifyWorkItemClaimCapability", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:claim-capability", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "linearizable live-lease check precedes private capability lookup"),
         ("RenewWorkItemLease", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "lease epoch and fencing token are validated atomically"),
         ("CommitWorkItemResult", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "terminal result references and outbox commit atomically"),
         ("CancelWorkItem", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "pending cancellation never steals an active lease"),
@@ -2719,7 +2739,9 @@ mod smoke_tests {
         // Plus RMDD-28 native development-lane reserve/renew/observe/finish/
         // cleanup/query/status/quota operations (8 unconditional methods):
         // 375 + 8 = 383.
-        let expected = 383
+        // Plus RMDD-29 native WorkItem claim-capability mint/verify operations
+        // (2 unconditional methods): 383 + 2 = 385.
+        let expected = 385
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))

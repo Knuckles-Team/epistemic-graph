@@ -91,6 +91,7 @@ const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "CancelWorkItem",
     "ClaimNext",
     "ClaimWorkItem",
+    "MintWorkItemClaimCapability",
     "ClearGraph",
     "ClearLedger",
     "CompactNodesByType",
@@ -276,6 +277,8 @@ const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "Sql",
     "TouchNodes",
     "UpdateResourceHost",
+    "MintWorkItemClaimCapability",
+    "VerifyWorkItemClaimCapability",
     "ReserveDevelopmentLane",
     "RenewDevelopmentLane",
     "ObserveDevelopmentLane",
@@ -928,8 +931,9 @@ fn all_methods_table_has_the_expected_variant_count() {
     // unconditional -- closes the engine-side N+1 on multi-node neighbor
     // reads): 368 + 1 = 369.
     // The git-verified zero-feature baseline is 375 unconditional rows; RMDD-28
-    // adds eight native development-lane methods, yielding 383.
-    let expected = 383
+    // adds eight native development-lane methods, yielding 383, and RMDD-29
+    // adds two native WorkItem claim-capability methods, yielding 385.
+    let expected = 385
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

@@ -269,6 +269,7 @@ mod resource_reservation_tests;
 
 #[cfg(feature = "redb")]
 pub(crate) mod development_lane;
+pub(crate) mod work_item_capability;
 
 fn decode_durable<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     eg_types::msgpack::decode_bounded(bytes, durable_msgpack_limits())
@@ -712,6 +713,7 @@ pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Resul
     wtx.open_table(RESOURCE_DISK_POLICIES)
         .map_err(|error| error.to_string())?;
     development_lane::initialize_tables(wtx)?;
+    work_item_capability::initialize_tables(wtx)?;
     wtx.open_table(CHANGE_ENVELOPES)
         .map_err(|error| error.to_string())?;
     wtx.open_table(CONTENT_VERSIONS)
@@ -949,6 +951,7 @@ pub(crate) fn commit_ops(
                     crypto,
                 )?;
                 development_lane::clear_native_graph_rows_in_wtx(&wtx, &graph, crypto)?;
+                work_item_capability::clear_graph_rows_in_wtx(&wtx, &graph)?;
             }
             apply_method_rows(
                 &graph,
@@ -2062,6 +2065,7 @@ fn apply_mutation_batch_in_wtx(
                         crypto,
                     )?;
                     development_lane::clear_native_graph_rows_in_wtx(wtx, graph_fname, crypto)?;
+                    work_item_capability::clear_graph_rows_in_wtx(wtx, graph_fname)?;
                 }
                 Method::ClearGraph => {
                     clear_graph_rows(graph_fname, &mut nodes, &mut edges, &mut ledger)?;
@@ -2079,6 +2083,7 @@ fn apply_mutation_batch_in_wtx(
                         crypto,
                     )?;
                     development_lane::clear_native_graph_rows_in_wtx(wtx, graph_fname, crypto)?;
+                    work_item_capability::clear_graph_rows_in_wtx(wtx, graph_fname)?;
                 }
                 method @ (Method::ClaimWorkItem { .. }
                 | Method::RenewWorkItemLease { .. }
@@ -2224,6 +2229,7 @@ fn apply_mutation_batch_in_wtx(
                     crypto,
                 )?;
                 development_lane::clear_native_graph_rows_in_wtx(wtx, graph_fname, crypto)?;
+                work_item_capability::clear_graph_rows_in_wtx(wtx, graph_fname)?;
             }
             for method in rows.methods {
                 apply_method_rows(
@@ -7003,6 +7009,7 @@ pub(crate) fn commit_crossmodal(
         .any(|method| matches!(method, Method::ClearGraph | Method::DeleteGraph { .. }))
     {
         development_lane::clear_native_graph_rows_in_wtx(&wtx, graph, crypto)?;
+        work_item_capability::clear_graph_rows_in_wtx(&wtx, graph)?;
     }
     {
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
@@ -7549,6 +7556,12 @@ pub(crate) fn apply_method_rows(
         }
         Method::AddEmbedding { node_id, embedding } => {
             upsert_durable_embedding(semantic, graph, node_id, embedding, crypto)?;
+        }
+        Method::MintWorkItemClaimCapability { .. }
+        | Method::VerifyWorkItemClaimCapability { .. } => {
+            return Err(
+                "WorkItem claim capabilities require their native authority operation".to_string(),
+            );
         }
         _ => {}
     }
@@ -8789,6 +8802,7 @@ pub(crate) fn purge_graph_rows(
             crypto,
         )?;
         development_lane::clear_native_graph_rows_in_wtx(&wtx, graph, crypto)?;
+        work_item_capability::clear_graph_rows_in_wtx(&wtx, graph)?;
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(())
@@ -9263,6 +9277,7 @@ pub(crate) fn apply_checkpoint(
                     crypto,
                 )?;
                 development_lane::clear_native_graph_rows_in_wtx(&wtx, &graph, crypto)?;
+                work_item_capability::clear_graph_rows_in_wtx(&wtx, &graph)?;
             }
             apply_method_rows(
                 &graph,

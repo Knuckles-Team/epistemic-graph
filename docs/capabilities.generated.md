@@ -34,6 +34,8 @@
 | `BrokerAck` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
 | `BrokerReject` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
 | `ClaimWorkItem` | true | GraphRedb | `work:claim` | false | true | false | Atomic | engine-native tenant/fair WorkItem lease claim |
+| `MintWorkItemClaimCapability` | true | GraphRedb | `work:claim-capability` | true | false | false | Atomic | opaque native capability is retained in a private ledger and never projected |
+| `VerifyWorkItemClaimCapability` | false | GraphRedb | `work:claim-capability` | true | false | false | Snapshot | linearizable live-lease check precedes private capability lookup |
 | `RenewWorkItemLease` | true | GraphRedb | `work:write` | true | true | false | Atomic | lease epoch and fencing token are validated atomically |
 | `CommitWorkItemResult` | true | GraphRedb | `work:write` | true | true | false | Atomic | terminal result references and outbox commit atomically |
 | `CancelWorkItem` | true | GraphRedb | `work:write` | true | true | false | Atomic | pending cancellation never steals an active lease |

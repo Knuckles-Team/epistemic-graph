@@ -267,6 +267,49 @@ pub enum ClaimWorkItemResultReason {
     TenantQuota,
 }
 
+/// Versioned native capability request.  The engine derives every authority
+/// field (tenant, owner, lease epoch/fence, attempt, and expiry) from the
+/// authenticated request context and the live WorkItem row; callers provide
+/// only the opaque WorkItem identifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkItemClaimCapabilityRequestSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+/// Stable result schema for the narrow native claim-capability checkpoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkItemClaimCapabilityResultSchemaVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
+/// Privacy-safe decision vocabulary.  No authority tuple, owner, lease, or
+/// capability metadata is projected in the result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkItemClaimCapabilityDecision {
+    #[serde(rename = "minted")]
+    Minted,
+    #[serde(rename = "replayed")]
+    Replayed,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "input_conflict")]
+    InputConflict,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "unauthorized")]
+    Unauthorized,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "stale")]
+    Stale,
+    #[serde(rename = "malformed")]
+    Malformed,
+    #[serde(rename = "retention_exhausted")]
+    RetentionExhausted,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EvidenceBundleSchemaVersion {
     #[serde(rename = "1")]
@@ -1235,6 +1278,38 @@ pub struct ClaimWorkItemResult {
     #[serde(deserialize_with = "deserialize_required_option")]
     pub tenant_in_flight: Option<u64>,
     pub changed_work_item_ids: Vec<String>,
+}
+
+/// Native mint input.  The authenticated worker/session and current lease
+/// authority are deliberately absent: only the engine can derive them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkItemClaimCapabilityMintRequest {
+    pub schema_version: WorkItemClaimCapabilityRequestSchemaVersion,
+    pub work_item_id: String,
+}
+
+/// Native verify input.  The capability is an opaque bounded byte string; no
+/// public DTO can reconstruct authority from owner/epoch/fence/attempt fields.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkItemClaimCapabilityVerifyRequest {
+    pub schema_version: WorkItemClaimCapabilityRequestSchemaVersion,
+    pub work_item_id: String,
+    #[serde(with = "serde_bytes")]
+    pub capability: Vec<u8>,
+}
+
+/// Capability operation result.  Only mint/replay returns the opaque bytes;
+/// verification returns a boolean and a privacy-safe decision.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkItemClaimCapabilityResult {
+    pub schema_version: WorkItemClaimCapabilityResultSchemaVersion,
+    pub decision: WorkItemClaimCapabilityDecision,
+    pub valid: bool,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub capability: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
