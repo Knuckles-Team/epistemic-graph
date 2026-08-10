@@ -229,12 +229,28 @@ repos:
     always_run: true
   # Exhaustive clippy across EVERY feature incl. the opt-in `cluster` (raft/harness) and
   # `full-extras` (GPU/ROS2) layers — the heaviest compile in the repo (openraft, cudarc,
-  # rustdds, the CycloneDDS C build). Mirrors rust-ci.yml gate 1 byte-for-byte. Staged
-  # pre-push + manual so it runs on push and in the `--hook-stage pre-push`/`manual`
-  # parity check, but not on every commit (CI is the always-on backstop).
+  # rustdds, the CycloneDDS C build; 55 crates that exist ONLY under these two features,
+  # none of them in the shipped `default`/`full` build — asserted by `cargo tree`).
+  # Mirrors rust-ci.yml gate 1 byte-for-byte, but was ALWAYS_RUN unconditionally on every
+  # push regardless of whether the change went anywhere near `cluster`/`full-extras` —
+  # measured as the single largest contributor to eg's local pre-push gate time. Now
+  # scoped by scripts/check_cluster_extras_affected_lint.py: it derives, from the real
+  # `cargo metadata` dependency graph (not a hand-maintained path list), which workspace
+  # crates are actually reachable from `cluster`/`full-extras`, maps the push's changed
+  # files to their owning crate, and runs the heavy command above ONLY when a touched
+  # crate is in that reachable set (or Cargo.toml/Cargo.lock itself changed — the
+  # dependency graph moved, too risky to reason about statically). Fails closed to the
+  # heavy leg on ANY doubt — including a CLI-invoked `pre-commit run --hook-stage
+  # pre-push`/`manual` (no from/to ref pair; only a REAL `git push` gets one), so
+  # ci_parity.sh's exhaustive local check is unaffected by this narrowing.
+  # COVERAGE IS UNCHANGED, not removed: rust-ci.yml's `lint-and-test` job runs this exact
+  # command unconditionally on every push/PR to main regardless of this hook's decision,
+  # and `pre-commit run --all-files --hook-stage manual`/`pre-push` (scripts/ci_parity.sh)
+  # always runs the full leg locally too. This hook only removes the COST of paying for
+  # the heavy compile on pushes that provably cannot reach the code it lints.
   - id: cargo-clippy-all-features
-    name: cargo clippy --workspace --all-features (HEAVY — pre-push/manual)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then cargo clippy --workspace --all-features --all-targets -- -D warnings; fi'
+    name: cargo clippy --workspace --all-features (HEAVY, scoped to affected crates — pre-push/manual)
+    entry: python3 scripts/check_cluster_extras_affected_lint.py
     language: system
     pass_filenames: false
     always_run: true
