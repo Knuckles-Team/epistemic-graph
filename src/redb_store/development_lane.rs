@@ -107,6 +107,18 @@ struct DurableLaneHold {
     terminal_expected_hold_revision: Option<u64>,
     cleanup_removal_proof_ref: Option<String>,
     cleanup_expected_hold_revision: Option<u64>,
+    /// The WorkItem tuple that authorized the terminal transition.  A cancel
+    /// transition deliberately advances the WorkItem lease epoch/fencing
+    /// token; retaining this pre-terminal tuple lets a lost acknowledgement
+    /// retry the already-atomic lane finish without borrowing a new fence.
+    #[serde(default)]
+    terminal_source_attempt: Option<u64>,
+    #[serde(default)]
+    terminal_source_lease_epoch: Option<u64>,
+    #[serde(default)]
+    terminal_source_fencing_token: Option<u64>,
+    #[serde(default)]
+    terminal_source_work_item_fence: Option<String>,
     resource_reservation_id: String,
     ttl_ms: u64,
 }
@@ -942,6 +954,18 @@ fn durable_hold_bounds(row: &DurableLaneHold) -> Result<(), String> {
             row.cleanup_expected_hold_revision,
             "stored cleanup hold revision",
         ),
+        (
+            row.terminal_source_attempt,
+            "stored terminal source attempt",
+        ),
+        (
+            row.terminal_source_lease_epoch,
+            "stored terminal source lease epoch",
+        ),
+        (
+            row.terminal_source_fencing_token,
+            "stored terminal source fencing token",
+        ),
     ] {
         if let Some(value) = value {
             if value == 0 || value > MAX_COUNT {
@@ -953,6 +977,22 @@ fn durable_hold_bounds(row: &DurableLaneHold) -> Result<(), String> {
         text(value, "stored cleanup removal proof").map_err(|decision| {
             format!("stored development lane hold: {}", decision_name(decision))
         })?;
+    }
+    if let Some(value) = row.terminal_source_work_item_fence.as_deref() {
+        text(value, "stored terminal source WorkItem fence").map_err(|decision| {
+            format!("stored development lane hold: {}", decision_name(decision))
+        })?;
+    }
+    let terminal_source_fields = [
+        row.terminal_source_attempt.is_some(),
+        row.terminal_source_lease_epoch.is_some(),
+        row.terminal_source_fencing_token.is_some(),
+        row.terminal_source_work_item_fence.is_some(),
+    ];
+    if terminal_source_fields.iter().any(|present| *present)
+        && terminal_source_fields.iter().any(|present| !*present)
+    {
+        return Err("stored terminal source tuple is incomplete".to_string());
     }
     Ok(())
 }
@@ -3146,6 +3186,10 @@ fn apply_reserve(
         terminal_expected_hold_revision: None,
         cleanup_removal_proof_ref: None,
         cleanup_expected_hold_revision: None,
+        terminal_source_attempt: None,
+        terminal_source_lease_epoch: None,
+        terminal_source_fencing_token: None,
+        terminal_source_work_item_fence: None,
         resource_reservation_id: request.intent.resource_reservation_id.clone(),
         ttl_ms: request.intent.ttl_ms,
     };
@@ -3185,6 +3229,17 @@ fn hold_correlations_match(
         return Err(LaneDecision::WrongFence);
     }
     Ok(())
+}
+
+fn terminal_source_correlations_match(
+    row: &DurableLaneHold,
+    request: &DevelopmentLaneFinishRequest,
+) -> bool {
+    !row.hold.active_count_charged
+        && row.terminal_source_attempt == Some(request.attempt)
+        && row.terminal_source_lease_epoch == Some(request.lease_epoch)
+        && row.terminal_source_fencing_token == Some(request.fencing_token)
+        && row.terminal_source_work_item_fence.as_deref() == Some(request.work_item_fence.as_str())
 }
 
 fn observation_fresh(
@@ -3632,6 +3687,232 @@ fn finish_state_name(state: DevelopmentLaneFinishRequestTerminalState) -> &'stat
     }
 }
 
+const ACTIVE_HOLD_REQUIRES_TERMINAL_WORK_ITEM: &str =
+    "development lane WorkItem terminalization requires a non-retryable outcome while a hold is active";
+
+/// Apply the lane side of a terminal WorkItem transition inside the caller's
+/// already-open redb transaction.  The WorkItem caller has already passed its
+/// own CAS; this seam re-reads the linked hold through the maintained
+/// WorkItem/attempt index and proves the *pre-terminal* tuple before changing
+/// either authority.  A cancel advances the WorkItem epoch/fence, so the hold
+/// follows that explicit next tuple while retaining the source tuple for
+/// acknowledgement-loss repair in `apply_finish`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn transition_work_item_terminal_hold(
+    graph: &str,
+    pre_props: &serde_json::Map<String, serde_json::Value>,
+    work_item_id: &str,
+    next_status: &str,
+    cancel_fence_evolution: bool,
+    next_attempt: u64,
+    next_lease_epoch: u64,
+    next_fencing_token: u64,
+    next_work_item_fence: &str,
+    holds: &mut redb::Table<(&str, &str), &[u8]>,
+    work_item_index: &redb::Table<(&str, &str, u64), &str>,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policies: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<bool, String> {
+    let attempt = super::property_u64(pre_props, "attempt");
+    if attempt == 0 {
+        return Ok(false);
+    }
+    let Some(hold_id) = work_item_index_id(work_item_index, graph, work_item_id, attempt)? else {
+        return Ok(false);
+    };
+    let Some(mut row) = hold_load(holds, graph, &hold_id, crypto)? else {
+        return Err("development lane WorkItem index points to a missing hold".to_string());
+    };
+
+    // A hold that has already released its active charge is a retained
+    // terminal authority.  The generic WorkItem row is still checked by the
+    // caller's final lane-link validator; there is no second transition here.
+    if !row.hold.active_count_charged {
+        return Ok(false);
+    }
+    if row.hold.tombstone
+        || !matches!(
+            row.hold.state,
+            DevelopmentLaneHoldState::Allocating
+                | DevelopmentLaneHoldState::Active
+                | DevelopmentLaneHoldState::Submitted
+        )
+    {
+        return Err("development lane active hold has an invalid live state".to_string());
+    }
+
+    // The linked row must be the exact pre-terminal lifecycle image.  A
+    // caller cannot turn a stale/foreign WorkItem mutation into a lane finish,
+    // and a ready/submitted image with an active hold is rejected rather than
+    // silently auto-finished.
+    if row.hold.work_item_id != work_item_id
+        || super::property_string(pre_props, "node_type") != "WorkItem"
+        || super::property_string(pre_props, "kind")
+            != work_item_kind_name(DevelopmentLaneWorkItemKind::Lifecycle)
+        || super::property_string(pre_props, "tenant") != row.hold.tenant_ref
+        || !matches!(
+            super::property_string(pre_props, "status"),
+            "leased" | "running"
+        )
+        || row.hold.attempt != attempt
+        || row.hold.lease_epoch != super::property_u64(pre_props, "lease_epoch")
+        || row.hold.fencing_token != super::property_u64(pre_props, "fencing_token")
+        || row.hold.work_item_fence != super::property_string(pre_props, "work_item_fence")
+    {
+        return Err("development lane WorkItem/hold pre-terminal fence mismatch".to_string());
+    }
+    let intent = lane_intent_value(pre_props)
+        .map_err(|_| "development lane WorkItem intent is missing".to_string())?;
+    if !lane_intent_matches_hold(
+        Some(&intent),
+        &row.hold,
+        row.ttl_ms,
+        &row.resource_reservation_id,
+    ) {
+        return Err("development lane WorkItem/hold intent mismatch".to_string());
+    }
+
+    let terminal = matches!(
+        next_status,
+        "succeeded" | "failed" | "cancelled" | "dead_letter"
+    );
+    if !terminal {
+        return Err(ACTIVE_HOLD_REQUIRES_TERMINAL_WORK_ITEM.to_string());
+    }
+    let pre_lease_epoch = super::property_u64(pre_props, "lease_epoch");
+    let pre_fencing_token = super::property_u64(pre_props, "fencing_token");
+    let expected_lease_epoch = if cancel_fence_evolution {
+        pre_lease_epoch
+            .checked_add(1)
+            .ok_or_else(|| "development lane cancel lease epoch overflow".to_string())?
+    } else {
+        pre_lease_epoch
+    };
+    let expected_fencing_token = if cancel_fence_evolution {
+        pre_fencing_token
+            .checked_add(1)
+            .ok_or_else(|| "development lane cancel fencing token overflow".to_string())?
+    } else {
+        pre_fencing_token
+    };
+    if next_attempt == 0
+        || next_attempt != attempt
+        || next_lease_epoch == 0
+        || next_lease_epoch != expected_lease_epoch
+        || next_fencing_token == 0
+        || next_fencing_token != expected_fencing_token
+        || next_work_item_fence.is_empty()
+        || next_work_item_fence != super::property_string(pre_props, "work_item_fence")
+    {
+        return Err("development lane terminal WorkItem tuple is invalid".to_string());
+    }
+    let policy = load_policy(policies, graph, &row.hold.tenant_ref, crypto)?
+        .ok_or_else(|| "development lane terminal transition has no tenant policy".to_string())?;
+    let global_policy = load_global_policy(policies, graph, crypto)?
+        .ok_or_else(|| "development lane terminal transition has no global policy".to_string())?;
+    transition_terminal_hold(
+        graph,
+        &mut row,
+        next_status,
+        next_attempt,
+        next_lease_epoch,
+        next_fencing_token,
+        next_work_item_fence,
+        Some((
+            attempt,
+            super::property_u64(pre_props, "lease_epoch"),
+            super::property_u64(pre_props, "fencing_token"),
+            super::property_string(pre_props, "work_item_fence").to_string(),
+        )),
+        counters,
+        pressure_index,
+        policy.policy_revision,
+        global_policy.policy_revision,
+        crypto,
+    )?;
+    hold_encode(holds, graph, &row, crypto)?;
+    Ok(true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn transition_terminal_hold(
+    graph: &str,
+    row: &mut DurableLaneHold,
+    terminal_state: &str,
+    terminal_attempt: u64,
+    terminal_lease_epoch: u64,
+    terminal_fencing_token: u64,
+    terminal_work_item_fence: &str,
+    source_tuple: Option<(u64, u64, u64, String)>,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policy_revision: u64,
+    global_policy_revision: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    if !matches!(
+        terminal_state,
+        "succeeded" | "failed" | "cancelled" | "dead_letter"
+    ) {
+        return Err("development lane terminal state is invalid".to_string());
+    }
+    let retained = row
+        .hold
+        .predicted_disk_bytes
+        .max(row.hold.observed_disk_bytes);
+    let loaded = load_scope_counters(
+        counters,
+        graph,
+        &row.hold,
+        policy_revision,
+        global_policy_revision,
+        crypto,
+    )?;
+    apply_counter_delta(
+        counters,
+        pressure_index,
+        graph,
+        &row.hold.tenant_ref,
+        loaded,
+        policy_revision,
+        Some(false),
+        Some((false, row.hold.predicted_disk_bytes)),
+        Some((false, row.hold.observed_disk_bytes)),
+        Some((true, retained)),
+        global_policy_revision,
+        crypto,
+    )?;
+    let expected_hold_revision = row.hold.hold_revision;
+    row.hold.attempt = terminal_attempt;
+    row.hold.lease_epoch = terminal_lease_epoch;
+    row.hold.fencing_token = terminal_fencing_token;
+    row.hold.work_item_fence = terminal_work_item_fence.to_string();
+    row.hold.active_count_charged = false;
+    row.hold.retained_disk_bytes = retained;
+    row.hold.state = DevelopmentLaneHoldState::CleanupPending;
+    row.hold.tombstone = true;
+    row.terminal_state = Some(terminal_state.to_string());
+    row.terminal_expected_hold_revision = Some(expected_hold_revision);
+    row.terminal_source_attempt = source_tuple.as_ref().map(|value| value.0);
+    row.terminal_source_lease_epoch = source_tuple.as_ref().map(|value| value.1);
+    row.terminal_source_fencing_token = source_tuple.as_ref().map(|value| value.2);
+    row.terminal_source_work_item_fence = source_tuple.map(|value| value.3);
+    row.hold.hold_revision = row
+        .hold
+        .hold_revision
+        .checked_add(1)
+        .ok_or_else(|| "development lane hold revision overflow".to_string())?;
+    row.hold.lifecycle_revision = row
+        .hold
+        .lifecycle_revision
+        .checked_add(1)
+        .ok_or_else(|| "development lane lifecycle revision overflow".to_string())?;
+    row.hold.quota_charge = hold_charge(&row.hold, row.hold.hold_revision, policy_revision);
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_finish(
     graph: &str,
@@ -3669,7 +3950,7 @@ fn apply_finish(
             false,
         ));
     };
-    if let Err(decision) = hold_correlations_match(
+    let current_correlations = hold_correlations_match(
         &row.hold,
         &request.tenant_ref,
         &request.work_item_id,
@@ -3678,7 +3959,15 @@ fn apply_finish(
         request.lease_epoch,
         request.fencing_token,
         &request.work_item_fence,
-    ) {
+    );
+    let current_tuple_matches = current_correlations.is_ok();
+    let source_tuple_matches = terminal_source_correlations_match(&row, request)
+        && row.hold.tenant_ref == request.tenant_ref
+        && row.hold.work_item_id == request.work_item_id
+        && row.hold.owner_id == request.owner_id;
+    if !current_tuple_matches && !source_tuple_matches {
+        let decision = current_correlations
+            .expect_err("lane finish correlation predicate changed unexpectedly");
         return Ok((finish_result(decision, Some(&row), policy_revision)?, false));
     }
     if !row.hold.active_count_charged {
@@ -3687,16 +3976,32 @@ fn apply_finish(
         // invocation key may bypass this check (the replay lookup happens
         // before this function); knowing a hold id and old fence is not enough
         // to manufacture a terminal outcome.
+        let (work_item_attempt, work_item_lease_epoch, work_item_fencing_token, work_item_fence) =
+            if source_tuple_matches {
+                (
+                    row.hold.attempt,
+                    row.hold.lease_epoch,
+                    row.hold.fencing_token,
+                    row.hold.work_item_fence.as_str(),
+                )
+            } else {
+                (
+                    request.attempt,
+                    request.lease_epoch,
+                    request.fencing_token,
+                    request.work_item_fence.as_str(),
+                )
+            };
         let work_item = match load_work_item(
             nodes,
             graph,
             &request.work_item_id,
             &request.tenant_ref,
             Some(&request.owner_id),
-            request.attempt,
-            request.lease_epoch,
-            request.fencing_token,
-            &request.work_item_fence,
+            work_item_attempt,
+            work_item_lease_epoch,
+            work_item_fencing_token,
+            work_item_fence,
             DevelopmentLaneWorkItemKind::Lifecycle,
             true,
             request.now_ms,
@@ -3723,11 +4028,16 @@ fn apply_finish(
             ));
         }
         let requested = finish_state_name(request.terminal_state);
+        let terminal_revision_matches = row.terminal_expected_hold_revision
+            == Some(request.expected_hold_revision)
+            || (row.terminal_source_attempt.is_some()
+                && current_tuple_matches
+                && row.hold.hold_revision == request.expected_hold_revision);
         let decision = row
             .terminal_state
             .as_deref()
             .filter(|stored| *stored == requested)
-            .filter(|_| row.terminal_expected_hold_revision == Some(request.expected_hold_revision))
+            .filter(|_| terminal_revision_matches)
             .map_or(LaneDecision::InputConflict, |_| LaneDecision::Idempotent);
         return Ok((finish_result(decision, Some(&row), policy_revision)?, false));
     }
@@ -3774,49 +4084,21 @@ fn apply_finish(
             false,
         ));
     }
-    let retained = row
-        .hold
-        .predicted_disk_bytes
-        .max(row.hold.observed_disk_bytes);
-    let loaded = load_scope_counters(
-        counters,
+    transition_terminal_hold(
         graph,
-        &row.hold,
-        policy_revision,
-        global_policy_revision,
-        crypto,
-    )?;
-    apply_counter_delta(
+        &mut row,
+        finish_state_name(request.terminal_state),
+        request.attempt,
+        request.lease_epoch,
+        request.fencing_token,
+        &request.work_item_fence,
+        None,
         counters,
         pressure_index,
-        graph,
-        &request.tenant_ref,
-        loaded,
         policy_revision,
-        Some(false),
-        Some((false, row.hold.predicted_disk_bytes)),
-        Some((false, row.hold.observed_disk_bytes)),
-        Some((true, retained)),
         global_policy_revision,
         crypto,
     )?;
-    row.hold.active_count_charged = false;
-    row.hold.retained_disk_bytes = retained;
-    row.hold.state = DevelopmentLaneHoldState::CleanupPending;
-    row.hold.tombstone = true;
-    row.terminal_state = Some(finish_state_name(request.terminal_state).to_string());
-    row.terminal_expected_hold_revision = Some(request.expected_hold_revision);
-    row.hold.hold_revision = row
-        .hold
-        .hold_revision
-        .checked_add(1)
-        .ok_or_else(|| "development lane hold revision overflow".to_string())?;
-    row.hold.lifecycle_revision = row
-        .hold
-        .lifecycle_revision
-        .checked_add(1)
-        .ok_or_else(|| "development lane lifecycle revision overflow".to_string())?;
-    row.hold.quota_charge = hold_charge(&row.hold, row.hold.hold_revision, policy_revision);
     hold_encode(holds, graph, &row, crypto)?;
     Ok((
         finish_result(LaneDecision::Accepted, Some(&row), policy_revision)?,
@@ -5001,6 +5283,10 @@ mod tests {
         ResourceCapacitySnapshot, ResourceRequirement, ResourceReservationRecord,
         ResourceReservationRecordTargetKind, ResourceTargetSnapshot, ResourceTargetSnapshotKind,
     };
+    use crate::mutation_batch::{
+        MutationBatch, MutationBatchCommit, MutationDomain, MutationOperation,
+        MutationOutboxIntent, MutationRequestContext, MutationSurface, MUTATION_BATCH_VERSION,
+    };
     use std::path::PathBuf;
     use std::sync::{Arc, Barrier};
 
@@ -5181,6 +5467,8 @@ mod tests {
             "lease_owner": request.owner_id,
             "last_lease_owner": request.owner_id,
             "attempt": request.attempt,
+            // Keep the native retry regression below on the pre-DLQ path.
+            "max_attempts": 2,
             "lease_epoch": request.lease_epoch,
             "fencing_token": request.fencing_token,
             "work_item_fence": request.work_item_fence,
@@ -5361,6 +5649,145 @@ mod tests {
             rmp_serde::from_slice(bytes).expect("typed lane result")
         }
 
+        fn commit_work_item(
+            &self,
+            method: Method,
+            batch_suffix: &str,
+            committed_at_ms: u64,
+        ) -> Result<MutationBatchCommit, String> {
+            self.commit_work_item_with_crash(method, batch_suffix, committed_at_ms, None)
+        }
+
+        fn commit_work_item_with_crash(
+            &self,
+            method: Method,
+            batch_suffix: &str,
+            committed_at_ms: u64,
+            crashpoint: Option<super::super::MutationBatchCrashpoint>,
+        ) -> Result<MutationBatchCommit, String> {
+            let batch = MutationBatch {
+                schema_version: MUTATION_BATCH_VERSION,
+                batch_id: format!("native-work-item:{batch_suffix}"),
+                context: MutationRequestContext {
+                    request_id: committed_at_ms,
+                    principal: format!("principal:sha256:{}", "a".repeat(64)),
+                    purpose: Some("native-lane-test".into()),
+                    policy_fingerprint: None,
+                    trace_id: None,
+                },
+                tenant: self.reserve.tenant_ref.clone(),
+                graph: TEST_GRAPH.into(),
+                placement_epoch: 0,
+                idempotency_key: format!("native-work-item-idem:{batch_suffix}"),
+                expected_graph_version: None,
+                fencing_token: None,
+                authoritative_state: None,
+                operations: vec![MutationOperation {
+                    ordinal: 0,
+                    surface: MutationSurface::Job,
+                    domain: MutationDomain::ControlPlane,
+                    method,
+                }],
+                outbox: vec![MutationOutboxIntent {
+                    topic: "native-lane.test".into(),
+                    key: format!("native-work-item:{batch_suffix}"),
+                    payload: Vec::new(),
+                    headers: Default::default(),
+                }],
+                created_at_ms: committed_at_ms,
+            };
+            #[cfg(feature = "security")]
+            let mut audit = super::super::AuditTailCache::new();
+            super::super::commit_mutation_batch_inner(
+                &self.db,
+                TEST_GRAPH,
+                &batch,
+                None,
+                None,
+                None,
+                None,
+                committed_at_ms,
+                DurableCrypto::none(),
+                #[cfg(feature = "security")]
+                &mut audit,
+                true,
+                crashpoint,
+            )
+        }
+
+        fn commit_work_item_result(
+            &self,
+            outcome: &str,
+            retryable: bool,
+            batch_suffix: &str,
+            committed_at_ms: u64,
+        ) -> Result<MutationBatchCommit, String> {
+            self.commit_work_item_result_with_tuple(
+                self.reserve.lease_epoch,
+                self.reserve.fencing_token,
+                outcome,
+                retryable,
+                batch_suffix,
+                committed_at_ms,
+            )
+        }
+
+        fn commit_work_item_result_with_tuple(
+            &self,
+            lease_epoch: u64,
+            fencing_token: u64,
+            outcome: &str,
+            retryable: bool,
+            batch_suffix: &str,
+            committed_at_ms: u64,
+        ) -> Result<MutationBatchCommit, String> {
+            self.commit_work_item(
+                Method::CommitWorkItemResult {
+                    tenant: self.reserve.tenant_ref.clone(),
+                    work_item_id: self.reserve.work_item_id.clone(),
+                    worker_id: self.reserve.owner_id.clone(),
+                    lease_epoch,
+                    fencing_token,
+                    idempotency_key: format!("work-item:{batch_suffix}"),
+                    outcome: outcome.into(),
+                    result_ref: None,
+                    error_ref: None,
+                    retryable,
+                    now_ms: committed_at_ms,
+                },
+                batch_suffix,
+                committed_at_ms,
+            )
+        }
+
+        fn cancel_work_item(
+            &self,
+            batch_suffix: &str,
+            committed_at_ms: u64,
+        ) -> Result<MutationBatchCommit, String> {
+            self.cancel_work_item_with_crash(batch_suffix, committed_at_ms, None)
+        }
+
+        fn cancel_work_item_with_crash(
+            &self,
+            batch_suffix: &str,
+            committed_at_ms: u64,
+            crashpoint: Option<super::super::MutationBatchCrashpoint>,
+        ) -> Result<MutationBatchCommit, String> {
+            self.commit_work_item_with_crash(
+                Method::CancelWorkItem {
+                    tenant: self.reserve.tenant_ref.clone(),
+                    work_item_id: self.reserve.work_item_id.clone(),
+                    idempotency_key: format!("cancel-item:{batch_suffix}"),
+                    reason_ref: Some("reason:test".into()),
+                    now_ms: committed_at_ms,
+                },
+                batch_suffix,
+                committed_at_ms,
+                crashpoint,
+            )
+        }
+
         fn reserve_method(&self, key: &str) -> Method {
             let mut request = self.reserve.clone();
             request.idempotency_key = key.into();
@@ -5435,29 +5862,6 @@ mod tests {
                     .expect("write WorkItem");
             }
             wtx.commit().expect("commit WorkItem mutation");
-        }
-
-        fn mark_lifecycle_terminal(&self, work_item_id: &str, status: &str) {
-            let wtx = self
-                .db
-                .begin_write()
-                .expect("begin terminal WorkItem update");
-            {
-                let mut nodes = wtx.open_table(NODES).expect("open WorkItem table");
-                let mut props: serde_json::Map<String, serde_json::Value> = {
-                    let bytes = nodes
-                        .get((TEST_GRAPH, work_item_id))
-                        .expect("read WorkItem")
-                        .expect("WorkItem exists");
-                    decode_durable(bytes.value()).expect("decode WorkItem")
-                };
-                props.insert("status".into(), serde_json::json!(status));
-                let encoded = rmp_serde::to_vec_named(&props).expect("encode WorkItem");
-                nodes
-                    .insert((TEST_GRAPH, work_item_id), encoded.as_slice())
-                    .expect("write terminal WorkItem");
-            }
-            wtx.commit().expect("commit terminal WorkItem");
         }
 
         fn seed_cleanup_work_item(
@@ -5593,6 +5997,10 @@ mod tests {
             terminal_expected_hold_revision: None,
             cleanup_removal_proof_ref: None,
             cleanup_expected_hold_revision: None,
+            terminal_source_attempt: None,
+            terminal_source_lease_epoch: None,
+            terminal_source_fencing_token: None,
+            terminal_source_work_item_fence: None,
             resource_reservation_id: "reservation:test".into(),
             ttl_ms: 1_000,
         };
@@ -5613,6 +6021,10 @@ mod tests {
             terminal_expected_hold_revision: None,
             cleanup_removal_proof_ref: None,
             cleanup_expected_hold_revision: None,
+            terminal_source_attempt: None,
+            terminal_source_lease_epoch: None,
+            terminal_source_fencing_token: None,
+            terminal_source_work_item_fence: None,
             resource_reservation_id: "reservation:stale".into(),
             ttl_ms: 1_000,
         };
@@ -5677,6 +6089,10 @@ mod tests {
             terminal_expected_hold_revision: None,
             cleanup_removal_proof_ref: None,
             cleanup_expected_hold_revision: None,
+            terminal_source_attempt: None,
+            terminal_source_lease_epoch: None,
+            terminal_source_fencing_token: None,
+            terminal_source_work_item_fence: None,
             resource_reservation_id: "reservation:active".into(),
             ttl_ms: 1_000,
         };
@@ -5789,6 +6205,10 @@ mod tests {
                 terminal_expected_hold_revision: None,
                 cleanup_removal_proof_ref: None,
                 cleanup_expected_hold_revision: None,
+                terminal_source_attempt: None,
+                terminal_source_lease_epoch: None,
+                terminal_source_fencing_token: None,
+                terminal_source_work_item_fence: None,
                 resource_reservation_id: "reservation:corrupt".into(),
                 ttl_ms: 1_000,
             };
@@ -7138,12 +7558,305 @@ mod tests {
     }
 
     #[test]
+    fn native_retryable_failure_refuses_before_leaving_an_active_hold() {
+        let fixture = NativeLaneFixture::new(policy());
+        let accepted: DevelopmentLaneResult =
+            fixture.decode(&fixture.commit(fixture.reserve_method("reserve:retry"), TEST_NOW));
+        let hold = accepted.hold.expect("accepted retry hold");
+
+        let fenced = fixture
+            .commit_work_item_result_with_tuple(
+                hold.lease_epoch,
+                hold.fencing_token + 1,
+                "succeeded",
+                false,
+                "wrong-work-item-fence",
+                200,
+            )
+            .expect("wrong WorkItem fence response");
+        let fenced_result: serde_json::Value = rmp_serde::from_slice(
+            fenced
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("fenced WorkItem result bytes"),
+        )
+        .expect("decode fenced WorkItem result");
+        assert_eq!(fenced_result["status"], "fenced");
+
+        let error = fixture
+            .commit_work_item_result("failed", true, "retryable-failure", 200)
+            .expect_err("retryable failure must not orphan an active lane hold");
+        assert_eq!(error, ACTIVE_HOLD_REQUIRES_TERMINAL_WORK_ITEM);
+
+        let status = read_development_lane_status(
+            &fixture.db,
+            TEST_GRAPH,
+            &DevelopmentLaneStatusRequest {
+                schema_version:
+                    crate::epistemic_operations::DevelopmentLaneStatusRequestSchemaVersion::V1,
+                tenant_ref: hold.tenant_ref.clone(),
+                hold_id: Some(hold.hold_id.clone()),
+                lane_id: None,
+                work_item_id: Some(hold.work_item_id.clone()),
+                limit: 10,
+                cursor: None,
+                now_ms: 0,
+            },
+            200,
+            DurableCrypto::none(),
+        )
+        .expect("read unchanged lane after refused retry");
+        assert_eq!(status.tenant_active_count, 1);
+        assert_eq!(status.tenant_retained_disk_bytes, 0);
+        assert_eq!(status.holds[0].state, DevelopmentLaneHoldState::Active);
+
+        // The transaction rolled back the local ready/epoch mutation, so the
+        // exact original worker tuple can still terminalize the WorkItem and
+        // release the linked hold atomically.
+        let committed = fixture
+            .commit_work_item_result("succeeded", false, "retryable-recovery", 200)
+            .expect("terminal recovery after refused retry");
+        assert!(!committed.replayed);
+        let status = read_development_lane_status(
+            &fixture.db,
+            TEST_GRAPH,
+            &DevelopmentLaneStatusRequest {
+                schema_version:
+                    crate::epistemic_operations::DevelopmentLaneStatusRequestSchemaVersion::V1,
+                tenant_ref: hold.tenant_ref,
+                hold_id: Some(hold.hold_id),
+                lane_id: None,
+                work_item_id: None,
+                limit: 10,
+                cursor: None,
+                now_ms: 0,
+            },
+            200,
+            DurableCrypto::none(),
+        )
+        .expect("read terminalized lane after recovery");
+        assert_eq!(status.tenant_active_count, 0);
+        assert_eq!(status.tenant_retained_disk_bytes, 10);
+        assert_eq!(
+            status.holds[0].state,
+            DevelopmentLaneHoldState::CleanupPending
+        );
+    }
+
+    #[test]
+    fn native_cancel_advances_fence_and_old_finish_replays_after_reopen() {
+        let fixture = NativeLaneFixture::new(policy());
+        let accepted: DevelopmentLaneResult =
+            fixture.decode(&fixture.commit(fixture.reserve_method("reserve:cancel"), TEST_NOW));
+        let hold = accepted.hold.expect("accepted cancel hold");
+        let finish_request = DevelopmentLaneFinishRequest {
+            schema_version: DevelopmentLaneFinishRequestSchemaVersion::V1,
+            tenant_ref: hold.tenant_ref.clone(),
+            work_item_id: hold.work_item_id.clone(),
+            owner_id: hold.owner_id.clone(),
+            attempt: hold.attempt,
+            lease_epoch: hold.lease_epoch,
+            fencing_token: hold.fencing_token,
+            work_item_fence: hold.work_item_fence.clone(),
+            hold_id: hold.hold_id.clone(),
+            expected_hold_revision: hold.hold_revision,
+            terminal_state: DevelopmentLaneFinishRequestTerminalState::Cancelled,
+            idempotency_key: "finish:cancel-old-tuple".into(),
+            now_ms: 0,
+        };
+
+        let committed = fixture
+            .cancel_work_item("cancel-terminal", 2_000_000)
+            .expect("expired WorkItem cancellation");
+        assert!(!committed.replayed);
+        let status = read_development_lane_status(
+            &fixture.db,
+            TEST_GRAPH,
+            &DevelopmentLaneStatusRequest {
+                schema_version:
+                    crate::epistemic_operations::DevelopmentLaneStatusRequestSchemaVersion::V1,
+                tenant_ref: hold.tenant_ref.clone(),
+                hold_id: Some(hold.hold_id.clone()),
+                lane_id: None,
+                work_item_id: Some(hold.work_item_id.clone()),
+                limit: 10,
+                cursor: None,
+                now_ms: 0,
+            },
+            2_000_000,
+            DurableCrypto::none(),
+        )
+        .expect("read atomically cancelled lane");
+        let cancelled_hold = status.holds[0].clone();
+        assert_eq!(
+            cancelled_hold.state,
+            DevelopmentLaneHoldState::CleanupPending
+        );
+        assert!(!cancelled_hold.active_count_charged);
+        assert_eq!(cancelled_hold.retained_disk_bytes, 10);
+        assert_eq!(cancelled_hold.lease_epoch, hold.lease_epoch + 1);
+        assert_eq!(cancelled_hold.fencing_token, hold.fencing_token + 1);
+        assert_eq!(status.tenant_active_count, 0);
+        assert_eq!(status.tenant_retained_disk_bytes, 10);
+
+        let path = fixture.close_for_reopen();
+        let db = Database::open(&path).expect("reopen cancelled lane database");
+        let finished: DevelopmentLaneFinishResult = decode_durable(
+            &commit_development_lane(
+                &db,
+                TEST_GRAPH,
+                &Method::FinishDevelopmentLane {
+                    request: finish_request.clone(),
+                },
+                2_000_000,
+                DurableCrypto::none(),
+            )
+            .expect("old tuple finish must repair cancelled lane"),
+        )
+        .expect("decode replayed finish result");
+        assert_eq!(
+            finished.decision,
+            DevelopmentLaneFinishResultDecision::Idempotent
+        );
+        assert_eq!(finished.hold, Some(cancelled_hold.clone()));
+
+        // A fresh caller may use the retained, post-cancel WorkItem tuple; it
+        // must observe the same terminal authority without changing counters.
+        let mut current_tuple = finish_request.clone();
+        current_tuple.idempotency_key = "finish:cancel-current-tuple".into();
+        current_tuple.attempt = cancelled_hold.attempt;
+        current_tuple.lease_epoch = cancelled_hold.lease_epoch;
+        current_tuple.fencing_token = cancelled_hold.fencing_token;
+        current_tuple.work_item_fence = cancelled_hold.work_item_fence.clone();
+        current_tuple.expected_hold_revision = cancelled_hold.hold_revision;
+        let current: DevelopmentLaneFinishResult = decode_durable(
+            &commit_development_lane(
+                &db,
+                TEST_GRAPH,
+                &Method::FinishDevelopmentLane {
+                    request: current_tuple,
+                },
+                2_000_000,
+                DurableCrypto::none(),
+            )
+            .expect("current tuple finish replay"),
+        )
+        .expect("decode current tuple finish result");
+        assert_eq!(
+            current.decision,
+            DevelopmentLaneFinishResultDecision::Idempotent
+        );
+
+        let mut wrong_fence = finish_request;
+        wrong_fence.idempotency_key = "finish:cancel-wrong-fence".into();
+        wrong_fence.lease_epoch = cancelled_hold.lease_epoch;
+        wrong_fence.fencing_token = cancelled_hold.fencing_token;
+        wrong_fence.work_item_fence = "fence:wrong".into();
+        let refused: DevelopmentLaneFinishResult = decode_durable(
+            &commit_development_lane(
+                &db,
+                TEST_GRAPH,
+                &Method::FinishDevelopmentLane {
+                    request: wrong_fence,
+                },
+                2_000_000,
+                DurableCrypto::none(),
+            )
+            .expect("wrong fence finish response"),
+        )
+        .expect("decode wrong fence finish result");
+        assert_eq!(
+            refused.decision,
+            DevelopmentLaneFinishResultDecision::WrongFence
+        );
+        drop(db);
+        std::fs::remove_file(path).expect("remove reopened cancellation database");
+    }
+
+    #[test]
+    fn native_cancel_lost_ack_is_replay_safe_across_crash_and_reopen() {
+        let fixture = NativeLaneFixture::new(policy());
+        let accepted: DevelopmentLaneResult = fixture
+            .decode(&fixture.commit(fixture.reserve_method("reserve:cancel-crash"), TEST_NOW));
+        let hold = accepted.hold.expect("accepted crash hold");
+        let finish_request = DevelopmentLaneFinishRequest {
+            schema_version: DevelopmentLaneFinishRequestSchemaVersion::V1,
+            tenant_ref: hold.tenant_ref.clone(),
+            work_item_id: hold.work_item_id.clone(),
+            owner_id: hold.owner_id.clone(),
+            attempt: hold.attempt,
+            lease_epoch: hold.lease_epoch,
+            fencing_token: hold.fencing_token,
+            work_item_fence: hold.work_item_fence.clone(),
+            hold_id: hold.hold_id.clone(),
+            expected_hold_revision: hold.hold_revision,
+            terminal_state: DevelopmentLaneFinishRequestTerminalState::Cancelled,
+            idempotency_key: "finish:cancel-crash-repair".into(),
+            now_ms: 0,
+        };
+        let crash = fixture.cancel_work_item_with_crash(
+            "cancel-crash",
+            2_000_000,
+            Some(super::super::MutationBatchCrashpoint::AfterCommitBeforeAck),
+        );
+        assert_eq!(
+            crash.unwrap_err(),
+            "injected crash after mutation commit before acknowledgement"
+        );
+        let path = fixture.close_for_reopen();
+        let db = Database::open(&path).expect("reopen crash database");
+        let status = read_development_lane_status(
+            &db,
+            TEST_GRAPH,
+            &DevelopmentLaneStatusRequest {
+                schema_version:
+                    crate::epistemic_operations::DevelopmentLaneStatusRequestSchemaVersion::V1,
+                tenant_ref: hold.tenant_ref,
+                hold_id: Some(hold.hold_id),
+                lane_id: None,
+                work_item_id: None,
+                limit: 10,
+                cursor: None,
+                now_ms: 0,
+            },
+            2_000_000,
+            DurableCrypto::none(),
+        )
+        .expect("read committed cancellation after lost ack");
+        assert_eq!(status.tenant_active_count, 0);
+        assert_eq!(status.tenant_retained_disk_bytes, 10);
+        let finished: DevelopmentLaneFinishResult = decode_durable(
+            &commit_development_lane(
+                &db,
+                TEST_GRAPH,
+                &Method::FinishDevelopmentLane {
+                    request: finish_request,
+                },
+                2_000_000,
+                DurableCrypto::none(),
+            )
+            .expect("repair lost cancellation acknowledgement"),
+        )
+        .expect("decode crash repair result");
+        assert_eq!(
+            finished.decision,
+            DevelopmentLaneFinishResultDecision::Idempotent
+        );
+        drop(db);
+        std::fs::remove_file(path).expect("remove reopened crash database");
+    }
+
+    #[test]
     fn native_finish_retains_charge_and_cleanup_has_a_separate_fence_and_replay_tuple() {
         let fixture = NativeLaneFixture::new(policy());
         let accepted: DevelopmentLaneResult =
             fixture.decode(&fixture.commit(fixture.reserve_method("reserve:finish"), TEST_NOW));
         let hold = accepted.hold.expect("accepted finish hold");
-        fixture.mark_lifecycle_terminal(&hold.work_item_id, "succeeded");
+        let committed = fixture
+            .commit_work_item_result("succeeded", false, "finish-terminal", 200)
+            .expect("generic terminal WorkItem commit");
+        assert!(!committed.replayed);
         let finish_request = DevelopmentLaneFinishRequest {
             schema_version: DevelopmentLaneFinishRequestSchemaVersion::V1,
             tenant_ref: hold.tenant_ref.clone(),
@@ -7167,7 +7880,7 @@ mod tests {
         ));
         assert_eq!(
             finished.decision,
-            DevelopmentLaneFinishResultDecision::Accepted
+            DevelopmentLaneFinishResultDecision::Idempotent
         );
         let finished_hold = finished.hold.clone().expect("finished hold");
         assert_eq!(
@@ -7577,7 +8290,9 @@ mod tests {
             DevelopmentLaneRenewResultDecision::Accepted
         );
         let hold = renewed.hold.expect("renewed drain hold");
-        fixture.mark_lifecycle_terminal(&hold.work_item_id, "succeeded");
+        fixture
+            .commit_work_item_result("succeeded", false, "finish-drain-terminal", 180)
+            .expect("generic terminal WorkItem commit");
         let finished: DevelopmentLaneFinishResult = fixture.decode(&fixture.commit(
             Method::FinishDevelopmentLane {
                 request: DevelopmentLaneFinishRequest {
@@ -7600,7 +8315,7 @@ mod tests {
         ));
         assert_eq!(
             finished.decision,
-            DevelopmentLaneFinishResultDecision::Accepted
+            DevelopmentLaneFinishResultDecision::Idempotent
         );
         let hold = finished.hold.expect("finished drain hold");
         fixture.seed_cleanup_work_item(&hold, "cleanup:drain", "cleanup-fence:drain");
