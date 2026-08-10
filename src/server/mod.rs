@@ -544,6 +544,25 @@ mod tests {
 
     const SECRET: &str = "dispatch-test-secret";
 
+    /// BUG-044: keep the full (`--features full`) dispatcher's state machine behind
+    /// one heap indirection. `dispatch()` bottoms out in `dispatch_inner`
+    /// (`src/server/dispatch.rs`), a single very large async fn whose generated
+    /// future is enormous; nesting it (a helper awaiting `dispatch` inside a test
+    /// awaiting the helper) can exhaust the test harness thread's 8 MiB stack before
+    /// the first request is even polled, aborting the WHOLE test binary with SIGABRT
+    /// and hiding every subsequent result.
+    ///
+    /// Same fix as `result_cache_dispatch_tests` (ae64cfd) and `redb_backend`'s tests
+    /// (92586a7), and mirrors `src/cost.rs`'s `dispatch_on_heap`. Route every call in
+    /// this module through here -- raising RUST_MIN_STACK would only mask the class.
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+        Box::pin(dispatch(state, request))
+    }
+
+
     fn test_state() -> Arc<RwLock<ServerState>> {
         let mut isolation = IsolationLayer::new();
         isolation.register_agent(AgentIdentity {
@@ -770,13 +789,13 @@ mod tests {
             )
             .unwrap(),
         };
-        assert_ok(&dispatch(&state, request(1, "__commons__", None, mk("A", "alpha"))).await);
-        assert_ok(&dispatch(&state, request(2, "__ingest__", None, mk("B", "beta"))).await);
+        assert_ok(&dispatch_on_heap(&state, request(1, "__commons__", None, mk("A", "alpha"))).await);
+        assert_ok(&dispatch_on_heap(&state, request(2, "__ingest__", None, mk("B", "beta"))).await);
 
         let graphs = vec!["__commons__".to_string(), "__ingest__".to_string()];
 
         // A single-graph read of __commons__ does NOT see B (proves the union does work).
-        let single = dispatch(
+        let single = dispatch_on_heap(
             &state,
             request(
                 3,
@@ -798,7 +817,7 @@ mod tests {
         );
 
         // Union point read finds B (which lives only in __ingest__).
-        let up = dispatch(
+        let up = dispatch_on_heap(
             &state,
             request(
                 4,
@@ -819,7 +838,7 @@ mod tests {
         );
 
         // Union label scan sees BOTH graphs, deduped by id.
-        let ul = dispatch(
+        let ul = dispatch_on_heap(
             &state,
             request(
                 5,
@@ -852,7 +871,7 @@ mod tests {
             "__commons__".to_string(),
             "__ingest_does_not_exist__".to_string(),
         ];
-        let um = dispatch(
+        let um = dispatch_on_heap(
             &state,
             request(
                 6,
@@ -893,7 +912,7 @@ mod tests {
             .enumerate()
         {
             assert_ok(
-                &dispatch(
+                &dispatch_on_heap(
                     &state,
                     request(i as u64 + 1, "__commons__", None, mk(id, ty, *rank)),
                 )
@@ -901,7 +920,7 @@ mod tests {
             );
         }
 
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 10,
@@ -962,7 +981,7 @@ mod tests {
                 )
                 .unwrap(),
             };
-            assert_ok(&dispatch(state, send(m)).await);
+            assert_ok(&dispatch_on_heap(state, send(m)).await);
         }
         for (s, t, rel) in [
             ("d1", "d2", "CITES"),
@@ -978,7 +997,7 @@ mod tests {
                 )
                 .unwrap(),
             };
-            assert_ok(&dispatch(state, send(m)).await);
+            assert_ok(&dispatch_on_heap(state, send(m)).await);
         }
         for (nid, emb) in [
             ("d1", vec![0.2f32, 0.9, 0.0, 0.0]),
@@ -992,7 +1011,7 @@ mod tests {
                 node_id: nid.into(),
                 embedding: emb,
             };
-            assert_ok(&dispatch(state, send(m)).await);
+            assert_ok(&dispatch_on_heap(state, send(m)).await);
         }
     }
 
@@ -1038,7 +1057,7 @@ mod tests {
             },
             Op::Limit { k: 10 },
         ];
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 100,
@@ -1128,7 +1147,7 @@ mod tests {
             },
             Op::Limit { k: 10 },
         ];
-        let structured = dispatch(
+        let structured = dispatch_on_heap(
             &state,
             request(
                 300,
@@ -1148,7 +1167,7 @@ mod tests {
                    |> TRAVERSE -[:CITES]->{1,2} \
                    |> RANK BY ~[1.0, 0.0, 0.0, 0.0] \
                    |> LIMIT 10";
-        let textq = dispatch(
+        let textq = dispatch_on_heap(
             &state,
             request(
                 301,
@@ -1206,7 +1225,7 @@ mod tests {
     async fn test_uql_text_bad_syntax_is_clear_error() {
         let state = test_state();
         build_unified_fixture(&state).await;
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 302,
@@ -1301,7 +1320,7 @@ mod tests {
             },
             Op::Limit { k: 10 },
         ];
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &local,
             request(
                 500,
@@ -1354,7 +1373,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_foreign_source_served() {
         let state = test_state();
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 600,
@@ -1410,10 +1429,10 @@ mod tests {
                 },
             )
         };
-        assert_ok(&dispatch(&state, add(1, "alice", "Person", "Alice")).await);
-        assert_ok(&dispatch(&state, add(2, "bob", "Person", "Bob")).await);
+        assert_ok(&dispatch_on_heap(&state, add(1, "alice", "Person", "Alice")).await);
+        assert_ok(&dispatch_on_heap(&state, add(2, "bob", "Person", "Bob")).await);
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     3,
@@ -1433,7 +1452,7 @@ mod tests {
         );
 
         // Single-node label MATCH → label index.
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 10,
@@ -1458,7 +1477,7 @@ mod tests {
         assert_eq!(cells[0].as_str(), Some("alice"));
 
         // 2-node typed-edge MATCH → VF2.
-        let resp2 = dispatch(
+        let resp2 = dispatch_on_heap(
             &state,
             request(
                 11,
@@ -1497,7 +1516,7 @@ mod tests {
             query: "MATCH (a:Person) RETURN a".into(),
             mode: crate::protocol::CypherMode::Read,
         };
-        let resp = dispatch(&state, request(1, "__commons__", None, method)).await;
+        let resp = dispatch_on_heap(&state, request(1, "__commons__", None, method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1531,10 +1550,10 @@ mod tests {
                 },
             )
         };
-        assert_ok(&dispatch(&state, add(1, "alice", "Person", "Alice")).await);
-        assert_ok(&dispatch(&state, add(2, "bob", "Person", "Bob")).await);
+        assert_ok(&dispatch_on_heap(&state, add(1, "alice", "Person", "Alice")).await);
+        assert_ok(&dispatch_on_heap(&state, add(2, "bob", "Person", "Bob")).await);
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     3,
@@ -1554,7 +1573,7 @@ mod tests {
         );
 
         // GraphQL: Alice + her KNOWS targets' names.
-        let gql = dispatch(
+        let gql = dispatch_on_heap(
             &state,
             request(
                 10,
@@ -1587,7 +1606,7 @@ mod tests {
         // dispatch for the same question (the equivalence proof, served form).
         #[cfg(feature = "cypher")]
         {
-            let cy = dispatch(
+            let cy = dispatch_on_heap(
                 &state,
                 request(
                     11,
@@ -1629,7 +1648,7 @@ mod tests {
         let state = test_state();
         let mut req = request(1, "__commons__", None, Method::Ping);
         req.auth_token = "bogus".to_string();
-        let resp = dispatch(&state, req).await;
+        let resp = dispatch_on_heap(&state, req).await;
         assert_eq!(resp.error.as_deref(), Some("Authentication failed"));
     }
 
@@ -1653,7 +1672,7 @@ mod tests {
             range_rules: vec![],
             property_chains: vec![],
         };
-        let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let resp = dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1675,7 +1694,7 @@ mod tests {
             query: "SELECT id FROM nodes".into(),
             params_msgpack: Vec::new(),
         };
-        let resp = dispatch(&state, request(1, "__commons__", None, method)).await;
+        let resp = dispatch_on_heap(&state, request(1, "__commons__", None, method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1698,7 +1717,7 @@ mod tests {
         let method = Method::ExplainEvidence {
             node_id: "claim1".into(),
         };
-        let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let resp = dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1721,7 +1740,7 @@ mod tests {
             node_ids: vec!["claim1".into()],
             semantics: "grounded".into(),
         };
-        let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let resp = dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1745,7 +1764,7 @@ mod tests {
             do_values: std::collections::BTreeMap::new(),
             mode: crate::protocol::CausalQueryModeWire::Intervene,
         };
-        let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let resp = dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1759,7 +1778,7 @@ mod tests {
             actual: std::collections::BTreeMap::new(),
             do_values: std::collections::BTreeMap::new(),
         };
-        let resp = dispatch(&state, request(2, "agent:worker1", Some("worker1"), method)).await;
+        let resp = dispatch_on_heap(&state, request(2, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1772,7 +1791,7 @@ mod tests {
             candidates: vec![],
             weights: Default::default(),
         };
-        let resp = dispatch(&state, request(3, "agent:worker1", Some("worker1"), method)).await;
+        let resp = dispatch_on_heap(&state, request(3, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1789,7 +1808,7 @@ mod tests {
         let state = test_state();
         for i in 0..6 {
             assert_ok(
-                &dispatch(
+                &dispatch_on_heap(
                     &state,
                     request(1, "__commons__", None, add_node(&format!("n{i}"))),
                 )
@@ -1816,10 +1835,10 @@ mod tests {
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({ "k": k }))
                     .unwrap(),
             };
-            assert_ok(&dispatch(&state, request(1, "__commons__", None, m)).await);
+            assert_ok(&dispatch_on_heap(&state, request(1, "__commons__", None, m)).await);
         }
 
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 2,
@@ -1846,7 +1865,7 @@ mod tests {
             rmp_serde::from_slice(rows[0].1.as_ref().unwrap()).unwrap();
         assert_eq!(a_props["k"], 1);
 
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 3,
@@ -1866,7 +1885,7 @@ mod tests {
         assert_eq!(flags, vec![true, false]);
 
         // Oversize batches are rejected, not truncated (OOM guard).
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 4,
@@ -1920,7 +1939,7 @@ mod tests {
             .unwrap();
         }
 
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 6,
@@ -1954,7 +1973,7 @@ mod tests {
 
         // Oversize batches are rejected, not truncated (OOM guard) — same
         // contract as GetNodePropertiesBatch/HasNodesBatch.
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 7,
@@ -2085,7 +2104,7 @@ mod tests {
     #[tokio::test]
     async fn test_owner_can_write_own_graph() {
         let state = multi_tenant_state().await;
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(1, "agent:worker1", Some("worker1"), add_node("n1")),
         )
@@ -2096,13 +2115,13 @@ mod tests {
     #[tokio::test]
     async fn test_peer_denied_read_and_write() {
         let state = multi_tenant_state().await;
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(1, "agent:worker1", Some("worker2"), add_node("n1")),
         )
         .await;
         assert_denied(&resp);
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(2, "agent:worker1", Some("worker2"), Method::GetNodes),
         )
@@ -2113,14 +2132,14 @@ mod tests {
     #[tokio::test]
     async fn test_anonymous_denied_when_rules_exist() {
         let state = multi_tenant_state().await;
-        let resp = dispatch(&state, request(1, "agent:worker1", None, Method::GetNodes)).await;
+        let resp = dispatch_on_heap(&state, request(1, "agent:worker1", None, Method::GetNodes)).await;
         assert_denied(&resp);
     }
 
     #[tokio::test]
     async fn test_manager_reaches_subordinate_graph() {
         let state = multi_tenant_state().await;
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(1, "agent:worker1", Some("manager"), add_node("n1")),
         )
@@ -2131,19 +2150,19 @@ mod tests {
     #[tokio::test]
     async fn test_team_member_read_only() {
         let state = multi_tenant_state().await;
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(1, "team:alpha", Some("worker1"), Method::GetNodes),
         )
         .await;
         assert_ok(&resp);
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(2, "team:alpha", Some("worker1"), add_node("n1")),
         )
         .await;
         assert_denied(&resp);
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(3, "team:alpha", Some("manager"), add_node("n1")),
         )
@@ -2154,13 +2173,13 @@ mod tests {
     #[tokio::test]
     async fn test_global_graph_read_only() {
         let state = multi_tenant_state().await;
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(1, "global:ontology", Some("worker1"), Method::GetNodes),
         )
         .await;
         assert_ok(&resp);
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(2, "global:ontology", Some("worker1"), add_node("n1")),
         )
@@ -2172,7 +2191,7 @@ mod tests {
     async fn test_bus_stays_open_to_all() {
         let state = multi_tenant_state().await;
         for (id, agent) in [(1, Some("worker1")), (2, Some("worker2")), (3, None)] {
-            let resp = dispatch(
+            let resp = dispatch_on_heap(
                 &state,
                 request(id, "__commons__", agent, add_node(&format!("n{}", id))),
             )
@@ -2184,7 +2203,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_graph_records_caller_as_owner() {
         let state = multi_tenant_state().await;
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 1,
@@ -2206,13 +2225,13 @@ mod tests {
             );
         }
         // Owner writes fine; the peer is denied.
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(2, "agent:worker2", Some("worker2"), add_node("n1")),
         )
         .await;
         assert_ok(&resp);
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(3, "agent:worker2", Some("worker1"), add_node("n2")),
         )
@@ -2226,16 +2245,16 @@ mod tests {
         let del = || Method::DeleteGraph {
             graph_name: "agent:worker1".to_string(),
         };
-        let resp = dispatch(&state, request(1, "__commons__", Some("worker2"), del())).await;
+        let resp = dispatch_on_heap(&state, request(1, "__commons__", Some("worker2"), del())).await;
         assert_denied(&resp);
-        let resp = dispatch(&state, request(2, "__commons__", Some("worker1"), del())).await;
+        let resp = dispatch_on_heap(&state, request(2, "__commons__", Some("worker1"), del())).await;
         assert_ok(&resp);
     }
 
     #[tokio::test]
     async fn test_channel_operations_unaffected_by_rules() {
         let state = multi_tenant_state().await;
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 1,
@@ -2251,7 +2270,7 @@ mod tests {
         )
         .await;
         assert_ok(&resp);
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 2,
@@ -2356,7 +2375,7 @@ mod tests {
 
         let search_state = state.clone();
         let search = tokio::spawn(async move {
-            dispatch(
+            dispatch_on_heap(
                 &search_state,
                 request(
                     1,
@@ -2376,7 +2395,7 @@ mod tests {
         for i in 0..50u64 {
             let resp = tokio::time::timeout(
                 std::time::Duration::from_secs(5),
-                dispatch(
+                dispatch_on_heap(
                     &state,
                     request(100 + i, "agent:busy", None, add_node(&format!("w{}", i))),
                 ),
@@ -2449,7 +2468,7 @@ mod tests {
         // path (any Write-classified method on this graph) must trigger the
         // post-write warm hook — no restart, no explicit warm() call from the
         // test itself.
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(1, "agent:grows-post-boot", None, add_node("trigger")),
         )
@@ -2518,7 +2537,7 @@ mod tests {
         );
 
         // Hybrid: keyword "deploy" + an embedding closest to `deployer`.
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 1,
@@ -2548,7 +2567,7 @@ mod tests {
         assert_eq!(rows[2]["id"], "unrelated");
 
         // Embedding-absent fallback: keyword-only still finds the matching nodes.
-        let kw_only = dispatch(
+        let kw_only = dispatch_on_heap(
             &state,
             request(
                 2,
@@ -2603,10 +2622,10 @@ mod tests {
                 },
             ),
         ] {
-            assert_ok(&dispatch(&state, request(id, "agent:algo", None, m)).await);
+            assert_ok(&dispatch_on_heap(&state, request(id, "agent:algo", None, m)).await);
         }
 
-        let pagerank = dispatch(
+        let pagerank = dispatch_on_heap(
             &state,
             request(
                 10,
@@ -2628,7 +2647,7 @@ mod tests {
         let scores: Vec<(String, f64)> = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(scores.len(), 3);
 
-        let communities = dispatch(
+        let communities = dispatch_on_heap(
             &state,
             request(
                 11,
@@ -2640,7 +2659,7 @@ mod tests {
         .await;
         assert_ok(&communities);
 
-        let metrics = dispatch(&state, request(12, "agent:algo", None, Method::Metrics)).await;
+        let metrics = dispatch_on_heap(&state, request(12, "agent:algo", None, Method::Metrics)).await;
         assert_ok(&metrics);
         let Some(ResultPayload::Json(m)) = metrics.result else {
             panic!("expected JSON metrics result");
@@ -2663,7 +2682,7 @@ mod tests {
                 .unwrap();
         }
         // worker2 may read its own graph but NOT diff it against worker1's.
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 1,
@@ -2715,7 +2734,7 @@ mod tests {
         for i in 0..25u64 {
             let resp = tokio::time::timeout(
                 std::time::Duration::from_secs(5),
-                dispatch(
+                dispatch_on_heap(
                     &state,
                     request(200 + i, "agent:control", None, add_node(&format!("c{}", i))),
                 ),
@@ -2750,7 +2769,7 @@ mod tests {
         for i in 0..N {
             let st = state.clone();
             handles.push(tokio::spawn(async move {
-                dispatch(
+                dispatch_on_heap(
                     &st,
                     request(i, "__commons__", None, add_node(&format!("n{i}"))),
                 )
@@ -2797,7 +2816,7 @@ mod tests {
             properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"owner": null}))
                 .unwrap(),
         };
-        assert_ok(&dispatch(&state, request(0, "__commons__", None, seed)).await);
+        assert_ok(&dispatch_on_heap(&state, request(0, "__commons__", None, seed)).await);
 
         const C: u64 = 40;
         let mut handles = Vec::with_capacity(C as usize);
@@ -2825,7 +2844,7 @@ mod tests {
                     conditions_msgpack,
                     updates_msgpack,
                 };
-                let resp = dispatch(&st, request(100 + i, "__commons__", None, m)).await;
+                let resp = dispatch_on_heap(&st, request(100 + i, "__commons__", None, m)).await;
                 matches!(resp.result, Some(ResultPayload::Bool(true)))
             }));
         }
@@ -2853,7 +2872,7 @@ mod tests {
         graph: &str,
         isolation: Option<&str>,
     ) -> String {
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             state,
             request(
                 id,
@@ -2886,7 +2905,7 @@ mod tests {
         let txn = begin_txn(&state, 1, "__commons__").await;
 
         for (i, nid) in ["a", "b"].iter().enumerate() {
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 request(
                     10 + i as u64,
@@ -2906,7 +2925,7 @@ mod tests {
                 "stage node {nid}"
             );
         }
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 20,
@@ -2938,7 +2957,7 @@ mod tests {
         );
 
         // Commit → Bool(true), all present.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 30,
@@ -2975,7 +2994,7 @@ mod tests {
         };
         let v0 = core.version();
         let txn = begin_txn(&state, 1, "__commons__").await;
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 10,
@@ -2992,7 +3011,7 @@ mod tests {
         .await;
         assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
 
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 20,
@@ -3024,7 +3043,7 @@ mod tests {
         let state = test_state();
         // Seed the contended node.
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     1,
@@ -3044,7 +3063,7 @@ mod tests {
         let t1 = begin_txn(&state, 2, "__commons__").await;
         let t2 = begin_txn(&state, 3, "__commons__").await;
         for (rid, txn, val) in [(10u64, &t1, 1), (11, &t2, 2)] {
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 request(
                     rid,
@@ -3063,7 +3082,7 @@ mod tests {
         }
 
         // First commit wins.
-        let r1 = dispatch(
+        let r1 = dispatch_on_heap(
             &state,
             request(
                 20,
@@ -3079,7 +3098,7 @@ mod tests {
         );
 
         // Second commit conflicts (node "k" changed since t2 began) → Bool(false).
-        let r2 = dispatch(
+        let r2 = dispatch_on_heap(
             &state,
             request(
                 21,
@@ -3126,7 +3145,7 @@ mod tests {
             "swept txn removed"
         );
         // Committing a swept txn is now an unknown-id error (true rollback occurred).
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(2, "__commons__", None, Method::Commit { txn_id: txn }),
         )
@@ -3140,7 +3159,7 @@ mod tests {
     async fn standalone_cas_still_works() {
         let state = test_state();
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     1,
@@ -3154,7 +3173,7 @@ mod tests {
             )
             .await,
         );
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 2,
@@ -3173,7 +3192,7 @@ mod tests {
             "CAS claims"
         );
         // A second CAS with the same condition fails (already claimed).
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 3,
@@ -3202,7 +3221,7 @@ mod tests {
         graph: &str,
         txn: &str,
     ) -> bool {
-        let r = dispatch(
+        let r = dispatch_on_heap(
             state,
             request(
                 id,
@@ -3229,7 +3248,7 @@ mod tests {
         node_id: &str,
         props: serde_json::Value,
     ) {
-        let r = dispatch(
+        let r = dispatch_on_heap(
             state,
             request(
                 id,
@@ -3256,7 +3275,7 @@ mod tests {
         // Seed one Doc so the label set is non-empty at begin (not required, but
         // mirrors a real range read).
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     1,
@@ -3320,7 +3339,7 @@ mod tests {
     async fn txn_snapshot_allows_phantom() {
         let state = test_state();
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     1,
@@ -3410,7 +3429,7 @@ mod tests {
     #[tokio::test]
     async fn txn_unknown_isolation_rejected() {
         let state = test_state();
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 1,
@@ -3456,7 +3475,7 @@ mod tests {
     async fn ts_append_then_range_via_dispatch() {
         let state = test_state();
         let pts: Vec<(i64, Vec<f64>)> = (0..10).map(|i| (i * TS_NS, vec![i as f64])).collect();
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 1,
@@ -3478,7 +3497,7 @@ mod tests {
             r
         );
 
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 2,
@@ -3510,7 +3529,7 @@ mod tests {
             .map(|i| (i * TS_NS, vec![100.0 + i as f64]))
             .collect();
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     1,
@@ -3530,7 +3549,7 @@ mod tests {
 
         // ASOF: out-of-order left events, results returned in caller order.
         let left_ts: Vec<i64> = vec![7 * TS_NS, 3 * TS_NS];
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 2,
@@ -3552,7 +3571,7 @@ mod tests {
         assert_eq!(got, vec![Some(107.0), Some(103.0)]);
 
         // WINDOW: 10s mean buckets.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 3,
@@ -3577,7 +3596,7 @@ mod tests {
         assert!((bars[0].1 - 104.5).abs() < 1e-9);
 
         // GAP-FILL on a 5s grid.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 4,
@@ -3614,7 +3633,7 @@ mod tests {
 ex:alice a ex:Person ; ex:name "Alice" ; ex:age "30"^^xsd:integer ; ex:knows ex:bob .
 ex:bob   a ex:Person ; ex:name "Bob"@en .
 "#;
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 1,
@@ -3635,7 +3654,7 @@ ex:bob   a ex:Person ; ex:name "Bob"@en .
         assert_eq!(report.triples, 6);
         assert_eq!(report.multivalue, 0);
 
-        let r2 = dispatch(&state, request(2, "__commons__", None, Method::GetRdf)).await;
+        let r2 = dispatch_on_heap(&state, request(2, "__commons__", None, Method::GetRdf)).await;
         assert_ok(&r2);
         let nt: String = match r2.result {
             Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
@@ -3663,7 +3682,7 @@ ex:bob   a ex:Person ; ex:name "Bob"   ; ex:age "25"^^xsd:integer .
 ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:alice .
 "#;
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     1,
@@ -3677,7 +3696,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
             )
             .await,
         );
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 2,
@@ -3731,7 +3750,7 @@ ex:HumanHeart rdfs:subClassOf ex:Heart .
 ex:myHeart a ex:HumanHeart .
 "#;
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     1,
@@ -3745,7 +3764,7 @@ ex:myHeart a ex:HumanHeart .
             )
             .await,
         );
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 2,
@@ -3795,7 +3814,7 @@ ex:Dog rdfs:subClassOf ex:Animal .
 ex:Animal rdfs:subClassOf ex:LivingThing .
 "#;
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     1,
@@ -3809,7 +3828,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
             )
             .await,
         );
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 2,
@@ -3844,7 +3863,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
         assert!(leaf.premises.is_empty());
 
         // A non-entailed pair explains to `found: false`, no tree.
-        let r2 = dispatch(
+        let r2 = dispatch_on_heap(
             &state,
             request(
                 3,
@@ -3882,7 +3901,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
             params_msgpack: Vec::new(),
         };
 
-        let d = dispatch(
+        let d = dispatch_on_heap(
             &state,
             request(
                 1,
@@ -3894,7 +3913,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
         .await;
         assert!(d.error.is_none(), "DROP failed: {:?}", d.error);
 
-        let c = dispatch(
+        let c = dispatch_on_heap(
             &state,
             request(
                 2,
@@ -3908,7 +3927,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
         .await;
         assert!(c.error.is_none(), "CREATE TABLE failed: {:?}", c.error);
 
-        let i = dispatch(
+        let i = dispatch_on_heap(
             &state,
             request(
                 3,
@@ -3925,7 +3944,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
         let mapping = format!(
             "SOURCE  {table}\nSUBJECT http://example.org/person/{{id}}\nCLASS   http://example.org/Person\nCOLUMN  http://example.org/name name\nCOLUMN  http://example.org/age  age\n"
         );
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 4,
@@ -3958,7 +3977,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
 
         // The request's OWN graph (__commons__) stays untouched — GetRdf sees no triples
         // from the virtual query (proves it never materialized into a real graph).
-        let get = dispatch(&state, request(5, "__commons__", None, Method::GetRdf)).await;
+        let get = dispatch_on_heap(&state, request(5, "__commons__", None, Method::GetRdf)).await;
         assert_ok(&get);
         let nt: String = match get.result {
             Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
@@ -3969,7 +3988,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
             "the virtual query must not have materialized into the request's graph"
         );
 
-        let _ = dispatch(
+        let _ = dispatch_on_heap(
             &state,
             request(
                 6,
@@ -4008,7 +4027,7 @@ ex:p1 a ex:Paper .
         ] {
             if g == "shard:b" {
                 assert_ok(
-                    &dispatch(
+                    &dispatch_on_heap(
                         &state,
                         request(
                             10,
@@ -4024,7 +4043,7 @@ ex:p1 a ex:Paper .
                 );
             }
             assert_ok(
-                &dispatch(
+                &dispatch_on_heap(
                     &state,
                     request(
                         11,
@@ -4040,7 +4059,7 @@ ex:p1 a ex:Paper .
             );
         }
 
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 12,
@@ -4102,14 +4121,14 @@ ex:p1 a ex:Paper .
     async fn test_cdc_ordered_read_from_cursor() {
         let state = test_state();
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(1, "__commons__", None, doc_node("n1", "Doc")),
             )
             .await,
         );
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(2, "__commons__", None, doc_node("n2", "Doc")),
             )
@@ -4117,7 +4136,7 @@ ex:p1 a ex:Paper .
         );
 
         // Read from the start: both, in order.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 3,
@@ -4142,7 +4161,7 @@ ex:p1 a ex:Paper .
 
         // Re-read from one past the last seen cursor → empty (skips seen).
         let cursor = events.last().unwrap().seq + 1;
-        let r2 = dispatch(
+        let r2 = dispatch_on_heap(
             &state,
             request(
                 4,
@@ -4160,7 +4179,7 @@ ex:p1 a ex:Paper .
 
         // A new write then read-from-cursor returns ONLY it.
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     5,
@@ -4173,7 +4192,7 @@ ex:p1 a ex:Paper .
             )
             .await,
         );
-        let r3 = dispatch(
+        let r3 = dispatch_on_heap(
             &state,
             request(
                 6,
@@ -4195,8 +4214,8 @@ ex:p1 a ex:Paper .
         // ClearGraph through dispatch RESETS the feed (CONCEPT:EG-KG.query.streaming-cdc-subscriptions): the seq
         // rewinds to 0 and the ring empties, so a consumer re-seeds from 0. (This is
         // what gives a wiped/cleared graph a clean change feed.)
-        assert_ok(&dispatch(&state, request(7, "__commons__", None, Method::ClearGraph)).await);
-        let after_clear = dispatch(
+        assert_ok(&dispatch_on_heap(&state, request(7, "__commons__", None, Method::ClearGraph)).await);
+        let after_clear = dispatch_on_heap(
             &state,
             request(
                 8,
@@ -4216,13 +4235,13 @@ ex:p1 a ex:Paper .
         );
         // A post-clear write is seq 0 again.
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(9, "__commons__", None, doc_node("fresh", "Doc")),
             )
             .await,
         );
-        let reseeded = dispatch(
+        let reseeded = dispatch_on_heap(
             &state,
             request(
                 10,
@@ -4258,7 +4277,7 @@ ex:p1 a ex:Paper .
             agg: crate::wire::ContinuousAgg::Count,
         };
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     1,
@@ -4277,12 +4296,12 @@ ex:p1 a ex:Paper .
         let mut id = 10u64;
         for n in ["a", "b", "c"] {
             assert_ok(
-                &dispatch(&state, request(id, "__commons__", None, doc_node(n, "Doc"))).await,
+                &dispatch_on_heap(&state, request(id, "__commons__", None, doc_node(n, "Doc"))).await,
             );
             id += 1;
         }
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(id, "__commons__", None, doc_node("x", "Other")),
             )
@@ -4290,7 +4309,7 @@ ex:p1 a ex:Paper .
         );
         id += 1;
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     id,
@@ -4306,7 +4325,7 @@ ex:p1 a ex:Paper .
         id += 1;
 
         // Read the incrementally-maintained CQ value.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             request(
                 id,
@@ -4345,7 +4364,7 @@ ex:p1 a ex:Paper .
 
         // Register a trigger: any "Alert"-labelled node add records an action.
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     1,
@@ -4368,7 +4387,7 @@ ex:p1 a ex:Paper .
 
         // A non-matching write (Doc) does NOT fire the trigger.
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(2, "__commons__", None, doc_node("d1", "Doc")),
             )
@@ -4376,7 +4395,7 @@ ex:p1 a ex:Paper .
         );
         // A matching write (Alert) DOES — and is delivered to a Watch subscriber.
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(3, "__commons__", None, doc_node("a1", "Alert")),
             )
@@ -4384,7 +4403,7 @@ ex:p1 a ex:Paper .
         );
 
         // Watch from the start, filtered to "Alert": must see exactly the Alert change.
-        let w = dispatch(
+        let w = dispatch_on_heap(
             &state,
             request(
                 4,
@@ -4412,7 +4431,7 @@ ex:p1 a ex:Paper .
         assert_eq!(batch.next_seq, batch.events[0].seq + 1);
 
         // The trigger fired exactly once; poll the fired log for its action.
-        let f = dispatch(
+        let f = dispatch_on_heap(
             &state,
             request(
                 5,
@@ -4447,7 +4466,7 @@ ex:p1 a ex:Paper .
         // Spawn a writer that lands a change shortly after the watch begins.
         let writer = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            let resp = dispatch(
+            let resp = dispatch_on_heap(
                 &st2,
                 request(9, "__commons__", None, doc_node("late", "Doc")),
             )
@@ -4465,7 +4484,7 @@ ex:p1 a ex:Paper .
             );
         });
         // Watch with a generous timeout; it should return the change once it lands.
-        let w = dispatch(
+        let w = dispatch_on_heap(
             &state,
             request(
                 1,
@@ -4538,7 +4557,7 @@ ex:p1 a ex:Paper .
 
         // Register both (process-global; the request graph is just the ACL anchor).
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     1,
@@ -4553,7 +4572,7 @@ ex:p1 a ex:Paper .
             .await,
         );
         assert_ok(
-            &dispatch(
+            &dispatch_on_heap(
                 &state,
                 request(
                     2,
@@ -4570,7 +4589,7 @@ ex:p1 a ex:Paper .
 
         // RunUdf "echo" over a payload → the SAME bytes back (sandboxed round-trip).
         let payload = b"rows-over-the-wire".to_vec();
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 3,
@@ -4591,7 +4610,7 @@ ex:p1 a ex:Paper .
 
         // RunUdf "spin" → the infinite loop is FUEL-KILLED: an error response, not a hang.
         let start = std::time::Instant::now();
-        let resp = dispatch(
+        let resp = dispatch_on_heap(
             &state,
             request(
                 4,
