@@ -14,6 +14,8 @@ use crate::change_envelope::{
 };
 use crate::epistemic_operations::{
     ResourceReservationResult, ResourceReservationStatusRequest, ResourceReservationStatusResult,
+    WorkItemClaimCapabilityMintRequest, WorkItemClaimCapabilityResult,
+    WorkItemClaimCapabilityVerifyRequest,
 };
 use crate::mutation_batch::{
     MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationOutboxLease,
@@ -348,6 +350,31 @@ pub trait PersistenceBackend: Send + Sync {
         _request: &ResourceReservationStatusRequest,
     ) -> Result<ResourceReservationStatusResult, String> {
         Err("persistence backend does not support native reservation status".to_string())
+    }
+
+    /// Native WorkItem claim-capability minting.  The default fails closed;
+    /// only the redb authority owns the private capability ledger.
+    #[cfg(feature = "redb")]
+    async fn mint_work_item_claim_capability(
+        &self,
+        _graph_fname: &str,
+        _request: WorkItemClaimCapabilityMintRequest,
+        _authority: crate::redb_store::work_item_capability::AuthenticatedAuthority,
+    ) -> Result<WorkItemClaimCapabilityResult, String> {
+        Err("persistence backend does not support native WorkItem claim capabilities".to_string())
+    }
+
+    /// Linearizable native WorkItem claim-capability verification.  The
+    /// authority read must fail closed when a backend does not implement the
+    /// private ledger.
+    #[cfg(feature = "redb")]
+    async fn verify_work_item_claim_capability(
+        &self,
+        _graph_fname: &str,
+        _request: WorkItemClaimCapabilityVerifyRequest,
+        _authority: crate::redb_store::work_item_capability::AuthenticatedAuthority,
+    ) -> Result<WorkItemClaimCapabilityResult, String> {
+        Err("persistence backend does not support native WorkItem claim capabilities".to_string())
     }
 
     /// Durably register a graph's identity (CONCEPT:EG-KG.backend.authoritative-dispatch). The

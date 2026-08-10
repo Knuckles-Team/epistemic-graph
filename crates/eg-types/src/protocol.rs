@@ -473,6 +473,17 @@ pub enum Method {
     ClaimWorkItem {
         request: crate::epistemic_operations::ClaimWorkItemRequest,
     },
+    /// Mint an opaque native capability for the caller's currently-live
+    /// WorkItem lease.  All authority bindings are derived in the engine from
+    /// the verified request context and the authoritative WorkItem row.
+    MintWorkItemClaimCapability {
+        request: crate::epistemic_operations::WorkItemClaimCapabilityMintRequest,
+    },
+    /// Verify an opaque native WorkItem capability against the current live
+    /// lease before any private payload/body lookup.
+    VerifyWorkItemClaimCapability {
+        request: crate::epistemic_operations::WorkItemClaimCapabilityVerifyRequest,
+    },
     /// Renew an existing WorkItem lease. Both epoch and fencing token must match
     /// the durable row, preventing a superseded worker from extending ownership.
     RenewWorkItemLease {

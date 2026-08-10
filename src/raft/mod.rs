@@ -784,6 +784,7 @@ pub const NATIVE_CONSENSUS_METHODS: &[&str] = &[
     "Commit",
     "Rollback",
     "ClaimWorkItem",
+    "MintWorkItemClaimCapability",
     "RenewWorkItemLease",
     "CommitWorkItemResult",
     "CancelWorkItem",
@@ -904,7 +905,7 @@ fn native_domain(method: &Method) -> Option<NativeMutationDomain> {
         #[cfg(feature = "epistemic")]
         Method::TxnMaterializeBelief { .. } => Some(NativeMutationDomain::Transaction),
 
-        Method::ClaimWorkItem { .. }
+        Method::ClaimWorkItem { .. } | Method::MintWorkItemClaimCapability { .. }
         | Method::RenewWorkItemLease { .. }
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
@@ -1546,6 +1547,7 @@ mod raft_authority_contract_tests {
             ResourceHostUpdateRequest, ResourceHostUpdateRequestSchemaVersion,
             ResourceHostUpdateRequestTargetKind, ResourceRequirement, ResourceReservationRequest,
             ResourceReservationRequestSchemaVersion, ResourceReservationRequestTargetKind,
+            WorkItemClaimCapabilityMintRequest, WorkItemClaimCapabilityRequestSchemaVersion,
         };
 
         let requirement = ResourceRequirement {
@@ -1635,6 +1637,12 @@ mod raft_authority_contract_tests {
                     max_tenant_in_flight: 2,
                 },
             },
+            Method::MintWorkItemClaimCapability {
+                request: WorkItemClaimCapabilityMintRequest {
+                    schema_version: WorkItemClaimCapabilityRequestSchemaVersion::V1,
+                    work_item_id: "work-item".to_string(),
+                },
+            },
             Method::RenewWorkItemLease {
                 tenant: "tenant-ref".to_string(),
                 work_item_id: "work-item".to_string(),
@@ -1717,6 +1725,7 @@ mod raft_authority_contract_tests {
     fn work_item_native_inventory_excludes_read_only_reservation_queries() {
         for method in [
             "ClaimWorkItem",
+            "MintWorkItemClaimCapability",
             "RenewWorkItemLease",
             "CommitWorkItemResult",
             "CancelWorkItem",
