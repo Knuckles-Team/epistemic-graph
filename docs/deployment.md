@@ -224,6 +224,7 @@ asyncio.run(main())
 | Argument | Env var | Default | Description |
 |----------|---------|---------|-------------|
 | `--socket-path` | `GRAPH_SERVICE_SOCKET` | platform runtime socket | UDS socket path (local clients) |
+| `--socket-mode` | `GRAPH_SERVICE_SOCKET_MODE` | `0600` | Octal mode applied to the UDS socket after bind; refused at startup if malformed or if it would grant world ("other") access |
 | `--tcp-addr` | `GRAPH_SERVICE_TCP_ADDR` | loopback | Native TCP/TLS RPC listener |
 | `--tcp-tls-cert` / `--tcp-tls-key` | `GRAPH_SERVICE_TLS_CERT` / `GRAPH_SERVICE_TLS_KEY` | — | PEM server identity; required together for routable native TCP |
 | `--tcp-tls-client-ca` | `GRAPH_SERVICE_TLS_CLIENT_CA` | — | Optional CA bundle that enables required client certificates |

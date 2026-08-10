@@ -528,6 +528,11 @@ pub use transport::{
 // guards its serve_uds call with #[cfg(unix)]).
 #[cfg(unix)]
 pub use transport::serve_uds;
+// parse_unix_socket_mode is pure parsing/validation (no fs calls) and is exported
+// unconditionally so main.rs can validate --socket-mode/GRAPH_SERVICE_SOCKET_MODE
+// up front on every platform, even though the mode itself is only applied by
+// serve_uds on unix.
+pub use transport::parse_unix_socket_mode;
 
 #[cfg(test)]
 mod tests {
