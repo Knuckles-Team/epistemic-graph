@@ -1,26 +1,37 @@
-name: Release Build (wheels + multi-arch image)
+name: Release
 
-# Cross-platform native build matrix for epistemic-graph (CONCEPT:OS-5.64 / EG-371).
+# ─────────────────────────────────────────────────────────────────────────
+# THE TWO-WORKFLOW MODEL (read this before adding a check to either file)
 #
-# BUILDS ONE native `epistemic-graph-server` wheel per platform×arch — the SINGLE
-# main full-featured build (CONCEPT:EG-371: `default` == `full`) — plus a multi-arch
-# Docker DB image, and smoke-tests each leg (`epistemic-graph-server --help`). Runs on
-# every push/PR and on tags. There are no longer any pi/pi-max/node/full-tiny tier legs:
-# the tiers were collapsed into one main build, which also removes the old wheel-filename
-# collision (every tier shared `epistemic_graph-<ver>-py3-none-<platform>`, so only one
-# could publish). ONE tier ⇒ ONE wheel ⇒ it publishes cleanly.
+# This repo ships exactly two GitHub Actions workflows:
 #
-# The multi-arch Docker DB image INSTALLS THE MAIN WHEEL BUILT IN THIS SAME RUN
-# (the `wheel-linux-*` artifacts, selected per-arch by the Dockerfile) via `uv` — no
-# cargo compile in the image AND no PyPI round-trip. It therefore depends only on the
-# `wheels` job, NOT on `publish-pypi`, so a broken/late PyPI publish can no longer break
-# the image build. It is still tag-gated: `docker-image` (build + in-image `--help`
-# smoke) and `publish-image` (push) both run on a `v*` tag only.
+#   release.yml (THIS FILE) — the ONLY workflow that can block a release.
+#     Jobs are wired strictly `needs:` so a failure names its stage at a
+#     glance: gates -> build -> docker-image -> publish-pypi/publish-image.
+#     "Release-critical" is deliberately narrow: secret-history scanning,
+#     the test suite, and wheel build + reproducibility + release-contract +
+#     wheel-privacy checks. NOTHING else may block publishing — if you are
+#     tempted to add a step here, it almost certainly belongs in
+#     advisory.yml instead.
 #
-# PUBLISHING IS GATED. The PyPI upload, the image build, and the DockerHub/registry
-# push only run on a tag (release) AND carry an explicit `if:` guard, so a normal
-# branch push (including this one) BUILDS + SMOKE-TESTS the wheels but never
-# publishes and never builds the image. Push a `v*` tag to trigger the full release.
+#   advisory.yml — everything else. The architecture/documentation-contract
+#     gates, lint (clippy/rustfmt), the feature-build matrix, and the perf
+#     benchmark + recall-regression gate. Every step there runs with
+#     `continue-on-error: true` so debt is visible (red step, annotation,
+#     job summary) but never blocks a release.
+#
+# This repo did NOT have agent-utilities' `workflow_run` problem (this file
+# already triggered directly on `push`/`tags`), so this redesign is a pure
+# fold-and-reclassify of rust-ci.yml + the old release-build.yml into the
+# two-workflow shape, plus one genuinely new addition: secret-history
+# scanning (previously not wired into ANY CI here at all).
+#
+# eg's wheel-digest-mismatch reproducibility bug is being fixed by a
+# different, separate track of work. Nothing in this redesign touches wheel
+# build/determinism LOGIC — the `build` job below is the former release-build
+# `wheels` job, byte-for-byte, just re-triggered by `needs: gates` instead of
+# being a top-level job on the same triggers.
+# ─────────────────────────────────────────────────────────────────────────
 
 on:
   push:
@@ -30,7 +41,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: release-build-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -38,6 +49,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
   # Resource-constrained release builders must never fan native compilation out.
   CARGO_BUILD_JOBS: "1"
   CARGO_INCREMENTAL: "0"
@@ -48,10 +60,112 @@ env:
   MATURIN_FEATURES: "full,ast-extended"
 
 jobs:
-  # ── The ONE main wheel (CONCEPT:EG-371), built for every supported native target.
-  #    Each is the `default`/`full` build. ONE tier ⇒ ONE wheel per platform.
-  wheels:
+  # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # ---- Secret-history scan. NEW: this was previously not wired into
+      # any CI in this repo at all (no equivalent of agent-utilities'
+      # D-CIP-13 gate existed here). See scripts/security/check_secret_history.py
+      # and secret_history_baseline.txt (the baseline was seeded once, by
+      # hand, against a 300-commit sample of real history during this
+      # redesign, so the gate ships already-clean rather than immediately
+      # red).
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Secret-history scan
+        run: |
+          set -euo pipefail
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "${BASE:-}" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            if git rev-parse --verify --quiet HEAD~1 >/dev/null; then
+              BASE="HEAD~1"
+            else
+              BASE="$(git rev-list --max-parents=0 HEAD)"
+            fi
+          fi
+          echo "Scanning ${BASE}..HEAD for credential-shaped content"
+          python3 scripts/security/check_secret_history.py --base "$BASE"
+
+      # ---- THE test suite: byte-for-byte the cargo test steps from the
+      # former rust-ci.yml `lint-and-test` job (fmt/clippy/architecture gates
+      # moved to advisory.yml — see that file), plus protocol-parity and
+      # numeric-parity, which are also genuinely test suites (pytest-based
+      # parity tests over the wire protocol and the compiled numeric
+      # kernel), combined into one job so a correctness regression fails
+      # fast, before the 5-platform wheel matrix in `build` ever runs.
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Test (lower crates, all features)
+        run: cargo test -p eg-types -p eg-core -p eg-compute --all-features
+      - name: Test (facade full)
+        run: cargo test -p epistemic-graph --features full
+      # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
+      # of the parallel run above (a concurrent sibling's 256MB blob inflates the
+      # shared RSS past the cap). Run them here in isolation — serial + ignored — so
+      # the memory-regression coverage stays in CI without the parallel pollution.
+      - name: Test (memory-regression — RSS bounds, isolated)
+        run: cargo test -p epistemic-graph --features full bounded_memory -- --ignored --test-threads=1
+      - name: Test (slim server — gated-out methods return the not-built error)
+        run: cargo test -p epistemic-graph --no-default-features --features server
+      # DE7 (durable-execution-native.md): replay-determinism crash-and-reopen
+      # proofs for eg-jobs/eg-statechart.
+      - name: Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)
+        run: cargo test -p eg-jobs -p eg-statechart --test replay_determinism
+      # The fuzz + concurrency-chaos proptest suite (long random valid pipelines,
+      # snapshot-isolation under contention) — a correctness test, kept here
+      # (release-critical) rather than moving with the rest of the former
+      # `benchmarks` job (which is a perf/recall gate and belongs in
+      # advisory.yml).
+      - name: Query-pipeline fuzz + chaos (eg-plan)
+        run: cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines
+
+      - name: Install pytest
+        run: pip install pytest
+      - name: Epistemic Operations manifest ⇄ Rust DTO parity
+        run: python3 scripts/check_epistemic_operations_protocol.py
+      - name: Protocol parity (Python client ⇄ Rust Method enum)
+        run: python -m pytest tests/test_protocol_parity.py --noconftest -q
+
+      # numeric-parity: builds + installs the eg-numeric Surface-A pyo3 wheel
+      # and proves EVERY kernel op matches its numpy reference. Python 3.12
+      # is inside pyo3-0.22's native support window.
+      - name: Install maturin + parity deps
+        run: pip install 'maturin>=1,<2' numpy pytest
+      - name: Configure identity-neutral Rust source paths
+        run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV"
+      - name: Build eg-numeric Surface-A wheel (feature python)
+        run: maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out target/wheels
+      - name: Normalize build-local SBOM references
+        run: python scripts/normalize_wheel_sbom.py target/wheels/*.whl
+      - name: Normalize retained native build paths
+        run: python scripts/normalize_wheel_build_paths.py target/wheels/*.whl
+      - name: Audit numeric wheel for retained build identity
+        run: python scripts/check_wheel_privacy.py target/wheels/*.whl
+      - name: Install the wheel
+        run: pip install --no-index --find-links target/wheels eg-numeric
+      - name: numpy-parity gate (compiled kernel vs numpy)
+        run: python -m pytest crates/eg-numeric/tests/test_kernel_parity.py --noconftest -q
+
+  # ── STAGE 2: the ONE main wheel (CONCEPT:EG-371), built for every
+  # supported native target — release-critical item: wheel build +
+  # reproducibility + release-contract + wheel-privacy checks. Needs: gates.
+  # UNCHANGED from the former release-build.yml `wheels` job (this is where
+  # a separate track is fixing the wheel-digest-reproducibility bug — do not
+  # change this job's build/determinism logic here).
+  build:
     name: wheel ${{ matrix.name }}
+    needs: gates
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -295,34 +409,20 @@ jobs:
   # size-optimized "contains-all" tier wheels (`wheels-full-tiny`) are GONE. Those legs
   # existed only because the deployment tiers produced DIFFERENT binaries that all shared
   # the SAME wheel filename (`epistemic_graph-<ver>-py3-none-<platform>`), so only one
-  # could ever publish. The tiers are collapsed into ONE main build (the `wheels` job
+  # could ever publish. The tiers are collapsed into ONE main build (the `build` job
   # above), which is what publishes — no more per-tier legs, no more filename collision.
 
   # NOTE: the eg-numeric kernel is NO LONGER a separately-published package. Its
   # Surface-A pyo3 `.so` is FOLDED INTO the `epistemic-graph` main wheel in the
-  # `wheels` job above (see "Fold the eg-numeric Surface-A kernel INTO this same
-  # wheel"), so `pip install epistemic-graph[numeric]` provides
-  # `epistemic_graph.numeric` from ONE published package. The old `wheels-numeric` +
-  # `sdist-numeric` publish legs (and their re-upload of a fixed `eg-numeric==0.1.0`
-  # that aborted the whole `twine upload` batch) are removed. The EG-346 numeric-parity
-  # CI gate still builds/imports the kernel from the crate in `rust-ci.yml` — that
-  # doesn't publish.
+  # `build` job above, so `pip install epistemic-graph[numeric]` provides
+  # `epistemic_graph.numeric` from ONE published package.
 
   # ── Multi-arch Docker DB image (BUILD + in-image `--help` smoke; no push).
-  #    The image INSTALLS THE MAIN WHEEL BUILT IN THIS SAME RUN (downloaded
-  #    from the `wheel-linux-*` artifacts into docker/wheels/, selected per-arch by the
-  #    Dockerfile) — NO PyPI round-trip — so it depends only on `wheels`, NOT on
-  #    publish-pypi. The Dockerfile's in-build `epistemic-graph-server --help` is the
-  #    smoke (runs per-arch under QEMU).
+  #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip — so it
+  #    depends only on `build`. Tag-gated: only builds on a `v*` tag.
   docker-image:
-    # Builds the multi-arch image from the wheel BUILT IN THIS RUN (the `wheel-linux-*`
-    # artifacts → docker/wheels/, selected per-arch by the Dockerfile) — NO PyPI
-    # round-trip — so it depends only on `wheels`, NOT publish-pypi. Installing the
-    # just-published wheel FROM PyPI raced CDN propagation across the slow arm64/QEMU
-    # leg and flaked; the local CI wheel is deterministic (matches publish-image below).
-    needs: [wheels]
+    needs: [build]
     runs-on: ubuntu-latest
-    # GATE: tag push only (keeps CI cost down; the wheels themselves build on every push).
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       contents: read
@@ -337,8 +437,6 @@ jobs:
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Derive package version from tag
         run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-      # Pull the CI-built wheels into docker/wheels/ so the Dockerfile installs the LOCAL
-      # per-arch wheel (EG_WHEEL_DIR) instead of round-tripping PyPI (same as publish-image).
       - name: Download wheel (amd64)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -349,10 +447,6 @@ jobs:
         with:
           name: wheel-linux-aarch64
           path: docker/wheels
-
-      # BUILD multi-arch (amd64+arm64) from the CI-built wheels in docker/wheels/ — the
-      # Dockerfile picks the per-arch wheel, no PyPI. push:false = build + in-image
-      # `--help` smoke only; publish-image below pushes.
       - name: Build multi-arch image (install CI-built wheel; no PyPI)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -365,37 +459,21 @@ jobs:
           tags: epistemic-graph:ci
 
   # ─────────────────────────────────────────────────────────────────────────
-  # PUBLISH JOBS — GATED. These only run on a `v*` tag (a release). On a normal
-  # branch push or PR they are SKIPPED entirely by the `if:` guard, so nothing is
-  # published by this push.
+  # PUBLISH — GATED to a `v*` tag only; skipped entirely on a normal branch
+  # push or PR. Needs: build, so publishing is unreachable if `gates` or
+  # `build` failed.
   # ─────────────────────────────────────────────────────────────────────────
   publish-pypi:
     name: Publish wheels to PyPI (release only)
-    # ONE published package (CONCEPT:EG-371): the single main `epistemic-graph` wheel per
-    # platform (Linux x86_64/aarch64, Windows x86_64, macOS arm64/x86_64), each
-    # carrying the folded-in numeric kernel. No sdist is published: a generic source
-    # archive cannot contain the per-platform kernel and would violate the full-wheel
-    # invariant by silently producing a server-only installation. Now that the
-    # pi/pi-max/node/full-tiny tier legs are gone, there is exactly ONE wheel per
-    # platform — the old wheel-filename collision (every tier shared
-    # `epistemic_graph-<ver>-py3-none-<platform>`, so only one could publish) is moot. The
-    # old `eg-numeric` publish legs are also gone — their re-upload of an existing
-    # `eg-numeric==0.1.0` used to abort the whole `twine upload dist/*` batch.
-    needs: [wheels]
+    needs: [build]
     runs-on: ubuntu-latest
-    # GATE: tag push only. A branch push / PR does NOT publish.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       contents: read
     steps:
-      # The completeness gate below runs from the repo's `scripts/`, so this job
-      # needs the checkout it previously did without.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-      # Download every supported wheel — each carries the folded numeric kernel.
-      # With the tiers collapsed there is exactly ONE wheel per platform, so
-      # there is no longer any filename-shadowing risk between tier wheels.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: wheel-linux-x86_64
@@ -419,20 +497,10 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
-      # Token-based upload — the SAME mechanism the rest of the fleet publishes with
-      # (agents/*, agent-webui) via the org `PYPI_API_TOKEN`. ONE robust upload of
-      # EVERYTHING in dist/ (every supported epistemic-graph wheel), matching
-      # agent-webui's `twine upload dist/*`. A single `dist/*` avoids the previous
-      # failure mode where a per-name glob (`dist/epistemic_graph-*`) combined with
-      # `--skip-existing` could silently no-op if a dist was mis-named/mis-versioned
-      # and the step would still pass green having published nothing.
       # ── THE PUBLISH BOUNDARY GATE. Every wheel about to be uploaded must carry the
       #    folded numeric kernel, an EXECUTABLE server binary, the full python surface,
       #    and a self-consistent RECORD. This runs on the DOWNLOADED artifacts, so it
-      #    catches an incomplete wheel no matter which upstream step regressed — a
-      #    skipped inject, a reordered job, a renamed artifact, a re-added tier leg.
-      #    Published 2.14.0-2.23.0 all shipped kernel-less through a green pipeline
-      #    precisely because no step ever inspected what it was about to publish.
+      #    catches an incomplete wheel no matter which upstream step regressed.
       - name: Require every distribution to be complete before upload
         run: |
           python -m pip install --upgrade pip
@@ -454,11 +522,6 @@ jobs:
       # PyPI. `--skip-existing` (and any token-scope / name mismatch) can make the
       # upload step pass without publishing the tag version; this step asserts the
       # exact tag version is now queryable on PyPI, retrying for CDN propagation lag.
-      # VER is derived from the tag (`vX.Y.Z` -> `X.Y.Z`); it MUST equal the built
-      # wheel version (Cargo.toml, sourced via pyproject `dynamic = ["version"]`).
-      # If epistemic-graph is owned by a different PyPI account than PYPI_API_TOKEN,
-      # the upload is skipped/denied and THIS step fails loudly (correct) — the token
-      # must be granted maintainer access to the `epistemic-graph` project.
       - name: Verify epistemic-graph ${{ github.ref_name }} is published on PyPI
         run: |
           VER="${GITHUB_REF_NAME#v}"
@@ -468,10 +531,6 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || echo 000)
             if [ "$code" = "200" ]; then
               echo "OK: epistemic-graph ${VER} is published (PyPI returned 200)."
-              # A 200 proves the version is queryable, NOT that it is usable. Pull the
-              # wheel PyPI actually serves and re-run the completeness gate on it — the
-              # only check that can see what a `pip install` will really get. Without
-              # this, a kernel-less release (2.14.0-2.23.0) passes every gate green.
               python -m pip download --no-deps --only-binary :all: \
                 "epistemic-graph==${VER}" -d pypi-verify
               python scripts/check_wheel_completeness.py pypi-verify/*.whl
@@ -489,11 +548,8 @@ jobs:
 
   publish-image:
     name: Push multi-arch image (release only)
-    # Needs docker-image (the build+smoke gate). Like docker-image, the pushed image
-    # installs the wheel built in THIS run (from docker/wheels/), NOT a PyPI package.
     needs: [docker-image]
     runs-on: ubuntu-latest
-    # GATE: tag push only. A branch push / PR does NOT push the image.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     environment: release
     permissions:
@@ -507,8 +563,6 @@ jobs:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Derive package version from tag
         run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-      # Pull the same main wheels into the context so the pushed image is built
-      # from the CI artifact (no PyPI round-trip), matching docker-image.
       - name: Download main wheel (amd64)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -519,10 +573,6 @@ jobs:
         with:
           name: wheel-linux-aarch64
           path: docker/wheels
-      # Org-standard registry auth — the SAME secrets the reusable
-      # pipelines/.github/workflows/container_pipeline.yml (and images/*) use across
-      # the fleet: DOCKER_REGISTRY / DOCKER_USERNAME / DOCKER_PASSWORD. (Do NOT use
-      # DOCKERHUB_USERNAME/DOCKERHUB_TOKEN — those are unset in this org.)
       - name: Log in to registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
