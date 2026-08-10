@@ -276,6 +276,12 @@ const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "Sql",
     "TouchNodes",
     "UpdateResourceHost",
+    "ReserveDevelopmentLane",
+    "RenewDevelopmentLane",
+    "ObserveDevelopmentLane",
+    "FinishDevelopmentLane",
+    "CleanupDevelopmentLane",
+    "UpdateDevelopmentLaneQuota",
 ];
 
 /// Mirrors `src/mutation_apply.rs::is_durable_mutation`'s message-broker/stream true set.
@@ -404,6 +410,12 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "SweepExpired",
     "UnbindQueue",
     "UpdateResourceHost",
+    "ReserveDevelopmentLane",
+    "RenewDevelopmentLane",
+    "ObserveDevelopmentLane",
+    "FinishDevelopmentLane",
+    "CleanupDevelopmentLane",
+    "UpdateDevelopmentLaneQuota",
     #[cfg(feature = "modality-serving")]
     "ServedModality",
 ];
@@ -813,6 +825,29 @@ fn native_resource_mutations_are_audited_but_not_cdc() {
     }
 }
 
+#[test]
+fn development_lane_cleanup_has_a_distinct_least_privilege_scope() {
+    let policy = |method: &str| {
+        eg_capabilities::ALL_METHODS
+            .iter()
+            .find(|(name, _, _)| *name == method)
+            .map(|(_, policy, _)| policy)
+            .unwrap_or_else(|| panic!("missing development-lane policy: {method}"))
+    };
+    assert_eq!(
+        policy("ReserveDevelopmentLane").authz_action,
+        "lane:reserve"
+    );
+    assert_eq!(
+        policy("CleanupDevelopmentLane").authz_action,
+        "lane:cleanup"
+    );
+    assert_eq!(
+        policy("UpdateDevelopmentLaneQuota").authz_action,
+        "lane:quota"
+    );
+}
+
 /// Not a pass/fail gate -- prints the full audit findings so `cargo test -p eg-capabilities
 /// -- --nocapture` surfaces them for a human. This is the "valuable audit output" the task
 /// brief asks for.
@@ -892,7 +927,9 @@ fn all_methods_table_has_the_expected_variant_count() {
     // Plus D-DPF-1 `GetNeighborsBatch` (the batch sibling of `GetNeighbors`,
     // unconditional -- closes the engine-side N+1 on multi-node neighbor
     // reads): 368 + 1 = 369.
-    let expected = 369
+    // The git-verified zero-feature baseline is 375 unconditional rows; RMDD-28
+    // adds eight native development-lane methods, yielding 383.
+    let expected = 383
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
