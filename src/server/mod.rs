@@ -669,16 +669,115 @@ mod tests {
 
     /// State with worker1/worker2 (team alpha) + their manager registered, and
     /// per-agent + team graphs created with real owners.
+    ///
+    /// RBAC (CONCEPT:EG-KG.compute.feature) is the mandatory current access decision
+    /// under `feature = "security"` (`isolation.rs::check_access`) — there is no
+    /// pre-RBAC owner/manager/team ACL fall-through any more. This fixture used to
+    /// register worker1/worker2/manager with `roles: vec![]`, which meant the
+    /// RBAC evaluator always returned default-deny for them regardless of the
+    /// owner/manager/team relationships still asserted below; the relationships
+    /// have to be expressed as explicit RBAC grants now, replicating the retired
+    /// ACL semantics one for one (owner full R/W on their own graph, manager
+    /// full R/W on subordinate agent graphs, team members read/manager write on
+    /// the team graph, every registered agent read-only on `global:*` and R/W on
+    /// the open `__commons__` bus).
     async fn multi_tenant_state() -> Arc<RwLock<ServerState>> {
         let state = test_state();
         {
             let mut s = state.write().await;
+            #[cfg(feature = "security")]
+            {
+                use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+                s.isolation.add_role(Role::new("owner-worker1"));
+                s.isolation.add_role(Role::new("owner-worker2"));
+                s.isolation.add_role(Role::new("manager-of-alpha"));
+                s.isolation.add_role(Role::new("team-alpha-member"));
+                s.isolation.add_role(Role::new("team-alpha-manager"));
+                s.isolation.add_role(Role::new("global-reader"));
+                s.isolation.add_role(Role::new("commons-user"));
+
+                let grant =
+                    |role: &str, resource: ResourceSelector, action: RbacAction| Grant {
+                        role: role.to_string(),
+                        resource,
+                        action,
+                        effect: GrantEffect::Allow,
+                    };
+                // Owner: full R/W on their own agent graph.
+                for (role, graph) in [
+                    ("owner-worker1", "agent:worker1"),
+                    ("owner-worker2", "agent:worker2"),
+                ] {
+                    s.isolation.add_grant(grant(
+                        role,
+                        ResourceSelector::Graph(graph.to_string()),
+                        RbacAction::Read,
+                    ));
+                    s.isolation.add_grant(grant(
+                        role,
+                        ResourceSelector::Graph(graph.to_string()),
+                        RbacAction::Write,
+                    ));
+                }
+                // Manager: full R/W on every subordinate's agent graph.
+                s.isolation.add_grant(grant(
+                    "manager-of-alpha",
+                    ResourceSelector::Pattern("agent:*".to_string()),
+                    RbacAction::Read,
+                ));
+                s.isolation.add_grant(grant(
+                    "manager-of-alpha",
+                    ResourceSelector::Pattern("agent:*".to_string()),
+                    RbacAction::Write,
+                ));
+                // Team: members read, manager R/W.
+                s.isolation.add_grant(grant(
+                    "team-alpha-member",
+                    ResourceSelector::Graph("team:alpha".to_string()),
+                    RbacAction::Read,
+                ));
+                s.isolation.add_grant(grant(
+                    "team-alpha-manager",
+                    ResourceSelector::Graph("team:alpha".to_string()),
+                    RbacAction::Read,
+                ));
+                s.isolation.add_grant(grant(
+                    "team-alpha-manager",
+                    ResourceSelector::Graph("team:alpha".to_string()),
+                    RbacAction::Write,
+                ));
+                // Global: read-only for every agent.
+                s.isolation.add_grant(grant(
+                    "global-reader",
+                    ResourceSelector::Pattern("global:*".to_string()),
+                    RbacAction::Read,
+                ));
+                // Bus: all authenticated agents have full access.
+                s.isolation.add_grant(grant(
+                    "commons-user",
+                    ResourceSelector::Graph("__commons__".to_string()),
+                    RbacAction::Read,
+                ));
+                s.isolation.add_grant(grant(
+                    "commons-user",
+                    ResourceSelector::Graph("__commons__".to_string()),
+                    RbacAction::Write,
+                ));
+            }
             s.isolation.register_agent(AgentIdentity {
                 agent_id: "manager".into(),
                 role: AgentRole::Manager {
                     subordinates: vec!["worker1".into(), "worker2".into()],
                 },
                 teams: vec!["alpha".into()],
+                #[cfg(feature = "security")]
+                roles: vec![
+                    "manager-of-alpha".into(),
+                    "team-alpha-manager".into(),
+                    "global-reader".into(),
+                    "commons-user".into(),
+                ],
+                #[cfg(not(feature = "security"))]
                 roles: vec![],
             });
             for w in ["worker1", "worker2"] {
@@ -686,6 +785,14 @@ mod tests {
                     agent_id: w.into(),
                     role: AgentRole::Agent,
                     teams: vec!["alpha".into()],
+                    #[cfg(feature = "security")]
+                    roles: vec![
+                        format!("owner-{w}"),
+                        "team-alpha-member".into(),
+                        "global-reader".into(),
+                        "commons-user".into(),
+                    ],
+                    #[cfg(not(feature = "security"))]
                     roles: vec![],
                 });
             }
@@ -2131,8 +2238,30 @@ mod tests {
 
     #[tokio::test]
     async fn test_anonymous_denied_when_rules_exist() {
+        // Deliberately NOT `request(.., None, ..)`: that helper's `agent_id`
+        // defaults `None` to `"system"` (`agent_id.unwrap_or("system")`), which
+        // is the one identity `check_access` unconditionally bypasses
+        // (`AgentRole::System`) — so it silently resolves an "anonymous" caller
+        // to the single MOST privileged identity in the fixture, structurally
+        // making this test unable to observe a real denial. ~30 other call
+        // sites rely on that same `None` default to reach `__commons__`/
+        // `__ingest__` as "some already-registered, already-permitted agent",
+        // so the default can't change without breaking them (this repo's own
+        // "there is no anonymous/trust fallback" posture — see
+        // `src/server/mod.rs:73`, `mysql_wire/auth.rs`, `pgwire/auth.rs` —
+        // means a *truly* unauthenticated caller is rejected before it ever
+        // reaches dispatch, so there is nothing generic to fix in `request()`
+        // itself). What this test needs is an agent id that is well-formed and
+        // signs a valid envelope but was never provisioned via
+        // `register_agent`/RBAC — i.e. genuinely anonymous from
+        // `check_access`'s point of view (`self.agents.get(agent_id)` misses,
+        // first line, before any RBAC evaluation).
         let state = multi_tenant_state().await;
-        let resp = dispatch_on_heap(&state, request(1, "agent:worker1", None, Method::GetNodes)).await;
+        let resp = dispatch_on_heap(
+            &state,
+            request(1, "agent:worker1", Some("unregistered-anonymous-caller"), Method::GetNodes),
+        )
+        .await;
         assert_denied(&resp);
     }
 
@@ -3627,6 +3756,28 @@ mod tests {
     #[tokio::test]
     async fn test_add_triples_then_get_rdf_round_trips() {
         let state = test_state();
+        // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): `AddTriples` fails closed
+        // unless the target graph has a registered integrity policy —
+        // `icv_guard::check_before_write` rejects BEFORE any RDF write lands when
+        // `core.integrity_policy()` is `None`. Register a permissive (empty
+        // shapes) enforcing policy first so this round-trip test exercises the
+        // load/serialize path, not the guard.
+        assert_ok(
+            &dispatch_on_heap(
+                &state,
+                request(
+                    0,
+                    "__commons__",
+                    None,
+                    Method::IcvConfigure {
+                        graph: None,
+                        mode: "enforce".to_string(),
+                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+                    },
+                ),
+            )
+            .await,
+        );
         let ttl = r#"
 @prefix ex: <http://example.org/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
@@ -3674,6 +3825,25 @@ ex:bob   a ex:Person ; ex:name "Bob"@en .
     #[tokio::test]
     async fn test_sparql_method_round_trips() {
         let state = test_state();
+        // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
+        // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
+        // closed without a registered integrity policy.
+        assert_ok(
+            &dispatch_on_heap(
+                &state,
+                request(
+                    0,
+                    "__commons__",
+                    None,
+                    Method::IcvConfigure {
+                        graph: None,
+                        mode: "enforce".to_string(),
+                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+                    },
+                ),
+            )
+            .await,
+        );
         let ttl = r#"
 @prefix ex: <http://example.org/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
@@ -3738,6 +3908,25 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[tokio::test]
     async fn test_owl_reason_method_round_trips() {
         let state = test_state();
+        // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
+        // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
+        // closed without a registered integrity policy.
+        assert_ok(
+            &dispatch_on_heap(
+                &state,
+                request(
+                    0,
+                    "__commons__",
+                    None,
+                    Method::IcvConfigure {
+                        graph: None,
+                        mode: "enforce".to_string(),
+                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+                    },
+                ),
+            )
+            .await,
+        );
         // TBox + one individual, loaded as RDF; HumanHeart ⊑ HumanComponent is derived
         // through ∃partOf.Body on the LHS — RL cannot reach it.
         let ttl = r#"
@@ -3807,6 +3996,25 @@ ex:myHeart a ex:HumanHeart .
     #[tokio::test]
     async fn test_owl_explain_method_round_trips() {
         let state = test_state();
+        // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
+        // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
+        // closed without a registered integrity policy.
+        assert_ok(
+            &dispatch_on_heap(
+                &state,
+                request(
+                    0,
+                    "__commons__",
+                    None,
+                    Method::IcvConfigure {
+                        graph: None,
+                        mode: "enforce".to_string(),
+                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+                    },
+                ),
+            )
+            .await,
+        );
         let ttl = r#"
 @prefix ex:  <http://example.org/> .
 @prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
@@ -4042,6 +4250,25 @@ ex:p1 a ex:Paper .
                     .await,
                 );
             }
+            // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
+            // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
+            // closed without a registered integrity policy, per-graph.
+            assert_ok(
+                &dispatch_on_heap(
+                    &state,
+                    request(
+                        9,
+                        g,
+                        None,
+                        Method::IcvConfigure {
+                            graph: None,
+                            mode: "enforce".to_string(),
+                            shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+                        },
+                    ),
+                )
+                .await,
+            );
             assert_ok(
                 &dispatch_on_heap(
                     &state,
