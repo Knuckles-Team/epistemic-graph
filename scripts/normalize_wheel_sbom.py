@@ -6,6 +6,33 @@ but those references contain the absolute checkout used for the build. Rust's
 ``--remap-path-prefix`` cannot affect metadata generated outside rustc, so release
 wheels pass through this semantic normalizer before the privacy audit.
 
+This module ALSO neutralizes the two CycloneDX fields that maturin's bundled
+``cargo-cyclonedx`` regenerates fresh on every invocation regardless of source
+content: the document's ``serialNumber`` (a random ``urn:uuid:`` per RFC 4122,
+never derived from the BOM's own content) and ``metadata.timestamp`` (real
+wall-clock time, not gated on ``SOURCE_DATE_EPOCH`` the way rustc's own
+``--remap-path-prefix``/embedded-path handling is). Two builds from the
+identical source revision therefore emit two SBOM documents that are
+semantically identical but byte-different in exactly those two fields --
+verified directly: a trivial ``maturin new -b bin`` project built twice back to
+back produces wheels differing ONLY in
+``<pkg>.dist-info/sboms/<pkg>.cyclonedx.json`` (and the ``RECORD`` row that
+hashes it), with `serialNumber` and `metadata.timestamp` the sole two JSON
+fields that differ; the compiled console-binary member is bit-for-bit
+identical. This is THE root cause behind eg's "release wheel digest mismatch"
+release-blocker, not a compiled-artifact/Rust-flags issue.
+
+The fix: ``metadata.timestamp`` is rewritten from ``SOURCE_DATE_EPOCH`` when
+present (mirroring what a fully source-date-epoch-aware SBOM generator would
+already do), and ``serialNumber`` is replaced with a UUIDv5 derived from a
+canonical, path-normalized snapshot of the REST of the document (every field
+except ``serialNumber`` and ``metadata.timestamp`` -- i.e. actual BOM content:
+components, dependencies, tool versions, bom-refs). Two builds of the same
+source therefore emit the exact same serial number; a real content change
+(a dependency bump, a different target) still changes it, preserving
+CycloneDX's per-BOM-identity intent instead of merely freezing it to a
+constant.
+
 Only JSON documents below ``.dist-info/sboms`` are modified. Cross-references
 remain consistent, wheel member modes/timestamps are preserved, and ``RECORD`` is
 rebuilt from the resulting bytes. Concrete prefixes are held in memory and are
@@ -23,8 +50,10 @@ import json
 import os
 import re
 import sys
+import uuid
 import zipfile
 from collections.abc import Iterable, Mapping, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -32,6 +61,13 @@ try:
     from configure_rust_path_remap import path_remaps
 except ModuleNotFoundError:  # imported as ``scripts.normalize_wheel_sbom`` in tests
     from scripts.configure_rust_path_remap import path_remaps
+
+# Fixed, arbitrary namespace for the content-derived ``serialNumber`` UUIDv5
+# (RFC 4122 ยง4.3). Computed once as
+# ``uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/epistemic-graph/epistemic-graph#dist-info-sboms-serial-namespace")``
+# and hardcoded so it is stable across every future run, host, and Python
+# version -- the whole point is that this constant never changes.
+_SERIAL_NAMESPACE = uuid.UUID("6723ca6e-8164-5345-8b87-a0696dff7b0d")
 
 _PATH_FILE_URI = re.compile(
     r"^path\+file://(?P<location>[^#]*)(?P<suffix>#.*)?$", re.DOTALL
@@ -169,6 +205,68 @@ def _normalize_document(
     return value
 
 
+def _epoch_timestamp(environ: Mapping[str, str]) -> str | None:
+    """Return an RFC3339 UTC timestamp derived from ``SOURCE_DATE_EPOCH``, if set."""
+
+    raw = environ.get("SOURCE_DATE_EPOCH")
+    if raw is None:
+        return None
+    try:
+        epoch = int(raw)
+    except ValueError:
+        return None
+    return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _without_identity_fields(document: Mapping[str, object]) -> dict[str, object]:
+    """Return the document sans the two fields that never reflect BOM content."""
+
+    fingerprint = {key: value for key, value in document.items() if key != "serialNumber"}
+    metadata = fingerprint.get("metadata")
+    if isinstance(metadata, Mapping) and "timestamp" in metadata:
+        fingerprint["metadata"] = {
+            key: value for key, value in metadata.items() if key != "timestamp"
+        }
+    return fingerprint
+
+
+def _normalize_identity(
+    document: object,
+    environ: Mapping[str, str],
+) -> object:
+    """Replace maturin/cargo-cyclonedx's per-run ``serialNumber``/timestamp.
+
+    Both fields are regenerated fresh on every ``cargo-cyclonedx`` invocation
+    regardless of source content (a random UUID and wall-clock time
+    respectively), so they are the sole source of the "release wheel digest
+    mismatch" between two builds of the identical revision. ``timestamp`` is
+    pinned to ``SOURCE_DATE_EPOCH`` when available; ``serialNumber`` is
+    replaced with a UUIDv5 derived from every OTHER field, so it stays a
+    genuine content fingerprint (changes when the BOM's real content changes)
+    while being exactly reproducible across two builds of the same revision.
+    """
+
+    if not isinstance(document, dict):
+        return document
+
+    document = dict(document)
+    metadata = document.get("metadata")
+    epoch_timestamp = _epoch_timestamp(environ)
+    if isinstance(metadata, dict) and "timestamp" in metadata and epoch_timestamp:
+        document["metadata"] = {**metadata, "timestamp": epoch_timestamp}
+
+    serial = document.get("serialNumber")
+    if isinstance(serial, str) and serial.startswith("urn:uuid:"):
+        fingerprint = _without_identity_fields(document)
+        canonical = json.dumps(
+            fingerprint, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        derived = uuid.uuid5(_SERIAL_NAMESPACE, canonical)
+        document["serialNumber"] = f"urn:uuid:{derived}"
+
+    return document
+
+
 def normalize_sbom_bytes(
     data: bytes,
     *,
@@ -180,6 +278,7 @@ def normalize_sbom_bytes(
     roots = _root_aliases(env, checkout=checkout)
     external = _external_locations(document, roots)
     normalized = _normalize_document(document, roots, external)
+    normalized = _normalize_identity(normalized, env)
     return (
         json.dumps(
             normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":")
