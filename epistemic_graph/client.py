@@ -1886,6 +1886,860 @@ class WorkItemClient:
         )
 
 
+# CONCEPT:EG-KG.txn.per-graph-write-isolation — RMDD-28 native development-lane hold
+# vocabulary/validators, mirroring the ``WorkItemClient`` validation style
+# above field-for-field against the frozen RMDD-28 protocol
+# (``crates/eg-types/src/epistemic_operations.rs`` / ``protocol.rs``).
+_DEVELOPMENT_LANE_DECISIONS = frozenset(
+    {
+        "accepted",
+        "idempotent",
+        "stale",
+        "conflict",
+        "input_conflict",
+        "quota",
+        "policy",
+        "drained",
+        "not_found",
+        "wrong_kind",
+        "wrong_tenant",
+        "wrong_owner",
+        "wrong_attempt",
+        "wrong_lease_epoch",
+        "wrong_fence",
+        "expired",
+        "terminal",
+        "cleanup_required",
+        "exclusivity",
+        "invalid",
+    }
+)
+
+_DEVELOPMENT_LANE_QUOTA_DECISIONS = frozenset(
+    {
+        "accepted",
+        "idempotent",
+        "stale",
+        "conflict",
+        "quota",
+        "policy",
+        "drained",
+        "invalid",
+    }
+)
+
+_DEVELOPMENT_LANE_HOST_TARGET_KINDS = frozenset({"local", "inventory_alias"})
+
+_DEVELOPMENT_LANE_HOLD_STATES = frozenset(
+    {
+        "allocating",
+        "active",
+        "submitted",
+        "released",
+        "expired",
+        "cleanup_pending",
+        "cleaned",
+        "aborted",
+        "absent",
+    }
+)
+
+_DEVELOPMENT_LANE_TERMINAL_STATES = frozenset(
+    {"succeeded", "failed", "cancelled", "dead_letter"}
+)
+
+
+def _development_lane_decision(name: str, value: Any) -> str:
+    if value not in _DEVELOPMENT_LANE_DECISIONS:
+        raise ValueError(f"{name} is not a valid development-lane decision")
+    return cast(str, value)
+
+
+def _development_lane_quota_charge(name: str, value: Any) -> dict[str, Any]:
+    charge = _exact_mapping(
+        name,
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "tenant_count",
+                "owner_count",
+                "session_count",
+                "workspace_count",
+                "repository_count",
+                "host_count",
+                "global_count",
+                "tenant_predicted_disk_bytes",
+                "owner_predicted_disk_bytes",
+                "session_predicted_disk_bytes",
+                "workspace_predicted_disk_bytes",
+                "repository_predicted_disk_bytes",
+                "host_predicted_disk_bytes",
+                "global_predicted_disk_bytes",
+                "tenant_observed_disk_bytes",
+                "owner_observed_disk_bytes",
+                "session_observed_disk_bytes",
+                "workspace_observed_disk_bytes",
+                "repository_observed_disk_bytes",
+                "host_observed_disk_bytes",
+                "global_observed_disk_bytes",
+                "tenant_retained_disk_bytes",
+                "owner_retained_disk_bytes",
+                "session_retained_disk_bytes",
+                "workspace_retained_disk_bytes",
+                "repository_retained_disk_bytes",
+                "host_retained_disk_bytes",
+                "global_retained_disk_bytes",
+                "revision",
+                "policy_revision",
+            }
+        ),
+    )
+    if charge["schema_version"] != "1":
+        raise ValueError(f"{name}.schema_version must be 1")
+    for field in charge:
+        if field == "schema_version":
+            continue
+        _integer(f"{name}.{field}", charge[field])
+    return charge
+
+
+def _development_lane_quota_policy(name: str, value: Any) -> dict[str, Any]:
+    policy = _exact_mapping(
+        name,
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "policy_name",
+                "policy_version",
+                "tenant_count_limit",
+                "owner_count_limit",
+                "session_count_limit",
+                "workspace_count_limit",
+                "repository_count_limit",
+                "host_count_limit",
+                "global_count_limit",
+                "tenant_predicted_disk_bytes",
+                "owner_predicted_disk_bytes",
+                "session_predicted_disk_bytes",
+                "workspace_predicted_disk_bytes",
+                "repository_predicted_disk_bytes",
+                "host_predicted_disk_bytes",
+                "global_predicted_disk_bytes",
+                "tenant_observed_disk_bytes",
+                "owner_observed_disk_bytes",
+                "session_observed_disk_bytes",
+                "workspace_observed_disk_bytes",
+                "repository_observed_disk_bytes",
+                "host_observed_disk_bytes",
+                "global_observed_disk_bytes",
+                "tenant_retained_disk_bytes",
+                "owner_retained_disk_bytes",
+                "session_retained_disk_bytes",
+                "workspace_retained_disk_bytes",
+                "repository_retained_disk_bytes",
+                "host_retained_disk_bytes",
+                "global_retained_disk_bytes",
+                "min_ttl_ms",
+                "max_ttl_ms",
+                "max_observation_staleness_ms",
+                "drain_only",
+            }
+        ),
+    )
+    if policy["schema_version"] != "1":
+        raise ValueError(f"{name}.schema_version must be 1")
+    _string(f"{name}.policy_name", policy["policy_name"])
+    _string(f"{name}.policy_version", policy["policy_version"])
+    for field in policy:
+        if field in ("schema_version", "policy_name", "policy_version", "drain_only"):
+            continue
+        _integer(f"{name}.{field}", policy[field])
+    _boolean(f"{name}.drain_only", policy["drain_only"])
+    return policy
+
+
+def _development_lane_intent(value: Any) -> dict[str, Any]:
+    intent = _exact_mapping(
+        "DevelopmentLaneIntent",
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "tenant_ref",
+                "request_id",
+                "lane_id",
+                "repository_id",
+                "base_ref",
+                "base_sha",
+                "branch",
+                "host_target_kind",
+                "host_target_alias",
+                "host_ref",
+                "resource_reservation_id",
+                "workspace_ref",
+                "worktree_locator",
+                "owner_id",
+                "session_id",
+                "fairness_group",
+                "quota_policy_name",
+                "quota_policy_version",
+                "predicted_disk_bytes",
+                "ttl_ms",
+                "input_fingerprint",
+            }
+        ),
+    )
+    if intent["schema_version"] != "1":
+        raise ValueError("DevelopmentLaneIntent.schema_version must be 1")
+    for field in (
+        "tenant_ref",
+        "request_id",
+        "lane_id",
+        "repository_id",
+        "base_ref",
+        "base_sha",
+        "branch",
+        "host_ref",
+        "resource_reservation_id",
+        "workspace_ref",
+        "worktree_locator",
+        "owner_id",
+        "session_id",
+        "fairness_group",
+        "quota_policy_name",
+        "quota_policy_version",
+        "input_fingerprint",
+    ):
+        _string(f"DevelopmentLaneIntent.{field}", intent[field])
+    if intent["host_target_kind"] not in _DEVELOPMENT_LANE_HOST_TARGET_KINDS:
+        raise ValueError("DevelopmentLaneIntent.host_target_kind is invalid")
+    if intent["host_target_alias"] is not None:
+        _string("DevelopmentLaneIntent.host_target_alias", intent["host_target_alias"])
+    _integer(
+        "DevelopmentLaneIntent.predicted_disk_bytes", intent["predicted_disk_bytes"]
+    )
+    _integer("DevelopmentLaneIntent.ttl_ms", intent["ttl_ms"], minimum=1)
+    return intent
+
+
+def _development_lane_hold(value: Any) -> dict[str, Any]:
+    hold = _exact_mapping(
+        "DevelopmentLaneHold",
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "hold_id",
+                "lane_id",
+                "tenant_ref",
+                "request_id",
+                "work_item_id",
+                "owner_id",
+                "session_id",
+                "fairness_group",
+                "workspace_ref",
+                "repository_id",
+                "base_ref",
+                "base_sha",
+                "branch",
+                "worktree_locator",
+                "host_target_kind",
+                "host_target_alias",
+                "host_ref",
+                "quota_policy_name",
+                "quota_policy_version",
+                "input_fingerprint",
+                "predicted_disk_bytes",
+                "observed_disk_bytes",
+                "retained_disk_bytes",
+                "active_count_charged",
+                "quota_charge",
+                "state",
+                "attempt",
+                "lease_epoch",
+                "fencing_token",
+                "work_item_fence",
+                "hold_revision",
+                "lifecycle_revision",
+                "allocation_revision",
+                "cleanup_revision",
+                "expires_at_ms",
+                "last_renewed_at_ms",
+                "cleanup_work_item_id",
+                "cleanup_work_item_fence",
+                "cleanup_attempt",
+                "cleanup_lease_epoch",
+                "cleanup_fencing_token",
+                "tombstone",
+            }
+        ),
+    )
+    if hold["schema_version"] != "1":
+        raise ValueError("DevelopmentLaneHold.schema_version must be 1")
+    for field in (
+        "hold_id",
+        "lane_id",
+        "tenant_ref",
+        "request_id",
+        "work_item_id",
+        "owner_id",
+        "session_id",
+        "fairness_group",
+        "workspace_ref",
+        "repository_id",
+        "base_ref",
+        "base_sha",
+        "branch",
+        "worktree_locator",
+        "host_ref",
+        "quota_policy_name",
+        "quota_policy_version",
+        "input_fingerprint",
+        "work_item_fence",
+    ):
+        _string(f"DevelopmentLaneHold.{field}", hold[field])
+    if hold["host_target_kind"] not in _DEVELOPMENT_LANE_HOST_TARGET_KINDS:
+        raise ValueError("DevelopmentLaneHold.host_target_kind is invalid")
+    if hold["host_target_alias"] is not None:
+        _string("DevelopmentLaneHold.host_target_alias", hold["host_target_alias"])
+    if hold["state"] not in _DEVELOPMENT_LANE_HOLD_STATES:
+        raise ValueError("DevelopmentLaneHold.state is invalid")
+    _development_lane_quota_charge(
+        "DevelopmentLaneHold.quota_charge", hold["quota_charge"]
+    )
+    for field in (
+        "predicted_disk_bytes",
+        "observed_disk_bytes",
+        "retained_disk_bytes",
+        "attempt",
+        "lease_epoch",
+        "fencing_token",
+        "hold_revision",
+        "lifecycle_revision",
+        "allocation_revision",
+        "cleanup_revision",
+        "expires_at_ms",
+        "last_renewed_at_ms",
+    ):
+        _integer(f"DevelopmentLaneHold.{field}", hold[field])
+    _boolean("DevelopmentLaneHold.active_count_charged", hold["active_count_charged"])
+    _boolean("DevelopmentLaneHold.tombstone", hold["tombstone"])
+    if hold["cleanup_work_item_id"] is not None:
+        _string(
+            "DevelopmentLaneHold.cleanup_work_item_id", hold["cleanup_work_item_id"]
+        )
+    if hold["cleanup_work_item_fence"] is not None:
+        _string(
+            "DevelopmentLaneHold.cleanup_work_item_fence",
+            hold["cleanup_work_item_fence"],
+        )
+    for field in ("cleanup_attempt", "cleanup_lease_epoch", "cleanup_fencing_token"):
+        if hold[field] is not None:
+            _integer(f"DevelopmentLaneHold.{field}", hold[field])
+    return hold
+
+
+def _development_lane_hold_result(name: str, value: Any) -> dict[str, Any]:
+    """Validate the shared result shape of reserve/renew/observe/finish/cleanup.
+
+    All five mutating RMDD-28 operations return the identical
+    ``{schema_version, decision, hold, hold_revision, lifecycle_revision,
+    tombstone, changed_work_item_ids, quota_charge}`` envelope.
+    """
+
+    result = _exact_mapping(
+        name,
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "decision",
+                "hold",
+                "hold_revision",
+                "lifecycle_revision",
+                "tombstone",
+                "changed_work_item_ids",
+                "quota_charge",
+            }
+        ),
+    )
+    if result["schema_version"] != "1":
+        raise ValueError(f"{name}.schema_version must be 1")
+    _development_lane_decision(f"{name}.decision", result["decision"])
+    if result["hold"] is not None:
+        _development_lane_hold(result["hold"])
+    _integer(f"{name}.hold_revision", result["hold_revision"])
+    _integer(f"{name}.lifecycle_revision", result["lifecycle_revision"])
+    _boolean(f"{name}.tombstone", result["tombstone"])
+    changed = result["changed_work_item_ids"]
+    if not isinstance(changed, list) or not all(
+        isinstance(item, str) for item in changed
+    ):
+        raise ValueError(f"{name}.changed_work_item_ids must be a list of strings")
+    if result["quota_charge"] is not None:
+        _development_lane_quota_charge(f"{name}.quota_charge", result["quota_charge"])
+    return result
+
+
+class DevelopmentLaneClient:
+    """Engine-native RMDD-28 development-lane hold/quota namespace.
+
+    Mirrors :class:`WorkItemClient` exactly in shape, error handling, and
+    capability negotiation: each method sends one ``{"request": ...}``
+    envelope for its Method name, strictly validates the request before
+    sending and the result after receiving (frozen protocol in
+    ``crates/eg-types/src/epistemic_operations.rs`` /
+    ``crates/eg-capabilities/src/lib.rs``), and does not fall back to a local
+    approximation. Capability negotiation is the caller's responsibility via
+    :meth:`EpistemicGraphClient.supports` (see
+    ``agent_utilities.orchestration.development_lane.
+    EngineNativeDevelopmentLaneTransport``, which this namespace's method
+    names/shapes were written against method-for-method: ``reserve``,
+    ``renew``, ``observe``, ``finish``, ``cleanup_complete``, ``query``,
+    ``status``, ``update_quota``).
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def reserve(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Atomically win one branch/worktree/quota hold for a lane WorkItem attempt."""
+
+        value = _exact_mapping(
+            "DevelopmentLaneReserveRequest",
+            request,
+            frozenset(
+                {
+                    "schema_version",
+                    "tenant_ref",
+                    "work_item_id",
+                    "owner_id",
+                    "attempt",
+                    "lease_epoch",
+                    "fencing_token",
+                    "work_item_fence",
+                    "intent",
+                    "idempotency_key",
+                    "now_ms",
+                }
+            ),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("DevelopmentLaneReserveRequest.schema_version must be 1")
+        for field in (
+            "tenant_ref",
+            "work_item_id",
+            "owner_id",
+            "work_item_fence",
+            "idempotency_key",
+        ):
+            _string(f"DevelopmentLaneReserveRequest.{field}", value[field])
+        for field in ("attempt", "lease_epoch", "fencing_token", "now_ms"):
+            _integer(f"DevelopmentLaneReserveRequest.{field}", value[field])
+        _development_lane_intent(value["intent"])
+        result = await self._client._send("ReserveDevelopmentLane", {"request": value})
+        return _development_lane_hold_result("DevelopmentLaneResult", result)
+
+    async def renew(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Renew the current hold in place, bound to the live WorkItem lease."""
+
+        value = _exact_mapping(
+            "DevelopmentLaneRenewRequest",
+            request,
+            frozenset(
+                {
+                    "schema_version",
+                    "tenant_ref",
+                    "work_item_id",
+                    "owner_id",
+                    "attempt",
+                    "lease_epoch",
+                    "fencing_token",
+                    "work_item_fence",
+                    "hold_id",
+                    "expected_hold_revision",
+                    "ttl_ms",
+                    "idempotency_key",
+                    "now_ms",
+                }
+            ),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("DevelopmentLaneRenewRequest.schema_version must be 1")
+        for field in (
+            "tenant_ref",
+            "work_item_id",
+            "owner_id",
+            "work_item_fence",
+            "hold_id",
+            "idempotency_key",
+        ):
+            _string(f"DevelopmentLaneRenewRequest.{field}", value[field])
+        for field in (
+            "attempt",
+            "lease_epoch",
+            "fencing_token",
+            "expected_hold_revision",
+            "now_ms",
+        ):
+            _integer(f"DevelopmentLaneRenewRequest.{field}", value[field])
+        _integer("DevelopmentLaneRenewRequest.ttl_ms", value["ttl_ms"], minimum=1)
+        result = await self._client._send("RenewDevelopmentLane", {"request": value})
+        return _development_lane_hold_result("DevelopmentLaneRenewResult", result)
+
+    async def observe(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Replace the monotonic retained-footprint charge with a fresh observation."""
+
+        value = _exact_mapping(
+            "DevelopmentLaneObserveRequest",
+            request,
+            frozenset(
+                {
+                    "schema_version",
+                    "tenant_ref",
+                    "work_item_id",
+                    "owner_id",
+                    "attempt",
+                    "lease_epoch",
+                    "fencing_token",
+                    "work_item_fence",
+                    "hold_id",
+                    "expected_hold_revision",
+                    "observed_disk_bytes",
+                    "observation_revision",
+                    "idempotency_key",
+                    "now_ms",
+                }
+            ),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("DevelopmentLaneObserveRequest.schema_version must be 1")
+        for field in (
+            "tenant_ref",
+            "work_item_id",
+            "owner_id",
+            "work_item_fence",
+            "hold_id",
+            "idempotency_key",
+        ):
+            _string(f"DevelopmentLaneObserveRequest.{field}", value[field])
+        for field in (
+            "attempt",
+            "lease_epoch",
+            "fencing_token",
+            "expected_hold_revision",
+            "observed_disk_bytes",
+            "observation_revision",
+            "now_ms",
+        ):
+            _integer(f"DevelopmentLaneObserveRequest.{field}", value[field])
+        result = await self._client._send("ObserveDevelopmentLane", {"request": value})
+        return _development_lane_hold_result("DevelopmentLaneObserveResult", result)
+
+    async def finish(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Commit terminal WorkItem completion and release active-count charge."""
+
+        value = _exact_mapping(
+            "DevelopmentLaneFinishRequest",
+            request,
+            frozenset(
+                {
+                    "schema_version",
+                    "tenant_ref",
+                    "work_item_id",
+                    "owner_id",
+                    "attempt",
+                    "lease_epoch",
+                    "fencing_token",
+                    "work_item_fence",
+                    "hold_id",
+                    "expected_hold_revision",
+                    "terminal_state",
+                    "idempotency_key",
+                    "now_ms",
+                }
+            ),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("DevelopmentLaneFinishRequest.schema_version must be 1")
+        for field in (
+            "tenant_ref",
+            "work_item_id",
+            "owner_id",
+            "work_item_fence",
+            "hold_id",
+            "idempotency_key",
+        ):
+            _string(f"DevelopmentLaneFinishRequest.{field}", value[field])
+        for field in (
+            "attempt",
+            "lease_epoch",
+            "fencing_token",
+            "expected_hold_revision",
+            "now_ms",
+        ):
+            _integer(f"DevelopmentLaneFinishRequest.{field}", value[field])
+        if value["terminal_state"] not in _DEVELOPMENT_LANE_TERMINAL_STATES:
+            raise ValueError("DevelopmentLaneFinishRequest.terminal_state is invalid")
+        result = await self._client._send("FinishDevelopmentLane", {"request": value})
+        return _development_lane_hold_result("DevelopmentLaneFinishResult", result)
+
+    async def cleanup_complete(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Release retained disk/exclusivity after guarded local removal succeeds."""
+
+        value = _exact_mapping(
+            "DevelopmentLaneCleanupCompleteRequest",
+            request,
+            frozenset(
+                {
+                    "schema_version",
+                    "tenant_ref",
+                    "work_item_id",
+                    "owner_id",
+                    "attempt",
+                    "lease_epoch",
+                    "fencing_token",
+                    "work_item_fence",
+                    "cleanup_work_item_id",
+                    "cleanup_work_item_fence",
+                    "cleanup_attempt",
+                    "cleanup_lease_epoch",
+                    "cleanup_fencing_token",
+                    "hold_id",
+                    "expected_hold_revision",
+                    "removal_proof_ref",
+                    "idempotency_key",
+                    "now_ms",
+                }
+            ),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError(
+                "DevelopmentLaneCleanupCompleteRequest.schema_version must be 1"
+            )
+        for field in (
+            "tenant_ref",
+            "work_item_id",
+            "owner_id",
+            "work_item_fence",
+            "cleanup_work_item_id",
+            "cleanup_work_item_fence",
+            "hold_id",
+            "removal_proof_ref",
+            "idempotency_key",
+        ):
+            _string(f"DevelopmentLaneCleanupCompleteRequest.{field}", value[field])
+        for field in (
+            "attempt",
+            "lease_epoch",
+            "fencing_token",
+            "cleanup_attempt",
+            "cleanup_lease_epoch",
+            "cleanup_fencing_token",
+            "expected_hold_revision",
+            "now_ms",
+        ):
+            _integer(f"DevelopmentLaneCleanupCompleteRequest.{field}", value[field])
+        result = await self._client._send("CleanupDevelopmentLane", {"request": value})
+        return _development_lane_hold_result(
+            "DevelopmentLaneCleanupCompleteResult", result
+        )
+
+    async def query(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Read one native hold/tombstone by exact id; local mirrors are not authority."""
+
+        value = _exact_mapping(
+            "DevelopmentLaneQueryRequest",
+            request,
+            frozenset({"schema_version", "tenant_ref", "hold_id", "now_ms"}),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("DevelopmentLaneQueryRequest.schema_version must be 1")
+        _string("DevelopmentLaneQueryRequest.tenant_ref", value["tenant_ref"])
+        _string("DevelopmentLaneQueryRequest.hold_id", value["hold_id"])
+        _integer("DevelopmentLaneQueryRequest.now_ms", value["now_ms"])
+        result = await self._client._send("QueryDevelopmentLane", {"request": value})
+        answer = _exact_mapping(
+            "DevelopmentLaneQueryResult",
+            result,
+            frozenset(
+                {
+                    "schema_version",
+                    "decision",
+                    "hold",
+                    "hold_revision",
+                    "lifecycle_revision",
+                    "tombstone",
+                }
+            ),
+        )
+        if answer["schema_version"] != "1":
+            raise ValueError("DevelopmentLaneQueryResult.schema_version must be 1")
+        _development_lane_decision(
+            "DevelopmentLaneQueryResult.decision", answer["decision"]
+        )
+        if answer["hold"] is not None:
+            _development_lane_hold(answer["hold"])
+        _integer("DevelopmentLaneQueryResult.hold_revision", answer["hold_revision"])
+        _integer(
+            "DevelopmentLaneQueryResult.lifecycle_revision",
+            answer["lifecycle_revision"],
+        )
+        _boolean("DevelopmentLaneQueryResult.tombstone", answer["tombstone"])
+        return answer
+
+    async def status(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Return bounded tenant-scoped hold status with maintained counters."""
+
+        value = _exact_mapping(
+            "DevelopmentLaneStatusRequest",
+            request,
+            frozenset(
+                {
+                    "schema_version",
+                    "tenant_ref",
+                    "hold_id",
+                    "lane_id",
+                    "work_item_id",
+                    "limit",
+                    "cursor",
+                    "now_ms",
+                }
+            ),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("DevelopmentLaneStatusRequest.schema_version must be 1")
+        _string("DevelopmentLaneStatusRequest.tenant_ref", value["tenant_ref"])
+        for field in ("hold_id", "lane_id", "work_item_id", "cursor"):
+            if value[field] is not None:
+                _string(f"DevelopmentLaneStatusRequest.{field}", value[field])
+        limit = _integer(
+            "DevelopmentLaneStatusRequest.limit", value["limit"], minimum=1
+        )
+        _integer("DevelopmentLaneStatusRequest.now_ms", value["now_ms"])
+        result = await self._client._send("DevelopmentLaneStatus", {"request": value})
+        answer = _exact_mapping(
+            "DevelopmentLaneStatusResult",
+            result,
+            frozenset(
+                {
+                    "schema_version",
+                    "complete",
+                    "next_cursor",
+                    "holds",
+                    "counters",
+                    "tenant_active_count",
+                    "tenant_retained_disk_bytes",
+                    "tombstone",
+                }
+            ),
+        )
+        if answer["schema_version"] != "1":
+            raise ValueError("DevelopmentLaneStatusResult.schema_version must be 1")
+        _boolean("DevelopmentLaneStatusResult.complete", answer["complete"])
+        if answer["next_cursor"] is not None:
+            _string("DevelopmentLaneStatusResult.next_cursor", answer["next_cursor"])
+        holds = answer["holds"]
+        if not isinstance(holds, list):
+            raise ValueError("DevelopmentLaneStatusResult.holds must be a list")
+        if len(holds) > limit:
+            raise ValueError(
+                "DevelopmentLaneStatusResult.holds exceeded the requested limit"
+            )
+        for hold in holds:
+            _development_lane_hold(hold)
+        _development_lane_quota_charge(
+            "DevelopmentLaneStatusResult.counters", answer["counters"]
+        )
+        _integer(
+            "DevelopmentLaneStatusResult.tenant_active_count",
+            answer["tenant_active_count"],
+        )
+        _integer(
+            "DevelopmentLaneStatusResult.tenant_retained_disk_bytes",
+            answer["tenant_retained_disk_bytes"],
+        )
+        _boolean("DevelopmentLaneStatusResult.tombstone", answer["tombstone"])
+        return answer
+
+    async def update_quota(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Publish a controller/admin-only monotonic quota-policy update."""
+
+        value = _exact_mapping(
+            "DevelopmentLaneQuotaUpdateRequest",
+            request,
+            frozenset(
+                {
+                    "schema_version",
+                    "tenant_ref",
+                    "policy",
+                    "expected_policy_revision",
+                    "expected_policy_version",
+                    "idempotency_key",
+                    "now_ms",
+                }
+            ),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError(
+                "DevelopmentLaneQuotaUpdateRequest.schema_version must be 1"
+            )
+        _string("DevelopmentLaneQuotaUpdateRequest.tenant_ref", value["tenant_ref"])
+        _string(
+            "DevelopmentLaneQuotaUpdateRequest.idempotency_key",
+            value["idempotency_key"],
+        )
+        _development_lane_quota_policy(
+            "DevelopmentLaneQuotaUpdateRequest.policy", value["policy"]
+        )
+        _integer(
+            "DevelopmentLaneQuotaUpdateRequest.expected_policy_revision",
+            value["expected_policy_revision"],
+        )
+        if value["expected_policy_version"] is not None:
+            _string(
+                "DevelopmentLaneQuotaUpdateRequest.expected_policy_version",
+                value["expected_policy_version"],
+            )
+        _integer("DevelopmentLaneQuotaUpdateRequest.now_ms", value["now_ms"])
+        result = await self._client._send(
+            "UpdateDevelopmentLaneQuota", {"request": value}
+        )
+        answer = _exact_mapping(
+            "DevelopmentLaneQuotaUpdateResult",
+            result,
+            frozenset(
+                {
+                    "schema_version",
+                    "decision",
+                    "policy",
+                    "counters",
+                    "policy_revision",
+                }
+            ),
+        )
+        if answer["schema_version"] != "1":
+            raise ValueError(
+                "DevelopmentLaneQuotaUpdateResult.schema_version must be 1"
+            )
+        if answer["decision"] not in _DEVELOPMENT_LANE_QUOTA_DECISIONS:
+            raise ValueError("DevelopmentLaneQuotaUpdateResult.decision is invalid")
+        if answer["policy"] is not None:
+            _development_lane_quota_policy(
+                "DevelopmentLaneQuotaUpdateResult.policy", answer["policy"]
+            )
+        _development_lane_quota_charge(
+            "DevelopmentLaneQuotaUpdateResult.counters", answer["counters"]
+        )
+        _integer(
+            "DevelopmentLaneQuotaUpdateResult.policy_revision",
+            answer["policy_revision"],
+        )
+        return answer
+
+
 class ChangeEnvelopeClient:
     """Governed engine-native external-change namespace.
 
@@ -8335,6 +9189,7 @@ class EpistemicGraphClient:
         # Namespaced Sub-Clients (Composition)
         self.nodes = NodeClient(self)
         self.work_items = WorkItemClient(self)
+        self.development_lanes = DevelopmentLaneClient(self)
         self.changes = ChangeEnvelopeClient(self)
         self.edges = EdgeClient(self)
         self.graph = GraphOperationsClient(self)
@@ -9241,6 +10096,9 @@ class SyncEpistemicGraphClient:
         # We need to wrap the namespaces synchronously as well
         self.nodes = self._SyncWrapper(self._client.nodes, self._loop)
         self.work_items = self._SyncWrapper(self._client.work_items, self._loop)
+        self.development_lanes = self._SyncWrapper(
+            self._client.development_lanes, self._loop
+        )
         self.changes = self._SyncWrapper(self._client.changes, self._loop)
         self.edges = self._SyncWrapper(self._client.edges, self._loop)
         self.graph = self._SyncWrapper(self._client.graph, self._loop)
