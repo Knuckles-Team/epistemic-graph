@@ -75,7 +75,7 @@ fn req(id: u64, method: Method) -> Request {
 }
 
 async fn add_node(state: &Arc<RwLock<ServerState>>, id: u64, node_id: &str) {
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         state,
         req(
             id,
@@ -85,13 +85,13 @@ async fn add_node(state: &Arc<RwLock<ServerState>>, id: u64, node_id: &str) {
                     .unwrap(),
             },
         ),
-    )
+    ))
     .await;
     assert!(resp.error.is_none(), "add_node {node_id}: {:?}", resp.error);
 }
 
 async fn add_edge(state: &Arc<RwLock<ServerState>>, id: u64, src: &str, tgt: &str, tag: &str) {
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         state,
         req(
             id,
@@ -102,7 +102,7 @@ async fn add_edge(state: &Arc<RwLock<ServerState>>, id: u64, src: &str, tgt: &st
                     .unwrap(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_none(),
@@ -152,7 +152,7 @@ async fn edges_page_recovers_every_edge_including_parallel_edges_in_order() {
 
     // Reference: the unbounded dump (well under the cap, so this is unaffected
     // by the new oversize guard).
-    let full = dispatch(&state, req(20, Method::GetEdges)).await;
+    let full = Box::pin(dispatch(&state, req(20, Method::GetEdges))).await;
     let mut full_rows = edge_list_rows(&full);
     full_rows.sort();
     assert_eq!(
@@ -166,7 +166,7 @@ async fn edges_page_recovers_every_edge_including_parallel_edges_in_order() {
     let mut paged: Vec<(String, String, u32, Vec<u8>)> = Vec::new();
     let mut next_id = 100u64;
     loop {
-        let resp = dispatch(
+        let resp = Box::pin(dispatch(
             &state,
             req(
                 next_id,
@@ -175,7 +175,7 @@ async fn edges_page_recovers_every_edge_including_parallel_edges_in_order() {
                     limit: 1,
                 },
             ),
-        )
+        ))
         .await;
         next_id += 1;
         let rows = page_rows(&resp);
@@ -231,7 +231,7 @@ async fn edges_page_limit_zero_returns_everything_in_one_call() {
     add_edge(&state, 1, "a", "b", "only").await;
     add_edge(&state, 2, "a", "c", "only").await;
 
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             3,
@@ -240,7 +240,7 @@ async fn edges_page_limit_zero_returns_everything_in_one_call() {
                 limit: 0,
             },
         ),
-    )
+    ))
     .await;
     let rows = page_rows(&resp);
     assert_eq!(rows.len(), 2, "limit=0 must return every edge uncapped");
@@ -257,7 +257,7 @@ async fn edges_page_on_empty_graph_returns_empty_first_page() {
             .create_graph("g", GraphType::Commons, None)
             .unwrap();
     }
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             1,
@@ -266,7 +266,7 @@ async fn edges_page_on_empty_graph_returns_empty_first_page() {
                 limit: 10,
             },
         ),
-    )
+    ))
     .await;
     assert!(page_rows(&resp).is_empty());
 }

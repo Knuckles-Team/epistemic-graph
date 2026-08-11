@@ -150,7 +150,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
             let state = state(directory.path().to_string_lossy().into_owned());
 
             for (request_id, node_id) in [(1, "source-a"), (2, "source-b"), (3, "source-c")] {
-                let response = dispatch(
+                let response = Box::pin(dispatch(
                     &state,
                     request(
                         request_id,
@@ -163,7 +163,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
                             .expect("encode node properties"),
                         },
                     ),
-                )
+                ))
                 .await;
                 assert!(
                     response.error.is_none(),
@@ -173,7 +173,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
             }
 
             let graph_batch = success_batch(
-                dispatch(
+                Box::pin(dispatch(
                     &state,
                     request(
                         10,
@@ -182,7 +182,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
                             limit: 0,
                         }),
                     ),
-                )
+                ))
                 .await,
             );
             assert_eq!(graph_batch.family, KnowledgeResultFamily::Graph);
@@ -201,7 +201,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
             }
 
             let submitted = success_json(
-                dispatch(
+                Box::pin(dispatch(
                     &state,
                     request(
                         20,
@@ -235,7 +235,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
                             }),
                         },
                     ),
-                )
+                ))
                 .await,
             );
             let job_id = submitted
@@ -247,7 +247,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
             let mut succeeded = false;
             for request_id in 30..130 {
                 let status = success_json(
-                    dispatch(
+                    Box::pin(dispatch(
                         &state,
                         request(
                             request_id,
@@ -257,7 +257,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
                                 },
                             },
                         ),
-                    )
+                    ))
                     .await,
                 );
                 let state_value = status.get("state").expect("job state");
@@ -278,7 +278,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
             );
 
             let result_batch = success_batch(
-                dispatch(
+                Box::pin(dispatch(
                     &state,
                     request(
                         140,
@@ -286,7 +286,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
                             job_id: job_id.clone(),
                         }),
                     ),
-                )
+                ))
                 .await,
             );
             assert_eq!(result_batch.family, KnowledgeResultFamily::Job);

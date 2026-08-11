@@ -163,7 +163,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
         target.clone(),
     ];
     for graph in &graphs {
-        let cr: Response = dispatch(
+        let cr: Response = Box::pin(dispatch(
             &state,
             req(
                 1,
@@ -173,7 +173,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
                     graph_type: GraphType::Global,
                 },
             ),
-        )
+        ))
         .await;
         assert!(
             cr.error.is_none(),
@@ -184,7 +184,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
     let target = target.as_str();
 
     // begin → stage → commit on the target graph, exactly as a normal client.
-    let begun: Response = dispatch(
+    let begun: Response = Box::pin(dispatch(
         &state,
         req(
             10,
@@ -194,7 +194,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
                 isolation: None,
             },
         ),
-    )
+    ))
     .await;
     assert!(begun.error.is_none(), "BeginTxn failed: {:?}", begun.error);
     let txn_id = match begun.result {
@@ -202,7 +202,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
         other => panic!("unexpected BeginTxn result shape: {other:?}"),
     };
 
-    let staged: Response = dispatch(
+    let staged: Response = Box::pin(dispatch(
         &state,
         req(
             11,
@@ -214,7 +214,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
                 graph: None,
             },
         ),
-    )
+    ))
     .await;
     assert!(
         staged.error.is_none(),
@@ -222,7 +222,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
         staged.error
     );
 
-    let first_commit: Response = dispatch(
+    let first_commit: Response = Box::pin(dispatch(
         &state,
         req(
             12,
@@ -231,7 +231,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
                 txn_id: txn_id.clone(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         first_commit.error.is_none(),
@@ -249,7 +249,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
     // never having seen that response (an ack-lost retry) by resending the
     // IDENTICAL Commit request. This is the path that used to scan every resident
     // graph x namespace fully sequentially before finding `target`.
-    let retried_commit: Response = dispatch(
+    let retried_commit: Response = Box::pin(dispatch(
         &state,
         req(
             13,
@@ -258,7 +258,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
                 txn_id: txn_id.clone(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         retried_commit.error.is_none(),

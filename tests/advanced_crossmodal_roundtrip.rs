@@ -133,7 +133,7 @@ fn pack_points(points: &[(i64, Vec<f64>)]) -> Vec<u8> {
 }
 
 async fn begin(state: &Arc<RwLock<ServerState>>, id: u64, isolation: Option<String>) -> String {
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         state,
         req(
             id,
@@ -142,7 +142,7 @@ async fn begin(state: &Arc<RwLock<ServerState>>, id: u64, isolation: Option<Stri
                 isolation,
             },
         ),
-    )
+    ))
     .await;
     match r.result {
         Some(ResultPayload::String(s)) => s,
@@ -151,13 +151,13 @@ async fn begin(state: &Arc<RwLock<ServerState>>, id: u64, isolation: Option<Stri
 }
 
 async fn ok(state: &Arc<RwLock<ServerState>>, id: u64, method: Method) {
-    let r = dispatch(state, req(id, method)).await;
+    let r = Box::pin(dispatch(state, req(id, method))).await;
     assert!(r.error.is_none(), "op {id} failed: {:?}", r.error);
 }
 
 #[cfg(feature = "security")]
 async fn begin_as(state: &Arc<RwLock<ServerState>>, id: u64, agent: &str) -> String {
-    let response = dispatch(
+    let response = Box::pin(dispatch(
         state,
         req_as(
             id,
@@ -167,7 +167,7 @@ async fn begin_as(state: &Arc<RwLock<ServerState>>, id: u64, agent: &str) -> Str
                 isolation: None,
             },
         ),
-    )
+    ))
     .await;
     match response.result {
         Some(ResultPayload::String(txn_id)) => txn_id,
@@ -180,7 +180,7 @@ async fn begin_as(state: &Arc<RwLock<ServerState>>, id: u64, agent: &str) -> Str
 
 #[cfg(feature = "security")]
 async fn ok_as(state: &Arc<RwLock<ServerState>>, id: u64, agent: &str, method: Method) {
-    let response = dispatch(state, req_as(id, agent, method)).await;
+    let response = Box::pin(dispatch(state, req_as(id, agent, method))).await;
     assert!(
         response.error.is_none(),
         "op {id} as {agent} failed: {:?}",
@@ -265,7 +265,7 @@ async fn in_txn_text(
     txn: &str,
     text: &str,
 ) -> Vec<String> {
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         state,
         req(
             id,
@@ -274,16 +274,16 @@ async fn in_txn_text(
                 text: text.into(),
             },
         ),
-    )
+    ))
     .await;
     unified_ids(&r)
 }
 
 async fn off_txn_text(state: &Arc<RwLock<ServerState>>, id: u64, text: &str) -> Vec<String> {
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         state,
         req(id, Method::UnifiedQueryText { text: text.into() }),
-    )
+    ))
     .await;
     unified_ids(&r)
 }
@@ -413,7 +413,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
         from: 0.0,
         to: 10.0,
     }]);
-    let ts_resp = dispatch(
+    let ts_resp = Box::pin(dispatch(
         &state,
         req(
             10,
@@ -422,7 +422,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
                 plan: ts_plan,
             },
         ),
-    )
+    ))
     .await;
     assert_eq!(
         unified_ids(&ts_resp).len(),
@@ -443,7 +443,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
                 .into(),
         },
     ]);
-    let reason_resp = dispatch(
+    let reason_resp = Box::pin(dispatch(
         &state,
         req(
             11,
@@ -452,7 +452,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
                 plan: reason_plan,
             },
         ),
-    )
+    ))
     .await;
     assert_eq!(
         unified_ids(&reason_resp),
@@ -473,7 +473,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
     );
 
     // ── 3. atomic commit ──
-    let c = dispatch(
+    let c = Box::pin(dispatch(
         &state,
         req(
             13,
@@ -481,7 +481,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
                 txn_id: txn.clone(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         matches!(c.result, Some(ResultPayload::Bool(true))),
@@ -521,7 +521,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
             ontology: String::new(),
         },
     ]);
-    let cr = dispatch(
+    let cr = Box::pin(dispatch(
         &state,
         req(
             16,
@@ -529,7 +529,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
                 plan: committed_reason,
             },
         ),
-    )
+    ))
     .await;
     assert_eq!(
         unified_ids(&cr),
@@ -601,7 +601,7 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
         },
     )
     .await;
-    let cb = dispatch(&state, req(7, Method::Commit { txn_id: b.clone() })).await;
+    let cb = Box::pin(dispatch(&state, req(7, Method::Commit { txn_id: b.clone() }))).await;
     assert!(
         matches!(cb.result, Some(ResultPayload::Bool(true))),
         "B must commit its phantom Sensor: {:?}",
@@ -610,7 +610,7 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
 
     // A commits AFTER B's phantom: serializable validation re-evaluates the Sensor
     // predicate, detects the phantom, and rolls A back.
-    let ca = dispatch(&state, req(8, Method::Commit { txn_id: a.clone() })).await;
+    let ca = Box::pin(dispatch(&state, req(8, Method::Commit { txn_id: a.clone() }))).await;
     assert!(
         matches!(ca.result, Some(ResultPayload::Bool(false))),
         "A's serializable commit must CONFLICT on the phantom Sensor (got {:?} / {:?})",
@@ -733,18 +733,18 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
     // EG-P0-6: the provisioned system test actor registers a `System`-role `root`
     // using a detached operation signature. Root then registers `agent_a`/`agent_b`
     // as plain `Agent`-role identities for the RLS peer-isolation fixture below.
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         &state,
         register_identity_req(999_000, common::TEST_AGENT, "root", AgentRole::System),
-    )
+    ))
     .await;
     assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
 
     for (i, agent) in [(5u64, "agent_a"), (6, "agent_b")] {
-        let r = dispatch(
+        let r = Box::pin(dispatch(
             &state,
             register_identity_req(i, "root", agent, AgentRole::Agent),
-        )
+        ))
         .await;
         assert!(
             r.error.is_none(),
@@ -779,10 +779,10 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
         let state = state.clone();
         let plan = fused();
         async move {
-            let r = dispatch(
+            let r = Box::pin(dispatch(
                 &state,
                 req_as(id, agent, Method::TxnUnifiedQuery { txn_id: txn, plan }),
-            )
+            ))
             .await;
             let mut ids = unified_ids(&r);
             ids.sort();
@@ -1013,7 +1013,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
         },
     )
     .await;
-    let c = dispatch(
+    let c = Box::pin(dispatch(
         &state,
         req(
             7,
@@ -1021,7 +1021,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
                 txn_id: txn.clone(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         matches!(c.result, Some(ResultPayload::Bool(true))),
@@ -1374,7 +1374,7 @@ async fn plan_writeback_stages_and_commits_inferred_edges_atomically_d7() {
         "staged-but-uncommitted writeback must be invisible off-txn"
     );
 
-    let commit_resp = dispatch(&state, req(8, Method::Commit { txn_id: txn })).await;
+    let commit_resp = Box::pin(dispatch(&state, req(8, Method::Commit { txn_id: txn }))).await;
     assert!(
         matches!(commit_resp.result, Some(ResultPayload::Bool(true))),
         "the cross-modal commit (anchor node + writeback edges) must succeed: {:?}",
@@ -1445,7 +1445,7 @@ async fn explain_plan_surfaces_the_optimizer_rewrite() {
             }],
         },
     ]);
-    let resp = dispatch(&state, req(200, Method::ExplainPlan { plan })).await;
+    let resp = Box::pin(dispatch(&state, req(200, Method::ExplainPlan { plan }))).await;
     assert!(resp.error.is_none(), "ExplainPlan error: {:?}", resp.error);
     let bytes = match &resp.result {
         Some(ResultPayload::Raw(b)) => b.clone(),
@@ -1505,7 +1505,7 @@ async fn explain_belief_returns_full_justification_tree() {
     )
     .await;
 
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             4,
@@ -1514,7 +1514,7 @@ async fn explain_belief_returns_full_justification_tree() {
                 disclosure_level: None,
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_none(),
@@ -1605,17 +1605,17 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
 
     // Register root as System through the signed admin operation, then have root
     // register agent_a + stranger — the same governed two-step flow EG-391 uses.
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         &state,
         register_identity_req(100, common::TEST_AGENT, "root", AgentRole::System),
-    )
+    ))
     .await;
     assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
     for (i, agent) in [(101u64, "agent_a"), (102, "stranger")] {
-        let r = dispatch(
+        let r = Box::pin(dispatch(
             &state,
             register_identity_req(i, "root", agent, AgentRole::Agent),
-        )
+        ))
         .await;
         assert!(
             r.error.is_none(),
@@ -1626,7 +1626,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
 
     // `stranger` requests `Full` (asking for MORE than it earns) — the cap can only
     // narrow, never grant, so it must land at the actor's OWN earned `Skeleton`.
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req_as(
             200,
@@ -1636,7 +1636,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
                 disclosure_level: Some(DisclosureLevelWire::Full),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_none(),
@@ -1674,7 +1674,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
         .contains("secret1"));
 
     // `agent_a` (the owner) earns `Full` — the SAME cap request now yields no redaction.
-    let resp_owner = dispatch(
+    let resp_owner = Box::pin(dispatch(
         &state,
         req_as(
             201,
@@ -1684,7 +1684,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
                 disclosure_level: Some(DisclosureLevelWire::Full),
             },
         ),
-    )
+    ))
     .await;
     let bytes = match &resp_owner.result {
         Some(ResultPayload::Raw(b)) => b.clone(),
@@ -1746,7 +1746,7 @@ async fn epistemic_status_returns_every_facet_over_rpc() {
     )
     .await;
 
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             4,
@@ -1754,7 +1754,7 @@ async fn epistemic_status_returns_every_facet_over_rpc() {
                 node_id: "claim1".into(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_none(),
@@ -1846,7 +1846,7 @@ async fn explain_evidence_resolves_a_located_citation_over_rpc() {
     )
     .await;
 
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             4,
@@ -1854,7 +1854,7 @@ async fn explain_evidence_resolves_a_located_citation_over_rpc() {
                 node_id: "claim1".into(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_none(),
@@ -1978,17 +1978,17 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
     )
     .await;
 
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         &state,
         register_identity_req(100, common::TEST_AGENT, "root", AgentRole::System),
-    )
+    ))
     .await;
     assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
     for (i, agent) in [(101u64, "agent_a"), (102, "stranger")] {
-        let r = dispatch(
+        let r = Box::pin(dispatch(
             &state,
             register_identity_req(i, "root", agent, AgentRole::Agent),
-        )
+        ))
         .await;
         assert!(
             r.error.is_none(),
@@ -1999,7 +1999,7 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
 
     // stranger: only the public evidence1 citation -- agent_a's private secret1 must
     // be invisible (never resolved), not merely omitted after the fact.
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req_as(
             200,
@@ -2008,7 +2008,7 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
                 node_id: "claim1".into(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_none(),
@@ -2033,7 +2033,7 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
     );
 
     // agent_a (the owner): sees BOTH citations.
-    let resp_owner = dispatch(
+    let resp_owner = Box::pin(dispatch(
         &state,
         req_as(
             201,
@@ -2042,7 +2042,7 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
                 node_id: "claim1".into(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp_owner.error.is_none(),
@@ -2106,7 +2106,7 @@ async fn causal_estimate_do_calculus_matches_hand_derivation_over_rpc() {
     let mut do_values = BTreeMap::new();
     do_values.insert("x".to_string(), 2.0);
 
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             1,
@@ -2116,7 +2116,7 @@ async fn causal_estimate_do_calculus_matches_hand_derivation_over_rpc() {
                 mode: CausalQueryModeWire::Intervene,
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_none(),
@@ -2190,7 +2190,7 @@ async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_ove
         },
     ];
 
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             1,
@@ -2199,7 +2199,7 @@ async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_ove
                 weights: Default::default(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_none(),
@@ -2277,7 +2277,7 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
     let node_ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
 
     // ── grounded: c survives; a/b are BOTH undecided (paraconsistent, no explosion) ──
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             1,
@@ -2286,7 +2286,7 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
                 semantics: "grounded".into(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_none(),
@@ -2315,7 +2315,7 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
 
     // ── preferred: two credulous extensions {a,c} and {b,c} — c survives every
     // extension, a and b are each accepted in only ONE (undecided, contested) ──
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             2,
@@ -2324,7 +2324,7 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
                 semantics: "preferred".into(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_none(),
@@ -2355,7 +2355,7 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
     );
 
     // ── an unknown semantics string is a clear engine error, never a panic/mis-route ──
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             3,
@@ -2364,7 +2364,7 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
                 semantics: "bogus".into(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_some(),
@@ -2437,17 +2437,17 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
     )
     .await;
 
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         &state,
         register_identity_req(100, common::TEST_AGENT, "root", AgentRole::System),
-    )
+    ))
     .await;
     assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
     for (i, agent) in [(101u64, "agent_a"), (102, "stranger")] {
-        let r = dispatch(
+        let r = Box::pin(dispatch(
             &state,
             register_identity_req(i, "root", agent, AgentRole::Agent),
-        )
+        ))
         .await;
         assert!(
             r.error.is_none(),
@@ -2461,7 +2461,7 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
     // stranger: `b` (and both edges naming it) is invisible, so its mutual attack on
     // `a` vanishes WITH it -- `a` is now unattacked (surviving) and `b` itself reports
     // no signal (undecided), never its real defeated/surviving verdict.
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req_as(
             200,
@@ -2471,7 +2471,7 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
                 semantics: "grounded".into(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_none(),
@@ -2502,7 +2502,7 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
 
     // agent_a (the owner): sees the REAL mutual conflict -- a and b both undecided,
     // only c survives (matches the unfiltered semantics test above).
-    let resp_owner = dispatch(
+    let resp_owner = Box::pin(dispatch(
         &state,
         req_as(
             201,
@@ -2512,7 +2512,7 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
                 semantics: "grounded".into(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp_owner.error.is_none(),

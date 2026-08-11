@@ -9,7 +9,7 @@
 //! store" — a served `Op::TensorScan` read still worked (it reads its input straight off
 //! the queried `GraphView`), but a served `Op::TensorOp` derived-tensor writeback was dead.
 //!
-//! Everything here goes through the SERVED RPC surface: `dispatch(state, Request{ Method::* })`
+//! Everything here goes through the SERVED RPC surface: `Box::pin(dispatch(state, Request{ Method::* }))`
 //! — the same `ServerState`/`dispatch` harness `served_query_completeness.rs` and
 //! `advanced_crossmodal_roundtrip.rs` use. Module-gated on `tensor` (which implies `query`);
 //! runs under `--features full`.
@@ -108,7 +108,7 @@ async fn seed_frames(state: &Arc<RwLock<ServerState>>) {
     let t = Tensor::new(vec![2, 3], Buffer::F32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])).unwrap();
     let tv = serde_json::to_value(&t).unwrap();
     for (id, node_id) in ["F1", "F2", "F3"].into_iter().enumerate() {
-        let r = dispatch(
+        let r = Box::pin(dispatch(
             state,
             req(
                 id as u64 + 1,
@@ -117,7 +117,7 @@ async fn seed_frames(state: &Arc<RwLock<ServerState>>) {
                     properties_msgpack: blob(json!({ "type": "Frame", "tensor": tv })),
                 },
             ),
-        )
+        ))
         .await;
         assert!(r.error.is_none(), "AddNode {node_id}: {:?}", r.error);
     }
@@ -144,7 +144,7 @@ async fn served_tensor_scan_and_reduce_writeback_succeeds() {
             },
         },
     ]);
-    let resp = dispatch(&state, req(100, Method::UnifiedQuery { plan })).await;
+    let resp = Box::pin(dispatch(&state, req(100, Method::UnifiedQuery { plan }))).await;
     let rows = rows_of(&resp);
     let mut ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     ids.sort();
@@ -180,7 +180,7 @@ async fn served_tensor_elementwise_writeback_repeatable_across_requests() {
     };
 
     for req_id in [200, 201] {
-        let resp = dispatch(&state, req(req_id, Method::UnifiedQuery { plan: plan() })).await;
+        let resp = Box::pin(dispatch(&state, req(req_id, Method::UnifiedQuery { plan: plan() }))).await;
         let rows = rows_of(&resp);
         assert_eq!(
             rows.len(),

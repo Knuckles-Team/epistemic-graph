@@ -101,7 +101,7 @@ fn pack(v: serde_json::Value) -> Vec<u8> {
 }
 
 async fn begin(state: &Arc<RwLock<ServerState>>, id: u64) -> String {
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         state,
         req(
             id,
@@ -110,7 +110,7 @@ async fn begin(state: &Arc<RwLock<ServerState>>, id: u64) -> String {
                 isolation: None,
             },
         ),
-    )
+    ))
     .await;
     match r.result {
         Some(ResultPayload::String(s)) => s,
@@ -119,7 +119,7 @@ async fn begin(state: &Arc<RwLock<ServerState>>, id: u64) -> String {
 }
 
 async fn ok(state: &Arc<RwLock<ServerState>>, id: u64, method: Method) {
-    let r = dispatch(state, req(id, method)).await;
+    let r = Box::pin(dispatch(state, req(id, method))).await;
     assert!(r.error.is_none(), "op {id} failed: {:?}", r.error);
 }
 
@@ -138,7 +138,7 @@ fn unified_ids(resp: &Response) -> Vec<String> {
 }
 
 async fn hybrid_read(state: &Arc<RwLock<ServerState>>, id: u64) -> Vec<String> {
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         state,
         req(
             id,
@@ -146,7 +146,7 @@ async fn hybrid_read(state: &Arc<RwLock<ServerState>>, id: u64) -> Vec<String> {
                 text: "MATCH (:Sensor) |> RANK BY ~[1.0,0.0] |> LIMIT 10".into(),
             },
         ),
-    )
+    ))
     .await;
     unified_ids(&r)
 }
@@ -159,7 +159,7 @@ const SHAPES: &str = "@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
       sh:property [ sh:path ex:unit ; sh:minCount 1 ] .\n";
 
 async fn shacl_conforms(state: &Arc<RwLock<ServerState>>, id: u64, data_graph: &str) -> bool {
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         state,
         req(
             id,
@@ -168,7 +168,7 @@ async fn shacl_conforms(state: &Arc<RwLock<ServerState>>, id: u64, data_graph: &
                 data_graph: data_graph.into(),
             },
         ),
-    )
+    ))
     .await;
     assert!(r.error.is_none(), "ShaclValidate error: {:?}", r.error);
     match &r.result {
@@ -255,7 +255,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
         },
     )
     .await;
-    let commit = dispatch(
+    let commit = Box::pin(dispatch(
         &state,
         req(
             16,
@@ -263,7 +263,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                 txn_id: txn.clone(),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         matches!(commit.result, Some(ResultPayload::Bool(true))),
@@ -283,7 +283,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
         },
     ]);
     let inferred =
-        unified_ids(&dispatch(&state, req(17, Method::UnifiedQuery { plan: reason })).await);
+        unified_ids(&Box::pin(dispatch(&state, req(17, Method::UnifiedQuery { plan: reason }))).await);
     assert_eq!(
         inferred,
         vec!["s1".to_string()],
@@ -326,7 +326,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                 },
             )
             .await;
-            let c = dispatch(&state, req(103, Method::Commit { txn_id: txn })).await;
+            let c = Box::pin(dispatch(&state, req(103, Method::Commit { txn_id: txn }))).await;
             assert!(matches!(c.result, Some(ResultPayload::Bool(true))));
         })
     };

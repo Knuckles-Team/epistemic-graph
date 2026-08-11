@@ -179,7 +179,7 @@ async fn compare_and_set_node_embedding(
     property_value: &str,
     embedding: Vec<f32>,
 ) -> Response {
-    let begun: Response = dispatch(
+    let begun: Response = Box::pin(dispatch(
         state,
         req(
             100,
@@ -189,7 +189,7 @@ async fn compare_and_set_node_embedding(
                 isolation: None,
             },
         ),
-    )
+    ))
     .await;
     assert!(begun.error.is_none(), "BeginTxn failed: {:?}", begun.error);
     let txn_id = match begun.result {
@@ -197,7 +197,7 @@ async fn compare_and_set_node_embedding(
         other => panic!("unexpected BeginTxn result shape: {other:?}"),
     };
 
-    let staged_node: Response = dispatch(
+    let staged_node: Response = Box::pin(dispatch(
         state,
         req(
             101,
@@ -209,7 +209,7 @@ async fn compare_and_set_node_embedding(
                 graph: None,
             },
         ),
-    )
+    ))
     .await;
     assert!(
         staged_node.error.is_none(),
@@ -217,7 +217,7 @@ async fn compare_and_set_node_embedding(
         staged_node.error
     );
 
-    let staged_embedding: Response = dispatch(
+    let staged_embedding: Response = Box::pin(dispatch(
         state,
         req(
             102,
@@ -229,7 +229,7 @@ async fn compare_and_set_node_embedding(
                 graph: None,
             },
         ),
-    )
+    ))
     .await;
     assert!(
         staged_embedding.error.is_none(),
@@ -237,7 +237,7 @@ async fn compare_and_set_node_embedding(
         staged_embedding.error
     );
 
-    dispatch(state, req(103, graph, Method::Commit { txn_id })).await
+    Box::pin(dispatch(state, req(103, graph, Method::Commit { txn_id }))).await
 }
 
 /// (1) REGRESSION GUARD — the OLD coupled behavior really does break existing plaintext
@@ -334,7 +334,7 @@ async fn dedicated_recovery_key_unblocks_txn_commit_without_touching_existing_pl
     let backend: Arc<dyn PersistenceBackend> = Arc::new(reopened);
     let state = state_with(backend.clone(), work_s.clone());
     let new_graph = "embedding-backfill-target";
-    let create: Response = dispatch(
+    let create: Response = Box::pin(dispatch(
         &state,
         req(
             1,
@@ -344,7 +344,7 @@ async fn dedicated_recovery_key_unblocks_txn_commit_without_touching_existing_pl
                 graph_type: GraphType::Global,
             },
         ),
-    )
+    ))
     .await;
     assert!(
         create.error.is_none(),

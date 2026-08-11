@@ -89,7 +89,7 @@ async fn ready_state() -> Arc<RwLock<ServerState>> {
 async fn old_client_without_node_claim_still_dispatches_under_default_warn_posture() {
     let state = ready_state().await;
     let req = common::signed_request_with_node(SECRET, 1, "g", Method::Ping, None);
-    let resp = dispatch(&state, req).await;
+    let resp = Box::pin(dispatch(&state, req)).await;
     assert!(resp.error.is_none(), "got: {:?}", resp.error);
 }
 
@@ -99,7 +99,7 @@ async fn old_client_without_node_claim_still_dispatches_under_default_warn_postu
 async fn matching_node_claim_dispatches_normally() {
     let state = ready_state().await;
     let req = common::signed_request_with_node(SECRET, 2, "g", Method::Ping, Some("single"));
-    let resp = dispatch(&state, req).await;
+    let resp = Box::pin(dispatch(&state, req)).await;
     assert!(resp.error.is_none(), "got: {:?}", resp.error);
 }
 
@@ -113,7 +113,7 @@ async fn wrong_node_claim_is_rejected_by_the_real_dispatch_path() {
     let state = ready_state().await;
     let req =
         common::signed_request_with_node(SECRET, 3, "g", Method::Ping, Some("some-other-node"));
-    let resp = dispatch(&state, req).await;
+    let resp = Box::pin(dispatch(&state, req)).await;
     let error = resp
         .error
         .expect("a mismatched node claim must be rejected");

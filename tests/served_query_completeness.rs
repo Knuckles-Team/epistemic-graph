@@ -9,7 +9,7 @@
 //!  * CONCEPT:EG-KG.query.served-plan-optimize-routing — the served path routes the plan
 //!    through the full cost optimizer via `eg_plan::execute`'s `plan_optimize`.
 //!
-//! Everything goes through the SERVED RPC: `dispatch(state, Request{ Method::* })`.
+//! Everything goes through the SERVED RPC: `Box::pin(dispatch(state, Request{ Method::* }))`.
 //! Module-gated on `query` + `text`; runs under `--features full`.
 #![cfg(all(feature = "query", feature = "text"))]
 
@@ -118,7 +118,7 @@ async fn seed_corpus(state: &Arc<RwLock<ServerState>>) {
     ];
     let mut id = 1_u64;
     for (node, text, emb) in docs {
-        let r = dispatch(
+        let r = Box::pin(dispatch(
             state,
             req(
                 id,
@@ -127,11 +127,11 @@ async fn seed_corpus(state: &Arc<RwLock<ServerState>>) {
                     properties_msgpack: blob(json!({ "type": "Doc", "text": text })),
                 },
             ),
-        )
+        ))
         .await;
         assert!(r.error.is_none(), "AddNode {node}: {:?}", r.error);
         id += 1;
-        let r = dispatch(
+        let r = Box::pin(dispatch(
             state,
             req(
                 id,
@@ -140,7 +140,7 @@ async fn seed_corpus(state: &Arc<RwLock<ServerState>>) {
                     embedding: emb.to_vec(),
                 },
             ),
-        )
+        ))
         .await;
         assert!(r.error.is_none(), "AddEmbedding {node}: {:?}", r.error);
         id += 1;
@@ -164,7 +164,7 @@ async fn served_ranktext_returns_lexical_hits() {
         },
         Op::Limit { k: 5 },
     ]);
-    let resp = dispatch(&state, req(100, Method::UnifiedQuery { plan })).await;
+    let resp = Box::pin(dispatch(&state, req(100, Method::UnifiedQuery { plan }))).await;
     let rows = rows_of(&resp);
     assert!(
         !rows.is_empty(),
@@ -205,7 +205,7 @@ async fn served_fuserrf_text_branch_contributes_lexical_hits() {
         },
         Op::Limit { k: 3 },
     ]);
-    let resp = dispatch(&state, req(200, Method::UnifiedQuery { plan })).await;
+    let resp = Box::pin(dispatch(&state, req(200, Method::UnifiedQuery { plan }))).await;
     let rows = rows_of(&resp);
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(
@@ -250,7 +250,7 @@ async fn served_ranktext_pushes_down_into_persistent_index_not_snapshot_fallback
     // SAME phrase under a key (`note`) the persistent index's fixed key list does not
     // recognize — it matches ONLY a snapshot-derived rebuild.
     for (id, key) in [("canonical", "text"), ("noncanonical", "note")] {
-        let r = dispatch(
+        let r = Box::pin(dispatch(
             &state,
             req(
                 if id == "canonical" { 1 } else { 2 },
@@ -261,7 +261,7 @@ async fn served_ranktext_pushes_down_into_persistent_index_not_snapshot_fallback
                     ),
                 },
             ),
-        )
+        ))
         .await;
         assert!(r.error.is_none(), "AddNode {id}: {:?}", r.error);
     }
@@ -275,7 +275,7 @@ async fn served_ranktext_pushes_down_into_persistent_index_not_snapshot_fallback
         },
         Op::Limit { k: 5 },
     ]);
-    let resp = dispatch(&state, req(3, Method::UnifiedQuery { plan })).await;
+    let resp = Box::pin(dispatch(&state, req(3, Method::UnifiedQuery { plan }))).await;
     let rows = rows_of(&resp);
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(

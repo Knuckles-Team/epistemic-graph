@@ -6,7 +6,7 @@
 //! None, .. }` regardless of what the server had configured — a `TsScan`-bearing mining plan
 //! therefore always yielded zero rows, indistinguishable from "your query legitimately
 //! matched nothing". Two behaviors are proven here, against the SAME served RPC surface
-//! (`dispatch(state, Request{ Method::* })`) `served_query_completeness.rs` /
+//! (`Box::pin(dispatch(state, Request{ Method::* }))`) `served_query_completeness.rs` /
 //! `served_tensor_writeback.rs` use:
 //!
 //!  1. With a REAL tsdb store configured and series data seeded through the served
@@ -119,7 +119,7 @@ async fn seed_series(state: &Arc<RwLock<ServerState>>) {
         (4_000_000_000, vec![10.5]),
         (5_000_000_000, vec![100.0]), // the outlier
     ];
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         state,
         req(
             1,
@@ -131,7 +131,7 @@ async fn seed_series(state: &Arc<RwLock<ServerState>>) {
                 points_msgpack: pack_points(&points),
             },
         ),
-    )
+    ))
     .await;
     assert!(r.error.is_none(), "TsAppend seed failed: {:?}", r.error);
 }
@@ -184,7 +184,7 @@ async fn plan_sourced_mining_tsscan_returns_real_rows() {
     let state = state(Some(tmp_series()));
     seed_series(&state).await;
 
-    let resp = dispatch(&state, req(2, mine_anomaly_over(ts_scan_plan()))).await;
+    let resp = Box::pin(dispatch(&state, req(2, mine_anomaly_over(ts_scan_plan())))).await;
     let payload = json_result(&resp);
     let n_rows = payload["n_rows"].as_u64().unwrap_or(0);
     assert_eq!(
@@ -207,7 +207,7 @@ async fn plan_sourced_mining_tsscan_repeatable_across_requests() {
     seed_series(&state).await;
 
     for req_id in [10, 11] {
-        let resp = dispatch(&state, req(req_id, mine_anomaly_over(ts_scan_plan()))).await;
+        let resp = Box::pin(dispatch(&state, req(req_id, mine_anomaly_over(ts_scan_plan())))).await;
         let payload = json_result(&resp);
         assert_eq!(
             payload["n_rows"].as_u64().unwrap_or(0),
@@ -226,7 +226,7 @@ async fn plan_sourced_mining_tsscan_repeatable_across_requests() {
 async fn plan_sourced_mining_tsscan_errors_typed_when_store_absent() {
     let state = state(None);
 
-    let resp = dispatch(&state, req(1, mine_anomaly_over(ts_scan_plan()))).await;
+    let resp = Box::pin(dispatch(&state, req(1, mine_anomaly_over(ts_scan_plan())))).await;
     assert!(
         resp.error.is_some(),
         "a TsScan-bearing mining plan with no tsdb store configured must surface a typed \
@@ -245,7 +245,7 @@ async fn plan_sourced_mining_tsscan_errors_typed_when_store_absent() {
 #[tokio::test]
 async fn plan_sourced_mining_without_tsscan_is_unaffected_by_absent_store() {
     let state = state(None);
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         &state,
         req(
             1,
@@ -257,10 +257,10 @@ async fn plan_sourced_mining_without_tsscan_is_unaffected_by_absent_store() {
                 .unwrap(),
             },
         ),
-    )
+    ))
     .await;
     assert!(r.error.is_none(), "AddNode: {:?}", r.error);
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         &state,
         req(
             2,
@@ -269,14 +269,14 @@ async fn plan_sourced_mining_without_tsscan_is_unaffected_by_absent_store() {
                 embedding: vec![1.0, 0.0],
             },
         ),
-    )
+    ))
     .await;
     assert!(r.error.is_none(), "AddEmbedding: {:?}", r.error);
 
     let plan = Plan::new(vec![Op::Scan {
         label: "Metric".into(),
     }]);
-    let resp = dispatch(&state, req(3, mine_anomaly_over(plan))).await;
+    let resp = Box::pin(dispatch(&state, req(3, mine_anomaly_over(plan)))).await;
     let payload = json_result(&resp);
     assert_eq!(
         payload["n_rows"].as_u64().unwrap_or(999),
