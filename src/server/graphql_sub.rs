@@ -803,11 +803,36 @@ mod tests {
 
     fn isolation() -> IsolationLayer {
         let mut isolation = IsolationLayer::new();
+        // RBAC (CONCEPT:EG-KG.compute.feature) is the mandatory current access
+        // decision under `feature = "security"` (`isolation.rs::check_access`) —
+        // there is no pre-RBAC "Commons is public" fall-through any more for a
+        // non-`System` identity (see `server::mod::tests::multi_tenant_state`'s
+        // doc comment for the same migration, and
+        // `query::current_auth_test_support::current_isolation_with_agents`'s
+        // identical fixture fix). Give both test agents the SAME "commons-user"
+        // R/W grant that fixture already establishes as the replacement for the
+        // retired open-bus ACL semantics.
+        #[cfg(feature = "security")]
+        {
+            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+            isolation.add_role(Role::new("commons-user"));
+            let grant = |action: RbacAction| Grant {
+                role: "commons-user".to_string(),
+                resource: ResourceSelector::Graph("__commons__".to_string()),
+                action,
+                effect: GrantEffect::Allow,
+            };
+            isolation.add_grant(grant(RbacAction::Read));
+            isolation.add_grant(grant(RbacAction::Write));
+        }
         for agent_id in ["actor-a", "actor-b"] {
             isolation.register_agent(AgentIdentity {
                 agent_id: agent_id.into(),
                 role: AgentRole::Agent,
                 teams: Vec::new(),
+                #[cfg(feature = "security")]
+                roles: vec!["commons-user".to_string()],
+                #[cfg(not(feature = "security"))]
                 roles: Vec::new(),
             });
         }
