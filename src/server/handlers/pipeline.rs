@@ -1420,6 +1420,29 @@ mod tests {
         core.mark_dirty();
     }
 
+    /// Explicitly RLS-tag an already-trained `:Model` node (CONCEPT:EG-KG.sharding.row-level-security).
+    /// A freshly-trained model carries NO `_owner`/`_visibility`/`_grants` fields —
+    /// `RowVisibility::tagged` is therefore `false`, and an untagged row is
+    /// default-DENIED to every non-System caller (there is no implicit-public
+    /// fallback for an untagged row, only for an explicit `_visibility` other than
+    /// `"private"` — see `row_visibility`'s doc). Tests that read a model through a
+    /// non-System `GraphReadAuthority` must tag it explicitly, same as any other
+    /// row whose visibility they care about.
+    fn tag_model_visibility(core: &GraphCore, model_id: &str, visibility: &str, owner: Option<&str>) {
+        let mut props =
+            eg_types::msgpack::decode_property_value(&core.get_node_properties(model_id).unwrap())
+                .unwrap();
+        if let Some(owner) = owner {
+            props["_owner"] = json!(owner);
+        }
+        props["_visibility"] = json!(visibility);
+        core.add_node(
+            model_id.to_string(),
+            rmp_serde::to_vec_named(&props).unwrap(),
+        );
+        core.mark_dirty();
+    }
+
     /// RED before the BUG-034 fix: `try_handle`'s `Evaluate`/`Compare` arms called
     /// `handle_evaluate`/`handle_compare` against the raw, unfiltered core, so a
     /// non-grantee's `n` (a label-index-derived row count — the exact `count(n)`-
@@ -1445,6 +1468,15 @@ mod tests {
             true,
         ));
         assert_eq!(train["version"], 1);
+        // A freshly-trained `:Model` node carries NO RLS tags of its own — under
+        // the mandatory default-deny RLS posture (CONCEPT:EG-KG.sharding.row-level-security,
+        // `RowVisibility::tagged`), an UNTAGGED row is invisible to every non-System
+        // caller, not implicitly public. This test is about the row-visibility of
+        // the PERSON data Evaluate reads, not the model's own visibility, so tag the
+        // model explicitly public — exactly the fixture pattern
+        // `mining_pipeline_compare_respects_model_visibility` uses for its own
+        // (explicitly private) v1 tag, just with the opposite value.
+        tag_model_visibility(&core, "model:community:v1", "public", None);
 
         // alice is neither bob nor bob's manager: `priv_*` must stay invisible.
         let alice = authority_for("alice");
@@ -1490,17 +1522,7 @@ mod tests {
         // Tag the trained `:Model` node itself private to bob — a real deployment
         // shape (a model trained over a private cohort, e.g. `:Model` inheriting
         // its source's ownership).
-        let model_id = "model:community:v1";
-        let mut props =
-            eg_types::msgpack::decode_property_value(&core.get_node_properties(model_id).unwrap())
-                .unwrap();
-        props["_owner"] = json!("bob");
-        props["_visibility"] = json!("private");
-        core.add_node(
-            model_id.to_string(),
-            rmp_serde::to_vec_named(&props).unwrap(),
-        );
-        core.mark_dirty();
+        tag_model_visibility(&core, "model:community:v1", "private", Some("bob"));
 
         let train2 = json_of(handle_train(
             2,
@@ -1513,6 +1535,12 @@ mod tests {
             true,
         ));
         assert_eq!(train2["version"], 2);
+        // v2 carries no RLS tags of its own (untagged ⇒ default-deny under the
+        // mandatory RLS posture, same as the evaluate test's model tag) — this
+        // test is about v1's PRIVATE visibility specifically, so v2 must be
+        // explicitly public or its own invisibility would mask the assertion
+        // this test exists to prove (bob CAN resolve it once v1's block clears).
+        tag_model_visibility(&core, "model:community:v2", "public", None);
 
         let alice = authority_for("alice");
         let resp = pipeline_try_handle(

@@ -474,17 +474,21 @@ pub async fn enforce_memory_budgets(
     // tenant's EFFECTIVE budget is the smaller of its configured budget and this share,
     // so one hot tenant cannot consume the whole ceiling and starve others.
     let active_tenants = per_tenant.len().max(1) as u64;
-    let estimated_total = tenant_mem.values().copied().sum::<u64>();
-    let rss = process_rss_bytes();
-    let pressure_target = if rss > config.global_ceiling_bytes && estimated_total > 0 {
-        // Approximate how much of the modeled resident projection must remain to
-        // bring process RSS under the hard ceiling. Saturating integer arithmetic
-        // avoids float precision loss and overflow on large hosts.
-        ((estimated_total as u128 * config.global_ceiling_bytes as u128) / rss as u128) as u64
-    } else {
-        config.global_ceiling_bytes
-    };
-    let fair_share = config.global_ceiling_bytes.min(pressure_target) / active_tenants;
+    // `process_rss_bytes()` (real OS-observed RSS) used to scale this target: it is
+    // NOT commensurable with the tenants' modeled `memory_estimate()` sum. A
+    // process's RSS also carries the binary image, allocator arenas, thread
+    // stacks, and every other subsystem's heap — overhead entirely unrelated to
+    // graph data, and in any modest process (very much including a `cargo test`
+    // binary) far larger than a lightly-loaded tenant's modeled footprint.
+    // Scaling the modeled total by the raw `global_ceiling / rss` ratio crushed
+    // `pressure_target` toward zero whenever that fixed overhead dominated RSS —
+    // reclaiming a tenant already comfortably under budget by any measure of its
+    // OWN data (the `fair_cap_protects_small_tenant` regression this fixes: an
+    // 8KiB ceiling against a multi-hundred-MB test-process RSS zeroed the fair
+    // share and evicted a tenant holding a single tiny node). The fair share is
+    // therefore the plain, documented `ceiling / active_tenants` split — sound
+    // regardless of how much of real RSS the modeled graph data happens to be.
+    let fair_share = config.global_ceiling_bytes / active_tenants;
     let effective_budget = config.per_tenant_budget_bytes.min(fair_share.max(1));
 
     let mut total_evicted = 0u64;

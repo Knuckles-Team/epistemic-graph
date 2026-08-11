@@ -889,7 +889,14 @@ mod admission_tests {
             #[cfg(feature = "redb")]
             cold_tracker: Arc::new(ColdTenantTracker::new()),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            // RBAC (CONCEPT:EG-KG.compute.feature) is mandatory for every non-System
+            // identity: a bare `IsolationLayer::new()` (zero agents registered)
+            // fails `check_graph_access`'s `has_rules()` gate outright the moment
+            // the later `GetNodeProperties` reaches dispatch. `redb_state()` above
+            // already builds this same fixture's isolation via `current_isolation()`
+            // (registers `TEST_AGENT` as `System`); this second, hand-rolled
+            // `ServerState` for the reload side needs the identical treatment.
+            isolation: current_isolation(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir_s.clone()),
@@ -938,7 +945,14 @@ mod admission_tests {
         }
 
         let loaded = backend2.load_catalog(&state2).await.unwrap();
-        assert_eq!(loaded, 9, "boot:0..7 + __commons__ cataloged");
+        // Only the 8 `boot:N` graphs are durably cataloged (a `graph_meta` row is
+        // written on `create`/first write — see `read_all_graph_meta`): the
+        // write-side setup above never creates OR writes to "__commons__", so it
+        // has no durable footprint to catalog. `__commons__`'s residency below
+        // comes from `GraphRegistry::new()` unconditionally pre-creating it
+        // in-memory (every fresh registry's baseline, independent of `load_catalog`
+        // — see `resident_len() == 1` next), NOT from the durable catalog scan.
+        assert_eq!(loaded, 8, "boot:0..7 cataloged");
         assert_eq!(
             state2.read().await.registry.resident_len(),
             1,

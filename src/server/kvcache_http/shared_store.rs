@@ -209,18 +209,43 @@ impl SharedKvStoreBackend {
         block: Block,
         derived_at: DataVersion,
     ) -> Result<bool, String> {
-        let existed = matches!(self.store.get(BLOCK_NS, hash), Ok(Some(_)));
-        // A content-addressed page already present is identical bytes — skip the redundant
-        // durable rewrite and count the cross-instance dedup (the hot path).
-        if existed && derived_at.is_agnostic() {
+        // Whether a row occupying this key is FRESH right now — not merely whether
+        // SOME row physically occupies it. An `Agnostic` page is fresh forever
+        // (content-addressed: any present row is byte-identical), so this matches
+        // the old raw-presence check for that case unchanged. A versioned `At(v)`
+        // entry, though, can legitimately be a DIFFERENT value at a new version —
+        // that is the whole point of `DataVersion::At` — so a STALE row sitting
+        // under this key is superseded content, not a duplicate of what's being
+        // written now: a re-publish over it must count as a fresh creation, not a
+        // dedup (`version_bump_invalidates_derived_context_fleet_wide` proves the
+        // fleet-wide-miss → re-publish round trip; treating that re-publish as a
+        // "dedup" both under-reports `put_new` and — via the `false` return this
+        // whole method surfaces to callers as "not created" — makes a real refresh
+        // of a genuinely fresh value indistinguishable from restoring a stale one).
+        let existing_is_fresh = self
+            .store
+            .get(BLOCK_NS, hash)
+            .ok()
+            .flatten()
+            .as_deref()
+            .and_then(decode_frame)
+            .is_some_and(|(version, _)| match version {
+                DataVersion::Agnostic => true,
+                DataVersion::At(_) => version.is_fresh(self.current_version()),
+            });
+        // A content-addressed page already present (and therefore fresh) is
+        // identical bytes — skip the redundant durable rewrite and count the
+        // cross-instance dedup (the hot path).
+        if existing_is_fresh && derived_at.is_agnostic() {
             self.dedup_hits.fetch_add(1, Ordering::Relaxed);
             self.trace_put(hash, false);
             return Ok(false);
         }
         let frame = encode_frame(&block, derived_at);
         self.store.put(BLOCK_NS, hash, frame)?;
-        if existed {
-            // A versioned re-publish REFRESHES the entry's version stamp (un-stales it).
+        if existing_is_fresh {
+            // A versioned re-publish of an ALREADY-fresh value REFRESHES the
+            // entry's version stamp (un-stales it) — still a dedup.
             self.dedup_hits.fetch_add(1, Ordering::Relaxed);
             self.trace_put(hash, false);
             Ok(false)
