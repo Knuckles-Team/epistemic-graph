@@ -81,3 +81,12 @@ modality-serving = ["eg-types/modality-serving"]
 # root `epistemic-graph` package's `quantum-agent-api` facade feature enables BOTH
 # `eg-types/quantum` and `eg-capabilities/quantum` in lockstep.
 quantum = ["eg-types/quantum"]
+# D-VZ-1 (lanes V4/V6) -- see the module doc above. Mirrors `eg-types/viz` 1:1 (same
+# lockstep contract as `jobs`/`statechart`): `viz` is deliberately EXCLUDED from
+# `full` (unlike most eg-types features this crate force-enables above), so this
+# crate carries its OWN mirrored `viz` feature that both turns on `eg-types/viz` AND
+# cfg-gates `policy()`'s one `Method::Viz` arm together, so the two can never drift
+# out of sync. The root `epistemic-graph` package's `viz` facade feature enables
+# `eg-capabilities?/viz` (weak-dep syntax: only takes effect if `eg-capabilities` is
+# ALSO linked via `server` from elsewhere) in lockstep -- see root Cargo.toml.
+viz = ["eg-types/viz"]
