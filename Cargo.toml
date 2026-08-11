@@ -393,17 +393,22 @@ program-optimization = ["jobs", "dep:eg-program", "eg-types/program-optimization
 # D-VZ-1 (lane V0, `plans/au-eg-program/deferred/lane-viz-native.md`) -- native
 # visualization contracts. `viz` links `eg-viz-core` alone (ViewSpec IR, ViewResult
 # metadata, capability matrix, tier-selection rules, trait boundaries only -- no
-# ColumnStore, no LOD kernel, no renderer). `viz-interactive` is a reserved name
-# for V3b to attach its binary-tile-protocol/WebGPU client behind once that lane
-# lands; `viz-gpu-export` is reserved for a future GPU-accelerated static export
-# variant (V3a's CPU static export landed below as `viz-static-export`, lane V1's
-# ColumnStore as `viz-columnstore` -- both still gate real, dependency-free/
-# minimal-dependency work, not placeholders). Deliberately EXCLUDED from `full` (contrast `jobs`/
-# `statechart` above): unlike those, nothing here is wired to a server handler yet,
-# so including it in the one main build would add a dependency with zero behavior
-# to show for it. `cargo build`'s default feature set therefore gains no
-# eg-viz-core dependency at all -- confirmed by `cargo tree` (no `--features viz`).
-viz = ["dep:eg-viz-core"]
+# ColumnStore, no LOD kernel, no renderer) PLUS the `eg-types` wire DTO
+# (`eg-types/viz` -> `Method::Viz`, lanes V4/V6) so a caller can already build/parse
+# a `VizOp` even before a server handler exists to serve it -- `eg-capabilities?/viz`
+# is a WEAK-dep edge (Cargo `pkg?/feature` syntax): it only takes effect if
+# `eg-capabilities` is ALSO linked via `server` from elsewhere (bare `viz` alone
+# does not pull `server`/`eg-capabilities`), keeping `policy()`'s exhaustive
+# `Method` match in lockstep whenever both happen to be active together. `cargo
+# build`'s DEFAULT feature set still gains no `eg-viz-core` dependency at all --
+# `viz` (and everything below it) remains deliberately EXCLUDED from `full`,
+# confirmed by `cargo tree` (no `--features viz`). `viz-interactive` is a reserved
+# name for V3b to attach its binary-tile-protocol/WebGPU client behind once that
+# lane lands; `viz-gpu-export` is reserved for a future GPU-accelerated static
+# export variant (V3a's CPU static export landed below as `viz-static-export`,
+# lane V1's ColumnStore as `viz-columnstore` -- both still gate real,
+# dependency-free/minimal-dependency work, not placeholders).
+viz = ["dep:eg-viz-core", "eg-types/viz", "eg-capabilities?/viz"]
 viz-interactive = ["viz"]
 viz-gpu-export = ["viz"]
 # D-VZ-1 lane V1: the ColumnStore (canonical columns, zone maps, content-addressed
@@ -416,7 +421,20 @@ viz-columnstore = ["viz", "dep:eg-viz-columnstore"]
 # resolved from a ViewSpec against a viz-columnstore ColumnStore, honoring
 # (never re-deriving) the tier `select_tier` chose. Hand-rolled PNG/PDF encoders
 # and a plain-text SVG writer: zero new external crates.io dependencies.
-viz-static-export = ["viz-columnstore", "dep:eg-viz-export"]
+#
+# D-VZ-1 lanes V4 ("engine integration") / V6 ("graph-native marks"): THIS is the
+# tier that actually stands up a working `Method::Viz` server handler
+# (`src/server/handlers/viz.rs`) and its dispatch arm -- both gated
+# `#[cfg(feature = "viz-static-export")]`, a deliberate deviation from gating them
+# on bare `viz` (see that handler's module doc): the handler needs a real
+# `eg_viz_columnstore::ColumnStore` + `eg_viz_export::ColumnStoreExportBackend` to
+# do anything, which only exist at this tier, so bare `viz` (V0's bare wire/IR
+# contracts) staying handler-free keeps its own "no ColumnStore, no LOD kernel, no
+# renderer" doc claim honest. `server` is therefore pulled in HERE (not on bare
+# `viz`) -- this is the ONLY tier that needs it, and pulling it here (rather than
+# relying on it merely being present in `full`) means `--features viz-static-export`
+# alone (no `--no-default-features`) is enough for `Method::Viz` to be reachable.
+viz-static-export = ["viz-columnstore", "dep:eg-viz-export", "server"]
 # D-DE-0 (lane w6-de0-contracts, `plans/au-eg-program/program/durable-execution-native.md`)
 # -- the durable-execution ROUTING contract. `durable` links `eg-durable` alone (the
 # CallShape/WorkShape/DurableBackendKind routing table + the DurableExecutionUnitMirror
