@@ -6456,6 +6456,78 @@ async fn dispatch_graph_op_inner(
         }
     }
 
+    // ── Native development-lane hold/quota authority (RMDD-28) ──────────────────
+    // `redb_store::development_lane` deliberately stops at the redb transaction
+    // boundary -- no MutationBatch/result/outbox/CDC projection -- exactly the
+    // WorkItem claim-capability posture above. The 6 write methods
+    // (Reserve/Renew/Observe/Finish/Cleanup/UpdateQuota) commit through the
+    // writer-thread `Cmd` channel (the kernel's own self-contained
+    // begin_write()/commit()); the exact-query/status reads are MVCC snapshot
+    // reads, same posture as the native reservation-ledger reads above. Every
+    // request carries its own tenant/owner/fencing authority (CAS'd against the
+    // live WorkItem row inside the kernel), not a server-derived
+    // AuthenticatedAuthority, so — unlike claim capability — there is no
+    // verified-context authority struct to build here.
+    if crate::server::mutation_batch::is_development_lane_method(&method) {
+        #[cfg(feature = "raft")]
+        if let Some(routed) = routed_raft.as_ref() {
+            let leader = routed.handle.current_leader().await;
+            if leader != Some(routed.handle.node_id) {
+                return Response::stale_route(
+                    req_id,
+                    graph_name,
+                    routed.group_id,
+                    routed.epoch,
+                    leader,
+                    "development-lane operations require the current placement leader",
+                );
+            }
+            if let Some(multi) = multi_raft.as_ref() {
+                if let Err(error) = multi.read_barrier_group(routed.group_id).await {
+                    return Response::err(
+                        req_id,
+                        format!("development-lane linearizability barrier failed: {error:?}"),
+                    );
+                }
+            }
+        }
+        let Some(backend) = persistence.as_ref() else {
+            return Response::err(
+                req_id,
+                "native development-lane persistence is unavailable",
+            );
+        };
+        let fname = crate::persist::sanitize(graph_name);
+        let now_ms = authoritative_now_ms();
+        let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+        return match method {
+            Method::QueryDevelopmentLane { ref request } => backend
+                .read_development_lane(&fname, request, now_ms)
+                .await
+                .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
+                .unwrap_or_else(|error| {
+                    Response::err(req_id, format!("development-lane query failed: {error}"))
+                }),
+            Method::DevelopmentLaneStatus { ref request } => backend
+                .read_development_lane_status(&fname, request, now_ms)
+                .await
+                .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
+                .unwrap_or_else(|error| {
+                    Response::err(
+                        req_id,
+                        format!("development-lane status read failed: {error}"),
+                    )
+                }),
+            _ => backend
+                .commit_development_lane(&fname, method, now_ms)
+                .await
+                .map(|bytes| Response::ok(req_id, ResultPayload::Raw(bytes)))
+                .unwrap_or_else(|error| {
+                    Response::err(req_id, format!("development-lane commit failed: {error}"))
+                }),
+        };
+    }
+
     // Engine-native WorkItem transitions are result-producing durable CAS
     // operations. They must execute at the current placement leader (a generic
     // Raft acknowledgement cannot carry the selected work-item result), and their
@@ -8107,9 +8179,18 @@ mod admin_scope_tests {
     async fn identity_bootstrap_is_atomic_under_concurrent_requests() {
         let state = state_min();
         state.write().await.isolation = IsolationLayer::new();
+        // `register_identity`'s embedded `Method::RegisterIdentity.signature` is checked
+        // against `#[cfg(test)]`'s hardcoded `signer_registry()` allowlist
+        // (`["system", "root", "alice", "priv"]`, src/server/auth.rs) BEFORE anything
+        // concurrency-related runs — an untrusted signer name fails closed at
+        // `verify_register_identity_signature` regardless of which request wins the
+        // race. "first"/"second" were never registered there, so both calls failed
+        // identically (0 successes) for a reason that has nothing to do with the
+        // atomicity this test exists to prove. "root"/"alice" are two DISTINCT
+        // already-trusted test signers, matching every other test in this module.
         let (first, second) = tokio::join!(
-            register_identity(&state, 11, Some("first"), "first", AgentRole::System),
-            register_identity(&state, 12, Some("second"), "second", AgentRole::System),
+            register_identity(&state, 11, Some("root"), "root", AgentRole::System),
+            register_identity(&state, 12, Some("alice"), "alice", AgentRole::System),
         );
         assert_eq!(
             [first, second]

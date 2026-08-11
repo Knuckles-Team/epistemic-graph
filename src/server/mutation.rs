@@ -3538,29 +3538,24 @@ mod tests {
              context -- never enters MutationBatch/result/outbox/CDC projections, so it does not \
              fit commit_mutation's (ctx, plan, method, apply) shape at all",
         ),
-        // ── push/eg-merge-artifacts facade audit: DevelopmentLane* have a full native redb
-        // transition kernel (src/redb_store/development_lane.rs -- reserve/renew/observe/
-        // finish/cleanup/quota-update, each exercised directly by its own extensive unit
-        // tests) but NO dispatch.rs routing arm exists yet for any of the 6 write methods --
-        // confirmed by exhaustive search: none of these names appear anywhere in dispatch.rs,
-        // and every development_lane.rs function is module-private (only its own #[cfg(test)]
-        // mod can reach them). A live request for any of these therefore falls through
-        // dispatch_inner's `_ => dispatch_graph_op` wildcard into
-        // handlers::graph_ops::try_handle's own terminal catch-all, which fails closed with an
-        // explicit "Method not available in this server build" error -- never a silent no-op,
-        // never an unaccounted durable write. Documented HERE (not OPEN_NOT_JUSTIFIED) because
-        // the native commit mechanism genuinely exists (structurally identical to
-        // ReserveWorkItemResources/ReleaseWorkItemResources above: a dedicated
-        // engine-native redb transition, not commit_mutation's generic shape) -- it is simply
-        // not yet wired to the wire-protocol dispatch surface. Flagged as a visible TODO for
-        // the wave that adds that wiring, matching NOT_YET_AUDITED's read-side twin in
-        // access.rs (REASON_DEVELOPMENT_LANE_NOT_YET_WIRED). ──
-        ("ReserveDevelopmentLane", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
-        ("RenewDevelopmentLane", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
-        ("ObserveDevelopmentLane", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
-        ("FinishDevelopmentLane", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
-        ("CleanupDevelopmentLane", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
-        ("UpdateDevelopmentLaneQuota", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
+        // ── fix/eg-devlane-dispatch: DevelopmentLane*'s 6 write methods now route through
+        // dispatch.rs's dedicated `is_development_lane_method` block (sitting beside the
+        // WorkItem-claim-capability block), which commits through
+        // `PersistenceBackend::commit_development_lane` -> the redb writer thread ->
+        // `redb_store::development_lane::commit_development_lane` -- a self-contained
+        // begin_write()/commit() against the native `development_lane_*` tables. Same posture
+        // as `MintWorkItemClaimCapability` above: no MutationBatch/result/outbox/CDC
+        // projection, so it does not fit commit_mutation's (ctx, plan, method, apply) shape.
+        // Formerly NOT_YET_AUDITED-adjacent placeholder text (push/eg-merge-artifacts, commit
+        // 174c381) said "no dispatch.rs wire-routing arm exists yet" -- that arm now exists;
+        // see access.rs's REASON_NATIVE_DEVELOPMENT_LANE_READ for the read-side twin
+        // (DevelopmentLaneStatus/QueryDevelopmentLane). ──
+        ("ReserveDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("RenewDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("ObserveDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("FinishDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("CleanupDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("UpdateDevelopmentLaneQuota", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
     ];
 
     /// Graph-scoped methods requiring a coordinator outside this gateway. The set is
