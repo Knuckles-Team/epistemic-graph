@@ -620,6 +620,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::DeleteGraph { .. }
             | Method::ClaimNext { .. }
             | Method::ClaimWorkItem { .. }
+            | Method::MintWorkItemClaimCapability { .. }
             | Method::RenewWorkItemLease { .. }
             | Method::CommitWorkItemResult { .. }
             | Method::CancelWorkItem { .. }

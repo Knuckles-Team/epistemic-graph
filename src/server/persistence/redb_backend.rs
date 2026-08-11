@@ -353,6 +353,25 @@ pub(crate) enum Cmd {
         payload: Box<MutationBatchPayload>,
         done: oneshot::Sender<Result<MutationBatchCommit, String>>,
     },
+    /// Native WorkItem capability mint/verify.  These commands flush pending
+    /// graph mutations first and execute the control-row authorization plus
+    /// private capability ledger operation in one writer-owned transaction.
+    MintWorkItemClaimCapability {
+        graph: String,
+        request: crate::epistemic_operations::WorkItemClaimCapabilityMintRequest,
+        authority: crate::redb_store::work_item_capability::AuthenticatedAuthority,
+        done: oneshot::Sender<
+            Result<crate::epistemic_operations::WorkItemClaimCapabilityResult, String>,
+        >,
+    },
+    VerifyWorkItemClaimCapability {
+        graph: String,
+        request: crate::epistemic_operations::WorkItemClaimCapabilityVerifyRequest,
+        authority: crate::redb_store::work_item_capability::AuthenticatedAuthority,
+        done: oneshot::Sender<
+            Result<crate::epistemic_operations::WorkItemClaimCapabilityResult, String>,
+        >,
+    },
     /// Engine-native governed ingest commit. This is deliberately one writer
     /// command so queue pressure can never split graph/material/governance state.
     ChangeEnvelopeCommit {
@@ -2448,6 +2467,74 @@ impl PersistenceBackend for RedbBackend {
         read_resource_reservation_status_record(&db, graph_fname, request, crypto)
     }
 
+    /// Execute the narrow native WorkItem claim-capability mint operation on
+    /// the graph's writer shard.  This is crate-private: external callers can
+    /// submit only the typed opaque request through dispatch after authz.
+    async fn mint_work_item_claim_capability(
+        &self,
+        graph_fname: &str,
+        request: crate::epistemic_operations::WorkItemClaimCapabilityMintRequest,
+        authority: crate::redb_store::work_item_capability::AuthenticatedAuthority,
+    ) -> Result<crate::epistemic_operations::WorkItemClaimCapabilityResult, String> {
+        let (done, rx) = oneshot::channel();
+        let cmd = Cmd::MintWorkItemClaimCapability {
+            graph: graph_fname.to_string(),
+            request,
+            authority,
+            done,
+        };
+        let send = if self.catalog.is_some() {
+            let guard = self.routing_epoch.clone().read_owned().await;
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || {
+                let _routing = guard;
+                tx.send(cmd).map_err(|_| ())
+            })
+            .await
+        } else {
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ())).await
+        };
+        send.map_err(|error| format!("claim-capability mint join error: {error}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped claim-capability mint completion".to_string())?
+    }
+
+    /// Execute the linearizable native WorkItem claim-capability verification
+    /// operation.  The writer command flushes earlier mutations before the
+    /// control-row-first authorization/read sequence.
+    async fn verify_work_item_claim_capability(
+        &self,
+        graph_fname: &str,
+        request: crate::epistemic_operations::WorkItemClaimCapabilityVerifyRequest,
+        authority: crate::redb_store::work_item_capability::AuthenticatedAuthority,
+    ) -> Result<crate::epistemic_operations::WorkItemClaimCapabilityResult, String> {
+        let (done, rx) = oneshot::channel();
+        let cmd = Cmd::VerifyWorkItemClaimCapability {
+            graph: graph_fname.to_string(),
+            request,
+            authority,
+            done,
+        };
+        let send = if self.catalog.is_some() {
+            let guard = self.routing_epoch.clone().read_owned().await;
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || {
+                let _routing = guard;
+                tx.send(cmd).map_err(|_| ())
+            })
+            .await
+        } else {
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ())).await
+        };
+        send.map_err(|error| format!("claim-capability verify join error: {error}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped claim-capability verify completion".to_string())?
+    }
+
     /// **Cross-modal ACID (CONCEPT:EG-KG.txn.reader-never-sees-node).** Land graph + vectors + blob-refs for ONE
     /// graph in ONE redb `WriteTransaction`, awaiting its durable fsync. On any error
     /// the transaction is dropped without commit, so NONE of the modalities land — a
@@ -3746,6 +3833,46 @@ fn handle_cmd(
                     &mut pending.audit_tail,
                 )
             };
+            let _ = done.send(res);
+            false
+        }
+        Cmd::MintWorkItemClaimCapability {
+            graph,
+            request,
+            authority,
+            done,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let res = (|| {
+                let mut wtx = db.begin_write().map_err(|error| error.to_string())?;
+                wtx.set_durability(Durability::Immediate)
+                    .map_err(|error| error.to_string())?;
+                let result = crate::redb_store::work_item_capability::mint_in_wtx(
+                    &wtx, &graph, &request, &authority, crypto,
+                )?;
+                wtx.commit().map_err(|error| error.to_string())?;
+                Ok(result)
+            })();
+            let _ = done.send(res);
+            false
+        }
+        Cmd::VerifyWorkItemClaimCapability {
+            graph,
+            request,
+            authority,
+            done,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let res = (|| {
+                let mut wtx = db.begin_write().map_err(|error| error.to_string())?;
+                wtx.set_durability(Durability::Immediate)
+                    .map_err(|error| error.to_string())?;
+                let result = crate::redb_store::work_item_capability::verify_in_wtx(
+                    &wtx, &graph, &request, &authority, crypto,
+                )?;
+                wtx.commit().map_err(|error| error.to_string())?;
+                Ok(result)
+            })();
             let _ = done.send(res);
             false
         }
