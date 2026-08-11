@@ -1883,6 +1883,26 @@ const REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE: &str =
 // engine-authoritative cluster-topology discovery) without a classification here.
 const REASON_CLUSTER_TOPOLOGY_READ: &str =
     "src/server/handlers/topology.rs::handle_cluster_members answers from the durable NodeInfoStore + live MultiRaft membership (self-reported node/raft-group topology) -- not one resolved graph's rows, never touches core/GraphView/project_core. Gated by its own authz_action `cluster:topology-read` (crates/eg-capabilities/src/lib.rs), deliberately NOT kg:admin (REASON_CLUSTER_ADMIN_GATED) so ordinary service roles can re-resolve after a failover -- a distinct, weaker gate than the admin-only cluster methods above, so it gets its own reason rather than being folded into theirs";
+// BUG-044-class facade audit (push/eg-merge-artifacts): `QueryWorkItemReservation`/
+// `ResourceReservationStatus` route in `dispatch.rs` (the `is_resource_reservation_query_method`
+// guard, just above the WorkItem claim-capability block) straight to
+// `PersistenceBackend::read_resource_reservation`/`read_resource_reservation_status` against the
+// dedicated native reservation ledger -- never a `GraphView`/`core.analysis_snapshot()`. Under
+// placement it is served only by the current group leader (the SAME `routed_raft`/linearizable
+// read-barrier gate `REASON_CLUSTER_TOPOLOGY_READ`'s neighbor uses); `ResourceReservationStatus`
+// additionally redacts aggregate host totals unless the caller holds `resource:read:aggregate`/
+// `kg:admin` (see `redact_resource_status_result`) -- native reservation-scoped authority, not
+// per-row RLS.
+const REASON_NATIVE_RESERVATION_READ: &str =
+    "dispatch.rs's is_resource_reservation_query_method guard routes QueryWorkItemReservation/ResourceReservationStatus directly to PersistenceBackend::read_resource_reservation/read_resource_reservation_status against the dedicated native reservation ledger (redb_store.rs), gated by the current placement leader + linearizable read barrier under raft -- never a GraphView/core.analysis_snapshot() row read; ResourceReservationStatus additionally redacts aggregate totals unless the caller holds resource:read:aggregate/kg:admin";
+// `VerifyWorkItemClaimCapability` shares `MintWorkItemClaimCapability`'s dedicated block in
+// dispatch.rs ("Native WorkItem claim capabilities use a dedicated private ledger and never
+// enter MutationBatch/result/outbox/CDC projections"): it reads
+// `redb_store::work_item_capability::verify_work_item_claim_capability` keyed by an
+// `AuthenticatedAuthority` built from the verified request context (tenant/principal/session),
+// never a `GraphView`.
+const REASON_NATIVE_CAPABILITY_LEDGER: &str =
+    "dispatch.rs's dedicated WorkItem-claim-capability block routes VerifyWorkItemClaimCapability to redb_store::work_item_capability::verify_work_item_claim_capability against its own private ledger, keyed by an AuthenticatedAuthority derived from the verified request context -- never enters MutationBatch/result/outbox/CDC projections or a GraphView, same posture as MintWorkItemClaimCapability's write-side native ledger";
 
 const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_SERVER_LIFECYCLE
@@ -2013,13 +2033,35 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("CausalCounterfactual", REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE),
     ("CausalEstimate", REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE),
     ("RankByProvenance", REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE),
+    // REASON_NATIVE_RESERVATION_READ
+    ("QueryWorkItemReservation", REASON_NATIVE_RESERVATION_READ),
+    ("ResourceReservationStatus", REASON_NATIVE_RESERVATION_READ),
+    // REASON_NATIVE_CAPABILITY_LEDGER
+    ("VerifyWorkItemClaimCapability", REASON_NATIVE_CAPABILITY_LEDGER),
 ];
 
 // L-RLS-1 burn-down (CONCEPT:EPI-P3-3/P3-6): the 5 methods this pass covered (see the
 // `REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE` doc above) were the entire prior contents of this
 // list. Empty is the intended end state, not an initial one -- a future audit pass adds a
 // new entry here ONLY as a flagged, visible TODO, never silently.
-const NOT_YET_AUDITED: &[(&str, &str)] = &[];
+//
+// push/eg-merge-artifacts facade audit: `DevelopmentLaneStatus`/`QueryDevelopmentLane` are
+// PROTOCOL METHODS + a full native redb transition kernel (`src/redb_store/development_lane.rs`,
+// exercised directly by its own extensive unit tests) but have NO dispatch.rs routing arm at
+// all yet -- confirmed by exhaustive search: neither name appears anywhere in `dispatch.rs`,
+// and every one of `development_lane.rs`'s functions (`normalize_now`, `method_name`,
+// `validate_method_bounds`, ...) is module-private, reachable only from its own tests. A live
+// request for either method therefore falls through dispatch_inner's `_ => dispatch_graph_op`
+// wildcard into `handlers::graph_ops::try_handle`'s OWN terminal catch-all, which fails closed
+// with an explicit "Method not available in this server build" error -- never a silent no-op,
+// never a row read. This is a flagged, visible TODO for the wave that wires DevelopmentLane's
+// wire dispatch, not an audited RLS/NON_ROW_SCOPED classification (there is no handler to cite).
+const NOT_YET_AUDITED: &[(&str, &str)] = &[
+    ("DevelopmentLaneStatus", REASON_DEVELOPMENT_LANE_NOT_YET_WIRED),
+    ("QueryDevelopmentLane", REASON_DEVELOPMENT_LANE_NOT_YET_WIRED),
+];
+const REASON_DEVELOPMENT_LANE_NOT_YET_WIRED: &str =
+    "DevelopmentLaneStatus/QueryDevelopmentLane have a full native redb transition kernel (src/redb_store/development_lane.rs, exercised directly by its own unit tests) but no dispatch.rs routing arm exists yet -- neither name appears anywhere in dispatch.rs, and every development_lane.rs function is module-private. A live request falls through dispatch_inner's `_ => dispatch_graph_op` wildcard into handlers::graph_ops::try_handle's terminal catch-all, which fails closed with an explicit 'Method not available in this server build' error -- never a silent no-op. Flagged here as a visible TODO for the wave that wires the dispatch surface, not an audited classification.";
 #[cfg(test)]
 mod read_rls_coverage_tests {
     use super::*;
