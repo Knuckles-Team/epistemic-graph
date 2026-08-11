@@ -2821,6 +2821,58 @@ fn graph_clear_streams_terminal_history_past_bound_and_preserves_active_holds() 
     let _ = std::fs::remove_file(path);
 }
 
+/// RMDD-29's native WorkItem-authority migration (`work_item_capability::validate_snapshot_nodes`,
+/// invoked from `apply_checkpoint` for every graph in the incoming image) now unconditionally
+/// refuses any checkpoint image containing a WorkItem-shaped node whose `status` is not
+/// `submitted`/`ready` -- by design, a checkpoint restore always purges native claim state
+/// atomically before installing the replacement, so it can never carry forward (or manufacture)
+/// an ACTIVE lease, lane-linked or not (see `redb_store::development_lane`'s own
+/// `REASON_..._NOT_YET_WIRED`-adjacent conflict for the identical interaction on the
+/// development-lane side of this migration). That makes `apply_checkpoint` structurally unable to
+/// INSTALL the active/leased WorkItem image (`work_item_props_for_request` always sets
+/// `status: "running"`) this test needs as a baseline for its actual subject: proving
+/// `apply_checkpoint` refuses to orphan or downgrade an ALREADY-held resource domain. Those
+/// refusal assertions are unaffected and still exercise the real, unmodified `apply_checkpoint`
+/// guard. This helper installs a checkpoint image directly, replicating exactly the
+/// node/meta/version side effects a successful `apply_checkpoint` would have produced for ONE
+/// graph, without running the (now submission-only) node-authority guard -- the same bypass
+/// `redb_store::development_lane::tests::seed_lane_work_item` already uses for the identical
+/// reason.
+fn seed_checkpoint_image(
+    db: &Database,
+    graph: &str,
+    incarnation_id: &str,
+    version: u64,
+    nodes: &[(String, Vec<u8>)],
+) {
+    let wtx = db.begin_write().expect("begin checkpoint image seed");
+    {
+        let mut nodes_table = wtx.open_table(NODES).expect("open nodes for seed");
+        let mut edges_table = wtx.open_table(EDGES).expect("open edges for seed");
+        let mut ledger_table = wtx.open_table(LEDGER).expect("open ledger for seed");
+        clear_graph_rows(graph, &mut nodes_table, &mut edges_table, &mut ledger_table)
+            .expect("clear prior graph rows before seed");
+        for (id, bytes) in nodes {
+            let sealed = DurableCrypto::none().seal(bytes);
+            nodes_table
+                .insert((graph, id.as_str()), sealed.as_ref())
+                .expect("insert seeded node");
+        }
+        let mut meta = wtx.open_table(GRAPH_META).expect("open graph_meta for seed");
+        let encoded = encode_meta_with_incarnation(graph, GraphType::Global, incarnation_id)
+            .expect("encode seeded graph_meta");
+        meta.insert(graph, encoded.as_slice())
+            .expect("insert seeded graph_meta");
+        let mut versions = wtx
+            .open_table(MUTATION_GRAPH_VERSION)
+            .expect("open mutation_graph_version for seed");
+        versions
+            .insert(graph, version)
+            .expect("insert seeded graph version");
+    }
+    wtx.commit().expect("commit checkpoint image seed");
+}
+
 #[test]
 fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
     let path = std::env::temp_dir().join(format!(
@@ -2900,26 +2952,21 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
         };
 
         // Establish a valid image first.  The incoming snapshot contains the
-        // exact live WorkItem linked by the native hold.
-        assert_eq!(
-            apply_checkpoint(
-                &db,
-                &mut Vec::new(),
-                vec![make_dump(
-                    "incarnation:checkpoint-domain-initial",
-                    10,
-                    vec![
-                        (
-                            "old-node".to_string(),
-                            rmp_serde::to_vec_named(&serde_json::json!({"old": true})).unwrap(),
-                        ),
-                        (request.work_item_id.clone(), work_item_bytes.clone()),
-                    ],
-                )],
-                DurableCrypto::none(),
-            )
-            .unwrap(),
-            1
+        // exact live WorkItem linked by the native hold. Installed directly
+        // (see `seed_checkpoint_image`'s doc): `apply_checkpoint` itself can no
+        // longer install an ACTIVE-status WorkItem row post-RMDD-29.
+        seed_checkpoint_image(
+            &db,
+            "graph-a",
+            "incarnation:checkpoint-domain-initial",
+            10,
+            &[
+                (
+                    "old-node".to_string(),
+                    rmp_serde::to_vec_named(&serde_json::json!({"old": true})).unwrap(),
+                ),
+                (request.work_item_id.clone(), work_item_bytes.clone()),
+            ],
         );
         let initial = read_graph_dump(&db, "graph-a", DurableCrypto::none())
             .unwrap()
@@ -2967,25 +3014,20 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
 
         // A replacement containing the exact linked WorkItem is valid and can
         // replace the ordinary graph rows while preserving the native domain.
-        assert_eq!(
-            apply_checkpoint(
-                &db,
-                &mut Vec::new(),
-                vec![make_dump(
-                    "incarnation:checkpoint-domain-valid",
-                    12,
-                    vec![
-                        (
-                            "new-node".to_string(),
-                            rmp_serde::to_vec_named(&serde_json::json!({"new": true})).unwrap(),
-                        ),
-                        (request.work_item_id.clone(), work_item_bytes.clone()),
-                    ],
-                )],
-                DurableCrypto::none(),
-            )
-            .unwrap(),
-            1
+        // Installed directly (see `seed_checkpoint_image`'s doc) for the same
+        // post-RMDD-29 reason as the initial image above.
+        seed_checkpoint_image(
+            &db,
+            "graph-a",
+            "incarnation:checkpoint-domain-valid",
+            12,
+            &[
+                (
+                    "new-node".to_string(),
+                    rmp_serde::to_vec_named(&serde_json::json!({"new": true})).unwrap(),
+                ),
+                (request.work_item_id.clone(), work_item_bytes.clone()),
+            ],
         );
         let restored = read_graph_dump(&db, "graph-a", DurableCrypto::none())
             .unwrap()
@@ -3033,7 +3075,15 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
             DurableCrypto::none(),
         )
         .expect_err("checkpoint cannot restore an old WorkItem fence");
-        assert_eq!(old_fence, "checkpoint resource domain validation failed");
+        // Post-RMDD-29, `work_item_capability::validate_snapshot_nodes` now refuses this
+        // ACTIVE-status (`status: "running"`) node before `validate_checkpoint_resource_links`
+        // ever inspects its fence -- a strictly broader refusal than the fence-specific one this
+        // assertion originally named (any active-lease WorkItem is refused now, fence-valid or
+        // not), so the still-refused invariant this test proves holds a fortiori.
+        assert_eq!(
+            old_fence,
+            "native WorkItem authority required for active lease fields"
+        );
 
         // A lease expiring at or before reservation time cannot keep a held
         // reservation alive.
@@ -3053,7 +3103,13 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
             DurableCrypto::none(),
         )
         .expect_err("checkpoint rejects a WorkItem lease expired at/before reservation time");
-        assert_eq!(expired, "checkpoint resource domain validation failed");
+        // Same post-RMDD-29 interaction as `old_fence` above: the ACTIVE-status node is refused
+        // by `validate_snapshot_nodes` before the expiry-specific check in
+        // `validate_checkpoint_resource_links` ever runs.
+        assert_eq!(
+            expired,
+            "native WorkItem authority required for active lease fields"
+        );
         let unchanged = read_graph_dump(&db, "graph-a", DurableCrypto::none())
             .unwrap()
             .expect("graph remains after stale resource checkpoint images");
@@ -3073,22 +3129,17 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
         // an explicit authoritative transaction carrying `now_ms`.
         let mut historically_valid_props = work_item_props_for_request(&request);
         historically_valid_props.insert("lease_expires_at".to_string(), serde_json::json!(2.0));
-        assert_eq!(
-            apply_checkpoint(
-                &db,
-                &mut Vec::new(),
-                vec![make_dump(
-                    "incarnation:checkpoint-domain-historical-expiry",
-                    15,
-                    vec![(
-                        request.work_item_id.clone(),
-                        rmp_serde::to_vec_named(&historically_valid_props).unwrap(),
-                    ),],
-                )],
-                DurableCrypto::none(),
-            )
-            .expect("checkpoint accepts a lease valid after reservation time"),
-            1
+        // Installed directly (see `seed_checkpoint_image`'s doc): `apply_checkpoint` can no
+        // longer install this ACTIVE-status image post-RMDD-29, same as the two seeds above.
+        seed_checkpoint_image(
+            &db,
+            "graph-a",
+            "incarnation:checkpoint-domain-historical-expiry",
+            15,
+            &[(
+                request.work_item_id.clone(),
+                rmp_serde::to_vec_named(&historically_valid_props).unwrap(),
+            )],
         );
         let historically_installed = read_graph_dump(&db, "graph-a", DurableCrypto::none())
             .unwrap()

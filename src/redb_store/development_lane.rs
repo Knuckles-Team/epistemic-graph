@@ -6778,6 +6778,19 @@ mod tests {
         )
         .is_err());
 
+        // RMDD-29's native WorkItem-authority migration
+        // (`work_item_capability::validate_snapshot_nodes`, invoked from
+        // `commit_mutation_batch_state` for every `AuthoritativeGraphState::Snapshot`) now
+        // unconditionally refuses any state-snapshot commit containing a WorkItem-shaped node
+        // whose `status` is not `submitted`/`ready` -- by design, a snapshot commit always
+        // purges native claim state, so it can never carry forward an ACTIVE lease. `linked`
+        // carries this fixture's live (`status: "running"`) lane WorkItem, so this "exact
+        // linked WorkItem" commit -- which predates that migration and originally expected
+        // success -- is now ALSO refused, for a broader (not lane-specific) reason than
+        // `orphaned` above. The invariant this test exists to prove -- a state-snapshot commit
+        // can never orphan OR silently carry forward a live lane authority -- holds a fortiori:
+        // NEITHER commit lands, and the query below proves the original hold is completely
+        // untouched.
         let linked_state = linked.to_msgpack().expect("encode linked snapshot");
         let linked_batch = make_batch(
             "state-path-linked",
@@ -6788,7 +6801,7 @@ mod tests {
         );
         #[cfg(feature = "security")]
         let mut linked_audit = super::super::AuditTailCache::new();
-        super::super::commit_mutation_batch_state(
+        assert!(super::super::commit_mutation_batch_state(
             &fixture.db,
             super::super::StateCommitInput {
                 graph_fname: TEST_GRAPH,
@@ -6802,8 +6815,10 @@ mod tests {
             #[cfg(feature = "security")]
             &mut linked_audit,
         )
-        .expect("linked snapshot commit");
+        .is_err());
 
+        // Neither `orphaned` nor `linked` above ever committed, so the durable graph version
+        // is still 0 (unchanged from `commit_ops` never being called on this fixture's graph).
         let after = crate::graph::GraphCore::new().snapshot();
         let delta = crate::graph_delta::GraphRowDelta::between(&linked, &after)
             .expect("build orphaning row delta");
@@ -6813,7 +6828,7 @@ mod tests {
             "state-path-delta",
             crate::graph_delta::ROW_DELTA_ALGORITHM,
             &delta_state,
-            1,
+            0,
         );
         #[cfg(feature = "security")]
         let mut delta_audit = super::super::AuditTailCache::new();
@@ -6846,7 +6861,7 @@ mod tests {
             TEST_NOW,
             DurableCrypto::none(),
         )
-        .expect("query state-path hold after refused restore");
+        .expect("query state-path hold after all three refused restores");
         assert_eq!(query.decision, DevelopmentLaneQueryResultDecision::Accepted);
     }
 
@@ -7801,6 +7816,15 @@ mod tests {
         // This is the public compact MutationBatch CAS path, not a direct NODES
         // edit.  A lane-linked WorkItem cannot change its authoritative owner
         // while preserving the lifecycle tuple and intent.
+        //
+        // RMDD-29's native WorkItem-authority migration
+        // (`work_item_capability::validate_generic_method`'s `CompareAndSetNodeFields` arm)
+        // now refuses any generic CAS that touches a protected authority field
+        // (`lease_owner` is one of `WORK_ITEM_AUTHORITY_KEYS`) on an existing WorkItem node
+        // BEFORE the lane's own fence-mismatch check in `apply_mutation_in_wtx` ever runs --
+        // a broader, earlier-firing refusal than the lane-specific one this assertion
+        // originally named. The invariant this test proves (a foreign owner drift never lands)
+        // holds a fortiori.
         let drift = fixture.compare_and_set_work_item_owner(
             &hold.owner_id,
             "owner:foreign",
@@ -7809,7 +7833,7 @@ mod tests {
         );
         assert_eq!(
             drift.unwrap_err(),
-            "checkpoint development lane WorkItem fence mismatch"
+            "native WorkItem authority required for protected field 'lease_owner'"
         );
 
         let stored = read_one_node(

@@ -10452,6 +10452,12 @@ mod security_tests {
         wtx.open_table(SEMANTIC).unwrap();
         wtx.open_table(GRAPH_META).unwrap();
         wtx.open_table(AUDIT).unwrap();
+        // `read_all_dumps` (used by `encryption_no_plaintext_on_disk_round_trips_and_wrong_key_fails`)
+        // opens MUTATION_GRAPH_VERSION on a READ transaction to populate
+        // `GraphDump::source_snapshot_version`; unlike a write transaction, a read
+        // transaction's `open_table` does not auto-create a missing table, so this
+        // minimal test store must create it up front like `initialize_canonical_tables` does.
+        wtx.open_table(MUTATION_GRAPH_VERSION).unwrap();
         wtx.commit().unwrap();
         db
     }
@@ -10598,6 +10604,14 @@ mod security_tests {
                     )
                     .unwrap();
                 };
+                // AddEdge now requires both endpoints to already be durable nodes
+                // (redb_store.rs's "AddEdge requires durable endpoints" guard) --
+                // seed the three nodes this test's edges reference before adding
+                // any edge between them.
+                commit(add_node_method("a", serde_json::json!({})));
+                commit(add_node_method("b", serde_json::json!({})));
+                commit(add_node_method("c", serde_json::json!({})));
+
                 // 6 multi-edges a->b across SEPARATE batches (cross-batch in-RAM counter),
                 // interleaved with 2 a->c.
                 for _ in 0..6 {

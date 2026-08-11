@@ -574,6 +574,27 @@ pub(crate) fn is_resource_reservation_method(method: &Method) -> bool {
     )
 }
 
+/// RMDD-28 native development-lane hold/quota authority (`redb_store::development_lane`).
+/// Covers all 8 wire methods -- the 6 write ops plus the exact-query/status reads -- so
+/// dispatch.rs's dedicated block (beside the WorkItem-claim-capability block) can classify
+/// the whole surface with one guard, same shape as `is_resource_reservation_method` above.
+/// The module deliberately stops at the redb transaction boundary (no MutationBatch/CDC/
+/// audit projection), so every one of these bypasses `is_resource_reservation_method`/
+/// `is_work_item_mutation_method` and the ordinary gateway entirely.
+pub(crate) fn is_development_lane_method(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::ReserveDevelopmentLane { .. }
+            | Method::RenewDevelopmentLane { .. }
+            | Method::ObserveDevelopmentLane { .. }
+            | Method::FinishDevelopmentLane { .. }
+            | Method::CleanupDevelopmentLane { .. }
+            | Method::UpdateDevelopmentLaneQuota { .. }
+            | Method::QueryDevelopmentLane { .. }
+            | Method::DevelopmentLaneStatus { .. }
+    )
+}
+
 pub(crate) fn opaque_request_key(
     namespace: &str,
     graph: &str,
