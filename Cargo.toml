@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-durable"]
+members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-durable", "crates/eg-quantum-hardware"]
 # D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
 # governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
 # QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
@@ -1171,14 +1171,14 @@ pyo3-engine = ["dep:eg-pyengine", "eg-pyengine/python"]
 # `quantum` is the BASE contracts feature: it links `eg-quantum-core` (the IR, the
 # `QuantumBackend` trait, the planner, the exactness-typed result) and NOTHING else —
 # turning this on alone gets a caller a compilable surface to build against, not an
-# executable backend. `quantum-quest`/`quantum-gpu`/`quantum-hardware` are the three
-# REMAINING backend-family layers PROGRAM.md's quantum section names (Q3 QuEST-ffi,
-# Q4 pure-Rust GPU, Q10 hardware providers); each `implies quantum` and is currently
-# EMPTY beyond that (no backend code exists yet in this workspace for THOSE three) —
-# they exist now as the stable feature NAMES those future lanes wire `dep:` edges
-# onto, so enabling one today is a no-op beyond `quantum` itself, and a future lane
-# adding the real backend crate does not need to invent a new feature name or touch
-# any call site that already gates on these.
+# executable backend. `quantum-quest`/`quantum-gpu` are the two REMAINING
+# backend-family layers PROGRAM.md's quantum section names that are still unstarted
+# (Q3 QuEST-ffi, Q4 pure-Rust GPU); each `implies quantum` and is currently EMPTY
+# beyond that (no backend code exists yet in this workspace for either) — they exist
+# now as the stable feature NAMES those future lanes wire `dep:` edges onto, so
+# enabling one today is a no-op beyond `quantum` itself, and a future lane adding the
+# real backend crate does not need to invent a new feature name or touch any call
+# site that already gates on these.
 #
 # `quantum-sim` (D-QN-1, lane Q1 vendoring, register `lane-quantum-native.md`) is the
 # FOURTH backend-family layer, delivered here: pure-Rust, in-process CPU backends
@@ -1190,10 +1190,34 @@ pyo3-engine = ["dep:eg-pyengine", "eg-pyengine/python"]
 # statevector -- the exponential-vs-polynomial routing decision PROGRAM.md's quantum
 # section calls the single highest-value rule in the whole program) has a REAL
 # backend pair to route between for the first time once this feature is on.
+#
+# `quantum-hardware` (register `D-QN-1`, lane Q10, `w6-quantum-q10-providers`,
+# `plans/au-eg-program/program/quantum-external-providers.md` ss1.3) is the FIFTH
+# backend-family layer: optional, feature-gated adapters to real third-party
+# hardware/cloud providers (IBM Quantum Open Plan, Amazon Braket, Azure Quantum),
+# all implementing the SAME `QuantumBackend` trait, all `BackendFamily::Hardware`,
+# all NEVER exact (see `eg-quantum-hardware`'s crate docs for why the whole family is
+# conservatively non-exact even for a provider's cloud-simulator SKU), all
+# budget-tracked with refuse-before-submit quota enforcement (a hard, shared, easily-
+# exhausted resource -- IBM's Open Plan is ~10 QPU-minutes per 28-day window), and
+# all credential-sourced from named environment variables ONLY (OpenBao-populated at
+# deploy time, matching this repo's existing `S3_SECRET_KEY_ENV`/`KVCACHE_TOKEN_ENV`
+# convention -- never a ConfigMap, never committed, never a plaintext default). Like
+# `quantum-sim`, `eg-quantum-sim` remains the DEFAULT backend regardless of whether
+# this feature is on; these adapters exist for validation, noise studies, and
+# workloads exceeding local capacity, never as the front door (an explicitly
+# rejected alternative was routing through a third-party Qiskit MCP server, which
+# would bypass planner rule R1's exponential-vs-polynomial routing decision).
 quantum = ["dep:eg-quantum-core"]
 quantum-quest = ["quantum"]
 quantum-gpu = ["quantum"]
-quantum-hardware = ["quantum"]
+quantum-hardware = [
+    "quantum",
+    "dep:eg-quantum-hardware",
+    "eg-quantum-hardware/ibm",
+    "eg-quantum-hardware/braket",
+    "eg-quantum-hardware/azure",
+]
 quantum-sim = ["quantum", "dep:eg-quantum-gates", "dep:eg-quantum-sim"]
 
 [dependencies]
@@ -1312,6 +1336,15 @@ eg-quantum-gates = { path = "crates/eg-quantum-gates", optional = true }
 # QuantumBackend implementations -- the first real backends planner rule R1 (Clifford
 # -> stabilizer, never statevector) has to route between.
 eg-quantum-sim = { path = "crates/eg-quantum-sim", optional = true }
+# D-QN-1 (feature `quantum-hardware`, see that feature's own comment above): the
+# optional third-party hardware/cloud QuantumBackend adapters (IBM Quantum, Amazon
+# Braket, Azure Quantum). Its own internal `ibm`/`braket`/`azure` features (all
+# enabled together by the facade `quantum-hardware` feature above) are what actually
+# pull in an HTTP client (`reqwest`, already resolved workspace-wide via
+# opentelemetry-otlp's default observability build) and, for the Braket adapter's
+# AWS SigV4 request signing, `hmac`/`sha2` at the SAME versions the S3 gateway
+# (`src/server/s3/mod.rs`) already pins.
+eg-quantum-hardware = { path = "crates/eg-quantum-hardware", optional = true }
 # Live CEP standing-query engine (feature `stream`, included in the main build,
 # CONCEPT:EG-088/EG-299). The
 # BATCH `Op::Cep` executor already pulls eg-stream transitively via `eg-plan/stream`; this
