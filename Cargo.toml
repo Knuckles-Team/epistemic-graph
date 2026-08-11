@@ -1249,6 +1249,23 @@ quantum-jobs-federation = ["quantum-jobs", "federation", "eg-quantum-jobs/federa
 # `w6-quantum-q5q6-jobplane` lane's durable job-plane work has a clean, unclaimed
 # surface to later host it behind (`Op::SubmitQuantum`/`Op::JoinQuantumResults`).
 # Build/test it targeted: `cargo test -p eg-quantum-workloads`.
+# Q8 (`plans/au-eg-program/program/quantum-native.md` 2026-08-07 status block +
+# `quantum-external-providers.md` §1.5) -- the agent-facing control-plane surface:
+# `Method::Quantum { op }` (`quantum_rank`/`optimize_with_qaoa`/`quantum_expectation`)
+# + `src/server/handlers/quantum.rs`'s dispatch, wired into `eg-capabilities`'
+# machine-checked policy ledger (R5 override audit, Q9) + the `:ToolCall`/`RunTrace`
+# provenance model on the agent-utilities side. Pulls `quantum-sim` (a REAL backend
+# to route to -- an agent op with no executable backend is still just contracts, not
+# "reachable") + `server` (Tokio dispatch + ServerState; `eg-capabilities` itself is
+# folded into `server`) + the matching `eg-types/quantum` and `eg-capabilities/quantum`
+# wire/policy features (kept in LOCKSTEP -- see both crates' own docs on why
+# `eg-types/quantum` can never be forced on unconditionally by `eg-capabilities`,
+# exactly like `jobs`/`statechart`). This is the ONE feature that makes the quantum
+# surface reachable from graph-os/agent-utilities at all -- `quantum`/`quantum-sim`
+# alone remain Rust-internal, no wire protocol Method, no KG concept mapping.
+quantum-agent-api = [
+    "quantum-sim", "server", "eg-types/quantum", "eg-capabilities/quantum",
+]
 
 [dependencies]
 eg-types = { path = "crates/eg-types" }

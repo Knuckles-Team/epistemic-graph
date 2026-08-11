@@ -34,6 +34,13 @@ pub mod modality;
 pub mod msgpack;
 pub mod mutation_batch;
 pub mod protocol;
+// CONCEPT:EG-KG.compute.quantum-agent-api — the agent-facing quantum control-plane
+// wire op (`QuantumOp`), gated `quantum`. Lives here (not in `eg-quantum-core`,
+// which sits ABOVE this crate in the DAG) for the SAME reason `jobs`/`statechart`
+// do: `protocol::Method::Quantum` carries it over the wire, and `protocol` is
+// bottom-of-DAG. Pure serde — no dep on `eg-quantum-core`.
+#[cfg(feature = "quantum")]
+pub mod quantum;
 pub mod row_predicate;
 #[cfg(feature = "statechart")]
 pub mod statechart;
