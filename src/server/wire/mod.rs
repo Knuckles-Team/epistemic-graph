@@ -1177,9 +1177,18 @@ impl WireSession {
         let has_table_ops = table_txn
             .as_ref()
             .is_some_and(|transaction| !transaction.ops.is_empty());
-        if has_table_ops && (!node_ops.is_empty() || has_xmodal) {
+        // Only the CROSS-MODAL + user-table combination is unimplemented: the
+        // `has_xmodal` branch just below commits through the shared cross-modal
+        // seam and returns before ever reaching the sequenced user-table commit
+        // at the bottom of this function, so a staged `table_txn` would be
+        // silently dropped. Plain graph-node ops + user-table ops are NOT
+        // mutually exclusive — they are deliberately committed sequenced (see the
+        // "ordinary mixed-store path" below), so this guard must not reject that
+        // combination (it previously did, contradicting the sequencing code it
+        // guards and the docs immediately below).
+        if has_table_ops && has_xmodal {
             return Err(user_err(
-                "one SQL transaction cannot mix graph and user-table durability domains",
+                "one SQL transaction cannot mix a cross-modal write and user-table durability domains",
             ));
         }
 
@@ -2308,10 +2317,20 @@ impl WireSession {
             authority.owner_scope(),
             &operation_id.simple().to_string(),
         );
+        // `commit_cross_modal_txn`'s "Re-check Write access at commit" evaluates
+        // `caller` against `IsolationLayer::check_access`, which is keyed by
+        // `AgentIdentity.agent_id` (the SAME identity space `execute()`'s own
+        // pre-check at the top of this dispatch uses via `verified_actor()` /
+        // `bind_authenticated_sql_actor`'s `agent_id` param). `actor_scope()` is a
+        // durable-ownership hash for an UNRELATED purpose (opaque KV/coordinator
+        // namespacing) and is never a registered RBAC identity, so passing it here
+        // made every wire-native graph-node commit fail this recheck whenever
+        // `security` is on and no raft consensus is active (`consensus_apply_is_authorized`
+        // is false, so the recheck always runs).
         match crate::server::handlers::txn::commit_cross_modal_txn(
             &self.state,
             request_id,
-            Some(authority.actor_scope()),
+            Some(authority.agent_id()),
             &coordinator_id,
             txn,
         )
@@ -2782,10 +2801,12 @@ impl WireSession {
             authority.owner_scope(),
             &uuid::Uuid::new_v4().simple().to_string(),
         );
+        // See the identical note in `commit_graph_methods` above: the RBAC recheck
+        // inside `commit_cross_modal_txn` is keyed by `agent_id`, not `actor_scope`.
         let committed = crate::server::handlers::txn::commit_cross_modal_txn(
             &self.state,
             0,
-            Some(authority.actor_scope()),
+            Some(authority.agent_id()),
             &coordinator_id,
             ts,
         )
