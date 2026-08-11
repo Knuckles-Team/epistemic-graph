@@ -164,7 +164,16 @@ async fn engine_call(
         agent_id: None,
         method,
     };
-    let resp = dispatch_authenticated_broker_actor(state, req, actor).await;
+    // `dispatch_authenticated_broker_actor` returns an ENORMOUS future under
+    // `--features full` (the whole graph-op dispatch state machine inlined into
+    // one poll chain); awaiting it un-boxed here inlines that state machine into
+    // this fn's own future and overflows the poll-time stack. This is the FOURTH
+    // instance of the same trap found in production code — after
+    // `transport::handle_connection` and both `mqtt_wire`/`stomp_wire`'s
+    // `engine_call` — and it is latent here only because no test currently drives
+    // an AMQP connection deep enough to reach it. Box::pin it, matching every
+    // other production callsite of a dispatch entrypoint.
+    let resp = Box::pin(dispatch_authenticated_broker_actor(state, req, actor)).await;
     resp.result.unwrap_or(ResultPayload::Bool(false))
 }
 
