@@ -5,7 +5,7 @@
 //! `served_ranktext_pushes_down_into_persistent_index_not_snapshot_fallback` — same
 //! differential-proof shape, applied to the spatial leg.
 //!
-//! Everything goes through the SERVED RPC: `dispatch(state, Request{ Method::* })`.
+//! Everything goes through the SERVED RPC: `Box::pin(dispatch(state, Request{ Method::* }))`.
 //! Module-gated on `query` + `geo`; runs under `--features full`.
 #![cfg(all(feature = "query", feature = "geo"))]
 
@@ -119,7 +119,7 @@ async fn served_spatial_scan_pushes_down_into_persistent_index_not_snapshot_fall
     // carries the SAME point under `geom` — the fallback's alias, which the persistent
     // index does not recognize.
     for (id, key) in [("canonical", "geometry"), ("noncanonical", "geom")] {
-        let r = dispatch(
+        let r = Box::pin(dispatch(
             &state,
             req(
                 if id == "canonical" { 1 } else { 2 },
@@ -128,7 +128,7 @@ async fn served_spatial_scan_pushes_down_into_persistent_index_not_snapshot_fall
                     properties_msgpack: blob(json!({ "type": "City", key: "POINT (1 1)" })),
                 },
             ),
-        )
+        ))
         .await;
         assert!(r.error.is_none(), "AddNode {id}: {:?}", r.error);
     }
@@ -137,7 +137,7 @@ async fn served_spatial_scan_pushes_down_into_persistent_index_not_snapshot_fall
         layer: "City".into(),
         bbox: [0.0, 0.0, 10.0, 10.0],
     }]);
-    let resp = dispatch(&state, req(3, Method::UnifiedQuery { plan })).await;
+    let resp = Box::pin(dispatch(&state, req(3, Method::UnifiedQuery { plan }))).await;
     let rows = rows_of(&resp);
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(
@@ -161,7 +161,7 @@ async fn served_spatial_scan_pushes_down_into_persistent_index_not_snapshot_fall
 async fn recovered_nodes_are_backfilled_before_spatial_index_is_available() {
     let state = state();
     for (id, point) in [("inside", "POINT (1 1)"), ("outside", "POINT (20 20)")] {
-        let resp = dispatch(
+        let resp = Box::pin(dispatch(
             &state,
             req(
                 if id == "inside" { 10 } else { 11 },
@@ -170,7 +170,7 @@ async fn recovered_nodes_are_backfilled_before_spatial_index_is_available() {
                     properties_msgpack: blob(json!({ "type": "City", "geometry": point })),
                 },
             ),
-        )
+        ))
         .await;
         assert!(resp.error.is_none(), "AddNode {id}: {:?}", resp.error);
     }
@@ -180,7 +180,7 @@ async fn recovered_nodes_are_backfilled_before_spatial_index_is_available() {
         bbox: [0.0, 0.0, 10.0, 10.0],
     }]);
     let fallback_rows =
-        rows_of(&dispatch(&state, req(12, Method::UnifiedQuery { plan: plan.clone() })).await);
+        rows_of(&Box::pin(dispatch(&state, req(12, Method::UnifiedQuery { plan: plan.clone() }))).await);
     assert_eq!(fallback_rows[0].0, "inside");
 
     let core = state
@@ -205,7 +205,7 @@ async fn recovered_nodes_are_backfilled_before_spatial_index_is_available() {
         "factory installation must backfill before publishing availability"
     );
 
-    let indexed_rows = rows_of(&dispatch(&state, req(13, Method::UnifiedQuery { plan })).await);
+    let indexed_rows = rows_of(&Box::pin(dispatch(&state, req(13, Method::UnifiedQuery { plan }))).await);
     assert_eq!(indexed_rows, fallback_rows);
 }
 
@@ -311,7 +311,7 @@ fn paged_lazy_open_advertises_spatial_only_after_final_page_backfill() {
 #[tokio::test]
 async fn served_spatial_scan_without_factory_keeps_ephemeral_fallback() {
     let state = state(); // no secondary-index factory installed at all
-    let r = dispatch(
+    let r = Box::pin(dispatch(
         &state,
         req(
             1,
@@ -320,7 +320,7 @@ async fn served_spatial_scan_without_factory_keeps_ephemeral_fallback() {
                 properties_msgpack: blob(json!({ "type": "City", "geom": "POINT (1 1)" })),
             },
         ),
-    )
+    ))
     .await;
     assert!(r.error.is_none(), "AddNode: {:?}", r.error);
 
@@ -328,7 +328,7 @@ async fn served_spatial_scan_without_factory_keeps_ephemeral_fallback() {
         layer: "City".into(),
         bbox: [0.0, 0.0, 10.0, 10.0],
     }]);
-    let resp = dispatch(&state, req(2, Method::UnifiedQuery { plan })).await;
+    let resp = Box::pin(dispatch(&state, req(2, Method::UnifiedQuery { plan }))).await;
     let rows = rows_of(&resp);
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(

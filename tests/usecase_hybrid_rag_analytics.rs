@@ -211,7 +211,7 @@ async fn fused_retrieval_feeds_in_engine_analytics_eg436() {
 
     // ── 3. ANALYTICS in-engine via the REAL server dispatch (Method::DsKMeans) ──
     let state = state();
-    let km = dispatch(
+    let km = Box::pin(dispatch(
         &state,
         req(
             1,
@@ -221,7 +221,7 @@ async fn fused_retrieval_feeds_in_engine_analytics_eg436() {
                 max_iter: 25,
             },
         ),
-    )
+    ))
     .await;
     let km = as_json(&km);
     let labels: Vec<usize> = serde_json::from_value(km["labels"].clone()).unwrap();
@@ -256,7 +256,7 @@ async fn fused_retrieval_feeds_in_engine_analytics_eg436() {
 
     // ── 4. PCA in-engine over the SAME retrieved set: variance concentrates on the axis
     // separating the two clusters (a real dimensionality-reduction over the join). ──
-    let pca = dispatch(
+    let pca = Box::pin(dispatch(
         &state,
         req(
             2,
@@ -265,7 +265,7 @@ async fn fused_retrieval_feeds_in_engine_analytics_eg436() {
                 n_components: 2,
             },
         ),
-    )
+    ))
     .await;
     let pca = as_json(&pca);
     let ratio: Vec<f64> = serde_json::from_value(pca["explained_variance_ratio"].clone()).unwrap();

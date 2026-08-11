@@ -8,7 +8,7 @@
 //! multi-graph write is byte-for-byte a plain `BatchUpdate`, and one graph's
 //! failure never aborts the others (partial-success contract).
 //!
-//! Everything goes through the SERVED RPC: `dispatch(state, Request{ Method::* })`.
+//! Everything goes through the SERVED RPC: `Box::pin(dispatch(state, Request{ Method::* }))`.
 #![cfg(feature = "server")]
 
 mod common;
@@ -104,7 +104,7 @@ async fn has_node(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str, node: 
             node_id: node.to_string(),
         },
     );
-    let resp = dispatch(state, request).await;
+    let resp = Box::pin(dispatch(state, request)).await;
     matches!(resp.result, Some(ResultPayload::Bool(true)))
 }
 
@@ -160,7 +160,7 @@ async fn multi_graph_batch_write_fans_across_graphs() {
         ),
     ]);
 
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             1,
@@ -168,7 +168,7 @@ async fn multi_graph_batch_write_fans_across_graphs() {
                 batches_msgpack: payload,
             },
         ),
-    )
+    ))
     .await;
     let (results, errors) = results_and_errors(&resp);
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
@@ -220,7 +220,7 @@ async fn multi_graph_batch_write_is_partial_success() {
             json!([{"op": "add_node", "id": "x-1", "properties": {"type": "Doc"}}]),
         ),
     ]);
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             2,
@@ -228,7 +228,7 @@ async fn multi_graph_batch_write_is_partial_success() {
                 batches_msgpack: payload,
             },
         ),
-    )
+    ))
     .await;
     let (results, errors) = results_and_errors(&resp);
     assert!(results.contains_key("src:ok"), "healthy sub-batch applied");
@@ -258,7 +258,7 @@ async fn single_graph_multi_batch_equals_plain_batch() {
             {"op": "add_edge", "source": "s1", "target": "s2", "properties": {"relationship": "LINKS"}}
         ]),
     )]);
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             3,
@@ -266,7 +266,7 @@ async fn single_graph_multi_batch_equals_plain_batch() {
                 batches_msgpack: payload,
             },
         ),
-    )
+    ))
     .await;
     let (results, errors) = results_and_errors(&resp);
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");

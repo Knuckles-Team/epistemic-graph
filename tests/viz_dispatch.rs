@@ -1,6 +1,6 @@
 //! `Method::Viz { op }` served dispatch proof (D-VZ-1 lanes V4 "engine
 //! integration" / V6 "graph-native marks") — exercises `VizOp::Render` end to
-//! end against a LIVE in-process server (`dispatch(state, Request{ Method::Viz })`,
+//! end against a LIVE in-process server (`Box::pin(dispatch(state, Request{ Method::Viz }))`,
 //! the SAME served RPC surface `served_mining_tsdb_scan.rs`/
 //! `served_query_completeness.rs` use), for every `VizDatasetSource` variant:
 //!
@@ -171,7 +171,7 @@ async fn inline_columns_scatter_resolves_at_direct_tier() {
         dataset_ref: "ds:inline".to_string(),
     };
 
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             1,
@@ -179,7 +179,7 @@ async fn inline_columns_scatter_resolves_at_direct_tier() {
                 op: VizOp::Render(render),
             },
         ),
-    )
+    ))
     .await;
     let payload = raw_result(&resp);
 
@@ -208,7 +208,7 @@ async fn synthetic_scatter_clusters_at_high_row_count_resolves_at_density_tier()
         dataset_ref: "ds:synthetic-scatter".to_string(),
     };
 
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             2,
@@ -216,7 +216,7 @@ async fn synthetic_scatter_clusters_at_high_row_count_resolves_at_density_tier()
                 op: VizOp::Render(render),
             },
         ),
-    )
+    ))
     .await;
     let payload = raw_result(&resp);
 
@@ -247,7 +247,7 @@ async fn synthetic_graph_small_resolves_at_direct_tier() {
         dataset_ref: "ds:synthetic-graph-small".to_string(),
     };
 
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             3,
@@ -255,7 +255,7 @@ async fn synthetic_graph_small_resolves_at_direct_tier() {
                 op: VizOp::Render(render),
             },
         ),
-    )
+    ))
     .await;
     let payload = raw_result(&resp);
 
@@ -295,7 +295,7 @@ async fn synthetic_graph_large_resolves_at_density_tier() {
         dataset_ref: "ds:synthetic-graph-large".to_string(),
     };
 
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             4,
@@ -303,7 +303,7 @@ async fn synthetic_graph_large_resolves_at_density_tier() {
                 op: VizOp::Render(render),
             },
         ),
-    )
+    ))
     .await;
     let payload = raw_result(&resp);
 
@@ -325,7 +325,7 @@ async fn synthetic_graph_large_resolves_at_density_tier() {
 #[tokio::test]
 async fn capability_matrix_is_reachable_over_the_wire() {
     let state = state();
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             5,
@@ -333,7 +333,7 @@ async fn capability_matrix_is_reachable_over_the_wire() {
                 op: VizOp::CapabilityMatrix,
             },
         ),
-    )
+    ))
     .await;
     assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
     match &resp.result {
@@ -363,7 +363,7 @@ async fn invalid_spec_json_is_a_typed_error_not_a_panic() {
         max_bytes: 1_000_000,
         dataset_ref: "ds:bad-spec".to_string(),
     };
-    let resp = dispatch(
+    let resp = Box::pin(dispatch(
         &state,
         req(
             6,
@@ -371,7 +371,7 @@ async fn invalid_spec_json_is_a_typed_error_not_a_panic() {
                 op: VizOp::Render(render),
             },
         ),
-    )
+    ))
     .await;
     assert!(
         resp.error.is_some(),

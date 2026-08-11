@@ -94,7 +94,7 @@ fn req(id: u64, graph: &str, method: Method) -> Request {
 
 /// Run a GraphQL doc against `GRAPH`; assert no error; return the decoded `{data:…}` JSON.
 async fn gql(state: &Arc<RwLock<ServerState>>, id: u64, query: &str) -> serde_json::Value {
-    let r: Response = dispatch(
+    let r: Response = Box::pin(dispatch(
         state,
         req(
             id,
@@ -104,7 +104,7 @@ async fn gql(state: &Arc<RwLock<ServerState>>, id: u64, query: &str) -> serde_js
                 variables: None,
             },
         ),
-    )
+    ))
     .await;
     assert!(r.error.is_none(), "graphql op {id} failed: {:?}", r.error);
     match r.result {
@@ -133,7 +133,7 @@ async fn graphql_cross_modal_commit_survives_reopen() {
     let state = state_with(backend.clone(), dir_s.clone());
 
     // Create the graph (dispatch registers it in BOTH the registry and the durable tier).
-    let cr = dispatch(
+    let cr = Box::pin(dispatch(
         &state,
         req(
             1,
@@ -143,7 +143,7 @@ async fn graphql_cross_modal_commit_survives_reopen() {
                 graph_type: GraphType::Global,
             },
         ),
-    )
+    ))
     .await;
     assert!(cr.error.is_none(), "CreateGraph failed: {:?}", cr.error);
 
