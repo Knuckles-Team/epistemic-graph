@@ -3006,10 +3006,28 @@ mod tests {
 
     /// CONCEPT:EG-KG.sharding.per-graph-write-coalescer — per-graph write coalescer, end-to-end through dispatch.
     ///
-    /// Many concurrent writers to ONE hot graph (the `__commons__` firehose) must
-    /// (a) ALL land via the dispatch path (no lost writes — the coalescer is not a
-    /// drop point) and (b) be applied in FEWER topology-lock acquisitions than ops,
-    /// proving the batching win on the live serving path (not just the unit level).
+    /// Many concurrent writers to ONE hot graph (the `__commons__` firehose) must ALL
+    /// land via the dispatch path — no lost writes, the coalescer is not a drop
+    /// point — and every dispatched op must be accounted for in the writer's stats.
+    ///
+    /// This does NOT (and structurally cannot) prove a batching win at this layer:
+    /// `commit_mutation_inner` (`server/mutation.rs`) takes the per-graph
+    /// `mutation_batch::lock_graph` stripe mutex BEFORE calling `try_coalesce_apply`
+    /// and holds it across the enqueue-and-await, for the entire authoritative
+    /// commit (validation → durability → RAM publication, CONCEPT:EG-P0-2). Every
+    /// `AddNode` here is `mutation::GATEWAY_ROUTED`, so all 400 concurrent calls on
+    /// `__commons__` serialize on that ONE stripe: only one caller can be inside
+    /// `commit_mutation_inner` for this graph at a time, so the writer's queue can
+    /// never hold more than one op at enqueue time. Batches-per-op is deterministically
+    /// 1:1 through THIS path — the batching win is real but lives at the
+    /// `WriteCoalescerRegistry`/`GraphWriter` layer for callers outside that lock
+    /// (proven directly in `write_coalescer::tests`, e.g.
+    /// `bench_inline_vs_coalesced`), and `dispatch::try_coalesce_write` (the OTHER,
+    /// non-gateway coalescing call site) is dead code for every structural write
+    /// method here since they are all `GATEWAY_ROUTED` and never reach it. Verified
+    /// independently 2026-08-11 by reading `lock_graph`'s call site — the prior
+    /// analysis was correct; loosening this to `batches < ops` would just be
+    /// asserting a fiction, so this asserts the real invariant instead.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn dispatch_coalesces_concurrent_writes_to_one_graph() {
         let state = test_state();
@@ -3048,9 +3066,14 @@ mod tests {
             (w.stats().batches(), w.stats().ops())
         };
         assert_eq!(ops, N, "stats account for every dispatched write");
-        assert!(
-            batches < ops,
-            "dispatch path should batch: {ops} ops in {batches} lock acquisitions",
+        assert_eq!(
+            batches, ops,
+            "commit_mutation_inner's per-graph lock_graph stripe mutex serializes the \
+             whole enqueue+await for every GATEWAY_ROUTED write on this graph, so the \
+             writer's queue can never hold more than 1 op at enqueue time through this \
+             path — batches == ops is the correct invariant here, not a batching win \
+             (see write_coalescer::tests for where the coalescer's real batching is \
+             proven, at the layer below this lock)",
         );
     }
 

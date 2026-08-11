@@ -66,7 +66,7 @@ use std::collections::BTreeMap;
 use std::io::{Read as _, Write as _};
 use std::path::Path;
 
-use redb::{Database, Durability, ReadableDatabase, ReadableTable};
+use redb::{Database, Durability, ReadOnlyDatabase, ReadableDatabase, ReadableTable};
 use sha2::{Digest, Sha256};
 
 #[cfg(feature = "compute-dist")]
@@ -653,7 +653,13 @@ pub fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
     if admin_metadata.file_type().is_symlink() || !admin_metadata.is_file() {
         return Err("backup bundle omits the admin mutation coordinator store".to_string());
     }
-    let admin = Database::open(&admin_path).map_err(|error| error.to_string())?;
+    // Opened READ-ONLY (not `Database::open`) deliberately: this is a pure
+    // validation read, and `Database`'s `Drop` unconditionally commits its own
+    // allocator-state quick-repair, which would advance the file's transaction id
+    // and change its on-disk bytes on every validation pass — permanently
+    // breaking the digest check just below (see `validate_recovery_store`'s
+    // doc comment).
+    let admin = ReadOnlyDatabase::open(&admin_path).map_err(|error| error.to_string())?;
     let counts = eg_mutation_store::validate_recovery_store(&admin)?;
     if counts != manifest.admin_mutations {
         return Err("admin mutation coordinator totals do not match the manifest".to_string());
@@ -721,7 +727,11 @@ pub fn restore_bundle(
         return Err("restore target already contains an admin mutation store".to_string());
     }
     std::fs::copy(&admin_source, &admin_target).map_err(|error| error.to_string())?;
-    let restored_admin = Database::open(&admin_target).map_err(|error| error.to_string())?;
+    // Read-only for the same reason as `read_manifest`'s admin validation above:
+    // pure validation, and a read-write `Database::open` would leave an
+    // unnecessary extra transaction committed into the freshly-restored store
+    // before the persistence backend ever takes ownership of it.
+    let restored_admin = ReadOnlyDatabase::open(&admin_target).map_err(|error| error.to_string())?;
     let admin_mutations = eg_mutation_store::validate_recovery_store(&restored_admin)?;
     if admin_mutations != manifest.admin_mutations {
         return Err("restored admin mutation coordinator totals changed".to_string());
@@ -933,10 +943,26 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eg-backup-fmt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
+        // The manifest schema has grown fields (`label_ref`/`auxiliary`/
+        // `xshard_prepares`/`xshard_decisions`/`admin_mutations`/`file_digests`) since
+        // this fixture was first written; a manifest missing any of them now fails
+        // `serde(deny_unknown_fields)` DESERIALIZATION before `read_manifest` ever
+        // reaches its `format_version` check, so the old shape asserted the wrong
+        // error message. This fixture is kept in sync with the CURRENT
+        // `BackupManifest` shape (every field present, `format_version` deliberately
+        // one past what this build understands) so the test exercises exactly the
+        // format-version guard it names, not a parse failure one step earlier.
         let m = serde_json::json!({
             "format_version": BUNDLE_FORMAT_VERSION + 1,
-            "engine_version": "x", "shard_count": 1, "timestamp": 0, "label": "",
-            "graphs": 0, "nodes": 0, "edges": 0, "ledger": 0, "semantic": 0, "audit": 0, "global": 0
+            "engine_version": "x",
+            "shard_count": 1,
+            "timestamp": 0,
+            "label_ref": opaque_text_ref(""),
+            "graphs": 0, "nodes": 0, "edges": 0, "ledger": 0, "semantic": 0, "audit": 0,
+            "auxiliary": 0, "global": 0,
+            "xshard_prepares": 0, "xshard_decisions": 0,
+            "admin_mutations": eg_mutation_store::RecoveryStoreCounts::default(),
+            "file_digests": {},
         });
         std::fs::write(dir.join(MANIFEST_FILE), serde_json::to_vec(&m).unwrap()).unwrap();
         let err = read_manifest(&dir).unwrap_err();
