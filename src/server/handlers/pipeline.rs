@@ -1691,7 +1691,7 @@ mod tests {
     fn non_pipeline_method_falls_through() {
         let core = Arc::new(GraphCore::new());
         assert!(matches!(
-            try_handle(1, core, Method::NodeCount),
+            try_handle(1, core, None, Method::NodeCount),
             Err(Method::NodeCount)
         ));
     }
