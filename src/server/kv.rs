@@ -846,6 +846,20 @@ mod dispatch_tests {
     const TEST_AGENT: &str = "unit-test-agent";
     static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
+    /// BUG-044-class: keep the full (`--features full`) dispatcher's state machine
+    /// behind one heap indirection. `dispatch_on_heap()` bottoms out in `dispatch_inner`
+    /// (`src/server/dispatch.rs`), one very large async fn whose generated future is
+    /// enormous; awaiting it inline inside a test's own future can exhaust the
+    /// harness thread's stack before the first request is even polled, SIGABRTing
+    /// the whole test binary. Mirrors `server::mod::tests::dispatch_on_heap` (8e00e0b).
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::protocol::Response> + Send + 'a>>
+    {
+        Box::pin(dispatch(state, request))
+    }
+
     fn current_isolation() -> IsolationLayer {
         let mut isolation = IsolationLayer::new();
         isolation.register_agent(AgentIdentity {
@@ -964,7 +978,7 @@ mod dispatch_tests {
         let state = state_with_kv(&dir.to_string_lossy());
 
         // KvPut → "ok"
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 1,
@@ -983,7 +997,7 @@ mod dispatch_tests {
         );
 
         // KvGet → the bytes (PropertiesMsgpack carries the opaque value verbatim).
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 2,
@@ -1000,7 +1014,7 @@ mod dispatch_tests {
         }
 
         // KvScan → ordered [(key, value)].
-        dispatch(
+        dispatch_on_heap(
             &state,
             req(
                 3,
@@ -1012,7 +1026,7 @@ mod dispatch_tests {
             ),
         )
         .await;
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 4,
@@ -1032,7 +1046,7 @@ mod dispatch_tests {
         assert_eq!(pairs[0].0, "k");
 
         // KvCas → swaps only on match.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 5,
@@ -1048,7 +1062,7 @@ mod dispatch_tests {
         assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
 
         // KvDelete → existed.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 6,
@@ -1070,7 +1084,7 @@ mod dispatch_tests {
             },
         );
         bad.auth_token = "bogus".into();
-        let r = dispatch(&state, bad).await;
+        let r = dispatch_on_heap(&state, bad).await;
         assert_eq!(r.error.as_deref(), Some("Authentication failed"));
 
         let _ = std::fs::remove_dir_all(&dir);

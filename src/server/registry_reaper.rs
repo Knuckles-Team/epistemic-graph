@@ -181,6 +181,20 @@ mod tests {
     const TEST_AGENT: &str = "unit-test-agent";
     static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
+    /// BUG-044-class: keep the full (`--features full`) dispatcher's state machine
+    /// behind one heap indirection. `dispatch_on_heap()` bottoms out in `dispatch_inner`
+    /// (`src/server/dispatch.rs`), one very large async fn whose generated future is
+    /// enormous; awaiting it inline inside a test's own future can exhaust the
+    /// harness thread's stack before the first request is even polled, SIGABRTing
+    /// the whole test binary. Mirrors `server::mod::tests::dispatch_on_heap` (8e00e0b).
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::protocol::Response> + Send + 'a>>
+    {
+        Box::pin(dispatch(state, request))
+    }
+
     fn current_isolation() -> IsolationLayer {
         let mut isolation = IsolationLayer::new();
         isolation.register_agent(AgentIdentity {
@@ -308,7 +322,7 @@ mod tests {
     }
 
     async fn register(state: &Arc<RwLock<ServerState>>, id: u64, name: &str, ttl_secs: u64) {
-        let r = dispatch(
+        let r = dispatch_on_heap(
             state,
             req(
                 id,
@@ -464,7 +478,7 @@ mod tests {
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
 
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 1,
@@ -591,7 +605,7 @@ mod tests {
 
         // ... then an operator (or a bug) hand-corrupts the row directly: wrong
         // url, a garbage lease far in the past, and a bogus extra field.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 2,

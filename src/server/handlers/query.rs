@@ -4175,11 +4175,34 @@ mod current_auth_test_support {
             teams: Vec::new(),
             roles: Vec::new(),
         });
+        // RBAC (CONCEPT:EG-KG.compute.feature) is the mandatory current access
+        // decision under `feature = "security"` (`isolation.rs::check_access`) —
+        // there is no pre-RBAC "Commons is public" fall-through any more for a
+        // non-`System` identity (see `server::mod::tests::multi_tenant_state`'s doc
+        // comment for the same migration). Give every non-System test agent the
+        // SAME "commons-user" R/W grant that fixture already establishes as the
+        // replacement for the retired open-bus ACL semantics.
+        #[cfg(feature = "security")]
+        {
+            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+            isolation.add_role(Role::new("commons-user"));
+            let grant = |action: RbacAction| Grant {
+                role: "commons-user".to_string(),
+                resource: ResourceSelector::Graph("__commons__".to_string()),
+                action,
+                effect: GrantEffect::Allow,
+            };
+            isolation.add_grant(grant(RbacAction::Read));
+            isolation.add_grant(grant(RbacAction::Write));
+        }
         for agent_id in agent_ids {
             isolation.register_agent(AgentIdentity {
                 agent_id: (*agent_id).to_string(),
                 role: AgentRole::Agent,
                 teams: Vec::new(),
+                #[cfg(feature = "security")]
+                roles: vec!["commons-user".to_string()],
+                #[cfg(not(feature = "security"))]
                 roles: Vec::new(),
             });
         }
@@ -4749,7 +4772,36 @@ mod rls_aware_cache_no_cross_agent_leak {
 
     const SECRET: &str = "rls-cache-test-secret";
 
+    /// BUG-044-class: see `result_cache_dispatch_tests::dispatch_on_heap` for why
+    /// every `dispatch_on_heap()` call in a test needs one heap indirection to avoid
+    /// overflowing the harness thread's stack and SIGABRTing the whole test binary.
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+        Box::pin(dispatch(state, request))
+    }
+
     fn state() -> Arc<RwLock<ServerState>> {
+        // Post-FLIP every dispatch-served mutation is authoritative
+        // (commit-before-ack), so `AddNode` through `dispatch` REQUIRES a
+        // persistence backend — a backendless fixture rejects the write
+        // ("authoritative MutationBatch commit requires a persistence
+        // backend") before the RLS-aware cache paths under test are ever
+        // reached. Mirrors `result_cache_dispatch_tests::state`'s already-fixed
+        // fixture.
+        let dir = crate::server::sql_tables::test_persist_dir()
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(&dir).expect("create test persist dir");
+        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
+            crate::server::persistence::redb_backend::RedbBackend::open(
+                dir.clone(),
+                crate::durability::DurabilityPolicy::Each,
+                4096,
+            )
+            .expect("open test redb backend"),
+        );
         Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
@@ -4759,8 +4811,8 @@ mod rls_aware_cache_no_cross_agent_leak {
             isolation: current_isolation_with_agents(&["alice", "bob"]),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
-            persist_dir: None,
-            persistence: None,
+            persist_dir: Some(dir),
+            persistence: Some(backend),
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
@@ -4826,7 +4878,7 @@ mod rls_aware_cache_no_cross_agent_leak {
             "_visibility": visibility,
         });
         let bytes = rmp_serde::to_vec_named(&props).unwrap();
-        let r = dispatch(
+        let r = dispatch_on_heap(
             state,
             req_as(
                 id,
@@ -4870,7 +4922,7 @@ mod rls_aware_cache_no_cross_agent_leak {
         // ── Alice queries Q: cold MISS, computes + caches under alice's rls-key. Her
         //    filtered view sees BOTH nodes (she owns the private one + the public one).
         let (h0, m0) = core.result_cache().stats();
-        let ra1 = dispatch(
+        let ra1 = dispatch_on_heap(
             &state,
             req_as(
                 20,
@@ -4900,7 +4952,7 @@ mod rls_aware_cache_no_cross_agent_leak {
         //    If the cache were NOT rls-aware, bob would HIT alice's entry and receive
         //    `alice_secret` — a cross-agent leak. With the rls-aware key it MISSES
         //    (different agent_id ⇒ different key) and recomputes BOB's filtered view.
-        let rb = dispatch(
+        let rb = dispatch_on_heap(
             &state,
             req_as(
                 21,
@@ -4937,7 +4989,7 @@ mod rls_aware_cache_no_cross_agent_leak {
 
         // ── Alice repeats Q: now it HITS her own entry (caching still works per-agent;
         //    we didn't simply disable the cache under RLS), and serves her bytes back.
-        let ra2 = dispatch(
+        let ra2 = dispatch_on_heap(
             &state,
             req_as(
                 22,
@@ -4976,7 +5028,7 @@ mod rls_aware_cache_no_cross_agent_leak {
 
         // Alice: cold MISS, cached under alice's rls-key; her view sees both nodes.
         let (h0, m0) = core.result_cache().stats();
-        let ra1 = dispatch(
+        let ra1 = dispatch_on_heap(
             &state,
             req_as(
                 20,
@@ -5005,7 +5057,7 @@ mod rls_aware_cache_no_cross_agent_leak {
         // Bob: IDENTICAL GraphQL text on the UNCHANGED graph. An rls-UNAWARE cache would
         // serve him alice's entry (leak). The rls-aware key MISSES (different agent_id)
         // and recomputes BOB's filtered view.
-        let rb = dispatch(
+        let rb = dispatch_on_heap(
             &state,
             req_as(
                 21,
@@ -5040,7 +5092,7 @@ mod rls_aware_cache_no_cross_agent_leak {
         );
 
         // Alice repeats: HITS her own per-agent slot (caching still works under RLS).
-        let ra2 = dispatch(
+        let ra2 = dispatch_on_heap(
             &state,
             req_as(
                 22,
@@ -5068,7 +5120,7 @@ mod rls_aware_cache_no_cross_agent_leak {
 
 // ── Server-dispatch WRITE wiring (CONCEPT:EG-KG.query.mirrors-pgwire) ─────────────────────────────────
 //
-// Proves the five EG-023 wirings land THROUGH the real `dispatch()` entrypoint a wire
+// Proves the five EG-023 wirings land THROUGH the real `dispatch_on_heap()` entrypoint a wire
 // request hits (auth → routing → handler → write): a GraphQL mutation creates a node a
 // later query sees; a Cypher CREATE is then visible to a MATCH; a wire `Sql`
 // CREATE TABLE + INSERT + SELECT round-trips; an `INSERT INTO nodes` is visible to a
@@ -5087,7 +5139,35 @@ mod dispatch_write_tests {
 
     const SECRET: &str = "dispatch-write-test-secret";
 
+    /// BUG-044-class: see `result_cache_dispatch_tests::dispatch_on_heap` for why
+    /// every `dispatch_on_heap()` call in a test needs one heap indirection to avoid
+    /// overflowing the harness thread's stack and SIGABRTing the whole test binary.
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+        Box::pin(dispatch(state, request))
+    }
+
     fn state() -> Arc<RwLock<ServerState>> {
+        // Post-FLIP every dispatch-served mutation is authoritative
+        // (commit-before-ack), so `AddNode`/`CREATE`/`INSERT` through `dispatch`
+        // REQUIRE a persistence backend — a backendless fixture rejects the write
+        // ("authoritative MutationBatch commit requires a persistence backend")
+        // before the write path under test is ever reached. Mirrors
+        // `result_cache_dispatch_tests::state`'s already-fixed fixture.
+        let dir = crate::server::sql_tables::test_persist_dir()
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(&dir).expect("create test persist dir");
+        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
+            crate::server::persistence::redb_backend::RedbBackend::open(
+                dir.clone(),
+                crate::durability::DurabilityPolicy::Each,
+                4096,
+            )
+            .expect("open test redb backend"),
+        );
         Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
@@ -5097,12 +5177,8 @@ mod dispatch_write_tests {
             isolation: current_isolation(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
-            persist_dir: Some(
-                crate::server::sql_tables::test_persist_dir()
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            persistence: None,
+            persist_dir: Some(dir),
+            persistence: Some(backend),
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
@@ -5169,7 +5245,7 @@ mod dispatch_write_tests {
     #[tokio::test]
     async fn graphql_mutation_creates_node_via_dispatch() {
         let state = state();
-        let m = dispatch(
+        let m = dispatch_on_heap(
             &state,
             req(
                 1,
@@ -5185,7 +5261,7 @@ mod dispatch_write_tests {
         assert_eq!(v["data"]["createNode"]["id"], serde_json::json!("dave"));
 
         // A fresh GraphQL query over the post-write graph sees Dave.
-        let q = dispatch(
+        let q = dispatch_on_heap(
             &state,
             req(
                 2,
@@ -5209,7 +5285,7 @@ mod dispatch_write_tests {
     #[tokio::test]
     async fn cypher_create_then_match_via_dispatch() {
         let state = state();
-        let c = dispatch(
+        let c = dispatch_on_heap(
             &state,
             req(
                 1,
@@ -5222,7 +5298,7 @@ mod dispatch_write_tests {
         .await;
         assert!(c.error.is_none(), "cypher CREATE failed: {:?}", c.error);
 
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 2,
@@ -5245,7 +5321,7 @@ mod dispatch_write_tests {
     #[tokio::test]
     async fn cypher_declared_mode_must_match_native_parser() {
         let state = state();
-        let disguised_write = dispatch(
+        let disguised_write = dispatch_on_heap(
             &state,
             req(
                 1,
@@ -5265,7 +5341,7 @@ mod dispatch_write_tests {
             disguised_write.error
         );
 
-        let mislabeled_read = dispatch(
+        let mislabeled_read = dispatch_on_heap(
             &state,
             req(
                 2,
@@ -5300,17 +5376,17 @@ mod dispatch_write_tests {
             params_msgpack: Vec::new(),
         };
 
-        let d = dispatch(&state, req(1, sql(format!("DROP TABLE IF EXISTS {table}")))).await;
+        let d = dispatch_on_heap(&state, req(1, sql(format!("DROP TABLE IF EXISTS {table}")))).await;
         assert!(d.error.is_none(), "DROP failed: {:?}", d.error);
 
-        let c = dispatch(
+        let c = dispatch_on_heap(
             &state,
             req(2, sql(format!("CREATE TABLE {table} (k TEXT, v BIGINT)"))),
         )
         .await;
         assert!(c.error.is_none(), "CREATE TABLE failed: {:?}", c.error);
 
-        let i = dispatch(
+        let i = dispatch_on_heap(
             &state,
             req(
                 3,
@@ -5322,7 +5398,7 @@ mod dispatch_write_tests {
         .await;
         assert!(i.error.is_none(), "INSERT failed: {:?}", i.error);
 
-        let s = dispatch(
+        let s = dispatch_on_heap(
             &state,
             req(4, sql(format!("SELECT k, v FROM {table} ORDER BY k"))),
         )
@@ -5341,7 +5417,7 @@ mod dispatch_write_tests {
         assert_eq!(rows[1][1], serde_json::json!(2));
 
         // cleanup
-        let _ = dispatch(&state, req(5, sql(format!("DROP TABLE IF EXISTS {table}")))).await;
+        let _ = dispatch_on_heap(&state, req(5, sql(format!("DROP TABLE IF EXISTS {table}")))).await;
     }
 
     /// `INSERT INTO nodes` over the wire lands in the graph core and a `SELECT` sees it —
@@ -5354,7 +5430,7 @@ mod dispatch_write_tests {
             params_msgpack: Vec::new(),
         };
 
-        let i = dispatch(
+        let i = dispatch_on_heap(
             &state,
             req(
                 1,
@@ -5365,7 +5441,7 @@ mod dispatch_write_tests {
         assert!(i.error.is_none(), "INSERT INTO nodes failed: {:?}", i.error);
 
         // SELECT over the graph projection sees the new node.
-        let s = dispatch(
+        let s = dispatch_on_heap(
             &state,
             req(2, sql("SELECT id FROM nodes WHERE id = 'sqlnode'")),
         )
@@ -5380,7 +5456,7 @@ mod dispatch_write_tests {
         assert_eq!(rows[0][0], serde_json::json!("sqlnode"));
 
         // And a Cypher read sees it too (cross-surface).
-        let cy = dispatch(
+        let cy = dispatch_on_heap(
             &state,
             req(
                 3,
@@ -5419,7 +5495,51 @@ mod txn_ryow_dispatch_tests {
 
     const SECRET: &str = "txn-ryow-test-secret";
 
+    /// BUG-044-class: `in_txn_cross_modal_ryow` is the concrete test that overflowed
+    /// the harness thread's stack and SIGABRTed the whole `epistemic-graph` test
+    /// binary (`--features full`). See `result_cache_dispatch_tests::dispatch_on_heap`
+    /// for the mechanism: every bare `dispatch_on_heap()` call in a test needs one heap
+    /// indirection.
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+        Box::pin(dispatch(state, request))
+    }
+
     fn state() -> Arc<RwLock<ServerState>> {
+        // Post-FLIP every dispatch-served mutation (including a transaction
+        // commit) is authoritative (commit-before-ack), so it REQUIRES a
+        // persistence backend — a backendless fixture rejects the commit
+        // ("transaction commit requires an authoritative MutationBatch backend")
+        // before the read-your-own-writes path under test is ever reached.
+        // Mirrors `result_cache_dispatch_tests::state`'s already-fixed fixture.
+        //
+        // A second, layered requirement: the cross-modal handler-commit path seals
+        // its transaction recovery plan (`server::handlers::txn::seal_txn_recovery_plan`),
+        // which fail-closed REQUIRES `EPISTEMIC_GRAPH_ENCRYPTION_KEY` to be configured —
+        // the SAME seal requirement `redb_backend::tests::cm_dir` already documents and
+        // provisions for its own cross-modal ACID tests. Mirror that exact pattern (a
+        // `std::sync::Once`-guarded env var set, since it is process-global).
+        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+        ENCRYPTION_KEY.call_once(|| {
+            std::env::set_var(
+                crate::crypto::ENCRYPTION_KEY_ENV,
+                "txn-ryow-test-recovery-key",
+            )
+        });
+        let dir = crate::server::sql_tables::test_persist_dir()
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(&dir).expect("create test persist dir");
+        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
+            crate::server::persistence::redb_backend::RedbBackend::open(
+                dir.clone(),
+                crate::durability::DurabilityPolicy::Each,
+                4096,
+            )
+            .expect("open test redb backend"),
+        );
         Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
@@ -5429,8 +5549,8 @@ mod txn_ryow_dispatch_tests {
             isolation: current_isolation(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
-            persist_dir: None,
-            persistence: None,
+            persist_dir: Some(dir),
+            persistence: Some(backend),
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
@@ -5492,7 +5612,7 @@ mod txn_ryow_dispatch_tests {
     }
 
     async fn begin(state: &Arc<RwLock<ServerState>>, id: u64) -> String {
-        let r = dispatch(
+        let r = dispatch_on_heap(
             state,
             req(
                 id,
@@ -5510,7 +5630,7 @@ mod txn_ryow_dispatch_tests {
     }
 
     async fn ok(state: &Arc<RwLock<ServerState>>, id: u64, method: Method) {
-        let r = dispatch(state, req(id, method)).await;
+        let r = dispatch_on_heap(state, req(id, method)).await;
         assert!(r.error.is_none(), "stage op {id} failed: {:?}", r.error);
     }
 
@@ -5569,7 +5689,7 @@ mod txn_ryow_dispatch_tests {
 
         // IN-TXN cross-modal (graph label Scan fused with staged-vector Rank): sees sn.
         let vec_q = "MATCH (:Widget) |> RANK BY ~[1.0,0.0] |> LIMIT 5";
-        let in_txn = dispatch(
+        let in_txn = dispatch_on_heap(
             &state,
             req(
                 6,
@@ -5588,7 +5708,7 @@ mod txn_ryow_dispatch_tests {
 
         // IN-TXN traverse over the STAGED edge: reaches tn.
         let trav_q = "MATCH (:Widget) |> TRAVERSE -[:LINKS]->{1,1} |> LIMIT 5";
-        let trav = dispatch(
+        let trav = dispatch_on_heap(
             &state,
             req(
                 7,
@@ -5605,7 +5725,7 @@ mod txn_ryow_dispatch_tests {
         );
 
         // OFF-TXN identical query: empty — staged writes are invisible before commit.
-        let off = dispatch(
+        let off = dispatch_on_heap(
             &state,
             req(8, Method::UnifiedQueryText { text: vec_q.into() }),
         )
@@ -5636,12 +5756,12 @@ mod txn_ryow_dispatch_tests {
         let q = "MATCH (:Committed) |> LIMIT 5";
 
         // Before commit: off-txn empty, in-txn sees it (RYOW).
-        let before = dispatch(&state, req(3, Method::UnifiedQueryText { text: q.into() })).await;
+        let before = dispatch_on_heap(&state, req(3, Method::UnifiedQueryText { text: q.into() })).await;
         assert!(
             unified_ids(&before).is_empty(),
             "off-txn empty before commit"
         );
-        let in_txn = dispatch(
+        let in_txn = dispatch_on_heap(
             &state,
             req(
                 4,
@@ -5655,7 +5775,7 @@ mod txn_ryow_dispatch_tests {
         assert_eq!(unified_ids(&in_txn), vec!["cn".to_string()], "RYOW in-txn");
 
         // Commit, then the same OFF-txn query now sees the committed node.
-        let c = dispatch(
+        let c = dispatch_on_heap(
             &state,
             req(
                 5,
@@ -5670,7 +5790,7 @@ mod txn_ryow_dispatch_tests {
             "commit must succeed: {:?}",
             c.error
         );
-        let after = dispatch(&state, req(6, Method::UnifiedQueryText { text: q.into() })).await;
+        let after = dispatch_on_heap(&state, req(6, Method::UnifiedQueryText { text: q.into() })).await;
         assert_eq!(
             unified_ids(&after),
             vec!["cn".to_string()],
