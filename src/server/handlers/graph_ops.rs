@@ -120,6 +120,28 @@ where
     Box::pin(mutation::commit_mutation(ctx, plan, method, apply)).await
 }
 
+/// Same boundary as [`commit_gateway`], for the four coalescable structural
+/// writes (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) — routed through
+/// `mutation::commit_coalescable_mutation` instead of `commit_mutation` so
+/// their prepare→durable-commit→RAM-publish sequence can be queued onto the
+/// per-graph routed-write-coalescer worker (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18
+/// rewrite) rather than run inline under this request's own lock hold. `apply`
+/// must be `Send + 'static`: it may run on the worker task, after this
+/// request's own stack frame is gone — every call site below already passes an
+/// owned `move` closure over cloned `String`/`Vec<u8>` fields, so this is not a
+/// new constraint on what those closures may capture.
+async fn commit_gateway_coalescable<F>(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    apply: F,
+) -> Response
+where
+    F: FnOnce(&GraphCore) -> Result<ResultPayload, String> + Send + 'static,
+{
+    Box::pin(mutation::commit_coalescable_mutation(ctx, plan, method, apply)).await
+}
+
 /// Read a node's human-readable `(name, description, type)` triple from its
 /// MessagePack property blob (CONCEPT:EG-KG.retrieval.one-round-trip-discovery), used to hydrate `Discover` hits.
 /// `name` falls back to the node id, `type` falls back to a `node_type` field, and
@@ -329,7 +351,7 @@ pub(crate) async fn try_handle_gateway(
     read_authority: Option<&GraphReadAuthority>,
     persistence: Option<&Arc<dyn PersistenceBackend>>,
     #[cfg(feature = "streaming")] cdc: Option<&Arc<crate::server::cdc::CdcHub>>,
-    write_coalescer: Option<&Arc<crate::write_coalescer::WriteCoalescerRegistry>>,
+    write_coalescer: Option<&Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>>,
     authz_ctx: Option<&GatewayAuthzCtx>,
     // CONCEPT:EG-KG.mining.tsdb-typed-absent — the server's live tsdb store, needed ONLY by
     // the gateway-routed `Mine*` arms below to bind a plan-sourced `Op::TsScan` leg (mirrors
@@ -389,14 +411,10 @@ pub(crate) async fn try_handle_gateway(
         write_coalescer,
     };
     let resp = match &method {
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } => {
-            let (node_id, properties_msgpack) = (node_id.clone(), properties_msgpack.clone());
-            commit_gateway(&ctx, &plan, &method, move |core| {
-                core.add_node(node_id, properties_msgpack);
-                Ok(ResultPayload::String("ok".to_string()))
+        Method::AddNode { .. } => {
+            let owned_method = method.clone();
+            commit_gateway_coalescable(&ctx, &plan, &method, move |core| {
+                mutation::apply_coalescable_write(core, &owned_method)
             })
             .await
         }
@@ -412,39 +430,24 @@ pub(crate) async fn try_handle_gateway(
             })
             .await
         }
-        Method::RemoveNode { node_id } => {
-            let node_id = node_id.clone();
-            commit_gateway(&ctx, &plan, &method, move |core| {
-                core.remove_node(node_id);
-                Ok(ResultPayload::String("ok".to_string()))
+        Method::RemoveNode { .. } => {
+            let owned_method = method.clone();
+            commit_gateway_coalescable(&ctx, &plan, &method, move |core| {
+                mutation::apply_coalescable_write(core, &owned_method)
             })
             .await
         }
-        Method::AddEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-        } => {
-            let (source_id, target_id, properties_msgpack) = (
-                source_id.clone(),
-                target_id.clone(),
-                properties_msgpack.clone(),
-            );
-            commit_gateway(&ctx, &plan, &method, move |core| {
-                core.add_edge(source_id, target_id, properties_msgpack)
-                    .map(|()| ResultPayload::String("ok".to_string()))
-                    .map_err(|e| e.to_string())
+        Method::AddEdge { .. } => {
+            let owned_method = method.clone();
+            commit_gateway_coalescable(&ctx, &plan, &method, move |core| {
+                mutation::apply_coalescable_write(core, &owned_method)
             })
             .await
         }
-        Method::RemoveEdge {
-            source_id,
-            target_id,
-        } => {
-            let (source_id, target_id) = (source_id.clone(), target_id.clone());
-            commit_gateway(&ctx, &plan, &method, move |core| {
-                core.remove_edge(source_id, target_id);
-                Ok(ResultPayload::String("ok".to_string()))
+        Method::RemoveEdge { .. } => {
+            let owned_method = method.clone();
+            commit_gateway_coalescable(&ctx, &plan, &method, move |core| {
+                mutation::apply_coalescable_write(core, &owned_method)
             })
             .await
         }

@@ -1776,6 +1776,9 @@ mod tests {
             write_coalescer: std::sync::Arc::new(
                 crate::write_coalescer::WriteCoalescerRegistry::new(),
             ),
+            routed_write_coalescer: std::sync::Arc::new(
+                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+            ),
             open_txns: std::sync::Arc::new(dashmap::DashMap::new()),
             txn_id_gen: std::sync::Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,

@@ -39,6 +39,7 @@ fn state() -> Arc<RwLock<ServerState>> {
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
         write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
+        routed_write_coalescer: Arc::new(epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
         txn_ttl_secs: 300,
