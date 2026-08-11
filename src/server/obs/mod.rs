@@ -949,17 +949,22 @@ async fn handle(
     // observability data one way or the other.
     if observability_access_denied(security_state).await {
         let op = classify_observability_operation(path);
-        let noun = match op {
-            ObsOperation::Read => "read",
-            ObsOperation::Mutation => "ingest",
+        // Literal per-operation messages (not a `format!("...{noun}...")`
+        // interpolation) so the exact PromQL/trace/log-search denial text is
+        // greppable verbatim in source — the same shape the architecture
+        // gate (`scripts/check_universal_read_rls.py`) already pins for
+        // every other carrier's static denial string (S3, KV-cache,
+        // federation, Iceberg-REST). Runtime behavior is unchanged: BUG-037
+        // still applies the SAME check to both arms.
+        let body = match op {
+            ObsOperation::Read => {
+                "ACCESS_DENIED: observability read carriers require verified tenant ownership"
+            }
+            ObsOperation::Mutation => {
+                "ACCESS_DENIED: observability ingest carriers require verified tenant ownership"
+            }
         };
-        return (
-            "403 Forbidden",
-            "text/plain",
-            format!(
-                "ACCESS_DENIED: observability {noun} carriers require verified tenant ownership"
-            ),
-        );
+        return ("403 Forbidden", "text/plain", body.to_string());
     }
 
     // CONCEPT:EG-KG.query.prometheus-http-query-api — the Prometheus HTTP query API (GET or POST), routed BEFORE the
