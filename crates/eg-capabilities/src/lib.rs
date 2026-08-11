@@ -1453,6 +1453,11 @@ pub fn policy(m: &Method) -> MethodPolicy {
             mutates: false,
             durability_domain: DurabilityDomain::None,
             authz_action: "quantum:run",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::None,
+        },
         // D-VZ-1 (lanes V4/V6) -- the native visualization render surface. Both
         // `VizOp` variants (`Render`, `CapabilityMatrix`) are pure computations: a
         // render resolves a FRESH per-request `eg_viz_columnstore::ColumnStore`
@@ -2795,20 +2800,21 @@ mod smoke_tests {
         // 375 + 8 = 383.
         // Plus RMDD-29 native WorkItem claim-capability mint/verify operations
         // (2 unconditional methods): 383 + 2 = 385.
-        let expected = 385
         // Plus Q8 `Quantum { op }` (feature-gated `quantum`, mirrors
         // `jobs`/`statechart`'s lockstep contract -- see this crate's Cargo.toml):
-        // 369, +1 when the `quantum` feature is on.
+        // +1 when the `quantum` feature is on.
         // Plus D-VZ-1 (lanes V4/V6) `Viz { op }` (the native visualization render
         // surface, feature-gated `viz` exactly like `jobs`/`statechart` -- see the
         // Cargo.toml doc comment on this crate's own `viz` feature): +1 when `viz`
-        // is enabled.
-        let expected = 369
+        // is enabled. The two are INDEPENDENT arms contributing one row each --
+        // `quantum` and `viz` branched off the same older 369 baseline and each
+        // added its own term, so the merged expression carries both, over 385.
+        let expected = 385
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
             + usize::from(cfg!(feature = "knowledge-batch"))
-            + usize::from(cfg!(feature = "quantum"));
+            + usize::from(cfg!(feature = "quantum"))
             + usize::from(cfg!(feature = "viz"));
         assert_eq!(
             seen.len(),
