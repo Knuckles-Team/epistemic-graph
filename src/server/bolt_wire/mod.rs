@@ -1138,10 +1138,30 @@ mod tests {
             }
         }
         let mut isolation = IsolationLayer::new();
+        #[cfg(feature = "security")]
+        {
+            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+            isolation.add_role(Role::new("commons-user"));
+            isolation.add_grant(Grant {
+                role: "commons-user".to_string(),
+                resource: ResourceSelector::Graph("__commons__".to_string()),
+                action: RbacAction::Read,
+                effect: GrantEffect::Allow,
+            });
+            isolation.add_grant(Grant {
+                role: "commons-user".to_string(),
+                resource: ResourceSelector::Graph("__commons__".to_string()),
+                action: RbacAction::Write,
+                effect: GrantEffect::Allow,
+            });
+        }
         isolation.register_agent(crate::isolation::AgentIdentity {
             agent_id: "service:bolt-test".to_string(),
             role: crate::isolation::AgentRole::Agent,
             teams: Vec::new(),
+            #[cfg(feature = "security")]
+            roles: vec!["commons-user".to_string()],
+            #[cfg(not(feature = "security"))]
             roles: Vec::new(),
         });
         Arc::new(RwLock::new(ServerState {
