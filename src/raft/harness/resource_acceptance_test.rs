@@ -586,12 +586,28 @@ fn state_for(cluster: &Cluster, node_id: NodeId) -> Arc<RwLock<crate::server::Se
         .expect("requested cluster member is running")
 }
 
+/// BUG-044-class: keep the full (`--features full`) dispatcher's state machine
+/// behind one heap indirection. `dispatch()` bottoms out in `dispatch_inner`
+/// (`src/server/dispatch.rs`), one very large async fn whose generated future is
+/// enormous; every caller in this file funnels through `dispatch_bounded`, itself
+/// several `async fn` layers deep (`dispatch_method`/`dispatch_method_as` →
+/// `dispatch_bounded` → `timeout(dispatch(..))`), so without boxing the huge future
+/// gets embedded inline at every layer and can exhaust the test worker stack before
+/// the first request is even polled. Mirrors `server::mod::tests::dispatch_on_heap`
+/// (8e00e0b).
+fn dispatch_on_heap<'a>(
+    state: &'a Arc<RwLock<crate::server::ServerState>>,
+    request: Request,
+) -> std::pin::Pin<Box<dyn Future<Output = crate::protocol::Response> + Send + 'a>> {
+    Box::pin(dispatch(state, request))
+}
+
 async fn dispatch_bounded(
     state: &Arc<RwLock<crate::server::ServerState>>,
     request: Request,
 ) -> crate::protocol::Response {
     let request_id = request.id;
-    tokio::time::timeout(PUBLIC_DISPATCH_TIMEOUT, dispatch(state, request))
+    tokio::time::timeout(PUBLIC_DISPATCH_TIMEOUT, dispatch_on_heap(state, request))
         .await
         .unwrap_or_else(|_| {
             panic!("public dispatch request {request_id} exceeded {PUBLIC_DISPATCH_TIMEOUT:?}")

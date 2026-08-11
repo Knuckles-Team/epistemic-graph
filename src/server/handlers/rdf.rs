@@ -1244,6 +1244,19 @@ mod run_rules_dispatch_tests {
     const TEST_AGENT: &str = "unit-test-agent";
     static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
+    /// BUG-044-class: keep the full (`--features full`) dispatcher's state machine
+    /// behind one heap indirection. `dispatch_on_heap()` bottoms out in `dispatch_inner`
+    /// (`src/server/dispatch.rs`), one very large async fn whose generated future is
+    /// enormous; awaiting it inline inside a test's own future can exhaust the
+    /// harness thread's stack before the first request is even polled, SIGABRTing
+    /// the whole test binary. Mirrors `server::mod::tests::dispatch_on_heap` (8e00e0b).
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+        Box::pin(dispatch(state, request))
+    }
+
     fn current_isolation() -> IsolationLayer {
         let mut isolation = IsolationLayer::new();
         isolation.register_agent(AgentIdentity {
@@ -1363,7 +1376,7 @@ mod run_rules_dispatch_tests {
     #[tokio::test]
     async fn run_rules_returns_inferred_facts_via_dispatch() {
         let state = state();
-        let resp: Response = dispatch(
+        let resp: Response = dispatch_on_heap(
             &state,
             req(
                 1,

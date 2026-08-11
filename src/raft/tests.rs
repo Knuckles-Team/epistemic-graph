@@ -151,6 +151,21 @@ async fn node_count(state: &Arc<RwLock<ServerState>>, graph: &str) -> usize {
         .unwrap_or(0)
 }
 
+/// BUG-044-class: keep the full (`--features full`) dispatcher's state machine
+/// behind one heap indirection. `dispatch()` bottoms out in `dispatch_inner`
+/// (`src/server/dispatch.rs`), one very large async fn whose generated future is
+/// enormous; awaiting it inline inside a `#[tokio::test]`'s default 2 MiB worker
+/// stack can exhaust it before the first request is even polled, SIGABRTing the
+/// whole test binary. Mirrors `server::mod::tests::dispatch_on_heap` (8e00e0b).
+/// (`placement_admin_wire_rpc`'s tests are exempt: they run on their own
+/// explicitly-sized `ENGINE_WORKER_STACK_BYTES` runtime instead, see its module doc.)
+fn dispatch_on_heap<'a>(
+    state: &'a Arc<RwLock<ServerState>>,
+    request: crate::protocol::Request,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::protocol::Response> + Send + 'a>> {
+    Box::pin(crate::server::dispatch(state, request))
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn three_node_cluster_replicates_and_survives_leader_failover() {
     let tmp = std::env::temp_dir().join(format!("eg-raft-test-{}", std::process::id()));
@@ -431,7 +446,7 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
             Method::ClusterMembers,
         );
         async move {
-            let resp = dispatch(&follower_state, request).await;
+            let resp = dispatch_on_heap(&follower_state, request).await;
             matches!(
                 resp.result,
                 Some(ResultPayload::Json(serde_json::Value::Object(ref map)))
@@ -448,7 +463,7 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
     .expect("ClusterMembers must report all 3 self-reported members from a follower");
 
     req_id += 1;
-    let resp = dispatch(
+    let resp = dispatch_on_heap(
         &follower_state,
         signed_request(
             req_id,
@@ -491,7 +506,7 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
     // asserting ONLY that scope succeeds; an unrelated scope is denied --
     // proving this is NOT gated behind `admin:cluster-read`. ─────────────
     req_id += 1;
-    let denied = dispatch(
+    let denied = dispatch_on_heap(
         &follower_state,
         signed_request(
             req_id,
@@ -515,7 +530,7 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
     // leg is issued against the leader's own state. ──────────────────────
     let leader_state = states[(leader_id - 1) as usize].clone();
     req_id += 1;
-    let route_resp = dispatch(
+    let route_resp = dispatch_on_heap(
         &leader_state,
         signed_request(
             req_id,
@@ -581,7 +596,7 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
             Method::ClusterMembers,
         );
         async move {
-            let resp = dispatch(&survivor_state, request).await;
+            let resp = dispatch_on_heap(&survivor_state, request).await;
             let Some(ResultPayload::Json(value)) = resp.result else {
                 return false;
             };
@@ -2413,7 +2428,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     // basis to fabricate one. Attaching it as a learner is the real replication
     // event that gives it that knowledge, exactly like a real operator's first
     // admin call against a live cluster would.
-    let resp = dispatch(
+    let resp = dispatch_on_heap(
         &leader_state,
         signed_request(
             1,
@@ -2449,7 +2464,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     // redirected to the leader, not silently mis-served, mis-applied locally, or
     // panicking -- proven with the follower's REAL observed leader, not merely
     // that the `OPERATION_REDIRECTED` constant exists somewhere in the source.
-    let resp = dispatch(
+    let resp = dispatch_on_heap(
         &follower_state,
         signed_request(
             2,
@@ -2477,7 +2492,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
 
     // (c) The SAME `RaftChangeMembership` issued against the LEADER actually
     // promotes node 2 -- real execution, not just a redirect-shaped stub.
-    let resp = dispatch(
+    let resp = dispatch_on_heap(
         &leader_state,
         signed_request(
             3,
@@ -2520,7 +2535,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
             teams: Vec::new(),
             roles: Vec::new(),
         });
-    let resp = dispatch(
+    let resp = dispatch_on_heap(
         &unclustered_state,
         signed_request(
             4,

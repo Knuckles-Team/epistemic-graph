@@ -436,6 +436,20 @@ mod admission_tests {
     const TEST_AGENT: &str = "unit-test-agent";
     static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
+    /// BUG-044-class: keep the full (`--features full`) dispatcher's state machine
+    /// behind one heap indirection. `dispatch_on_heap()` bottoms out in `dispatch_inner`
+    /// (`src/server/dispatch.rs`), one very large async fn whose generated future is
+    /// enormous; awaiting it inline inside a test's own future can exhaust the
+    /// harness thread's stack before the first request is even polled, SIGABRTing
+    /// the whole test binary. Mirrors `server::mod::tests::dispatch_on_heap` (8e00e0b).
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::protocol::Response> + Send + 'a>>
+    {
+        Box::pin(dispatch(state, request))
+    }
+
     fn current_isolation() -> IsolationLayer {
         let mut isolation = IsolationLayer::new();
         isolation.register_agent(AgentIdentity {
@@ -558,7 +572,7 @@ mod admission_tests {
     }
 
     async fn create(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str) {
-        let r = dispatch(
+        let r = dispatch_on_heap(
             state,
             req(
                 id,
@@ -574,7 +588,7 @@ mod admission_tests {
     }
 
     async fn add_node(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str, node: &str) {
-        let r = dispatch(
+        let r = dispatch_on_heap(
             state,
             req(
                 id,
@@ -631,7 +645,7 @@ mod admission_tests {
 
         // Access exactly 3 cold graphs through the real dispatch path.
         for i in [2, 9, 17] {
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 req(
                     5000 + i,
@@ -940,7 +954,7 @@ mod admission_tests {
         }
 
         // Touch ONE — it lazily hydrates with its data intact; the rest stay cold.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state2,
             req(
                 9000,
