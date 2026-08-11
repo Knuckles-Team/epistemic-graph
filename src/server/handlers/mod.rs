@@ -122,6 +122,19 @@ pub(crate) mod jobs;
 // `GraphCore`.
 #[cfg(feature = "statechart")]
 pub(crate) mod statechart;
+// The agent-facing quantum control-plane surface (Q8, CONCEPT:EG-KG.compute.quantum-agent-api,
+// root feature `quantum-agent-api`, which turns on `eg-types/quantum` -- the
+// `Method::Quantum` wire variant itself -- + `eg-capabilities/quantum` + this
+// crate's own `quantum-sim` in lockstep; see the root Cargo.toml's `quantum-agent-api`
+// feature doc). The `Method::Quantum { op }` surface (quantum_rank/
+// optimize_with_qaoa/quantum_expectation) over a registered `eg_quantum_core::
+// backend::QuantumBackend` (`eg-quantum-sim`'s `sv-cpu`/`stabilizer`). NOT
+// graph-scoped (reads no persisted graph state, writes nothing durable -- every
+// result returns to the caller as a proposal) — self-routes in `dispatch.rs` before
+// the per-graph chain, exactly like `AnalyticsJob`/`Statechart`. Needs no `state` at
+// all (no persistence of its own).
+#[cfg(feature = "quantum-agent-api")]
+pub(crate) mod quantum;
 // Governed document/image/audio/video serving. The wire carries an ephemeral
 // source body, while this handler persists only an encrypted, opaque runtime
 // snapshot through the graph mutation gateway.

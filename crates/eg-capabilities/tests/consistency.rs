@@ -934,10 +934,15 @@ fn all_methods_table_has_the_expected_variant_count() {
     // adds eight native development-lane methods, yielding 383, and RMDD-29
     // adds two native WorkItem claim-capability methods, yielding 385.
     let expected = 385
+    // Plus Q8 `Quantum { op }` (feature-gated `quantum`, mirrors `jobs`/`statechart`'s
+    // lockstep contract -- see `eg-capabilities/Cargo.toml`): 369, +1 when `quantum`
+    // is on.
+    let expected = 369
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
-        + usize::from(cfg!(feature = "knowledge-batch"));
+        + usize::from(cfg!(feature = "knowledge-batch"))
+        + usize::from(cfg!(feature = "quantum"));
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 
