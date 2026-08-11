@@ -2366,6 +2366,9 @@ fn finish_session_control_saga(_control: ()) -> Result<(), String> {
 /// Dispatch a single request to the appropriate handler, recording
 /// per-operation request counters and latency (CONCEPT:EG-KG.txn.per-graph-write-isolation).
 pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Response {
+    // Small by construction: `dispatch_with_context` boxes the enormous
+    // `dispatch_inner` state machine internally, so this future holds only a
+    // pointer. See the comment at that box for the full rationale.
     dispatch_with_context(state, req, None).await
 }
 
@@ -2470,7 +2473,33 @@ async fn dispatch_with_context(
     // skip the clock entirely — byte-for-byte the prior `not(metrics)` path.
     let start = (cfg!(feature = "metrics") || slow.is_some()).then(std::time::Instant::now);
 
-    let resp = dispatch_inner(state, req, context).await;
+    // Heap the state machine HERE, once, at the single point every dispatch
+    // entrypoint funnels through — not at each of the ~dozens of callsites.
+    //
+    // `dispatch_inner` inlines the whole graph-op dispatch state machine (the
+    // union of every `Method` arm) into one poll chain; under `--features full`
+    // that future is enormous. Any caller that awaits it un-boxed embeds it in
+    // ITS OWN future, and a few frames of that overflows the poll-time stack and
+    // SIGABRTs the entire process — taking every other test in the binary with
+    // it, with no summary line, so the run reads as "0 failed" while a thousand
+    // results were never produced.
+    //
+    // That trap was fixed one callsite at a time in four production paths
+    // (`transport::handle_connection`, and `mqtt_wire`/`stomp_wire`/`amqp_wire`
+    // `engine_call`) and in nine test modules via `dispatch_on_heap` — and it
+    // STILL resurfaced in an integration test
+    // (`tests/advanced_crossmodal_roundtrip.rs::concurrent_serializable_phantom_conflict_eg392`),
+    // because every new callsite starts un-boxed by default and nothing makes
+    // the hazard visible at the call.
+    //
+    // Boxing here inverts that default: every entrypoint above
+    // (`dispatch`, `dispatch_verified_request`,
+    // `dispatch_authenticated_broker_actor`, `dispatch_authenticated_local_query`)
+    // and any added later returns a future holding only a `Pin<Box<..>>`, so
+    // EVERY caller is small by construction — including integration tests, which
+    // cannot reach the crate-internal `dispatch_on_heap` helper at all. One
+    // allocation per dispatch, on a path that already does I/O.
+    let resp = Box::pin(dispatch_inner(state, req, context)).await;
 
     if let Some(start) = start {
         let elapsed = start.elapsed();
