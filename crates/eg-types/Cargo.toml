@@ -215,6 +215,14 @@ modality-serving = []
 # mirrored `quantum` feature turned on in lockstep by the root package's
 # `quantum-agent-api` facade feature.
 quantum = []
+# D-VZ-1 (lanes V4/V6): the native-visualization engine's wire op (`VizOp`) +
+# `Method::Viz`, gated `viz`. Pure serde/enum-variant gate, same shape as
+# `jobs`/`statechart`; the real ColumnStore/LOD/render engine (`eg-viz-core`/
+# `eg-viz-columnstore`/`eg-viz-export`, a SEPARATE leaf DAG above this crate) is
+# wired by the facade through its own `viz`/`viz-columnstore`/`viz-static-export`
+# features, deliberately EXCLUDED from `full` (see root `Cargo.toml`) since it is
+# not yet an operator-facing default.
+viz = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
