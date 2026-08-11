@@ -631,10 +631,21 @@ where
     T: ReadableTable<(&'static str, &'static str), &'static [u8]>,
 {
     text(graph, "lane graph").map_err(|_| "development lane graph key is invalid".to_string())?;
+    // `incoming_nodes` is the checkpoint's FULL node set for `graph` — every node
+    // the graph carries, not just development-lane WorkItems (e.g. `__commons__`
+    // also carries broker exchange/binding/message nodes whose ids intentionally
+    // use a `\u{1}` control-byte delimiter — see `broker::binding_node_id` — which
+    // is a legal graph node id but not `text()`-bounded "WorkItem id" text).
+    // Bound-checking every incoming id against the WorkItem id format here would
+    // reject an entire checkpoint over an unrelated node's id shape. The actual
+    // WorkItem ids this function cares about (`row.hold.work_item_id` /
+    // `cleanup_work_item_id`) are already bound-checked at the point they matter —
+    // `durable_hold_bounds` below validates the STORED hold's own `work_item_id`
+    // field before it is ever used as a lookup key into `incoming`. Mirrors
+    // `work_item_capability::validate_snapshot_nodes`'s same content-shape-scoped
+    // (not id-format-universal) convention for this same checkpoint path.
     let mut incoming = std::collections::HashMap::with_capacity(incoming_nodes.len());
     for (id, bytes) in incoming_nodes {
-        text(id, "checkpoint WorkItem id")
-            .map_err(|_| "checkpoint WorkItem id is outside the native bound".to_string())?;
         if incoming.insert(id.as_str(), bytes.as_slice()).is_some() {
             return Err("checkpoint contains duplicate WorkItem node".to_string());
         }
