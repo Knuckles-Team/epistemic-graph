@@ -1364,8 +1364,23 @@ async fn stage_plan_writeback(
         Err(resp) => return resp,
     };
     let projected = read_authority.project_core(&core);
-    if read_authority.is_active() && !projected.has_node(&anchor_id) {
-        return Response::err(req_id, "TxnPlanWriteback: anchor is not visible");
+    if read_authority.is_active() {
+        // The anchor may have been staged EARLIER in this SAME txn (read-your-own-writes
+        // -- D7's own capstone case is exactly this: "the anchor node ITSELF is staged in
+        // the SAME txn as the writeback"). `projected` alone only reflects the RLS-filtered
+        // COMMITTED snapshot, so a same-txn-staged anchor would wrongly read as invisible.
+        // Overlay the txn's own staged write-set onto that snapshot first -- the same
+        // technique `run_unified_overlaid` uses for in-txn reads (CONCEPT:EG-KG.query.overlay-leg-rls-filter)
+        // -- before deciding visibility. The PLAN ITSELF still evaluates against `projected`
+        // (committed-only, unchanged below): only the anchor's own existence is RYOW-aware.
+        let mut anchor_view = projected.analysis_snapshot();
+        if let Some(entry) = s.open_txns.get(txn_id) {
+            let write_set = entry.value().lock().write_set.clone();
+            crate::server::handlers::query::overlay_write_set(&mut anchor_view, &write_set);
+        }
+        if !anchor_view.has_node(&anchor_id) {
+            return Response::err(req_id, "TxnPlanWriteback: anchor is not visible");
+        }
     }
     let methods = match plan_writeback_to_methods(&projected, plan, &anchor_id, &relationship) {
         Ok(m) => m,
