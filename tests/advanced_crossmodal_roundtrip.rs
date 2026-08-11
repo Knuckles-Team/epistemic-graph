@@ -55,32 +55,47 @@ use epistemic_graph::server::{dispatch, ServerState};
 
 const SECRET: &str = "advanced-crossmodal-secret";
 
-/// A fully-featured state with no graph persistence (graph/vector/axiom writes apply
-/// in-memory at commit). A configured scratch base exists solely because every served
-/// SQL adapter now requires its owner-scoped catalog directory.
+/// A fully-featured state with a REAL redb persistence backend. This was `persist_dir:
+/// Some(..)` / `persistence: None` -- a scratch dir with no durable backend behind it,
+/// which satisfied the owner-scoped SQL catalog requirement but made every OTHER
+/// authoritative mutation fail closed the instant `dispatch()` routed it: "authoritative
+/// MutationBatch commit requires a persistence backend". That error is CORRECT (the
+/// dispatch path deliberately fail-closes durable-domain methods against a backend-less
+/// state) -- the FIXTURE was wrong. Same fix shape as `server::mod::tests::test_state` /
+/// `bolt_wire::tests::durable_state` / every other `tests/*.rs` fixture that calls
+/// `common::tempdir_persistence()` (its unique per-call tempdir doubles as the SQL
+/// adapter's owner-scoped catalog directory, so nothing is lost).
+///
+/// The multi-op `BeginTxn`..`Commit` path additionally seals its transaction recovery
+/// plan (`server::handlers::txn::seal_txn_recovery_plan`), which fail-closed REQUIRES
+/// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at the backend's `open()` call -- the same
+/// requirement `redb_backend::tests::cm_dir` provisions. Encryption is symmetric and
+/// transparent to every round-trip these tests make, so a keyed store behaves
+/// identically for their assertions; provision it ONCE, before the first backend opens.
 fn state() -> Arc<RwLock<ServerState>> {
-    static NEXT_SQL_DIR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    #[cfg(feature = "redb")]
+    {
+        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+        ENCRYPTION_KEY.call_once(|| {
+            std::env::set_var(
+                epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+                "advanced-crossmodal-recovery-key",
+            )
+        });
+    }
     common::configure_authority();
+    let (persist_dir, persistence) = common::tempdir_persistence();
     Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
         cold_tracker: std::sync::Arc::new(
             epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry: GraphRegistry::new(),
-        isolation: common::current_isolation(),
+        isolation: commons_isolation(),
         channels: ChannelManager::new(),
         auth_secret: SECRET.to_string(),
-        persist_dir: Some(
-            std::env::temp_dir()
-                .join(format!(
-                    "epistemic-graph-crossmodal-sql-test-{}-{}",
-                    std::process::id(),
-                    NEXT_SQL_DIR.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                ))
-                .to_string_lossy()
-                .into_owned(),
-        ),
-        persistence: None,
+        persist_dir,
+        persistence,
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
@@ -99,8 +114,27 @@ fn state() -> Arc<RwLock<ServerState>> {
         raft: None,
         #[cfg(feature = "raft")]
         multi_raft: None,
+        // A real per-test temp series store (mirrors `server::mod::tests::test_state` /
+        // `served_mining_tsdb_scan.rs`'s `tmp_series`). This was `None`, which made a
+        // cross-modal commit that staged a `TxnAddMeasurement` fail closed at Commit time:
+        // "committed measurements require the served time-series store" -- the same
+        // authoritative-projection requirement `project_committed_measurements`
+        // (`server::handlers::txn`) enforces repo-wide, not something this test's own
+        // doc comment (staged measurements are "dropped at commit by design") still holds
+        // now that that projection exists. Once staged, a measurement's commit MUST have a
+        // served store to project into.
         #[cfg(feature = "tsdb")]
-        tsdb_store: None,
+        tsdb_store: Some({
+            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let path = std::env::temp_dir().join(format!(
+                "eg-crossmodal-tsdb-test-{}-{}.redb",
+                std::process::id(),
+                NEXT_TSDB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            std::sync::Arc::new(
+                eg_tsdb::store::SeriesStore::open(&path).expect("open test series store"),
+            )
+        }),
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -117,6 +151,41 @@ fn state() -> Arc<RwLock<ServerState>> {
         lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
 }
+
+/// `common::current_isolation()` plus a "commons-user" RBAC role granted Read+Write on
+/// `__commons__`. RBAC (CONCEPT:EG-KG.compute.feature) is the mandatory access decision under
+/// `feature = "security"` (`isolation.rs::check_access`) -- there is no pre-RBAC
+/// Commons-open-to-all fall-through any more for a non-`System` identity (see the
+/// `#[cfg(not(feature = "security"))]` branch vs. the RBAC branch in `check_access`).
+/// `common::TEST_AGENT` is registered `System`-role, so it always bypasses RBAC and never
+/// needed this; but the `agent_a`/`agent_b`/etc. peers this file registers through
+/// `register_identity_req` (plain `AgentRole::Agent`) do, or every RPC they make against
+/// `__commons__` is `ACCESS_DENIED`. Same fix shape as `server::mod::multi_tenant_state`'s
+/// `"commons-user"` role (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence): the role +
+/// grants live on the policy, `register_identity_req` threads the role NAME onto each
+/// registered peer's `AgentIdentity.roles`.
+fn commons_isolation() -> epistemic_graph::isolation::IsolationLayer {
+    let mut isolation = common::current_isolation();
+    #[cfg(feature = "security")]
+    {
+        use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+        isolation.add_role(Role::new("commons-user"));
+        let grant = |action: RbacAction| Grant {
+            role: "commons-user".to_string(),
+            resource: ResourceSelector::Graph("__commons__".to_string()),
+            action,
+            effect: GrantEffect::Allow,
+        };
+        isolation.add_grant(grant(RbacAction::Read));
+        isolation.add_grant(grant(RbacAction::Write));
+    }
+    isolation
+}
+
+/// The RBAC role name every non-`System` peer this file registers needs on `__commons__`
+/// (see [`commons_isolation`]).
+#[cfg(feature = "security")]
+const COMMONS_USER_ROLE: &str = "commons-user";
 
 fn req(id: u64, method: Method) -> Request {
     common::signed_request(SECRET, id, "__commons__", method)
@@ -198,7 +267,10 @@ async fn stage_rls_overlay(state: &Arc<RwLock<ServerState>>, first_id: u64, agen
         Method::TxnAddNode {
             txn_id: txn_id.clone(),
             node_id: "stg_pub".into(),
-            properties_msgpack: pack(json!({ "type": "Robot" })),
+            // Default-deny RLS (`eg_core::isolation::row_visibility`) hides ANY
+            // untagged row from a non-`System` actor -- an unowned row needs an
+            // EXPLICIT `_visibility: "public"` tag to be seen by `agent_b` at all.
+            properties_msgpack: pack(json!({ "type": "Robot", "_visibility": "public" })),
             graph: None,
         },
     )
@@ -641,6 +713,13 @@ fn req_as(id: u64, agent: &str, method: Method) -> Request {
     common::signed_request_as(SECRET, id, "__commons__", agent, method)
 }
 
+/// Registers `agent_id` with the `"commons-user"` RBAC role ([`commons_isolation`]) so
+/// every peer this file registers can Read+Write `__commons__` -- without it, EVERY RPC a
+/// non-`System` registered peer makes against `__commons__` is `ACCESS_DENIED` under
+/// `feature = "security"`'s mandatory RBAC (there is no pre-RBAC Commons-open-to-all
+/// fall-through for a non-`System` identity). Harmless for a `System`-role registrant
+/// (e.g. `"root"`): `check_access` short-circuits `System` identities before RBAC is ever
+/// consulted, so the extra role name is simply unused.
 #[cfg(feature = "security")]
 fn register_identity_req(
     id: u64,
@@ -656,7 +735,7 @@ fn register_identity_req(
         registered_agent: agent_id,
         role,
         teams: Vec::new(),
-        roles: Vec::new(),
+        roles: vec![COMMONS_USER_ROLE.to_string()],
     })
 }
 
@@ -694,7 +773,10 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
         1,
         Method::AddNode {
             node_id: "pub_r".into(),
-            properties_msgpack: pack(json!({ "type": "Robot" })),
+            // Default-deny RLS hides an untagged row from a non-`System` actor --
+            // an EXPLICIT `_visibility: "public"` tag is required for an unowned
+            // row to be visible at all (see the `stg_pub` note above).
+            properties_msgpack: pack(json!({ "type": "Robot", "_visibility": "public" })),
         },
     )
     .await;
@@ -882,6 +964,23 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
     }
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
+    // The pgwire user "tester" IS the engine `agent_id` (`server::pgwire::auth`: "a pg
+    // connection's `user` IS an engine `agent_id`" -- SCRAM binds the login to that
+    // `AgentIdentity` for every subsequent query's ACL check). Register it up front with
+    // the `commons-user` RBAC role ([`commons_isolation`]) so its post-login queries can
+    // Read `__commons__` once mandatory RBAC (`feature = "security"`) is enforced --
+    // without this an unregistered "tester" hits `IsolationLayer::check_access`'s
+    // default-deny (`self.agents.get(agent_id)` misses) on its very first SELECT.
+    {
+        let mut s = state.write().await;
+        s.isolation.register_agent(epistemic_graph::isolation::AgentIdentity {
+            agent_id: "tester".to_string(),
+            role: epistemic_graph::isolation::AgentRole::Agent,
+            teams: Vec::new(),
+            roles: vec!["commons-user".to_string()],
+        });
+    }
+
     // ── a real tokio-postgres client (extended-protocol driver) on the pgwire surface. ──
     let pg_port = pg_addr.rsplit(':').next().unwrap();
     let password = pgwire::derive_pg_password(SECRET, "tester");
@@ -926,13 +1025,17 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
     // (`infer_nodes` unions the observed property keys) always exposes a `type` column —
     // otherwise `WHERE type = 'Robot'` over the empty pre-commit graph errors "no field
     // named type". `Seed` matches neither the `:Robot` label nor the `ex/robot` subject,
-    // so every before-commit "sees nothing" assertion still holds.
+    // so every before-commit "sees nothing" assertion still holds. Tagged
+    // `_visibility: "public"`: default-deny RLS hides an untagged, unowned row from the
+    // pgwire "tester" actor (`server::pgwire::auth`: the pg user IS the ACL actor) --
+    // an untagged seed would drop out of `infer_nodes`' RLS-filtered snapshot entirely,
+    // reproducing the exact "no field named type" this seed exists to prevent.
     ok(
         &state,
         99,
         Method::AddNode {
             node_id: "seed0".into(),
-            properties_msgpack: pack(json!({ "type": "Seed" })),
+            properties_msgpack: pack(json!({ "type": "Seed", "_visibility": "public" })),
         },
     )
     .await;
@@ -960,7 +1063,12 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
         Method::TxnAddNode {
             txn_id: txn.clone(),
             node_id: "<http://ex/robot>".into(),
-            properties_msgpack: pack(json!({ "type": "Robot", "name": "unit-1" })),
+            // `_visibility: "public"`: the pgwire "tester" actor (a non-`System`
+            // registered identity) must see this row post-commit; default-deny RLS
+            // hides an untagged, unowned row from any non-`System` actor.
+            properties_msgpack: pack(
+                json!({ "type": "Robot", "name": "unit-1", "_visibility": "public" }),
+            ),
             graph: None,
         },
     )
@@ -982,7 +1090,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
         Method::TxnAddNode {
             txn_id: txn.clone(),
             node_id: "<http://ex/machine>".into(),
-            properties_msgpack: pack(json!({ "type": "Machine" })),
+            properties_msgpack: pack(json!({ "type": "Machine", "_visibility": "public" })),
             graph: None,
         },
     )
@@ -1106,6 +1214,12 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
         .await
         .expect("cross-modal commit under K1");
     backend.shutdown();
+    // `shutdown()` stops the writer thread but does not close the underlying redb
+    // `Database` handle -- that only happens when the LAST owning value is dropped,
+    // and redb keeps its advisory per-file lock until then. `backend` is not read
+    // again below, so drop it explicitly rather than let it linger to end-of-scope
+    // (same rationale as `redb_backend::tests::delete_then_recreate_same_name_keeps_new_writes`).
+    drop(backend);
 
     // The raw redb bytes must not hold the plaintext secret (only sealed values on disk).
     let mut leaked = false;
@@ -1127,7 +1241,24 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
     );
 
     // ── K1 reopen: the fused cross-modal read (nodes + edges + semantic) DECRYPTS. ──
-    let reopened = RedbBackend::open(dir_s.clone(), policy(), 64).expect("reopen K1");
+    // Reopening the SAME redb file IN-PROCESS races the just-dropped `backend`'s file
+    // lock actually releasing (the write-coalescer worker's async exit has no
+    // `JoinHandle` here to await directly), so bound it with a short retry rather
+    // than a flat sleep -- identical rationale to the redb_backend.rs reopen tests.
+    let reopened = {
+        let mut attempt = 0;
+        loop {
+            match RedbBackend::open(dir_s.clone(), policy(), 64) {
+                Ok(backend) => break backend,
+                Err(error) if attempt < 100 => {
+                    attempt += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    let _ = error;
+                }
+                Err(error) => panic!("reopen K1: {error:?}"),
+            }
+        }
+    };
     let dump = reopened
         .read_graph_dump_blocking("__commons__")
         .expect("read_graph_dump under K1")
@@ -1163,10 +1294,24 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
         "point read decrypts under the correct key"
     );
     reopened.shutdown();
+    drop(reopened);
 
     // ── K2 reopen (WRONG key): the cross-modal read must ERROR, never return plaintext. ──
     std::env::set_var(ENCRYPTION_KEY_ENV, "key-two-WRONG");
-    let wrong = RedbBackend::open(dir_s.clone(), policy(), 64).expect("reopen K2");
+    let wrong = {
+        let mut attempt = 0;
+        loop {
+            match RedbBackend::open(dir_s.clone(), policy(), 64) {
+                Ok(backend) => break backend,
+                Err(error) if attempt < 100 => {
+                    attempt += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    let _ = error;
+                }
+                Err(error) => panic!("reopen K2: {error:?}"),
+            }
+        }
+    };
     let read = wrong.read_node("__commons__", "robot").await;
     assert!(
         read.is_err(),
@@ -1550,12 +1695,19 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
     let state = state();
 
     // Seed the claim/evidence/secret topology as the provisioned system identity.
+    // `claim1`/`evidence1` are meant PUBLIC (visible to `stranger` too, so its earned
+    // level is `Skeleton` rather than `ExistenceOnly`) -- default-deny RLS
+    // (`eg_core::isolation::row_visibility`) hides an untagged, unowned row from a
+    // non-`System` actor just like `filter_view` would, so they need an EXPLICIT
+    // `_visibility: "public"` tag (see `eg_epistemic::redact`'s own `untagged_hidden`).
     ok(
         &state,
         1,
         Method::AddNode {
             node_id: "claim1".into(),
-            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.5 })),
+            properties_msgpack: pack(
+                json!({ "type": "Claim", "confidence": 0.5, "_visibility": "public" }),
+            ),
         },
     )
     .await;
@@ -1564,7 +1716,9 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
         2,
         Method::AddNode {
             node_id: "evidence1".into(),
-            properties_msgpack: pack(json!({ "type": "Evidence", "confidence": 0.9 })),
+            properties_msgpack: pack(
+                json!({ "type": "Evidence", "confidence": 0.9, "_visibility": "public" }),
+            ),
         },
     )
     .await;
@@ -1920,12 +2074,20 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
         "derivation_ref": "eg:derivation:0000000000000004"
     });
 
+    // `claim1`/`evidence1` are meant PUBLIC (this test's own doc comment: "claim1 is
+    // publicly SUPPORTED ... evidence1 (public)") -- default-deny RLS hides an
+    // untagged, unowned row from a non-`System` actor, so an EXPLICIT
+    // `_visibility: "public"` tag is required (see the identical note in
+    // `explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc`, whose
+    // setup this mirrors).
     ok(
         &state,
         1,
         Method::AddNode {
             node_id: "claim1".into(),
-            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.5 })),
+            properties_msgpack: pack(
+                json!({ "type": "Claim", "confidence": 0.5, "_visibility": "public" }),
+            ),
         },
     )
     .await;
@@ -1937,6 +2099,7 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
             properties_msgpack: pack(json!({
                 "type": "Evidence",
                 "confidence": 0.9,
+                "_visibility": "public",
                 "evidence_locus": locus,
             })),
         },
@@ -2384,12 +2547,18 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
     use epistemic_graph::protocol::ResolveConflictResult;
 
     let state = state();
+    // `a`/`c` are meant PUBLIC (this test's own doc comment: the SAME textbook AF
+    // `resolve_conflict_matches_tms_crate_semantics_over_rpc` uses, "except `b` is now"
+    // private) -- default-deny RLS hides an untagged, unowned row from a non-`System`
+    // actor, so they need an EXPLICIT `_visibility: "public"` tag; `b` stays private.
     ok(
         &state,
         1,
         Method::AddNode {
             node_id: "a".into(),
-            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.5 })),
+            properties_msgpack: pack(
+                json!({ "type": "Claim", "confidence": 0.5, "_visibility": "public" }),
+            ),
         },
     )
     .await;
@@ -2412,7 +2581,9 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
         3,
         Method::AddNode {
             node_id: "c".into(),
-            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.9 })),
+            properties_msgpack: pack(
+                json!({ "type": "Claim", "confidence": 0.9, "_visibility": "public" }),
+            ),
         },
     )
     .await;
