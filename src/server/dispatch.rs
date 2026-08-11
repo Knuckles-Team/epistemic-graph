@@ -7617,13 +7617,28 @@ mod eg318_dispatch_tests {
         rmp_serde::to_vec_named(&v).unwrap()
     }
 
+    /// BUG-044-class: keep the full (`--features full`) dispatcher's state machine
+    /// behind one heap indirection. `dispatch()` bottoms out in `dispatch_inner`,
+    /// a single very large async fn whose generated future is enormous; nesting it
+    /// (this module's tests awaiting `dispatch` inside a `#[tokio::test]` future) can
+    /// exhaust the test harness thread's stack before the first request is even
+    /// polled, aborting the WHOLE test binary with SIGABRT and hiding every other
+    /// test's result. Same fix as `server::mod::tests::dispatch_on_heap` (8e00e0b),
+    /// `result_cache_dispatch_tests` (ae64cfd), and `redb_backend`'s tests (92586a7).
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+        Box::pin(dispatch(state, request))
+    }
+
     /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-220 — CreateSummaryNode over the wire → SummaryChildren
     /// reads back the linked children.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_create_summary_then_read_children() {
         let state = state_min();
         for (i, id) in ["e1", "e2"].iter().enumerate() {
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 req(
                     100 + i as u64,
@@ -7636,7 +7651,7 @@ mod eg318_dispatch_tests {
             .await;
             assert!(r.error.is_none(), "AddNode: {:?}", r.error);
         }
-        let created = dispatch(
+        let created = dispatch_on_heap(
             &state,
             req(
                 1,
@@ -7652,7 +7667,7 @@ mod eg318_dispatch_tests {
             Some(ResultPayload::String(s)) => s,
             other => panic!("CreateSummaryNode: {:?} / {:?}", other, created.error),
         };
-        let children = dispatch(
+        let children = dispatch_on_heap(
             &state,
             req(
                 2,
@@ -7674,7 +7689,7 @@ mod eg318_dispatch_tests {
     async fn eg318_consolidate_returns_semantic_id() {
         let state = state_min();
         for (i, id) in ["a", "b"].iter().enumerate() {
-            let _ = dispatch(
+            let _ = dispatch_on_heap(
                 &state,
                 req(
                     200 + i as u64,
@@ -7686,7 +7701,7 @@ mod eg318_dispatch_tests {
             )
             .await;
         }
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 3,
@@ -7709,7 +7724,7 @@ mod eg318_dispatch_tests {
     async fn eg318_maintain_decays_and_evicts() {
         let state = state_min();
         // A low-importance node in the working set gets evicted below threshold.
-        let _ = dispatch(
+        let _ = dispatch_on_heap(
             &state,
             req(
                 300,
@@ -7720,7 +7735,7 @@ mod eg318_dispatch_tests {
             ),
         )
         .await;
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req(
                 4,
@@ -7748,7 +7763,7 @@ mod eg318_dispatch_tests {
     async fn eg318_scene_object_then_world_transform() {
         let state = state_min();
         let pose = serde_json::json!({"translation": {"x": 5.0, "y": 0.0, "z": 0.0}});
-        let created = dispatch(
+        let created = dispatch_on_heap(
             &state,
             req(
                 5,
@@ -7763,7 +7778,7 @@ mod eg318_dispatch_tests {
             Some(ResultPayload::String(s)) => s,
             other => panic!("AddSceneObject: {:?} / {:?}", other, created.error),
         };
-        let wt = dispatch(&state, req(6, Method::WorldTransform { node_id: oid })).await;
+        let wt = dispatch_on_heap(&state, req(6, Method::WorldTransform { node_id: oid })).await;
         match wt.result {
             Some(ResultPayload::Json(v)) => {
                 let tx = v["translation"]["x"].as_f64().unwrap();
@@ -7778,7 +7793,7 @@ mod eg318_dispatch_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_trajectory_append_then_discounted_return() {
         let state = state_min();
-        let started = dispatch(
+        let started = dispatch_on_heap(
             &state,
             req(
                 7,
@@ -7793,7 +7808,7 @@ mod eg318_dispatch_tests {
             other => panic!("StartTrajectory: {:?} / {:?}", other, started.error),
         };
         for (i, reward) in [2.0f64, 4.0].into_iter().enumerate() {
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 req(
                     8 + i as u64,
@@ -7817,7 +7832,7 @@ mod eg318_dispatch_tests {
                 other => panic!("AppendStep: {:?} / {:?}", other, r.error),
             }
         }
-        let dr = dispatch(
+        let dr = dispatch_on_heap(
             &state,
             req(
                 20,
@@ -7895,19 +7910,19 @@ mod eg318_dispatch_tests {
             points_msgpack: rmp_serde::to_vec(&vec![(1i64, vec![value])]).unwrap(),
         };
         assert!(
-            dispatch(&state, request(1, "acme:private", "alice", append(10.0)))
+            dispatch_on_heap(&state, request(1, "acme:private", "alice", append(10.0)))
                 .await
                 .error
                 .is_none()
         );
         assert!(
-            dispatch(&state, request(2, "other:private", "bob", append(20.0)))
+            dispatch_on_heap(&state, request(2, "other:private", "bob", append(20.0)))
                 .await
                 .error
                 .is_none()
         );
 
-        let denied = dispatch(
+        let denied = dispatch_on_heap(
             &state,
             request(
                 3,
@@ -7926,7 +7941,7 @@ mod eg318_dispatch_tests {
             "cross-tenant series read must be denied"
         );
 
-        let own = dispatch(
+        let own = dispatch_on_heap(
             &state,
             request(
                 4,
@@ -7973,6 +7988,16 @@ mod admin_scope_tests {
     use tokio::sync::Semaphore;
 
     const SECRET: &str = "admin-scope-test-secret";
+
+    /// BUG-044-class: see `eg318_dispatch_tests::dispatch_on_heap` above for why every
+    /// `dispatch()` call in a test needs one heap indirection to avoid overflowing the
+    /// harness thread's stack and SIGABRTing the whole test binary.
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+        Box::pin(dispatch(state, request))
+    }
 
     fn state_min() -> Arc<RwLock<ServerState>> {
         let mut isolation = IsolationLayer::new();
@@ -8052,7 +8077,7 @@ mod admin_scope_tests {
         agent_id: &str,
         role: AgentRole,
     ) -> Response {
-        dispatch(
+        dispatch_on_heap(
             state,
             req_as(
                 id,
@@ -8166,7 +8191,7 @@ mod admin_scope_tests {
         let state = state_min();
         // Give "auditor-admin" the RBAC role "sysadmin" via RbacAdmin (itself an
         // admin action -- root, System, is allowed to call it).
-        let add_role = dispatch(
+        let add_role = dispatch_on_heap(
             &state,
             req_as(
                 2,
@@ -8179,7 +8204,7 @@ mod admin_scope_tests {
         .await;
         assert!(add_role.error.is_none(), "AddRole: {:?}", add_role.error);
 
-        let add_grant = dispatch(
+        let add_grant = dispatch_on_heap(
             &state,
             req_as(
                 3,
@@ -8198,7 +8223,7 @@ mod admin_scope_tests {
         assert!(add_grant.error.is_none(), "AddGrant: {:?}", add_grant.error);
 
         // Register "priv" holding the "sysadmin" role.
-        let r = dispatch(
+        let r = dispatch_on_heap(
             &state,
             req_as(
                 4,
@@ -8246,6 +8271,16 @@ mod blob_dispatch_tests {
     use tokio::sync::{RwLock, Semaphore};
 
     const SECRET: &str = "blob-test-secret";
+
+    /// BUG-044-class: see `eg318_dispatch_tests::dispatch_on_heap` above for why every
+    /// `dispatch()` call in a test needs one heap indirection to avoid overflowing the
+    /// harness thread's stack and SIGABRTing the whole test binary.
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+        Box::pin(dispatch(state, request))
+    }
 
     fn state_with_blob(dir: &str) -> Arc<RwLock<ServerState>> {
         let store = Arc::new(RedbChunkStore::open(dir).unwrap());
@@ -8339,7 +8374,7 @@ mod blob_dispatch_tests {
         data: &[u8],
         chunk_size: usize,
     ) -> String {
-        let begin = dispatch(
+        let begin = dispatch_on_heap(
             state,
             req(
                 *next_id,
@@ -8355,7 +8390,7 @@ mod blob_dispatch_tests {
             other => panic!("BlobBegin: {:?} / {:?}", other, begin.error),
         };
         for part in data.chunks(chunk_size) {
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 state,
                 req(
                     *next_id,
@@ -8369,7 +8404,7 @@ mod blob_dispatch_tests {
             *next_id += 1;
             assert!(r.error.is_none(), "BlobChunkPut: {:?}", r.error);
         }
-        let commit = dispatch(state, req(*next_id, Method::BlobCommit { cursor })).await;
+        let commit = dispatch_on_heap(state, req(*next_id, Method::BlobCommit { cursor })).await;
         *next_id += 1;
         match commit.result {
             Some(ResultPayload::String(d)) => d,
@@ -8383,7 +8418,7 @@ mod blob_dispatch_tests {
         next_id: &mut u64,
         digest: &str,
     ) -> Vec<u8> {
-        let begin = dispatch(
+        let begin = dispatch_on_heap(
             state,
             req(
                 *next_id,
@@ -8400,7 +8435,7 @@ mod blob_dispatch_tests {
         };
         let mut out = Vec::new();
         for idx in 0..n {
-            let r = dispatch(state, req(*next_id, Method::BlobChunkGet { cursor, idx })).await;
+            let r = dispatch_on_heap(state, req(*next_id, Method::BlobChunkGet { cursor, idx })).await;
             *next_id += 1;
             match r.result {
                 // The chunk travels as a `Raw` MessagePack `bin` (serde_bytes) so the
@@ -8414,7 +8449,7 @@ mod blob_dispatch_tests {
                 other => panic!("BlobChunkGet: {:?} / {:?}", other, r.error),
             }
         }
-        let _ = dispatch(state, req(*next_id, Method::BlobFetchEnd { cursor })).await;
+        let _ = dispatch_on_heap(state, req(*next_id, Method::BlobFetchEnd { cursor })).await;
         *next_id += 1;
         out
     }
@@ -8434,7 +8469,7 @@ mod blob_dispatch_tests {
         let mut full = Vec::new(); // only kept to verify the round-trip equals source
         {
             // Upload streaming: build+dispatch one chunk at a time.
-            let begin = dispatch(
+            let begin = dispatch_on_heap(
                 &state,
                 req(
                     id,
@@ -8459,11 +8494,11 @@ mod blob_dispatch_tests {
                     *b = (x & 0xFF) as u8;
                 }
                 full.extend_from_slice(&buf);
-                let r = dispatch(&state, req(id, Method::BlobChunkPut { cursor, data: buf })).await;
+                let r = dispatch_on_heap(&state, req(id, Method::BlobChunkPut { cursor, data: buf })).await;
                 id += 1;
                 assert!(r.error.is_none());
             }
-            let commit = dispatch(&state, req(id, Method::BlobCommit { cursor })).await;
+            let commit = dispatch_on_heap(&state, req(id, Method::BlobCommit { cursor })).await;
             id += 1;
             let digest = match commit.result {
                 Some(ResultPayload::String(d)) => d,
@@ -8488,7 +8523,7 @@ mod blob_dispatch_tests {
             );
 
             // Reference the blob (a :Media node points at it).
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 req(
                     id,
@@ -8511,7 +8546,7 @@ mod blob_dispatch_tests {
 
             // GC keeps a referenced blob, reclaims an unreferenced one. digest is
             // referenced (count 1); digest2 == digest so still 1 reference total.
-            let gc = dispatch(&state, req(id, Method::BlobGc)).await;
+            let gc = dispatch_on_heap(&state, req(id, Method::BlobGc)).await;
             id += 1;
             let (blobs, _chunks): (u64, u64) = match gc.result {
                 Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
@@ -8522,7 +8557,7 @@ mod blob_dispatch_tests {
             assert_eq!(download(&state, &mut id, &digest).await, full);
 
             // Drop the reference → GC reclaims the blob + all its chunks.
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 req(
                     id,
@@ -8534,7 +8569,7 @@ mod blob_dispatch_tests {
             .await;
             id += 1;
             assert!(matches!(r.result, Some(ResultPayload::Count(0))));
-            let gc = dispatch(&state, req(id, Method::BlobGc)).await;
+            let gc = dispatch_on_heap(&state, req(id, Method::BlobGc)).await;
             id += 1;
             let (blobs, chunks): (u64, u64) = match gc.result {
                 Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
@@ -8544,7 +8579,7 @@ mod blob_dispatch_tests {
             assert_eq!(chunks, n_chunks, "all its orphan chunks reclaimed");
             assert_eq!(store.chunk_count().unwrap(), 0);
             // Fetching a reclaimed blob now fails.
-            let r = dispatch(&state, req(id, Method::BlobFetchBegin { digest })).await;
+            let r = dispatch_on_heap(&state, req(id, Method::BlobFetchBegin { digest })).await;
             assert!(r.error.is_some());
         }
         let _ = std::fs::remove_dir_all(&dir);
