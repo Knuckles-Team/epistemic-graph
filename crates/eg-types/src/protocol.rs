@@ -2237,6 +2237,8 @@ pub enum Method {
     #[cfg(feature = "quantum")]
     Quantum {
         op: crate::quantum::QuantumOp,
+    },
+
     /// Native visualization render surface (D-VZ-1 lanes V4 "engine integration" /
     /// V6 "graph-native marks"): resolve a caller-provided `eg_viz_core::ViewSpec`
     /// against a dataset (caller-supplied inline columns, or deterministic

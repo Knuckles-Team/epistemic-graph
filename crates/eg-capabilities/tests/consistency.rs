@@ -933,19 +933,19 @@ fn all_methods_table_has_the_expected_variant_count() {
     // The git-verified zero-feature baseline is 375 unconditional rows; RMDD-28
     // adds eight native development-lane methods, yielding 383, and RMDD-29
     // adds two native WorkItem claim-capability methods, yielding 385.
-    let expected = 385
     // Plus Q8 `Quantum { op }` (feature-gated `quantum`, mirrors `jobs`/`statechart`'s
-    // lockstep contract -- see `eg-capabilities/Cargo.toml`): 369, +1 when `quantum`
-    // is on.
+    // lockstep contract -- see `eg-capabilities/Cargo.toml`): +1 when `quantum` is on.
     // Plus D-VZ-1 (lanes V4/V6) `Viz { op }` (feature-gated `viz`, mirrored to
     // `lib.rs::all_methods_table_matches_policy_fn...`'s sibling constant): +1 when
-    // `viz` is enabled.
-    let expected = 369
+    // `viz` is enabled. The two are INDEPENDENT arms contributing one row each --
+    // `quantum` and `viz` branched off the same older 369 baseline and each added its
+    // own term, so the merged expression carries both, over the current 385 base.
+    let expected = 385
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))
-        + usize::from(cfg!(feature = "quantum"));
+        + usize::from(cfg!(feature = "quantum"))
         + usize::from(cfg!(feature = "viz"));
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
