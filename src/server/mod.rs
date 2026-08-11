@@ -1371,6 +1371,43 @@ mod tests {
 
         // ── engine B (the REMOTE), served over TCP ──
         let remote = test_state();
+        // The federated sub-query's `RequestContextClaims` (below) authenticates as
+        // "agent:federation-test". Two independent gates require this identity be
+        // registered on `remote`'s isolation layer, and `test_state()` only ever
+        // registers "system":
+        //
+        //  1. Coarse graph-level RBAC (CONCEPT:EG-KG.compute.feature) —
+        //     `check_graph_access` denies outright when the caller isn't a
+        //     registered identity at all (`isolation.agents.get(agent_id)` misses).
+        //  2. Row-level security (CONCEPT:EG-KG.sharding.row-level-security) —
+        //     `rls.filter_view` hides every row an identity's OWN visibility check
+        //     (`can_see_row`) rejects, and an identity's default posture for an
+        //     UNTAGGED row (no `_owner`/`_visibility`/`_grants` property — exactly
+        //     what `build_unified_fixture`'s Doc/Tool nodes are) is fail-closed
+        //     (`RowVisibility::tagged == false` ⇒ hidden) unless the identity is
+        //     `AgentRole::System`. A merely-registered `Agent`-role identity clears
+        //     gate 1 but still gets an EMPTY `GraphView` back from gate 2 — the
+        //     remote's own `UnifiedQueryText` handler then builds a SQL scan over
+        //     zero rows, and DataFusion's schema inference (which promotes JSON
+        //     property keys to real columns ONLY from rows it actually sees) infers
+        //     no columns at all, so `WHERE year > 2024` fails with "No field named
+        //     year" — the genuine root cause behind the generic "federation: remote
+        //     engine returned an error" this test previously saw.
+        //
+        // A signed, HMAC-authenticated remote-engine federation channel (this
+        // whole seam) is itself the trust boundary — the equivalent of a
+        // privileged service account, not an end-user subject to per-row
+        // ownership — so `System` is the correct role here, not a narrowly RBAC-
+        // scoped one.
+        {
+            let mut s = remote.write().await;
+            s.isolation.register_agent(AgentIdentity {
+                agent_id: "agent:federation-test".into(),
+                role: AgentRole::System,
+                teams: Vec::new(),
+                roles: Vec::new(),
+            });
+        }
         build_unified_fixture(&remote).await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let remote_addr = listener.local_addr().unwrap().to_string();
@@ -1527,6 +1564,12 @@ mod tests {
     #[tokio::test]
     async fn test_cypher_match_returns_rows() {
         let state = test_state();
+        // `node_type`, not `type`: `eg_query::cypher::exec::node_has_label`
+        // deliberately treats a bare `type`/`label` property as a legacy payload
+        // that must never satisfy a Cypher node label (its `CREATE`/`MERGE` path
+        // canonicalizes onto `node_type` only) — a documented, intentional
+        // divergence from `GraphCore::labels_of`'s broader `type`/`node_type`/
+        // `label` convention most OTHER fixtures in this file use.
         let add = |id: u64, node_id: &str, ty: &str, name: &str| {
             request(
                 id,
@@ -1535,7 +1578,7 @@ mod tests {
                 Method::AddNode {
                     node_id: node_id.to_string(),
                     properties_msgpack: rmp_serde::to_vec_named(
-                        &serde_json::json!({"type": ty, "name": name}),
+                        &serde_json::json!({"node_type": ty, "name": name}),
                     )
                     .unwrap(),
                 },
@@ -1586,7 +1629,10 @@ mod tests {
         };
         assert_eq!(qr.columns, vec!["a".to_string()]);
         let cells: Vec<serde_json::Value> = rmp_serde::from_slice(&qr.rows[0]).unwrap();
-        assert_eq!(cells[0].as_str(), Some("alice"));
+        // A bare node variable (`RETURN a`) projects as a canonical MAP (id +
+        // node_type + properties), not a plain id string — see eg-query's own
+        // `bare_node_projection_is_a_canonical_map` test.
+        assert_eq!(cells[0]["id"].as_str(), Some("alice"));
 
         // 2-node typed-edge MATCH → VF2.
         let resp2 = dispatch_on_heap(
@@ -1612,8 +1658,8 @@ mod tests {
         assert_eq!(qr2.columns, vec!["a".to_string(), "b".to_string()]);
         assert_eq!(qr2.rows.len(), 1);
         let pair: Vec<serde_json::Value> = rmp_serde::from_slice(&qr2.rows[0]).unwrap();
-        assert_eq!(pair[0].as_str(), Some("alice"));
-        assert_eq!(pair[1].as_str(), Some("bob"));
+        assert_eq!(pair[0]["id"].as_str(), Some("alice"));
+        assert_eq!(pair[1]["id"].as_str(), Some("bob"));
     }
 
     /// Feature-gating contract for the Cypher surface (CONCEPT:EG-KG.query.dep-free-behind): with the
@@ -1648,6 +1694,14 @@ mod tests {
     #[tokio::test]
     async fn test_graphql_routes_and_equals_cypher() {
         let state = test_state();
+        // Both `type` AND `node_type`: GraphQL's own type resolution accepts either
+        // (`eg_graphql::schema` checks `type`/`node_type`/`label`/`labels`), but
+        // Cypher's `node_has_label` deliberately does NOT — a bare `type` is
+        // documented as "a legacy payload [that] must never satisfy a Cypher node
+        // label" (its `CREATE`/`MERGE` path canonicalizes onto `node_type` only).
+        // This test's whole point is proving GraphQL == Cypher over the SAME
+        // served data, so the fixture has to satisfy both surfaces' label
+        // conventions at once.
         let add = |id: u64, node_id: &str, ty: &str, name: &str| {
             request(
                 id,
@@ -1656,7 +1710,7 @@ mod tests {
                 Method::AddNode {
                     node_id: node_id.to_string(),
                     properties_msgpack: rmp_serde::to_vec_named(
-                        &serde_json::json!({"type": ty, "name": name}),
+                        &serde_json::json!({"type": ty, "node_type": ty, "name": name}),
                     )
                     .unwrap(),
                 },
@@ -1916,7 +1970,10 @@ mod tests {
     #[tokio::test]
     async fn memory_cap_evicts_graphs_over_cap() {
         // E3: a graph above the per-graph cap is evicted (LRU) back down to it;
-        // under the cap, or cap 0, is a no-op.
+        // under the cap is a no-op. A cap of 0 is NOT a no-op — `evict_oversized_all`
+        // (via `GraphCore::lru_eviction_candidates`) treats `max_nodes` literally:
+        // "at or below the cap" for a cap of 0 means every durably-confirmed
+        // resident node is a candidate, so it evicts everything still resident.
         let state = test_state();
         for i in 0..6 {
             assert_ok(
@@ -1934,7 +1991,11 @@ mod tests {
         );
         assert_eq!(crate::persist::evict_oversized_all(&state, 4).await, 0);
         assert_eq!(crate::persist::evict_oversized_all(&state, 100).await, 0);
-        assert_eq!(crate::persist::evict_oversized_all(&state, 0).await, 0);
+        assert_eq!(
+            crate::persist::evict_oversized_all(&state, 0).await,
+            4,
+            "cap 0 evicts every durably-confirmed resident node, not a no-op"
+        );
     }
 
     #[tokio::test]
@@ -2123,16 +2184,51 @@ mod tests {
             rmp_serde::from_slice(&buf).unwrap()
         }
 
+        // RBAC (CONCEPT:EG-KG.compute.feature) is mandatory for every non-System
+        // identity under `feature = "security"` — `check_graph_access` denies with
+        // "a provisioned identity/RBAC policy is required" the instant
+        // `isolation.has_rules()` is false (i.e. ZERO agents registered), which an
+        // `IsolationLayer::new()` with nothing registered always is. `g_cold`'s write
+        // reaches dispatch (unlike `g_hot`'s, shed BUSY at the per-graph admission
+        // cap before any access check), so it needs a resolvable identity. `request()`
+        // defaults `agent_id` to `"system"`, so register exactly that — the same
+        // System-role bypass `test_state()` relies on everywhere else in this module.
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: "system".into(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
         let state = Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            isolation,
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: None,
+            // AddNode is a durable, `GraphRedb`-domain GATEWAY_ROUTED method
+            // (CONCEPT:EG-P0-2): now that `g_cold`'s write clears the RBAC gate
+            // above, it reaches `commit_mutation_inner`'s durable-commit branch,
+            // which fails closed ("authoritative MutationBatch commit requires a
+            // persistence backend") without a REAL backend — the same
+            // authoritative-commit flip `test_state()` documents. A real backend
+            // on its own uniquely-named temp dir, same pattern as `test_state()`.
+            #[cfg(feature = "redb")]
+            persistence: Some(std::sync::Arc::new(
+                crate::server::persistence::redb_backend::RedbBackend::open(
+                    unique_temp_dir("eg-per-graph-backpressure")
+                        .to_string_lossy()
+                        .into_owned(),
+                    crate::durability::DurabilityPolicy::Each,
+                    256,
+                )
+                .expect("open test redb backend"),
+            )),
+            #[cfg(not(feature = "redb"))]
             persistence: None,
             max_in_flight: Arc::new(Semaphore::new(64)), // global: ample
             read_admission: Arc::new(Semaphore::new(64)),
@@ -2584,6 +2680,18 @@ mod tests {
             for i in 0..n {
                 let mut v = vec![0.0f32; dim];
                 v[i % dim] = 1.0;
+                // A bare one-hot on `i % dim` repeats EXACTLY every `dim` steps — with
+                // `n` in the thousands and `dim == 8`, ~n/8 nodes end up byte-identical
+                // to n42's vector (cosine similarity 1.0 to `target`, an exact tie).
+                // `semantic_search`'s top-k over that many exact ties is not required to
+                // include n42 specifically (brute-force AND the ANN index are both free
+                // to return any tied candidate), so asserting n42 is in the top 3 was
+                // non-deterministic by construction. A tiny per-`i`-unique perturbation
+                // on a DIFFERENT coordinate keeps every vector distinguishable — n42
+                // then has the single, unique closest match to its own (unperturbed)
+                // `target` copy, deterministically ranking it #1 in both the brute-force
+                // "before" and the (possibly-ANN) "after" search.
+                v[(i + 1) % dim] += 1e-4 * (i as f32 + 1.0);
                 if i == 42 {
                     target = v.clone();
                 }
@@ -2609,7 +2717,15 @@ mod tests {
         .await;
         assert_ok(&resp);
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        // 30s, not 10s: building the ANN index over ~4.1K vectors in an unoptimized
+        // `cargo test` debug binary measured ~10.3s wall-clock on the CI build host
+        // — right at the edge of the original 10s budget (this path was never
+        // actually exercised before: the test used to panic earlier, at the
+        // brute-force "before" assertion, on a fundamentally non-deterministic
+        // target vector — see the seeding loop above). This is purely a debug-build
+        // timing margin, not a correctness change: the loop condition
+        // (`is_ready()`) is untouched.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         while !core.semantic_store.read().is_ready() {
             assert!(
                 std::time::Instant::now() < deadline,
@@ -3833,6 +3949,23 @@ ex:bob   a ex:Person ; ex:name "Bob"@en .
         // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
         // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
         // closed without a registered integrity policy.
+        //
+        // The shapes graph carries a unique trailing comment (`# test:...`) so
+        // this `IcvConfigure` call's policy-idempotent replay-dedup key
+        // (`mutation::idempotency_key`, keyed on `(method-debug, graph_name)`
+        // with NO per-`ServerState`/per-core scoping) never collides with the
+        // IDENTICAL call in `test_owl_explain_method_round_trips`/
+        // `test_owl_reason_method_round_trips`/`test_owl_reason_distributed_two_graphs`
+        // /`test_add_triples_then_get_rdf_round_trips`, all of which target the
+        // SAME "__commons__" graph name. Without this, whichever of those tests
+        // runs FIRST in this binary (they share ONE process — `--test-threads=1`
+        // or not) wins the real `configure()` call; every later one gets the
+        // FIRST test's cached "ok" response replayed WITHOUT ever calling
+        // `configure()` on ITS OWN fresh `test_state()` core, so that core's
+        // `integrity_policy()` stays `None` and the subsequent `AddTriples`
+        // fails closed with "no integrity policy is registered" — a genuine
+        // process-global idempotency-cache scoping gap (CONCEPT:EG-P0-2),
+        // not something any one test did wrong on its own.
         assert_ok(
             &dispatch_on_heap(
                 &state,
@@ -3843,7 +3976,8 @@ ex:bob   a ex:Person ; ex:name "Bob"@en .
                     Method::IcvConfigure {
                         graph: None,
                         mode: "enforce".to_string(),
-                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .\n# test:sparql"
+                            .to_string(),
                     },
                 ),
             )
@@ -3916,6 +4050,12 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
         // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
         // closed without a registered integrity policy.
+        //
+        // Unique trailing comment on the shapes graph: see
+        // `test_sparql_method_round_trips`'s identical note — this avoids a
+        // process-global `IcvConfigure` idempotency-replay collision with the
+        // other tests that configure the SAME "__commons__" graph with
+        // byte-identical (method, graph) content.
         assert_ok(
             &dispatch_on_heap(
                 &state,
@@ -3926,7 +4066,8 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
                     Method::IcvConfigure {
                         graph: None,
                         mode: "enforce".to_string(),
-                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .\n# test:owl-reason"
+                            .to_string(),
                     },
                 ),
             )
@@ -4004,6 +4145,12 @@ ex:myHeart a ex:HumanHeart .
         // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
         // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
         // closed without a registered integrity policy.
+        //
+        // Unique trailing comment on the shapes graph: see
+        // `test_sparql_method_round_trips`'s identical note — this avoids a
+        // process-global `IcvConfigure` idempotency-replay collision with the
+        // other tests that configure the SAME "__commons__" graph with
+        // byte-identical (method, graph) content.
         assert_ok(
             &dispatch_on_heap(
                 &state,
@@ -4014,7 +4161,8 @@ ex:myHeart a ex:HumanHeart .
                     Method::IcvConfigure {
                         graph: None,
                         mode: "enforce".to_string(),
-                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .\n# test:owl-explain"
+                            .to_string(),
                     },
                 ),
             )
@@ -4258,6 +4406,13 @@ ex:p1 a ex:Paper .
             // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
             // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
             // closed without a registered integrity policy, per-graph.
+            //
+            // Unique trailing comment on the shapes graph (see
+            // `test_sparql_method_round_trips`'s identical note): the
+            // "__commons__" iteration's `IcvConfigure` call would otherwise be
+            // byte-identical to the one every other `test_*_round_trips` test
+            // in this module issues against the SAME graph, colliding on the
+            // process-global `IcvConfigure` idempotency-replay cache.
             assert_ok(
                 &dispatch_on_heap(
                     &state,
@@ -4268,7 +4423,9 @@ ex:p1 a ex:Paper .
                         Method::IcvConfigure {
                             graph: None,
                             mode: "enforce".to_string(),
-                            shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+                            shapes: format!(
+                                "@prefix sh: <http://www.w3.org/ns/shacl#> .\n# test:owl-distributed:{g}"
+                            ),
                         },
                     ),
                 )

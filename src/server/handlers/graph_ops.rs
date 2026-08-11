@@ -2381,6 +2381,17 @@ pub(crate) async fn try_handle(
     core: Arc<GraphCore>,
     method: Method,
 ) -> Response {
+    // The mutation ledger is process-observability (an audit/debug trail), not
+    // row-visible data — `GraphReadAuthority::build_projection` (D-EGP-1,
+    // t1-grounding-0802) deliberately builds the RLS-filtered projection with
+    // `add_node_no_ledger`/`add_edge_no_ledger` (an unfiltered ledger cannot be
+    // safely row-filtered from its unstructured string form, so the projection
+    // carries none at all). `Method::Metrics`'s `total_mutations` must therefore
+    // read the ledger length off the RAW core, captured here BEFORE the
+    // projection below shadows it — reading it off the projected core would
+    // silently report 0 for every graph on every request once `security` is
+    // compiled in, regardless of how many mutations actually landed.
+    let raw_ledger_len = core.ledger.lock().len() as u64;
     // Keep the projection inside the terminal handler: any future internal caller
     // must supply a GraphReadAuthority and receives the same pre-compute projection
     // before the first primitive can inspect existence, counts, embeddings, or
@@ -2990,12 +3001,12 @@ pub(crate) async fn try_handle(
         Method::Metrics => {
             // Parses every node's property JSON — memcpy snapshot under the
             // lock is cheaper than O(V) JSON parsing under it (KG-2.51). The
-            // ledger is not snapshotted; capture its length for the
-            // total_mutations field before releasing the lock.
-            let (snap, ledger_len) = {
-                let g = &*core;
-                (g.analysis_snapshot(), g.ledger.lock().len() as u64)
-            };
+            // ledger is not snapshotted; `raw_ledger_len` (captured off the
+            // UN-projected core, above) is the total_mutations field — the
+            // projected `core` in scope here carries no ledger at all (see the
+            // comment above `project_core`).
+            let snap = core.analysis_snapshot();
+            let ledger_len = raw_ledger_len;
             let m = match compute_off_lock(req_id, move || {
                 let mut m = crate::algorithms::compute_metrics(&snap);
                 m.total_mutations = ledger_len;
