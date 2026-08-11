@@ -18,6 +18,11 @@
 //!   MutationBatch replay/outbox/fence rows and governed ChangeEnvelope content,
 //!   cursor, policy, evidence, feature, blob, and lineage rows are moved row for
 //!   row, value blob unchanged — so encryption-at-rest blobs survive WITHOUT the key.
+//! * Native WorkItem capability bytes, invocation idempotency, and claim
+//!   provenance are intentionally NOT part of the raw image.  Destination raw
+//!   and delta imports purge those private tables in the same transaction, so a
+//!   shard reuse/retry invalidates every old capability before copied WorkItem
+//!   rows become visible; the next lease must be claimed natively again.
 //! * The tamper-evident hash-chained `AUDIT` log (CONCEPT:EG-KG.sharding.row-level-security) is copied verbatim
 //!   `(graph, seq) -> blob`, so the chain stays verifiable (re-deriving would break it).
 //!
@@ -664,6 +669,13 @@ pub(crate) fn import_graph_delta(
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
     {
+        // Capability/provenance rows are deliberately absent from the raw
+        // reshard image.  Invalidate the destination's private authority on
+        // every delta import before applying copied WorkItem rows; otherwise a
+        // retry into a reused shard could make an old capability valid against
+        // a replacement image.  The purge is in this same transaction as the
+        // delta, so no partial destination authority is observable.
+        crate::redb_store::work_item_capability::clear_graph_rows_in_wtx(&wtx, graph)?;
         if let Some(blob) = &delta.meta {
             let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
             meta.insert(graph, blob.as_slice())
@@ -969,6 +981,12 @@ pub(crate) fn import_graph_raw(
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
     {
+        // Raw online-reshard images intentionally do not carry opaque
+        // capability bytes, invocation idempotency, or native WorkItem
+        // provenance.  Purge any destination private state atomically before
+        // replacing the copied graph, so a shard reuse/retry cannot resurrect
+        // authority for a restored WorkItem tuple.
+        crate::redb_store::work_item_capability::clear_graph_rows_in_wtx(&wtx, graph)?;
         // Replace, do not merely upsert, the graph projection. This makes a
         // retried online copy and a Raft snapshot install remove rows that are no
         // longer present in the source image.

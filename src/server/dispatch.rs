@@ -22,6 +22,7 @@ use super::auth::{
 #[cfg(feature = "ast")]
 use super::compute::compute_off_lock;
 use super::handlers;
+use super::persistence::PersistenceBackend;
 use super::state::ServerState;
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Request, Response, ResultPayload};
@@ -492,6 +493,14 @@ fn replicated_identity_bootstrap_authorized() -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(feature = "raft")]
+fn capability_authority_unavailable(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::MintWorkItemClaimCapability { .. } | Method::VerifyWorkItemClaimCapability { .. }
+    )
+}
+
 #[cfg(not(feature = "raft"))]
 fn replicated_identity_bootstrap_authorized() -> bool {
     false
@@ -510,6 +519,15 @@ pub(crate) async fn apply_replicated_native(
     authority: &crate::raft::RaftMutationContext,
     method: Method,
 ) -> Response {
+    if capability_authority_unavailable(&method) {
+        // RaftMutationContext intentionally contains only one-way routing
+        // identity.  It is not an authenticated principal/session envelope,
+        // so never reconstruct capability authority on a follower/replay.
+        return Response::err(
+            request_id,
+            crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE,
+        );
+    }
     let context = match VerifiedRequestContext::replicated_mutation(authority) {
         Ok(context) => context,
         Err(error) => return Response::err(request_id, error),
@@ -860,6 +878,37 @@ mod consensus_admin_route_tests {
             "__commons__"
         );
     }
+
+    #[test]
+    fn capability_consensus_paths_refuse_without_the_original_auth_envelope() {
+        use crate::epistemic_operations::{
+            WorkItemClaimCapabilityMintRequest, WorkItemClaimCapabilityRequestSchemaVersion,
+            WorkItemClaimCapabilityVerifyRequest,
+        };
+
+        let methods = [
+            Method::MintWorkItemClaimCapability {
+                request: WorkItemClaimCapabilityMintRequest {
+                    schema_version: WorkItemClaimCapabilityRequestSchemaVersion::V1,
+                    work_item_id: "work-item".to_string(),
+                },
+            },
+            Method::VerifyWorkItemClaimCapability {
+                request: WorkItemClaimCapabilityVerifyRequest {
+                    schema_version: WorkItemClaimCapabilityRequestSchemaVersion::V1,
+                    work_item_id: "work-item".to_string(),
+                    capability: vec![0; 36],
+                },
+            },
+        ];
+        for method in methods {
+            assert!(capability_authority_unavailable(&method));
+            assert_eq!(
+                crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE,
+                "authority_unavailable"
+            );
+        }
+    }
 }
 
 #[cfg(feature = "raft")]
@@ -871,6 +920,15 @@ async fn propose_native_mutation(
     identity_bootstrap: bool,
     method: Method,
 ) -> Response {
+    if capability_authority_unavailable(&method) {
+        // The proposal payload carries no raw authenticated principal/session
+        // envelope.  Refuse before CarrierAuthority, command construction,
+        // leader routing, barriers, or any private-store mutation.
+        return Response::err(
+            request_id,
+            crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE,
+        );
+    }
     let authority = match CarrierAuthority::from_verified(verified_context) {
         Ok(authority) => authority,
         Err(error) => return Response::err(request_id, error),
@@ -1579,6 +1637,9 @@ fn sanitize_native_proposal(
     authority: &CarrierAuthority,
     method: Method,
 ) -> Result<Method, String> {
+    if capability_authority_unavailable(&method) {
+        return Err(crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE.to_string());
+    }
     match method {
         // Transaction control is ordered by the placement group, not by the
         // transaction's data graph. Freeze the caller's original request graph
@@ -2488,6 +2549,21 @@ async fn dispatch_inner(
     // carrying a WorkItem-shaped request.  Replicated apply already carries a
     // verified native authority and bypasses the external gate here.
     if !state_machine_authorized && !identity_bootstrap {
+        if matches!(
+            &req.method,
+            Method::MintWorkItemClaimCapability { .. }
+                | Method::VerifyWorkItemClaimCapability { .. }
+        ) {
+            let capability_authorized = verified_context.allows_action("work:claim-capability")
+                || verified_context.allows_action("kg:admin");
+            if !capability_authorized {
+                crate::metrics::access_denied();
+                return Response::err(
+                    req.id,
+                    "ACCESS_DENIED: WorkItem claim capability requires work:claim-capability",
+                );
+            }
+        }
         let required_resource_scope = match &req.method {
             Method::ReserveWorkItemResources { .. }
             | Method::ReleaseWorkItemResources { .. }
@@ -5279,6 +5355,15 @@ fn change_envelope_result(
     result
 }
 
+/// Derive the native authority epoch from the registry-published graph
+/// incarnation.  The caller cannot provide either value; a delete/recreate
+/// therefore fences every capability from the retired incarnation.
+fn work_item_capability_authority_epoch(incarnation_id: &str) -> u64 {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(incarnation_id.as_bytes());
+    u64::from_be_bytes(digest[..8].try_into().expect("fixed digest width")).max(1)
+}
+
 /// Dispatch a graph-level operation to the target named graph, enforcing the
 /// isolation ACL (`isolation.rs::check_access`) when rules are registered.
 async fn dispatch_graph_op(
@@ -5743,6 +5828,7 @@ async fn dispatch_graph_op_inner(
         };
 
     let core = entry.core.clone();
+    let graph_incarnation_id = entry.incarnation_id.clone();
     let materialization_manifest = s.registry.materialization_handle(graph_name);
     // Clone the authoritative durable backend under the registry lock. Mutation
     // paths below fail closed when it is absent and await its commit barrier.
@@ -6234,6 +6320,108 @@ async fn dispatch_graph_op_inner(
             Ok(result) => Response::ok(req_id, ResultPayload::raw(&result)),
             Err(error) => Response::err(req_id, format!("native reservation read failed: {error}")),
         };
+    }
+
+    // Native WorkItem claim capabilities use a dedicated private ledger and
+    // never enter MutationBatch/result/outbox/CDC projections.  The verified
+    // request context supplies all authority fields; the public method carries
+    // only an item id (mint) or opaque bytes (verify).
+    if matches!(
+        &method,
+        Method::MintWorkItemClaimCapability { .. } | Method::VerifyWorkItemClaimCapability { .. }
+    ) {
+        #[cfg(feature = "raft")]
+        if is_replicated_apply() {
+            // A replicated apply has only the bounded Raft routing context;
+            // capability authority requires the original cryptographically
+            // verified principal and session envelope.
+            return Response::err(
+                req_id,
+                crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE,
+            );
+        }
+        #[cfg(feature = "raft")]
+        if let Some(routed) = routed_raft.as_ref() {
+            let leader = routed.handle.current_leader().await;
+            if leader != Some(routed.handle.node_id) {
+                return Response::stale_route(
+                    req_id,
+                    graph_name,
+                    routed.group_id,
+                    routed.epoch,
+                    leader,
+                    "WorkItem claim capabilities require the current placement leader",
+                );
+            }
+            if let Some(multi) = multi_raft.as_ref() {
+                if let Err(error) = multi.read_barrier_group(routed.group_id).await {
+                    return Response::err(
+                        req_id,
+                        format!(
+                            "WorkItem claim capability linearizability barrier failed: {error:?}"
+                        ),
+                    );
+                }
+            }
+        }
+        let Some(backend) = persistence.as_ref() else {
+            return Response::err(
+                req_id,
+                "native WorkItem claim capability persistence is unavailable",
+            );
+        };
+        #[cfg(feature = "redb")]
+        {
+            let Some(redb) = backend.as_redb() else {
+                return Response::err(
+                    req_id,
+                    "native WorkItem claim capability persistence is unavailable",
+                );
+            };
+            let authority = crate::redb_store::work_item_capability::AuthenticatedAuthority {
+                tenant: verified_context.tenant().to_string(),
+                audience: verified_context.claims().audience.clone(),
+                principal: verified_context.principal_persistence_id(),
+                agent_id: verified_context.agent_id().to_string(),
+                session: verified_context.idempotency_key().to_string(),
+                authority_epoch: work_item_capability_authority_epoch(&graph_incarnation_id),
+                incarnation_id: graph_incarnation_id.clone(),
+                now_ms: authoritative_now_ms(),
+            };
+            let fname = crate::persist::sanitize(graph_name);
+            let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+            return match method {
+                Method::MintWorkItemClaimCapability { request } => redb
+                    .mint_work_item_claim_capability(&fname, request, authority)
+                    .await
+                    .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
+                    .unwrap_or_else(|error| {
+                        Response::err(
+                            req_id,
+                            format!("WorkItem claim capability mint failed: {error}"),
+                        )
+                    }),
+                Method::VerifyWorkItemClaimCapability { request } => redb
+                    .verify_work_item_claim_capability(&fname, request, authority)
+                    .await
+                    .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
+                    .unwrap_or_else(|error| {
+                        Response::err(
+                            req_id,
+                            format!("WorkItem claim capability verify failed: {error}"),
+                        )
+                    }),
+                _ => unreachable!("capability classifier and dispatch diverged"),
+            };
+        }
+        #[cfg(not(feature = "redb"))]
+        {
+            let _ = backend;
+            return Response::err(
+                req_id,
+                "native WorkItem claim capability requires redb persistence",
+            );
+        }
     }
 
     // Engine-native WorkItem transitions are result-producing durable CAS
