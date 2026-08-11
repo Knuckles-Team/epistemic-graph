@@ -3790,27 +3790,6 @@ async fn dispatch_inner(
         // and no KG concept mapping" — the wire protocol Method half ends here).
         #[cfg(feature = "quantum-agent-api")]
         Method::Quantum { op } => handlers::quantum::handle(req.id, op).await,
-        // ── Native visualization render surface (D-VZ-1 lanes V4/V6, feature
-        // `viz-static-export`) ──────────────────────────────────────────────
-        // NOT graph-scoped (a render builds a FRESH ephemeral per-request
-        // ColumnStore, never reads a live GraphCore) — self-routes here, BEFORE
-        // the per-graph `dispatch_graph_op` chain, exactly like
-        // `AnalyticsJob`/`Statechart` above. See `handlers/viz.rs` module docs.
-        // Gated on `viz-static-export` (not bare `viz`, which `eg-types` alone
-        // already gates the wire `Method::Viz` variant on) — a deliberate,
-        // documented deviation: the handler needs a real ColumnStore + export
-        // backend to do anything, which only exist at that tier.
-        #[cfg(feature = "viz-static-export")]
-        Method::Viz { op } => {
-            // No durable owner-scoped state to attribute a render to; the carrier
-            // is still resolved for parity with the sibling self-routed handlers
-            // (see `handlers::viz::handle`'s doc).
-            let carrier = match CarrierAuthority::from_verified(&verified_context) {
-                Ok(authority) => authority,
-                Err(denied) => return Response::err(req.id, denied),
-            };
-            handlers::viz::handle(state, req.id, &carrier, op).await
-        }
 
         // ── Transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID) ──────
         // Stateful + self-routing: a Txn* op targets the graph the txn was opened

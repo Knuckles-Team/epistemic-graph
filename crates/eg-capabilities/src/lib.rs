@@ -1453,18 +1453,6 @@ pub fn policy(m: &Method) -> MethodPolicy {
             mutates: false,
             durability_domain: DurabilityDomain::None,
             authz_action: "quantum:run",
-        // D-VZ-1 (lanes V4/V6) -- the native visualization render surface. Both
-        // `VizOp` variants (`Render`, `CapabilityMatrix`) are pure computations: a
-        // render resolves a FRESH per-request `eg_viz_columnstore::ColumnStore`
-        // (caller-supplied inline columns or deterministic engine-side synthetic
-        // data) and returns rendered bytes -- it never writes to any durable
-        // store, unlike `AnalyticsJob`/`Statechart`. `mutates: false` is therefore
-        // the EXACT answer, not a conservative upper bound.
-        #[cfg(feature = "viz")]
-        Method::Viz { .. } => MethodPolicy {
-            mutates: false,
-            durability_domain: DurabilityDomain::None,
-            authz_action: "viz:render",
             idempotent: true,
             audited: false,
             emits_cdc: false,
@@ -2554,8 +2542,6 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("Statechart", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::StatechartRedb, authz_action: "statechart:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional: GetState/List are reads; Define/Instantiate/SendEvent commit to the native statecharts.redb store (CONCEPT:INT-P2-2)"),
         #[cfg(feature = "quantum")]
         ("Quantum", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "quantum:run", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "self-routes before dispatch_graph_op like AnalyticsJob/Statechart, never reaches the graph tamper-evident audit chain; R5 override audit instead rides the response's PlannerDecision.audit trail into the agent-utilities :ToolCall/:QuantumJob provenance"),
-        #[cfg(feature = "viz")]
-        ("Viz", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "viz:render", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "pure compute: resolves a fresh per-request ColumnStore and returns rendered bytes, no durable write (D-VZ-1 lanes V4/V6)"),
         ("Sql", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:sql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"),
         ("CypherQuery", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:cypher", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; writes execute against a staged graph and publish only after durable MutationBatch commit"),
         ("GraphQl", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:graphql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox"),
@@ -2799,17 +2785,12 @@ mod smoke_tests {
         // Plus Q8 `Quantum { op }` (feature-gated `quantum`, mirrors
         // `jobs`/`statechart`'s lockstep contract -- see this crate's Cargo.toml):
         // 369, +1 when the `quantum` feature is on.
-        // Plus D-VZ-1 (lanes V4/V6) `Viz { op }` (the native visualization render
-        // surface, feature-gated `viz` exactly like `jobs`/`statechart` -- see the
-        // Cargo.toml doc comment on this crate's own `viz` feature): +1 when `viz`
-        // is enabled.
         let expected = 369
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
             + usize::from(cfg!(feature = "knowledge-batch"))
             + usize::from(cfg!(feature = "quantum"));
-            + usize::from(cfg!(feature = "viz"));
         assert_eq!(
             seen.len(),
             expected,
