@@ -5430,11 +5430,23 @@ mod dispatch_write_tests {
             params_msgpack: Vec::new(),
         };
 
+        // `node_type` alongside `type`: `eg_query::cypher::exec::node_has_label`
+        // deliberately treats a bare `type`/`label` property as a legacy payload
+        // that "must never satisfy a Cypher node label" (its own doc comment,
+        // matching Cypher's `CREATE`/`MERGE` canonicalization onto `node_type`
+        // only) — a documented, intentional divergence from the broader `type`/
+        // `node_type`/`label` convention `GraphCore::labels_of` (and this SQL
+        // surface) use. This test's whole point is cross-surface visibility (SQL
+        // write → Cypher read), so the inserted row carries both: `type` for the
+        // native/SQL convention, `node_type` for Cypher's label index.
         let i = dispatch_on_heap(
             &state,
             req(
                 1,
-                sql("INSERT INTO nodes (id, type, name) VALUES ('sqlnode', 'Gadget', 'Zed')"),
+                sql(
+                    "INSERT INTO nodes (id, type, node_type, name) VALUES \
+                     ('sqlnode', 'Gadget', 'Gadget', 'Zed')",
+                ),
             ),
         )
         .await;

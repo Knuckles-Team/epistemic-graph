@@ -788,18 +788,32 @@ where
             // dispatch is an unbounded reservation; the deadline is what stops one stalled
             // subsystem from permanently retaining admission capacity it will never use.
             let req_id = req.id;
+            // `dispatch()`/`dispatch_verified_request()` return an ENORMOUS future
+            // under `--features full` (the whole graph-op dispatch state machine
+            // inlined into one poll chain) — awaiting it un-boxed inside this
+            // spawned task's own `async move` overflows the poll-time call stack
+            // exactly like the `dispatch_on_heap` test trap this repo's own tests
+            // route around (see `server::mod.rs::dispatch_on_heap`'s doc comment
+            // and every OTHER production callsite of `dispatch()`, which already
+            // `Box::pin` it — this was the one caller that didn't, latent until a
+            // request finally reached deep enough into the dispatch chain to prove
+            // it, per `per_graph_backpressure_isolates_tenants`).
             let resp = match verified_qos_context {
                 Some(context) => {
                     dispatch_within_deadline(
-                        dispatch_verified_request(&task_state, req, context),
+                        Box::pin(dispatch_verified_request(&task_state, req, context)),
                         dispatch_deadline,
                         req_id,
                     )
                     .await
                 }
                 None => {
-                    dispatch_within_deadline(dispatch(&task_state, req), dispatch_deadline, req_id)
-                        .await
+                    dispatch_within_deadline(
+                        Box::pin(dispatch(&task_state, req)),
+                        dispatch_deadline,
+                        req_id,
+                    )
+                    .await
                 }
             };
             // Observe per-class dispatch latency + release the per-class gauge (W2.4)

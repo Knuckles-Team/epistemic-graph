@@ -7302,6 +7302,23 @@ pub(crate) fn commit_crossmodal(
                     .insert(graph, blob.as_ref())
                     .map_err(|e| e.to_string())?;
             }
+            // The `if` branch above already dropped/rebound `nodes`/`edges`/`ledger`/
+            // `semantic`/`audit` before its own `validate_current_lane_links_in_wtx`
+            // call, so its (shadowed, block-local) handles go out of scope here
+            // naturally. This `else` branch never rebinds them — it reused the
+            // OUTER handles opened above (line ~7108) for its own blob-refs/vectors
+            // work — so they must be dropped explicitly here, BEFORE the shared
+            // `validate_current_lane_links_in_wtx` call below reopens `NODES`:
+            // leaving them open made that reopen fail with redb's "Table 'nodes'
+            // already opened" error whenever `methods` carried no AddNode/RemoveNode/
+            // CompareAndSetNodeFields/BatchUpdate/ClearGraph/DeleteGraph (e.g. a
+            // measurement-only or blob-refs-only cross-modal commit).
+            drop(nodes);
+            drop(edges);
+            drop(ledger);
+            drop(semantic);
+            #[cfg(feature = "security")]
+            drop(audit);
         }
 
         // Blob references are read-modify-write node projections and must be
