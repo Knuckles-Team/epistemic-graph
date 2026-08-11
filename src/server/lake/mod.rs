@@ -454,12 +454,28 @@ impl LakeManager {
         };
 
         // Read every live file back and fold its rows through the keep predicate.
+        //
+        // A live file may predate a LATER `evolve_add_column` (module docs: "Historical
+        // Parquet files still lack the added column's bytes (read back as absent,
+        // matching the engine's existing schema-on-read tolerance for a mismatched
+        // cell)") — its rows carry the file's OWN (narrower) column count, but
+        // `new_batch` below is built against the table's CURRENT (possibly wider)
+        // `schema`. `keep` runs against the row as the file actually stored it (the
+        // predicate's column indices are relative to what the row's own writer
+        // produced), then each surviving row is padded with `CellValue::Null` for any
+        // columns added since — the SAME schema-on-read tolerance `points_to_batch`
+        // already gives brand-new writes, applied here on the read-back-and-rewrite
+        // path so `compact`/`delete_where` don't hand `LakeBatch::new` a column-count
+        // mismatch on a table with evolution history.
         let mut kept_rows: Vec<Vec<CellValue>> = Vec::new();
         for rel in &live_paths {
             let bytes = self.read_path_bytes(store, &format!("{location}/{rel}"))?;
             let batch = eg_lake::parquet_io::read_parquet(&bytes)?;
-            for row in batch.rows {
+            for mut row in batch.rows {
                 if keep(&row) {
+                    if row.len() < schema.len() {
+                        row.resize(schema.len(), CellValue::Null);
+                    }
                     kept_rows.push(row);
                 }
             }
@@ -595,12 +611,19 @@ impl LakeManager {
 }
 
 /// Turn an arbitrary series id into a safe Iceberg/Delta table name (ASCII
-/// alnum/`_`/`-`/`.`, anything else → `_`).
+/// alnum/`_`/`-`, anything else → `_`).
+///
+/// `.` is deliberately NOT in the allowed set (unlike a plain filesystem-safe
+/// filter): this tier's namespaces are single-level (module docs, `rest.rs`),
+/// and a literal dot inside a bare table name collides with the conventional
+/// `namespace.table` qualified-identifier separator every Iceberg-REST client
+/// (PyIceberg/Spark/Trino) expects — a series id like `"rest.series1"` must
+/// become the table name `rest_series1`, not `rest.series1`.
 fn sanitize_table_name(series_id: &str) -> String {
     series_id
         .chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '-') {
                 c
             } else {
                 '_'
@@ -780,20 +803,32 @@ mod tests {
             )
             .is_err());
 
+        // `metadata.schemas` accumulates the table's FULL schema-evolution history in
+        // id order (INT-P2-4) — index 0 is always the ORIGINAL schema, unchanged by
+        // any later evolution. The active one is whichever entry's own `schema-id`
+        // matches `current-schema-id` (the same lookup a real Iceberg reader does),
+        // not a fixed array index.
+        fn current_schema_field_count(loaded: &Value) -> usize {
+            let current_id = &loaded["metadata"]["current-schema-id"];
+            loaded["metadata"]["schemas"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|schema| &schema["schema-id"] == current_id)
+                .expect("current-schema-id names a schema present in schemas[]")["fields"]
+                .as_array()
+                .unwrap()
+                .len()
+        }
+
         let loaded = mgr.load_table(DEFAULT_NAMESPACE, &table).unwrap();
         // Not yet re-materialized, so the catalog's schema is still pre-evolution
         // (evolution affects the IN-MEMORY LakeTable schema for the NEXT write) —
         // confirm a subsequent compaction reflects the wider schema.
-        let fields_before = loaded["metadata"]["schemas"][0]["fields"]
-            .as_array()
-            .unwrap()
-            .len();
+        let fields_before = current_schema_field_count(&loaded);
         mgr.compact(&s, DEFAULT_NAMESPACE, &table).unwrap();
         let loaded_after = mgr.load_table(DEFAULT_NAMESPACE, &table).unwrap();
-        let fields_after = loaded_after["metadata"]["schemas"][0]["fields"]
-            .as_array()
-            .unwrap()
-            .len();
+        let fields_after = current_schema_field_count(&loaded_after);
         assert_eq!(
             fields_after,
             fields_before + 1,

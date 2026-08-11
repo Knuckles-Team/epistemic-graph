@@ -7939,16 +7939,46 @@ mod eg318_dispatch_tests {
         {
             let mut s = state.write().await;
             s.tsdb_store = Some(Arc::new(eg_tsdb::store::SeriesStore::open(&path).unwrap()));
+            // RBAC (`feature = "security"`) is the mandatory current access decision
+            // for a non-System identity — `check_access` ignores `graph_owner`
+            // entirely under this feature and evaluates ONLY `identity.roles`
+            // against the RBAC policy (no pre-RBAC ACL fall-through, no "owner
+            // always wins" shortcut). So each agent needs an explicit grant on
+            // their own private graph, or every Ts* call below default-denies.
+            #[cfg(feature = "security")]
+            {
+                use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+                s.isolation.add_role(Role::new("owner-acme-private"));
+                s.isolation.add_role(Role::new("owner-other-private"));
+                let grant = |role: &str, graph: &str, action: RbacAction| Grant {
+                    role: role.to_string(),
+                    resource: ResourceSelector::Graph(graph.to_string()),
+                    action,
+                    effect: GrantEffect::Allow,
+                };
+                for action in [RbacAction::Read, RbacAction::Write] {
+                    s.isolation
+                        .add_grant(grant("owner-acme-private", "acme:private", action));
+                    s.isolation
+                        .add_grant(grant("owner-other-private", "other:private", action));
+                }
+            }
             s.isolation.register_agent(AgentIdentity {
                 agent_id: "alice".into(),
                 role: AgentRole::Agent,
                 teams: vec![],
+                #[cfg(feature = "security")]
+                roles: vec!["owner-acme-private".into()],
+                #[cfg(not(feature = "security"))]
                 roles: vec![],
             });
             s.isolation.register_agent(AgentIdentity {
                 agent_id: "bob".into(),
                 role: AgentRole::Agent,
                 teams: vec![],
+                #[cfg(feature = "security")]
+                roles: vec!["owner-other-private".into()],
+                #[cfg(not(feature = "security"))]
                 roles: vec![],
             });
             let _ = s.registry.create_graph(
