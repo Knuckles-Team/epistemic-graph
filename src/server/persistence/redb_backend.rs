@@ -372,6 +372,17 @@ pub(crate) enum Cmd {
             Result<crate::epistemic_operations::WorkItemClaimCapabilityResult, String>,
         >,
     },
+    /// Native development-lane hold/quota mutation (RMDD-28: Reserve/Renew/
+    /// Observe/Finish/Cleanup/UpdateQuota). Flushes pending graph mutations
+    /// first, then runs the kernel's own self-contained begin_write()/commit()
+    /// against the native `development_lane_*` tables in one writer-owned
+    /// transaction, same shape as the claim-capability commands above.
+    CommitDevelopmentLane {
+        graph: String,
+        method: Method,
+        now_ms: u64,
+        done: oneshot::Sender<Result<Vec<u8>, String>>,
+    },
     /// Engine-native governed ingest commit. This is deliberately one writer
     /// command so queue pressure can never split graph/material/governance state.
     ChangeEnvelopeCommit {
@@ -2535,6 +2546,94 @@ impl PersistenceBackend for RedbBackend {
             .map_err(|_| "redb writer dropped claim-capability verify completion".to_string())?
     }
 
+    /// Execute a native development-lane mutation (RMDD-28) on the graph's
+    /// writer shard. `method` must be one of the six DevelopmentLane write
+    /// variants; the kernel validates and rejects anything else.
+    async fn commit_development_lane(
+        &self,
+        graph_fname: &str,
+        method: Method,
+        now_ms: u64,
+    ) -> Result<Vec<u8>, String> {
+        let (done, rx) = oneshot::channel();
+        let cmd = Cmd::CommitDevelopmentLane {
+            graph: graph_fname.to_string(),
+            method,
+            now_ms,
+            done,
+        };
+        let send = if self.catalog.is_some() {
+            let guard = self.routing_epoch.clone().read_owned().await;
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || {
+                let _routing = guard;
+                tx.send(cmd).map_err(|_| ())
+            })
+            .await
+        } else {
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ())).await
+        };
+        send.map_err(|error| format!("development-lane commit join error: {error}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped development-lane commit completion".to_string())?
+    }
+
+    /// Exact authenticated native development-lane hold/tombstone read (RMDD-28).
+    /// An MVCC snapshot read off the writer shard's shared `Database`, same
+    /// posture as `read_resource_reservation` above -- never routed through the
+    /// writer thread channel.
+    async fn read_development_lane(
+        &self,
+        graph_fname: &str,
+        request: &crate::epistemic_operations::DevelopmentLaneQueryRequest,
+        now_ms: u64,
+    ) -> Result<crate::epistemic_operations::DevelopmentLaneQueryResult, String> {
+        let shard = self.shard_for(graph_fname);
+        let db = shard
+            .db
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
+        #[cfg(not(feature = "security"))]
+        let crypto = crate::redb_store::DurableCrypto::none();
+        crate::redb_store::development_lane::read_development_lane(
+            &db,
+            graph_fname,
+            request,
+            now_ms,
+            crypto,
+        )
+    }
+
+    /// Bounded native development-lane tenant status page (RMDD-28). An MVCC
+    /// snapshot read, same posture as `read_resource_reservation_status` above.
+    async fn read_development_lane_status(
+        &self,
+        graph_fname: &str,
+        request: &crate::epistemic_operations::DevelopmentLaneStatusRequest,
+        now_ms: u64,
+    ) -> Result<crate::epistemic_operations::DevelopmentLaneStatusResult, String> {
+        let shard = self.shard_for(graph_fname);
+        let db = shard
+            .db
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
+        #[cfg(not(feature = "security"))]
+        let crypto = crate::redb_store::DurableCrypto::none();
+        crate::redb_store::development_lane::read_development_lane_status(
+            &db,
+            graph_fname,
+            request,
+            now_ms,
+            crypto,
+        )
+    }
+
     /// **Cross-modal ACID (CONCEPT:EG-KG.txn.reader-never-sees-node).** Land graph + vectors + blob-refs for ONE
     /// graph in ONE redb `WriteTransaction`, awaiting its durable fsync. On any error
     /// the transaction is dropped without commit, so NONE of the modalities land — a
@@ -3873,6 +3972,20 @@ fn handle_cmd(
                 wtx.commit().map_err(|error| error.to_string())?;
                 Ok(result)
             })();
+            let _ = done.send(res);
+            false
+        }
+        Cmd::CommitDevelopmentLane {
+            graph,
+            method,
+            now_ms,
+            done,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let res =
+                crate::redb_store::development_lane::commit_development_lane(
+                    db, &graph, &method, now_ms, crypto,
+                );
             let _ = done.send(res);
             false
         }

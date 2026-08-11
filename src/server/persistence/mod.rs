@@ -13,9 +13,10 @@ use crate::change_envelope::{
     ChangeCursor, ChangeEnvelope, ChangeEnvelopeCommit, ChangeEnvelopeRecord, ContentVersion,
 };
 use crate::epistemic_operations::{
-    ResourceReservationResult, ResourceReservationStatusRequest, ResourceReservationStatusResult,
-    WorkItemClaimCapabilityMintRequest, WorkItemClaimCapabilityResult,
-    WorkItemClaimCapabilityVerifyRequest,
+    DevelopmentLaneQueryRequest, DevelopmentLaneQueryResult, DevelopmentLaneStatusRequest,
+    DevelopmentLaneStatusResult, ResourceReservationResult, ResourceReservationStatusRequest,
+    ResourceReservationStatusResult, WorkItemClaimCapabilityMintRequest,
+    WorkItemClaimCapabilityResult, WorkItemClaimCapabilityVerifyRequest,
 };
 use crate::mutation_batch::{
     MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationOutboxLease,
@@ -375,6 +376,49 @@ pub trait PersistenceBackend: Send + Sync {
         _authority: crate::redb_store::work_item_capability::AuthenticatedAuthority,
     ) -> Result<WorkItemClaimCapabilityResult, String> {
         Err("persistence backend does not support native WorkItem claim capabilities".to_string())
+    }
+
+    /// Native development-lane hold/quota mutation (RMDD-28): Reserve/Renew/
+    /// Observe/Finish/Cleanup/UpdateQuota. `redb_store::development_lane`
+    /// deliberately stops at the redb transaction boundary -- no MutationBatch/
+    /// result/outbox/CDC projection, same posture as the WorkItem claim-capability
+    /// ledger above. `method` must be one of the six DevelopmentLane write
+    /// variants; the kernel itself validates and rejects anything else. The
+    /// returned bytes are the ALREADY-msgpack-encoded typed result (the kernel's
+    /// own `rmp_serde::to_vec_named` output) -- callers hand them straight to
+    /// `ResultPayload::Raw`, never re-encode them. The default fails closed:
+    /// only the redb authority owns the private lane ledger.
+    async fn commit_development_lane(
+        &self,
+        _graph_fname: &str,
+        _method: Method,
+        _now_ms: u64,
+    ) -> Result<Vec<u8>, String> {
+        Err("persistence backend does not support native development-lane mutations".to_string())
+    }
+
+    /// Exact authenticated native development-lane hold/tombstone read (RMDD-28).
+    /// An MVCC snapshot read, same posture as [`Self::read_resource_reservation`]
+    /// above -- never routed through the writer thread. The default fails closed.
+    async fn read_development_lane(
+        &self,
+        _graph_fname: &str,
+        _request: &DevelopmentLaneQueryRequest,
+        _now_ms: u64,
+    ) -> Result<DevelopmentLaneQueryResult, String> {
+        Err("persistence backend does not support native development-lane queries".to_string())
+    }
+
+    /// Bounded native development-lane tenant status page (RMDD-28), served from
+    /// the maintained indexes/counters. An MVCC snapshot read, same posture as
+    /// [`Self::read_resource_reservation_status`] above. The default fails closed.
+    async fn read_development_lane_status(
+        &self,
+        _graph_fname: &str,
+        _request: &DevelopmentLaneStatusRequest,
+        _now_ms: u64,
+    ) -> Result<DevelopmentLaneStatusResult, String> {
+        Err("persistence backend does not support native development-lane status".to_string())
     }
 
     /// Durably register a graph's identity (CONCEPT:EG-KG.backend.authoritative-dispatch). The
