@@ -201,7 +201,14 @@ async fn engine_call(
         agent_id: None,
         method,
     };
-    let resp = dispatch_authenticated_broker_actor(state, req, actor).await;
+    // `dispatch_authenticated_broker_actor` bottoms out in the same ENORMOUS
+    // `dispatch()` future under `--features full` that `transport::handle_connection`
+    // and `server::mod.rs::dispatch_on_heap` route around (see their doc comments) —
+    // awaiting it un-boxed inline overflows the poll-time call stack once a broker
+    // request finally reaches deep enough into the dispatch chain (only reachable
+    // after this connection's identity clears isolation ACL, so it was latent until
+    // then). Box::pin it, matching every OTHER production callsite.
+    let resp = Box::pin(dispatch_authenticated_broker_actor(state, req, actor)).await;
     resp.result.unwrap_or(ResultPayload::Bool(false))
 }
 
@@ -1281,24 +1288,99 @@ mod tests {
     // ── Served listener round-trip (CONCEPT:EG-KG.query.mqtt-packet-codec) ───────────────────────
 
     /// A minimal `ServerState` for the broker round-trip. Every optional/feature-gated
-    /// field is `None`/empty so it compiles under any feature combination.
-    fn test_state() -> Arc<RwLock<ServerState>> {
+    /// field is `None`/empty so it compiles under any feature combination, except
+    /// `persist_dir`/`persistence`: every broker method (`Publish`, `BindQueue`, …)
+    /// is policy-classified `DurabilityDomain::Outbox` (see
+    /// `eg_capabilities::policy`), so the commit gateway hard-errors without a real
+    /// persistence backend — a durable `RedbBackend` is wired in under
+    /// `feature = "redb"` (which `mqtt-wire` does not itself require, but the round
+    /// trip needs to actually publish/deliver a message).
+    async fn test_state() -> Arc<RwLock<ServerState>> {
         use crate::channels::ChannelManager;
         use crate::isolation::IsolationLayer;
         use crate::registry::GraphRegistry;
         use dashmap::DashMap;
         use tokio::sync::Semaphore;
+        let mut isolation = IsolationLayer::new();
+        #[cfg(feature = "security")]
+        {
+            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+            isolation.add_role(Role::new("commons-user"));
+            isolation.add_grant(Grant {
+                role: "commons-user".to_string(),
+                resource: ResourceSelector::Graph("__commons__".to_string()),
+                action: RbacAction::Read,
+                effect: GrantEffect::Allow,
+            });
+            isolation.add_grant(Grant {
+                role: "commons-user".to_string(),
+                resource: ResourceSelector::Graph("__commons__".to_string()),
+                action: RbacAction::Write,
+                effect: GrantEffect::Allow,
+            });
+        }
+        // The engine ACL identity for a broker-wire connection is the pseudonymous
+        // HMAC actor reference `pseudonymous_broker_actor` derives from the CONNECT
+        // username — not the raw username. Register the two principals the
+        // round-trip test authenticates as (see
+        // `eg281_listener_connect_subscribe_publish_deliver_roundtrip`).
+        for principal in ["subscriber", "publisher"] {
+            let actor_ref = crate::server::pseudonymous_broker_actor("test", principal)
+                .expect("test principal pseudonymizes");
+            isolation.register_agent(crate::isolation::AgentIdentity {
+                agent_id: actor_ref,
+                role: crate::isolation::AgentRole::Agent,
+                teams: Vec::new(),
+                #[cfg(feature = "security")]
+                roles: vec!["commons-user".to_string()],
+                #[cfg(not(feature = "security"))]
+                roles: Vec::new(),
+            });
+        }
+        #[cfg(feature = "redb")]
+        let (persist_dir, persistence) = {
+            use crate::durability::DurabilityPolicy;
+            use crate::server::persistence::redb_backend::RedbBackend;
+            let dir = std::env::temp_dir().join(format!(
+                "eg-mqtt-wire-test-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            let backend =
+                RedbBackend::open(dir.to_string_lossy().to_string(), DurabilityPolicy::Each, 64)
+                    .expect("open mqtt-wire test backend");
+            let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> =
+                Arc::new(backend);
+            persistence
+                .register_graph(
+                    "__commons__",
+                    "__commons__",
+                    crate::protocol::GraphType::Commons,
+                )
+                .await
+                .unwrap();
+            (Some(dir.to_string_lossy().into_owned()), Some(persistence))
+        };
+        #[cfg(not(feature = "redb"))]
+        let (persist_dir, persistence): (
+            Option<String>,
+            Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+        ) = (None, None);
         Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            isolation,
             channels: ChannelManager::new(),
             auth_secret: "test".to_string(),
-            persist_dir: None,
-            persistence: None,
+            persist_dir,
+            persistence,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
@@ -1339,7 +1421,7 @@ mod tests {
     async fn spawn_listener() -> String {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap().to_string();
-        let state = test_state();
+        let state = test_state().await;
         tokio::spawn(async move {
             let _ = accept_loop(
                 listener,

@@ -502,18 +502,58 @@ mod tests {
         {
             let core = registry.get("__commons__").unwrap().core.clone();
             for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
-                let blob = rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "rank": rank}))
-                    .unwrap();
+                // `_visibility: "public"` is mandatory under default-deny RLS
+                // (`IsolationLayer::can_see_row`): an unowned row with no RLS
+                // metadata is hidden from a non-System actor, not just a
+                // permissive default — see `bolt_wire::tests::test_state`'s
+                // identical seeding convention.
+                let blob = rmp_serde::to_vec_named(&serde_json::json!({
+                    "type": ty,
+                    "rank": rank,
+                    "_visibility": "public"
+                }))
+                .unwrap();
                 core.add_node(id.to_string(), blob);
             }
         }
+        let mut isolation = IsolationLayer::new();
+        #[cfg(feature = "security")]
+        {
+            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+            isolation.add_role(Role::new("commons-user"));
+            isolation.add_grant(Grant {
+                role: "commons-user".to_string(),
+                resource: ResourceSelector::Graph("__commons__".to_string()),
+                action: RbacAction::Read,
+                effect: GrantEffect::Allow,
+            });
+            isolation.add_grant(Grant {
+                role: "commons-user".to_string(),
+                resource: ResourceSelector::Graph("__commons__".to_string()),
+                action: RbacAction::Write,
+                effect: GrantEffect::Allow,
+            });
+        }
+        // Agent id "tester" matches the MySQL native-password handshake's
+        // authenticated username used by `client_connect` below — the wire
+        // session's ACL actor is bound to that literal username (see
+        // `bind_authenticated_sql_actor`'s `agent_id` param).
+        isolation.register_agent(crate::isolation::AgentIdentity {
+            agent_id: "tester".to_string(),
+            role: crate::isolation::AgentRole::Agent,
+            teams: Vec::new(),
+            #[cfg(feature = "security")]
+            roles: vec!["commons-user".to_string()],
+            #[cfg(not(feature = "security"))]
+            roles: Vec::new(),
+        });
         Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry,
-            isolation: IsolationLayer::new(),
+            isolation,
             channels: ChannelManager::new(),
             auth_secret: "test".to_string(),
             #[cfg(feature = "kv")]
