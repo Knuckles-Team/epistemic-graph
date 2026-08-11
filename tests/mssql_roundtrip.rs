@@ -50,17 +50,94 @@ fn sql_test_persist_dir() -> String {
         .into_owned()
 }
 
+/// A real tempdir-backed `RedbBackend` (mirrors `common::tempdir_persistence()` /
+/// `server::mod::tests::test_state` / `bolt_wire::tests::durable_state` / the
+/// identical helper in `tests/pgwire_roundtrip.rs`): the authoritative-commit flip
+/// means every graph-node write now routes through the universal cross-modal
+/// MutationBatch kernel, which fails closed ("cross-modal mutation requires durable
+/// persistence") against `persistence: None`. Also provisions
+/// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` once, before the first backend opens, for the
+/// multi-op commit's transaction-recovery-plan seal (`redb_backend::tests::cm_dir`'s
+/// identical requirement).
+#[cfg(feature = "redb")]
+fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>
+{
+    use epistemic_graph::durability::DurabilityPolicy;
+    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+    static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+    ENCRYPTION_KEY.call_once(|| {
+        std::env::set_var(
+            epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+            "mssql-roundtrip-recovery-key",
+        );
+    });
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let dir = std::env::temp_dir().join(format!(
+        "epistemic-graph-mssql-persist-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create mssql persist dir");
+    let backend: Arc<dyn epistemic_graph::server::persistence::PersistenceBackend> = Arc::new(
+        RedbBackend::open(
+            dir.to_string_lossy().into_owned(),
+            DurabilityPolicy::Each,
+            4096,
+        )
+        .expect("open tempdir redb backend"),
+    );
+    Some(backend)
+}
+
+#[cfg(not(feature = "redb"))]
+fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>
+{
+    None
+}
+
 /// Build a minimal authenticated `ServerState` seeded with three
 /// nodes so a wire SELECT returns rows. `__commons__` is pre-created by the registry.
 fn seeded_state() -> Arc<RwLock<ServerState>> {
     let registry = GraphRegistry::new();
+    // Tagged `_visibility: "public"`: default-deny RLS (`IsolationLayer::can_see_row`)
+    // hides any untagged, unowned row from a non-`System` actor, and the TDS wire
+    // connection runs as `tester`.
     {
         let core = registry.get("__commons__").unwrap().core.clone();
         for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
-            let blob =
-                rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "rank": rank})).unwrap();
+            let blob = rmp_serde::to_vec_named(
+                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public"}),
+            )
+            .unwrap();
             core.add_node(id.to_string(), blob);
         }
+    }
+    // The TDS wire connection's `user` IS the ACL actor (`server::mssql_wire::auth`).
+    // Under the mandatory-RBAC flip (`feature = "security"`) there is no more
+    // "Commons is open to all" fallback for a non-`System` identity, so `tester` must
+    // be provisioned with a `commons-user` role granting Read+Write on `__commons__`
+    // (mirrors `server::mod::tests::multi_tenant_state`'s identical role).
+    let mut isolation = IsolationLayer::new();
+    #[cfg(feature = "security")]
+    {
+        use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+        use epistemic_graph::isolation::{AgentIdentity, AgentRole};
+        isolation.add_role(Role::new("commons-user"));
+        for action in [RbacAction::Read, RbacAction::Write] {
+            isolation.add_grant(Grant {
+                role: "commons-user".to_string(),
+                resource: ResourceSelector::Graph("__commons__".to_string()),
+                action,
+                effect: GrantEffect::Allow,
+            });
+        }
+        isolation.register_agent(AgentIdentity {
+            agent_id: TEST_USER.to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: vec!["commons-user".to_string()],
+        });
     }
     Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
@@ -68,13 +145,13 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
             epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry,
-        isolation: IsolationLayer::new(),
+        isolation,
         channels: ChannelManager::new(),
         auth_secret: TEST_SECRET.to_string(),
         #[cfg(feature = "kv")]
         kv: None,
         persist_dir: Some(sql_test_persist_dir()),
-        persistence: None,
+        persistence: default_persistence(),
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
@@ -94,7 +171,17 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         #[cfg(feature = "raft")]
         multi_raft: None,
         #[cfg(feature = "tsdb")]
-        tsdb_store: None,
+        tsdb_store: Some({
+            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let path = std::env::temp_dir().join(format!(
+                "eg-mssql-tsdb-test-{}-{}.redb",
+                std::process::id(),
+                NEXT_TSDB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            std::sync::Arc::new(
+                eg_tsdb::store::SeriesStore::open(&path).expect("open test series store"),
+            )
+        }),
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -452,7 +539,7 @@ async fn tds_txn_crossmodal_ryow_isolated_until_commit() {
     // Stage a graph node, its embedding, and a measurement — all inside the txn.
     batch(
         &mut writer,
-        "INSERT INTO nodes (id, type, rank) VALUES ('vv1', 'Widget', 5)",
+        "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('vv1', 'Widget', 5, 'public')",
     )
     .await;
     batch(&mut writer, "SET EMBEDDING FOR 'vv1' = '[1.0, 0.0, 0.0]'").await;
