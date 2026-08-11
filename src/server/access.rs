@@ -3,6 +3,8 @@
 use super::auth::VerifiedRequestContext;
 use crate::graph::{GraphCore, GraphView};
 use crate::isolation::{AccessLevel, IsolationLayer};
+#[cfg(feature = "security")]
+use crate::isolation::row_visibility;
 #[cfg(feature = "cypher")]
 use crate::protocol::CypherMode;
 use crate::protocol::Method;
@@ -313,6 +315,30 @@ impl GraphReadAuthority {
     #[cfg(not(feature = "security"))]
     fn project_core_active(&self, core: &Arc<GraphCore>) -> Arc<GraphCore> {
         core.clone()
+    }
+
+    /// The single-row sibling of [`Self::filter_view`] (which `build_projection`
+    /// uses in bulk): may this authority's actor see `properties_msgpack`?
+    ///
+    /// `build_projection`'s RAM-only `analysis_snapshot()` can never discover a
+    /// node `EvictLRU` fully evicted from the live topology (its id is gone from
+    /// `topo.node_map`, not merely its properties — see
+    /// `GraphCore::evict_resident_nodes`), so a point read that falls back to the
+    /// RAW core's `read_through` for such a node (`Method::GetNodeProperties`)
+    /// must re-derive the SAME visibility decision `filter_view` would have made,
+    /// on exactly that one row, rather than serving it unfiltered.
+    #[cfg(feature = "security")]
+    pub(crate) fn can_see_node(&self, properties_msgpack: &[u8]) -> bool {
+        let vis = row_visibility(properties_msgpack);
+        self.isolation.can_see_row(&self.actor, &vis)
+    }
+
+    /// Unreachable in practice (`is_active()` is always `false` without
+    /// `security`, so the projection is never bypassed) — exists only so callers
+    /// type-check in a `not(security)` build, mirroring `project_core_active`.
+    #[cfg(not(feature = "security"))]
+    pub(crate) fn can_see_node(&self, _properties_msgpack: &[u8]) -> bool {
+        true
     }
 
     /// The actual (expensive) materialization [`Self::project_core_active`] caches. Kept as

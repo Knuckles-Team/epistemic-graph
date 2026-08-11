@@ -133,7 +133,20 @@ pub fn initialize(db: &Database) -> Result<(), String> {
 /// Private recovery plans are never decrypted here.  They must retain the
 /// engine's authenticated-ciphertext envelope and may exist only for a prepared
 /// transaction-recovery parent receipt.
-pub fn validate_recovery_store(db: &Database) -> Result<RecoveryStoreCounts, String> {
+///
+/// Generic over [`redb::ReadableDatabase`] (implemented by both `Database` and
+/// `ReadOnlyDatabase`) so a pure-validation caller can open the file with
+/// `ReadOnlyDatabase::open` — `Database`'s `Drop` unconditionally issues its own
+/// "ensure allocator state table" quick-repair commit
+/// (`redb::Database::ensure_allocator_state_table_and_trim`), which advances the
+/// file's internal transaction id and changes its on-disk bytes even when the
+/// caller made no writes. A verbatim-backup byte-digest check must never open a
+/// bundle file read-write for validation-only purposes, or the digest recorded
+/// at backup time can never match a digest recomputed after any later
+/// read-write open (see `server::persistence::backup::read_manifest`).
+pub fn validate_recovery_store<D: redb::ReadableDatabase>(
+    db: &D,
+) -> Result<RecoveryStoreCounts, String> {
     use eg_types::protocol::Method;
     let rtx = db.begin_read().map_err(|error| error.to_string())?;
     let batches = rtx.open_table(BATCHES).map_err(|error| error.to_string())?;

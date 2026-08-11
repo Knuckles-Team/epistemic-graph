@@ -4927,15 +4927,50 @@ mod tests {
             Some(props(serde_json::json!({"v": 2}))),
             "recreated tenant's node n1 must read back as the NEW write {{v:2}}, not stale/empty"
         );
+        // `shutdown()` stops each shard's writer THREAD but does not close its
+        // `Database` — the handle lives in the `Shard`, so redb keeps its advisory
+        // file lock for as long as ANY `Arc<RedbBackend>` survives (see the
+        // identical note in `many_recreate_cycles_keep_inmemory_writes_visible`).
+        // This test holds THREE: the local `backend`, the clone parked in
+        // `state.persistence`, and the clone `BackendReadThroughFactory` wraps
+        // inside `state.registry`'s installed read-through factory. `state` is not
+        // read again after this point (part (b) below builds its own `state2`), so
+        // dropping it wholesale — instead of clearing each field individually and
+        // still risking a missed clone — is what actually releases the lock; the
+        // sibling `many_recreate_cycles_keep_inmemory_writes_visible` gets away
+        // with clearing only `persistence` because IT never installs a read-through
+        // factory on `state` at all.
         backend.shutdown();
         drop(backend);
+        drop(state);
 
-        // (b) DURABLE resurrection across a reload (restart / resharding / hibernation
-        // rehydration): a fresh backend + state that load_all from the SAME redb dir
-        // must NOT recover the deleted incarnation's nodes.
-        let backend2: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 256).expect("reopen"),
-        );
+        // The per-graph write-coalescer's background worker (spawned for "g"'s
+        // SECOND incarnation by `add(6, ...)`, `write_coalescer::GraphWriter::spawn`)
+        // also holds an `Arc<GraphCore>` — via its `read_through` field, an
+        // `Arc<dyn PersistenceBackend>` clone — for as long as its own tokio task
+        // is alive. Dropping `state` above synchronously drops the LAST `Sender`
+        // into that worker's channel, but the worker task itself only notices the
+        // channel closed (and drops its captured `core`) on its NEXT poll — an
+        // async race `GraphWriter::spawn`'s own `JoinHandle` is discarded, so
+        // nothing here can directly await. This is a test-only artifact of
+        // reopening the SAME redb file IN-PROCESS (in production the OS releases
+        // the file lock on process exit regardless — same rationale as the
+        // `s.persistence = None` note on `dispatch_authoritative_durable_without_checkpoint`),
+        // so bound it with a short retry rather than a flat sleep.
+        let backend2: Arc<dyn crate::server::persistence::PersistenceBackend> = {
+            let mut attempt = 0;
+            loop {
+                match RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 256) {
+                    Ok(backend2) => break Arc::new(backend2),
+                    Err(error) if attempt < 100 => {
+                        attempt += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        let _ = error;
+                    }
+                    Err(error) => panic!("reopen: {error:?}"),
+                }
+            }
+        };
         let state2 = new_state(Some(dir_s.clone()));
         backend2.load_all(&state2).await.unwrap();
         let core2 = {

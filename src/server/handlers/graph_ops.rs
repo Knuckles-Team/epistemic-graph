@@ -2392,6 +2392,18 @@ pub(crate) async fn try_handle(
     // silently report 0 for every graph on every request once `security` is
     // compiled in, regardless of how many mutations actually landed.
     let raw_ledger_len = core.ledger.lock().len() as u64;
+    // Kept for the SAME reason as `raw_ledger_len` above, but for a different gap:
+    // `GraphReadAuthority::build_projection` builds its filtered view from
+    // `core.analysis_snapshot()`, which enumerates only the RAM-resident topology.
+    // `EvictLRU`'s per-node residency eviction (`GraphCore::evict_resident_nodes`)
+    // fully removes an evicted node from `topo.node_map` — not merely its
+    // properties — relying entirely on `read_through_get` for a direct point read.
+    // The projection snapshot can therefore never "discover" an evicted-but-durable
+    // node's id to re-fetch it, so `Method::GetNodeProperties` falls back to this
+    // RAW core (read-through intact) on a projected-core miss, re-applying the
+    // SAME single-row RLS check `filter_view` would have (`can_see_node`) so the
+    // fallback narrows visibility exactly like the bulk path, never widens it.
+    let raw_core = core.clone();
     // Keep the projection inside the terminal handler: any future internal caller
     // must supply a GraphReadAuthority and receives the same pre-compute projection
     // before the first primitive can inspect existence, counts, embeddings, or
@@ -2470,7 +2482,17 @@ pub(crate) async fn try_handle(
             let g = &*core;
             let val = match g.get_node_properties(&node_id) {
                 Some(props_msgpack) => ResultPayload::PropertiesMsgpack(props_msgpack),
-                None => ResultPayload::Json(serde_json::Value::Null),
+                // The RLS projection is RAM-topology-only and can never see a node
+                // `EvictLRU` fully evicted from the live topology (see `raw_core`'s
+                // doc comment above) — fall back to the RAW core, whose
+                // `read_through` seam is intact, then re-check row visibility on
+                // exactly this one row before returning it.
+                None => match raw_core.get_node_properties(&node_id) {
+                    Some(props_msgpack) if read_authority.can_see_node(&props_msgpack) => {
+                        ResultPayload::PropertiesMsgpack(props_msgpack)
+                    }
+                    _ => ResultPayload::Json(serde_json::Value::Null),
+                },
             };
             Response::ok(req_id, val)
         }
