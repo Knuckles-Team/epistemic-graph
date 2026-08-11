@@ -45,26 +45,68 @@ fn sql_test_persist_dir() -> String {
         .into_owned()
 }
 
+/// Grant the `commons-user` RBAC role Read+Write on `__commons__` (mirrors
+/// `server::mod::tests::multi_tenant_state`'s identical role) and register `agent_id`
+/// as holding it. Under the mandatory-RBAC flip (`feature = "security"`), a pgwire
+/// connection's user IS the ACL actor (`server::pgwire::auth`), so every fixture
+/// identity that needs to reach `__commons__` must be provisioned this way — there is
+/// no more "Commons is open to all" fallback for a non-`System` identity.
+#[allow(unused_variables)]
+fn grant_commons_access(isolation: &mut IsolationLayer, agent_id: &str) {
+    #[cfg(feature = "security")]
+    {
+        use epistemic_graph::isolation::AgentRole;
+        use epistemic_graph::isolation::AgentIdentity;
+        use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+        isolation.add_role(Role::new("commons-user"));
+        isolation.add_grant(Grant {
+            role: "commons-user".to_string(),
+            resource: ResourceSelector::Graph("__commons__".to_string()),
+            action: RbacAction::Read,
+            effect: GrantEffect::Allow,
+        });
+        isolation.add_grant(Grant {
+            role: "commons-user".to_string(),
+            resource: ResourceSelector::Graph("__commons__".to_string()),
+            action: RbacAction::Write,
+            effect: GrantEffect::Allow,
+        });
+        isolation.register_agent(AgentIdentity {
+            agent_id: agent_id.to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: vec!["commons-user".to_string()],
+        });
+    }
+}
+
 /// Build a minimal `ServerState` with one seeded node so a wire SELECT has rows to
 /// return. `__commons__` is pre-created by the registry.
 fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> Arc<RwLock<ServerState>> {
     let registry = GraphRegistry::new();
-    // Seed three nodes directly via the graph core (the engine write API).
+    // Seed three nodes directly via the graph core (the engine write API). Tagged
+    // `_visibility: "public"` since default-deny RLS (`IsolationLayer::can_see_row`)
+    // hides any untagged, unowned row from a non-`System` actor — the pgwire
+    // connection runs as `tester`, not `System`.
     {
         let core = registry.get("__commons__").unwrap().core.clone();
         for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
-            let blob =
-                rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "rank": rank})).unwrap();
+            let blob = rmp_serde::to_vec_named(
+                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public"}),
+            )
+            .unwrap();
             core.add_node(id.to_string(), blob);
         }
     }
+    let mut isolation = IsolationLayer::new();
+    grant_commons_access(&mut isolation, "tester");
     Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
         cold_tracker: std::sync::Arc::new(
             epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry,
-        isolation: IsolationLayer::new(),
+        isolation,
         channels: ChannelManager::new(),
         auth_secret: "test".to_string(),
         #[cfg(feature = "kv")]
@@ -89,8 +131,23 @@ fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> Arc<RwLock<Se
         raft: None,
         #[cfg(feature = "raft")]
         multi_raft: None,
+        // A real per-test served time-series store (mirrors `server::mod::tests::test_state`
+        // / `served_mining_tsdb_scan.rs` / `advanced_crossmodal_roundtrip.rs`'s identical
+        // wiring): committing a staged `TxnAddMeasurement` now requires a served store to
+        // project into (`project_committed_measurements`), and a `None` store fails closed
+        // at COMMIT with "committed measurements require the served time-series store".
         #[cfg(feature = "tsdb")]
-        tsdb_store: None,
+        tsdb_store: Some({
+            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let path = std::env::temp_dir().join(format!(
+                "eg-pgwire-tsdb-test-{}-{}.redb",
+                std::process::id(),
+                NEXT_TSDB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            std::sync::Arc::new(
+                eg_tsdb::store::SeriesStore::open(&path).expect("open test series store"),
+            )
+        }),
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -107,8 +164,83 @@ fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> Arc<RwLock<Se
 }
 
 /// The cache-only default state (no durable tier) the original round-trip tests use.
+/// A real tempdir-backed `RedbBackend` (mirrors `common::tempdir_persistence()`,
+/// `server::mod::tests::test_state`, `bolt_wire::tests::durable_state`, and every
+/// other `tests/*.rs` fixture that needs one): the authoritative-commit flip means
+/// EVERY graph-node write now routes through the universal cross-modal MutationBatch
+/// kernel (`commit_cross_modal_txn`), which fails closed ("cross-modal mutation
+/// requires durable persistence") against a `persistence: None` state. A keyed
+/// backend additionally satisfies the multi-op commit's transaction-recovery-plan
+/// seal, which requires `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at `open()` (see
+/// `redb_backend::tests::cm_dir`'s identical requirement) — provisioned once, before
+/// the first backend opens.
+#[cfg(feature = "redb")]
+fn default_persistence() -> Option<Arc<dyn PersistenceBackend>> {
+    use epistemic_graph::durability::DurabilityPolicy;
+    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+    static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+    ENCRYPTION_KEY.call_once(|| {
+        std::env::set_var(
+            epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+            "pgwire-roundtrip-recovery-key",
+        );
+    });
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let dir = std::env::temp_dir().join(format!(
+        "epistemic-graph-pgwire-persist-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create pgwire persist dir");
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(
+            dir.to_string_lossy().into_owned(),
+            DurabilityPolicy::Each,
+            4096,
+        )
+        .expect("open tempdir redb backend"),
+    );
+    Some(backend)
+}
+
+/// `redb`-off fallback: no durable gateway exists, so this stays `None` (a build
+/// without `redb` has no authoritative cross-modal commit gateway to satisfy).
+#[cfg(not(feature = "redb"))]
+fn default_persistence() -> Option<Arc<dyn PersistenceBackend>> {
+    None
+}
+
 fn seeded_state() -> Arc<RwLock<ServerState>> {
-    state_with(None)
+    state_with(default_persistence())
+}
+
+/// Reopen a `RedbBackend` at `dir` with a short bounded retry. `shutdown()` joins the
+/// writer thread, which drops that thread's sole STRONG `Arc<Database>` (the shard
+/// only ever keeps a `Weak`, see `redb_backend::Shard::db`'s doc) so the exclusive
+/// per-process file lock releases once the thread has actually finished unwinding —
+/// a small window after `shutdown()`/`join()` returns where the very next `open()`
+/// can still race the OS releasing the lock. Mirrors the identical retry
+/// `advanced_crossmodal_roundtrip.rs`'s `encryption_at_rest_wrong_key_fails_eg394`
+/// needed for the same race.
+#[cfg(feature = "redb")]
+fn reopen_redb_with_retry(
+    dir: &str,
+    policy: epistemic_graph::durability::DurabilityPolicy,
+    cache: usize,
+) -> epistemic_graph::server::persistence::redb_backend::RedbBackend {
+    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+    let mut last_err = None;
+    for attempt in 0..50 {
+        match RedbBackend::open(dir.to_string(), policy, cache) {
+            Ok(backend) => return backend,
+            Err(e) => {
+                last_err = Some(e);
+                std::thread::sleep(std::time::Duration::from_millis(20 * (attempt + 1)));
+            }
+        }
+    }
+    panic!("reopen redb backend at {dir} after bounded retry: {last_err:?}");
 }
 
 /// Bind the listener on an ephemeral port with mandatory SCRAM authentication.
@@ -135,6 +267,30 @@ async fn spawn_listener_mode(
     // Give the listener a moment to bind.
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     addr_s
+}
+
+/// Like [`spawn_listener`], but hands back the listener task's `JoinHandle` too. A
+/// durability test that reopens the SAME on-disk persistence directory mid-test needs
+/// this: `shutdown()` alone does not release redb's advisory file lock — the lock is
+/// held for as long as ANY `Arc<RedbBackend>` clone survives (see
+/// `redb_backend::tests::many_recreate_cycles_keep_inmemory_writes_visible`'s identical
+/// note), and the listener task captured its OWN clone via `state.persistence` and
+/// runs forever (its `JoinHandle` is normally discarded). The caller must `.abort()`
+/// this handle and await it BEFORE reopening, so the task's captured `state` (and thus
+/// its `persistence` clone) is actually dropped.
+async fn spawn_listener_abortable(
+    state: Arc<RwLock<ServerState>>,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = probe.local_addr().unwrap();
+    drop(probe);
+    let addr_s = addr.to_string();
+    let serve_addr = addr_s.clone();
+    let handle = tokio::spawn(async move {
+        let _ = pgwire::serve_with_auth(&serve_addr, state, pgwire::PgWireAuthMode::Scram).await;
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    (addr_s, handle)
 }
 
 /// Connect a real tokio-postgres client with the fixture's derived SCRAM password.
@@ -186,7 +342,9 @@ async fn wire_insert_then_select_round_trip() {
     // INSERT a new node through the GraphTxn write path (simple-query protocol —
     // the surface the first increment supports; extended Parse/Bind is a follow-up).
     let insert = client
-        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('n9', 'Agent', 9)")
+        .simple_query(
+            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('n9', 'Agent', 9, 'public')",
+        )
         .await
         .expect("INSERT");
     let affected = insert
@@ -303,7 +461,8 @@ async fn multi_row_insert_then_count() {
 
     let affected = client
         .execute(
-            "INSERT INTO nodes (id, type, rank) VALUES ('m1','Agent',10),('m2','Agent',11),('m3','Tool',12)",
+            "INSERT INTO nodes (id, type, rank, _visibility) VALUES \
+             ('m1','Agent',10,'public'),('m2','Agent',11,'public'),('m3','Tool',12,'public')",
             &[],
         )
         .await
@@ -328,7 +487,7 @@ async fn insert_returning_row() {
 
     let rows = client
         .query(
-            "INSERT INTO nodes (id, type, rank) VALUES ('r1','Agent',55) RETURNING id",
+            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('r1','Agent',55,'public') RETURNING id",
             &[],
         )
         .await
@@ -385,6 +544,39 @@ impl PersistenceBackend for RecordingBackend {
                 .push((graph_fname.to_string(), node_id.clone()));
         }
         Ok(())
+    }
+    // Wire graph-node writes now route through the universal cross-modal
+    // MutationBatch kernel (`server::handlers::txn::commit_cross_modal_txn`), not
+    // a bare `record_durable` call — the trait's default `commit_mutation_batch_crossmodal`
+    // fails closed ("persistence backend does not support atomic cross-modal
+    // MutationBatch commits"), which would defeat this backend's whole purpose
+    // (proving the durable seam is AWAITED before ack). Override it to record the
+    // SAME (graph, node_id) pairs `record_durable` used to, off the batch's staged
+    // `AddNode` operations, and hand back a minimal committed record — this is the
+    // authoritative-commit-flip seam this mock must speak now.
+    async fn commit_mutation_batch_crossmodal(
+        &self,
+        args: epistemic_graph::server::persistence::CrossModalCommitArgs<'_>,
+    ) -> Result<epistemic_graph::mutation_batch::MutationBatchCommit, String> {
+        self.durable
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        for method in args.methods {
+            if let epistemic_graph::protocol::Method::AddNode { node_id, .. } = method {
+                self.recorded
+                    .lock()
+                    .unwrap()
+                    .push((args.graph_fname.to_string(), node_id.clone()));
+            }
+        }
+        Ok(epistemic_graph::mutation_batch::MutationBatchCommit {
+            record: epistemic_graph::mutation_batch::MutationBatchRecord {
+                batch: args.batch.clone(),
+                status: epistemic_graph::mutation_batch::MutationBatchStatus::Committed,
+                result_msgpack: args.result_msgpack.map(|b| b.to_vec()),
+                committed_at_ms: args.committed_at_ms,
+            },
+            replayed: false,
+        })
     }
     fn shutdown(&self) {}
 }
@@ -448,7 +640,7 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
         .expect("open redb backend"),
     );
     let state = state_with(Some(backend.clone()));
-    let addr = spawn_listener(state).await;
+    let (addr, listener) = spawn_listener_abortable(state).await;
     let client = connect(&addr).await;
 
     // CommandComplete is returned only after the durable group commit.
@@ -468,15 +660,23 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
     // The wire write was acked ⇒ (commit-before-ack) it is on disk. Prove it is
     // durable independent of any checkpoint by reopening a FRESH redb backend on the
     // SAME dir and point-reading the node — no bulk registry export was involved.
-    // Shut the live backend down first so its owner thread drops the redb `Database`
-    // and releases the exclusive file lock (redb forbids two open handles).
+    // redb's advisory file lock is held for as long as ANY `Arc<RedbBackend>` clone
+    // survives, not just the writer thread `shutdown()` stops — the listener task
+    // (and its per-connection handler for `client`) each captured their own clone via
+    // `state.persistence`, so those must actually be torn down first: close the
+    // client connection, abort + await the listener task, THEN shut down our own
+    // local clone (the retry loop below absorbs the async race of the per-connection
+    // handler noticing the closed socket).
+    drop(client);
+    listener.abort();
+    let _ = listener.await;
     backend.shutdown();
-    let reopened = RedbBackend::open(
-        dir_s.clone(),
+    drop(backend);
+    let reopened = reopen_redb_with_retry(
+        &dir_s,
         DurabilityPolicy::Interval(std::time::Duration::from_millis(20)),
         64,
-    )
-    .expect("reopen redb backend");
+    );
     let stored = reopened
         .read_node("__commons__", "d1")
         .await
@@ -521,14 +721,14 @@ async fn extended_update_authoritative_is_durable_without_checkpoint() {
         .expect("open redb backend"),
     );
     let state = state_with(Some(backend.clone()));
-    let addr = spawn_listener(state).await;
+    let (addr, listener) = spawn_listener_abortable(state).await;
     let client = connect(&addr).await;
 
     // Seed `n1` durably via a wire INSERT (also commit-before-ack), then UPDATE it
     // over the extended/prepared protocol with a bound parameter.
     client
         .execute(
-            "INSERT INTO nodes (id, type, rank) VALUES ('n1','Agent',1)",
+            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('n1','Agent',1,'public')",
             &[],
         )
         .await
@@ -541,13 +741,19 @@ async fn extended_update_authoritative_is_durable_without_checkpoint() {
 
     // The UPDATE was acked ⇒ (commit-before-ack) the CAS is on disk. Reopen a fresh
     // backend on the same dir and confirm the updated value WITHOUT any checkpoint.
+    // See the identical teardown note in `wire_insert_authoritative_is_durable_without_checkpoint`:
+    // redb's file lock survives until every `Arc<RedbBackend>` clone (including the
+    // listener task's and its per-connection handler's) is actually dropped.
+    drop(client);
+    listener.abort();
+    let _ = listener.await;
     backend.shutdown();
-    let reopened = RedbBackend::open(
-        dir_s.clone(),
+    drop(backend);
+    let reopened = reopen_redb_with_retry(
+        &dir_s,
         DurabilityPolicy::Interval(std::time::Duration::from_millis(20)),
         64,
-    )
-    .expect("reopen redb backend");
+    );
     let stored = reopened
         .read_node("__commons__", "n1")
         .await
@@ -662,11 +868,15 @@ use epistemic_graph::server::pgwire::derive_pg_password;
 /// stays open to all authenticated agents.
 fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
     let mut registry = GraphRegistry::new();
+    // Tagged `_visibility: "public"` for the same default-deny-RLS reason as
+    // `state_with` above.
     {
         let core = registry.get("__commons__").unwrap().core.clone();
         for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
-            let blob =
-                rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "rank": rank})).unwrap();
+            let blob = rmp_serde::to_vec_named(
+                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public"}),
+            )
+            .unwrap();
             core.add_node(id.to_string(), blob);
         }
     }
@@ -687,17 +897,42 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         .unwrap();
 
     let mut isolation = IsolationLayer::new();
+    // `__commons__` stays reachable by every authenticated agent via the
+    // `commons-user` role (there is no more pre-RBAC "Commons is open to all"
+    // fall-through under `feature = "security"`).
+    grant_commons_access(&mut isolation, "worker");
+    grant_commons_access(&mut isolation, "peer");
+    // Each agent additionally owns its own private `agent:*` graph — granted
+    // explicitly (mirrors `server::mod::tests::multi_tenant_state`'s `owner-{w}`
+    // pattern) so `scram_identity_drives_acl` can prove `worker` reaches its own
+    // graph while still being denied `peer`'s.
+    #[cfg(feature = "security")]
+    {
+        use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+        for (owner, graph) in [("worker", "agent:worker"), ("peer", "agent:peer")] {
+            let role = format!("owner-{owner}");
+            isolation.add_role(Role::new(role.clone()));
+            for action in [RbacAction::Read, RbacAction::Write] {
+                isolation.add_grant(Grant {
+                    role: role.clone(),
+                    resource: ResourceSelector::Graph(graph.to_string()),
+                    action,
+                    effect: GrantEffect::Allow,
+                });
+            }
+        }
+    }
     isolation.register_agent(AgentIdentity {
         agent_id: "worker".to_string(),
         role: AgentRole::Agent,
         teams: vec![],
-        roles: vec![],
+        roles: vec!["commons-user".to_string(), "owner-worker".to_string()],
     });
     isolation.register_agent(AgentIdentity {
         agent_id: "peer".to_string(),
         role: AgentRole::Agent,
         teams: vec![],
-        roles: vec![],
+        roles: vec!["commons-user".to_string(), "owner-peer".to_string()],
     });
 
     Arc::new(RwLock::new(ServerState {
@@ -777,13 +1012,16 @@ async fn scram_login_succeeds_with_correct_password() {
         .await
         .expect("SCRAM login with correct derived password");
 
-    // A query after login runs (against the open __commons__). `rank` is a node
-    // PROPERTY (seeded into the msgpack props blob), not a flat SQL column — the
-    // schema only exposes `nodes.id`/`nodes.props`, so filtering by it requires the
-    // JSON deep-index accessor (`props->>'k' = 'v'` matches a numeric prop via its
-    // canonical text form, see eg-core::jsonpath::path_eq) (D-EGTC-16).
+    // A query after login runs (against the open __commons__). `rank` is inferred
+    // as a flat typed column off the seeded property blobs (the same convention
+    // `wire_select_returns_seeded_rows`/`extended_prepared_parameterized_select`
+    // rely on elsewhere in this file) — no JSON deep-index accessor is needed. The
+    // `props->>'k'` operator form is only wired for the narrow graph-node
+    // UPDATE/DELETE selector decoder (`eg_query::sql::classify`), not the general
+    // DataFusion-planned SELECT path this query runs on, so using it here panicked
+    // with "Operator ->> is not yet supported".
     let rows = client
-        .query("SELECT id FROM nodes WHERE props->>'rank' = '1'", &[])
+        .query("SELECT id FROM nodes WHERE rank = 1", &[])
         .await
         .expect("post-login SELECT");
     let ids: Vec<String> = rows.iter().map(|r| r.get::<_, String>(0)).collect();
@@ -903,7 +1141,9 @@ async fn wire_txn_rollback_discards_and_ryow() {
 
     client.simple_query("BEGIN").await.expect("BEGIN");
     client
-        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('tx1', 'Agent', 42)")
+        .simple_query(
+            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('tx1', 'Agent', 42, 'public')",
+        )
         .await
         .expect("INSERT inside txn");
     // Read-your-own-writes: the uncommitted insert IS visible inside the txn.
@@ -944,7 +1184,9 @@ async fn wire_txn_commit_persists_node_insert() {
 
     client.simple_query("BEGIN").await.expect("BEGIN");
     client
-        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('tx2', 'Agent', 43)")
+        .simple_query(
+            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('tx2', 'Agent', 43, 'public')",
+        )
         .await
         .expect("INSERT inside txn");
     client.simple_query("COMMIT").await.expect("COMMIT");
@@ -981,7 +1223,9 @@ async fn wire_txn_mixed_node_and_table_commit() {
         .await
         .expect("INSERT table inside txn");
     client
-        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('mx1', 'Agent', 44)")
+        .simple_query(
+            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('mx1', 'Agent', 44, 'public')",
+        )
         .await
         .expect("INSERT node inside txn");
     client.simple_query("COMMIT").await.expect("COMMIT");
@@ -1037,7 +1281,9 @@ async fn wire_txn_error_blocks_until_rollback_25p02() {
     // ROLLBACK ends the block and restores a usable connection.
     client.simple_query("ROLLBACK").await.expect("ROLLBACK");
     client
-        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('ok', 'Agent', 46)")
+        .simple_query(
+            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('ok', 'Agent', 46, 'public')",
+        )
         .await
         .expect("writes work again after ROLLBACK");
     let ok = simple_ids(
@@ -1169,7 +1415,9 @@ async fn wire_txn_mixed_five_modality_commit() {
 
     // (1) graph node.
     client
-        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('mm1', 'Sensor', 7)")
+        .simple_query(
+            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('mm1', 'Sensor', 7, 'public')",
+        )
         .await
         .expect("stage graph node");
     // (2) vector embedding for the new node (a wire verb the seam must add).
@@ -1239,7 +1487,9 @@ async fn wire_txn_crossmodal_ryow_isolated_until_commit() {
     writer.simple_query("BEGIN").await.expect("BEGIN");
     // Stage a graph node, its embedding, and a measurement — all inside the txn.
     writer
-        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('vv1', 'Widget', 5)")
+        .simple_query(
+            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('vv1', 'Widget', 5, 'public')",
+        )
         .await
         .expect("stage graph node");
     writer
@@ -1313,11 +1563,29 @@ async fn wire_reason_iri_bridges_string_typed_node() {
 
     // A string-typed Sensor node (auto-commits as one atomic statement).
     client
-        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('sen1', 'Sensor', 3)")
+        .simple_query(
+            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('sen1', 'Sensor', 3, 'public')",
+        )
         .await
         .expect("insert string-typed Sensor node");
     // The OWL axiom Sensor ⊑ Device (SPARQL UPDATE auto-commits, lowered to graph triples
     // the reasoner reconstructs as TBox).
+    //
+    // KNOWN UNFIXED GAP (see the end-of-run report): the two axiom class nodes
+    // (`<http://ex/Sensor>`, `<http://ex/Device>`) land with an EMPTY property blob
+    // (`lower_triples` only populates `node_props` for a subject/object that also
+    // carries a literal-valued triple) -- untagged and unowned. Default-deny RLS
+    // (`IsolationLayer::can_see_row`) hides such a row from a non-`System` actor, and
+    // `reason_op` (`eg-plan/exec.rs`) reads the TBox off the SAME RLS-filtered
+    // `ctx.view` every other op uses, so `REASON <http://ex/Device>` never sees the
+    // axiom for the pgwire "tester" actor. Unlike the `INSERT INTO nodes (..., _visibility)`
+    // escape hatch every other fresh write in this file uses, SPARQL UPDATE has NO
+    // syntactic way to attach that tag: `lower_triples` keys a literal-object triple's
+    // property directly off the predicate's IRI string, and `NamedNode::new` rejects a
+    // bare `_visibility`/`_owner` token as not a valid absolute IRI (RFC 3987) -- there
+    // is no legitimate SPARQL predicate that lowers to exactly the `_visibility`/`_owner`
+    // reserved key. A pure test-side fix does not exist; this needs either a TBox/axiom
+    // RLS exemption or an explicit visibility-tagging seam for SPARQL-staged axioms.
     client
         .simple_query(
             "SPARQL UPDATE INSERT DATA { <http://ex/Sensor> \
