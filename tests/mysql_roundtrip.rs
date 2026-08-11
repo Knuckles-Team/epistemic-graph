@@ -55,19 +55,95 @@ fn sql_test_persist_dir() -> String {
 
 // ── the seeded server state (mirrors the pgwire round-trip test's `seeded_state`) ──
 
+/// A real tempdir-backed `RedbBackend` (mirrors `common::tempdir_persistence()` /
+/// `server::mod::tests::test_state` / `bolt_wire::tests::durable_state` / the
+/// identical helper in `tests/pgwire_roundtrip.rs`): the authoritative-commit flip
+/// means every graph-node write now routes through the universal cross-modal
+/// MutationBatch kernel, which fails closed ("cross-modal mutation requires durable
+/// persistence") against `persistence: None` -- `commit_cross_modal_txn` is no longer
+/// persistence-None tolerant. Also provisions `EPISTEMIC_GRAPH_ENCRYPTION_KEY` once,
+/// before the first backend opens, for the multi-op commit's
+/// transaction-recovery-plan seal (`redb_backend::tests::cm_dir`'s identical
+/// requirement).
+#[cfg(feature = "redb")]
+fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>
+{
+    use epistemic_graph::durability::DurabilityPolicy;
+    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+    static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+    ENCRYPTION_KEY.call_once(|| {
+        std::env::set_var(
+            epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+            "mysql-roundtrip-recovery-key",
+        );
+    });
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let dir = std::env::temp_dir().join(format!(
+        "epistemic-graph-mysql-persist-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create mysql persist dir");
+    let backend: Arc<dyn epistemic_graph::server::persistence::PersistenceBackend> = Arc::new(
+        RedbBackend::open(
+            dir.to_string_lossy().into_owned(),
+            DurabilityPolicy::Each,
+            4096,
+        )
+        .expect("open tempdir redb backend"),
+    );
+    Some(backend)
+}
+
+#[cfg(not(feature = "redb"))]
+fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>
+{
+    None
+}
+
 /// A minimal authenticated `ServerState` seeded with three nodes so a wire SELECT/UQL has
-/// rows to read. `__commons__` is pre-created by the registry. `persistence = None`
-/// exercises the in-memory cross-modal commit path (EG-372: `commit_cross_modal_txn` is
-/// persistence-None tolerant).
+/// rows to read. `__commons__` is pre-created by the registry.
 fn seeded_state() -> Arc<RwLock<ServerState>> {
     let registry = GraphRegistry::new();
+    // Tagged `_visibility: "public"`: default-deny RLS (`IsolationLayer::can_see_row`)
+    // hides any untagged, unowned row from a non-`System` actor, and the MySQL wire
+    // connection runs as `tester`.
     {
         let core = registry.get("__commons__").unwrap().core.clone();
         for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
-            let blob =
-                rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "rank": rank})).unwrap();
+            let blob = rmp_serde::to_vec_named(
+                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public"}),
+            )
+            .unwrap();
             core.add_node(id.to_string(), blob);
         }
+    }
+    // The MySQL wire connection's `user` IS the ACL actor (`server::mysql_wire::auth`).
+    // Under the mandatory-RBAC flip (`feature = "security"`) there is no more
+    // "Commons is open to all" fallback for a non-`System` identity, so `tester` must
+    // be provisioned with a `commons-user` role granting Read+Write on `__commons__`
+    // (mirrors `server::mod::tests::multi_tenant_state`'s identical role).
+    let mut isolation = IsolationLayer::new();
+    #[cfg(feature = "security")]
+    {
+        use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+        use epistemic_graph::isolation::{AgentIdentity, AgentRole};
+        isolation.add_role(Role::new("commons-user"));
+        for action in [RbacAction::Read, RbacAction::Write] {
+            isolation.add_grant(Grant {
+                role: "commons-user".to_string(),
+                resource: ResourceSelector::Graph("__commons__".to_string()),
+                action,
+                effect: GrantEffect::Allow,
+            });
+        }
+        isolation.register_agent(AgentIdentity {
+            agent_id: "tester".to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: vec!["commons-user".to_string()],
+        });
     }
     Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
@@ -75,13 +151,13 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
             epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry,
-        isolation: IsolationLayer::new(),
+        isolation,
         channels: ChannelManager::new(),
         auth_secret: "test".to_string(),
         #[cfg(feature = "kv")]
         kv: None,
         persist_dir: Some(sql_test_persist_dir()),
-        persistence: None,
+        persistence: default_persistence(),
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
@@ -101,7 +177,17 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         #[cfg(feature = "raft")]
         multi_raft: None,
         #[cfg(feature = "tsdb")]
-        tsdb_store: None,
+        tsdb_store: Some({
+            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let path = std::env::temp_dir().join(format!(
+                "eg-mysql-tsdb-test-{}-{}.redb",
+                std::process::id(),
+                NEXT_TSDB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            std::sync::Arc::new(
+                eg_tsdb::store::SeriesStore::open(&path).expect("open test series store"),
+            )
+        }),
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -143,6 +229,12 @@ async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
 const CLIENT_PROTOCOL_41: u32 = 0x0000_0200;
 const CLIENT_SECURE_CONNECTION: u32 = 0x0000_8000;
 const CLIENT_PLUGIN_AUTH: u32 = 0x0008_0000;
+// The server's handshake-response handler now mandates this capability
+// (`server::mysql_wire::mod::handle_connection`: "current MySQL result-set framing
+// requires CLIENT_DEPRECATE_EOF") and rejects the login before password
+// verification when it is absent. Mirrors `mysql_wire::mod::tests::client_connect`'s
+// negotiated capability set.
+const CLIENT_DEPRECATE_EOF: u32 = 0x0100_0000;
 const COLLATION_UTF8MB4: u8 = 45;
 const COM_QUERY: u8 = 0x03;
 
@@ -201,7 +293,7 @@ fn get_lenenc_int(buf: &[u8], pos: &mut usize) -> u64 {
 /// Build a Handshake-Response-41 with a native-password proof, no connect-DB
 /// (the listener's default graph `__commons__` is used).
 fn handshake_response(username: &str, auth_response: &[u8]) -> Vec<u8> {
-    let caps = CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH;
+    let caps = CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH | CLIENT_DEPRECATE_EOF;
     let mut p = Vec::with_capacity(64);
     p.extend_from_slice(&caps.to_le_bytes());
     p.extend_from_slice(&0x0100_0000u32.to_le_bytes()); // max packet size (16 MiB)
@@ -283,8 +375,11 @@ async fn query(stream: &mut TcpStream, sql: &str) -> QueryResult {
             for _ in 0..ncols {
                 let _ = read_message(stream).await; // column definition (discarded)
             }
-            let (_s, eof) = read_message(stream).await;
-            assert_eq!(eof[0], 0xfe, "EOF after column defs");
+            // The handshake negotiates CLIENT_DEPRECATE_EOF (mandatory — see
+            // `handshake_response`), so the metadata terminator is omitted by
+            // definition: rows follow the column definitions directly and the set
+            // ends with the current (short) OK/EOF-shaped terminator, mirroring
+            // `mysql_wire::mod::tests::client_query`.
             let mut rows = Vec::new();
             loop {
                 let (_s, p) = read_message(stream).await;
@@ -373,7 +468,7 @@ async fn mysql_wire_txn_crossmodal_ryow_isolated_until_commit() {
     // Stage a graph node, its embedding, and a measurement — all inside the txn.
     query(
         &mut writer,
-        "INSERT INTO nodes (id, type, rank) VALUES ('vv1', 'Widget', 5)",
+        "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('vv1', 'Widget', 5, 'public')",
     )
     .await;
     query(&mut writer, "SET EMBEDDING FOR 'vv1' = '[1.0, 0.0, 0.0]'").await;
