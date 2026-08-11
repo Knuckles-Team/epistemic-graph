@@ -1148,6 +1148,7 @@ impl EgStore {
                 version,
             )?;
             s.write_coalescer.remove(name);
+            s.routed_write_coalescer.remove(name);
             s.per_graph_inflight.remove(name);
             #[cfg(feature = "redb")]
             s.cold_tracker.forget(name);
@@ -1171,6 +1172,7 @@ impl EgStore {
                 s.registry.delete_graph(&name)?;
             }
             s.write_coalescer.remove(&name);
+            s.routed_write_coalescer.remove(&name);
             s.per_graph_inflight.remove(&name);
             #[cfg(feature = "redb")]
             s.cold_tracker.forget(&name);

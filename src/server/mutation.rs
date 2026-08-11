@@ -49,9 +49,9 @@
 //!
 //! `src/server/dispatch.rs` wires `handlers::graph_ops::try_handle_gateway` ahead
 //! of the generic handler chain. A routed method therefore reaches exactly one
-//! mutation kernel. The gateway re-enters the per-graph writer from inside
-//! `commit_mutation` (L18, see [`try_coalesce_apply`]), so routed structural writes
-//! retain batching without a second durability path.
+//! mutation kernel. The four coalescable structural writes route through
+//! [`commit_coalescable_mutation`] (L18, see its doc) instead of [`commit_mutation`],
+//! so routed structural writes retain batching without a second durability path.
 //!
 //! ## What this gateway does NOT reimplement
 //!
@@ -67,16 +67,29 @@
 //! `tests::routed_mutation_produces_one_durable_record_one_audit_entry_and_one_cdc_event`,
 //! which uses a REAL `RedbBackend` and reads the audit chain back).
 //!
-//! The per-graph write-coalescer's batching optimization is NO LONGER bypassed for
-//! the routed set (L18/EG-P0-6): [`commit_mutation`] step 4 routes a coalescable
-//! routed mutation (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) through the
-//! `WriteCoalescerRegistry::writer_for` path (see [`try_coalesce_apply`]), so the
-//! hot-path structural writes batch
-//! (`stats().ops()` counts them) while durability/audit/CDC ordering is preserved. The
-//! non-coalescable routed memory ops (`CreateSummaryNode`/`Consolidate`/`Reinforce`)
-//! keep the inline `apply`. With Raft active, dispatch reaches the consensus barrier
-//! before this local gateway; each committed ordinary Raft method is then staged and
-//! committed through the same state-backed MutationBatch authority on every replica.
+//! The per-graph write-coalescer's batching is genuinely live for the routed set
+//! (L18/EG-P0-6, rewritten): the four coalescable structural writes
+//! (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) are routed through
+//! [`commit_coalescable_mutation`] instead of [`commit_mutation`] (see
+//! `handlers::graph_ops::try_handle_gateway`'s four dedicated arms). That function
+//! hands the WHOLE prepare→durable-commit→RAM-publish sequence — not just the RAM
+//! apply — to the per-graph `server::routed_write_coalescer` worker, which runs a
+//! flushed batch's sequences back-to-back inside ONE `mutation_batch::lock_graph`
+//! acquisition instead of one per op (`stats().batches() < stats().ops()` under
+//! concurrent load). [`commit_mutation_body`] is the single, shared implementation
+//! of that sequence — called once per op by both the ordinary single-call path
+//! ([`commit_mutation_inner`]) and the worker, so there is exactly one copy of the
+//! durability/audit/CDC kernel regardless of which lock-hold granularity wraps it.
+//! The non-coalescable routed memory ops (`CreateSummaryNode`/`Consolidate`/
+//! `Reinforce`) and every other routed method keep going through
+//! [`commit_mutation`]/[`commit_mutation_inner`] unchanged, one lock acquisition per
+//! op. With Raft active, dispatch reaches the consensus barrier before this local
+//! gateway; each committed ordinary Raft method is then staged and committed through
+//! the same state-backed MutationBatch authority on every replica.
+//!
+//! See [`commit_coalescable_mutation`]'s doc for exactly why batching the RAM
+//! publish ALONE (an earlier version of this fix) is unsafe, and why the durable
+//! commit must move into the SAME lock-held sequence rather than staying outside it.
 
 use std::sync::Arc;
 
@@ -607,15 +620,18 @@ pub struct MutationCtx<'a> {
     /// so a stale gateway completion cannot publish into a same-name recreation.
     pub materialization_manifest:
         Option<&'a Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
-    /// Per-graph write-coalescer registry (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18).
-    /// When present + enabled, a coalescable routed mutation
-    /// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) has its in-memory apply
-    /// BATCHED onto this graph's single-writer queue instead of taking the topology
-    /// lock itself, so routing a hot-path write through the gateway retains
-    /// write-batching.
-    /// `None` (or a disabled/non-coalescable method) ⇒ the `apply` closure runs
-    /// inline, unchanged. See [`commit_mutation`] step 4.
-    pub write_coalescer: Option<&'a Arc<crate::write_coalescer::WriteCoalescerRegistry>>,
+    /// Per-graph routed-write coalescer registry (CONCEPT:EG-KG.sharding.per-graph-write-coalescer,
+    /// L18 rewrite). When present, a coalescable routed mutation
+    /// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`), routed through
+    /// [`commit_coalescable_mutation`] rather than [`commit_mutation`], has its
+    /// WHOLE prepare→durable-commit→RAM-publish sequence queued onto this
+    /// graph's single worker, which runs a flushed batch's sequences
+    /// back-to-back inside ONE `lock_graph` acquisition instead of one per op
+    /// — see `server::routed_write_coalescer` and
+    /// `commit_coalescable_mutation`'s doc for the invariant this preserves.
+    /// `None` ⇒ [`commit_coalescable_mutation`] falls back to the ordinary
+    /// [`commit_mutation`] single-call path, unchanged.
+    pub write_coalescer: Option<&'a Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>>,
 }
 
 /// Publish the resident freshness watermark only after an authoritative gateway
@@ -872,81 +888,272 @@ pub(crate) fn durable_receipt_method(method: &Method) -> Method {
     method.clone()
 }
 
-/// Try to apply a coalescable routed mutation THROUGH this graph's write-coalescer
-/// (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18), returning `Some(Response)` when it was coalesced
-/// (the outcome mapped to the SAME `Response` the gateway's inline `apply` closure
-/// would produce) or `None` when it must fall back to the inline closure.
+/// Is `method` one of the four coalescable structural writes
+/// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`)? These are the ONLY methods
+/// routed through [`commit_coalescable_mutation`] — every other routed method
+/// (`CreateSummaryNode`/`Consolidate`/`Reinforce`, the rest of the graph-core
+/// family, broker/query/RDF, …) is a multi-field or async-execution op the
+/// coalescer does not model and keeps going through the ordinary
+/// [`commit_mutation`] single-call path.
+pub(crate) fn is_coalescable_structural_write(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::AddNode { .. }
+            | Method::RemoveNode { .. }
+            | Method::AddEdge { .. }
+            | Method::RemoveEdge { .. }
+    )
+}
+
+/// Apply ONE coalescable structural write (`AddNode`/`RemoveNode`/`AddEdge`/
+/// `RemoveEdge`) to `core`, incrementally maintaining its heavy secondary
+/// indexes (vector/text/temporal) under the SAME `core.txn()` topology-lock
+/// hold the write itself takes — the `apply` closure every
+/// `commit_gateway_coalescable` call site in `handlers::graph_ops` uses.
 ///
-/// `None` is returned when no coalescer is configured on `ctx`, or `method` is not
-/// one of the four coalescable structural writes (`AddNode`/`RemoveNode`/`AddEdge`/
-/// `RemoveEdge`) — the other routed methods (`CreateSummaryNode`/`Consolidate`/
-/// `Reinforce`) are multi-field memory ops the coalescer does not model, so they
-/// keep the inline closure. Mirrors `dispatch::try_coalesce_write` exactly (enqueue
-/// with a per-op linger `Instant`, use `apply_one_inline` on a full/closed queue,
-/// and await the writer's outcome).
-async fn try_coalesce_apply(ctx: &MutationCtx<'_>, method: &Method) -> Option<Response> {
-    use crate::write_coalescer::{WriteOp, WriteOutcome};
-    use tokio::sync::oneshot;
-
-    let coalescer = ctx.write_coalescer?;
-
-    let (reply, reply_rx) = oneshot::channel::<WriteOutcome>();
-    // Only the four coalescable structural writes map to a WriteOp; every other
-    // routed method (memory ops) returns None to keep the inline apply.
-    let op = match method {
+/// This mirrors `write_coalescer::apply_batch`'s PER-OP effect (same
+/// `ChangeSet` capture + `maintain_indexes_at` call), which matters for
+/// correctness, not just performance: the served query path's persistent
+/// (incrementally-maintained) index depends on this running for every
+/// coalescable write. Calling `core.add_node()`/etc. directly and relying on
+/// `commit_finalize`'s later `mark_dirty()` to signal staleness only
+/// INVALIDATES the index (forcing a snapshot-derived rebuild on next read)
+/// instead of keeping it current — a real regression `served_query_
+/// completeness::served_ranktext_pushes_down_into_persistent_index_not_
+/// snapshot_fallback` and `served_spatial_completeness::served_spatial_scan_
+/// pushes_down_into_persistent_index_not_snapshot_fallback` caught.
+///
+/// This is NOT extracted from `apply_batch` and reused by it: `apply_batch`
+/// deliberately shares ONE `core.txn()`/`ChangeSet` across its WHOLE batch
+/// (that IS its own batching win, exercised by
+/// `write_coalescer::tests::concurrent_writes_coalesce_into_fewer_lock_
+/// acquisitions`), whereas the routed-write-coalescer worker already gets its
+/// batching win at the `lock_graph` layer (see `commit_coalescable_mutation`)
+/// and calls this once per op — sharing a single function across both would
+/// force one or the other to give up its own txn-scoping. The four match arms
+/// are intentionally the same shape as `apply_batch`'s (so the two stay easy
+/// to compare/keep in sync by inspection), not shared code.
+pub(crate) fn apply_coalescable_write(
+    core: &GraphCore,
+    method: &Method,
+) -> Result<ResultPayload, String> {
+    let mut txn = core.txn();
+    let capture_content = core.wants_change_content();
+    let mut change = crate::index::ChangeSet::new();
+    let result = match method {
         Method::AddNode {
             node_id,
             properties_msgpack,
-        } => WriteOp::AddNode {
-            node_id: node_id.clone(),
-            properties_msgpack: properties_msgpack.clone(),
-            reply,
-        },
-        Method::RemoveNode { node_id } => WriteOp::RemoveNode {
-            node_id: node_id.clone(),
-            reply,
-        },
+        } => {
+            if capture_content {
+                change
+                    .added_nodes
+                    .push(crate::index::NodeChange::with_properties(
+                        node_id.clone(),
+                        properties_msgpack.clone(),
+                    ));
+            } else {
+                change.record_add_node(node_id.clone());
+            }
+            txn.add_node(node_id.clone(), properties_msgpack.clone());
+            Ok(ResultPayload::String("ok".to_string()))
+        }
+        Method::RemoveNode { node_id } => {
+            match txn.get_node_properties(node_id) {
+                Some(props) => change.record_remove_node_with_properties(node_id.clone(), props),
+                None => change.record_remove_node(node_id.clone()),
+            }
+            txn.remove_node(node_id.clone());
+            core.semantic_store.write().remove_embedding(node_id);
+            Ok(ResultPayload::String("ok".to_string()))
+        }
         Method::AddEdge {
             source_id,
             target_id,
             properties_msgpack,
-        } => WriteOp::AddEdge {
-            source_id: source_id.clone(),
-            target_id: target_id.clone(),
-            properties_msgpack: properties_msgpack.clone(),
-            reply,
-        },
+        } => {
+            match txn.add_edge(
+                source_id.clone(),
+                target_id.clone(),
+                properties_msgpack.clone(),
+            ) {
+                Ok(()) => {
+                    change.record_add_edge(source_id.clone(), target_id.clone());
+                    Ok(ResultPayload::String("ok".to_string()))
+                }
+                Err(e) => Err(e),
+            }
+        }
         Method::RemoveEdge {
             source_id,
             target_id,
-        } => WriteOp::RemoveEdge {
-            source_id: source_id.clone(),
-            target_id: target_id.clone(),
-            reply,
-        },
-        _ => return None,
-    };
-
-    let writer = coalescer.writer_for(ctx.graph_name, ctx.core);
-    // Enqueue; on a full/closed queue apply this single op inline under its own txn
-    // (same engine effect, just not batched) so a saturated writer never drops or
-    // stalls the write — identical to `dispatch::try_coalesce_write`.
-    if let Err(op) = writer.try_enqueue(op) {
-        writer.apply_one_inline(ctx.core, ctx.graph_name, op);
-    }
-
-    // Await the outcome and rebuild the exact Response the inline closure returns:
-    // every coalescable routed op's closure yields `String("ok")` on success (an
-    // AddEdge failure surfaces its error string).
-    let outcome = reply_rx.await.unwrap_or(WriteOutcome::WriterGone);
-    Some(match outcome {
-        WriteOutcome::Ok => Response::ok(ctx.req_id, ResultPayload::String("ok".to_string())),
-        WriteOutcome::Cas(b) => Response::ok(ctx.req_id, ResultPayload::Bool(b)),
-        WriteOutcome::Err(e) => Response::err(ctx.req_id, e),
-        WriteOutcome::WriterGone => {
-            Response::err(ctx.req_id, "write worker unavailable".to_string())
+        } => {
+            change.record_remove_edge(source_id.clone(), target_id.clone());
+            txn.remove_edge(source_id.clone(), target_id.clone());
+            Ok(ResultPayload::String("ok".to_string()))
         }
-    })
+        other => unreachable!(
+            "apply_coalescable_write called with a non-coalescable method: {other:?}"
+        ),
+    };
+    if !change.is_empty() {
+        core.maintain_indexes_at(
+            &change,
+            core.version().saturating_add(change.len() as u64),
+            txn.node_count(),
+            txn.edge_count(),
+        );
+    }
+    drop(txn);
+    result
+}
+
+/// The commit gateway entry point for a coalescable structural write
+/// (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18 rewrite). Identical contract to
+/// [`commit_mutation`] (same authz/durability/audit/CDC/idempotency guarantees,
+/// same `Response`), but for the four hot-path methods
+/// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) it batches the WHOLE
+/// prepare→durable→publish sequence — not just the RAM apply — with concurrent
+/// siblings on the SAME graph, via the per-graph
+/// `server::routed_write_coalescer` worker.
+///
+/// ## Why the whole sequence, not just the RAM apply
+///
+/// An earlier version of this fix released `lock_graph` around just the RAM
+/// publish (leaving the durable `commit_mutation_batch` call under the
+/// caller's OWN, per-op lock hold, as it always was). That is UNSAFE: once a
+/// caller's durable commit finishes and it drops the lock — before its RAM
+/// publish has actually landed in `core` — ANY other `lock_graph` holder that
+/// reads live graph state (`handlers::txn::commit_transaction`'s
+/// `txn.validate(&core)`, `dispatch::ApplyChangeEnvelope`'s `core.version()`
+/// check, or a second coalescable write's own CDC pre-image capture) can
+/// observe a `core` that is durably stale — behind the redb-authoritative
+/// version by exactly the pending RAM publish. Worse: Transaction Commit
+/// performs validate → durable-commit → RAM-publish atomically under ONE
+/// `lock_graph` hold, so if it interleaves in that gap its RAM writes land in
+/// `core` BEFORE the earlier caller's still-pending write — producing a RAM
+/// apply order (T then A) that diverges from the durable commit order (A then
+/// T), a lasting divergence between served and authoritative state that only
+/// self-heals on reload. See `mutation_batch::lock_graph`'s own doc: "OCC
+/// validation cannot race a gateway write while its durable-before-RAM batch
+/// is in flight."
+///
+/// The fix here closes that gap by construction: this function hands the
+/// ENTIRE sequence (as a boxed `'static` job — see
+/// `server::routed_write_coalescer`) to the per-graph worker, which acquires
+/// `lock_graph` ONCE and runs every queued job's full sequence
+/// (`commit_mutation_body`) inside that ONE hold before releasing. There is no
+/// window in which a durable commit is visible to redb but not yet to `core`
+/// while `lock_graph` is free for anyone else to take.
+///
+/// Durable commits are still issued one per op (never merged across callers —
+/// see `commit_mutation_body`'s doc), so the batching win is lock
+/// ACQUISITIONS, not durable WRITES: N concurrent callers to the same graph
+/// pay `⌈N / max_batch⌉` `lock_graph` acquisitions instead of N.
+///
+/// On a full/closed coalescer queue this falls back to running the SAME job
+/// inline, under its own `lock_graph` acquisition — coalescing is an
+/// optimization, never a stall or a second commit path.
+pub async fn commit_coalescable_mutation<F>(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    apply: F,
+) -> Response
+where
+    F: FnOnce(&GraphCore) -> Result<ResultPayload, String> + Send + 'static,
+{
+    debug_assert!(
+        is_coalescable_structural_write(method),
+        "commit_coalescable_mutation called with a non-coalescable method"
+    );
+    let Some(coalescer) = ctx.write_coalescer else {
+        // No coalescer configured: identical to the ordinary path.
+        return commit_mutation(ctx, plan, method, apply).await;
+    };
+    let response = commit_via_coalescer(ctx, plan, method, apply, coalescer).await;
+    advance_authoritative_manifest(ctx, plan, &response);
+    response
+}
+
+/// Package one coalescable op's full `commit_mutation_body` sequence as a
+/// boxed `'static` job (detaching it from `ctx`'s borrow — the worker task
+/// that eventually runs it outlives this call), enqueue it on this graph's
+/// routed-write-coalescer worker, and await its `Response`. Falls back to
+/// running the SAME job inline (under this caller's own `lock_graph`
+/// acquisition) when the queue is full or the worker is gone.
+async fn commit_via_coalescer<F>(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    apply: F,
+    coalescer: &Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>,
+) -> Response
+where
+    F: FnOnce(&GraphCore) -> Result<ResultPayload, String> + Send + 'static,
+{
+    // Detach everything `commit_mutation_body` needs from `ctx`'s borrow. The
+    // `IsolationLayer` clone mirrors the SAME cost `dispatch_graph_op_inner`
+    // already pays once per gateway-routed request (see its
+    // `gateway_authz_ctx` comment: "an IsolationLayer clone is not free, so
+    // this is skipped entirely for the other ~330 methods") — this is a
+    // second clone specifically for the coalescable subset, so the job can
+    // run on the worker task after this request's own stack frame is gone.
+    let req_id = ctx.req_id;
+    let caller = ctx.caller.map(str::to_owned);
+    let tenant_scope = ctx.tenant_scope.to_owned();
+    let graph_name = ctx.graph_name.to_owned();
+    let graph_type = ctx.graph_type;
+    let owner = ctx.owner.map(str::to_owned);
+    let isolation = ctx.isolation.clone();
+    let core = ctx.core.clone();
+    let persistence = ctx.persistence.cloned();
+    #[cfg(feature = "streaming")]
+    let cdc = ctx.cdc.cloned();
+    let materialization_manifest = ctx.materialization_manifest.cloned();
+    let plan = plan.clone();
+    let method = method.clone();
+    let apply: Box<dyn FnOnce(&GraphCore) -> Result<ResultPayload, String> + Send> =
+        Box::new(apply);
+
+    let run: std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>> =
+        Box::pin(async move {
+            let owned_ctx = MutationCtx {
+                req_id,
+                caller: caller.as_deref(),
+                tenant_scope: &tenant_scope,
+                graph_name: &graph_name,
+                graph_type,
+                owner: owner.as_deref(),
+                isolation: &isolation,
+                core: &core,
+                persistence: persistence.as_ref(),
+                #[cfg(feature = "streaming")]
+                cdc: cdc.as_ref(),
+                materialization_manifest: materialization_manifest.as_ref(),
+                // Never re-enqueue from inside a job that IS the dequeued
+                // unit of work — this ctx is only ever used for the one
+                // direct `commit_mutation_body` call below.
+                write_coalescer: None,
+            };
+            commit_mutation_body(&owned_ctx, &plan, &method, apply).await
+        });
+
+    let (reply, reply_rx) = tokio::sync::oneshot::channel();
+    let writer = coalescer.writer_for(ctx.graph_name);
+    let job = crate::server::routed_write_coalescer::RoutedCommitJob::new(run, reply);
+    match writer.try_enqueue(job) {
+        Ok(()) => reply_rx.await.unwrap_or_else(|_| {
+            Response::err(req_id, "routed write worker unavailable".to_string())
+        }),
+        Err(job) => {
+            // Backpressure/closed-worker fallback: run this SAME job inline,
+            // under our own lock_graph acquisition — identical engine effect
+            // to the ordinary path, just not batched with anyone else's.
+            let _mutation_guard = crate::server::mutation_batch::lock_graph(ctx.graph_name).await;
+            job.into_future().await
+        }
+    }
 }
 
 /// Pre-apply state carried from [`commit_prepare`] to [`commit_finalize`], so the
@@ -1116,8 +1323,52 @@ where
 {
     // Every mutation shares one logical graph lane from validation through RAM
     // publication. Durable domains fail closed without an authoritative batch
-    // backend.
+    // backend. This is the ordinary single-call path: one op, one lock
+    // acquisition, exactly like every non-coalescable routed method. The four
+    // coalescable structural writes (AddNode/RemoveNode/AddEdge/RemoveEdge) go
+    // through [`commit_coalescable_mutation`] instead, which acquires this SAME
+    // lock ONCE PER BATCH in the routed-write-coalescer worker and calls
+    // [`commit_mutation_body`] once per queued op inside that one hold — see its
+    // doc comment for the invariant this preserves and why it must.
     let _mutation_guard = crate::server::mutation_batch::lock_graph(ctx.graph_name).await;
+    commit_mutation_body(ctx, plan, method, apply).await
+}
+
+/// The prepare → durable-commit → RAM-publish sequence for ONE routed mutation
+/// (CONCEPT:EG-P0-2 / L18 rewrite): authz, idempotency-replay short-circuit, CDC
+/// pre-image, durable commit, apply, mark-dirty/RAM publish, CDC emit, and
+/// idempotency-replay cache insert.
+///
+/// ASSUMES the caller already holds this graph's `lock_graph` lane for the
+/// ENTIRE call — this function never acquires or releases it. That is what
+/// makes it safely reusable by TWO callers with different lock-hold
+/// granularity, with no second, diverging copy of this durability/audit/CDC
+/// kernel:
+///   * [`commit_mutation_inner`] — the ordinary path — acquires the lock, calls
+///     this ONCE, releases it. One lock acquisition per op, as before.
+///   * the routed-write-coalescer worker (`server::routed_write_coalescer::
+///     run_worker`) — acquires the lock ONCE per flushed batch, then calls this
+///     N times back-to-back (once per queued op, in FIFO order) before
+///     releasing. One lock acquisition per BATCH, not per durable write: each
+///     op still gets its OWN `commit_mutation_batch` call (own principal/
+///     tenant/idempotency-key/audit/CDC — batching durable commits across
+///     different callers would misattribute provenance and is deliberately
+///     NOT done), but no third party (Transaction Commit, ApplyChangeEnvelope,
+///     another coalescable write, WorkItem commit, …) can acquire `lock_graph`
+///     between one op's durable commit and its RAM publish, because the SAME
+///     lock stays held across the whole batch. That is the fix for the race
+///     documented on `commit_coalescable_mutation`: a durably-committed-but-
+///     not-yet-RAM-published write can no longer be observed by anyone who
+///     must hold `lock_graph` to look.
+async fn commit_mutation_body<F>(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    apply: F,
+) -> Response
+where
+    F: FnOnce(&GraphCore) -> Result<ResultPayload, String>,
+{
     let prep = match commit_prepare(ctx, plan, method) {
         Ok(p) => p,
         Err(short_circuit) => return short_circuit,
@@ -1274,16 +1525,20 @@ where
                 Err(error) => Response::err(ctx.req_id, error),
             };
         }
-        let (response, indexes_maintained) = match try_coalesce_apply(ctx, method).await {
-            Some(response) => (response, true),
-            None => (
-                match apply(ctx.core) {
-                    Ok(payload) => Response::ok(ctx.req_id, payload),
-                    Err(error) => Response::err(ctx.req_id, error),
-                },
-                preserves_node_derived_indexes(method),
-            ),
+        // The coalescing decision (batch this RAM publish with concurrent
+        // siblings vs apply it here inline) is made by the CALLER now —
+        // `commit_coalescable_mutation` for the four coalescable structural
+        // writes, before this function is ever invoked — never here. By the
+        // time `commit_mutation_body` runs, `apply` is simply run directly:
+        // for the ordinary single-call path that's the only thing that ever
+        // happened; for a queued coalescable op the worker already decided to
+        // run this op's own `apply` (never re-enqueuing), so this is still
+        // the only mutation of `core` for this op either way.
+        let response = match apply(ctx.core) {
+            Ok(payload) => Response::ok(ctx.req_id, payload),
+            Err(error) => Response::err(ctx.req_id, error),
         };
+        let indexes_maintained = preserves_node_derived_indexes(method);
         return commit_finalize(ctx, plan, method, response, prep, true, indexes_maintained).await;
     }
 
