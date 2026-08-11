@@ -3525,6 +3525,42 @@ mod tests {
              see dispatch.rs; by the time a mutation happens the method value has already become \
              ApplyMutation, so this variant itself never reaches commit_mutation directly",
         ),
+        // ── Native WorkItem claim capabilities: dedicated private ledger, dispatch.rs's
+        // own block just above the reservation-read guard ("Native WorkItem claim
+        // capabilities use a dedicated private ledger and never enter MutationBatch/
+        // result/outbox/CDC projections"). See access.rs's REASON_NATIVE_CAPABILITY_LEDGER
+        // for the read-side twin (VerifyWorkItemClaimCapability). ──
+        (
+            "MintWorkItemClaimCapability",
+            "dispatch.rs's dedicated WorkItem-claim-capability block routes this to \
+             redb_store::work_item_capability::mint_work_item_claim_capability against its own \
+             private ledger, keyed by an AuthenticatedAuthority derived from the verified request \
+             context -- never enters MutationBatch/result/outbox/CDC projections, so it does not \
+             fit commit_mutation's (ctx, plan, method, apply) shape at all",
+        ),
+        // ── push/eg-merge-artifacts facade audit: DevelopmentLane* have a full native redb
+        // transition kernel (src/redb_store/development_lane.rs -- reserve/renew/observe/
+        // finish/cleanup/quota-update, each exercised directly by its own extensive unit
+        // tests) but NO dispatch.rs routing arm exists yet for any of the 6 write methods --
+        // confirmed by exhaustive search: none of these names appear anywhere in dispatch.rs,
+        // and every development_lane.rs function is module-private (only its own #[cfg(test)]
+        // mod can reach them). A live request for any of these therefore falls through
+        // dispatch_inner's `_ => dispatch_graph_op` wildcard into
+        // handlers::graph_ops::try_handle's own terminal catch-all, which fails closed with an
+        // explicit "Method not available in this server build" error -- never a silent no-op,
+        // never an unaccounted durable write. Documented HERE (not OPEN_NOT_JUSTIFIED) because
+        // the native commit mechanism genuinely exists (structurally identical to
+        // ReserveWorkItemResources/ReleaseWorkItemResources above: a dedicated
+        // engine-native redb transition, not commit_mutation's generic shape) -- it is simply
+        // not yet wired to the wire-protocol dispatch surface. Flagged as a visible TODO for
+        // the wave that adds that wiring, matching NOT_YET_AUDITED's read-side twin in
+        // access.rs (REASON_DEVELOPMENT_LANE_NOT_YET_WIRED). ──
+        ("ReserveDevelopmentLane", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
+        ("RenewDevelopmentLane", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
+        ("ObserveDevelopmentLane", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
+        ("FinishDevelopmentLane", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
+        ("CleanupDevelopmentLane", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
+        ("UpdateDevelopmentLaneQuota", "dedicated engine-native redb transition in redb_store::development_lane.rs (tested directly); no dispatch.rs wire-routing arm exists yet, so a live request fails closed via graph_ops::try_handle's terminal catch-all rather than reaching commit_mutation -- see the DevelopmentLane* block comment above"),
     ];
 
     /// Graph-scoped methods requiring a coordinator outside this gateway. The set is
