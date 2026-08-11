@@ -45,17 +45,6 @@ pub mod row_predicate;
 #[cfg(feature = "statechart")]
 pub mod statechart;
 pub mod types;
-// D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native
-// visualization engine's wire op (`VizOp`), gated `viz`. Lives here (not in
-// `eg-viz-core`, which sits in a separate small leaf DAG, not below eg-types) for
-// the SAME reason `jobs`/`statechart` do: `protocol::Method::Viz` carries it over
-// the wire, and `protocol` is bottom-of-DAG. Pure serde — no dep on
-// eg-viz-core/eg-viz-columnstore/eg-viz-export; the handler
-// (`src/server/handlers/viz.rs`, facade feature `viz-static-export`) is the one
-// place that parses `VizRenderRequest::spec_json` into a real
-// `eg_viz_core::ViewSpec` and resolves it.
-#[cfg(feature = "viz")]
-pub mod viz;
 pub mod wire;
 
 // CONCEPT:EG-KG.query.compound-predicate-decode — the serializable compound-WHERE predicate AST lives at the

@@ -197,45 +197,6 @@ pub fn density_grid(
     ops
 }
 
-/// Tier 0 for `MarkKind::Graph` (D-VZ-1 lane V6, "graph-native marks") — one
-/// `DrawOp::Point` per already-laid-out node position (`crate::graph_layout::layout`'s
-/// output, in `[0,1]x[0,1]`, mapped through `x_map`/`y_map` the SAME way every
-/// other Direct-tier mark's coordinates are), plus one `DrawOp::Segment` per
-/// edge whose endpoints both resolve to a known position. Only called when
-/// `select_tier` already returned `LodTier::Direct` for the node count (mirrors
-/// [`direct`]'s "trust the decision, never re-check a budget" rule).
-pub fn graph_direct(
-    positions: &[(f32, f32)],
-    edges: &[(u32, u32)],
-    x_map: LinearMap,
-    y_map: LinearMap,
-    color: [u8; 4],
-) -> Vec<DrawOp> {
-    let mut ops = Vec::with_capacity(positions.len() + edges.len());
-    for &(x, y) in positions {
-        ops.push(DrawOp::Point {
-            x: x_map.map(x as f64),
-            y: y_map.map(y as f64),
-            radius: 2.0,
-            color,
-        });
-    }
-    for &(src, dst) in edges {
-        if let (Some(&(sx, sy)), Some(&(dx, dy))) =
-            (positions.get(src as usize), positions.get(dst as usize))
-        {
-            ops.push(DrawOp::Segment {
-                x0: x_map.map(sx as f64),
-                y0: y_map.map(sy as f64),
-                x1: x_map.map(dx as f64),
-                y1: y_map.map(dy as f64),
-                color,
-            });
-        }
-    }
-    ops
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,30 +328,5 @@ mod tests {
             DrawOp::Segment { x0, x1, .. } => assert!(x0 < x1),
             _ => panic!("expected a segment"),
         }
-    }
-
-    #[test]
-    fn graph_direct_emits_one_point_per_node_and_one_segment_per_valid_edge() {
-        let positions = vec![(0.0_f32, 0.0_f32), (0.5, 0.5), (1.0, 1.0)];
-        // One valid edge (0->1), one edge referencing an out-of-range node (must
-        // be skipped, not panic).
-        let edges = [(0u32, 1u32), (2, 99)];
-        let ops = graph_direct(
-            &positions,
-            &edges,
-            identity_map(100.0),
-            identity_map(100.0),
-            [0, 0, 0, 255],
-        );
-        let point_count = ops
-            .iter()
-            .filter(|o| matches!(o, DrawOp::Point { .. }))
-            .count();
-        let segment_count = ops
-            .iter()
-            .filter(|o| matches!(o, DrawOp::Segment { .. }))
-            .count();
-        assert_eq!(point_count, 3, "one point per node");
-        assert_eq!(segment_count, 1, "only the in-range edge draws a segment");
     }
 }

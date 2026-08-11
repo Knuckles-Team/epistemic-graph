@@ -2648,131 +2648,6 @@ class StatechartClient:
         )
 
 
-class VizClient:
-    """D-VZ-1 lanes V4 ("engine integration") / V6 ("graph-native marks") — the
-    native visualization render surface: ``Method::Viz { op }`` resolves a
-    caller-provided ``eg_viz_core::ViewSpec`` against a dataset (caller-supplied
-    inline columns, or deterministic engine-side synthetic data — including a
-    ``MarkKind::Graph`` node/edge dataset for the V6-lite graph-native marks
-    demo) and returns REAL PNG/SVG/PDF bytes rendered server-side through the
-    LOD ColumnStore/export pipeline (``eg-viz-core``/``eg-viz-columnstore``/
-    ``eg-viz-export``) — never a stub or placeholder image.
-
-    V4-LITE, not full V4: each :meth:`render` call resolves against a FRESH,
-    ephemeral, per-request ``ColumnStore`` built fresh for that one request — no
-    tile cache keyed by ``(query_hash, viewport, theme, tier)``, no provenance
-    inherited from a durable ``eg-jobs`` job, no view over a live query against
-    a resident graph. See the Rust handler's module doc
-    (``src/server/handlers/viz.rs``) for the exact scope boundary this class
-    is a thin wire wrapper over. NOT graph-scoped: this surface never reads or
-    writes graph state.
-
-    Example::
-
-        matrix = await client.viz.capability_matrix()
-        result = await client.viz.render(
-            spec={
-                "version": 1,
-                "marks": [{
-                    "kind": "scatter",
-                    "data_ref": "ds:1",
-                    "encodings": {"x": {"field": "x"}, "y": {"field": "y"}},
-                }],
-            },
-            dataset={"InlineColumns": {"columns": {
-                "x": {"F64": [1.0, 2.0, 3.0]},
-                "y": {"F64": [3.0, 1.0, 2.0]},
-            }}},
-        )
-        png_bytes = result["bytes"]
-        assert result["view_result"]["exact"] is True
-    """
-
-    def __init__(self, client: EpistemicGraphClient) -> None:
-        self._client = client
-
-    async def capability_matrix(self) -> dict[str, Any]:
-        """Fetch the mark x surface support matrix
-        (``eg_viz_core::CapabilityMatrix::default_matrix``) — which (mark,
-        surface) pairs are real today, and which lane will land the rest.
-        Returns ``{"entries": [{"mark", "surface", "level", "status",
-        "target_wave", "notes"}, ...]}``.
-
-        ``_send`` already decodes the wire's compact MessagePack `Raw` payload
-        (the same "second unpackb over a top-level bytes result" every other
-        ``Raw``/``PropertiesMsgpack`` result goes through) — no special-cased
-        decoding needed here.
-        """
-        return await self._client._send("Viz", {"op": "CapabilityMatrix"})
-
-    async def render(
-        self,
-        spec: dict[str, Any],
-        dataset: dict[str, Any],
-        *,
-        width_px: int = 800,
-        height_px: int = 600,
-        format: str = "png",
-        max_primitives: int = 200_000,
-        max_bytes: int = 50_000_000,
-        dataset_ref: str = "viz-render",
-    ) -> dict[str, Any]:
-        """Resolve ``spec`` against ``dataset`` and render it server-side.
-
-        ``spec`` is a plain dict matching ``eg_viz_core::ViewSpec``'s JSON
-        shape 1:1 (field names are exactly what that type's derived
-        ``Serialize`` produces — snake_case throughout, e.g. ``{"version": 1,
-        "marks": [{"kind": "scatter", "data_ref": "ds:1", "encodings": {"x":
-        {"field": "x"}, "y": {"field": "y"}}}], "scales": [...], "theme":
-        {...}}``); the server parses and ``ViewSpec::validate()``s it, so a
-        malformed spec is a typed error, never a silent misrender.
-
-        ``dataset`` is a plain dict matching one of
-        ``eg_types::viz::VizDatasetSource``'s three variants, externally
-        tagged (the SAME convention :class:`StatechartClient` already shows —
-        e.g. its ``{"op": {"Define": {...}}}``):
-
-        - ``{"InlineColumns": {"columns": {name: {"F64": [...]} | {"Utf8":
-          [...]}, ...}}}`` — caller-supplied columns.
-        - ``{"SyntheticScatterClusters": {"row_count": int, "clusters": int,
-          "seed": int}}`` — a deterministic, seeded, ENGINE-SIDE-generated
-          clustered scatter (never shipped over the wire), proving
-          high-density rendering without a huge request payload.
-        - ``{"SyntheticGraph": {"node_count": int, "edge_count": int, "seed":
-          int}}`` — a deterministic, seeded, ENGINE-SIDE-generated random
-          graph for a ``MarkKind: "graph"`` mark (V6-lite).
-
-        ``format`` is one of ``"png"``/``"svg"``/``"pdf"`` (matching
-        ``eg_types::viz::VizFormat``'s `snake_case` wire casing — the SAME
-        casing ``eg_viz_core::StaticExportFormat`` uses).
-
-        Returns ``{"view_result": {...}, "format": ..., "content_type": ...,
-        "bytes": b"..."}`` — ``bytes`` is real, non-empty, format-appropriate
-        image bytes rendered server-side (a PNG starts with the standard PNG
-        signature); ``view_result`` carries the LOD tier actually used and the
-        ``exact`` trust bit (``True`` only for an unreduced ``LodTier.Direct``
-        render — see ``eg_viz_core::ViewResult``'s own doc for why a caller
-        must check this rather than infer it from the tier name).
-        """
-        return await self._client._send(
-            "Viz",
-            {
-                "op": {
-                    "Render": {
-                        "spec_json": spec,
-                        "dataset": dataset,
-                        "width_px": width_px,
-                        "height_px": height_px,
-                        "format": format,
-                        "max_primitives": max_primitives,
-                        "max_bytes": max_bytes,
-                        "dataset_ref": dataset_ref,
-                    }
-                }
-            },
-        )
-
-
 class WorkItemClient:
     """Engine-native durable WorkItem claim, lease, and result namespace."""
 
@@ -10473,7 +10348,6 @@ class EpistemicGraphClient:
         self.admin = AdminClient(self)
         self.jobs = JobsClient(self)
         self.statechart = StatechartClient(self)
-        self.viz = VizClient(self)
 
     @staticmethod
     def _resolve_tls(
@@ -11386,7 +11260,6 @@ class SyncEpistemicGraphClient:
         self.admin = self._SyncWrapper(self._client.admin, self._loop)
         self.jobs = self._SyncWrapper(self._client.jobs, self._loop)
         self.statechart = self._SyncWrapper(self._client.statechart, self._loop)
-        self.viz = self._SyncWrapper(self._client.viz, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""
