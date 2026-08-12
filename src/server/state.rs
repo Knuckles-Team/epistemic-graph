@@ -159,7 +159,8 @@ pub struct ServerState {
     /// this is a SEPARATE registry from `write_coalescer`: its worker queues
     /// the WHOLE prepare→durable-commit→RAM-publish sequence, not just the RAM
     /// apply, and needs no `core` handle (each queued job carries its own).
-    pub routed_write_coalescer: Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>,
+    pub routed_write_coalescer:
+        Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>,
     /// Open server-staged OCC transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid), keyed by the
     /// server-issued `txn_id`. A staged txn holds its write-set + read-set off the
     /// graph lock; the lock is taken only at commit. Each entry is behind a `Mutex`

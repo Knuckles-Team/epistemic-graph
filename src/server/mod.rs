@@ -631,7 +631,9 @@ mod tests {
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(
+                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+            ),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
@@ -2249,7 +2251,9 @@ mod tests {
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 1, // any one graph: a single slot
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(
+                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+            ),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
@@ -3195,7 +3199,11 @@ mod tests {
         });
         let st2 = state.clone();
         let committed = tokio::spawn(async move {
-            dispatch_on_heap(&st2, request(5, GRAPH, None, Method::Commit { txn_id: txn })).await
+            dispatch_on_heap(
+                &st2,
+                request(5, GRAPH, None, Method::Commit { txn_id: txn }),
+            )
+            .await
         });
 
         // Neither can complete ANY part of its sequence while the lane is
@@ -3274,11 +3282,7 @@ mod tests {
             .await,
         );
         assert_ok(
-            &dispatch_on_heap(
-                &state,
-                request(1, GRAPH, None, doc_node("chain", "Chain")),
-            )
-            .await,
+            &dispatch_on_heap(&state, request(1, GRAPH, None, doc_node("chain", "Chain"))).await,
         );
 
         // K concurrent overwrites of the SAME node — every one a coalescable

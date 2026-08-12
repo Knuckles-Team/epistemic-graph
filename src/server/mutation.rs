@@ -631,7 +631,8 @@ pub struct MutationCtx<'a> {
     /// `commit_coalescable_mutation`'s doc for the invariant this preserves.
     /// `None` ⇒ [`commit_coalescable_mutation`] falls back to the ordinary
     /// [`commit_mutation`] single-call path, unchanged.
-    pub write_coalescer: Option<&'a Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>>,
+    pub write_coalescer:
+        Option<&'a Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>>,
 }
 
 /// Publish the resident freshness watermark only after an authoritative gateway
@@ -992,9 +993,9 @@ pub(crate) fn apply_coalescable_write(
             txn.remove_edge(source_id.clone(), target_id.clone());
             Ok(ResultPayload::String("ok".to_string()))
         }
-        other => unreachable!(
-            "apply_coalescable_write called with a non-coalescable method: {other:?}"
-        ),
+        other => {
+            unreachable!("apply_coalescable_write called with a non-coalescable method: {other:?}")
+        }
     };
     if !change.is_empty() {
         core.maintain_indexes_at(
