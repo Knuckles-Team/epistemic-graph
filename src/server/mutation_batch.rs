@@ -334,7 +334,7 @@ pub(crate) fn projection_payload_for_operations(
             hex::encode(Sha256::digest(encoded_operations)),
             eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),
         )?;
-        return rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string());
+        rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())
     }
 
     #[cfg(not(feature = "epistemic-tms"))]

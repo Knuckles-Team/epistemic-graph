@@ -429,11 +429,15 @@ fn handle_rank(
 const QAOA_GAMMA: f64 = std::f64::consts::FRAC_PI_4;
 const QAOA_BETA: f64 = std::f64::consts::FRAC_PI_8;
 
+/// Resolved `(source_index, target_index, weight)` Max-Cut edges, indices
+/// into the caller-supplied `nodes` slice.
+type ResolvedQaoaEdges = Vec<(u32, u32, f64)>;
+
 fn build_qaoa_program(
     nodes: &[String],
     edges: &[QuantumQaoaEdge],
     p_layers: u32,
-) -> Result<(QuantumProgram, Vec<(u32, u32, f64)>), String> {
+) -> Result<(QuantumProgram, ResolvedQaoaEdges), String> {
     if nodes.is_empty() {
         return Err("optimize_with_qaoa requires at least one node".to_string());
     }

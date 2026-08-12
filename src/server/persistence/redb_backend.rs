@@ -379,7 +379,7 @@ pub(crate) enum Cmd {
     /// transaction, same shape as the claim-capability commands above.
     CommitDevelopmentLane {
         graph: String,
-        method: Method,
+        method: Box<Method>,
         now_ms: u64,
         done: oneshot::Sender<Result<Vec<u8>, String>>,
     },
@@ -2558,7 +2558,7 @@ impl PersistenceBackend for RedbBackend {
         let (done, rx) = oneshot::channel();
         let cmd = Cmd::CommitDevelopmentLane {
             graph: graph_fname.to_string(),
-            method,
+            method: Box::new(method),
             now_ms,
             done,
         };

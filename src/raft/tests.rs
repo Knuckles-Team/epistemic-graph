@@ -332,7 +332,7 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
 
     use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
     use crate::protocol::{Request, ResultPayload};
-    use crate::server::{compute_verified_envelope_token, dispatch, VerifiedEnvelopeParams};
+    use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
 
     const TEST_AGENT: &str = "cluster-members-wire-test-agent";
     const SECRET: &str = "raft-test"; // matches make_state's ServerState.auth_secret
@@ -2307,7 +2307,6 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     use super::multi::MultiRaft;
     use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
     use crate::protocol::{Request, ResultPayload};
-    use crate::server::dispatch;
     use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
 
     const TEST_AGENT: &str = "raft-admin-wire-test-agent";

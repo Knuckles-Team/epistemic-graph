@@ -37,7 +37,7 @@ pub fn register_quantum_job_source(
     let job_id = job_id.into();
     registry.register_closure(name, move || {
         let rows = join_quantum_result_rows(&store, &job_id).map_err(|e| e.to_string())?;
-        Ok(RowSet::from_scored(rows.into_iter().map(|(id, s)| (id, s))))
+        Ok(RowSet::from_scored(rows))
     })
 }
 
@@ -96,6 +96,10 @@ mod tests {
         )
         .expect("worker run succeeds")
         .expect("a job was ready");
+        assert_eq!(
+            finished.job_id, job.job_id,
+            "the worker should have claimed and completed the job just submitted"
+        );
 
         let mut registry = ForeignSourceRegistry::new();
         register_quantum_job_source(
