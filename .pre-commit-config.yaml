@@ -15,7 +15,7 @@ default_language_version:
 # stages run at BOTH stages, so a push runs the commit-stage gates PLUS the
 # heavy ones. Pushing is now the slow, complete gate on purpose.
 default_install_hook_types: [pre-commit, pre-push]
-default_stages: [pre-commit, pre-push]
+default_stages: [pre-commit]  # P0.3: was [pre-commit, pre-push] -- every genuinely-heavy hook below now carries its own explicit stages:
 exclude: 'dotnet|node_modules|target'
 ci:
   autofix_prs: true
@@ -75,10 +75,15 @@ repos:
   - id: bandit
     args: ["--skip", "B101,B404,B603"]
     exclude: ^(tests/|test/|scripts/|script/|__tests__/)
-- repo: https://github.com/astral-sh/uv-pre-commit
-  rev: 659a7789596d520c849e9c96525119e9fbaa731f # 0.11.8
+- repo: local
   hooks:
   - id: uv-lock
+    name: uv-lock (verify, never mutate)
+    entry: bash -c 'uv lock --check'
+    language: system
+    files: ^(uv\.lock|pyproject\.toml|uv\.toml)$
+    pass_filenames: false
+    stages: [pre-push, manual]
 - repo: local
   hooks:
   - id: lane-guard
@@ -197,6 +202,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [pre-push, manual]
   # rust-ci gate 1 — workspace format. APPLIES rather than only checking: a
   # check-only hook makes the committer re-run the formatter by hand for a
   # mechanical, always-safe rewrite, and if they push before noticing, CI's own
@@ -212,6 +218,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [pre-push, manual]
   # rust-ci gates 2-4 — clippy. The EVERYDAY leg lints the SHIPPED build (`full`,
   # which == `default`) + the two slim variants, each -D warnings. The exhaustive
   # `--all-features` leg is split to a pre-push/manual hook below: `--all-features`
@@ -227,6 +234,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [pre-push, manual]
   # Exhaustive clippy across EVERY feature incl. the opt-in `cluster` (raft/harness) and
   # `full-extras` (GPU/ROS2) layers — the heaviest compile in the repo (openraft, cudarc,
   # rustdds, the CycloneDDS C build; 55 crates that exist ONLY under these two features,
@@ -264,6 +272,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [pre-push, manual]
   # rust-ci gate 6 — facade full test matrix (~9 min). Too slow for every commit:
   # staged pre-push + manual so it runs on push and in the parity check.
   # DIFFERENTIAL, not absolute-green. `main` here is legitimately red: the
