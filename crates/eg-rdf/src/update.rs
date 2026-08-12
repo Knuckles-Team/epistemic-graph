@@ -38,7 +38,9 @@ use spargebra::term::{
 use spargebra::SparqlParser;
 use spargebra::{GraphUpdateOperation, Update};
 
-use crate::mapping::{literal_to_cell, RDF_MULTI_VALUE_KEY};
+use crate::mapping::{
+    literal_to_cell, mark_schema, RDF_MULTI_VALUE_KEY, TBOX_SCHEMA_PREDICATES, TBOX_TYPE_OBJECTS,
+};
 use crate::sparql::{Binding, Dataset, Projection, Solution};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
@@ -797,7 +799,27 @@ fn insert_triple(core: &GraphCore, s: &str, p: &str, obj: &ObjTerm) -> Result<bo
             if p == RDF_TYPE {
                 if let Some(iri) = o.strip_prefix('<').and_then(|x| x.strip_suffix('>')) {
                     changed |= set_type_property(core, s, iri);
+                    // A18 (CONCEPT:EG-KG.sharding.row-level-security): an explicit
+                    // `rdf:type owl:Class`/`rdfs:Class`/... declaration makes the
+                    // SUBJECT itself ontology SCHEMA (TBox), exempt from row-level
+                    // RLS default-deny -- see `crate::mapping`'s module-level A18
+                    // note and `eg_core::isolation::RLS_SCHEMA_KEY`.
+                    if TBOX_TYPE_OBJECTS.contains(&iri) {
+                        mark_schema_node(core, s);
+                    }
                 }
+            } else if TBOX_SCHEMA_PREDICATES.contains(&p) {
+                // A18: a recognized RDFS/OWL schema predicate (e.g.
+                // `rdfs:subClassOf`) names an axiom ABOUT both endpoints -- a
+                // class/property reference on each side, never a fact about an
+                // individual -- so both are schema. This is the exact SPARQL
+                // UPDATE path `wire_reason_iri_bridges_string_typed_node`
+                // exercises: an `INSERT DATA { <..Sensor> rdfs:subClassOf
+                // <..Device> }` axiom would otherwise land with two untagged,
+                // unowned class nodes that default-deny RLS hides from every
+                // non-`System` actor.
+                mark_schema_node(core, s);
+                mark_schema_node(core, o);
             }
             changed |= add_edge_if_absent(core, s, o, p)?;
             Ok(changed)
@@ -834,6 +856,19 @@ fn read_node_obj(core: &GraphCore, id: &str) -> serde_json::Map<String, serde_js
 fn write_node_obj(core: &GraphCore, id: &str, map: serde_json::Map<String, serde_json::Value>) {
     let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(map)).unwrap_or_default();
     core.add_node(id.to_string(), blob);
+}
+
+/// Stamp a node as ontology SCHEMA (TBox) -- see `crate::mapping`'s module-level A18
+/// note and `eg_core::isolation::RLS_SCHEMA_KEY`. Idempotent: a no-op (no write at
+/// all) if already marked, so re-inserting the SAME axiom triple via `INSERT DATA`
+/// does not needlessly re-mutate the node.
+fn mark_schema_node(core: &GraphCore, id: &str) {
+    let mut map = read_node_obj(core, id);
+    if map.get(eg_core::isolation::RLS_SCHEMA_KEY) == Some(&serde_json::Value::Bool(true)) {
+        return;
+    }
+    mark_schema(&mut map);
+    write_node_obj(core, id, map);
 }
 
 fn ensure_node(core: &GraphCore, id: &str) {

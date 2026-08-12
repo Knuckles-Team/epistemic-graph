@@ -70,6 +70,16 @@ pub struct RowVisibility {
     /// `false` for an undecodable blob OR a blob that decoded fine but declares
     /// none of the five keys. Untagged rows fail the default-deny decision.
     pub tagged: bool,
+    /// A18 TBox/ABox RLS distinction: `true` when the row's property blob
+    /// carries [`RLS_SCHEMA_KEY`] — an OWL/RDFS axiom/class/property-definition
+    /// node stamped by `eg_rdf`'s lowering, structurally, never a name
+    /// convention. [`IsolationLayer::can_see_row`] treats a schema row as
+    /// visible regardless of `owner`/`public`/`tagged`/`grants` — see
+    /// [`RLS_SCHEMA_KEY`]'s doc comment for the full ABox/TBox reasoning and
+    /// why graph-level ACL (unaffected by this field) remains the real gate.
+    /// An ABox row (`schema: false`, the default) is completely unaffected:
+    /// default-deny applies exactly as it did before this field existed.
+    pub schema: bool,
 }
 
 /// Reserved RLS property keys (this crate's own native convention).
@@ -89,6 +99,45 @@ pub const RLS_GRANTS_KEY: &str = "_grants";
 pub const RLS_OWNER_ID_KEY: &str = "_owner_id";
 #[cfg(feature = "security")]
 pub const RLS_SHARED_SCOPE_KEY: &str = "_shared_scope";
+
+/// Reserved node-property key marking a row as ontology SCHEMA (TBox) rather
+/// than instance data (ABox) — CONCEPT:EG-KG.sharding.row-level-security, A18 TBox/ABox RLS
+/// distinction.
+///
+/// Row-level default-deny ([`IsolationLayer::can_see_row`]) exists to protect
+/// ABox rows — a row ABOUT someone/something whose owner should control its
+/// visibility. An OWL axiom / class / property-definition node is SCHEMA, not
+/// a row about anyone; applying row-level default-deny to it is a category
+/// error, and doing so made an entire graph's schema invisible to every
+/// non-`System` actor (see `tests/pgwire_roundtrip.rs::wire_reason_iri_bridges_string_typed_node`).
+/// Schema is already protected at the correct granularity by GRAPH-level ACL
+/// (`server::access::check_graph_access`, enforced upstream of every read
+/// that reaches row filtering, UNCHANGED by this key's existence): if a
+/// caller may read the graph at all, it may see the graph's schema; if it may
+/// not, [`IsolationLayer::filter_view`] is never reached for that caller in
+/// the first place.
+///
+/// This key is stamped ONLY by the RDF/OWL lowering layer (`eg_rdf::mapping`,
+/// `eg_rdf::update`) on a node that is STRUCTURALLY a class/property/axiom
+/// reference — the subject or object of a recognized RDFS/OWL schema
+/// predicate (`rdfs:subClassOf`, `owl:equivalentClass`, `owl:onProperty`, …),
+/// or the subject of an explicit `rdf:type owl:Class`/`rdfs:Class`/
+/// `owl:ObjectProperty`/… declaration — NEVER a name convention on the node
+/// id. `eg-core` deliberately does not know RDF/OWL vocabulary (`eg-rdf`
+/// depends on `eg-core`, not the reverse); this crate only trusts this ONE
+/// narrow, explicit marker set by the layer that DOES know the vocabulary,
+/// and does nothing to widen visibility for any row that lacks it — an
+/// untagged ABox row is denied exactly as it was before this key existed.
+///
+/// Deliberately NOT gated on feature `security` (unlike the other `RLS_*_KEY`
+/// constants below) — `eg-rdf`'s lowering (feature `rdf`, which does not
+/// itself depend on `eg-core/security`) must be able to name this key
+/// whenever RDF/OWL lowering compiles at all, independent of whether THIS
+/// build additionally happens to enable row-level enforcement. Only the
+/// constant is unconditional; every place that INTERPRETS it
+/// ([`RowVisibility`], [`row_visibility`], [`IsolationLayer::can_see_row`])
+/// stays exactly as gated as it always was.
+pub const RLS_SCHEMA_KEY: &str = "_schema";
 
 /// Parse a node's msgpack property blob into its [`RowVisibility`].
 ///
@@ -145,11 +194,20 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
         || map.contains_key(RLS_GRANTS_KEY)
         || map.contains_key(RLS_OWNER_ID_KEY)
         || map.contains_key(RLS_SHARED_SCOPE_KEY);
+    // A18: schema (TBox) is a SEPARATE dimension from the owner/visibility/
+    // grants tagging above — an axiom node is neither owned nor "tagged
+    // public" in the ABox sense, it is simply not a row RLS should be
+    // deciding at all. See `RLS_SCHEMA_KEY` for the full reasoning.
+    let schema = map
+        .get(RLS_SCHEMA_KEY)
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     RowVisibility {
         owner,
         public,
         grants,
         tagged,
+        schema,
     }
 }
 
@@ -161,6 +219,7 @@ impl RowVisibility {
             public: true,
             grants: Vec::new(),
             tagged: false,
+            schema: false,
         }
     }
 }
@@ -588,6 +647,20 @@ impl IsolationLayer {
             if identity.role == AgentRole::System {
                 return true;
             }
+        }
+        // A18: ontology SCHEMA (TBox) is exempt from ROW-level default-deny —
+        // see `RLS_SCHEMA_KEY` for the full ABox/TBox distinction. This does
+        // NOT widen visibility for any other untagged row: `vis.schema` is
+        // only ever `true` when `eg_rdf`'s lowering structurally identified
+        // the row as a class/property/axiom node, never merely because it is
+        // untagged/unowned (that case still falls through to the
+        // `vis.tagged && vis.public` default-deny check below, unchanged).
+        // Graph-level ACL (`server::access::check_graph_access`), enforced
+        // upstream of every caller that reaches row filtering at all, is
+        // completely unaffected — a caller with no read access to this graph
+        // never reaches this function in the first place.
+        if vis.schema {
+            return true;
         }
         let owner = match &vis.owner {
             None => return vis.tagged && vis.public,
@@ -1044,6 +1117,7 @@ mod tests {
                     public: true,
                     grants: Vec::new(),
                     tagged: false,
+                    schema: false,
                 };
                 assert!(
                     !layer.can_see_row("worker1", &untagged),
@@ -1055,6 +1129,7 @@ mod tests {
                     public: true,
                     grants: Vec::new(),
                     tagged: true,
+                    schema: false,
                 };
                 assert!(
                     layer.can_see_row("worker1", &explicit_public),
