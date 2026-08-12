@@ -2582,7 +2582,7 @@ pub(crate) async fn commit_graphql_cross_modal(
         );
         if let Some(record) = persistence.read_mutation_batch(&fname, &batch_id).await? {
             let expected_principal =
-                crate::server::mutation_batch::principal_fingerprint(authority.actor_scope())?;
+                crate::server::mutation_batch::principal_fingerprint(authority.agent_id())?;
             if record.batch.graph != graph_name
                 || record.batch.tenant != authority.tenant_scope()
                 || record.batch.context.principal != expected_principal
@@ -2671,7 +2671,17 @@ pub(crate) async fn commit_graphql_cross_modal(
     commit_cross_modal_txn(
         state,
         request_id,
-        Some(authority.actor_scope()),
+        // `check_graph_access` inside `commit_cross_modal_txn` looks a caller up by the
+        // RAW agent_id registered in `IsolationLayer` (every other dispatch call site --
+        // e.g. `dispatch.rs`'s `req.agent_id.as_deref()`, `jobs.rs`'s
+        // `Some(authority.agent_id())` -- passes the plain agent_id, never the opaque
+        // `actor_scope()` storage key). Passing `actor_scope()` here made every
+        // GraphQL cross-modal commit ACCESS_DENIED for an identity that is provisioned
+        // and authorized under its real agent_id, because the hashed scope never
+        // matches an `IsolationLayer::agents` entry. `MutationBatch.context.principal`
+        // is fingerprinted from this same value below on the retry-reconciliation path,
+        // so both call sites use `agent_id()` consistently.
+        Some(authority.agent_id()),
         &coordinator_id,
         txn,
     )

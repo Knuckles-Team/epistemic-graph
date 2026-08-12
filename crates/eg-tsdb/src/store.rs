@@ -108,9 +108,17 @@ fn decode_stored<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
 }
 
 fn validate_storage_key(key: &str) -> Result<()> {
+    // A `SCOPED_KEY_PREFIX` key must round-trip through `SeriesKey::decode` — which
+    // independently rejects a NUL byte inside any of its length-prefixed components —
+    // so scoped-key structural integrity is already fully covered there. An UNSCOPED
+    // key (the "lean" local path this store's own module docs describe: e.g.
+    // `server::secondary_indexes::GraphTemporalIndex`'s `"{graph}\0{node_id}"` series
+    // ids, and this crate's own `delete_series_tests`) may legitimately embed a NUL as
+    // an unambiguous separator between components that themselves can never contain
+    // one. A blanket `key.contains('\0')` reject here would deny that entire supported,
+    // tested unscoped usage, not just malformed scoped keys.
     if key.is_empty()
         || key.len() > MAX_TS_SERIES_KEY_BYTES
-        || key.contains('\0')
         || (key.starts_with(SCOPED_KEY_PREFIX) && SeriesKey::decode(key).is_none())
     {
         return Err(codec_err("time-series key is invalid"));
