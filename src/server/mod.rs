@@ -279,6 +279,13 @@ pub mod registry_reaper;
 // the GATEWAY_ROUTED mutation set from ONE call site. See its module docs for scope.
 pub(crate) mod mutation;
 pub(crate) mod mutation_batch;
+// Per-graph batching worker for the four coalescable GATEWAY_ROUTED structural
+// writes (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18 rewrite). See its module
+// docs and `mutation::commit_coalescable_mutation` for why the durable commit, not
+// just the RAM publish, must run inside the worker's ONE `lock_graph` hold per batch.
+// `pub` (not `pub(crate)`) so `ServerState::routed_write_coalescer`'s field type is
+// nameable from the `epistemic-graph-server` binary crate, mirroring `write_coalescer`.
+pub mod routed_write_coalescer;
 // Durable incremental reasoning authority. It tails the committed MutationBatch
 // outbox, fsyncs each per-graph projection before cursor acknowledgement, and serves
 // status/recompute directly from that projection.
@@ -624,6 +631,7 @@ mod tests {
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
@@ -2241,6 +2249,7 @@ mod tests {
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 1, // any one graph: a single slot
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
@@ -3024,24 +3033,18 @@ mod tests {
     /// land via the dispatch path — no lost writes, the coalescer is not a drop
     /// point — and every dispatched op must be accounted for in the writer's stats.
     ///
-    /// This does NOT (and structurally cannot) prove a batching win at this layer:
-    /// `commit_mutation_inner` (`server/mutation.rs`) takes the per-graph
-    /// `mutation_batch::lock_graph` stripe mutex BEFORE calling `try_coalesce_apply`
-    /// and holds it across the enqueue-and-await, for the entire authoritative
-    /// commit (validation → durability → RAM publication, CONCEPT:EG-P0-2). Every
-    /// `AddNode` here is `mutation::GATEWAY_ROUTED`, so all 400 concurrent calls on
-    /// `__commons__` serialize on that ONE stripe: only one caller can be inside
-    /// `commit_mutation_inner` for this graph at a time, so the writer's queue can
-    /// never hold more than one op at enqueue time. Batches-per-op is deterministically
-    /// 1:1 through THIS path — the batching win is real but lives at the
-    /// `WriteCoalescerRegistry`/`GraphWriter` layer for callers outside that lock
-    /// (proven directly in `write_coalescer::tests`, e.g.
-    /// `bench_inline_vs_coalesced`), and `dispatch::try_coalesce_write` (the OTHER,
-    /// non-gateway coalescing call site) is dead code for every structural write
-    /// method here since they are all `GATEWAY_ROUTED` and never reach it. Verified
-    /// independently 2026-08-11 by reading `lock_graph`'s call site — the prior
-    /// analysis was correct; loosening this to `batches < ops` would just be
-    /// asserting a fiction, so this asserts the real invariant instead.
+    /// L18 rewrite (2026-08-11): `mutation::commit_coalescable_mutation` no longer
+    /// holds `mutation_batch::lock_graph` itself around the enqueue+await for the
+    /// four coalescable structural writes — it hands the WHOLE prepare→durable-
+    /// commit→RAM-publish sequence to `server::routed_write_coalescer`'s per-graph
+    /// worker, which acquires `lock_graph` ONCE per flushed batch and runs every
+    /// queued job's sequence inside that one hold (see that module's docs and
+    /// `commit_coalescable_mutation`'s doc for why batching the RAM publish ALONE,
+    /// the previous attempt, was unsafe). So the worker's queue genuinely CAN hold
+    /// more than one job at a time now: 400 concurrent dispatches race to enqueue
+    /// onto the SAME per-graph worker without each needing its own `lock_graph`
+    /// acquisition first, so this now proves a REAL batching win, not just a 1:1
+    /// accounting identity.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn dispatch_coalesces_concurrent_writes_to_one_graph() {
         let state = test_state();
@@ -3073,21 +3076,285 @@ mod tests {
             "all {N} dispatched writes land"
         );
 
-        // The win: the coalescer applied them in fewer lock acquisitions than ops.
+        // The win: the coalescer applied them in FEWER lock acquisitions than ops.
         let (batches, ops) = {
             let s = state.read().await;
-            let w = s.write_coalescer.writer_for("__commons__", &core);
+            let w = s.routed_write_coalescer.writer_for("__commons__");
             (w.stats().batches(), w.stats().ops())
         };
         assert_eq!(ops, N, "stats account for every dispatched write");
+        assert!(
+            batches < ops,
+            "coalescer should genuinely batch: {ops} ops landed in {batches} \
+             lock_graph acquisitions (expected < {ops}) — batches == ops would mean \
+             the fix regressed back to one lock acquisition per op",
+        );
+    }
+
+    /// Regression test for the L18 rewrite (2026-08-11): a coalescable
+    /// structural write's ENTIRE prepare→durable-commit→RAM-publish sequence
+    /// and a Transaction Commit's ENTIRE validate→durable-commit→RAM-publish
+    /// sequence contend for the IDENTICAL per-graph `mutation_batch::lock_graph`
+    /// lane, so NEITHER can make any progress — not even reach its own durable
+    /// commit — while the other holds it.
+    ///
+    /// This directly targets the interleaving a first (rejected) fix attempt
+    /// permitted: releasing the coalescable write's lock right after its
+    /// durable commit but before its RAM publish would let a concurrent
+    /// Transaction Commit acquire the lock in THAT gap and validate → durably
+    /// commit → RAM-publish entirely ahead of the still-pending coalesced
+    /// write — producing a RAM apply order that diverges from the durable
+    /// commit order (the earlier caller's write landing in `core` AFTER the
+    /// later one, even though it committed durably first). Proven here by
+    /// holding `lock_graph` EXTERNALLY (a deterministic probe, mirroring
+    /// `mutation_batch::tests::work_item_commit_waits_for_shared_graph_mutation_lane`,
+    /// not a timing-dependent race) and showing neither op's `JoinHandle`
+    /// finishes while it is held, then that BOTH land correctly once released.
+    ///
+    /// `dispatch::ApplyChangeEnvelope` (`server/dispatch.rs` ~6023) acquires
+    /// the exact same `lock_graph` function with no special-casing, so this
+    /// same mutual-exclusion proof covers it transitively; a dedicated test
+    /// would need to hand-construct a fully valid signed `ChangeEnvelope`
+    /// (privacy attestation, digest-verified principal, …) with no existing
+    /// test helper to build on across this codebase, and would not exercise a
+    /// different code path than this test already does (both go through
+    /// `mutation_batch::lock_graph`, unconditionally, with no per-caller
+    /// carve-out).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn coalesced_write_and_transaction_commit_share_one_graph_lane() {
+        // Transaction commit fail-closed requires a configured recovery-plan
+        // seal key (`handlers::txn::seal_txn_recovery_plan`); an unfiltered
+        // full-suite run happens to have it set by the time this test runs
+        // (some OTHER test in this binary sets it first, e.g.
+        // `persistence::redb_backend::tests::cm_dir`'s `Once`), but that is an
+        // execution-order accident, not something this test may rely on —
+        // running it filtered/alone reliably reproduces "transaction
+        // durability requires EPISTEMIC_GRAPH_ENCRYPTION_KEY to be
+        // configured" without this. Set it the same way `cm_dir` does: once,
+        // process-global, harmless for every other test since encryption is
+        // transparent to a durable round-trip's assertions.
+        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+        ENCRYPTION_KEY.call_once(|| {
+            std::env::set_var(
+                crate::crypto::ENCRYPTION_KEY_ENV,
+                "coalesce-txn-race-test-recovery-key",
+            )
+        });
+
+        let state = test_state();
+        const GRAPH: &str = "coalesce-txn-race";
+        assert_ok(
+            &dispatch_on_heap(
+                &state,
+                request(
+                    0,
+                    GRAPH,
+                    None,
+                    Method::CreateGraph {
+                        graph_name: GRAPH.to_string(),
+                        graph_type: GraphType::Global,
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // Seed + open/stage a txn BEFORE taking the probe: begin/stage never
+        // touch `lock_graph` ("no lock is held during client think-time; it
+        // begins only after Commit consumes the staged txn" — handlers::txn),
+        // so doing this first keeps the probe focused on the commit step.
+        assert_ok(&dispatch_on_heap(&state, request(1, GRAPH, None, add_node("seed"))).await);
+        let txn = begin_txn(&state, 2, GRAPH).await;
+        let staged = dispatch_on_heap(
+            &state,
+            request(
+                3,
+                GRAPH,
+                None,
+                Method::TxnAddNode {
+                    txn_id: txn.clone(),
+                    node_id: "txn-node".into(),
+                    properties_msgpack: node_props(serde_json::json!({"v": 1})),
+                    graph: None,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(staged.result, Some(ResultPayload::Bool(true))),
+            "stage: {:?}",
+            staged.error
+        );
+
+        // Hold the SAME per-graph lane externally.
+        let held = crate::server::mutation_batch::lock_graph(GRAPH).await;
+
+        let st1 = state.clone();
+        let coalesced = tokio::spawn(async move {
+            dispatch_on_heap(&st1, request(4, GRAPH, None, add_node("coalesced-node"))).await
+        });
+        let st2 = state.clone();
+        let committed = tokio::spawn(async move {
+            dispatch_on_heap(&st2, request(5, GRAPH, None, Method::Commit { txn_id: txn })).await
+        });
+
+        // Neither can complete ANY part of its sequence while the lane is
+        // held — including its own durable commit — so there is no window in
+        // which one's durably-committed-but-unpublished state could ever be
+        // exposed to the other.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(
+            !coalesced.is_finished(),
+            "coalescable write must NOT complete while lock_graph is held externally"
+        );
+        assert!(
+            !committed.is_finished(),
+            "transaction commit must NOT complete while lock_graph is held externally"
+        );
+
+        drop(held);
+
+        let coalesced_resp = tokio::time::timeout(std::time::Duration::from_secs(5), coalesced)
+            .await
+            .expect("coalesced write must complete promptly once the lane is free")
+            .unwrap();
+        let committed_resp = tokio::time::timeout(std::time::Duration::from_secs(5), committed)
+            .await
+            .expect("transaction commit must complete promptly once the lane is free")
+            .unwrap();
+        assert_ok(&coalesced_resp);
+        assert!(
+            matches!(committed_resp.result, Some(ResultPayload::Bool(true))),
+            "commit: {:?}",
+            committed_resp.error
+        );
+
+        let core = {
+            let s = state.read().await;
+            s.registry.get(GRAPH).unwrap().core.clone()
+        };
+        assert!(core.has_node("coalesced-node"), "coalesced write landed");
+        assert!(core.has_node("txn-node"), "committed txn write landed");
+    }
+
+    /// Regression test (CDC pre-image staleness): concurrent coalescable
+    /// writes to the SAME node, all queued onto the SAME per-graph
+    /// `routed_write_coalescer` worker, must never let a later write's CDC
+    /// "before" image miss an earlier write's already-applied effect. The
+    /// worker's `flush_batch` runs every queued op's full
+    /// `commit_mutation_body` sequence — CDC pre-image capture included — in a
+    /// plain sequential `for` loop with no concurrent spawning (`run.await`
+    /// inside the loop body), so ops touching the same graph can never
+    /// interleave their CDC captures regardless of batch composition. Proven
+    /// here structurally, not by timing: read the CDC feed back and verify
+    /// each event's `before` exactly equals the immediately preceding event's
+    /// `after` — the chain a stale read would break (an event whose `before`
+    /// missed a concurrently-applied predecessor would show an older value
+    /// than what that predecessor's `after` established).
+    #[cfg(feature = "streaming")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn coalesced_writes_cdc_before_image_never_stale() {
+        let state = test_state();
+        const GRAPH: &str = "coalesce-cdc-chain";
+        const K: u64 = 40;
+
+        assert_ok(
+            &dispatch_on_heap(
+                &state,
+                request(
+                    0,
+                    GRAPH,
+                    None,
+                    Method::CreateGraph {
+                        graph_name: GRAPH.to_string(),
+                        graph_type: GraphType::Global,
+                    },
+                ),
+            )
+            .await,
+        );
+        assert_ok(
+            &dispatch_on_heap(
+                &state,
+                request(1, GRAPH, None, doc_node("chain", "Chain")),
+            )
+            .await,
+        );
+
+        // K concurrent overwrites of the SAME node — every one a coalescable
+        // AddNode (add_node upserts an existing id's properties), fired
+        // together so they race to enqueue onto the same worker.
+        let mut handles = Vec::with_capacity(K as usize);
+        for i in 1..=K {
+            let st = state.clone();
+            handles.push(tokio::spawn(async move {
+                dispatch_on_heap(
+                    &st,
+                    request(
+                        100 + i,
+                        GRAPH,
+                        None,
+                        Method::AddNode {
+                            node_id: "chain".into(),
+                            properties_msgpack: rmp_serde::to_vec_named(
+                                &serde_json::json!({"type": "Chain", "v": i}),
+                            )
+                            .unwrap(),
+                        },
+                    ),
+                )
+                .await
+            }));
+        }
+        for h in handles {
+            assert_ok(&h.await.unwrap());
+        }
+
+        let r = dispatch_on_heap(
+            &state,
+            request(
+                200,
+                GRAPH,
+                None,
+                Method::CdcRead {
+                    graph: GRAPH.into(),
+                    from_seq: 0,
+                    limit: 0,
+                },
+            ),
+        )
+        .await;
+        let events: Vec<_> = cdc_events(&r)
+            .into_iter()
+            .filter(|e| e.node_id == "chain")
+            .collect();
         assert_eq!(
-            batches, ops,
-            "commit_mutation_inner's per-graph lock_graph stripe mutex serializes the \
-             whole enqueue+await for every GATEWAY_ROUTED write on this graph, so the \
-             writer's queue can never hold more than 1 op at enqueue time through this \
-             path — batches == ops is the correct invariant here, not a batching win \
-             (see write_coalescer::tests for where the coalescer's real batching is \
-             proven, at the layer below this lock)",
+            events.len(),
+            (K + 1) as usize,
+            "the seed AddNode + K overwrites must each produce exactly one event"
+        );
+        for w in events.windows(2) {
+            assert_eq!(
+                w[0].after, w[1].before,
+                "event {}'s before-image must exactly equal event {}'s \
+                 after-image (seq {} -> {}) — a mismatch means a CDC \
+                 pre-image was captured before an earlier concurrent write's \
+                 effect had landed in RAM",
+                w[0].seq, w[1].seq, w[0].seq, w[1].seq,
+            );
+        }
+
+        // The graph's live state must match the CHAIN's own last link, not
+        // some other write that raced ahead of it undetected.
+        let core = {
+            let s = state.read().await;
+            s.registry.get(GRAPH).unwrap().core.clone()
+        };
+        let live = core.get_node_properties("chain").unwrap();
+        assert_eq!(
+            live,
+            events.last().unwrap().after,
+            "live RAM state must match the CDC chain's final after-image"
         );
     }
 

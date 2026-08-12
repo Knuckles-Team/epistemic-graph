@@ -710,6 +710,9 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         write_coalescer: std::sync::Arc::new(
             epistemic_graph::write_coalescer::WriteCoalescerRegistry::new(),
         ),
+        routed_write_coalescer: std::sync::Arc::new(
+            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+        ),
         open_txns: std::sync::Arc::new(dashmap::DashMap::new()),
         txn_id_gen: std::sync::Arc::new(epistemic_graph::server::txn::TxnIdGen),
         txn_ttl_secs,

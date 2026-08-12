@@ -3185,6 +3185,11 @@ async fn dispatch_inner(
                     //  • the per-graph in-flight semaphore (no data, but bounds an
                     //    unbounded entry leak across many churn cycles).
                     s.write_coalescer.remove(graph_name);
+                    // The routed-write-coalescer registry does not hold a stale
+                    // `Arc<GraphCore>` per writer (each queued job carries its own —
+                    // see its module docs), so this is resource hygiene only, not a
+                    // tenant-churn correctness fix like the line above.
+                    s.routed_write_coalescer.remove(graph_name);
                     s.per_graph_inflight.remove(graph_name);
                     // Cold-tenant tracker (CONCEPT:EG-KG.backend.r6-feature, R6): forget this graph's access
                     // timestamp + offload mark so they don't leak across a same-name recreate.
@@ -5871,11 +5876,16 @@ async fn dispatch_graph_op_inner(
     // write path is byte-for-byte unchanged.
     #[cfg(feature = "streaming")]
     let cdc = s.cdc.clone();
-    // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): clone the registry handle so the
-    // hot single-op writes can be batched onto this graph's writer (lazily created,
-    // keyed by name — automatic per new graph/connector), collapsing N concurrent
-    // topology-lock acquisitions into one per batch. Cheap Arc clone under the lock.
+    // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): clone the registry handle.
+    // `write_coalescer` backs `dispatch::try_coalesce_write`'s pre-gateway
+    // fallback (unreachable for the four coalescable methods since the
+    // mutation gateway intercepts them first — see below); `routed_write_coalescer`
+    // is the LIVE registry the gateway actually batches through
+    // (`mutation::commit_coalescable_mutation`), which queues the WHOLE
+    // prepare→durable-commit→RAM-publish sequence rather than just the RAM
+    // apply. Both are cheap Arc clones under the same registry lock.
     let write_coalescer = s.write_coalescer.clone();
+    let routed_write_coalescer = s.routed_write_coalescer.clone();
     // A clustered graph operation requires the MultiRaft placement authority. The
     // former standalone group-0 handle is detected only to reject an incomplete
     // cluster configuration; it is never used as a write-routing fallback.
@@ -6895,7 +6905,7 @@ async fn dispatch_graph_op_inner(
             persistence.as_ref(),
             #[cfg(feature = "streaming")]
             cdc.as_ref(),
-            Some(&write_coalescer),
+            Some(&routed_write_coalescer),
             gateway_authz_ctx.as_ref(),
             #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
             tsdb_store.as_ref(),
@@ -7633,6 +7643,7 @@ mod eg318_dispatch_tests {
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
@@ -8124,6 +8135,7 @@ mod admin_scope_tests {
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
@@ -8415,6 +8427,7 @@ mod blob_dispatch_tests {
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
