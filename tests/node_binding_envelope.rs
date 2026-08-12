@@ -5,7 +5,17 @@
 //! No `raft` feature and no `EPISTEMIC_GRAPH_NODE_ID` override are configured
 //! here, so this process's `node_identity()` resolves to the documented
 //! single-node default: the literal `"single"`.
-#![cfg(feature = "server")]
+// This file's whole subject (ADR-3 / W1.9 node-bound envelopes) IS a security
+// concept, and every test dispatches through the REAL secure-envelope auth
+// path (`common::signed_request_with_node` -> `dispatch`), which links against
+// the library WITHOUT `cfg(test)` (integration-test crates are separate
+// compilation units), so it always hits `durable_replay_ledger`'s production
+// fail-closed branch. That branch requires the `security` feature. Without it,
+// every test here fails immediately with "secure request context requires the
+// security feature" before it ever reaches node-binding logic -- this is a
+// genuine capability requirement, not a mis-asserted slim test (mirrors the
+// `redb`+`security` precedent in `tests/txn_recovery_key_decoupled_d_orc_50.rs`).
+#![cfg(all(feature = "server", feature = "security"))]
 
 mod common;
 
