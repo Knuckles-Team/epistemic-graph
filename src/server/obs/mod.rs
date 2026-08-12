@@ -1766,7 +1766,7 @@ mod tests {
             registry: crate::registry::GraphRegistry::new(),
             isolation,
             channels: crate::channels::ChannelManager::new(),
-            auth_secret: "goc62-bug037-test-secret".to_string(), // nosec B105 - test only
+            auth_secret: "goc62-bug037-test-secret".to_string(), // nosec B105 - test only  // sanitizer:ignore — synthetic in-process test fixture, never a live credential
             persist_dir: None,
             persistence: None,
             max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(16)),
