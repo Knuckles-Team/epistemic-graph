@@ -10,24 +10,31 @@
 use super::{decode_durable, resource_decode, resource_encode, DurableCrypto, NODES};
 use crate::epistemic_operations::{
     DevelopmentLaneCleanupCompleteRequest, DevelopmentLaneCleanupCompleteResult,
-    DevelopmentLaneCleanupCompleteResultDecision,
     DevelopmentLaneCleanupCompleteResultSchemaVersion, DevelopmentLaneCleanupIntent,
     DevelopmentLaneCleanupIntentSchemaVersion, DevelopmentLaneFinishRequest,
     DevelopmentLaneFinishRequestTerminalState, DevelopmentLaneFinishResult,
-    DevelopmentLaneFinishResultDecision, DevelopmentLaneFinishResultSchemaVersion,
-    DevelopmentLaneHold, DevelopmentLaneHoldHostTargetKind, DevelopmentLaneHoldState,
-    DevelopmentLaneIntent, DevelopmentLaneIntentHostTargetKind, DevelopmentLaneObserveRequest,
-    DevelopmentLaneObserveResult, DevelopmentLaneObserveResultDecision,
-    DevelopmentLaneObserveResultSchemaVersion, DevelopmentLaneQueryRequest,
-    DevelopmentLaneQueryResult, DevelopmentLaneQueryResultDecision,
+    DevelopmentLaneFinishResultSchemaVersion, DevelopmentLaneHold,
+    DevelopmentLaneHoldHostTargetKind, DevelopmentLaneHoldState, DevelopmentLaneIntent,
+    DevelopmentLaneIntentHostTargetKind, DevelopmentLaneObserveRequest,
+    DevelopmentLaneObserveResult, DevelopmentLaneObserveResultSchemaVersion,
+    DevelopmentLaneQueryRequest, DevelopmentLaneQueryResult,
     DevelopmentLaneQueryResultSchemaVersion, DevelopmentLaneQuotaCharge,
     DevelopmentLaneQuotaChargeSchemaVersion, DevelopmentLaneQuotaPolicy,
     DevelopmentLaneQuotaUpdateRequest, DevelopmentLaneQuotaUpdateResult,
-    DevelopmentLaneQuotaUpdateResultDecision, DevelopmentLaneQuotaUpdateResultSchemaVersion,
-    DevelopmentLaneRenewRequest, DevelopmentLaneRenewResult, DevelopmentLaneRenewResultDecision,
-    DevelopmentLaneReserveRequest, DevelopmentLaneResult, DevelopmentLaneResultDecision,
+    DevelopmentLaneQuotaUpdateResultSchemaVersion, DevelopmentLaneRenewRequest,
+    DevelopmentLaneRenewResult, DevelopmentLaneReserveRequest, DevelopmentLaneResult,
     DevelopmentLaneResultSchemaVersion, DevelopmentLaneStatusRequest, DevelopmentLaneStatusResult,
     DevelopmentLaneStatusResultSchemaVersion, ResourceReservationRecordState,
+};
+// Only exercised by this module's `#[cfg(test)]` assertions (via `use super::*;`
+// in `mod tests`) -- never referenced by non-test code, so a plain build flags
+// them as unused imports.
+#[cfg(test)]
+use crate::epistemic_operations::{
+    DevelopmentLaneCleanupCompleteResultDecision, DevelopmentLaneFinishResultDecision,
+    DevelopmentLaneObserveResultDecision, DevelopmentLaneQueryResultDecision,
+    DevelopmentLaneQuotaUpdateResultDecision, DevelopmentLaneRenewResultDecision,
+    DevelopmentLaneResultDecision,
 };
 use crate::protocol::{DevelopmentLaneWorkItemKind, Method};
 use redb::{
@@ -1160,9 +1167,9 @@ fn intent_validate(intent: &DevelopmentLaneIntent) -> Result<(), LaneDecision> {
     Ok(())
 }
 
-fn repository_work_item_extension<'a>(
-    props: &'a serde_json::Map<String, serde_json::Value>,
-) -> Result<&'a serde_json::Map<String, serde_json::Value>, LaneDecision> {
+fn repository_work_item_extension(
+    props: &serde_json::Map<String, serde_json::Value>,
+) -> Result<&serde_json::Map<String, serde_json::Value>, LaneDecision> {
     props
         .get(WORK_ITEM_METADATA_KEY)
         .and_then(serde_json::Value::as_object)
@@ -1206,6 +1213,12 @@ fn lane_cleanup_value(
     Ok(correlation)
 }
 
+// Private redb-transaction-scoped helper: every parameter is a distinct
+// required assertion against the borrowed row (table handle, identity,
+// fencing, and expected-state checks) with no natural grouping that would
+// not just reintroduce the same fields (several borrow the table's own
+// lifetime) behind an extra indirection. No external/public callers.
+#[allow(clippy::too_many_arguments)]
 fn load_work_item(
     nodes: &redb::Table<(&str, &str), &[u8]>,
     graph: &str,
@@ -1269,11 +1282,11 @@ fn load_work_item(
         "succeeded" | "failed" | "cancelled" | "dead_letter"
     );
     if require_terminal != terminal {
-        return Err(if require_terminal {
-            LaneDecision::Terminal
-        } else {
-            LaneDecision::Terminal
-        });
+        // Both directions of this mismatch (expected terminal but the row
+        // isn't yet, or expected non-terminal but it already finished) share
+        // the one coarse `Terminal` decision, matching this function's other
+        // checks (e.g. `WrongFence` above covers two distinct mismatches).
+        return Err(LaneDecision::Terminal);
     }
     if !terminal && !matches!(status.as_str(), "leased" | "running") {
         // A future lease timestamp on a ready/pending row is not a claim.  A
@@ -1607,6 +1620,10 @@ fn pressure_metric_name(metric: Metric) -> &'static str {
     }
 }
 
+// Private redb-transaction-scoped helper; see `load_work_item`'s justification
+// above -- the borrowed table handle plus the composite-key fields it indexes
+// on are each required independently.
+#[allow(clippy::too_many_arguments)]
 fn pressure_replace(
     pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
     graph: &str,
@@ -1637,6 +1654,10 @@ fn pressure_replace(
     Ok(())
 }
 
+// Private redb-transaction-scoped helper; see `load_work_item`'s justification
+// above -- two borrowed table handles plus the independent per-scope delta
+// inputs it applies atomically.
+#[allow(clippy::too_many_arguments)]
 fn apply_counter_delta(
     counters: &mut redb::Table<(&str, &str), &[u8]>,
     pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
@@ -3269,6 +3290,10 @@ fn apply_reserve(
     ))
 }
 
+// Private redb-transaction-scoped helper; see `load_work_item`'s justification
+// above -- each identity/fencing field must be checked against `hold`
+// independently.
+#[allow(clippy::too_many_arguments)]
 fn hold_correlations_match(
     hold: &DevelopmentLaneHold,
     tenant: &str,
@@ -4842,7 +4867,7 @@ fn apply_quota_update(
         .is_some_and(|expected| {
             current
                 .as_ref()
-                .map_or(true, |value| value.policy.policy_version != expected)
+                .is_none_or(|value| value.policy.policy_version != expected)
         })
     {
         return Ok((
@@ -6979,44 +7004,38 @@ mod tests {
         let start = Arc::new(Barrier::new(3));
         let (first_decision, second_decision) = std::thread::scope(|scope| {
             let first_start = Arc::clone(&start);
-            let first_thread = scope.spawn({
-                let db = db;
-                move || {
-                    first_start.wait();
-                    let mut request = first;
-                    request.idempotency_key = "reserve:race-a".into();
-                    let bytes = commit_development_lane(
-                        db,
-                        TEST_GRAPH,
-                        &Method::ReserveDevelopmentLane { request },
-                        TEST_NOW,
-                        DurableCrypto::none(),
-                    )
-                    .expect("branch race transaction");
-                    rmp_serde::from_slice::<DevelopmentLaneResult>(&bytes)
-                        .expect("decode branch race result")
-                        .decision
-                }
+            let first_thread = scope.spawn(move || {
+                first_start.wait();
+                let mut request = first;
+                request.idempotency_key = "reserve:race-a".into();
+                let bytes = commit_development_lane(
+                    db,
+                    TEST_GRAPH,
+                    &Method::ReserveDevelopmentLane { request },
+                    TEST_NOW,
+                    DurableCrypto::none(),
+                )
+                .expect("branch race transaction");
+                rmp_serde::from_slice::<DevelopmentLaneResult>(&bytes)
+                    .expect("decode branch race result")
+                    .decision
             });
             let second_start = Arc::clone(&start);
-            let second_thread = scope.spawn({
-                let db = db;
-                move || {
-                    second_start.wait();
-                    let mut request = second;
-                    request.idempotency_key = "reserve:race-b".into();
-                    let bytes = commit_development_lane(
-                        db,
-                        TEST_GRAPH,
-                        &Method::ReserveDevelopmentLane { request },
-                        TEST_NOW,
-                        DurableCrypto::none(),
-                    )
-                    .expect("branch race transaction");
-                    rmp_serde::from_slice::<DevelopmentLaneResult>(&bytes)
-                        .expect("decode branch race result")
-                        .decision
-                }
+            let second_thread = scope.spawn(move || {
+                second_start.wait();
+                let mut request = second;
+                request.idempotency_key = "reserve:race-b".into();
+                let bytes = commit_development_lane(
+                    db,
+                    TEST_GRAPH,
+                    &Method::ReserveDevelopmentLane { request },
+                    TEST_NOW,
+                    DurableCrypto::none(),
+                )
+                .expect("branch race transaction");
+                rmp_serde::from_slice::<DevelopmentLaneResult>(&bytes)
+                    .expect("decode branch race result")
+                    .decision
             });
             start.wait();
             (
@@ -7133,7 +7152,7 @@ mod tests {
             .expect("read refused WorkItem index")
             .is_none());
         for key in [
-            format!("tenant\0tenant:a\0tenant:a"),
+            "tenant\0tenant:a\0tenant:a".to_string(),
             format!("owner\0tenant:a\0{}", accepted_request.intent.owner_id),
             format!("session\0tenant:a\0{}", accepted_request.intent.session_id),
             format!(
@@ -7203,44 +7222,38 @@ mod tests {
         let start = Arc::new(Barrier::new(3));
         let (first_decision, second_decision) = std::thread::scope(|scope| {
             let first_start = Arc::clone(&start);
-            let first_thread = scope.spawn({
-                let db = db;
-                move || {
-                    first_start.wait();
-                    let mut request = first;
-                    request.idempotency_key = "reserve:tree-a".into();
-                    let bytes = commit_development_lane(
-                        db,
-                        TEST_GRAPH,
-                        &Method::ReserveDevelopmentLane { request },
-                        TEST_NOW,
-                        DurableCrypto::none(),
-                    )
-                    .expect("worktree race transaction");
-                    rmp_serde::from_slice::<DevelopmentLaneResult>(&bytes)
-                        .expect("decode worktree race result")
-                        .decision
-                }
+            let first_thread = scope.spawn(move || {
+                first_start.wait();
+                let mut request = first;
+                request.idempotency_key = "reserve:tree-a".into();
+                let bytes = commit_development_lane(
+                    db,
+                    TEST_GRAPH,
+                    &Method::ReserveDevelopmentLane { request },
+                    TEST_NOW,
+                    DurableCrypto::none(),
+                )
+                .expect("worktree race transaction");
+                rmp_serde::from_slice::<DevelopmentLaneResult>(&bytes)
+                    .expect("decode worktree race result")
+                    .decision
             });
             let second_start = Arc::clone(&start);
-            let second_thread = scope.spawn({
-                let db = db;
-                move || {
-                    second_start.wait();
-                    let mut request = second;
-                    request.idempotency_key = "reserve:tree-b".into();
-                    let bytes = commit_development_lane(
-                        db,
-                        TEST_GRAPH,
-                        &Method::ReserveDevelopmentLane { request },
-                        TEST_NOW,
-                        DurableCrypto::none(),
-                    )
-                    .expect("worktree race transaction");
-                    rmp_serde::from_slice::<DevelopmentLaneResult>(&bytes)
-                        .expect("decode worktree race result")
-                        .decision
-                }
+            let second_thread = scope.spawn(move || {
+                second_start.wait();
+                let mut request = second;
+                request.idempotency_key = "reserve:tree-b".into();
+                let bytes = commit_development_lane(
+                    db,
+                    TEST_GRAPH,
+                    &Method::ReserveDevelopmentLane { request },
+                    TEST_NOW,
+                    DurableCrypto::none(),
+                )
+                .expect("worktree race transaction");
+                rmp_serde::from_slice::<DevelopmentLaneResult>(&bytes)
+                    .expect("decode worktree race result")
+                    .decision
             });
             start.wait();
             (
@@ -7504,7 +7517,8 @@ mod tests {
             DevelopmentLaneQuotaUpdateResultDecision::Accepted
         );
 
-        let reductions: [(&str, fn(&mut DevelopmentLaneQuotaPolicy)); 10] = [
+        type QuotaReduction = (&'static str, fn(&mut DevelopmentLaneQuotaPolicy));
+        let reductions: [QuotaReduction; 10] = [
             ("owner-count", |value| value.owner_count_limit = 1),
             ("session-count", |value| value.session_count_limit = 1),
             ("workspace-count", |value| value.workspace_count_limit = 1),
@@ -8290,7 +8304,7 @@ mod tests {
             finished_hold.state,
             DevelopmentLaneHoldState::CleanupPending
         );
-        assert_eq!(finished_hold.active_count_charged, false);
+        assert!(!finished_hold.active_count_charged);
         assert_eq!(finished_hold.retained_disk_bytes, 10);
         {
             let rtx = fixture

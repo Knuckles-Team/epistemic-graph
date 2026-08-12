@@ -3129,7 +3129,7 @@ fn resource_host_result(
 fn resource_b64_urlsafe(value: &str) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let bytes = value.as_bytes();
-    let mut encoded = String::with_capacity(((bytes.len() + 2) / 3) * 4);
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let first = chunk[0];
         encoded.push(ALPHABET[(first >> 2) as usize] as char);
@@ -3240,15 +3240,14 @@ fn resource_opaque_sequence(
     Ok(decoded)
 }
 
-fn resource_metadata_maps<'a>(
-    props: &'a serde_json::Map<String, serde_json::Value>,
-) -> Result<
-    (
-        &'a serde_json::Map<String, serde_json::Value>,
-        &'a serde_json::Map<String, serde_json::Value>,
-    ),
-    String,
-> {
+type ResourceMetadataMaps<'a> = (
+    &'a serde_json::Map<String, serde_json::Value>,
+    &'a serde_json::Map<String, serde_json::Value>,
+);
+
+fn resource_metadata_maps(
+    props: &serde_json::Map<String, serde_json::Value>,
+) -> Result<ResourceMetadataMaps<'_>, String> {
     let metadata = props
         .get("metadata")
         .and_then(serde_json::Value::as_object)
@@ -4189,7 +4188,7 @@ fn apply_resource_reservation_rows(
             resource_text(&request.host_ref, "resource host_ref")?;
             resource_labels(&request.labels, "resource host labels")?;
             resource_text(
-                &request.target_alias.as_deref().unwrap_or("local"),
+                request.target_alias.as_deref().unwrap_or("local"),
                 "resource host target_alias",
             )?;
             let target_kind = resource_host_target_kind(request.target_kind);
@@ -4250,26 +4249,26 @@ fn apply_resource_reservation_rows(
                     .observed
                     .cpu_weight
                     .checked_add(host.held_cpu_weight)
-                    .map_or(true, |value| value > request.capacity.cpu_weight)
+                    .is_none_or(|value| value > request.capacity.cpu_weight)
                     || request
                         .observed
                         .memory_mib
                         .checked_add(host.held_memory_mib)
-                        .map_or(true, |value| value > request.capacity.memory_mib)
+                        .is_none_or(|value| value > request.capacity.memory_mib)
                     || request
                         .observed
                         .disk_mib
                         .checked_add(host.held_disk_mib)
-                        .map_or(true, |value| value > request.capacity.disk_mib)
+                        .is_none_or(|value| value > request.capacity.disk_mib)
                     || request
                         .disk_used_mib
                         .checked_add(host.held_disk_mib)
-                        .map_or(true, |value| value > request.disk_capacity_mib)
+                        .is_none_or(|value| value > request.disk_capacity_mib)
                     || request
                         .observed
                         .process_slots
                         .checked_add(host.held_process_slots)
-                        .map_or(true, |value| value > request.capacity.process_slots)
+                        .is_none_or(|value| value > request.capacity.process_slots)
                 {
                     return Ok(Some(resource_host_result(
                         request,
@@ -4474,27 +4473,18 @@ fn apply_resource_reservation_rows(
                         vec![],
                     )));
                 }
-            } else if !is_reclaim
+            } else if (!is_reclaim || !work_item_fence.superseded)
                 && !matches!(
                     property_string(&props, "status"),
                     "leased" | "running" | "succeeded" | "failed" | "cancelled" | "dead_letter"
                 )
             {
-                return Ok(Some(resource_result_payload(
-                    ResourceReservationResultDecision::Stale,
-                    request,
-                    None,
-                    None,
-                    0,
-                    vec![],
-                )));
-            } else if is_reclaim
-                && !work_item_fence.superseded
-                && !matches!(
-                    property_string(&props, "status"),
-                    "leased" | "running" | "succeeded" | "failed" | "cancelled" | "dead_letter"
-                )
-            {
+                // Release: any non-terminal, non-live status is stale.
+                // Reclaim: same, but a reclaim of an already-superseded
+                // reservation is legitimate (that is precisely what reclaim
+                // is for), so it is exempted -- `!is_reclaim ||
+                // !superseded` is `true` for release and `!superseded` for
+                // reclaim, matching the two branches this replaces.
                 return Ok(Some(resource_result_payload(
                     ResourceReservationResultDecision::Stale,
                     request,
@@ -5342,7 +5332,7 @@ pub(crate) fn read_resource_reservation(
         && request
             .host_ref
             .as_deref()
-            .map_or(true, |host_ref| host_ref == record.host_ref)
+            .is_none_or(|host_ref| host_ref == record.host_ref)
         && request.owner_id.as_deref() == Some(record.owner_id.as_str())
         && request.fence.as_deref() == Some(record.fence.as_str())
         && request.attempt == Some(record.attempt)
@@ -5355,7 +5345,7 @@ pub(crate) fn read_resource_reservation(
         && request
             .input_fingerprint
             .as_deref()
-            .map_or(true, |fingerprint| fingerprint == record.input_fingerprint.as_str());
+            .is_none_or(|fingerprint| fingerprint == record.input_fingerprint.as_str());
     if !correlations_match {
         return Err("resource reservation correlation does not match".into());
     }
@@ -7606,6 +7596,11 @@ fn remove_durable_node_rows(
 
 /// Translate ONE applied method into redb row writes inside an open transaction.
 /// Mirrors `crate::mutation_apply::apply`'s method set: the durable DATA mutations only.
+// crate-internal only (no external callers): each parameter is a distinct
+// borrowed redb table handle the write touches, plus the method/graph being
+// applied -- bundling the table handles into a struct would just move the
+// same borrows behind one more layer of indirection.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_method_rows(
     graph: &str,
     method: &Method,
@@ -9400,7 +9395,7 @@ fn validate_checkpoint_resource_links(
         {
             return Err(refusal());
         }
-        if !resource_target_selection_matches(&extension, &host).map_err(|_| refusal())? {
+        if !resource_target_selection_matches(extension, &host).map_err(|_| refusal())? {
             return Err(refusal());
         }
     }
@@ -9456,10 +9451,10 @@ pub(crate) fn apply_checkpoint(
         let mut resource_disk_policies = wtx
             .open_table(RESOURCE_DISK_POLICIES)
             .map_err(|e| e.to_string())?;
-        for (graph, method) in pending.iter().cloned() {
-            if matches!(&method, Method::ClearGraph | Method::DeleteGraph { .. }) {
+        for (graph, method) in pending.iter() {
+            if matches!(method, Method::ClearGraph | Method::DeleteGraph { .. }) {
                 clear_resource_rows(
-                    &graph,
+                    graph,
                     &mut resource_reservations,
                     &mut resource_tenant_index,
                     &mut resource_attempts,
@@ -9471,16 +9466,16 @@ pub(crate) fn apply_checkpoint(
                     &mut resource_disk_policies,
                     crypto,
                 )?;
-                development_lane::clear_native_graph_rows_in_wtx(&wtx, &graph, crypto)?;
+                development_lane::clear_native_graph_rows_in_wtx(&wtx, graph, crypto)?;
                 work_item_capability::clear_graph_rows_in_wtx_with_native(
                     &wtx,
-                    &graph,
+                    graph,
                     &mut native_work_items,
                 )?;
             }
             apply_method_rows(
-                &graph,
-                &method,
+                graph,
+                method,
                 &mut nodes,
                 &mut edges,
                 &mut ledger,
@@ -11180,6 +11175,9 @@ mod mutation_batch_tests {
         }
     }
 
+    // Test-only fixture builder: every parameter is an independent field of
+    // the `ClaimWorkItemRequest` under construction; no natural grouping.
+    #[allow(clippy::too_many_arguments)]
     fn native_claim_batch(
         batch_id: &str,
         idempotency_key: &str,
@@ -11215,6 +11213,9 @@ mod mutation_batch_tests {
         claim
     }
 
+    // Test-only fixture builder; mirrors `native_claim_batch`'s justification
+    // above plus the `db` handle it commits the built batch against.
+    #[allow(clippy::too_many_arguments)]
     fn commit_native_claim(
         db: &Database,
         batch_id: &str,

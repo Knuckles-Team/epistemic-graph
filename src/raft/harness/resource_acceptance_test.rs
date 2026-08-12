@@ -220,7 +220,7 @@ fn status_method(now_ms: u64) -> Method {
 fn resource_b64_urlsafe(value: &str) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let bytes = value.as_bytes();
-    let mut encoded = String::with_capacity(((bytes.len() + 2) / 3) * 4);
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let first = chunk[0];
         encoded.push(ALPHABET[(first >> 2) as usize] as char);
@@ -676,6 +676,11 @@ fn reservation_variant(
 /// follower-redirect shortcut; the serialized native command is the only race
 /// arbiter.  Distinct reservation identities make the losing result a conflict
 /// rather than an exact-request idempotent replay.
+// Private test-harness helper: paired (agent, request_id, method) triples for
+// the two racing callers plus the cluster/leader context, each independently
+// required; no natural grouping beyond re-introducing the same fields as a
+// throwaway pair-struct.
+#[allow(clippy::too_many_arguments)]
 async fn race_public_reservation_calls(
     cluster: &Cluster,
     leader: NodeId,

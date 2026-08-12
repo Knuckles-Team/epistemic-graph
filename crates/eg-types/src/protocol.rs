@@ -257,10 +257,10 @@ pub enum DevelopmentLaneWorkItemKind {
 pub const DEVELOPMENT_LANE_LIFECYCLE_KIND: &str = "lane.lifecycle";
 pub const DEVELOPMENT_LANE_CLEANUP_KIND: &str = "lane.cleanup";
 
-/// Lane request DTOs carry `now_ms` for deterministic replay and test vectors.
-/// Dispatch must normalize/overwrite that field from the authoritative engine
-/// clock before authorization or persistence; a client-supplied timestamp is
-/// never trusted as freshness, expiry, or lease authority (RMDD-27 convention).
+// Lane request DTOs carry `now_ms` for deterministic replay and test vectors.
+// Dispatch must normalize/overwrite that field from the authoritative engine
+// clock before authorization or persistence; a client-supplied timestamp is
+// never trusted as freshness, expiry, or lease authority (RMDD-27 convention).
 
 /// All operations supported by the service.
 // `IntoStaticStr` (metrics builds) yields the variant name as the bounded

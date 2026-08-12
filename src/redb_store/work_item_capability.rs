@@ -1204,6 +1204,9 @@ mod tests {
         result
     }
 
+    // Test-only helper: every parameter is an independent field of the
+    // committed result being asserted on; no natural grouping applies.
+    #[allow(clippy::too_many_arguments)]
     fn commit_native_result(
         db: &Database,
         item: &str,
