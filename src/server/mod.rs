@@ -198,10 +198,6 @@ pub fn validate_verified_request_context_startup(
 ) -> Result<(), String> {
     auth::validate_verified_context_startup(secret, state_dir)
 }
-// Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace). Facade-only,
-// behind the `blob` cargo feature. Default/server-only builds compile NONE of it;
-// the Blob* methods then fall to the dispatch "not available" catch-all.
-#[cfg(feature = "blob")]
 /// A temp dir guaranteed unique even across concurrent tests in one process.
 ///
 /// `pid + nanos` is NOT sufficient: two threads can observe the same nanosecond,
@@ -210,6 +206,13 @@ pub fn validate_verified_request_context_startup(
 /// `server::lake::rest::tests` began failing once the suite ran on a 64-core
 /// host -- more tests in flight at once, so the collision window is actually
 /// hit. The monotonic counter removes the race rather than narrowing it.
+///
+/// Gated on `redb` (not `blob`): every current caller (this module's
+/// `test_state`, `server::blob::store`, `server::lake::rest`) needs a durable
+/// redb-backed temp dir, and `blob`/`lake` both imply `redb` transitively, so
+/// this is the widest feature that still keeps the fn used (never dead code)
+/// in every build that calls it.
+#[cfg(feature = "redb")]
 pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -224,6 +227,21 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     ))
 }
 
+// Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace). Facade-only,
+// behind the `blob` cargo feature. Default/server-only builds compile NONE of it;
+// the Blob* methods then fall to the dispatch "not available" catch-all.
+//
+// BUG (pre-existing, not caused by any recent merge): a 2026-08-09 commit
+// (02f70963, GOC-59-W09/BUG-027) inserted `unique_temp_dir` between this
+// `#[cfg(feature = "blob")]` attribute and its intended target, so the
+// attribute silently re-attached to the new function instead of gating this
+// `mod` declaration. That made `server::blob` (and therefore `blob/store.rs`'s
+// unconditional `redb`/`eg_mutation_store` imports) compile in EVERY build,
+// including `--no-default-features --features server`, breaking the slim
+// server. It went unnoticed because this repo has not pushed in a long time,
+// so CI never ran that feature-matrix row. Restoring the attribute here is
+// the fix (AGENTS.md "Feature-gating gates three sites").
+#[cfg(feature = "blob")]
 pub mod blob;
 // Generic namespaced Key→Value surface (CONCEPT:EG-KG.storage.namespaced-kv-surface). Self-routing (NOT graph-
 // scoped) like blob/tsdb, behind the `kv` cargo feature. A build without it compiles
@@ -3124,6 +3142,18 @@ mod tests {
     /// different code path than this test already does (both go through
     /// `mutation_batch::lock_graph`, unconditionally, with no per-caller
     /// carve-out).
+    // This test drives `handlers::txn::seal_txn_recovery_plan`'s REAL
+    // `#[cfg(all(feature = "redb", feature = "security"))]` arm (it configures
+    // `crate::crypto::ENCRYPTION_KEY_ENV` and asserts a committed transaction),
+    // so it needs the same two features that arm does. `crypto` itself is only
+    // compiled behind `#[cfg(any(feature = "security", feature = "raft"))]`
+    // (`src/lib.rs`), so referencing `crate::crypto::ENCRYPTION_KEY_ENV`
+    // unconditionally broke every build without `security` — including the
+    // slim `server`-only profile. `security` already implies `redb` (see its
+    // feature definition in Cargo.toml), so gating on `security` alone covers
+    // both preconditions. Pre-existing gap in the 2026-08-11 coalescer merge
+    // (e38df149), not something the slim-build fix here introduced.
+    #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn coalesced_write_and_transaction_commit_share_one_graph_lane() {
         // Transaction commit fail-closed requires a configured recovery-plan
