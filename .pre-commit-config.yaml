@@ -260,7 +260,7 @@ repos:
   # --quiet`. Gate 6 (facade full) is heavy → its own pre-push/manual hook below.
   - id: cargo-test
     name: cargo test (lower crates all-features)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p eg-types -p eg-core -p eg-compute --all-features; fi'
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast; fi'
     language: system
     pass_filenames: false
     always_run: true
@@ -298,7 +298,7 @@ repos:
   # minute — CI is the always-on backstop.
   - id: replay-determinism
     name: cargo test replay_determinism -p eg-jobs -p eg-statechart (DE7 crash-replay proofs — pre-push/manual)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p eg-jobs -p eg-statechart --test replay_determinism; fi'
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast; fi'
     language: system
     pass_filenames: false
     always_run: true
