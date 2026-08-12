@@ -3982,10 +3982,9 @@ fn handle_cmd(
             done,
         } => {
             commit_and_notify(db, pending, Durability::Immediate, crypto);
-            let res =
-                crate::redb_store::development_lane::commit_development_lane(
-                    db, &graph, &method, now_ms, crypto,
-                );
+            let res = crate::redb_store::development_lane::commit_development_lane(
+                db, &graph, &method, now_ms, crypto,
+            );
             let _ = done.send(res);
             false
         }

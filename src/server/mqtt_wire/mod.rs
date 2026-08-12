@@ -1350,9 +1350,12 @@ mod tests {
                     .as_nanos()
             ));
             let _ = std::fs::remove_dir_all(&dir);
-            let backend =
-                RedbBackend::open(dir.to_string_lossy().to_string(), DurabilityPolicy::Each, 64)
-                    .expect("open mqtt-wire test backend");
+            let backend = RedbBackend::open(
+                dir.to_string_lossy().to_string(),
+                DurabilityPolicy::Each,
+                64,
+            )
+            .expect("open mqtt-wire test backend");
             let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> =
                 Arc::new(backend);
             persistence

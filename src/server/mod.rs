@@ -567,7 +567,6 @@ mod tests {
         Box::pin(dispatch(state, request))
     }
 
-
     fn test_state() -> Arc<RwLock<ServerState>> {
         let mut isolation = IsolationLayer::new();
         isolation.register_agent(AgentIdentity {
@@ -701,13 +700,12 @@ mod tests {
                 s.isolation.add_role(Role::new("global-reader"));
                 s.isolation.add_role(Role::new("commons-user"));
 
-                let grant =
-                    |role: &str, resource: ResourceSelector, action: RbacAction| Grant {
-                        role: role.to_string(),
-                        resource,
-                        action,
-                        effect: GrantEffect::Allow,
-                    };
+                let grant = |role: &str, resource: ResourceSelector, action: RbacAction| Grant {
+                    role: role.to_string(),
+                    resource,
+                    action,
+                    effect: GrantEffect::Allow,
+                };
                 // Owner: full R/W on their own agent graph.
                 for (role, graph) in [
                     ("owner-worker1", "agent:worker1"),
@@ -901,7 +899,9 @@ mod tests {
             )
             .unwrap(),
         };
-        assert_ok(&dispatch_on_heap(&state, request(1, "__commons__", None, mk("A", "alpha"))).await);
+        assert_ok(
+            &dispatch_on_heap(&state, request(1, "__commons__", None, mk("A", "alpha"))).await,
+        );
         assert_ok(&dispatch_on_heap(&state, request(2, "__ingest__", None, mk("B", "beta"))).await);
 
         let graphs = vec!["__commons__".to_string(), "__ingest__".to_string()];
@@ -1838,7 +1838,8 @@ mod tests {
             range_rules: vec![],
             property_chains: vec![],
         };
-        let resp = dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let resp =
+            dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1883,7 +1884,8 @@ mod tests {
         let method = Method::ExplainEvidence {
             node_id: "claim1".into(),
         };
-        let resp = dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let resp =
+            dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1906,7 +1908,8 @@ mod tests {
             node_ids: vec!["claim1".into()],
             semantics: "grounded".into(),
         };
-        let resp = dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let resp =
+            dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1930,7 +1933,8 @@ mod tests {
             do_values: std::collections::BTreeMap::new(),
             mode: crate::protocol::CausalQueryModeWire::Intervene,
         };
-        let resp = dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let resp =
+            dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1944,7 +1948,8 @@ mod tests {
             actual: std::collections::BTreeMap::new(),
             do_values: std::collections::BTreeMap::new(),
         };
-        let resp = dispatch_on_heap(&state, request(2, "agent:worker1", Some("worker1"), method)).await;
+        let resp =
+            dispatch_on_heap(&state, request(2, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -1957,7 +1962,8 @@ mod tests {
             candidates: vec![],
             weights: Default::default(),
         };
-        let resp = dispatch_on_heap(&state, request(3, "agent:worker1", Some("worker1"), method)).await;
+        let resp =
+            dispatch_on_heap(&state, request(3, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
@@ -2360,7 +2366,12 @@ mod tests {
         let state = multi_tenant_state().await;
         let resp = dispatch_on_heap(
             &state,
-            request(1, "agent:worker1", Some("unregistered-anonymous-caller"), Method::GetNodes),
+            request(
+                1,
+                "agent:worker1",
+                Some("unregistered-anonymous-caller"),
+                Method::GetNodes,
+            ),
         )
         .await;
         assert_denied(&resp);
@@ -2475,9 +2486,11 @@ mod tests {
         let del = || Method::DeleteGraph {
             graph_name: "agent:worker1".to_string(),
         };
-        let resp = dispatch_on_heap(&state, request(1, "__commons__", Some("worker2"), del())).await;
+        let resp =
+            dispatch_on_heap(&state, request(1, "__commons__", Some("worker2"), del())).await;
         assert_denied(&resp);
-        let resp = dispatch_on_heap(&state, request(2, "__commons__", Some("worker1"), del())).await;
+        let resp =
+            dispatch_on_heap(&state, request(2, "__commons__", Some("worker1"), del())).await;
         assert_ok(&resp);
     }
 
@@ -2909,7 +2922,8 @@ mod tests {
         .await;
         assert_ok(&communities);
 
-        let metrics = dispatch_on_heap(&state, request(12, "agent:algo", None, Method::Metrics)).await;
+        let metrics =
+            dispatch_on_heap(&state, request(12, "agent:algo", None, Method::Metrics)).await;
         assert_ok(&metrics);
         let Some(ResultPayload::Json(m)) = metrics.result else {
             panic!("expected JSON metrics result");
@@ -4626,7 +4640,9 @@ ex:p1 a ex:Paper .
         // ClearGraph through dispatch RESETS the feed (CONCEPT:EG-KG.query.streaming-cdc-subscriptions): the seq
         // rewinds to 0 and the ring empties, so a consumer re-seeds from 0. (This is
         // what gives a wiped/cleared graph a clean change feed.)
-        assert_ok(&dispatch_on_heap(&state, request(7, "__commons__", None, Method::ClearGraph)).await);
+        assert_ok(
+            &dispatch_on_heap(&state, request(7, "__commons__", None, Method::ClearGraph)).await,
+        );
         let after_clear = dispatch_on_heap(
             &state,
             request(
@@ -4708,7 +4724,8 @@ ex:p1 a ex:Paper .
         let mut id = 10u64;
         for n in ["a", "b", "c"] {
             assert_ok(
-                &dispatch_on_heap(&state, request(id, "__commons__", None, doc_node(n, "Doc"))).await,
+                &dispatch_on_heap(&state, request(id, "__commons__", None, doc_node(n, "Doc")))
+                    .await,
             );
             id += 1;
         }

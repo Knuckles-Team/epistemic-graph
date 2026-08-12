@@ -179,8 +179,13 @@ async fn recovered_nodes_are_backfilled_before_spatial_index_is_available() {
         layer: "City".into(),
         bbox: [0.0, 0.0, 10.0, 10.0],
     }]);
-    let fallback_rows =
-        rows_of(&Box::pin(dispatch(&state, req(12, Method::UnifiedQuery { plan: plan.clone() }))).await);
+    let fallback_rows = rows_of(
+        &Box::pin(dispatch(
+            &state,
+            req(12, Method::UnifiedQuery { plan: plan.clone() }),
+        ))
+        .await,
+    );
     assert_eq!(fallback_rows[0].0, "inside");
 
     let core = state
@@ -205,7 +210,8 @@ async fn recovered_nodes_are_backfilled_before_spatial_index_is_available() {
         "factory installation must backfill before publishing availability"
     );
 
-    let indexed_rows = rows_of(&Box::pin(dispatch(&state, req(13, Method::UnifiedQuery { plan }))).await);
+    let indexed_rows =
+        rows_of(&Box::pin(dispatch(&state, req(13, Method::UnifiedQuery { plan }))).await);
     assert_eq!(indexed_rows, fallback_rows);
 }
 

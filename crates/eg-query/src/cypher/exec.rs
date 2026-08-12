@@ -3871,10 +3871,22 @@ mod tests {
     #[test]
     fn coordinator_disproof_universally_absent_property_is_null_check() {
         let core = GraphCore::new();
-        core.add_node("n1".into(), pbytes(serde_json::json!({"node_type":"Widget"})));
-        core.add_node("n2".into(), pbytes(serde_json::json!({"node_type":"Widget"})));
-        core.add_node("n3".into(), pbytes(serde_json::json!({"node_type":"Gadget"})));
-        core.add_node("n4".into(), pbytes(serde_json::json!({"node_type":"Gadget"})));
+        core.add_node(
+            "n1".into(),
+            pbytes(serde_json::json!({"node_type":"Widget"})),
+        );
+        core.add_node(
+            "n2".into(),
+            pbytes(serde_json::json!({"node_type":"Widget"})),
+        );
+        core.add_node(
+            "n3".into(),
+            pbytes(serde_json::json!({"node_type":"Gadget"})),
+        );
+        core.add_node(
+            "n4".into(),
+            pbytes(serde_json::json!({"node_type":"Gadget"})),
+        );
         let v = core.analysis_snapshot();
 
         let total = exec_cypher(&v, "MATCH (n) RETURN count(n)").unwrap();
@@ -3963,7 +3975,11 @@ mod tests {
         .unwrap();
         // owned_by_me (owner match), org_scoped (org scope), unowned (owner IS NULL) are
         // visible; owned_by_other is not (owned by someone else, not org/commons-scoped).
-        assert_eq!(cells_of(&base, 0)[0], Value::Number(3.into()), "bare visibility predicate sanity check");
+        assert_eq!(
+            cells_of(&base, 0)[0],
+            Value::Number(3.into()),
+            "bare visibility predicate sanity check"
+        );
 
         let is_not_null = exec_cypher(
             &v,
@@ -3990,7 +4006,11 @@ mod tests {
         // Visible InboundMessage nodes: owned_by_me + org_scoped = 2 (owned_by_other is
         // filtered by visibility regardless of node_type).
         assert_eq!(cells_of(&eq, 0)[0], Value::Number(2.into()));
-        assert_eq!(cells_of(&eq, 0)[0], cells_of(&inn, 0)[0], "composed = and composed IN must agree");
+        assert_eq!(
+            cells_of(&eq, 0)[0],
+            cells_of(&inn, 0)[0],
+            "composed = and composed IN must agree"
+        );
     }
 
     /// Coordinator disproof check, point 4: `=` vs `IN` against a UNIVERSALLY-absent
@@ -4000,8 +4020,14 @@ mod tests {
     #[test]
     fn coordinator_disproof_absent_property_eq_vs_in_agree() {
         let core = GraphCore::new();
-        core.add_node("n1".into(), pbytes(serde_json::json!({"node_type":"Widget"})));
-        core.add_node("n2".into(), pbytes(serde_json::json!({"node_type":"Gadget"})));
+        core.add_node(
+            "n1".into(),
+            pbytes(serde_json::json!({"node_type":"Widget"})),
+        );
+        core.add_node(
+            "n2".into(),
+            pbytes(serde_json::json!({"node_type":"Gadget"})),
+        );
         let v = core.analysis_snapshot();
 
         let eq = exec_cypher(
@@ -4015,7 +4041,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cells_of(&eq, 0)[0], Value::Number(0.into()));
-        assert_eq!(cells_of(&eq, 0)[0], cells_of(&inn, 0)[0], "= and IN must agree on an absent property too");
+        assert_eq!(
+            cells_of(&eq, 0)[0],
+            cells_of(&inn, 0)[0],
+            "= and IN must agree on an absent property too"
+        );
     }
 
     /// BUG-035 hardening: a WHERE predicate over a node whose STORED property blob is

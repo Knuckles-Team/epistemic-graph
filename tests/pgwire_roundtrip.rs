@@ -55,9 +55,9 @@ fn sql_test_persist_dir() -> String {
 fn grant_commons_access(isolation: &mut IsolationLayer, agent_id: &str) {
     #[cfg(feature = "security")]
     {
-        use epistemic_graph::isolation::AgentRole;
-        use epistemic_graph::isolation::AgentIdentity;
         use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+        use epistemic_graph::isolation::AgentIdentity;
+        use epistemic_graph::isolation::AgentRole;
         isolation.add_role(Role::new("commons-user"));
         isolation.add_grant(Grant {
             role: "commons-user".to_string(),
@@ -138,7 +138,8 @@ fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> Arc<RwLock<Se
         // at COMMIT with "committed measurements require the served time-series store".
         #[cfg(feature = "tsdb")]
         tsdb_store: Some({
-            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(1);
             let path = std::env::temp_dir().join(format!(
                 "eg-pgwire-tsdb-test-{}-{}.redb",
                 std::process::id(),
@@ -1619,7 +1620,9 @@ async fn wire_reason_iri_bridges_string_typed_node() {
     let stranger_pw = pgwire::derive_pg_password("test", "stranger");
     let stranger = connect_scram(&addr, "stranger", &stranger_pw, "__commons__")
         .await
-        .expect("SCRAM login succeeds for an unregistered user (login proves only the shared secret)");
+        .expect(
+            "SCRAM login succeeds for an unregistered user (login proves only the shared secret)",
+        );
     let denied = stranger
         .simple_query("UQL MATCH (:Sensor) |> REASON <http://ex/Device> |> LIMIT 5")
         .await;

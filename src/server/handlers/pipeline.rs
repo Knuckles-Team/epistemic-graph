@@ -1428,7 +1428,12 @@ mod tests {
     /// `"private"` — see `row_visibility`'s doc). Tests that read a model through a
     /// non-System `GraphReadAuthority` must tag it explicitly, same as any other
     /// row whose visibility they care about.
-    fn tag_model_visibility(core: &GraphCore, model_id: &str, visibility: &str, owner: Option<&str>) {
+    fn tag_model_visibility(
+        core: &GraphCore,
+        model_id: &str,
+        visibility: &str,
+        owner: Option<&str>,
+    ) {
         let mut props =
             eg_types::msgpack::decode_property_value(&core.get_node_properties(model_id).unwrap())
                 .unwrap();

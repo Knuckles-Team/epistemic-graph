@@ -2858,7 +2858,9 @@ fn seed_checkpoint_image(
                 .insert((graph, id.as_str()), sealed.as_ref())
                 .expect("insert seeded node");
         }
-        let mut meta = wtx.open_table(GRAPH_META).expect("open graph_meta for seed");
+        let mut meta = wtx
+            .open_table(GRAPH_META)
+            .expect("open graph_meta for seed");
         let encoded = encode_meta_with_incarnation(graph, GraphType::Global, incarnation_id)
             .expect("encode seeded graph_meta");
         meta.insert(graph, encoded.as_slice())
