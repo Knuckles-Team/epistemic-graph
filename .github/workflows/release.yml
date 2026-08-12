@@ -107,28 +107,28 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Test (lower crates, all features)
-        run: cargo test -p eg-types -p eg-core -p eg-compute --all-features
+        run: cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
       - name: Test (facade full)
-        run: cargo test -p epistemic-graph --features full
+        run: cargo test -p epistemic-graph --features full --no-fail-fast
       # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
       # of the parallel run above (a concurrent sibling's 256MB blob inflates the
       # shared RSS past the cap). Run them here in isolation — serial + ignored — so
       # the memory-regression coverage stays in CI without the parallel pollution.
       - name: Test (memory-regression — RSS bounds, isolated)
-        run: cargo test -p epistemic-graph --features full bounded_memory -- --ignored --test-threads=1
+        run: cargo test -p epistemic-graph --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
       - name: Test (slim server — gated-out methods return the not-built error)
-        run: cargo test -p epistemic-graph --no-default-features --features server
+        run: cargo test -p epistemic-graph --no-default-features --features server --no-fail-fast
       # DE7 (durable-execution-native.md): replay-determinism crash-and-reopen
       # proofs for eg-jobs/eg-statechart.
       - name: Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)
-        run: cargo test -p eg-jobs -p eg-statechart --test replay_determinism
+        run: cargo test -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast
       # The fuzz + concurrency-chaos proptest suite (long random valid pipelines,
       # snapshot-isolation under contention) — a correctness test, kept here
       # (release-critical) rather than moving with the rest of the former
       # `benchmarks` job (which is a perf/recall gate and belongs in
       # advisory.yml).
       - name: Query-pipeline fuzz + chaos (eg-plan)
-        run: cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines
+        run: cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
 
       - name: Install pytest
         run: pip install pytest

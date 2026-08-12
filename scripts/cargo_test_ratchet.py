@@ -35,6 +35,13 @@ ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "scripts" / "facade_full_test_baseline.txt"
 # `test <name> ... FAILED` in libtest output.
 FAILED_RE = re.compile(r"^test (\S+) \.\.\. FAILED\s*$", re.M)
+# Cargo announces each test binary it is about to execute, and libtest prints
+# exactly one summary line per binary that runs to completion. A binary that
+# starts but never emits a summary did not finish -- it aborted.
+RUNNING_RE = re.compile(r"^\s+(?:Running|Doc-tests) \S+", re.M)
+RESULT_RE = re.compile(r"^test result:", re.M)
+# Cargo reports the wait status of a binary killed by a signal.
+SIGNAL_RE = re.compile(r"\(signal: \d+,[^)]*\)")
 
 
 def load_baseline() -> set[str]:
@@ -58,7 +65,21 @@ def write_baseline(names: set[str]) -> None:
 
 
 def run_suite(extra: list[str]) -> tuple[str, int]:
-    cmd = ["cargo", "test", "-p", "epistemic-graph", "--features", "full", *extra]
+    # --no-fail-fast is MANDATORY here: cargo test fail-fasts ACROSS targets, so
+    # without it the run stops at the first failing test binary and every later
+    # binary is silently never executed. The ratchet then compares a truncated
+    # failure set against the baseline and reports "no new failures" for a suite
+    # it did not finish -- the exact false-green this gate exists to prevent.
+    cmd = [
+        "cargo",
+        "test",
+        "-p",
+        "epistemic-graph",
+        "--features",
+        "full",
+        "--no-fail-fast",
+        *extra,
+    ]
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
     return proc.stdout + proc.stderr, proc.returncode
 
@@ -79,6 +100,27 @@ def main() -> int:
     if code != 0 and not failing:
         print("cargo test failed WITHOUT reporting individual test failures.")
         print("That is a crash/abort, not a test result -- refusing to ratchet over it.")
+        print(output[-4000:])
+        return 1
+
+    # COMPLETION SENTINEL (the --no-fail-fast counterpart of the check above).
+    # Under --no-fail-fast the run no longer stops at a crashed binary, so a
+    # SIGABRT can now coexist with ordinary FAILED lines from other binaries.
+    # The guard above only fires when NOTHING failed, so an abort would sail
+    # straight past it and be ratcheted over. Require instead that every test
+    # binary cargo started also reported a summary line: started-but-unfinished
+    # means its results are missing, and missing is never pass.
+    started = len(RUNNING_RE.findall(output))
+    finished = len(RESULT_RE.findall(output))
+    if finished < started:
+        print(
+            f"INCOMPLETE RUN: cargo started {started} test binaries but only "
+            f"{finished} reported a result -- {started - finished} aborted "
+            "without finishing."
+        )
+        print("Their tests never executed, so this run cannot be ratcheted over.")
+        for sig in sorted(set(SIGNAL_RE.findall(output))):
+            print(f"  killed by {sig}")
         print(output[-4000:])
         return 1
 
