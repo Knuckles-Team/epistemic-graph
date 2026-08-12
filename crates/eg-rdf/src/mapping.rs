@@ -41,6 +41,78 @@ pub const RDF_MULTI_VALUE_KEY: &str = "__rdf_multivalue_literals";
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
+// ── A18 TBox/ABox RLS distinction (CONCEPT:EG-KG.sharding.row-level-security) ──────────
+//
+// Row-level default-deny (`eg_core::isolation::can_see_row`) protects ABox rows -- a
+// row ABOUT someone/something whose owner controls its visibility. An OWL axiom /
+// class / property-definition node is SCHEMA (TBox), not a row about anyone, and is
+// already protected at the correct granularity by GRAPH-level ACL. Applying row-level
+// default-deny to it is a category error whose consequence was a graph's whole schema
+// going invisible to every non-`System` actor once a caller had no way to tag a
+// SPARQL-staged axiom's class nodes (`_visibility`/`_owner` are not valid absolute
+// IRIs, so SPARQL UPDATE has no syntactic way to set them).
+//
+// This module structurally identifies TBox nodes -- the subject/object of a
+// RECOGNIZED RDFS/OWL 2 schema predicate, or the subject of an explicit
+// `rdf:type owl:Class`/... declaration -- and stamps them with
+// `eg_core::isolation::RLS_SCHEMA_KEY` so `can_see_row` exempts them from row-level
+// default-deny while graph-level ACL (unaffected) still gates whether a caller reaches
+// row filtering at all. Never a name convention on the node id.
+//
+// Deliberately NARROW: `owl:sameAs`/`owl:differentFrom` state facts ABOUT
+// INDIVIDUALS (ABox, even though the reasoner processes them), and `owl:oneOf`'s list
+// members can themselves be individuals -- none of these are included, so this can
+// NEVER mark an ABox individual as schema-visible by association. Only the
+// well-established two-node class/property axiom shapes below are recognized.
+
+/// RDFS/OWL 2 schema predicates: a resource-object triple using one of these names an
+/// axiom ABOUT a class/property (TBox), never a fact about an individual (ABox) -- see
+/// the module-level A18 note above. `pub(crate)` so `crate::update` (the SPARQL UPDATE
+/// write path) shares this ONE vocabulary rather than duplicating it.
+pub(crate) const TBOX_SCHEMA_PREDICATES: &[&str] = &[
+    "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+    "http://www.w3.org/2000/01/rdf-schema#subPropertyOf",
+    "http://www.w3.org/2000/01/rdf-schema#domain",
+    "http://www.w3.org/2000/01/rdf-schema#range",
+    "http://www.w3.org/2002/07/owl#equivalentClass",
+    "http://www.w3.org/2002/07/owl#equivalentProperty",
+    "http://www.w3.org/2002/07/owl#disjointWith",
+    "http://www.w3.org/2002/07/owl#propertyDisjointWith",
+    "http://www.w3.org/2002/07/owl#inverseOf",
+    "http://www.w3.org/2002/07/owl#onProperty",
+    "http://www.w3.org/2002/07/owl#someValuesFrom",
+    "http://www.w3.org/2002/07/owl#allValuesFrom",
+    "http://www.w3.org/2002/07/owl#hasValue",
+    "http://www.w3.org/2002/07/owl#intersectionOf",
+    "http://www.w3.org/2002/07/owl#unionOf",
+];
+
+/// `rdf:type` OBJECTS that make the triple's SUBJECT a schema (TBox) declaration -- a
+/// class/property/ontology/restriction definition -- rather than an ABox
+/// instance-typing fact. An individual typed with an ORDINARY user class
+/// (`ex:robot1 rdf:type ex:Robot`) is NOT matched here (`ex:Robot` is not in this
+/// list), so ordinary instance data is unaffected; only an explicit declaration that
+/// the SUBJECT ITSELF is a class/property/ontology resource is schema. `pub(crate)`,
+/// shared with `crate::update` -- see [`TBOX_SCHEMA_PREDICATES`].
+pub(crate) const TBOX_TYPE_OBJECTS: &[&str] = &[
+    "http://www.w3.org/2002/07/owl#Class",
+    "http://www.w3.org/2000/01/rdf-schema#Class",
+    "http://www.w3.org/2002/07/owl#ObjectProperty",
+    "http://www.w3.org/2002/07/owl#DatatypeProperty",
+    "http://www.w3.org/2002/07/owl#AnnotationProperty",
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property",
+    "http://www.w3.org/2002/07/owl#Restriction",
+    "http://www.w3.org/2002/07/owl#Ontology",
+];
+
+/// Stamp `properties` as ontology SCHEMA (TBox) -- see the module-level A18 note.
+/// Idempotent: a no-op if already present.
+pub(crate) fn mark_schema(properties: &mut serde_json::Map<String, serde_json::Value>) {
+    properties
+        .entry(eg_core::isolation::RLS_SCHEMA_KEY.to_string())
+        .or_insert(serde_json::Value::Bool(true));
+}
+
 /// IRI interning: a string IRI ↔ a small integer handle. A production deployment
 /// can back this with a redb table (`iri_id ↔ iri_string`) so node ids are compact
 /// u64s; here the bidirectional map is in memory and the term string is the node
@@ -174,7 +246,19 @@ pub fn lower_triples(
                             .or_insert_with(|| {
                                 serde_json::Value::String(node_type.as_str().to_string())
                             });
+                        // A18: an explicit `rdf:type owl:Class`/`rdfs:Class`/...
+                        // declaration makes the SUBJECT itself schema (TBox) --
+                        // see the module-level A18 note above.
+                        if TBOX_TYPE_OBJECTS.contains(&node_type.as_str()) {
+                            mark_schema(node_props.entry(subject.clone()).or_default());
+                        }
                     }
+                } else if TBOX_SCHEMA_PREDICATES.contains(&predicate.as_str()) {
+                    // A18: a recognized RDFS/OWL schema predicate names an axiom
+                    // ABOUT both endpoints (a class/property reference on each
+                    // side), so both are schema -- see the module-level A18 note.
+                    mark_schema(node_props.entry(subject.clone()).or_default());
+                    mark_schema(node_props.entry(object_id.clone()).or_default());
                 }
                 edges.push((subject, predicate, object_id));
             }

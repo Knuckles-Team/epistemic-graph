@@ -898,9 +898,19 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
 // EG-393 (test 10) — pgwire + /sparql + native consistent snapshot after a mixed commit
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// The `/sparql` SELECT/CONSTRUCT/ASK read leg's carrier credential (A18) —
+/// set into [`sparql_http::SPARQL_BEARER_TOKEN_ENV`] before the listener binds
+/// (it resolves its bearer/JWT config once at `serve()` startup, the SAME
+/// pattern `kvcache_http` uses) and sent as `Authorization: Bearer …` by
+/// [`sparql_post`] below, proving the route now authenticates a VALID
+/// credential instead of having been merely relaxed.
+#[cfg(feature = "sparql-http")]
+const SPARQL_BEARER: &str = "advanced-crossmodal-sparql-bearer";
+
 /// POST a SPARQL query to the `/sparql` HTTP endpoint over a raw TCP socket and return the
 /// response body (SPARQL-results JSON). Dep-free — the endpoint is a hand-rolled HTTP/1.1
-/// listener, so a raw request avoids pulling an HTTP client into the test.
+/// listener, so a raw request avoids pulling an HTTP client into the test. Sends the
+/// [`SPARQL_BEARER`] static-secret credential the A18 read-leg fix now requires.
 #[cfg(feature = "sparql-http")]
 async fn sparql_post(addr: &str, query: &str) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -909,7 +919,7 @@ async fn sparql_post(addr: &str, query: &str) -> String {
         .expect("sparql connect");
     let reqs = format!(
         "POST /sparql HTTP/1.1\r\nHost: localhost\r\ncontent-type: application/sparql-query\r\n\
-         content-length: {}\r\nconnection: close\r\n\r\n{}",
+         authorization: Bearer {SPARQL_BEARER}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
         query.len(),
         query
     );
@@ -954,6 +964,12 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
     }
 
     // ── bind the /sparql listener on an ephemeral port over the SAME state. ──
+    // A18: `serve()` resolves its bearer/JWT read-leg credential from the
+    // environment ONCE at startup (mirroring `kvcache_http`), so the env var
+    // must be set before it is spawned. `--test-threads=1` (this crate's
+    // mandatory test-run mode) makes a process-global env var safe here — no
+    // other test in THIS binary runs concurrently.
+    std::env::set_var(sparql_http::SPARQL_BEARER_TOKEN_ENV, SPARQL_BEARER);
     let sparql_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let sparql_addr = sparql_listener.local_addr().unwrap().to_string();
     {

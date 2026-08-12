@@ -85,8 +85,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
@@ -392,47 +390,21 @@ impl KvCacheStore {
 
 // ── bearer-token auth guard (CONCEPT:EG-KG.backend.is-configured-so-co) ──────────────────────────────────────
 //
-// The JWT verifier itself lives in `crate::server::oidc` (feature `oidc`) —
-// shared with the primary `eg2.` protocol's identity binding, not vendored
-// here.
-
-/// A configured auth mode. JWT is preferred:
-/// [`KvAuth::Jwt`] validates a Keycloak client-credentials token (paired with the
-/// platform's overall auth — the same tokens graph-os validates); [`KvAuth::Static`]
-/// is a shared bearer secret (the documented OpenBao-sourced fallback).
-#[derive(Clone, Debug)]
-pub enum KvAuth {
-    Static(String),
-    Jwt(std::sync::Arc<crate::server::oidc::JwtValidator>),
-}
+// The credential type + its JWT/static verification core now live in
+// `crate::server::auth::BearerCredential` (A18) — extracted so the `/sparql`
+// SELECT/CONSTRUCT/ASK read leg (`server::sparql_http`) authenticates the
+// SAME way instead of growing a third bespoke bearer/JWT implementation. The
+// JWT verifier itself still lives in `crate::server::oidc` (feature `oidc`),
+// shared with the primary `eg2.` protocol's identity binding.
+use crate::server::auth::BearerCredential as KvAuth;
 
 /// Require a valid `Authorization: Bearer <token>` — a static-secret match or a
-/// signature/issuer/audience/expiry-verified Keycloak JWT.
+/// signature/issuer/audience/expiry-verified Keycloak JWT
+/// (`server::auth::BearerCredential::verify`, shared with `/sparql`).
 fn authorized(auth: &KvAuth, headers: &HashMap<String, String>) -> bool {
-    let token = match headers
+    headers
         .get("authorization")
-        .and_then(|h| h.strip_prefix("Bearer "))
-        .map(str::trim)
-    {
-        Some(t) => t,
-        None => return false,
-    };
-    match auth {
-        KvAuth::Static(secret) => {
-            // Compare fixed-size HMAC tags rather than secret-bearing strings.
-            let Ok(mut candidate) = Hmac::<Sha256>::new_from_slice(token.as_bytes()) else {
-                return false;
-            };
-            candidate.update(b"epistemic-graph:kvcache-static-token");
-            let candidate_tag = candidate.finalize().into_bytes();
-            let Ok(mut expected) = Hmac::<Sha256>::new_from_slice(secret.as_bytes()) else {
-                return false;
-            };
-            expected.update(b"epistemic-graph:kvcache-static-token");
-            expected.verify_slice(&candidate_tag).is_ok()
-        }
-        KvAuth::Jwt(validator) => validator.validate(token),
-    }
+        .is_some_and(|header| auth.verify(header))
 }
 
 /// Parse the `X-EG-Data-Version` header (CONCEPT:EG-KG.storage.content-addressed-put) into a [`DataVersion`]. A valid
@@ -522,7 +494,8 @@ fn release_outcome_response(outcome: ReleaseOutcome) -> KvResponse {
 /// Route + execute one request → a [`KvResponse`]. Pure (sync) so it is fully
 /// unit-testable without a socket (CONCEPT:EG-KG.backend.is-configured-so-co).
 fn handle(store: &KvCacheStore, auth: &KvAuth, req: &KvRequest) -> KvResponse {
-    if !authorized(auth, &req.headers) {
+    let credential_verified = authorized(auth, &req.headers);
+    if !credential_verified {
         return KvResponse::error(
             "401 Unauthorized",
             "Unauthorized",
@@ -530,12 +503,16 @@ fn handle(store: &KvCacheStore, auth: &KvAuth, req: &KvRequest) -> KvResponse {
         );
     }
     // A18: the bearer/JWT guard above IS this surface's own carrier proof — mint
-    // the engine-owned authority now that it succeeded, then gate through the
-    // SAME shared check every other surface uses (real now: denies iff no
-    // carrier was minted; here it can only be minted once `authorized` passed).
-    let carrier = crate::server::auth::VerifiedRequestContext::authenticated_kvcache_actor()
-        .ok()
-        .and_then(|context| crate::server::access::CarrierAuthority::from_verified(&context).ok());
+    // the engine-owned authority now that it succeeded, through the ONE shared
+    // helper every auxiliary surface uses (S3 SigV4, `/sparql`'s bearer/JWT
+    // leg, ...), then gate through the SAME shared check (real now: denies
+    // iff no carrier was minted; here it can only be minted once `authorized`
+    // passed).
+    let carrier = crate::server::auth::mint_fixed_service_carrier(
+        credential_verified,
+        "kvcache-client",
+        &["kg:read", "kg:write"],
+    );
     if crate::server::access::unauthenticated_carrier_denied(carrier.as_ref()) {
         return KvResponse::error(
             "403 Forbidden",

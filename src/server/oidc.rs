@@ -1,12 +1,18 @@
 //! Shared OIDC/JWKS bearer-token verification core (feature `oidc`).
 //!
 //! One RSA-signature-against-JWKS verifier (issuer/audience/expiry,
-//! Keycloak-compatible) reused by two independently-configured surfaces:
+//! Keycloak-compatible) reused by three independently-configured surfaces:
 //!
 //! * the ancillary KV-cache HTTP surface (`server::kvcache_http`,
 //!   `EPISTEMIC_GRAPH_KVCACHE_JWT_*`) — [`JwtValidator::from_env`] +
 //!   [`JwtValidator::validate`] (a bare bool: does this bearer token belong to
 //!   a caller allowed to touch KV pages);
+//! * the `/sparql` SELECT/CONSTRUCT/ASK read leg (`server::sparql_http`, A18,
+//!   `EPISTEMIC_GRAPH_SPARQL_JWT_*`) — [`JwtValidator::from_env_sparql`] +
+//!   [`JwtValidator::validate`], the SAME bearer/JWT credential SHAPE as the
+//!   KV-cache surface (a caller entitled to KV pages is not automatically
+//!   entitled to run federated SPARQL reads, so it is independently
+//!   configured rather than sharing the KV-cache surface's issuer);
 //! * the primary `eg2.` request envelope (`server::auth`,
 //!   `EPISTEMIC_GRAPH_OIDC_JWT_*`) — [`JwtValidator::from_env_primary`] +
 //!   [`JwtValidator::validate_claims`] (the verified subject/tenant/roles/
@@ -15,12 +21,12 @@
 //!   mismatch — closing the gap where a holder of the shared HMAC secret
 //!   could otherwise claim to be anyone).
 //!
-//! Both entry points share one verification core ([`JwtValidator::decode_with`])
+//! All three entry points share one verification core ([`JwtValidator::decode_with`])
 //! so a signature/issuer/audience/expiry check behaves identically everywhere;
 //! only the claim projection differs (a bare boolean vs. a typed claim set).
 //! This module writes NO signature/JWKS code of its own beyond what already
-//! shipped for the KV-cache surface — it only adds a second, independently
-//! configured identity + a claims-returning entry point over the same checks.
+//! shipped for the KV-cache surface — each additional surface only adds an
+//! independently configured identity over the same checks.
 //!
 //! JWKS keys are primed once at startup and lazily re-fetched on a `kid` miss so
 //! a Keycloak signing-key rotation self-heals without a restart. Validation
@@ -51,6 +57,25 @@ const AUDIENCE_ENVS: &[&str] = &[
 /// construction belong at the deployment boundary; the engine never guesses an
 /// identity-provider layout.
 const JWKS_URL_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_JWKS_URL";
+
+/// Env: explicit `/sparql` SELECT/CONSTRUCT/ASK read-leg issuer (A18), else
+/// reuse the platform's inbound-JWT / OIDC issuer. Independent of the
+/// KV-cache surface's issuer — a caller entitled to KV pages is not
+/// automatically entitled to run federated SPARQL reads.
+const SPARQL_ISSUER_ENVS: &[&str] = &[
+    "EPISTEMIC_GRAPH_SPARQL_JWT_ISSUER",
+    "FASTMCP_SERVER_AUTH_JWT_ISSUER",
+    "OIDC_ISSUER",
+];
+/// Env: explicit `/sparql` read-leg audience, else the platform's fleet audience.
+const SPARQL_AUDIENCE_ENVS: &[&str] = &[
+    "EPISTEMIC_GRAPH_SPARQL_JWT_AUDIENCE",
+    "FASTMCP_SERVER_AUTH_JWT_AUDIENCE",
+    "OIDC_AUDIENCE",
+];
+/// Env: explicit `/sparql` read-leg JWKS URL. No generic fallback, same
+/// reasoning as [`JWKS_URL_ENV`].
+const SPARQL_JWKS_URL_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_JWKS_URL";
 
 /// Env: explicit primary-`eg2.`-protocol issuer, else the platform's shared
 /// `OIDC_ISSUER`. Independent of the KV-cache surface's issuer — a deployment
@@ -189,6 +214,23 @@ impl JwtValidator {
     /// an error rather than a deployment-specific fallback.
     pub fn from_env() -> Result<Option<Self>, String> {
         Self::from_envs("kvcache-server", ISSUER_ENVS, AUDIENCE_ENVS, JWKS_URL_ENV)
+    }
+
+    /// Build the `/sparql` SELECT/CONSTRUCT/ASK read leg's validator from the
+    /// environment (A18, `server::sparql_http`). Independently configured
+    /// from [`from_env`](Self::from_env)'s KV-cache surface and
+    /// [`from_env_primary`](Self::from_env_primary)'s primary `eg2.` envelope
+    /// — all three may point at different realms/audiences, though most
+    /// deployments will share one. No issuer configured ⇒ `Ok(None)`: the
+    /// read leg falls back to (or stays on) the static-secret /
+    /// unconfigured-and-denied posture.
+    pub fn from_env_sparql() -> Result<Option<Self>, String> {
+        Self::from_envs(
+            "sparql-http-client",
+            SPARQL_ISSUER_ENVS,
+            SPARQL_AUDIENCE_ENVS,
+            SPARQL_JWKS_URL_ENV,
+        )
     }
 
     /// Build the primary `eg2.` protocol's OIDC identity-binding validator

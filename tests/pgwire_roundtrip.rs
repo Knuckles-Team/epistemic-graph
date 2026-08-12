@@ -1571,21 +1571,22 @@ async fn wire_reason_iri_bridges_string_typed_node() {
     // The OWL axiom Sensor ⊑ Device (SPARQL UPDATE auto-commits, lowered to graph triples
     // the reasoner reconstructs as TBox).
     //
-    // KNOWN UNFIXED GAP (see the end-of-run report): the two axiom class nodes
-    // (`<http://ex/Sensor>`, `<http://ex/Device>`) land with an EMPTY property blob
-    // (`lower_triples` only populates `node_props` for a subject/object that also
-    // carries a literal-valued triple) -- untagged and unowned. Default-deny RLS
-    // (`IsolationLayer::can_see_row`) hides such a row from a non-`System` actor, and
-    // `reason_op` (`eg-plan/exec.rs`) reads the TBox off the SAME RLS-filtered
-    // `ctx.view` every other op uses, so `REASON <http://ex/Device>` never sees the
-    // axiom for the pgwire "tester" actor. Unlike the `INSERT INTO nodes (..., _visibility)`
-    // escape hatch every other fresh write in this file uses, SPARQL UPDATE has NO
-    // syntactic way to attach that tag: `lower_triples` keys a literal-object triple's
-    // property directly off the predicate's IRI string, and `NamedNode::new` rejects a
-    // bare `_visibility`/`_owner` token as not a valid absolute IRI (RFC 3987) -- there
-    // is no legitimate SPARQL predicate that lowers to exactly the `_visibility`/`_owner`
-    // reserved key. A pure test-side fix does not exist; this needs either a TBox/axiom
-    // RLS exemption or an explicit visibility-tagging seam for SPARQL-staged axioms.
+    // FIXED (A18 -- was the KNOWN GAP this test used to document): the two axiom class
+    // nodes (`<http://ex/Sensor>`, `<http://ex/Device>`) land with an EMPTY property
+    // blob (`lower_triples`/`eg_rdf::update::insert_triple` only populate ordinary
+    // properties for a subject/object that also carries a literal-valued triple) --
+    // untagged and unowned in the ABox sense. Row-level default-deny RLS
+    // (`IsolationLayer::can_see_row`) exists to protect ABox rows, but an OWL axiom is
+    // SCHEMA (TBox), not a row about anyone -- applying row-level default-deny to it was
+    // a category error, and its consequence was exactly this: `REASON <http://ex/Device>`
+    // never saw the axiom for the pgwire "tester" actor. `eg_rdf::update::insert_triple`
+    // (and `mapping::lower_triples` for bulk RDF load) now stamps BOTH endpoints of a
+    // recognized RDFS/OWL schema predicate (`rdfs:subClassOf` here) with
+    // `eg_core::isolation::RLS_SCHEMA_KEY`, and `can_see_row` treats a schema-marked row
+    // as visible -- narrowly: ONLY rows the RDF/OWL lowering structurally identified as
+    // schema, never merely because they are untagged. Graph-level ACL
+    // (`check_graph_access`, exercised in the SECOND connection below) is completely
+    // unchanged and still gates whether an actor reaches row filtering at all.
     client
         .simple_query(
             "SPARQL UPDATE INSERT DATA { <http://ex/Sensor> \
@@ -1607,6 +1608,26 @@ async fn wire_reason_iri_bridges_string_typed_node() {
         ids,
         vec!["sen1".to_string()],
         "REASON <http://ex/Device> includes the string-typed Sensor via the string→IRI bridge"
+    );
+
+    // ── A18, the OTHER direction: an actor with NO graph access sees NOTHING, TBox
+    // included. `stranger` completes SCRAM login (the shared secret alone proves
+    // possession; login never consults `IsolationLayer`), but is never
+    // `register_agent`-ed, so `IsolationLayer::check_access` denies it before the
+    // read even reaches row-level filtering -- proving the TBox exemption did not
+    // widen the GRAPH-level gate this fix leaves untouched.
+    let stranger_pw = pgwire::derive_pg_password("test", "stranger");
+    let stranger = connect_scram(&addr, "stranger", &stranger_pw, "__commons__")
+        .await
+        .expect("SCRAM login succeeds for an unregistered user (login proves only the shared secret)");
+    let denied = stranger
+        .simple_query("UQL MATCH (:Sensor) |> REASON <http://ex/Device> |> LIMIT 5")
+        .await;
+    let err = denied.expect_err("an unregistered actor must be denied __commons__ graph access");
+    let chain = error_chain(&err);
+    assert!(
+        chain.contains("permission denied") || chain.contains("42501"),
+        "expected a graph-level ACL denial, got chain: {chain}"
     );
 }
 
