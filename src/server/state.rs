@@ -147,6 +147,19 @@ pub struct ServerState {
     /// serializing one-op-at-a-time. A new graph/connector gets a writer
     /// automatically with a bounded hardware-sized queue.
     pub write_coalescer: Arc<crate::write_coalescer::WriteCoalescerRegistry>,
+    /// Per-graph ROUTED-mutation coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18
+    /// rewrite). Used by `mutation::commit_coalescable_mutation` for the four
+    /// coalescable `GATEWAY_ROUTED` structural writes
+    /// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) — the ONLY live consumer
+    /// of coalescing today (`write_coalescer` above is kept for
+    /// `dispatch::try_coalesce_write`'s pre-gateway fallback path, which is
+    /// unreachable for these same four methods since the mutation gateway now
+    /// intercepts them first, but is left in place rather than removed as part
+    /// of this fix). See `server::routed_write_coalescer`'s module docs for why
+    /// this is a SEPARATE registry from `write_coalescer`: its worker queues
+    /// the WHOLE prepare→durable-commit→RAM-publish sequence, not just the RAM
+    /// apply, and needs no `core` handle (each queued job carries its own).
+    pub routed_write_coalescer: Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>,
     /// Open server-staged OCC transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid), keyed by the
     /// server-issued `txn_id`. A staged txn holds its write-set + read-set off the
     /// graph lock; the lock is taken only at commit. Each entry is behind a `Mutex`
