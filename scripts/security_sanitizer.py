@@ -141,6 +141,14 @@ PLACEHOLDER_PREFIXES = (
 )
 
 
+#: Inline exemption marker, shared with
+#: ``scripts/security/check_secret_history.py``. A line carrying it is skipped by
+#: the credential patterns below. ONE convention for both scanners, so a
+#: reviewed synthetic fixture can be marked safe once rather than needing a
+#: different mechanism per tool.
+SANITIZER_IGNORE_MARKER = "sanitizer:ignore"
+
+
 def is_placeholder(match_str: str) -> bool:
     # Generic assignment patterns include the variable name. Judge only the
     # quoted value so names such as ``secret_example`` cannot suppress a real
@@ -257,6 +265,23 @@ def scan_repository(repo_path: Path):
             lines = content.splitlines()
 
             for idx, line in enumerate(lines, 1):
+                # Honour the SAME inline exemption marker this repo's other
+                # credential scanner (`scripts/security/check_secret_history.py`)
+                # already honours, and which the test suite already uses.
+                #
+                # Before this, the two scanners disagreed: a synthetic fixture
+                # correctly marked `# sanitizer:ignore` for one still tripped the
+                # other, so there was no way to mark a fixture safe for both. The
+                # sharpest example is check_secret_history.py's OWN self-check
+                # fixtures — the planted AWS key it uses to prove it still detects
+                # a real credential — which carried the marker and were flagged
+                # here anyway.
+                #
+                # Deliberately a LINE marker, not a value allowlist: it forces the
+                # exemption to sit next to the literal it exempts, where review
+                # sees it, instead of in a distant list that silently widens.
+                if SANITIZER_IGNORE_MARKER in line:
+                    continue
                 for label, pattern in SECRET_PATTERNS:
                     for match in pattern.findall(line):
                         match_str = match[0] if isinstance(match, tuple) else match
