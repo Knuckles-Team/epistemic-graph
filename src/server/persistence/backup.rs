@@ -731,7 +731,8 @@ pub fn restore_bundle(
     // pure validation, and a read-write `Database::open` would leave an
     // unnecessary extra transaction committed into the freshly-restored store
     // before the persistence backend ever takes ownership of it.
-    let restored_admin = ReadOnlyDatabase::open(&admin_target).map_err(|error| error.to_string())?;
+    let restored_admin =
+        ReadOnlyDatabase::open(&admin_target).map_err(|error| error.to_string())?;
     let admin_mutations = eg_mutation_store::validate_recovery_store(&restored_admin)?;
     if admin_mutations != manifest.admin_mutations {
         return Err("restored admin mutation coordinator totals changed".to_string());

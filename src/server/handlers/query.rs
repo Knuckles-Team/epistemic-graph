@@ -5376,7 +5376,8 @@ mod dispatch_write_tests {
             params_msgpack: Vec::new(),
         };
 
-        let d = dispatch_on_heap(&state, req(1, sql(format!("DROP TABLE IF EXISTS {table}")))).await;
+        let d =
+            dispatch_on_heap(&state, req(1, sql(format!("DROP TABLE IF EXISTS {table}")))).await;
         assert!(d.error.is_none(), "DROP failed: {:?}", d.error);
 
         let c = dispatch_on_heap(
@@ -5417,7 +5418,8 @@ mod dispatch_write_tests {
         assert_eq!(rows[1][1], serde_json::json!(2));
 
         // cleanup
-        let _ = dispatch_on_heap(&state, req(5, sql(format!("DROP TABLE IF EXISTS {table}")))).await;
+        let _ =
+            dispatch_on_heap(&state, req(5, sql(format!("DROP TABLE IF EXISTS {table}")))).await;
     }
 
     /// `INSERT INTO nodes` over the wire lands in the graph core and a `SELECT` sees it —
@@ -5443,10 +5445,8 @@ mod dispatch_write_tests {
             &state,
             req(
                 1,
-                sql(
-                    "INSERT INTO nodes (id, type, node_type, name) VALUES \
-                     ('sqlnode', 'Gadget', 'Gadget', 'Zed')",
-                ),
+                sql("INSERT INTO nodes (id, type, node_type, name) VALUES \
+                     ('sqlnode', 'Gadget', 'Gadget', 'Zed')"),
             ),
         )
         .await;
@@ -5768,7 +5768,8 @@ mod txn_ryow_dispatch_tests {
         let q = "MATCH (:Committed) |> LIMIT 5";
 
         // Before commit: off-txn empty, in-txn sees it (RYOW).
-        let before = dispatch_on_heap(&state, req(3, Method::UnifiedQueryText { text: q.into() })).await;
+        let before =
+            dispatch_on_heap(&state, req(3, Method::UnifiedQueryText { text: q.into() })).await;
         assert!(
             unified_ids(&before).is_empty(),
             "off-txn empty before commit"
@@ -5802,7 +5803,8 @@ mod txn_ryow_dispatch_tests {
             "commit must succeed: {:?}",
             c.error
         );
-        let after = dispatch_on_heap(&state, req(6, Method::UnifiedQueryText { text: q.into() })).await;
+        let after =
+            dispatch_on_heap(&state, req(6, Method::UnifiedQueryText { text: q.into() })).await;
         assert_eq!(
             unified_ids(&after),
             vec!["cn".to_string()],

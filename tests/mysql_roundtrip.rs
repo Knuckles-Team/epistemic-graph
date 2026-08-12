@@ -178,7 +178,8 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: Some({
-            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(1);
             let path = std::env::temp_dir().join(format!(
                 "eg-mysql-tsdb-test-{}-{}.redb",
                 std::process::id(),
@@ -293,7 +294,8 @@ fn get_lenenc_int(buf: &[u8], pos: &mut usize) -> u64 {
 /// Build a Handshake-Response-41 with a native-password proof, no connect-DB
 /// (the listener's default graph `__commons__` is used).
 fn handshake_response(username: &str, auth_response: &[u8]) -> Vec<u8> {
-    let caps = CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH | CLIENT_DEPRECATE_EOF;
+    let caps =
+        CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH | CLIENT_DEPRECATE_EOF;
     let mut p = Vec::with_capacity(64);
     p.extend_from_slice(&caps.to_le_bytes());
     p.extend_from_slice(&0x0100_0000u32.to_le_bytes()); // max packet size (16 MiB)

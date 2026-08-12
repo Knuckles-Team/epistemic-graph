@@ -299,8 +299,13 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
             ontology: String::new(),
         },
     ]);
-    let inferred =
-        unified_ids(&Box::pin(dispatch(&state, req(17, Method::UnifiedQuery { plan: reason }))).await);
+    let inferred = unified_ids(
+        &Box::pin(dispatch(
+            &state,
+            req(17, Method::UnifiedQuery { plan: reason }),
+        ))
+        .await,
+    );
     assert_eq!(
         inferred,
         vec!["s1".to_string()],

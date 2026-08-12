@@ -125,7 +125,8 @@ fn state() -> Arc<RwLock<ServerState>> {
         // served store to project into.
         #[cfg(feature = "tsdb")]
         tsdb_store: Some({
-            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(1);
             let path = std::env::temp_dir().join(format!(
                 "eg-crossmodal-tsdb-test-{}-{}.redb",
                 std::process::id(),
@@ -673,7 +674,11 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
         },
     )
     .await;
-    let cb = Box::pin(dispatch(&state, req(7, Method::Commit { txn_id: b.clone() }))).await;
+    let cb = Box::pin(dispatch(
+        &state,
+        req(7, Method::Commit { txn_id: b.clone() }),
+    ))
+    .await;
     assert!(
         matches!(cb.result, Some(ResultPayload::Bool(true))),
         "B must commit its phantom Sensor: {:?}",
@@ -682,7 +687,11 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
 
     // A commits AFTER B's phantom: serializable validation re-evaluates the Sensor
     // predicate, detects the phantom, and rolls A back.
-    let ca = Box::pin(dispatch(&state, req(8, Method::Commit { txn_id: a.clone() }))).await;
+    let ca = Box::pin(dispatch(
+        &state,
+        req(8, Method::Commit { txn_id: a.clone() }),
+    ))
+    .await;
     assert!(
         matches!(ca.result, Some(ResultPayload::Bool(false))),
         "A's serializable commit must CONFLICT on the phantom Sensor (got {:?} / {:?})",
@@ -989,12 +998,13 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
     // default-deny (`self.agents.get(agent_id)` misses) on its very first SELECT.
     {
         let mut s = state.write().await;
-        s.isolation.register_agent(epistemic_graph::isolation::AgentIdentity {
-            agent_id: "tester".to_string(),
-            role: epistemic_graph::isolation::AgentRole::Agent,
-            teams: Vec::new(),
-            roles: vec!["commons-user".to_string()],
-        });
+        s.isolation
+            .register_agent(epistemic_graph::isolation::AgentIdentity {
+                agent_id: "tester".to_string(),
+                role: epistemic_graph::isolation::AgentRole::Agent,
+                teams: Vec::new(),
+                roles: vec!["commons-user".to_string()],
+            });
     }
 
     // ── a real tokio-postgres client (extended-protocol driver) on the pgwire surface. ──

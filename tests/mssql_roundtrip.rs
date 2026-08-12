@@ -172,7 +172,8 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: Some({
-            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(1);
             let path = std::env::temp_dir().join(format!(
                 "eg-mssql-tsdb-test-{}-{}.redb",
                 std::process::id(),

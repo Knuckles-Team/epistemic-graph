@@ -207,7 +207,11 @@ async fn plan_sourced_mining_tsscan_repeatable_across_requests() {
     seed_series(&state).await;
 
     for req_id in [10, 11] {
-        let resp = Box::pin(dispatch(&state, req(req_id, mine_anomaly_over(ts_scan_plan())))).await;
+        let resp = Box::pin(dispatch(
+            &state,
+            req(req_id, mine_anomaly_over(ts_scan_plan())),
+        ))
+        .await;
         let payload = json_result(&resp);
         assert_eq!(
             payload["n_rows"].as_u64().unwrap_or(0),

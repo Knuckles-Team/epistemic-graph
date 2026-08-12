@@ -466,7 +466,10 @@ def main() -> int:
 
     docs = _read("docs/operations/exact-release-campaigns.md")
     nav = _read("mkdocs.yml")
-    workflow = _read(".github/workflows/rust-ci.yml")
+    # rust-ci.yml was folded into the two-workflow release model (advisory.yml +
+    # release.yml); the architecture/doc-contract gates -- this one included --
+    # now live in advisory.yml. See advisory.yml's header comment.
+    workflow = _read(".github/workflows/advisory.yml")
     _require(
         docs,
         {
@@ -481,10 +484,18 @@ def main() -> int:
     )
     if "operations/exact-release-campaigns.md" not in nav:
         errors.append("MkDocs navigation omits the exact release campaign guide")
-    if workflow.count("scripts/check_exact_release_campaigns.py") < 3:
-        errors.append("Rust CI paths and steps do not enforce the exact campaign gate")
-    if workflow.count("scripts/certify_exact_*.py") != 2:
-        errors.append("Rust CI path filters omit exact campaign or shared-helper changes")
+    if workflow.count("scripts/check_exact_release_campaigns.py") < 1:
+        errors.append("Advisory CI does not run the exact campaign gate")
+    # The former per-file path filters (listed once for push, once for
+    # pull_request) were consolidated into a single broad 'scripts/**' filter
+    # covering every script including certify_exact_*.py -- verify that
+    # broader filter is present on both triggers instead of the literal
+    # per-file glob it replaced.
+    if workflow.count("'scripts/**'") != 2:
+        errors.append(
+            "Advisory CI path filters omit scripts/** on push and pull_request "
+            "(exact campaign or shared-helper changes would not retrigger the gate)"
+        )
 
     if errors:
         print("exact release campaign architecture gate: FAIL")

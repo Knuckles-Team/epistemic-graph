@@ -7857,8 +7857,7 @@ pub(crate) fn append_audit_entry_with_line(
 /// `audit_tail_cold_seed_is_a_bounded_seek_not_a_forward_scan` asserts. Kept out of
 /// release builds entirely so the hot append path pays nothing.
 #[cfg(test)]
-static COLD_SEED_ROWS_TOUCHED: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static COLD_SEED_ROWS_TOUCHED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[cfg(test)]
 fn cold_seed_rows_touched_inc(n: u64) {

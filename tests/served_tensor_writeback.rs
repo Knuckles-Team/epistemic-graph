@@ -180,7 +180,11 @@ async fn served_tensor_elementwise_writeback_repeatable_across_requests() {
     };
 
     for req_id in [200, 201] {
-        let resp = Box::pin(dispatch(&state, req(req_id, Method::UnifiedQuery { plan: plan() }))).await;
+        let resp = Box::pin(dispatch(
+            &state,
+            req(req_id, Method::UnifiedQuery { plan: plan() }),
+        ))
+        .await;
         let rows = rows_of(&resp);
         assert_eq!(
             rows.len(),

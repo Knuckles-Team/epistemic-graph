@@ -6492,10 +6492,7 @@ async fn dispatch_graph_op_inner(
             }
         }
         let Some(backend) = persistence.as_ref() else {
-            return Response::err(
-                req_id,
-                "native development-lane persistence is unavailable",
-            );
+            return Response::err(req_id, "native development-lane persistence is unavailable");
         };
         let fname = crate::persist::sanitize(graph_name);
         let now_ms = authoritative_now_ms();
@@ -8546,7 +8543,8 @@ mod blob_dispatch_tests {
         };
         let mut out = Vec::new();
         for idx in 0..n {
-            let r = dispatch_on_heap(state, req(*next_id, Method::BlobChunkGet { cursor, idx })).await;
+            let r =
+                dispatch_on_heap(state, req(*next_id, Method::BlobChunkGet { cursor, idx })).await;
             *next_id += 1;
             match r.result {
                 // The chunk travels as a `Raw` MessagePack `bin` (serde_bytes) so the
@@ -8605,7 +8603,9 @@ mod blob_dispatch_tests {
                     *b = (x & 0xFF) as u8;
                 }
                 full.extend_from_slice(&buf);
-                let r = dispatch_on_heap(&state, req(id, Method::BlobChunkPut { cursor, data: buf })).await;
+                let r =
+                    dispatch_on_heap(&state, req(id, Method::BlobChunkPut { cursor, data: buf }))
+                        .await;
                 id += 1;
                 assert!(r.error.is_none());
             }

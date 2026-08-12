@@ -2,9 +2,9 @@
 
 use super::auth::VerifiedRequestContext;
 use crate::graph::{GraphCore, GraphView};
-use crate::isolation::{AccessLevel, IsolationLayer};
 #[cfg(feature = "security")]
 use crate::isolation::row_visibility;
+use crate::isolation::{AccessLevel, IsolationLayer};
 #[cfg(feature = "cypher")]
 use crate::protocol::CypherMode;
 use crate::protocol::Method;
@@ -2152,7 +2152,10 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("QueryWorkItemReservation", REASON_NATIVE_RESERVATION_READ),
     ("ResourceReservationStatus", REASON_NATIVE_RESERVATION_READ),
     // REASON_NATIVE_CAPABILITY_LEDGER
-    ("VerifyWorkItemClaimCapability", REASON_NATIVE_CAPABILITY_LEDGER),
+    (
+        "VerifyWorkItemClaimCapability",
+        REASON_NATIVE_CAPABILITY_LEDGER,
+    ),
     // REASON_NATIVE_DEVELOPMENT_LANE_READ
     ("DevelopmentLaneStatus", REASON_NATIVE_DEVELOPMENT_LANE_READ),
     ("QueryDevelopmentLane", REASON_NATIVE_DEVELOPMENT_LANE_READ),

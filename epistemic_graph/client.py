@@ -878,9 +878,7 @@ def _work_item_capability_result(
     )
     if result["schema_version"] != "1":
         raise ValueError("WorkItemClaimCapability result schema_version must be 1")
-    decision = _string(
-        "WorkItemClaimCapability result.decision", result["decision"]
-    )
+    decision = _string("WorkItemClaimCapability result.decision", result["decision"])
     if decision not in _WORK_ITEM_CAPABILITY_DECISIONS:
         raise ValueError("WorkItemClaimCapability result decision is invalid")
     valid = _boolean("WorkItemClaimCapability result.valid", result["valid"])
@@ -890,9 +888,7 @@ def _work_item_capability_result(
             capability = bytes(capability)
             result["capability"] = capability
         if not isinstance(capability, bytes) or len(capability) > 128:
-            raise ValueError(
-                "WorkItemClaimCapability result.capability is invalid"
-            )
+            raise ValueError("WorkItemClaimCapability result.capability is invalid")
     if verify:
         if decision not in {"verified", "unauthorized"}:
             raise ValueError(
@@ -3040,9 +3036,7 @@ class WorkItemClient:
         if len(value["work_item_id"]) > 512:
             raise ValueError("WorkItemClaimCapability.work_item_id exceeds 512 bytes")
         return _work_item_capability_result(
-            await self._client._send(
-                "MintWorkItemClaimCapability", {"request": value}
-            ),
+            await self._client._send("MintWorkItemClaimCapability", {"request": value}),
             verify=False,
         )
 
@@ -3190,15 +3184,6 @@ class WorkItemClient:
             },
         )
 
-    async def _resource_call(
-        self, method: str, request: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Send one dark native reservation verb and fail closed on old engines."""
-
-        await self._require_resource_method(method)
-        value = await self._client._send(method, {"request": request})
-        return _resource_reservation_result(value)
-
     async def _require_resource_method(self, method: str) -> None:
         """Negotiate the additive method before sending it to an older engine."""
 
@@ -3216,23 +3201,32 @@ class WorkItemClient:
     async def reserve(self, request: dict[str, Any]) -> dict[str, Any]:
         """Atomically reserve host resources for one exact WorkItem attempt."""
 
-        return await self._resource_call(
-            "ReserveWorkItemResources", _resource_reservation_request(request)
+        payload = _resource_reservation_request(request)
+        await self._require_resource_method("ReserveWorkItemResources")
+        value = await self._client._send(
+            "ReserveWorkItemResources", {"request": payload}
         )
+        return _resource_reservation_result(value)
 
     async def release(self, request: dict[str, Any]) -> dict[str, Any]:
         """Atomically release a current/terminal reservation and retain its tombstone."""
 
-        return await self._resource_call(
-            "ReleaseWorkItemResources", _resource_reservation_request(request)
+        payload = _resource_reservation_request(request)
+        await self._require_resource_method("ReleaseWorkItemResources")
+        value = await self._client._send(
+            "ReleaseWorkItemResources", {"request": payload}
         )
+        return _resource_reservation_result(value)
 
     async def reclaim(self, request: dict[str, Any]) -> dict[str, Any]:
         """Atomically reclaim an expired or superseded reservation."""
 
-        return await self._resource_call(
-            "ReclaimWorkItemResources", _resource_reservation_request(request)
+        payload = _resource_reservation_request(request)
+        await self._require_resource_method("ReclaimWorkItemResources")
+        value = await self._client._send(
+            "ReclaimWorkItemResources", {"request": payload}
         )
+        return _resource_reservation_result(value)
 
     async def query_reservation(self, request: dict[str, Any]) -> dict[str, Any]:
         """Read one native reservation/tombstone; local mirrors are not authority."""
