@@ -48,9 +48,45 @@ pub const SPARQL_HTTP_UPDATE_EVENT: &str = "sparql_http_update_v1";
 /// empty solution). A host resolving to a loopback/link-local/RFC-1918 address is refused
 /// unless the allowlist names that exact host literally.
 pub const SERVICE_ALLOW_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW";
+/// Env var: the static bearer-token secret for the `/sparql` SELECT/CONSTRUCT/
+/// ASK read leg's carrier credential (A18) — the same credential SHAPE the
+/// KV-cache HTTP surface accepts (`server::auth::BearerCredential`),
+/// independently configured (own env, own JWT issuer/audience/JWKS below) so a
+/// caller entitled to KV pages is not automatically entitled to run federated
+/// SPARQL reads. Ignored once a JWT issuer is configured (see
+/// `crate::server::oidc::JwtValidator::from_env_sparql`); unset with no JWT
+/// issuer ⇒ the read leg has no credential to check and stays denied.
+pub const SPARQL_BEARER_TOKEN_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_BEARER_TOKEN";
 const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
 const MAX_HTTP_BODY_BYTES: usize = 8 * 1024 * 1024;
 const HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Resolve the `/sparql` read leg's bearer/JWT credential from the
+/// environment (A18). JWT first — paired with the platform's configured OIDC
+/// provider, mirroring `kvcache_http::resolve_auth` exactly except for its OWN
+/// (SPARQL-specific) issuer/audience/JWKS env vars — else the static secret
+/// named by [`SPARQL_BEARER_TOKEN_ENV`]. `Ok(None)` when neither is
+/// configured: NOT an error, this route simply has no credential shape to
+/// check yet and every request keeps failing closed exactly as it did before
+/// this credential existed. `Err` only for a genuinely broken JWT
+/// configuration (an issuer selected without its mandatory audience/JWKS
+/// URL) — logged, then also treated as unconfigured so a startup typo cannot
+/// crash the listener that also serves SPARQL UPDATE / Graph Store traffic.
+fn resolve_bearer_credential() -> Result<Option<crate::server::auth::BearerCredential>, String> {
+    match crate::server::oidc::JwtValidator::from_env_sparql() {
+        Ok(Some(validator)) => {
+            return Ok(Some(crate::server::auth::BearerCredential::Jwt(
+                std::sync::Arc::new(validator),
+            )))
+        }
+        Ok(None) => {}
+        Err(message) => return Err(message),
+    }
+    Ok(std::env::var(SPARQL_BEARER_TOKEN_ENV)
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(crate::server::auth::BearerCredential::Static))
+}
 
 /// Serve the SPARQL 1.1 HTTP protocol on `listener`, backed by the engine `state`.
 pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
@@ -58,15 +94,32 @@ pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
         tracing::error!("SPARQL listener refused: {error}");
         return;
     }
+    // A18: resolved once at bind time (mirrors `kvcache_http`), not per
+    // request — a JWT validator caches its JWKS keys and re-reading env vars
+    // on every connection would be wasted work. `None` (unconfigured, or a
+    // broken config logged below) means the SELECT/CONSTRUCT/ASK read leg
+    // denies every request; SPARQL UPDATE and the Graph Store PUT/POST/DELETE
+    // legs are unaffected (they authenticate via the `eg2.` envelope already).
+    let bearer = match resolve_bearer_credential() {
+        Ok(credential) => credential,
+        Err(error) => {
+            tracing::error!(
+                "SPARQL bearer/JWT configuration is invalid ({error}); the \
+                 SELECT/CONSTRUCT/ASK read leg stays denied until it is fixed"
+            );
+            None
+        }
+    };
     loop {
         let Ok((mut stream, _)) = listener.accept().await else {
             continue;
         };
         let state = state.clone();
+        let bearer = bearer.clone();
         tokio::spawn(async move {
             let (status, ctype, body) =
                 match tokio::time::timeout(HTTP_READ_TIMEOUT, read_request(&mut stream)).await {
-                    Ok(Some(req)) => handle(&state, req).await,
+                    Ok(Some(req)) => handle(&state, &bearer, req).await,
                     _ => (
                         "400 Bad Request",
                         "text/plain",
@@ -234,6 +287,7 @@ fn signed_request(
 /// Route + execute a request → `(status, content_type, body)`.
 async fn handle(
     state: &Arc<RwLock<ServerState>>,
+    bearer: &Option<crate::server::auth::BearerCredential>,
     req: HttpRequest,
 ) -> (&'static str, &'static str, String) {
     // Browser-originated requests are rejected at the data plane. CORS headers
@@ -259,9 +313,14 @@ async fn handle(
     // already build a real `eg2.`-verified `Request` (`signed_request`) and run
     // it through `dispatch()`, which mints and checks a genuine `CarrierAuthority`
     // itself — an outer stub gate only ever stood redundantly in front of that.
-    // The read-only legs (`run_query`, `handle_nl`, Graph Store GET/HEAD) have no
-    // per-request credential to verify at all yet; each denies explicitly at its
-    // own call site below rather than behind one easily-bypassed shared stub.
+    // `run_query` (SELECT/CONSTRUCT/ASK) now authenticates the SAME way the
+    // KV-cache HTTP surface does — a configured bearer/JWT credential
+    // (`bearer`, resolved once at `serve()` startup) — and mints a
+    // `CarrierAuthority` through the shared `server::auth::mint_fixed_service_carrier`
+    // helper. `handle_nl` and the Graph Store GET/HEAD leg still have no
+    // per-request credential shape to verify at all yet; each denies
+    // explicitly at its own call site below rather than behind one
+    // easily-bypassed shared stub.
     // Natural-language query facade route (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`): POST
     // `{text, graph}` → the NL planner → UQL → executed rows as JSON. Served on the SAME
     // hand-rolled HTTP facade listener as `/sparql` (no new HTTP dep). A build without
@@ -346,7 +405,16 @@ async fn handle(
             .get("output")
             .or_else(|| params.get("format"))
             .map(|s| s.as_str());
-        run_query(state, &text, &default_graph, &req.accept, fmt_override).await
+        run_query(
+            state,
+            &text,
+            &default_graph,
+            &req.accept,
+            fmt_override,
+            bearer.as_ref(),
+            &req.authorization,
+        )
+        .await
     }
 }
 
@@ -450,30 +518,43 @@ async fn handle_nl(
 }
 
 /// Execute a query over an off-lock dataset snapshot of every registry graph.
+#[allow(clippy::too_many_arguments)]
 async fn run_query(
     state: &Arc<RwLock<ServerState>>,
     query: &str,
     default_graph: &str,
     accept: &str,
     fmt_override: Option<&str>,
+    bearer: Option<&crate::server::auth::BearerCredential>,
+    authorization_header: &str,
 ) -> (&'static str, &'static str, String) {
     // A18: a SPARQL SELECT/CONSTRUCT/ASK read can span multiple named graphs in
     // one query (FROM/FROM NAMED), so it does not fit the single-graph, envelope-
     // bound `Method::Sparql` RPC contract (the `eg2.` MAC binds the exact
     // request id/graph/method/body — there is no way to verify a caller's
     // envelope for a federated, HTTP-native query shape that has no matching
-    // `Method`). No `CarrierAuthority` can be minted for this route yet; deny
-    // explicitly (real, not the old blanket stub) — see reports/issue-register.md
-    // (A18) for the federation-vs-envelope-contract decision this needs. Use the
-    // verified RPC client (`client.query.sparql(...)`) for an authenticated,
-    // single-graph SPARQL SELECT today.
-    if crate::server::access::unauthenticated_carrier_denied(None) {
+    // `Method`). This leg instead authenticates the SAME way the KV-cache HTTP
+    // surface does — a configured bearer/JWT credential
+    // (`server::auth::BearerCredential`, resolved once at `serve()` startup)
+    // — and mints the SAME fixed-service-identity `CarrierAuthority` through
+    // the ONE shared helper every auxiliary HTTP surface uses
+    // (`server::auth::mint_fixed_service_carrier`, shared with the S3 SigV4
+    // and KV-cache bearer/JWT routes: one implementation, three routes). No
+    // configured credential, or an invalid one, still denies (fail closed) —
+    // see AGENTS.md (A18) for the before/after across every auxiliary surface.
+    let carrier = crate::server::auth::mint_fixed_service_carrier(
+        bearer.is_some_and(|credential| credential.verify(authorization_header)),
+        "sparql-http-client",
+        &["kg:read"],
+    );
+    if crate::server::access::unauthenticated_carrier_denied(carrier.as_ref()) {
         crate::metrics::access_denied();
         return (
             "403 Forbidden",
             "text/plain",
-            "ACCESS_DENIED: SPARQL SELECT/CONSTRUCT/ASK over HTTP has no verified \
-             request-carrier mechanism yet for federated (FROM NAMED) reads"
+            "ACCESS_DENIED: SPARQL SELECT/CONSTRUCT/ASK over HTTP requires a valid \
+             Authorization: Bearer <token> (static secret or JWT) credential — see \
+             EPISTEMIC_GRAPH_SPARQL_BEARER_TOKEN / EPISTEMIC_GRAPH_SPARQL_JWT_ISSUER"
                 .to_string(),
         );
     }

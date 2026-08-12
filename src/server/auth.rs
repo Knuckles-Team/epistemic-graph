@@ -306,30 +306,6 @@ impl VerifiedRequestContext {
         ))
     }
 
-    /// Build the engine-owned authority for the S3-compatible REST surface
-    /// (A18) after its SigV4 request signature has cryptographically proven the
-    /// caller holds the deployment's configured `S3_ACCESS_KEY`/`S3_SECRET_KEY`
-    /// pair (`server::s3::authorized`). SigV4, not an `eg2.` envelope, is this
-    /// surface's own proof of possession; the deployment has exactly one
-    /// configured credential, not a distinguishable per-caller principal, so —
-    /// like [`Self::authenticated_local_query`] — every verified caller shares
-    /// one fixed service identity.
-    pub(crate) fn authenticated_s3_actor() -> Result<Self, String> {
-        Self::authenticated_fixed_service_actor("s3-api-client", &["kg:read", "kg:write"])
-    }
-
-    /// Build the engine-owned authority for the KV-cache HTTP surface (A18)
-    /// after its bearer/JWT guard (`server::kvcache_http::authorized`) has
-    /// verified the caller. That guard proves the caller holds a valid platform
-    /// credential, not a distinguishable per-caller tenant/actor (a shared
-    /// static secret has no such notion at all, and a JWT only proves platform
-    /// membership here), so every verified caller shares one fixed service
-    /// identity — the same shape [`Self::authenticated_local_query`] uses for the
-    /// engine-owned local adapter.
-    pub(crate) fn authenticated_kvcache_actor() -> Result<Self, String> {
-        Self::authenticated_fixed_service_actor("kvcache-client", &["kg:read", "kg:write"])
-    }
-
     /// Build the engine-owned authority for a native SQL connection after that
     /// protocol has completed its mandatory cryptographic password proof.
     ///
@@ -378,6 +354,91 @@ impl VerifiedRequestContext {
             },
             idempotency_key,
         ))
+    }
+}
+
+/// Mint a `CarrierAuthority` for an auxiliary HTTP surface (S3 SigV4, the
+/// KV-cache bearer/JWT guard, the `/sparql` SELECT/CONSTRUCT/ASK bearer/JWT
+/// guard, ...) whose OWN protocol-native check has already authenticated the
+/// caller (A18). ONE shared implementation for every such surface:
+/// `credential_verified` is that surface's own guard result (a SigV4
+/// signature match, a bearer/JWT pass, ...); this function never
+/// authenticates anything itself — it only turns an already-succeeded
+/// credential into the fixed-service-identity `CarrierAuthority` shape every
+/// auxiliary surface shares, because none of these protocols carries a
+/// distinguishable per-caller principal the way the primary `eg2.` envelope
+/// does (see [`VerifiedRequestContext::authenticated_fixed_service_actor`]).
+/// Returns `None` on a failed or absent credential (fail closed); the caller
+/// denies through [`crate::server::access::unauthenticated_carrier_denied`].
+pub(crate) fn mint_fixed_service_carrier(
+    credential_verified: bool,
+    service: &str,
+    scopes: &[&str],
+) -> Option<crate::server::access::CarrierAuthority> {
+    if !credential_verified {
+        return None;
+    }
+    VerifiedRequestContext::authenticated_fixed_service_actor(service, scopes)
+        .ok()
+        .and_then(|context| crate::server::access::CarrierAuthority::from_verified(&context).ok())
+}
+
+/// A configured bearer credential for an auxiliary HTTP surface that
+/// authenticates via `Authorization: Bearer <token>` rather than a per-request
+/// `eg2.` envelope — currently the KV-cache HTTP surface
+/// (`server::kvcache_http`) and the `/sparql` SELECT/CONSTRUCT/ASK read leg
+/// (`server::sparql_http`), both federated/HTTP-native shapes with no
+/// single-graph envelope to bind. [`BearerCredential::Jwt`] is preferred
+/// (paired with the platform's configured OIDC provider, reusing
+/// [`crate::server::oidc::JwtValidator`] — the same verifier the primary
+/// `eg2.` identity binding uses); [`BearerCredential::Static`] is a shared,
+/// deployment-configured secret (the documented OpenBao-sourced fallback),
+/// compared as fixed-size HMAC tags rather than raw secret-bearing bytes.
+/// Each surface resolves and holds its OWN instance from its OWN env vars —
+/// a caller entitled to one auxiliary surface is not automatically entitled
+/// to another.
+///
+/// Gated on feature `oidc` (not merely on the two surfaces above) because the
+/// `Jwt` variant names [`crate::server::oidc::JwtValidator`] directly, and
+/// every feature that compiles a surface using this type (`kvcache-server`,
+/// `sparql-http` → `security`) already pulls `oidc` in transitively — see
+/// each feature's `Cargo.toml` entry.
+#[derive(Clone)]
+#[cfg(feature = "oidc")]
+pub(crate) enum BearerCredential {
+    Static(String),
+    Jwt(std::sync::Arc<crate::server::oidc::JwtValidator>),
+}
+
+#[cfg(feature = "oidc")]
+impl BearerCredential {
+    /// Verify a raw `Authorization` header value (`"Bearer <token>"`) against
+    /// this configured credential. A missing/malformed `Bearer` prefix, or a
+    /// token matching neither the static secret nor a valid JWT, is `false`.
+    pub(crate) fn verify(&self, authorization_header: &str) -> bool {
+        let Some(token) = authorization_header
+            .strip_prefix("Bearer ")
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        else {
+            return false;
+        };
+        match self {
+            BearerCredential::Static(secret) => {
+                // Compare fixed-size HMAC tags rather than secret-bearing strings.
+                let Ok(mut candidate) = HmacSha256::new_from_slice(token.as_bytes()) else {
+                    return false;
+                };
+                candidate.update(b"epistemic-graph:bearer-static-token");
+                let candidate_tag = candidate.finalize().into_bytes();
+                let Ok(mut expected) = HmacSha256::new_from_slice(secret.as_bytes()) else {
+                    return false;
+                };
+                expected.update(b"epistemic-graph:bearer-static-token");
+                expected.verify_slice(&candidate_tag).is_ok()
+            }
+            BearerCredential::Jwt(validator) => validator.validate(token),
+        }
     }
 }
 

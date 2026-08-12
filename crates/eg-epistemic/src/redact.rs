@@ -60,6 +60,7 @@ fn untagged_hidden() -> RowVisibility {
         public: true,
         grants: Vec::new(),
         tagged: false,
+        schema: false,
     }
 }
 
@@ -315,6 +316,7 @@ mod tests {
             public: false,
             grants: Vec::new(),
             tagged: true,
+            schema: false,
         }
     }
 
@@ -324,6 +326,7 @@ mod tests {
             public: true,
             grants: Vec::new(),
             tagged: true,
+            schema: false,
         }
     }
 
