@@ -42,7 +42,24 @@ use epistemic_graph::server::{dispatch, ServerState};
 
 const SECRET: &str = "usecase-lifecycle-secret";
 
+/// A fully-featured state with a real redb persistence backend. The multi-op
+/// `BeginTxn`..`Commit` path in this test seals its transaction recovery plan
+/// (`server::handlers::txn::seal_txn_recovery_plan`), which fail-closed REQUIRES
+/// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at the backend's `open()` call -- the same
+/// requirement `redb_backend::tests::cm_dir` / `advanced_crossmodal_roundtrip.rs::state`
+/// provision. Encryption is symmetric and transparent to this test's assertions;
+/// provision it ONCE, before the first backend opens.
 fn state() -> Arc<RwLock<ServerState>> {
+    #[cfg(feature = "redb")]
+    {
+        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+        ENCRYPTION_KEY.call_once(|| {
+            std::env::set_var(
+                epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+                "usecase-lifecycle-recovery-key",
+            )
+        });
+    }
     let (persist_dir, persistence) = common::tempdir_persistence();
     Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
