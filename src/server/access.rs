@@ -1511,6 +1511,83 @@ mod universal_row_read_tests {
         assert!(!alice_other_tenant.owns(alice.tenant_scope(), alice.actor_scope()));
     }
 
+    /// D-IDENT-AUDIT-1: `commit_cross_modal_txn`'s RBAC recheck (and every other
+    /// `check_graph_access` call site) is keyed by `CarrierAuthority::agent_id` --
+    /// the SAME identity space `IsolationLayer::register_agent` registers under.
+    /// `actor_scope` is a DIFFERENT identity space (an opaque durable-ownership
+    /// hash used for KV/coordinator namespacing, ownership stamping, and
+    /// MutationBatch provenance fingerprints) and is never a registered RBAC
+    /// identity. Passing it into an RBAC check does not error -- it silently
+    /// denies, because the hash never matches any grant.
+    ///
+    /// This is the EXACT confusion that produced three real bugs in one day:
+    /// `cbcabdf` (`commit_graph_methods`/`commit_txn_state` in
+    /// `src/server/wire/mod.rs` broke every wire-native graph write --
+    /// pgwire/MySQL/MSSQL -- with ACCESS_DENIED regardless of RBAC grants) and
+    /// `6417f31` (`commit_graphql_cross_modal` in
+    /// `src/server/handlers/txn.rs` broke every GraphQL cross-modal commit the
+    /// same way). This test locks in the fix at the shared `check_graph_access`
+    /// boundary all three call sites route through, independent of any one
+    /// surface's own (heavier) integration fixtures. Reverting either fix --
+    /// passing `authority.actor_scope()` instead of `authority.agent_id()` as
+    /// `commit_cross_modal_txn`'s `caller` -- reproduces exactly the failure
+    /// this test's second assertion checks for.
+    #[test]
+    fn rbac_check_is_keyed_by_agent_id_not_actor_scope() {
+        let alice = CarrierAuthority::from_verified(
+            &super::super::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                "alice", "tenant-a",
+            ),
+        )
+        .unwrap();
+        // `agent_id()` and `actor_scope()` must actually differ for this test to
+        // mean anything -- `verified_for_test_in_tenant`'s principal is
+        // `principal:alice` (not already an opaque `principal:sha256:...`
+        // digest), so `CarrierAuthority::from_verified` re-hashes it into an
+        // opaque `principal:sha256:...` scope, distinct from the raw "alice"
+        // agent_id.
+        assert_ne!(alice.agent_id(), alice.actor_scope());
+
+        let mut isolation = IsolationLayer::new();
+        // `AgentRole::System` grants full access to any REGISTERED identity with
+        // no RBAC roles/grants needed -- isolates this test to the one thing it's
+        // proving (which string is the lookup key), not RBAC policy evaluation
+        // (covered elsewhere, e.g. `l10_broker_stream_write_tests`).
+        isolation.register_agent(AgentIdentity {
+            agent_id: alice.agent_id().to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+
+        // The correct identity space: the registered agent_id resolves and is
+        // allowed.
+        assert!(check_graph_access(
+            &isolation,
+            Some(alice.agent_id()),
+            "agent:alice",
+            crate::protocol::GraphType::Agent,
+            Some("agent:alice"),
+            AccessLevel::Write,
+        )
+        .is_ok());
+
+        // The confused identity space: actor_scope() was never registered, so the
+        // lookup misses and the check fails CLOSED -- exactly the silent
+        // ACCESS_DENIED the three fixed bugs produced for every caller regardless
+        // of their real RBAC grants.
+        let denied = check_graph_access(
+            &isolation,
+            Some(alice.actor_scope()),
+            "agent:alice",
+            crate::protocol::GraphType::Agent,
+            Some("agent:alice"),
+            AccessLevel::Write,
+        );
+        assert!(denied.is_err());
+        assert!(denied.unwrap_err().contains("ACCESS_DENIED"));
+    }
+
     /// A18: `unauthenticated_carrier_denied` used to be `{ true }` unconditionally
     /// — every caller, verified or not, was denied. It must now discriminate: a
     /// genuine `CarrierAuthority` allows, its absence denies. This is the direct,
