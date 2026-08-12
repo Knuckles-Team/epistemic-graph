@@ -911,16 +911,20 @@ fn iso8601(ms: u64) -> String {
 /// unit-testable without a socket (CONCEPT:EG-KG.ontology.object-put-get-head).
 fn handle(store: &S3Store, auth: &S3Auth, req: &S3Request) -> S3Response {
     // A18: SigV4 IS this surface's own carrier proof — mint the engine-owned
-    // authority only after it succeeds, then gate through the SAME shared check
-    // every other surface uses (real now: denies iff no carrier was minted).
-    // S3 carrier has no verified tenant/object ownership until SigV4 mints one;
-    // the response body stays the plain AWS-standard "Access Denied" (an S3
-    // client expects the standard error code/message, not custom prose — unlike
-    // the KV-cache/observability surfaces, which own their own wire protocol).
-    let carrier = authorized(auth, req)
-        .then(crate::server::auth::VerifiedRequestContext::authenticated_s3_actor)
-        .and_then(Result::ok)
-        .and_then(|context| crate::server::access::CarrierAuthority::from_verified(&context).ok());
+    // authority only after it succeeds, through the ONE shared helper every
+    // auxiliary surface uses (`server::auth::mint_fixed_service_carrier`,
+    // shared with the KV-cache and `/sparql` bearer/JWT routes), then gate
+    // through the SAME shared check (real now: denies iff no carrier was
+    // minted). S3 carrier has no verified tenant/object ownership until SigV4
+    // mints one; the response body stays the plain AWS-standard "Access
+    // Denied" (an S3 client expects the standard error code/message, not
+    // custom prose — unlike the KV-cache/observability surfaces, which own
+    // their own wire protocol).
+    let carrier = crate::server::auth::mint_fixed_service_carrier(
+        authorized(auth, req),
+        "s3-api-client",
+        &["kg:read", "kg:write"],
+    );
     if crate::server::access::unauthenticated_carrier_denied(carrier.as_ref()) {
         return S3Response::error("403 Forbidden", "AccessDenied", "Access Denied");
     }
