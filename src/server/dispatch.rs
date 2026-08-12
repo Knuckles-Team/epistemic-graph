@@ -7643,7 +7643,9 @@ mod eg318_dispatch_tests {
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(
+                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+            ),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
@@ -8135,7 +8137,9 @@ mod admin_scope_tests {
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(
+                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+            ),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
@@ -8427,7 +8431,9 @@ mod blob_dispatch_tests {
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(
+                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+            ),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,

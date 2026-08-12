@@ -118,7 +118,9 @@ fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> Arc<RwLock<Se
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
         write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
+        routed_write_coalescer: Arc::new(
+            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+        ),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(TxnIdGen),
         txn_ttl_secs: 300,
@@ -955,7 +957,9 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
         write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
+        routed_write_coalescer: Arc::new(
+            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+        ),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(TxnIdGen),
         txn_ttl_secs: 300,
