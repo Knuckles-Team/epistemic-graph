@@ -18,8 +18,6 @@ use rand::RngCore;
 use redb::{ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-#[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Private tables are intentionally disjoint from WorkItem/status/list
 /// projections, MutationBatch/outbox rows, and CDC/audit records.
@@ -40,24 +38,41 @@ pub(crate) const NATIVE_WORK_ITEMS: TableDefinition<(&str, &str), &[u8]> =
 /// The apply path must return this before leader/barrier/private-ledger work.
 pub(crate) const AUTHORITY_UNAVAILABLE: &str = "authority_unavailable";
 
-/// Private exact-input storage does not exist in this checkpoint.  This
-/// test-only boundary counter is wired to the actual private-row accesses
-/// below (the `CAPABILITIES` table get/decode in `mint_in_wtx`/
-/// `verify_in_wtx`) so a future payload reader placed before capability
-/// verification trips a failing test rather than a silent regression. The
-/// `NATIVE_WORK_ITEMS`/`NODES` reads performed by `read_live_lease` are the
-/// authorization check itself and are deliberately NOT counted here.
+// Private exact-input storage does not exist in this checkpoint.  This
+// test-only boundary counter is wired to the actual private-row accesses
+// below (the `CAPABILITIES` table get/decode in `mint_in_wtx`/
+// `verify_in_wtx`) so a future payload reader placed before capability
+// verification trips a failing test rather than a silent regression. The
+// `NATIVE_WORK_ITEMS`/`NODES` reads performed by `read_live_lease` are the
+// authorization check itself and are deliberately NOT counted here.
+//
+// `thread_local!`, NOT a process-global `AtomicUsize` (its original shape):
+// `cargo test`'s default harness runs every `#[test]` function on its own
+// dedicated OS thread from a pool, all sharing ONE process. A process-global
+// counter is incremented by EVERY concurrently-running test that reads a
+// private capability row — not just the one test measuring it — which is
+// exactly the parallel-run flake this shape fixes: `private_work_item_body_
+// reads()` observing 1 read instead of the expected 0, attributed to an
+// unrelated sibling test's `mint`/`verify` call landing on a different OS
+// thread during this test's measurement window. `mint_in_wtx`/`verify_in_wtx`
+// run synchronously on the caller's thread (no internal thread spawn), and
+// this is a plain (non-async) `#[test]`, so a thread-local counter isolates
+// this test's own count perfectly — see `redb_store.rs`'s
+// `COLD_SEED_ROWS_TOUCHED` for the identical fix applied to the same class
+// of bug.
 #[cfg(test)]
-static PRIVATE_WORK_ITEM_BODY_READS: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    static PRIVATE_WORK_ITEM_BODY_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 #[cfg(test)]
 pub(crate) fn reset_private_work_item_body_reads() {
-    PRIVATE_WORK_ITEM_BODY_READS.store(0, Ordering::SeqCst);
+    PRIVATE_WORK_ITEM_BODY_READS.with(|c| c.set(0));
 }
 
 #[cfg(test)]
 pub(crate) fn private_work_item_body_reads() -> usize {
-    PRIVATE_WORK_ITEM_BODY_READS.load(Ordering::SeqCst)
+    PRIVATE_WORK_ITEM_BODY_READS.with(|c| c.get())
 }
 
 /// Record one access to the private `CAPABILITIES` row store — the capability
@@ -68,7 +83,7 @@ pub(crate) fn private_work_item_body_reads() -> usize {
 /// and impose no production cost.
 #[cfg(test)]
 fn record_private_work_item_body_read() {
-    PRIVATE_WORK_ITEM_BODY_READS.fetch_add(1, Ordering::SeqCst);
+    PRIVATE_WORK_ITEM_BODY_READS.with(|c| c.set(c.get() + 1));
 }
 
 #[cfg(not(test))]
