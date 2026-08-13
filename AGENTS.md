@@ -355,6 +355,7 @@ authoritative inventory.
 | **Launch N shards** | `EPISTEMIC_GRAPH_SECRET=… scripts/run_shards.sh [N]` |
 | **Check compilation** | `cargo check --features server` |
 | **Pre-commit checks** | `pre-commit run --all-files` |
+| **Constrained-parallelism gate (GOC-70)** | `scripts/constrained_parallelism_gate.sh` — runs `--lib` PLUS the concurrency-sensitive integration binaries under `taskset -c 0,1` (2-core CI is the reference environment, not our build hosts; see below) |
 
 Measured baseline (see `docs/benchmarks.md`): `AddNode` p50 ≈ 0.187 ms, p99 ≈
 0.223 ms over UDS, single connection.
@@ -794,6 +795,71 @@ no warnings**. Do not silence checks (`# noqa`, `# type: ignore`, `SKIP=`,
 file as a known, unavoidable limitation. Only commit once `pre-commit run
 --all-files` passes cleanly; if a check legitimately cannot pass, stop and explain
 why rather than bypassing it.
+
+## GOC-70 — every test must pass on a resource-constrained runner
+
+**Edict: a test that requires a large machine is a defective test, not a machine
+requirement.** CI runners (2-core, low-memory) are the *reference* environment,
+not a degraded one — our build hosts (dozens of cores) are the outlier, and
+because we routinely verify on them, they systematically hide an entire defect
+class: assertions/dependencies that are true only with real many-core scheduler
+overlap OR real low-core-count interleaving. `epistemic-graph` 2.25.0 shipped with
+all six gates verified green on a 64-core host, and CI (2 cores) failed anyway —
+`dispatch_coalesces_concurrent_writes_to_one_graph` spawned 400 concurrent writes
+and asserted every one landed through one specific coalescer-counter path, true
+with real overlap on 64 cores, false when a handful of tokio workers contend for
+2 CPUs. A second instance of the same class: `advanced_crossmodal_roundtrip.rs`'s
+`plan_writeback_stages_and_commits_inferred_edges_atomically_d7` depended on
+another concurrently-running test's transient mutation of the process-global
+`EPISTEMIC_GRAPH_ENCRYPTION_KEY` env var still being in effect — an interleaving
+that reliably held on a many-core dev host and reliably didn't on a 2-core
+runner (see that file's `state()`/`ENC_ENV_LOCK` docs for the fix).
+
+**The rules, in order of how a test should satisfy them:**
+1. Never assert a timing- or scheduling-dependent property as an invariant.
+   Assert what's true regardless of scheduling: the operation *landed*, and is
+   *accounted for on whichever path it took* — not that N tasks specifically
+   overlapped.
+2. Never depend on ambient process-global state (an env var, a `std::sync::Once`
+   assumed to have already fired) another test may be concurrently mutating.
+   Either provision what the test needs explicitly and locally, or — if a
+   process-global mutation is unavoidable (e.g. `std::env::set_var` is the only
+   seam a dependency exposes) — serialize EVERY participant that reads or
+   mutates that global behind ONE shared lock held for the mutating window (see
+   `ENC_ENV_LOCK` in `tests/advanced_crossmodal_roundtrip.rs`).
+3. If a test needs contention, construct it deterministically (hold a lock,
+   gate on a barrier/channel, enqueue synchronously before yielding) rather
+   than spawning N tasks and hoping the scheduler overlaps them. See
+   `write_coalescer::tests::concurrent_writes_coalesce_into_fewer_lock_
+   acquisitions` for the pattern: every op is enqueued from one synchronous
+   loop with no `.await` inside it, so the separately-spawned worker task
+   cannot run until the whole batch is already queued — deterministic on any
+   core count, including 1.
+4. If a test genuinely cannot construct the conditions it needs, it must fail
+   loudly, never pass vacuously — a test reporting coverage it doesn't have is
+   worse than a known failing one.
+5. Bound resource use; make RSS-style assertions a per-test baseline DELTA
+   (`current_rss_mb()`, `src/server/dispatch.rs`), never an absolute/peak
+   reading — a sibling test's allocation contaminates a process-wide absolute
+   reading under parallel execution.
+6. Size timeouts generously enough for a slow runner without masking hangs,
+   and say how the value was chosen.
+
+**Enforcement:** `scripts/constrained_parallelism_gate.sh` restricts CPU
+affinity to 2 cores (`taskset -c 0,1`) and re-runs the lib suite PLUS the
+concurrency-sensitive integration-test binaries (pgwire/mysql/mssql roundtrip,
+`advanced_crossmodal_roundtrip`, etc.) BY DEFAULT — not behind an opt-in flag;
+see the script's header for why that used to be opt-in and why that was the
+gap that let the `EPISTEMIC_GRAPH_ENCRYPTION_KEY` defect above reach CI. Wired
+as a `pre-push, manual` hook (`constrained-parallelism` in
+`.pre-commit-config.yaml`), the same tier as `cargo-test-full`. Run it directly
+with `bash scripts/constrained_parallelism_gate.sh`, opt OUT of the integration
+tier for a fast local loop with `EG_CONSTRAINED_EXTRA_TESTS=0` (never in CI/the
+merge queue), or scope to one area with `EG_CONSTRAINED_FILTER='write_
+coalescer::' scripts/constrained_parallelism_gate.sh`. See the script's header
+comment for the full design rationale.
+
+Full detail: `plans/graph-os-completion-program/GOC-59-67-EXPANSION-TRACKS.md`, GOC-70.
 
 ## Working with Git Worktrees (multi-session)
 

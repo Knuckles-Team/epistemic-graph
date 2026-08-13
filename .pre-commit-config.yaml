@@ -294,6 +294,31 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [pre-push, manual]
+  # GOC-70: epistemic-graph 2.25.0 shipped with all six gates verified green on
+  # a 64-core dev host, and CI (2 cores) failed anyway --
+  # `dispatch_coalesces_concurrent_writes_to_one_graph` asserted a scheduling-
+  # dependent property (every one of 400 concurrent writes landed through one
+  # specific counter path) that only holds with real many-core overlap. CI
+  # runners are the REFERENCE environment, not a degraded one -- our build
+  # hosts are the outlier and hide this whole defect class. This hook
+  # restricts CPU affinity to 2 cores (`taskset`) and re-runs the lib suite
+  # PLUS the concurrency-sensitive integration-test binaries (pgwire/mysql/
+  # mssql roundtrip, advanced_crossmodal_roundtrip, etc. — see
+  # scripts/constrained_parallelism_gate.sh's header for why the latter are
+  # NOT behind an opt-in flag: that opt-in is exactly why the
+  # EPISTEMIC_GRAPH_ENCRYPTION_KEY ambient-env defect in
+  # advanced_crossmodal_roundtrip.rs reached CI instead of failing here), the
+  # same mechanism that broke 2.25.0 in CI, reproducible locally before a push
+  # rather than discovered after one. Coordinate with `rm_gates(stage=heavy)`
+  # (feat/rm-gates, in-flight) -- this belongs in that tier, not as a second
+  # enforcement mechanism.
+  - id: constrained-parallelism
+    name: cargo test --lib + integration binaries under 2-core CPU affinity (GOC-70, HEAVY — pre-push/manual)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then bash scripts/constrained_parallelism_gate.sh; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-push, manual]
   # DE7 (durable-execution-native.md, lane w6-de7-replay-determinism): replay-
   # determinism proofs for the fenced-lease job-lifecycle state machine
   # (`crates/eg-jobs/tests/replay_determinism.rs`, a proptest crash-and-reopen
