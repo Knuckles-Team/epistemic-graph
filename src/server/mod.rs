@@ -592,6 +592,32 @@ mod tests {
         Box::pin(dispatch(state, request))
     }
 
+    /// Provision `EPISTEMIC_GRAPH_ENCRYPTION_KEY` for every test in this module that
+    /// reaches a multi-op transaction `Commit` (`handlers::txn::seal_txn_recovery_plan`
+    /// fails closed without a configured key — see `crypto::TXN_RECOVERY_KEY_ENV`'s
+    /// doc). Every caller MUST already hold `crate::crypto::acquire_test_env_lock()`
+    /// for its entire test body before calling this (see each call site) — this
+    /// function does NOT acquire it itself (`std::sync::Mutex` is not reentrant).
+    ///
+    /// Before this was centralized, several of these tests silently depended on
+    /// EXECUTION-ORDER LUCK: some OTHER test in the binary (e.g. `redb_backend::
+    /// tests::cm_dir`'s own `Once`) happening to have set this process-global var
+    /// FIRST. That is not something a test may rely on — running it filtered/alone,
+    /// or simply losing the race to be scheduled first, reproduces "transaction
+    /// durability requires EPISTEMIC_GRAPH_ENCRYPTION_KEY to be configured" without
+    /// this. Encryption is transparent to every one of these tests' assertions
+    /// (they never inspect raw on-disk bytes), so provisioning it here is harmless.
+    #[cfg(feature = "security")]
+    fn ensure_txn_recovery_key() {
+        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+        ENCRYPTION_KEY.call_once(|| {
+            std::env::set_var(
+                crate::crypto::ENCRYPTION_KEY_ENV,
+                "server-mod-txn-test-recovery-key",
+            );
+        });
+    }
+
     fn test_state() -> Arc<RwLock<ServerState>> {
         let mut isolation = IsolationLayer::new();
         isolation.register_agent(AgentIdentity {
@@ -3191,13 +3217,15 @@ mod tests {
         // configured" without this. Set it the same way `cm_dir` does: once,
         // process-global, harmless for every other test since encryption is
         // transparent to a durable round-trip's assertions.
-        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
-        ENCRYPTION_KEY.call_once(|| {
-            std::env::set_var(
-                crate::crypto::ENCRYPTION_KEY_ENV,
-                "coalesce-txn-race-test-recovery-key",
-            )
-        });
+        //
+        // Held for the WHOLE test (not just the key provisioning): a `RedbBackend`
+        // resolves its cipher once at `open()`, so `EPISTEMIC_GRAPH_ENCRYPTION_KEY`
+        // must stay stable for the rest of this test too — a concurrent `crypto::
+        // tests::EnvGuard`-protected test transiently clearing/changing it mid-flight
+        // would otherwise reproduce the "sealed framing"/"wrong key" failures. See
+        // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
+        let _env_lock = crate::crypto::acquire_test_env_lock();
+        ensure_txn_recovery_key();
 
         let state = test_state();
         const GRAPH: &str = "coalesce-txn-race";
@@ -3515,6 +3543,13 @@ mod tests {
     #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_commit_applies_staged_writes() {
+        // Held for the whole test: this test's `Commit` reaches
+        // `seal_txn_recovery_plan`, which fails closed without a configured
+        // `EPISTEMIC_GRAPH_ENCRYPTION_KEY`. See `ensure_txn_recovery_key`'s doc.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
+        #[cfg(feature = "security")]
+        ensure_txn_recovery_key();
         let state = test_state();
         let txn = begin_txn(&state, 1, "__commons__").await;
 
@@ -3655,6 +3690,11 @@ mod tests {
     #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_occ_conflict_second_commit_fails() {
+        // See `txn_commit_applies_staged_writes` above: held for the whole test.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
+        #[cfg(feature = "security")]
+        ensure_txn_recovery_key();
         let state = test_state();
         // Seed the contended node.
         assert_ok(
@@ -3888,6 +3928,11 @@ mod tests {
     #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_serializable_rejects_phantom() {
+        // See `txn_commit_applies_staged_writes` above: held for the whole test.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
+        #[cfg(feature = "security")]
+        ensure_txn_recovery_key();
         let state = test_state();
         // Seed one Doc so the label set is non-empty at begin (not required, but
         // mirrors a real range read).
@@ -3955,6 +4000,11 @@ mod tests {
     #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_snapshot_allows_phantom() {
+        // See `txn_commit_applies_staged_writes` above: held for the whole test.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
+        #[cfg(feature = "security")]
+        ensure_txn_recovery_key();
         let state = test_state();
         assert_ok(
             &dispatch_on_heap(
@@ -4015,6 +4065,11 @@ mod tests {
     #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_serializable_commits_when_predicate_unchanged() {
+        // See `txn_commit_applies_staged_writes` above: held for the whole test.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
+        #[cfg(feature = "security")]
+        ensure_txn_recovery_key();
         let state = test_state();
         let a = begin_txn_iso(&state, 1, "__commons__", Some("serializable:label=Doc")).await;
         stage_add(

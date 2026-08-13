@@ -1631,6 +1631,18 @@ mod tests {
         use crate::durability::DurabilityPolicy;
         use crate::server::persistence::redb_backend::RedbBackend;
 
+        // Held for the whole test: this test opens a `RedbBackend`, then DROPS it and
+        // reopens the SAME persist dir below ("survives_backend_restart"). A
+        // `RedbBackend` resolves+caches its cipher ONCE per `open()` call from
+        // `EPISTEMIC_GRAPH_ENCRYPTION_KEY`, so the two opens must observe the SAME env
+        // var value or the reopen panics with "encrypted durable value is missing
+        // sealed framing" (or, with a different key, "decryption failed"). Without
+        // this lock, a concurrent `crypto::tests::EnvGuard`-protected test elsewhere in
+        // the crate can transiently flip that process-global var between the two
+        // opens. See `crate::crypto::acquire_test_env_lock`'s doc for the full
+        // mechanism (this was the actual root cause of this test's parallel flake).
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let dir = temp_dir("restart");
         let (state, persistence) = durable_state(&dir).await;
         let core = state
