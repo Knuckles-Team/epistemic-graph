@@ -1143,8 +1143,19 @@ async fn stage_measurement(
 ///
 /// The SAME lowered `Vec<Method>` is applied both durably (`apply_method_rows`) and
 /// in-memory (`apply_staged`), so the two are identical by construction.
+/// Returns `(methods, schema_refs)` — `schema_refs` (BUG A3, 2026-08-12) is
+/// [`eg_rdf::mapping::LoweredTripleGraph::schema_refs`] passed through
+/// unchanged: one entry per schema-defining triple occurrence this batch
+/// contributed. This lowering produces GENERIC `AddNode`/`AddEdge` methods
+/// with no room to carry a "this is schema" signal on the wire, so a caller
+/// that auto-commits immediately (the pgwire off-txn `SPARQL UPDATE` seam,
+/// `WireSession::stage_or_commit_owl`) MUST mark these on the live core
+/// itself right after the methods commit — see that function's doc for why
+/// a staged (explicit multi-statement transaction) caller does not yet.
 #[cfg(feature = "sparql")]
-pub(crate) fn triples_to_methods(triples: &[eg_rdf::oxrdf::Triple]) -> Result<Vec<Method>, String> {
+pub(crate) fn triples_to_methods(
+    triples: &[eg_rdf::oxrdf::Triple],
+) -> Result<(Vec<Method>, Vec<String>), String> {
     let lowered = eg_rdf::mapping::lower_triples(triples.iter().cloned())?;
     let mut methods = Vec::with_capacity(lowered.nodes.len() + lowered.edges.len());
     for (id, blob) in lowered.nodes {
@@ -1160,27 +1171,29 @@ pub(crate) fn triples_to_methods(triples: &[eg_rdf::oxrdf::Triple]) -> Result<Ve
             properties_msgpack: blob,
         });
     }
-    Ok(methods)
+    Ok((methods, lowered.schema_refs))
 }
 
 /// Lower a SPARQL CONSTRUCT/DESCRIBE query's produced triples to graph-native
 /// `AddNode`/`AddEdge` methods (CONCEPT:EG-KG.query.extended-cross-modal/EG-372), evaluating the query against
 /// `core`'s committed snapshot. Shared by the RPC [`stage_construct`] and the pgwire
 /// cross-modal txn seam so both surfaces lower a CONSTRUCT identically.
+/// Returns `(methods, schema_refs)` — see [`triples_to_methods`]'s doc.
 #[cfg(feature = "sparql")]
 pub(crate) fn construct_to_methods(
     core: &crate::graph::GraphCore,
     sparql: &str,
-) -> Result<Vec<Method>, String> {
+) -> Result<(Vec<Method>, Vec<String>), String> {
     let snap = core.analysis_snapshot();
     construct_view_to_methods(&snap, sparql)
 }
 
+/// Returns `(methods, schema_refs)` — see [`triples_to_methods`]'s doc.
 #[cfg(feature = "sparql")]
 pub(crate) fn construct_view_to_methods(
     snap: &crate::graph::GraphView,
     sparql: &str,
-) -> Result<Vec<Method>, String> {
+) -> Result<(Vec<Method>, Vec<String>), String> {
     let proj = eg_rdf::sparql::Projection::from_wire("", "");
     let dataset = eg_rdf::sparql::Dataset::new(snap, Vec::new());
     let triples = match eg_rdf::sparql::execute(&dataset, sparql, &proj, None) {
@@ -1194,8 +1207,11 @@ pub(crate) fn construct_view_to_methods(
 /// Lower a SPARQL UPDATE's `INSERT DATA` triples to graph-native `AddNode`/`AddEdge`
 /// methods (CONCEPT:EG-KG.txn.isolation-ryow-begin-set), reusing the SAME `triples_to_methods` lowering as the OWL
 /// axiom path. Used by the pgwire cross-modal txn seam's `SPARQL UPDATE` verb.
+/// Returns `(methods, schema_refs)` — see [`triples_to_methods`]'s doc.
 #[cfg(feature = "sparql")]
-pub(crate) fn sparql_update_to_methods(update_str: &str) -> Result<Vec<Method>, String> {
+pub(crate) fn sparql_update_to_methods(
+    update_str: &str,
+) -> Result<(Vec<Method>, Vec<String>), String> {
     let triples = eg_rdf::update::insert_data_triples(update_str)?;
     triples_to_methods(&triples)
 }
@@ -1259,8 +1275,18 @@ async fn stage_axiom(
         Ok(t) => t,
         Err(e) => return Response::err(req_id, format!("TxnAxiom: {e}")),
     };
-    let methods = match triples_to_methods(&triples) {
-        Ok(methods) => methods,
+    // KNOWN GAP (BUG A3, 2026-08-12): `schema_refs` (the 2nd tuple element) is
+    // dropped here. This RPC staging surface (`TxnAxiom`, an explicit
+    // multi-statement transaction) does not yet carry the schema markers
+    // through to its later, separate commit point the way the pgwire
+    // off-txn auto-commit seam does (`WireSession::stage_or_commit_owl`) --
+    // doing so needs the SAME id set threaded through this txn's OWN staged
+    // write-set to its commit function, a larger, separately-scoped change.
+    // Fail-closed in the meantime: an axiom staged through THIS RPC surface
+    // does not get the TBox exemption (ordinary ABox default-deny), never a
+    // widened one.
+    let (methods, _schema_refs) = match triples_to_methods(&triples) {
+        Ok(result) => result,
         Err(error) => return Response::err(req_id, format!("TxnAxiom: {error}")),
     };
     if let Some(e) = s.open_txns.get(txn_id) {
@@ -1290,7 +1316,9 @@ async fn stage_construct(
         Err(resp) => return resp,
     };
     let projected = read_authority.project_core(&core);
-    let methods = match construct_to_methods(&projected, &sparql) {
+    // KNOWN GAP (BUG A3): see `stage_axiom`'s identical note just above --
+    // `schema_refs` is dropped for this staged RPC surface too.
+    let (methods, _schema_refs) = match construct_to_methods(&projected, &sparql) {
         Ok(m) => m,
         Err(e) => return Response::err(req_id, format!("TxnConstruct: {e}")),
     };

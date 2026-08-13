@@ -5254,7 +5254,8 @@ pub struct LedgerReadResult {
     pub entries: Vec<String>,
     /// BUG A1 follow-up (2026-08-12): the mutation ledger is a purely
     /// IN-MEMORY, capped ring (100k entries, drop-oldest-half — see
-    /// `GraphCore::push_ledger`) — NOT a durable change log. A cold-tenant idle
+    /// `GraphTxn::push_ledger` in `eg_core::graph`) — NOT a durable change
+    /// log. A cold-tenant idle
     /// offload/hibernate cycle, `MAX_RESIDENT_GRAPHS` eviction + lazy
     /// rehydrate, a process restart, or simply exceeding the cap can all
     /// empty or truncate `entries` while the underlying mutations remain

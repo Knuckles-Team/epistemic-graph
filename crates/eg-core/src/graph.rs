@@ -623,6 +623,42 @@ pub struct GraphCore {
     /// repurposed as an ABox individual stayed permanently schema-visible.
     /// Bounded by the number of LIVE schema triples (ontology size), not graph
     /// size — cheap even on a large ABox.
+    ///
+    /// **KNOWN GAP (2026-08-12), found during A3 end-to-end verification:**
+    /// this field is IN-MEMORY ONLY — it is NOT one of [`GraphSnapshot`]'s
+    /// fields, unlike `ledger` (its closest analogue: also
+    /// process-observability, also carried in full on every snapshot). The
+    /// mutation gateway's staged-commit pipeline
+    /// (`server::mutation::commit_mutation_body`) executes a write against an
+    /// ISOLATED `GraphCore` built fresh via [`Self::from_snapshot`], then
+    /// durably commits and publishes the result back to the LIVE core via
+    /// [`Self::prepare_snapshot_publish`]/[`Self::replace_snapshot`] — a
+    /// wholesale `GraphSnapshot` replace. Because `schema_refs` is absent
+    /// from that struct, `mark_schema_ref`/`unmark_schema_ref` calls made
+    /// against the STAGED image (e.g. `eg_rdf::mapping::load_triples`/
+    /// `eg_rdf::update::remove_triples` invoked via the native
+    /// `Method::AddTriples`/`Method::RemoveTriples` wire methods, which ARE
+    /// gateway-routed this way) never reach the live, servable core — a
+    /// silent no-op, confirmed via direct instrumentation of
+    /// `access::build_projection` while writing this fix's regression test.
+    /// The mechanism (mark/unmark/`is_schema_node`/`filter_view`
+    /// consultation) IS correct in isolation and IS correctly wired for the
+    /// pgwire `SPARQL UPDATE INSERT DATA` cross-modal seam specifically,
+    /// because THAT commit path
+    /// (`server::wire::WireSession::commit_txn_state` →
+    /// `handlers::txn::commit_cross_modal_txn`) mutates the live core
+    /// directly rather than staging through a throwaway `GraphCore` +
+    /// `GraphSnapshot` round-trip. Closing this gap for the gateway-routed
+    /// paths needs `schema_refs` added to `GraphSnapshot` (a
+    /// `#[serde(deny_unknown_fields)]`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`-
+    /// gated durable format this crate's own docs call "strict... the
+    /// mandatory version and unknown-field rejection prevent a partial or
+    /// differently shaped image from being accepted as current") plus the
+    /// matching capture/restore in [`Self::snapshot`]/[`Self::replace_snapshot`]
+    /// — a durable-schema migration, deliberately NOT attempted here: it is
+    /// a materially larger, higher-blast-radius change (the durable format
+    /// used by every existing redb-backed deployment) than this fix's scope,
+    /// and belongs in its own reviewed change.
     schema_refs: DashMap<String, u64>,
     /// BUG A1 follow-up (2026-08-12): count of ledger entries permanently
     /// dropped from the FRONT of [`Self::ledger`] over this `GraphCore`
@@ -661,9 +697,8 @@ pub struct GraphTxn<'a> {
     /// words) under a shared read guard.
     node_bloom: &'a RwLock<crate::bloom::NodeBloomFilter>,
     /// Shared with `GraphCore::ledger_dropped_total` (BUG A1 follow-up) — every
-    /// PRODUCTION ledger write goes through `Self::push_ledger`, which shares
-    /// the SAME cap + drop-accounting policy `GraphCore::push_ledger` uses via
-    /// `push_ledger_impl`.
+    /// PRODUCTION ledger write goes through `Self::push_ledger`, which applies
+    /// the cap + drop-accounting policy via `push_ledger_impl`.
     ledger_dropped_total: &'a std::sync::atomic::AtomicU64,
 }
 
@@ -712,6 +747,11 @@ where
     <Option<T> as serde::Deserialize>::deserialize(deserializer)
 }
 
+/// KNOWN GAP (2026-08-12): does NOT carry `GraphCore::schema_refs` (the A18
+/// TBox/ABox live reverse index) — see that field's own doc for the full
+/// consequence (the mutation gateway's staged-commit pipeline silently drops
+/// schema marks for gateway-routed native writes) and why fixing it is a
+/// deliberately deferred, separately-scoped durable-schema migration.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphSnapshot {
@@ -999,20 +1039,21 @@ impl std::fmt::Display for HexLedger<'_> {
 /// Cap on `GraphCore::ledger`'s length (BUG A1 follow-up, 2026-08-12): the
 /// in-memory mutation ledger is an ephemeral, bounded ring, NOT a durable
 /// change log. Exceeding this drops the oldest half — see
-/// `GraphCore::push_ledger`'s doc for the full reasoning and
+/// `GraphTxn::push_ledger`'s doc for the full reasoning and
 /// `GraphCore::ledger_watermark` for how a caller detects it happened.
 const LEDGER_CAP: usize = 100_000;
-/// How many of the oldest entries `GraphCore::push_ledger` drops in one trim,
+/// How many of the oldest entries `GraphTxn::push_ledger` drops in one trim,
 /// once `LEDGER_CAP` is exceeded.
 const LEDGER_TRIM: usize = 50_000;
 
-/// Shared implementation behind `GraphCore::push_ledger` (one-shot writers)
-/// AND `GraphTxn::push_ledger` (the staged-transaction writers every
-/// production mutation actually goes through) — both hold their own
-/// reference to the SAME `GraphCore`'s `ledger`/`ledger_dropped_total`, so
-/// there is exactly one drop-oldest-half + watermark-accounting policy no
-/// matter which side calls it. See `GraphCore::ledger_dropped_total`'s field
-/// doc for the full BUG A1 follow-up reasoning.
+/// Shared implementation behind `GraphTxn::push_ledger` — the staged-
+/// transaction writer every production mutation actually goes through
+/// (`add_node`/`remove_node`/`add_edge`/`remove_edge`/...). Split out as its
+/// own free function (rather than inlined into that one method) so a future
+/// second caller can share the exact same drop-oldest-half + watermark-
+/// accounting policy without duplicating it. See
+/// `GraphCore::ledger_dropped_total`'s field doc for the full BUG A1
+/// follow-up reasoning.
 fn push_ledger_impl(
     ledger: &Mutex<Vec<String>>,
     dropped_total: &std::sync::atomic::AtomicU64,
@@ -1041,9 +1082,8 @@ impl<'a> GraphTxn<'a> {
     /// Push one entry onto the ledger, applying `LEDGER_CAP`'s drop-oldest-
     /// half policy (BUG A1 follow-up, 2026-08-12). Every production mutation
     /// (`add_node`/`remove_node`/`add_edge`/`remove_edge`/... below) records
-    /// through here, sharing the exact same cap + drop-accounting policy
-    /// `GraphCore::push_ledger` uses via `push_ledger_impl` — one policy, two
-    /// callers, never two implementations to drift apart.
+    /// through here via `push_ledger_impl`, so the cap + drop-accounting
+    /// policy lives in exactly one place.
     fn push_ledger(&self, entry: String) {
         push_ledger_impl(self.ledger, self.ledger_dropped_total, entry);
     }
@@ -5403,17 +5443,6 @@ impl GraphCore {
         self.ledger.lock().clone()
     }
 
-    /// Push one entry onto the ledger, applying `LEDGER_CAP`'s drop-oldest-
-    /// half policy (BUG A1 follow-up). A convenience for a caller holding a
-    /// raw `&GraphCore` directly (e.g. this module's own tests) — every
-    /// PRODUCTION mutation actually goes through `GraphTxn::push_ledger`
-    /// instead (`Self::txn`'s staged writers), which shares this exact same
-    /// cap + drop-accounting policy via `push_ledger_impl`, so the two can
-    /// never drift apart.
-    fn push_ledger(&self, entry: String) {
-        push_ledger_impl(&self.ledger, &self.ledger_dropped_total, entry);
-    }
-
     /// The 0-based sequence of the OLDEST ledger entry [`Self::get_ledger`]
     /// can currently vouch for (BUG A1 follow-up) -- i.e. how many entries
     /// have been permanently dropped from the front of this `GraphCore`
@@ -8398,12 +8427,16 @@ mod tests {
             "a fresh graph has never dropped anything"
         );
 
-        // Push one more than the cap directly (bypassing add_node's own
+        // Push one more than the cap through the SAME `GraphTxn::push_ledger`
+        // every production mutation uses (bypassing add_node's own
         // auto-ledger entries, which would make the exact counts fragile to
-        // unrelated formatting) so this test pins push_ledger's OWN policy.
+        // unrelated formatting) so this test pins the real policy, not a
+        // test-only shortcut.
+        let txn = g.txn();
         for i in 0..100_001u64 {
-            g.push_ledger(format!("evt{i}"));
+            txn.push_ledger(format!("evt{i}"));
         }
+        drop(txn);
 
         assert_eq!(
             g.ledger_watermark(),

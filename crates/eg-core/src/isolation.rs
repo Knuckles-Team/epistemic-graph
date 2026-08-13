@@ -837,6 +837,54 @@ mod tests {
         layer
     }
 
+    /// BUG A3 diagnostic (2026-08-12): isolate the derive-from-live-reverse-
+    /// index mechanism from the whole SPARQL/pgwire stack -- mark two nodes
+    /// schema directly on a `GraphCore`, snapshot + `filter_view` for an
+    /// ordinary non-System actor, and confirm they survive (schema-exempt).
+    /// Then unmark and confirm they revert to ABox default-deny on the NEXT
+    /// snapshot, with no separate "clear" step.
+    #[test]
+    fn schema_ref_marked_node_survives_filter_view_then_reverts_on_unmark() {
+        let mut layer = IsolationLayer::new();
+        layer.register_agent(AgentIdentity {
+            agent_id: "worker1".to_string(),
+            role: AgentRole::Agent,
+            teams: vec![],
+            roles: vec![],
+        });
+        let core = crate::graph::GraphCore::new();
+        core.add_node("<http://ex/Sensor>".to_string(), Vec::new());
+        core.add_node("<http://ex/Device>".to_string(), Vec::new());
+        core.mark_schema_ref("<http://ex/Sensor>");
+        core.mark_schema_ref("<http://ex/Device>");
+
+        let mut view = core.analysis_snapshot();
+        assert!(
+            view.schema_node_ids.contains("<http://ex/Sensor>"),
+            "schema_node_ids must reflect the live mark BEFORE filter_view runs"
+        );
+        layer.filter_view("worker1", &mut view);
+        assert!(
+            view.node_map.contains_key("<http://ex/Sensor>"),
+            "a schema-marked node must survive filter_view for a non-System actor"
+        );
+        assert!(view.node_map.contains_key("<http://ex/Device>"));
+
+        core.unmark_schema_ref("<http://ex/Sensor>");
+        core.unmark_schema_ref("<http://ex/Device>");
+        let mut view2 = core.analysis_snapshot();
+        assert!(
+            !view2.schema_node_ids.contains("<http://ex/Sensor>"),
+            "schema_node_ids must drop the id once its count reaches 0"
+        );
+        layer.filter_view("worker1", &mut view2);
+        assert!(
+            !view2.node_map.contains_key("<http://ex/Sensor>"),
+            "must revert to ABox default-deny once unmarked -- no separate clear step"
+        );
+        assert!(!view2.node_map.contains_key("<http://ex/Device>"));
+    }
+
     #[test]
     #[cfg(not(feature = "security"))]
     fn test_bus_access_for_all() {
