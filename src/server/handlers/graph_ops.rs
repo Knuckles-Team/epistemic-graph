@@ -15,7 +15,7 @@ use super::super::persistence::PersistenceBackend;
 use super::super::state::{max_response_edges, max_response_nodes, ServerState, MAX_BATCH_IDS};
 use crate::graph::GraphCore;
 use crate::isolation::AccessLevel;
-use crate::protocol::{Method, Response, ResultPayload, Vf2MatchResult};
+use crate::protocol::{LedgerReadResult, Method, Response, ResultPayload, Vf2MatchResult};
 
 /// Resolve a cross-graph union read's graph set to their cores (CONCEPT:EG-KG.query.cross-graph-union).
 ///
@@ -2491,7 +2491,15 @@ pub(crate) async fn try_handle(
                 // `read_through` seam is intact, then re-check row visibility on
                 // exactly this one row before returning it.
                 None => match raw_core.get_node_properties(&node_id) {
-                    Some(props_msgpack) if read_authority.can_see_node(&props_msgpack) => {
+                    // BUG A3 (2026-08-12): TBox membership is DERIVED from
+                    // `raw_core.is_schema_node`, not decoded from the blob
+                    // (see `can_see_node`'s doc) — `node_id` is exactly the
+                    // one row this fallback is checking, so the live lookup
+                    // is as cheap as reading a single DashMap entry.
+                    Some(props_msgpack)
+                        if read_authority
+                            .can_see_node(&props_msgpack, raw_core.is_schema_node(&node_id)) =>
+                    {
                         ResultPayload::PropertiesMsgpack(props_msgpack)
                     }
                     _ => ResultPayload::Json(serde_json::Value::Null),
@@ -3364,13 +3372,55 @@ pub(crate) async fn try_handle(
                 )
             }
         }
-        Method::GetLedger => {
-            let g = &*core;
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(g.get_ledger())),
-            )
-        }
+        // BUG A1 (2026-08-12): this used to read `core.get_ledger()` off the
+        // RLS-projected `core` shadowed above (`read_authority.project_core`),
+        // whose detached copy is built via `add_node_no_ledger`/
+        // `add_edge_no_ledger` (`access.rs::build_projection`'s own doc: "there
+        // is no longer a ledger to clear") and therefore NEVER carries a
+        // ledger. Because `security` (hence `GraphReadAuthority::is_active()`)
+        // is compiled into the default `full` build, that made `GetLedger`
+        // return `[]` on EVERY request in production, indistinguishable from
+        // "nothing to sync" — and `agent_utilities.workflows.epistemic_sync`'s
+        // `flush_ledger_to_backend` (a real production sync path) silently
+        // flushed nothing as a result.
+        //
+        // The mutation ledger is process-observability, not row-visible data
+        // (same reasoning `raw_ledger_len` above already established for
+        // `Metrics.total_mutations`), and it is authorized by its own
+        // dedicated `ledger:read` RBAC action (`eg_capabilities::policy`),
+        // enforced upstream in `dispatch.rs` (`verified_context.allows_method`)
+        // BEFORE any handler runs — so routing it through row-level RLS here
+        // was a redundant SECOND gate that, instead of narrowing visibility,
+        // destroyed the data outright. It now reads `raw_core` (captured
+        // before the projection, for the identical reason `raw_ledger_len`
+        // was) and is classified `NON_ROW_SCOPED` in access.rs's read-method
+        // audit table, not `RLS_ROUTED`.
+        //
+        // The response is a typed `LedgerReadResult`, not a bare array, so
+        // "genuinely empty" and "could not be read for this scope" can never
+        // collapse into the same indistinguishable `[]` again.
+        //
+        // BUG A1 follow-up (2026-08-12): fixing the query above is NOT
+        // sufficient on its own — `raw_core.get_ledger()` is a purely
+        // IN-MEMORY, capped ring (`GraphCore::push_ledger`'s doc), not part
+        // of the durable path at all. Cold-tenant idle offload/hibernate,
+        // `MAX_RESIDENT_GRAPHS` eviction + lazy rehydrate, a process
+        // restart, or simply exceeding the cap can all empty or truncate it
+        // while the underlying mutations remain fully durable in redb — a
+        // SEPARATE, real gap from the RLS-projection bug above, of the same
+        // "ephemeral buffer callers assume is durable" shape `CdcHub`
+        // (`src/server/cdc.rs`) also has. `watermark` is what makes that
+        // honest: it is the sequence of the oldest entry `entries` can
+        // vouch for, so a caller comparing it across reads can detect
+        // truncation instead of inferring completeness from a merely
+        // nonzero read.
+        Method::GetLedger => Response::ok(
+            req_id,
+            ResultPayload::Json(serde_json::json!(LedgerReadResult::populated(
+                raw_core.get_ledger(),
+                raw_core.ledger_watermark(),
+            ))),
+        ),
 
         // ClearLedger/ApplyLedger (CONCEPT:EG-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.

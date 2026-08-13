@@ -54,10 +54,16 @@ const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 //
 // This module structurally identifies TBox nodes -- the subject/object of a
 // RECOGNIZED RDFS/OWL 2 schema predicate, or the subject of an explicit
-// `rdf:type owl:Class`/... declaration -- and stamps them with
-// `eg_core::isolation::RLS_SCHEMA_KEY` so `can_see_row` exempts them from row-level
-// default-deny while graph-level ACL (unaffected) still gates whether a caller reaches
-// row filtering at all. Never a name convention on the node id.
+// `rdf:type owl:Class`/... declaration -- and records them in
+// `GraphCore::schema_refs` (BUG A3, 2026-08-12), a live reverse index
+// (`iri -> count of live schema-defining triples`) `can_see_row`/`filter_view`
+// consult by node id, DERIVED fresh on every read rather than a `_schema`
+// property key cached on the node's own blob. The prior blob-stamp approach
+// was write-once: nothing ever cleared it on axiom deletion, so an IRI once
+// used as a schema term stayed schema-visible forever even after being
+// repurposed as an ordinary ABox individual. Graph-level ACL (unaffected)
+// still gates whether a caller reaches row filtering at all. Never a name
+// convention on the node id.
 //
 // Deliberately NARROW: `owl:sameAs`/`owl:differentFrom` state facts ABOUT
 // INDIVIDUALS (ABox, even though the reasoner processes them), and `owl:oneOf`'s list
@@ -104,14 +110,6 @@ pub(crate) const TBOX_TYPE_OBJECTS: &[&str] = &[
     "http://www.w3.org/2002/07/owl#Restriction",
     "http://www.w3.org/2002/07/owl#Ontology",
 ];
-
-/// Stamp `properties` as ontology SCHEMA (TBox) -- see the module-level A18 note.
-/// Idempotent: a no-op if already present.
-pub(crate) fn mark_schema(properties: &mut serde_json::Map<String, serde_json::Value>) {
-    properties
-        .entry(eg_core::isolation::RLS_SCHEMA_KEY.to_string())
-        .or_insert(serde_json::Value::Bool(true));
-}
 
 /// IRI interning: a string IRI ↔ a small integer handle. A production deployment
 /// can back this with a redb table (`iri_id ↔ iri_string`) so node ids are compact
@@ -205,6 +203,16 @@ pub struct LoweredTripleGraph {
     pub edges: Vec<(String, String, Vec<u8>)>,
     pub triples: usize,
     pub multivalue: usize,
+    /// One entry per schema-defining triple OCCURRENCE that names a node id
+    /// as subject or object (BUG A3, 2026-08-12) -- a duplicate id for every
+    /// distinct axiom about it, mirroring exactly how many
+    /// `GraphCore::mark_schema_ref` calls the equivalent incremental SPARQL
+    /// UPDATE inserts (`eg_rdf::update::insert_triple`) would make for the
+    /// SAME triple set. The caller (`load_triples`) feeds each entry to
+    /// `GraphCore::mark_schema_ref` once, in the SAME transaction as the node
+    /// writes, so a bulk load and an equivalent sequence of incremental
+    /// inserts leave the SAME live reverse-index refcount behind.
+    pub schema_refs: Vec<String>,
 }
 
 /// Lower RDF triples to deterministic graph rows without mutating a graph.
@@ -215,6 +223,7 @@ pub fn lower_triples(
         BTreeMap::new();
     let mut edges: Vec<(String, String, String)> = Vec::new();
     let mut multivalue: Vec<(String, String, serde_json::Value)> = Vec::new();
+    let mut schema_refs: Vec<String> = Vec::new();
     let mut count = 0usize;
 
     for triple in triples {
@@ -250,15 +259,15 @@ pub fn lower_triples(
                         // declaration makes the SUBJECT itself schema (TBox) --
                         // see the module-level A18 note above.
                         if TBOX_TYPE_OBJECTS.contains(&node_type.as_str()) {
-                            mark_schema(node_props.entry(subject.clone()).or_default());
+                            schema_refs.push(subject.clone());
                         }
                     }
                 } else if TBOX_SCHEMA_PREDICATES.contains(&predicate.as_str()) {
                     // A18: a recognized RDFS/OWL schema predicate names an axiom
                     // ABOUT both endpoints (a class/property reference on each
                     // side), so both are schema -- see the module-level A18 note.
-                    mark_schema(node_props.entry(subject.clone()).or_default());
-                    mark_schema(node_props.entry(object_id.clone()).or_default());
+                    schema_refs.push(subject.clone());
+                    schema_refs.push(object_id.clone());
                 }
                 edges.push((subject, predicate, object_id));
             }
@@ -303,6 +312,7 @@ pub fn lower_triples(
         edges,
         triples: count,
         multivalue: multivalue.len(),
+        schema_refs,
     })
 }
 
@@ -349,6 +359,14 @@ pub fn load_triples(
         txn.add_edge(source.clone(), target.clone(), blob.clone())?;
     }
     drop(txn);
+    // BUG A3 (2026-08-12): mark every schema-defining triple occurrence this
+    // bulk load contributed, so a bulk-loaded ontology is exactly as
+    // TBox-exempt as the same triples inserted one at a time via SPARQL
+    // UPDATE (`eg_rdf::update::insert_triple`) would be -- see
+    // `LoweredTripleGraph::schema_refs`'s doc.
+    for id in &lowered.schema_refs {
+        core.mark_schema_ref(id);
+    }
     let _ = graph_name;
 
     Ok(LoadReport {

@@ -2337,6 +2337,23 @@ class StaleRouteError(RuntimeError):
         self.leader_ref = self.route.get("leader_ref")
 
 
+class LedgerNotPopulatedError(RuntimeError):
+    """``GetLedger`` reported it could not read the ledger for this request's
+    scope (BUG A1, 2026-08-12) — distinct from a genuinely empty ledger, which
+    ``LedgerClient.get()`` returns as ``[]`` without raising.
+
+    Before the fix, the engine's ``GetLedger`` RPC returned a bare ``[]`` for
+    BOTH "nothing has mutated" and "the ledger could not be read", so a caller
+    like ``agent_utilities.workflows.epistemic_sync.flush_ledger_to_backend``
+    (a real production sync path) could not tell the two apart and silently
+    treated the second as a no-op, flushing nothing. The engine now returns a
+    typed ``{"populated": bool, "entries": [...]}`` result; this client raises
+    on ``populated: false`` so a caller that has just committed mutations and
+    expects to see them can fail loudly instead of reading a false "nothing
+    to sync".
+    """
+
+
 class NodeClient:
     """CONCEPT:AU-KG.query.object-graph-mapper — Topology Node Namespace"""
 
@@ -5056,7 +5073,52 @@ class LedgerClient:
         self._client = client
 
     async def get(self) -> list[str]:
-        return await self._client._send("GetLedger")
+        """Return this graph's mutation ledger.
+
+        BUG A1 (2026-08-12): the engine now answers with a typed
+        ``{"populated": bool, "entries": [...], "watermark": int}`` result
+        rather than a bare array, so a genuinely empty ledger (``populated:
+        True``, ``entries: []``) can never again be silently confused with a
+        ledger that could not be read for this request's scope. This raises
+        ``LedgerNotPopulatedError`` in the latter case instead of returning
+        ``[]`` — callers must be able to tell "nothing to sync" from "I read
+        nothing" and fail loudly on the second.
+
+        This drops ``watermark`` — see :meth:`get_with_watermark` for a
+        caller that needs it. The engine's mutation ledger is an in-memory,
+        CAPPED ring (not a durable change log): eviction, rehydration, a
+        process restart, or exceeding the cap can silently drop entries
+        while the underlying mutations stay durably committed server-side, so
+        a caller that must distinguish "caught up" from "history was
+        silently dropped" needs :meth:`get_with_watermark`, not this method.
+        """
+        entries, _watermark = await self.get_with_watermark()
+        return entries
+
+    async def get_with_watermark(self) -> tuple[list[str], int]:
+        """Like :meth:`get`, but also returns the ledger's current watermark.
+
+        BUG A1 follow-up (2026-08-12): the engine's mutation ledger is a
+        purely IN-MEMORY, capped ring (drop-oldest-half past 100k entries),
+        NOT a durable change log — cold-tenant idle offload/hibernate,
+        eviction + lazy rehydrate, a process restart, or exceeding the cap
+        can all silently drop entries while the underlying mutations remain
+        fully durable server-side (in redb). ``watermark`` is the 0-based
+        sequence of the OLDEST entry ``entries`` can vouch for; a caller
+        that tracks it across reads (e.g. a periodic flush like
+        ``agent_utilities.workflows.epistemic_sync.flush_ledger_to_backend``)
+        can detect it advancing (or resetting after a restart) as PROOF that
+        history was silently dropped, and fail loudly instead of treating a
+        short/empty read as "nothing new to sync".
+        """
+        result = await self._client._send("GetLedger")
+        if not isinstance(result, dict) or not result.get("populated", False):
+            raise LedgerNotPopulatedError(
+                "GetLedger: the ledger could not be read for this request's "
+                "scope (this is NOT the same as a genuinely empty ledger) — "
+                f"raw result: {result!r}"
+            )
+        return list(result.get("entries", [])), int(result.get("watermark", 0))
 
     async def clear(self) -> None:
         await self._client._send("ClearLedger")

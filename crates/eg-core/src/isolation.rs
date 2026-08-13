@@ -198,10 +198,21 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
     // grants tagging above — an axiom node is neither owned nor "tagged
     // public" in the ABox sense, it is simply not a row RLS should be
     // deciding at all. See `RLS_SCHEMA_KEY` for the full reasoning.
-    let schema = map
-        .get(RLS_SCHEMA_KEY)
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    //
+    // BUG A3 (2026-08-12): `schema` is UNCONDITIONALLY `false` here, never
+    // decoded from the blob. It used to read a `_schema: true` property this
+    // crate stamped once (`eg_rdf`'s lowering) and never cleared on axiom
+    // deletion, so an IRI once used as a schema term stayed schema-visible
+    // forever, even after being repurposed as an ordinary ABox individual.
+    // Schema-ness is now DERIVED from `GraphCore::schema_refs` (a live
+    // reverse index: `iri -> count of live schema-defining triples`),
+    // consulted by node id, not decoded from this function's blob-only
+    // input. A caller with a live snapshot must set `.schema` on the
+    // returned value itself — see `IsolationLayer::filter_view` (the bulk
+    // row-filtering path, via `GraphView::schema_node_ids`) and
+    // `GraphReadAuthority::can_see_node` (the single-row fallback, via
+    // `GraphCore::is_schema_node`) for the two call sites that do.
+    let schema = false;
     RowVisibility {
         owner,
         public,
@@ -698,11 +709,19 @@ impl IsolationLayer {
             .node_map
             .keys()
             .filter_map(|id| {
-                let vis = view
+                let mut vis = view
                     .node_properties
                     .get(id)
                     .map(|blob| row_visibility(blob))
                     .unwrap_or_else(RowVisibility::default_public);
+                // BUG A3 (2026-08-12): TBox membership is DERIVED from this
+                // snapshot's live reverse index (`view.schema_node_ids`,
+                // populated from `GraphCore::schema_refs` at snapshot time),
+                // never decoded from the blob (`row_visibility`'s `.schema`
+                // is always `false`) — so an axiom's deletion, which drops
+                // `id` from `schema_refs`, is reflected on the very NEXT
+                // snapshot with no separate "clear the marker" step.
+                vis.schema = view.schema_node_ids.contains(id);
                 if self.can_see_row(agent_id, &vis) {
                     None
                 } else {
