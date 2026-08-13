@@ -813,7 +813,7 @@ mod tests {
         // resolves the SAME way at both opens. See
         // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let root = std::env::temp_dir().join(format!("eg-backup-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");
@@ -910,7 +910,7 @@ mod tests {
         // whole test (this one also opens a source backend and a re-sharded restored
         // backend that must resolve the same cipher).
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let root = std::env::temp_dir().join(format!("eg-backup-reshard-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");

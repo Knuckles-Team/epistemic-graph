@@ -1077,6 +1077,15 @@ where
     response
 }
 
+/// Type-erased, boxed "apply" closure for one coalescable mutation — the same
+/// shape [`commit_via_coalescer`] needs after erasing the per-call generic
+/// `F: FnOnce(&GraphCore) -> Result<ResultPayload, String> + Send + 'static`
+/// so it can be captured into a `'static` boxed future and enqueued on the
+/// coalescer worker (clippy `type_complexity`: the raw
+/// `Box<dyn FnOnce(&GraphCore) -> Result<ResultPayload, String> + Send>`
+/// spelled out inline was flagged as very complex).
+type BoxedApplyFn = Box<dyn FnOnce(&GraphCore) -> Result<ResultPayload, String> + Send>;
+
 /// Package one coalescable op's full `commit_mutation_body` sequence as a
 /// boxed `'static` job (detaching it from `ctx`'s borrow — the worker task
 /// that eventually runs it outlives this call), enqueue it on this graph's
@@ -1114,8 +1123,7 @@ where
     let materialization_manifest = ctx.materialization_manifest.cloned();
     let plan = plan.clone();
     let method = method.clone();
-    let apply: Box<dyn FnOnce(&GraphCore) -> Result<ResultPayload, String> + Send> =
-        Box::new(apply);
+    let apply: BoxedApplyFn = Box::new(apply);
 
     let run: std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>> =
         Box::pin(async move {
