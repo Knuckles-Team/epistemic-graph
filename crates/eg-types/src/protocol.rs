@@ -5220,6 +5220,81 @@ pub struct Vf2MatchResult {
     pub truncated: bool,
 }
 
+/// Materialized result of a `Method::GetLedger` call (BUG A1, 2026-08-12: `GetLedger`
+/// returned an empty list even after real mutations had committed). The prior wire
+/// shape was a bare `Vec<String>`, which made "the ledger is genuinely empty" and
+/// "the ledger could not be read for this request's scope" indistinguishable — both
+/// serialized to `[]`, so a caller (e.g. `agent_utilities.workflows.epistemic_sync`'s
+/// `flush_ledger_to_backend`, a real production sync path) could not tell "nothing to
+/// sync" from "I silently read nothing". Root cause: the terminal handler
+/// unconditionally reads through the row-level-security PROJECTED core (built by
+/// `GraphReadAuthority::project_core` / `build_projection`, which constructs its
+/// detached copy via `add_node_no_ledger`/`add_edge_no_ledger` and therefore never
+/// carries a ledger — see that function's own doc), even though `GetLedger` is
+/// authorized by its own dedicated `ledger:read` RBAC action (`eg_capabilities`)
+/// enforced upstream in `dispatch.rs` before any handler runs at all — the row
+/// projection was a redundant SECOND gate that, instead of narrowing visibility,
+/// destroyed the data outright. Because `security` (and therefore
+/// `GraphReadAuthority::is_active()`) is compiled into the default `full` build,
+/// this fired on every request in production, unconditionally.
+///
+/// `populated: true` means `entries` reflects the graph's REAL, authoritative
+/// ledger (however many entries — legitimately empty when nothing has mutated
+/// since the last flush/clear: that is a genuine `[]`, not a lie). `populated:
+/// false` means the ledger could not be read for this request's scope; `entries`
+/// is always empty in that case and callers MUST NOT treat it as "nothing to
+/// sync". Any future call site that cannot certify it is reading the
+/// authoritative (non-projected) core must answer `not_populated_for_scope()`
+/// explicitly rather than silently returning a `populated: true` empty list —
+/// that explicit branch is what stops this exact regression from shipping silent
+/// a second time.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LedgerReadResult {
+    pub populated: bool,
+    pub entries: Vec<String>,
+    /// BUG A1 follow-up (2026-08-12): the mutation ledger is a purely
+    /// IN-MEMORY, capped ring (100k entries, drop-oldest-half — see
+    /// `GraphCore::push_ledger`) — NOT a durable change log. A cold-tenant idle
+    /// offload/hibernate cycle, `MAX_RESIDENT_GRAPHS` eviction + lazy
+    /// rehydrate, a process restart, or simply exceeding the cap can all
+    /// empty or truncate `entries` while the underlying mutations remain
+    /// fully durable in redb — a typed `populated: true` alone does not
+    /// prove `entries` is COMPLETE. `watermark`
+    /// (`GraphCore::ledger_watermark`) is the 0-based sequence of the
+    /// OLDEST entry `entries` can vouch for: `0` on a graph that has never
+    /// dropped anything (from THIS in-memory instance's point of view); a
+    /// caller that tracks watermark across reads can detect it advancing
+    /// (or a previously-nonzero watermark resetting to a lower value after
+    /// an eviction/restart) as proof that history was silently dropped,
+    /// rather than inferring completeness from `entries` merely being
+    /// nonzero.
+    pub watermark: u64,
+}
+
+impl LedgerReadResult {
+    /// The ledger was read from the authoritative core; `entries` is its real
+    /// content (possibly, legitimately, empty), and `watermark` is the
+    /// sequence of the oldest entry it can vouch for (see the field's doc).
+    pub fn populated(entries: Vec<String>, watermark: u64) -> Self {
+        Self {
+            populated: true,
+            entries,
+            watermark,
+        }
+    }
+
+    /// The ledger could not be read for this request's scope. `entries` is
+    /// always empty here and must never be read as "nothing to sync";
+    /// `watermark` is meaningless (`0`) in this case.
+    pub fn not_populated_for_scope() -> Self {
+        Self {
+            populated: false,
+            entries: Vec::new(),
+            watermark: 0,
+        }
+    }
+}
+
 /// Materialized result of a `Method::Sql` query (CONCEPT:EG-KG.query.read-only-sql-query). Returned via
 /// `ResultPayload::raw` — `rows[i]` is a MessagePack-encoded `Vec<serde_json::Value>`
 /// aligned to `columns`, so the Python client double-unpacks the top-level `Raw`

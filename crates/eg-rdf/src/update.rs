@@ -39,7 +39,7 @@ use spargebra::SparqlParser;
 use spargebra::{GraphUpdateOperation, Update};
 
 use crate::mapping::{
-    literal_to_cell, mark_schema, RDF_MULTI_VALUE_KEY, TBOX_SCHEMA_PREDICATES, TBOX_TYPE_OBJECTS,
+    literal_to_cell, RDF_MULTI_VALUE_KEY, TBOX_SCHEMA_PREDICATES, TBOX_TYPE_OBJECTS,
 };
 use crate::sparql::{Binding, Dataset, Projection, Solution};
 
@@ -795,17 +795,27 @@ fn insert_triple(core: &GraphCore, s: &str, p: &str, obj: &ObjTerm) -> Result<bo
             ensure_node(core, s);
             ensure_node(core, o);
             let mut changed = false;
+            // A18 (CONCEPT:EG-KG.sharding.row-level-security): does THIS
+            // triple, if genuinely new, make `s` (and/or `o`) ontology SCHEMA
+            // (TBox), exempt from row-level RLS default-deny? Decided here,
+            // applied below ONLY once we know the underlying edge was
+            // actually added (BUG A3, 2026-08-12) -- re-inserting an
+            // already-present axiom must never inflate the live schema
+            // refcount `delete_triple` decrements once per genuine removal;
+            // doing it unconditionally here would desync the two and
+            // reintroduce a variant of the same bug this fixes.
+            let mut becomes_schema_subject = false;
+            let mut becomes_schema_object = false;
             // rdf:type folds into the node label (matches the loader) AND stays an edge.
             if p == RDF_TYPE {
                 if let Some(iri) = o.strip_prefix('<').and_then(|x| x.strip_suffix('>')) {
                     changed |= set_type_property(core, s, iri);
-                    // A18 (CONCEPT:EG-KG.sharding.row-level-security): an explicit
-                    // `rdf:type owl:Class`/`rdfs:Class`/... declaration makes the
-                    // SUBJECT itself ontology SCHEMA (TBox), exempt from row-level
-                    // RLS default-deny -- see `crate::mapping`'s module-level A18
-                    // note and `eg_core::isolation::RLS_SCHEMA_KEY`.
+                    // An explicit `rdf:type owl:Class`/`rdfs:Class`/...
+                    // declaration makes the SUBJECT itself schema -- see
+                    // `crate::mapping`'s module-level A18 note and
+                    // `GraphCore::schema_refs`.
                     if TBOX_TYPE_OBJECTS.contains(&iri) {
-                        mark_schema_node(core, s);
+                        becomes_schema_subject = true;
                     }
                 }
             } else if TBOX_SCHEMA_PREDICATES.contains(&p) {
@@ -818,10 +828,19 @@ fn insert_triple(core: &GraphCore, s: &str, p: &str, obj: &ObjTerm) -> Result<bo
                 // <..Device> }` axiom would otherwise land with two untagged,
                 // unowned class nodes that default-deny RLS hides from every
                 // non-`System` actor.
-                mark_schema_node(core, s);
-                mark_schema_node(core, o);
+                becomes_schema_subject = true;
+                becomes_schema_object = true;
             }
-            changed |= add_edge_if_absent(core, s, o, p)?;
+            let edge_added = add_edge_if_absent(core, s, o, p)?;
+            changed |= edge_added;
+            if edge_added {
+                if becomes_schema_subject {
+                    core.mark_schema_ref(s);
+                }
+                if becomes_schema_object {
+                    core.mark_schema_ref(o);
+                }
+            }
             Ok(changed)
         }
     }
@@ -832,11 +851,24 @@ fn delete_triple(core: &GraphCore, s: &str, p: &str, obj: &ObjTerm) -> bool {
     match obj {
         ObjTerm::Literal(lit) => delete_property(core, s, p, lit.value()),
         ObjTerm::Resource(o) => {
-            let mut removed = remove_typed_edge(core, s, o, p);
+            // BUG A3 (2026-08-12): `edge_removed` (not the combined `removed`
+            // below, which also folds in the denormalized `type` property)
+            // is the authoritative "was THIS triple genuinely removed" signal
+            // -- symmetric with `insert_triple`'s `edge_added` gate above, so
+            // the live schema refcount this releases exactly balances what
+            // that function incremented for the SAME triple.
+            let edge_removed = remove_typed_edge(core, s, o, p);
+            let mut removed = edge_removed;
             if p == RDF_TYPE {
                 if let Some(iri) = o.strip_prefix('<').and_then(|x| x.strip_suffix('>')) {
                     removed |= clear_type_property(core, s, iri);
+                    if edge_removed && TBOX_TYPE_OBJECTS.contains(&iri) {
+                        core.unmark_schema_ref(s);
+                    }
                 }
+            } else if edge_removed && TBOX_SCHEMA_PREDICATES.contains(&p) {
+                core.unmark_schema_ref(s);
+                core.unmark_schema_ref(o);
             }
             removed
         }
@@ -856,19 +888,6 @@ fn read_node_obj(core: &GraphCore, id: &str) -> serde_json::Map<String, serde_js
 fn write_node_obj(core: &GraphCore, id: &str, map: serde_json::Map<String, serde_json::Value>) {
     let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(map)).unwrap_or_default();
     core.add_node(id.to_string(), blob);
-}
-
-/// Stamp a node as ontology SCHEMA (TBox) -- see `crate::mapping`'s module-level A18
-/// note and `eg_core::isolation::RLS_SCHEMA_KEY`. Idempotent: a no-op (no write at
-/// all) if already marked, so re-inserting the SAME axiom triple via `INSERT DATA`
-/// does not needlessly re-mutate the node.
-fn mark_schema_node(core: &GraphCore, id: &str) {
-    let mut map = read_node_obj(core, id);
-    if map.get(eg_core::isolation::RLS_SCHEMA_KEY) == Some(&serde_json::Value::Bool(true)) {
-        return;
-    }
-    mark_schema(&mut map);
-    write_node_obj(core, id, map);
 }
 
 fn ensure_node(core: &GraphCore, id: &str) {

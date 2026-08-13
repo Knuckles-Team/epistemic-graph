@@ -76,6 +76,17 @@ pub struct GraphView {
     /// view not produced by `GraphCore::analysis_snapshot_versioned`.
     #[cfg(feature = "result-cache")]
     pub projection_scope: Option<ProjectionScope>,
+    /// Node ids CURRENTLY ontology schema (TBox) as of this snapshot (BUG A3,
+    /// 2026-08-12) — derived from `GraphCore::schema_refs`'s live reverse
+    /// index at snapshot time, NEVER cached as a property on the node itself.
+    /// `IsolationLayer::filter_view` consults this set (not a `_schema`
+    /// property key decoded from the blob) to exempt TBox nodes from
+    /// row-level default-deny, so deleting the axiom that made a node schema
+    /// naturally drops it from the NEXT snapshot's set — no separate "clear
+    /// the marker" step exists or is needed. Empty on a `GraphView` with no
+    /// node data at all (`topology_snapshot`) since there is nothing to
+    /// row-filter there.
+    pub schema_node_ids: std::collections::HashSet<String>,
 }
 
 /// Graph-level handles threaded into a [`GraphView`] (CONCEPT:EG-KG.query.named-graph-projection-catalog,
@@ -128,6 +139,10 @@ impl Clone for GraphView {
             distinct_stats_memo: OnceLock::new(),
             #[cfg(feature = "result-cache")]
             projection_scope: self.projection_scope.clone(),
+            // BUG A3: real snapshot DATA (this view's point-in-time TBox
+            // membership), not a derived cache/memo — preserved like
+            // `node_properties`/`edge_properties` above, not reset.
+            schema_node_ids: self.schema_node_ids.clone(),
         }
     }
 }
@@ -592,6 +607,36 @@ pub struct GraphCore {
     /// `security`-gated half of `project_core` (`src/server/access.rs`).
     #[cfg(feature = "security")]
     rls_projection_cache: crate::rls_projection_cache::ProjectionCache,
+    /// A18 TBox/ABox RLS distinction (BUG A3, 2026-08-12): reverse index counting
+    /// LIVE ontology schema-defining triples per node id — `iri -> count of
+    /// live schema-defining triples`. A node is TBox (schema-exempt from
+    /// row-level default-deny, `eg_core::isolation::RLS_SCHEMA_KEY`'s
+    /// reasoning) iff its count here is `> 0`, DERIVED fresh on every read via
+    /// [`Self::is_schema_node`] — never cached as a settable property flag on
+    /// the node itself. `eg-rdf`'s SPARQL UPDATE insert/delete path
+    /// ([`Self::mark_schema_ref`]/[`Self::unmark_schema_ref`]) maintains this
+    /// in the SAME mutation as the triple write/delete, so an axiom's deletion
+    /// makes its IRI revert to ordinary ABox default-deny automatically — there
+    /// is no separate "clear the marker" step to forget. Previously this crate
+    /// stamped a `_schema: true` PROPERTY on the node at insert time and never
+    /// cleared it on delete: an IRI once used as a schema term and later
+    /// repurposed as an ABox individual stayed permanently schema-visible.
+    /// Bounded by the number of LIVE schema triples (ontology size), not graph
+    /// size — cheap even on a large ABox.
+    schema_refs: DashMap<String, u64>,
+    /// BUG A1 follow-up (2026-08-12): count of ledger entries permanently
+    /// dropped from the FRONT of [`Self::ledger`] over this `GraphCore`
+    /// instance's lifetime, by [`Self::push_ledger`]'s drop-oldest-half cap.
+    /// `ledger` is an in-memory, ephemeral, 100k-entry ring — NOT a durable
+    /// change log — so exceeding the cap, a cold-tenant idle offload/
+    /// hibernate/rehydrate cycle, an eviction, or a process restart can all
+    /// empty or truncate it while the underlying mutations stay durably
+    /// committed in redb. This counter is the 0-based sequence of the OLDEST
+    /// entry the ledger can currently vouch for (`Self::ledger_watermark`) —
+    /// exposed on every `GetLedger` response so a caller can DETECT
+    /// truncation across reads (watermark increased) instead of inferring
+    /// completeness from a merely-nonzero read.
+    ledger_dropped_total: std::sync::atomic::AtomicU64,
 }
 
 impl Default for GraphCore {
@@ -615,6 +660,11 @@ pub struct GraphTxn<'a> {
     /// `add_node` records every id it inserts, lock-free (`fetch_or` on `AtomicU64`
     /// words) under a shared read guard.
     node_bloom: &'a RwLock<crate::bloom::NodeBloomFilter>,
+    /// Shared with `GraphCore::ledger_dropped_total` (BUG A1 follow-up) — every
+    /// PRODUCTION ledger write goes through `Self::push_ledger`, which shares
+    /// the SAME cap + drop-accounting policy `GraphCore::push_ledger` uses via
+    /// `push_ledger_impl`.
+    ledger_dropped_total: &'a std::sync::atomic::AtomicU64,
 }
 
 /// Result of an owner-fenced delivery-tag nack transition.
@@ -946,16 +996,58 @@ impl std::fmt::Display for HexLedger<'_> {
     }
 }
 
-/// Cap the ledger in place, dropping the oldest half once it exceeds the bound.
-/// Shared by every mutation so the trim policy lives in one spot.
-fn push_ledger(ledger: &mut Vec<String>, entry: String) {
+/// Cap on `GraphCore::ledger`'s length (BUG A1 follow-up, 2026-08-12): the
+/// in-memory mutation ledger is an ephemeral, bounded ring, NOT a durable
+/// change log. Exceeding this drops the oldest half — see
+/// `GraphCore::push_ledger`'s doc for the full reasoning and
+/// `GraphCore::ledger_watermark` for how a caller detects it happened.
+const LEDGER_CAP: usize = 100_000;
+/// How many of the oldest entries `GraphCore::push_ledger` drops in one trim,
+/// once `LEDGER_CAP` is exceeded.
+const LEDGER_TRIM: usize = 50_000;
+
+/// Shared implementation behind `GraphCore::push_ledger` (one-shot writers)
+/// AND `GraphTxn::push_ledger` (the staged-transaction writers every
+/// production mutation actually goes through) — both hold their own
+/// reference to the SAME `GraphCore`'s `ledger`/`ledger_dropped_total`, so
+/// there is exactly one drop-oldest-half + watermark-accounting policy no
+/// matter which side calls it. See `GraphCore::ledger_dropped_total`'s field
+/// doc for the full BUG A1 follow-up reasoning.
+fn push_ledger_impl(
+    ledger: &Mutex<Vec<String>>,
+    dropped_total: &std::sync::atomic::AtomicU64,
+    entry: String,
+) {
+    let mut ledger = ledger.lock();
     ledger.push(entry);
-    if ledger.len() > 100_000 {
-        ledger.drain(0..50_000);
+    if ledger.len() > LEDGER_CAP {
+        let dropped = ledger.drain(0..LEDGER_TRIM).count() as u64;
+        let total_dropped =
+            dropped_total.fetch_add(dropped, std::sync::atomic::Ordering::Relaxed) + dropped;
+        let retained = ledger.len();
+        drop(ledger);
+        tracing::warn!(
+            dropped,
+            total_dropped,
+            retained,
+            "graph mutation ledger exceeded its {LEDGER_CAP}-entry cap and dropped its \
+             oldest {LEDGER_TRIM} entries -- GetLedger watermark advanced to {total_dropped}; \
+             durable state is unaffected, only the in-memory audit ledger lost this history"
+        );
     }
 }
 
 impl<'a> GraphTxn<'a> {
+    /// Push one entry onto the ledger, applying `LEDGER_CAP`'s drop-oldest-
+    /// half policy (BUG A1 follow-up, 2026-08-12). Every production mutation
+    /// (`add_node`/`remove_node`/`add_edge`/`remove_edge`/... below) records
+    /// through here, sharing the exact same cap + drop-accounting policy
+    /// `GraphCore::push_ledger` uses via `push_ledger_impl` — one policy, two
+    /// callers, never two implementations to drift apart.
+    fn push_ledger(&self, entry: String) {
+        push_ledger_impl(self.ledger, self.ledger_dropped_total, entry);
+    }
+
     /// Test node membership through the already-held topology guard. Compound
     /// mutations use this to validate their complete state transition before the
     /// first row is changed, without a second (recursive) graph lock.
@@ -996,7 +1088,7 @@ impl<'a> GraphTxn<'a> {
         // CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — record every id ever
         // added so a later durable-read-through miss can trust a bloom "no".
         self.node_bloom.read().insert(&node_id);
-        push_ledger(&mut self.ledger.lock(), log);
+        self.push_ledger(log);
     }
 
     /// Insert a node only when its id is absent from the current topology.
@@ -1044,7 +1136,7 @@ impl<'a> GraphTxn<'a> {
             }
             self.topo.node_map.remove(&node_id);
             self.topo.graph.remove_node(idx);
-            push_ledger(&mut self.ledger.lock(), format!("REMOVE_NODE|{}", node_id));
+            self.push_ledger(format!("REMOVE_NODE|{}", node_id));
         }
     }
 
@@ -1166,7 +1258,7 @@ impl<'a> GraphTxn<'a> {
             .entry((source_id.clone(), target_id.clone()))
             .or_default()
             .push(Arc::new(properties_msgpack));
-        push_ledger(&mut self.ledger.lock(), log);
+        self.push_ledger(log);
         Ok(())
     }
 
@@ -1189,10 +1281,7 @@ impl<'a> GraphTxn<'a> {
             }
             self.edge_properties
                 .remove(&(source_id.clone(), target_id.clone()));
-            push_ledger(
-                &mut self.ledger.lock(),
-                format!("REMOVE_EDGE|{}|{}", source_id, target_id),
-            );
+            self.push_ledger(format!("REMOVE_EDGE|{}|{}", source_id, target_id));
         }
     }
 
@@ -1242,7 +1331,7 @@ impl<'a> GraphTxn<'a> {
         let log = format!("CAS_NODE|{}|{}", node_id, HexLedger(&reenc));
         self.node_properties
             .insert(node_id.to_string(), Arc::new(reenc));
-        push_ledger(&mut self.ledger.lock(), log);
+        self.push_ledger(log);
         true
     }
 
@@ -1320,13 +1409,10 @@ impl<'a> GraphTxn<'a> {
             }
         }
         if updated > 0 {
-            push_ledger(
-                &mut self.ledger.lock(),
-                format!(
-                    "INVALIDATE_EDGE|{}|{}|{}|{}|{}",
-                    source_id, target_id, relationship, invalid_at, tx_now
-                ),
-            );
+            self.push_ledger(format!(
+                "INVALIDATE_EDGE|{}|{}|{}|{}|{}",
+                source_id, target_id, relationship, invalid_at, tx_now
+            ));
         }
         updated
     }
@@ -2192,6 +2278,8 @@ impl GraphCore {
             graph_projections: Arc::new(crate::projection_catalog::ProjectionCatalog::new()),
             #[cfg(feature = "security")]
             rls_projection_cache: crate::rls_projection_cache::ProjectionCache::default(),
+            schema_refs: DashMap::new(),
+            ledger_dropped_total: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -2891,6 +2979,7 @@ impl GraphCore {
             edge_properties: &self.edge_properties,
             ledger: &self.ledger,
             node_bloom: &self.node_bloom,
+            ledger_dropped_total: &self.ledger_dropped_total,
         }
     }
 
@@ -5288,9 +5377,57 @@ impl GraphCore {
     }
 
     // ── Ledger Operations ────────────────────────────────────────────────
+    //
+    // BUG A1 follow-up (2026-08-12): `ledger` is a purely IN-MEMORY,
+    // ephemeral buffer -- it is NOT part of the durable path. `GetLedger`
+    // reproduced returning `[]` after real, durably-committed mutations
+    // because this crate's `security`-active RLS projection served an
+    // unrelated no-ledger detached core (see `GetLedger`'s server handler
+    // and `access::build_projection`'s doc for that root cause, fixed
+    // separately) -- but even with that fixed, `ledger` itself can still be
+    // emptied or truncated while the underlying mutations remain fully
+    // durable in redb: cold-tenant idle offload/hibernate,
+    // `MAX_RESIDENT_GRAPHS` eviction + lazy rehydrate, a process restart, or
+    // simply exceeding `LEDGER_CAP` (below) all drop history this buffer
+    // cannot recover. There is no query fix for that -- it is a property of
+    // what this buffer IS (an audit/debug trail, not a change-data-capture
+    // log; `CdcHub`, `src/server/cdc.rs`, is a SEPARATE bounded in-memory
+    // ring with the identical ephemerality). The honest fix is to make that
+    // fact OBSERVABLE rather than silent: `push_ledger` counts every
+    // capacity-driven drop, `ledger_watermark` exposes the running total, and
+    // `Method::GetLedger`'s response carries it on every read so a caller can
+    // DETECT truncation (watermark increased since its last read) instead of
+    // inferring completeness from a merely-nonzero read.
 
     pub fn get_ledger(&self) -> Vec<String> {
         self.ledger.lock().clone()
+    }
+
+    /// Push one entry onto the ledger, applying `LEDGER_CAP`'s drop-oldest-
+    /// half policy (BUG A1 follow-up). A convenience for a caller holding a
+    /// raw `&GraphCore` directly (e.g. this module's own tests) — every
+    /// PRODUCTION mutation actually goes through `GraphTxn::push_ledger`
+    /// instead (`Self::txn`'s staged writers), which shares this exact same
+    /// cap + drop-accounting policy via `push_ledger_impl`, so the two can
+    /// never drift apart.
+    fn push_ledger(&self, entry: String) {
+        push_ledger_impl(&self.ledger, &self.ledger_dropped_total, entry);
+    }
+
+    /// The 0-based sequence of the OLDEST ledger entry [`Self::get_ledger`]
+    /// can currently vouch for (BUG A1 follow-up) -- i.e. how many entries
+    /// have been permanently dropped from the front of this `GraphCore`
+    /// instance's in-memory ledger by `LEDGER_CAP`'s trim policy. `0` means
+    /// nothing has been dropped BY THIS INSTANCE -- it does not by itself
+    /// prove no eviction/rehydrate/restart occurred (a freshly rehydrated or
+    /// restarted graph's ledger legitimately starts at `0` again, with no
+    /// memory that it was ever nonzero); the actionable signal for a caller
+    /// is the watermark DECREASING or FAILING TO ADVANCE the way it expects
+    /// across reads it knows straddled real mutations, not a bare snapshot
+    /// value in isolation.
+    pub fn ledger_watermark(&self) -> u64 {
+        self.ledger_dropped_total
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     #[doc(hidden)]
@@ -5361,6 +5498,11 @@ impl GraphCore {
                 if let Some(props) = self.node_properties.get(nid) {
                     view.node_properties.insert(nid.clone(), props.clone());
                 }
+                // BUG A3: point-in-time TBox membership for this induced
+                // subgraph, consulted by `filter_view`.
+                if self.is_schema_node(nid) {
+                    view.schema_node_ids.insert(nid.clone());
+                }
             }
         }
 
@@ -5427,6 +5569,9 @@ impl GraphCore {
             // a `gds.*` procedure over this view just always re-projects.
             #[cfg(feature = "result-cache")]
             projection_scope: None,
+            // No property blobs at all in this snapshot, so nothing for
+            // `filter_view` to row-filter here (BUG A3) — empty, not omitted.
+            schema_node_ids: std::collections::HashSet::new(),
         }
     }
 
@@ -5456,6 +5601,8 @@ impl GraphCore {
             // `analysis_snapshot_versioned` instead.
             #[cfg(feature = "result-cache")]
             projection_scope: None,
+            // BUG A3: point-in-time TBox membership, consulted by `filter_view`.
+            schema_node_ids: self.live_schema_node_ids(),
         }
     }
 
@@ -5496,6 +5643,8 @@ impl GraphCore {
                 dep_clock: Arc::clone(&self.dep_clock),
                 version,
             }),
+            // BUG A3: point-in-time TBox membership, consulted by `filter_view`.
+            schema_node_ids: self.live_schema_node_ids(),
         };
         (view, version)
     }
@@ -5578,7 +5727,72 @@ impl GraphCore {
             // so a fresh, empty cache costs nothing and stays correct by construction.
             #[cfg(feature = "security")]
             rls_projection_cache: crate::rls_projection_cache::ProjectionCache::default(),
+            // A fork deep-clones the parent's DATA (node/edge properties above), so
+            // its TBox/ABox reverse index (BUG A3) must mirror the parent's live
+            // schema-triple counts at fork time too -- schema-ness is content-
+            // derived, not graph-identity-derived like the version line/caches above.
+            schema_refs: self
+                .schema_refs
+                .iter()
+                .map(|e| (e.key().clone(), *e.value()))
+                .collect(),
+            // A fork deep-clones the parent's CURRENT ledger contents
+            // (`ledger` above), so the watermark (BUG A1 follow-up) must
+            // mirror the parent's at fork time too -- the fork's retained
+            // window is identical to the parent's at this instant, and its
+            // OWN future drops start counting from here.
+            ledger_dropped_total: std::sync::atomic::AtomicU64::new(
+                self.ledger_dropped_total
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
         }
+    }
+
+    // ── A18 TBox/ABox RLS distinction (BUG A3, 2026-08-12) ─────────────────
+    // See `schema_refs`'s own field doc for the full history. `eg-rdf`'s SPARQL
+    // UPDATE insert/delete path is the ONLY caller: it marks/unmarks in the
+    // SAME transaction as the triple write/delete that makes/unmakes `id` the
+    // subject or object of a schema-defining triple.
+
+    /// Record one more LIVE schema-defining triple naming `id` (BUG A3). Call
+    /// once per schema-defining triple INSERTED that names `id` as subject or
+    /// object, in the same mutation as the triple write.
+    pub fn mark_schema_ref(&self, id: &str) {
+        *self.schema_refs.entry(id.to_string()).or_insert(0) += 1;
+    }
+
+    /// Release one LIVE schema-defining triple naming `id` (BUG A3). Call once
+    /// per schema-defining triple REMOVED that names `id` as subject or
+    /// object, in the same mutation as the triple delete. Saturating: never
+    /// underflows past 0 — a defensive floor, not something callers should
+    /// rely on for correctness (mark/unmark are expected to stay symmetric per
+    /// triple).
+    pub fn unmark_schema_ref(&self, id: &str) {
+        if let Some(mut count) = self.schema_refs.get_mut(id) {
+            *count = count.saturating_sub(1);
+        }
+    }
+
+    /// Is `id` CURRENTLY ontology schema (TBox)? DERIVED from the live reverse
+    /// index (BUG A3) — true iff at least one schema-defining triple currently
+    /// names `id` as subject or object. Never cached; a node whose last
+    /// schema-defining triple was deleted answers `false` again immediately,
+    /// with no separate "clear the marker" step.
+    pub fn is_schema_node(&self, id: &str) -> bool {
+        self.schema_refs.get(id).is_some_and(|c| *c > 0)
+    }
+
+    /// The full set of node ids CURRENTLY schema (BUG A3) — for snapshotting
+    /// into a [`GraphView`] (`GraphView::schema_node_ids`) so
+    /// `IsolationLayer::filter_view` can consult it per row without needing a
+    /// live `&GraphCore` reference. `O(schema size)`, not `O(graph size)` — an
+    /// ontology's class/property/axiom count, never the whole ABox.
+    fn live_schema_node_ids(&self) -> std::collections::HashSet<String> {
+        self.schema_refs
+            .iter()
+            .filter(|e| *e.value() > 0)
+            .map(|e| e.key().clone())
+            .collect()
     }
 
     pub fn diff_against(&self, other: &GraphView) -> String {
@@ -8167,6 +8381,54 @@ mod tests {
         assert_eq!(g2.get_node_properties("b"), Some(p2));
         assert_eq!(g2.get_edge_properties("a", "b").len(), 1);
         assert_eq!(g2.get_ledger(), expected_ledger);
+    }
+
+    /// BUG A1 follow-up (2026-08-12): the mutation ledger is an in-memory,
+    /// CAPPED ring, not a durable change log — pushing past `LEDGER_CAP`
+    /// silently drops the oldest half. `ledger_watermark()` makes that drop
+    /// OBSERVABLE: it must advance by exactly the dropped count, and the
+    /// surviving entries must be exactly the newest window (the earliest
+    /// entries are genuinely gone, not merely hidden).
+    #[test]
+    fn ledger_cap_drop_advances_the_watermark() {
+        let g = GraphCore::new();
+        assert_eq!(
+            g.ledger_watermark(),
+            0,
+            "a fresh graph has never dropped anything"
+        );
+
+        // Push one more than the cap directly (bypassing add_node's own
+        // auto-ledger entries, which would make the exact counts fragile to
+        // unrelated formatting) so this test pins push_ledger's OWN policy.
+        for i in 0..100_001u64 {
+            g.push_ledger(format!("evt{i}"));
+        }
+
+        assert_eq!(
+            g.ledger_watermark(),
+            50_000,
+            "exceeding the 100_000 cap by 1 must drop exactly one 50_000-entry trim"
+        );
+        let entries = g.get_ledger();
+        assert_eq!(
+            entries.len(),
+            50_001,
+            "100_001 pushed - 50_000 dropped = 50_001 retained"
+        );
+        assert_eq!(
+            entries.first().map(String::as_str),
+            Some("evt50000"),
+            "the oldest SURVIVING entry must be the first one past the drop"
+        );
+        assert_eq!(
+            entries.last().map(String::as_str),
+            Some("evt100000"),
+            "the newest entry is always retained"
+        );
+        // The dropped entries are genuinely gone, not just hidden.
+        assert!(!entries.iter().any(|e| e == "evt0"));
+        assert!(!entries.iter().any(|e| e == "evt49999"));
     }
 
     #[test]

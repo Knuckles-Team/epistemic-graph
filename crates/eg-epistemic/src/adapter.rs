@@ -113,11 +113,21 @@ impl BeliefGraph {
             }
         }
 
+        // BUG A3 (2026-08-12): TBox membership is DERIVED from this
+        // snapshot's `view.schema_node_ids` (populated from
+        // `GraphCore::schema_refs` at snapshot time), never decoded from the
+        // blob (`row_visibility`'s own `.schema` is always `false` now — see
+        // that function's doc). Mirrors `IsolationLayer::filter_view`'s
+        // identical derivation for the ordinary graph-read path.
         #[cfg(feature = "epistemic-redaction")]
         let node_visibility = view
             .node_properties
             .iter()
-            .map(|(id, blob)| (id.clone(), eg_core::isolation::row_visibility(blob)))
+            .map(|(id, blob)| {
+                let mut vis = eg_core::isolation::row_visibility(blob);
+                vis.schema = view.schema_node_ids.contains(id);
+                (id.clone(), vis)
+            })
             .collect();
 
         BeliefGraph {
