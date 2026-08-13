@@ -4448,13 +4448,19 @@ mod tests {
     }
 
     fn current_request(secret: &str, id: u64, graph: &str, method: Method) -> Request {
-        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-        std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-        std::env::set_var(
-            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-            std::env::temp_dir().join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
-        );
+        // See `cost.rs`'s `req()` for why this is `Once`-guarded: process-global
+        // `set_var`, called from every request built by every test in this module.
+        static TEST_AUTH_ENV: std::sync::Once = std::sync::Once::new();
+        TEST_AUTH_ENV.call_once(|| {
+            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+            std::env::set_var(
+                "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+                std::env::temp_dir()
+                    .join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
+            );
+        });
         let context = RequestContextClaims {
             principal: TEST_AGENT.to_string(),
             tenant: "tenant-shared".to_string(),
@@ -4694,6 +4700,24 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn txn_commit_persists_to_redb() {
         use crate::protocol::ResultPayload;
+
+        // Held for the whole test: the `Commit` below reaches `seal_txn_recovery_plan`
+        // (fails closed without a configured `EPISTEMIC_GRAPH_ENCRYPTION_KEY`), and
+        // this test ALSO reopens the backend ("reload via redb-only") — both opens
+        // must resolve the same cipher. See `crate::crypto::acquire_test_env_lock`'s
+        // doc for the full mechanism.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
+        #[cfg(feature = "security")]
+        {
+            static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+            ENCRYPTION_KEY.call_once(|| {
+                std::env::set_var(
+                    crate::crypto::ENCRYPTION_KEY_ENV,
+                    "redb-backend-txn-test-recovery-key",
+                );
+            });
+        }
 
         const SECRET: &str = "redb-txn-secret";
         let dir = std::env::temp_dir().join(format!("eg-redb-txn-{}", std::process::id()));
@@ -5904,8 +5928,10 @@ mod tests {
         // the xshard harness hit. Provision it ONCE before any backend opens. Encryption
         // is symmetric and transparent to every durable round-trip these tests make, so
         // a keyed store behaves identically for their assertions. The env var is
-        // process-global (mirrors `xshard_harness::fresh_dir`), so run the cross-modal
-        // tests filtered rather than mixed with the plaintext-on-disk assertions.
+        // process-global (mirrors `xshard_harness::fresh_dir`). Every caller of
+        // `cm_dir` holds `crate::crypto::acquire_test_env_lock()` for its entire test
+        // body (see each call site), so this `Once` always fires under that lock —
+        // do NOT also acquire it here, `std::sync::Mutex` is not reentrant.
         static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
         ENCRYPTION_KEY.call_once(|| {
             std::env::set_var(
@@ -6020,6 +6046,10 @@ mod tests {
     /// modalities land durably in ONE WriteTransaction and survive a reload.
     #[tokio::test(flavor = "multi_thread")]
     async fn crossmodal_txn_commits_all_modalities_atomically() {
+        // Held for the whole test: `cm_dir` provisions `EPISTEMIC_GRAPH_ENCRYPTION_KEY`
+        // once (process-global) and this test's backend opens depend on it staying set
+        // throughout — see `crate::crypto::acquire_test_env_lock`'s doc.
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let dir = cm_dir("happy");
         let backend: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
@@ -6132,6 +6162,9 @@ mod tests {
     /// its modalities — no node, no vector, no blob-ref (no partial commit).
     #[tokio::test(flavor = "multi_thread")]
     async fn crossmodal_txn_rolls_back_all_modalities_on_failure() {
+        // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
+        // whole test.
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let dir = cm_dir("rollback");
         let inner = Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
         let backend: Arc<dyn PersistenceBackend> = Arc::new(FailingBackend {
@@ -6302,6 +6335,9 @@ mod tests {
     async fn five_modality_atomic_commit() {
         use eg_tsdb::store::SeriesStore;
 
+        // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
+        // whole test.
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let dir = cm_dir("five");
         let points = vec![
             (1_000_000_000i64, vec![10.0]),
@@ -6420,6 +6456,9 @@ mod tests {
     async fn five_modality_rolls_back_all_on_failure() {
         use eg_tsdb::store::SeriesStore;
 
+        // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
+        // whole test.
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let dir = cm_dir("five-rollback");
         let points = vec![(1_000_000_000i64, vec![10.0])];
         let inner = Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
@@ -6492,6 +6531,11 @@ mod tests {
         use eg_tsdb::store::SeriesStore;
 
         const SECRET: &str = "ts-unify-secret";
+        // Held for the whole test — this one literally reopens the backend
+        // ("...post_commit_and_restart"), so cipher stability across BOTH opens is
+        // exactly what this lock guarantees. See
+        // `crossmodal_txn_commits_all_modalities_atomically` above.
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let dir = cm_dir("ts-unify");
         let points = vec![
             (1_000_000_000i64, vec![10.0]),
@@ -6660,6 +6704,9 @@ mod tests {
         use eg_tsdb::store::SeriesStore;
 
         const SECRET: &str = "ts-reconcile-secret";
+        // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
+        // whole test.
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let dir = cm_dir("ts-reconcile");
         let points: Vec<(i64, Vec<f64>)> = vec![
             (1_000_000_000i64, vec![1.0]),

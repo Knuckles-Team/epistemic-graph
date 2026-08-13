@@ -1147,6 +1147,15 @@ mod tests {
 
     #[tokio::test]
     async fn eg282_listener_connect_subscribe_send_message_roundtrip() {
+        // Held for the whole test: `spawn_listener`/`test_state` opens a `RedbBackend`
+        // for the `__commons__` graph on the request-dispatch path this listener
+        // drives; a concurrent `crypto::tests::EnvGuard`-protected test transiently
+        // mutating the shared `EPISTEMIC_GRAPH_ENCRYPTION_KEY`/`_TXN_RECOVERY_KEY` env
+        // vars elsewhere in the crate can otherwise land mid-flight of this test's
+        // message round trip. See `crate::crypto::acquire_test_env_lock`'s doc for the
+        // full mechanism.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let addr = spawn_listener().await;
 
         // ── Subscriber connects + subscribes to /queue/orders (auto ack). ──

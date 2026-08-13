@@ -525,13 +525,19 @@ mod admission_tests {
     }
 
     fn req(id: u64, graph: &str, method: Method) -> Request {
-        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-        std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-        std::env::set_var(
-            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-            std::env::temp_dir().join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
-        );
+        // See `cost.rs`'s `req()` for why this is `Once`-guarded: process-global
+        // `set_var`, called from every request built by every test in this module.
+        static TEST_AUTH_ENV: std::sync::Once = std::sync::Once::new();
+        TEST_AUTH_ENV.call_once(|| {
+            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+            std::env::set_var(
+                "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+                std::env::temp_dir()
+                    .join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
+            );
+        });
         let context = RequestContextClaims {
             principal: TEST_AGENT.to_string(),
             tenant: "tenant-shared".to_string(),
@@ -870,6 +876,12 @@ mod admission_tests {
     /// only the catalog populates; every graph materializes on first access.
     #[tokio::test(flavor = "multi_thread")]
     async fn lazy_startup_hydrates_nothing_until_accessed() {
+        // Held for the whole test: it opens `redb_state` (write side), shuts it down,
+        // then opens a SECOND `RedbBackend` on the same dir (reload side) — both must
+        // resolve the same `EPISTEMIC_GRAPH_ENCRYPTION_KEY` cipher. See
+        // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let dir = std::env::temp_dir().join(format!("eg-lazy-boot-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
