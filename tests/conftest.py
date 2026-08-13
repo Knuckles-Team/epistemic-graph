@@ -84,6 +84,17 @@ def start_epistemic_graph_server(request, tmp_path_factory):
     # (an empty secret makes the server refuse to start by design).
     auth_secret = "test-epistemic-graph-secret"
     server_env = strict_server_env(state_dir, auth_secret=auth_secret)
+    # `main.rs` refuses to start at all without an externally configured durable
+    # store directory (`args.persist_dir.is_none()` exits(2) before the listener
+    # opens) — unconditional, regardless of the `redb` feature. `strict_server_env`
+    # deliberately does NOT set this itself (test_auth_enforcement.py's own
+    # `_clean_env` layers a DIFFERENT persist dir on top precisely so it can
+    # exercise that startup gate directly), so this session fixture — the one
+    # actually booting the shared engine every other test connects to — must set
+    # it here. Found because it was silently ABSENT: the server exited(2)
+    # immediately, the socket never appeared, and this fixture's `connect()` below
+    # would have failed the whole session at collection time.
+    server_env["GRAPH_SERVICE_PERSIST_DIR"] = str(runtime_dir / "persist")
 
     if os.path.exists(socket_path):
         os.remove(socket_path)

@@ -347,7 +347,7 @@ write via a real server-side CDC hook, plus the bitemporal `epistemic_status`
 why/why-not/what-changed capstone (feature `epistemic-tms`); and **policy-aware proof
 redaction** — `ExplainBelief`'s `disclosure_level` masks (never silently drops) an evidence
 node the caller's row-level-security context can't see (feature `epistemic-redaction`). A
-**multimodal evidence graph** (`EvidenceLocus`, 11 located-evidence kinds spanning
+**multimodal evidence graph** (`EvidenceLocus`, 12 located-evidence kinds spanning
 text/table/image/audio/video/metric/SQL-row/code/trace) is reachable under
 `epistemic`; content resolution uses governed blob-CAS references under `alignment`.
 **Calibrated causal reasoning** (a linear-Gaussian structural causal model with genuine Pearl
