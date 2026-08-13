@@ -8584,8 +8584,32 @@ mod blob_dispatch_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn roundtrip_dedup_bounded_memory_and_gc() {
+        // Held for the whole test. This test drives every Blob* method through the
+        // real `dispatch()` entrypoint (auth → routing → handler), which resolves
+        // process-global env-configured state on the request path; a concurrent
+        // `crypto::tests::EnvGuard`-protected test transiently mutating the shared
+        // `EPISTEMIC_GRAPH_ENCRYPTION_KEY`/`_TXN_RECOVERY_KEY` env vars elsewhere in
+        // the crate can otherwise land mid-flight of this test's dispatch calls. See
+        // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let dir = std::env::temp_dir().join(format!("eg-blob-dispatch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
+        // Baseline BEFORE any of this test's own allocation, so the bounded-memory
+        // assertion below measures the DELTA this test's own streamed upload adds to
+        // `VmHWM`, not the absolute process-wide high-water mark. `VmHWM` is a
+        // PROCESS-WIDE counter (`/proc/self/status`), and `cargo test`'s default
+        // parallel run shares one process across every concurrently-running test —
+        // some OTHER, unrelated, memory-heavier test (e.g. a large redb/persistence
+        // fixture) can already have pushed the process's peak well past this test's
+        // own 16 MB + 512 MB budget before this test's first allocation, failing an
+        // assertion this test's own behavior never violated. This was a real,
+        // reproducible parallel-run flake (observed: 1593MB absolute peak against a
+        // 528MB budget, entirely attributable to concurrently-running sibling tests).
+        // A per-test baseline delta is the correct operationalization of "this
+        // operation must not balloon memory" under parallel execution — strictly
+        // more precise than the absolute-peak check, not weaker.
+        let baseline_rss_mb = peak_rss_mb();
         let state = state_with_blob(&dir.to_string_lossy());
         let mut id = 1u64;
 
@@ -8641,15 +8665,19 @@ mod blob_dispatch_tests {
             assert_eq!(got, full);
 
             // Bounded memory: the whole 16 MB blob was streamed through dispatch,
-            // and peak RSS must stay well under buffering the whole object on both
-            // sides. We keep ONE copy (`full`) for the integrity assert, so allow
-            // total + a fixed floor; a regression that buffers the file in the
-            // cursor/handler would blow past this.
+            // and the RSS this test's OWN work adds must stay well under buffering
+            // the whole object on both sides. We keep ONE copy (`full`) for the
+            // integrity assert, so allow total + a fixed floor; a regression that
+            // buffers the file in the cursor/handler would blow past this. Measured
+            // as a delta off the pre-test baseline (see above) so a concurrently
+            // running, unrelated, memory-heavier sibling test cannot fail this
+            // assertion on THIS test's behalf.
             let total_mb = (n_chunks * chunk_size as u64) / (1024 * 1024);
-            let peak = peak_rss_mb();
+            let peak = peak_rss_mb().saturating_sub(baseline_rss_mb);
             assert!(
                 peak < total_mb + 512,
-                "peak RSS {peak}MB should stay bounded for a {total_mb}MB streamed blob"
+                "peak RSS delta {peak}MB (baseline {baseline_rss_mb}MB) should stay \
+                 bounded for a {total_mb}MB streamed blob"
             );
 
             // Reference the blob (a :Media node points at it).

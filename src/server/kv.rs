@@ -925,13 +925,19 @@ mod dispatch_tests {
     }
 
     fn req(id: u64, method: Method) -> Request {
-        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-        std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-        std::env::set_var(
-            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-            std::env::temp_dir().join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
-        );
+        // See `cost.rs`'s `req()` for why this is `Once`-guarded: process-global
+        // `set_var`, called from every request built by every test in this module.
+        static TEST_AUTH_ENV: std::sync::Once = std::sync::Once::new();
+        TEST_AUTH_ENV.call_once(|| {
+            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+            std::env::set_var(
+                "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+                std::env::temp_dir()
+                    .join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
+            );
+        });
         let context = RequestContextClaims {
             principal: TEST_AGENT.to_string(),
             tenant: "tenant-shared".to_string(),

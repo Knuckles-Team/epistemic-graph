@@ -7846,24 +7846,41 @@ pub(crate) fn append_audit_entry_with_line(
     Ok((next_seq, hash))
 }
 
-/// Audit rows pulled by audit-tail COLD SEEDS in this process (test builds only).
-///
-/// The one counted point for the O(1)-vs-O(n) property that
-/// `audit_tail_cold_seed_is_a_bounded_seek_not_a_forward_scan` asserts. Kept out of
-/// release builds entirely so the hot append path pays nothing.
+// Audit rows pulled by audit-tail COLD SEEDS on THIS THREAD (test builds only).
+//
+// The one counted point for the O(1)-vs-O(n) property that
+// `audit_tail_cold_seed_is_a_bounded_seek_not_a_forward_scan` asserts. Kept out of
+// release builds entirely so the hot append path pays nothing.
+//
+// `thread_local!`, NOT a process-global `AtomicU64` (its original shape): `cargo
+// test`'s default harness runs every `#[test]` function on its own dedicated OS
+// thread from a pool, all sharing ONE process — a process-global counter is
+// incremented by EVERY concurrently-running test that happens to durably commit
+// through `commit_ops` (i.e. most of this crate's redb-backed tests), not just the
+// one test measuring it. That produced exactly the failure this shape fixes:
+// `cold_seed_rows_touched_take()` observing 4 rows touched instead of the 1 this
+// test itself caused, because 3 more were attributed from unrelated sibling tests
+// racing on the SAME global counter during this test's measurement window. Since
+// `commit_ops` runs synchronously on the caller's thread (no internal thread
+// spawn) and this test never spawns another thread either, a thread-local counter
+// isolates this test's own count perfectly, with no cross-test synchronization
+// needed at all — strictly more correct than the shared-`Mutex`/lock alternative,
+// not merely faster.
 #[cfg(test)]
-static COLD_SEED_ROWS_TOUCHED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+thread_local! {
+    static COLD_SEED_ROWS_TOUCHED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 
 #[cfg(test)]
 fn cold_seed_rows_touched_inc(n: u64) {
-    COLD_SEED_ROWS_TOUCHED.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+    COLD_SEED_ROWS_TOUCHED.with(|c| c.set(c.get() + n));
 }
 
 /// Read-and-reset the cold-seed row counter. Tests call this immediately before and
 /// after the call under measurement.
 #[cfg(test)]
 fn cold_seed_rows_touched_take() -> u64 {
-    COLD_SEED_ROWS_TOUCHED.swap(0, std::sync::atomic::Ordering::Relaxed)
+    COLD_SEED_ROWS_TOUCHED.with(|c| c.replace(0))
 }
 
 /// Verify a graph's hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security). Range-scans

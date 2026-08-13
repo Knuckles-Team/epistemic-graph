@@ -791,14 +791,24 @@ mod tests {
         }
 
         fn req(id: u64, graph: &str, method: Method) -> Request {
-            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-            std::env::set_var(
-                "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-                std::env::temp_dir()
-                    .join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
-            );
+            // `std::env::set_var` mutates the WHOLE process's environment, and this
+            // helper is called on every request built by every test in this module —
+            // concurrently, across many `cargo test` worker threads in ONE process.
+            // Every call site across the crate sets the SAME fixed values, so a
+            // one-time `Once`-guarded init removes the redundant concurrent
+            // `set_var` calls (each individually a data race per `std::env::set_var`'s
+            // own thread-safety caveat) without changing behavior.
+            static TEST_AUTH_ENV: std::sync::Once = std::sync::Once::new();
+            TEST_AUTH_ENV.call_once(|| {
+                std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+                std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+                std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+                std::env::set_var(
+                    "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+                    std::env::temp_dir()
+                        .join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
+                );
+            });
             let context = RequestContextClaims {
                 principal: TEST_AGENT.to_string(),
                 tenant: "tenant-shared".to_string(),

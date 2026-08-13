@@ -163,6 +163,51 @@ pub fn resolve_txn_recovery_key() -> Option<Vec<u8>> {
     }
 }
 
+/// Crate-wide mutual exclusion for every test that reads OR mutates the
+/// process-global encryption-key env vars (`ENCRYPTION_KEY_ENV`,
+/// `TXN_RECOVERY_KEY_ENV`).
+///
+/// `cargo test` runs every `#[test]`/`#[tokio::test]` function on a pool of OS
+/// threads IN ONE PROCESS, and `std::env::set_var`/`remove_var` mutate the
+/// WHOLE process's environment. `RedbBackend`/`ValueCipher::from_env()`
+/// resolve+cache the cipher ONCE per `open()` call — so a test that opens a
+/// backend, does work, and opens it (or a related backend) AGAIN — a restart,
+/// a backup/restore, or a shard-migration round trip — implicitly depends on
+/// the env var reading the SAME value both times. Without synchronization, an
+/// unrelated test's transient `set_var`/`remove_var` (even a `EnvGuard`-style
+/// set→use→restore, or a one-time `std::sync::Once`-guarded provisioning
+/// elsewhere in the crate) can land BETWEEN those two opens and flip the
+/// resolved cipher, producing exactly the observed failure modes:
+/// "encrypted durable value is missing sealed framing" (wrote sealed,
+/// reopened with no cipher) or "decryption failed (wrong key or tampered
+/// ciphertext)" (reopened with a DIFFERENT key). These are pure test-harness
+/// scheduling artifacts, not product defects — the product code has no
+/// notion of "process-wide test env," only `RedbBackend::open`'s one-shot
+/// resolution.
+///
+/// Every test that (a) mutates either env var — even transiently, even
+/// "just once" via `std::sync::Once` — or (b) depends on the var's value
+/// staying stable across more than one backend/cipher construction, must
+/// hold this lock for its ENTIRE body (acquire it in the first line, bind the
+/// guard to a named local so it lives to the end of the function).
+///
+/// A plain `Mutex` (not `RwLock`) is deliberate: the participant set is a
+/// small, enumerable handful of tests out of ~1000, so full mutual exclusion
+/// among just those tests costs nothing measurable against the whole suite's
+/// wall clock, and it sidesteps having to prove that any two "read-only"
+/// participants can never race each other either (a `Once`-guarded
+/// `set_var` is itself a mutation, so it is not actually read-only).
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Acquire [`TEST_ENV_LOCK`]. Lock poisoning (a prior guard's holder panicked
+/// mid-test) must not cascade into every later test failing to acquire the
+/// lock at all, so a poisoned lock is recovered rather than propagated.
+#[cfg(test)]
+pub(crate) fn acquire_test_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    TEST_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,11 +259,14 @@ mod tests {
         assert_ne!(a, b, "nonce reuse: identical ciphertexts");
     }
 
-    /// Serializes the tests below: `std::env::set_var`/`remove_var` on the two key env
-    /// vars is process-global, and `cargo test` runs this module's tests concurrently by
-    /// default.
-    static KEY_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
+    /// Serializes the tests below against EVERY OTHER test in the crate that mutates
+    /// or depends on these two env vars: `std::env::set_var`/`remove_var` on them is
+    /// process-global, and `cargo test` runs the WHOLE crate's tests concurrently by
+    /// default — not just this module's. See [`super::acquire_test_env_lock`]'s doc
+    /// for the full mechanism (previously this was a module-private lock that only
+    /// serialized these 4 tests against each other, leaving them free to race every
+    /// other crypto-key-dependent test elsewhere in the crate — that was the actual
+    /// bug: this lock existing but not being crate-visible).
     struct EnvGuard {
         prev_data_key: Option<String>,
         prev_recovery_key: Option<String>,
@@ -227,7 +275,7 @@ mod tests {
 
     impl EnvGuard {
         fn acquire() -> Self {
-            let lock = KEY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let lock = super::acquire_test_env_lock();
             let prev_data_key = std::env::var(ENCRYPTION_KEY_ENV).ok();
             let prev_recovery_key = std::env::var(TXN_RECOVERY_KEY_ENV).ok();
             std::env::remove_var(ENCRYPTION_KEY_ENV);
