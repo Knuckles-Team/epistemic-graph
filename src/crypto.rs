@@ -205,7 +205,9 @@ pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(()
 /// lock at all, so a poisoned lock is recovered rather than propagated.
 #[cfg(test)]
 pub(crate) fn acquire_test_env_lock() -> std::sync::MutexGuard<'static, ()> {
-    TEST_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]

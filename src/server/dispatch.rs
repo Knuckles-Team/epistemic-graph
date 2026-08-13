@@ -8477,10 +8477,25 @@ mod blob_dispatch_tests {
         )
     }
 
-    fn peak_rss_mb() -> u64 {
+    /// Current resident set size (`VmRSS`), in MB — deliberately NOT `VmHWM` (the
+    /// process's all-time peak). `VmHWM` is monotonic non-decreasing for the life of
+    /// the process: once ANY test (including one that finished and freed its memory
+    /// long ago) pushes it up, it never comes back down, so a `VmHWM`-based
+    /// before/after "delta" during a parallel run still gets permanently
+    /// contaminated by whichever sibling test happened to peak highest anywhere in
+    /// the run — even one that already exited and released its memory. `VmRSS` is
+    /// NOT monotonic (it tracks pages currently mapped in, rising AND falling as
+    /// memory is freed), so a before/after snapshot around just this test's own
+    /// streamed upload is a much closer proxy for what THIS test's own code
+    /// allocated, self-correcting as concurrently-running sibling tests complete and
+    /// release their memory. Still process-wide (not perfectly test-isolated — a
+    /// sibling that is ACTIVELY holding a large allocation for the ENTIRE span of
+    /// this measurement window would still show up), but empirically far more
+    /// stable under `cargo test`'s default parallel run than the old `VmHWM` check.
+    fn current_rss_mb() -> u64 {
         let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
         for line in s.lines() {
-            if let Some(rest) = line.strip_prefix("VmHWM:") {
+            if let Some(rest) = line.strip_prefix("VmRSS:") {
                 if let Some(kb) = rest
                     .split_whitespace()
                     .next()
@@ -8597,19 +8612,19 @@ mod blob_dispatch_tests {
         let _ = std::fs::remove_dir_all(&dir);
         // Baseline BEFORE any of this test's own allocation, so the bounded-memory
         // assertion below measures the DELTA this test's own streamed upload adds to
-        // `VmHWM`, not the absolute process-wide high-water mark. `VmHWM` is a
-        // PROCESS-WIDE counter (`/proc/self/status`), and `cargo test`'s default
-        // parallel run shares one process across every concurrently-running test —
-        // some OTHER, unrelated, memory-heavier test (e.g. a large redb/persistence
-        // fixture) can already have pushed the process's peak well past this test's
-        // own 16 MB + 512 MB budget before this test's first allocation, failing an
-        // assertion this test's own behavior never violated. This was a real,
-        // reproducible parallel-run flake (observed: 1593MB absolute peak against a
-        // 528MB budget, entirely attributable to concurrently-running sibling tests).
-        // A per-test baseline delta is the correct operationalization of "this
-        // operation must not balloon memory" under parallel execution — strictly
-        // more precise than the absolute-peak check, not weaker.
-        let baseline_rss_mb = peak_rss_mb();
+        // current RSS, not an absolute process-wide reading. `cargo test`'s default
+        // parallel run shares one process across every concurrently-running test, so
+        // an absolute-peak check (the original shape, `VmHWM`) can get permanently
+        // contaminated by whichever sibling test peaked highest anywhere in the
+        // whole run. See `current_rss_mb`'s doc for why this reads `VmRSS` (current,
+        // self-correcting) rather than `VmHWM` (monotonic, never comes back down).
+        // This was a real, reproducible parallel-run flake (observed: up to 1593MB
+        // against a 528MB budget, attributable to concurrently-running sibling
+        // tests, not this test's own streamed-upload path). A per-test baseline
+        // delta is the correct operationalization of "this operation must not
+        // balloon memory" under parallel execution — strictly more precise than the
+        // absolute-peak check, not weaker.
+        let baseline_rss_mb = current_rss_mb();
         let state = state_with_blob(&dir.to_string_lossy());
         let mut id = 1u64;
 
@@ -8669,14 +8684,14 @@ mod blob_dispatch_tests {
             // the whole object on both sides. We keep ONE copy (`full`) for the
             // integrity assert, so allow total + a fixed floor; a regression that
             // buffers the file in the cursor/handler would blow past this. Measured
-            // as a delta off the pre-test baseline (see above) so a concurrently
-            // running, unrelated, memory-heavier sibling test cannot fail this
-            // assertion on THIS test's behalf.
+            // as a delta off the pre-test baseline (see `current_rss_mb`'s doc) so a
+            // concurrently running, unrelated, memory-heavier sibling test cannot
+            // fail this assertion on THIS test's behalf.
             let total_mb = (n_chunks * chunk_size as u64) / (1024 * 1024);
-            let peak = peak_rss_mb().saturating_sub(baseline_rss_mb);
+            let peak = current_rss_mb().saturating_sub(baseline_rss_mb);
             assert!(
                 peak < total_mb + 512,
-                "peak RSS delta {peak}MB (baseline {baseline_rss_mb}MB) should stay \
+                "RSS delta {peak}MB (baseline {baseline_rss_mb}MB) should stay \
                  bounded for a {total_mb}MB streamed blob"
             );
 
