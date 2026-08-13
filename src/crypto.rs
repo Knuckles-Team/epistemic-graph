@@ -197,17 +197,62 @@ pub fn resolve_txn_recovery_key() -> Option<Vec<u8>> {
 /// wall clock, and it sidesteps having to prove that any two "read-only"
 /// participants can never race each other either (a `Once`-guarded
 /// `set_var` is itself a mutation, so it is not actually read-only).
+///
+/// This is a `tokio::sync::Mutex`, not `std::sync::Mutex`, even though most
+/// holders never touch an executor directly. The overwhelming majority of
+/// participants are `#[tokio::test]` bodies that acquire the lock as their
+/// FIRST line and then hold the guard for the test's entire remaining body
+/// — which contains `.await` points (that is the whole point: excluding
+/// every other participant for the duration of the test, not just until the
+/// first await). Holding a `std::sync::MutexGuard` across an await is a
+/// genuine deadlock hazard (clippy's `await_holding_lock`, not a nit): the
+/// task can yield mid-body while holding the lock, and another task
+/// scheduled on the same runtime worker thread can then block forever
+/// trying to acquire it — a non-async-aware lock has no way to let the
+/// executor run something else while parked on it. `tokio::sync::Mutex` is
+/// built for exactly this: `.lock().await` suspends the TASK, not the
+/// thread, so the runtime keeps making progress on other tasks even while
+/// this lock is contended.
+///
+/// A handful of participants (`crypto::tests::EnvGuard`, this module) are
+/// plain synchronous `#[test]` functions with no `.await` at all — restructuring
+/// them to be async just to call `.lock().await` would be pure ceremony, so
+/// [`acquire_test_env_lock_blocking`] below covers them via the SAME mutex
+/// (see that function's doc for why `blocking_lock()` is safe there). Splitting
+/// sync and async callers across two independent locks was considered and
+/// rejected: the original bug this lock fixes was exactly two groups of
+/// env-mutating tests racing each other, so both groups must contend on ONE
+/// mutex or the fix only half-applies.
+///
+/// `tokio::sync::Mutex` also does not poison on a panicking holder (unlike
+/// `std::sync::Mutex`), so the old poison-recovery step
+/// (`unwrap_or_else(|poisoned| poisoned.into_inner())`) is gone: there is
+/// nothing to recover from.
 #[cfg(test)]
-pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static TEST_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// Acquire [`TEST_ENV_LOCK`]. Lock poisoning (a prior guard's holder panicked
-/// mid-test) must not cascade into every later test failing to acquire the
-/// lock at all, so a poisoned lock is recovered rather than propagated.
+/// Acquire [`TEST_ENV_LOCK`] from an `async fn` (`#[tokio::test]`) test body.
+/// Bind the returned guard to a named local at the top of the test so it
+/// lives — and keeps the lock held — for the test's entire body, including
+/// every `.await` inside it.
 #[cfg(test)]
-pub(crate) fn acquire_test_env_lock() -> std::sync::MutexGuard<'static, ()> {
-    TEST_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+pub(crate) async fn acquire_test_env_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    TEST_ENV_LOCK.lock().await
+}
+
+/// Synchronous counterpart to [`acquire_test_env_lock`] for the small set of
+/// plain `#[test]` (non-`tokio::test`) callers in this crate (currently only
+/// `crypto::tests::EnvGuard::acquire`) that never `.await` and so cannot call
+/// the async version. `Mutex::blocking_lock()` panics only when called from
+/// within an async execution context — i.e. from a thread a Tokio runtime is
+/// currently using to poll a future — which never applies here: a plain
+/// `#[test]` runs on an ordinary libtest thread with no runtime involved at
+/// all. Both this and [`acquire_test_env_lock`] lock the exact same
+/// [`TEST_ENV_LOCK`], so sync and async participants remain mutually
+/// exclusive with each other.
+#[cfg(test)]
+pub(crate) fn acquire_test_env_lock_blocking() -> tokio::sync::MutexGuard<'static, ()> {
+    TEST_ENV_LOCK.blocking_lock()
 }
 
 #[cfg(test)]
@@ -272,12 +317,16 @@ mod tests {
     struct EnvGuard {
         prev_data_key: Option<String>,
         prev_recovery_key: Option<String>,
-        _lock: std::sync::MutexGuard<'static, ()>,
+        _lock: tokio::sync::MutexGuard<'static, ()>,
     }
 
     impl EnvGuard {
         fn acquire() -> Self {
-            let lock = super::acquire_test_env_lock();
+            // Plain sync `#[test]`s below never `.await`, so they use the
+            // blocking counterpart — see its doc for why that's safe and why
+            // it still contends on the SAME lock as the async call sites
+            // elsewhere in the crate.
+            let lock = super::acquire_test_env_lock_blocking();
             let prev_data_key = std::env::var(ENCRYPTION_KEY_ENV).ok();
             let prev_recovery_key = std::env::var(TXN_RECOVERY_KEY_ENV).ok();
             std::env::remove_var(ENCRYPTION_KEY_ENV);

@@ -717,7 +717,7 @@ mod tests {
         // "decryption failed (wrong key or tampered ciphertext)". See
         // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let root = std::env::temp_dir().join(format!("eg-migrate-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("k1");
@@ -782,7 +782,7 @@ mod tests {
         // See `roundtrip_k1_to_k4_preserves_all_graphs` above: held for the whole
         // test (this one also reopens after an in-place migration + backup).
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-migrate-inplace-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

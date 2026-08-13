@@ -8607,7 +8607,7 @@ mod blob_dispatch_tests {
         // the crate can otherwise land mid-flight of this test's dispatch calls. See
         // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-blob-dispatch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         // Baseline BEFORE any of this test's own allocation, so the bounded-memory

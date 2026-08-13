@@ -5680,7 +5680,7 @@ mod txn_ryow_dispatch_tests {
         // Held for the whole test: `state()` provisions `EPISTEMIC_GRAPH_ENCRYPTION_KEY`
         // once (process-global) and this test's transaction-commit path depends on it
         // staying set throughout — see `crate::crypto::acquire_test_env_lock`'s doc.
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let state = state();
         let txn = begin(&state, 1).await;
         // Stage: node `sn` (Widget) + its embedding, node `tn` (Gadget), edge sn→tn.
@@ -5784,7 +5784,7 @@ mod txn_ryow_dispatch_tests {
     #[tokio::test]
     async fn commit_makes_txn_writes_visible_off_txn() {
         // See `in_txn_cross_modal_ryow` above: held for the whole test.
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let state = state();
         let txn = begin(&state, 1).await;
         ok(

@@ -881,7 +881,7 @@ mod admission_tests {
         // resolve the same `EPISTEMIC_GRAPH_ENCRYPTION_KEY` cipher. See
         // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-lazy-boot-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();

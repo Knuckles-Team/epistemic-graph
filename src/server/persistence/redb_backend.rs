@@ -4707,7 +4707,7 @@ mod tests {
         // must resolve the same cipher. See `crate::crypto::acquire_test_env_lock`'s
         // doc for the full mechanism.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         #[cfg(feature = "security")]
         {
             static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
@@ -6049,7 +6049,7 @@ mod tests {
         // Held for the whole test: `cm_dir` provisions `EPISTEMIC_GRAPH_ENCRYPTION_KEY`
         // once (process-global) and this test's backend opens depend on it staying set
         // throughout — see `crate::crypto::acquire_test_env_lock`'s doc.
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("happy");
         let backend: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
@@ -6164,7 +6164,7 @@ mod tests {
     async fn crossmodal_txn_rolls_back_all_modalities_on_failure() {
         // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
         // whole test.
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("rollback");
         let inner = Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
         let backend: Arc<dyn PersistenceBackend> = Arc::new(FailingBackend {
@@ -6337,7 +6337,7 @@ mod tests {
 
         // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
         // whole test.
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("five");
         let points = vec![
             (1_000_000_000i64, vec![10.0]),
@@ -6458,7 +6458,7 @@ mod tests {
 
         // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
         // whole test.
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("five-rollback");
         let points = vec![(1_000_000_000i64, vec![10.0])];
         let inner = Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
@@ -6535,7 +6535,7 @@ mod tests {
         // ("...post_commit_and_restart"), so cipher stability across BOTH opens is
         // exactly what this lock guarantees. See
         // `crossmodal_txn_commits_all_modalities_atomically` above.
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("ts-unify");
         let points = vec![
             (1_000_000_000i64, vec![10.0]),
@@ -6706,7 +6706,7 @@ mod tests {
         const SECRET: &str = "ts-reconcile-secret";
         // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
         // whole test.
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("ts-reconcile");
         let points: Vec<(i64, Vec<f64>)> = vec![
             (1_000_000_000i64, vec![1.0]),

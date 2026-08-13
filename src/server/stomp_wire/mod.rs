@@ -1155,7 +1155,7 @@ mod tests {
         // message round trip. See `crate::crypto::acquire_test_env_lock`'s doc for the
         // full mechanism.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let addr = spawn_listener().await;
 
         // ── Subscriber connects + subscribes to /queue/orders (auto ack). ──
