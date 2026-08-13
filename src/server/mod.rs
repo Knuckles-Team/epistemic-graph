@@ -3102,7 +3102,9 @@ mod tests {
     ///
     /// Many concurrent writers to ONE hot graph (the `__commons__` firehose) must ALL
     /// land via the dispatch path — no lost writes, the coalescer is not a drop
-    /// point — and every dispatched op must be accounted for in the writer's stats.
+    /// point — and every dispatched op must be accounted for in the writer's stats,
+    /// REGARDLESS of which path applied it (the worker's batch, or the
+    /// backpressure/inline fallback in `mutation::commit_via_coalescer`).
     ///
     /// L18 rewrite (2026-08-11): `mutation::commit_coalescable_mutation` no longer
     /// holds `mutation_batch::lock_graph` itself around the enqueue+await for the
@@ -3114,18 +3116,61 @@ mod tests {
     /// the previous attempt, was unsafe). So the worker's queue genuinely CAN hold
     /// more than one job at a time now: 400 concurrent dispatches race to enqueue
     /// onto the SAME per-graph worker without each needing its own `lock_graph`
-    /// acquisition first, so this now proves a REAL batching win, not just a 1:1
+    /// acquisition first, so this proves a REAL batching win, not just a 1:1
     /// accounting identity.
+    ///
+    /// Portability fix (2026-08-13, D-EG-CI-2core): this test used to spawn its
+    /// 400 dispatches and just hope enough of them piled up concurrently for a
+    /// meaningful batching win to occur AND for all of them to land via the
+    /// worker's queue. That is exactly what a small CI runner breaks:
+    /// `write_coalescer::CoalescerConfig::auto` sizes `queue_capacity` from
+    /// `std::thread::available_parallelism()`, with a FLOOR of 256 at <=8 CPUs —
+    /// well under N=400 — so on a 2-core box a real fraction of the 400 writers
+    /// overflow the bounded channel and take `commit_via_coalescer`'s inline
+    /// backpressure fallback instead of the worker's batch path. That in turn
+    /// exposed a genuine PRODUCT accounting bug (now fixed, not a test bug on its
+    /// own): the inline fallback never called `writer.stats().record(..)`, so
+    /// `ops` undercounted `N` by however many writers fell back — reproduced
+    /// locally with `taskset -c 0,1` (`left: 274, right: 400`, the exact CI
+    /// panic). `commit_via_coalescer` now records the inline fallback into the
+    /// SAME `BatchStats` the worker does (one lock acquisition applying one op —
+    /// a size-1 batch), so `ops == N` is a true invariant on ANY host, coalesced
+    /// or not.
+    ///
+    /// The remaining assertion — that batching actually happened — is a
+    /// genuinely timing-dependent property (it requires real concurrent pile-up
+    /// against the worker), so instead of trusting the scheduler to provide that
+    /// pile-up on whatever host runs this, this test now FORCES it
+    /// deterministically: it holds `mutation_batch::lock_graph("__commons__")` —
+    /// the exact lock the worker's `flush_batch` (and the inline fallback) must
+    /// acquire to make ANY progress — before firing off all 400 dispatches, and
+    /// only releases it once every spawned task has actually started running (an
+    /// atomic barrier, not a sleep). Every writer is thus forced to queue up
+    /// (in the coalescer's channel, non-blocking, or — once that overflows —
+    /// blocked on this SAME lock via the inline fallback) before ANY of them can
+    /// be applied, on any host, at any core count. This does not just make the
+    /// win "more likely" — see the assertion's own message for why it fails
+    /// loudly, with a diagnosis, if the environment somehow still could not
+    /// produce it, rather than silently passing.
     #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn dispatch_coalesces_concurrent_writes_to_one_graph() {
         let state = test_state();
 
         const N: u64 = 400;
+
+        // Force genuine contention deterministically (see doc above): hold the
+        // per-graph lock every landing path needs before any of the N writers
+        // can be spawned.
+        let hold = crate::server::mutation_batch::lock_graph("__commons__").await;
+
+        let started = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
         let mut handles = Vec::with_capacity(N as usize);
         for i in 0..N {
             let st = state.clone();
+            let started = started.clone();
             handles.push(tokio::spawn(async move {
+                started.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 dispatch_on_heap(
                     &st,
                     request(i, "__commons__", None, add_node(&format!("n{i}"))),
@@ -3133,11 +3178,27 @@ mod tests {
                 .await
             }));
         }
+        // Deterministic barrier, not a sleep: wait for every spawned task to
+        // have actually begun running (bounded — this is "the scheduler ran
+        // them," never a hang, since nothing here can block before the
+        // `fetch_add`) before releasing the lock they are about to contend on.
+        while started.load(std::sync::atomic::Ordering::SeqCst) < N {
+            tokio::task::yield_now().await;
+        }
+        // A few more yields so tasks that have started get to actually reach
+        // their first await point (enqueue, or block on `hold` via the inline
+        // fallback) while we still hold the lock, maximizing genuine pile-up.
+        for _ in 0..64 {
+            tokio::task::yield_now().await;
+        }
+        drop(hold);
+
         for h in handles {
             assert_ok(&h.await.unwrap());
         }
 
-        // Every write landed exactly once on the live path.
+        // INVARIANT — true on any host: every dispatched write lands exactly
+        // once on the live path.
         let core = {
             let s = state.read().await;
             s.registry.get("__commons__").unwrap().core.clone()
@@ -3148,18 +3209,37 @@ mod tests {
             "all {N} dispatched writes land"
         );
 
-        // The win: the coalescer applied them in FEWER lock acquisitions than ops.
         let (batches, ops) = {
             let s = state.read().await;
             let w = s.routed_write_coalescer.writer_for("__commons__");
             (w.stats().batches(), w.stats().ops())
         };
-        assert_eq!(ops, N, "stats account for every dispatched write");
+        // INVARIANT — true on any host, any core count: every dispatched write
+        // is accounted for, whichever path (worker batch or inline fallback)
+        // applied it. If this regresses, some path stopped calling
+        // `BatchStats::record` — an accounting bug, not an environment issue.
+        assert_eq!(
+            ops, N,
+            "stats account for every dispatched write on whichever path \
+             (coalesced or inline-fallback) it took"
+        );
+        // TIMING-DEPENDENT, but FORCED deterministic above: the coalescer
+        // applied them in fewer lock acquisitions than ops. Because every
+        // writer was made to queue behind `hold` before any could land, this
+        // failing means the environment genuinely could not produce ANY
+        // multi-op batch even under forced contention (`CoalescerConfig::
+        // auto`'s `max_batch` floor is 16, so a single successful batch is
+        // enough to satisfy this) — i.e. a real regression in the coalescer's
+        // batching, not a machine too small to exercise it.
         assert!(
             batches < ops,
             "coalescer should genuinely batch: {ops} ops landed in {batches} \
-             lock_graph acquisitions (expected < {ops}) — batches == ops would mean \
-             the fix regressed back to one lock acquisition per op",
+             lock_graph acquisitions (expected < {ops}) — batches == ops here \
+             would mean NO batch of size > 1 formed even with every writer \
+             forced to queue behind the SAME held lock before any could run, \
+             which points at a real regression in the coalescer, not host \
+             core count (queue_capacity/max_batch are auto-sized but floored \
+             well above 1 on any host)",
         );
     }
 

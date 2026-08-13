@@ -1159,8 +1159,25 @@ where
             // Backpressure/closed-worker fallback: run this SAME job inline,
             // under our own lock_graph acquisition — identical engine effect
             // to the ordinary path, just not batched with anyone else's.
+            //
+            // Still counted in the SAME `writer.stats()` the worker's
+            // `flush_batch` records into — this IS a (size-1) batch: one
+            // `lock_graph` acquisition applying one op, exactly like
+            // `write_coalescer::RoutedGraphWriter::apply_one_inline`'s older
+            // sibling in `write_coalescer.rs` already does (see that
+            // module's `BatchStats` doc: "Shared between the worker and the
+            // inline-fallback path so both are counted"). Omitting this was
+            // a real accounting gap introduced by the L18 rewrite: on any
+            // host where `CoalescerConfig::auto`'s CPU-derived
+            // `queue_capacity` is smaller than a burst of concurrent
+            // writers (its floor is 256 at <=8 CPUs), some writers are
+            // silently uncounted even though every one of them durably
+            // commits and lands in `core` — `ops()` must equal every
+            // dispatched write regardless of which path it took.
             let _mutation_guard = crate::server::mutation_batch::lock_graph(ctx.graph_name).await;
-            job.into_future().await
+            let response = job.into_future().await;
+            writer.stats().record(1);
+            response
         }
     }
 }
