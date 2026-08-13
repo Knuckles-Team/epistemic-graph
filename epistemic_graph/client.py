@@ -9136,7 +9136,9 @@ class StreamingClient:
             {"pattern_msgpack": msgpack.packb(spec), "buffer": int(buffer)},
         )
 
-    async def cep_poll(self, sub_id: int, *, timeout_ms: int = 0) -> list[dict[str, Any]]:
+    async def cep_poll(
+        self, sub_id: int, *, timeout_ms: int = 0
+    ) -> list[dict[str, Any]]:
         """Long-poll CEP subscription ``sub_id`` for the matches pushed since the last
         poll (CONCEPT:EG-KG.query.protocol-types) — mirrors :meth:`watch`'s long-poll shape:
         returns immediately if any are buffered, else blocks up to ``timeout_ms`` for
