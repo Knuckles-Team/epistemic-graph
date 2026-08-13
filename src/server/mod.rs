@@ -198,10 +198,6 @@ pub fn validate_verified_request_context_startup(
 ) -> Result<(), String> {
     auth::validate_verified_context_startup(secret, state_dir)
 }
-// Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace). Facade-only,
-// behind the `blob` cargo feature. Default/server-only builds compile NONE of it;
-// the Blob* methods then fall to the dispatch "not available" catch-all.
-#[cfg(feature = "blob")]
 /// A temp dir guaranteed unique even across concurrent tests in one process.
 ///
 /// `pid + nanos` is NOT sufficient: two threads can observe the same nanosecond,
@@ -210,6 +206,13 @@ pub fn validate_verified_request_context_startup(
 /// `server::lake::rest::tests` began failing once the suite ran on a 64-core
 /// host -- more tests in flight at once, so the collision window is actually
 /// hit. The monotonic counter removes the race rather than narrowing it.
+///
+/// Gated on `redb` (not `blob`): every current caller (this module's
+/// `test_state`, `server::blob::store`, `server::lake::rest`) needs a durable
+/// redb-backed temp dir, and `blob`/`lake` both imply `redb` transitively, so
+/// this is the widest feature that still keeps the fn used (never dead code)
+/// in every build that calls it.
+#[cfg(feature = "redb")]
 pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -224,6 +227,21 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     ))
 }
 
+// Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace). Facade-only,
+// behind the `blob` cargo feature. Default/server-only builds compile NONE of it;
+// the Blob* methods then fall to the dispatch "not available" catch-all.
+//
+// BUG (pre-existing, not caused by any recent merge): a 2026-08-09 commit
+// (02f70963, GOC-59-W09/BUG-027) inserted `unique_temp_dir` between this
+// `#[cfg(feature = "blob")]` attribute and its intended target, so the
+// attribute silently re-attached to the new function instead of gating this
+// `mod` declaration. That made `server::blob` (and therefore `blob/store.rs`'s
+// unconditional `redb`/`eg_mutation_store` imports) compile in EVERY build,
+// including `--no-default-features --features server`, breaking the slim
+// server. It went unnoticed because this repo has not pushed in a long time,
+// so CI never ran that feature-matrix row. Restoring the attribute here is
+// the fix (AGENTS.md "Feature-gating gates three sites").
+#[cfg(feature = "blob")]
 pub mod blob;
 // Generic namespaced Key→Value surface (CONCEPT:EG-KG.storage.namespaced-kv-surface). Self-routing (NOT graph-
 // scoped) like blob/tsdb, behind the `kv` cargo feature. A build without it compiles
@@ -613,6 +631,15 @@ mod tests {
             // exercise them. The TESTS were wrong, and it stayed invisible for as
             // long as the facade-full suite aborted on a stack overflow before it
             // ever reached them.
+            //
+            // Fixed by gating: the 22 durable-domain tests in this module that
+            // relied on the real backend built here now carry their own
+            // `#[cfg(feature = "redb")]` (AGENTS.md rule 4, the `ast`
+            // precedent) so they simply do not run in a build without `redb` --
+            // matched by 9 more in the `edge_pagination` / `multi_graph_batch_write`
+            // / `node_binding_envelope` integration targets, gated on
+            // `security` (which implies `redb`) because their dispatch calls go
+            // through the real, non-`cfg(test)` secure-envelope path.
             #[cfg(feature = "redb")]
             persistence: Some(std::sync::Arc::new(
                 crate::server::persistence::redb_backend::RedbBackend::open(
@@ -892,6 +919,7 @@ mod tests {
 
     // ── Cross-graph union reads (CONCEPT:EG-KG.query.cross-graph-union) ──────────────────────
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_union_read_across_graphs() {
         let state = test_state();
@@ -1983,6 +2011,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn memory_cap_evicts_graphs_over_cap() {
         // E3: a graph above the per-graph cap is evicted (LRU) back down to it;
@@ -2014,6 +2043,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn batch_node_reads_collapse_round_trips() {
         // A2: GetNodePropertiesBatch / HasNodesBatch fetch N nodes in one request.
@@ -2177,6 +2207,7 @@ mod tests {
         assert!(resp.error.is_some(), "oversize batch must be rejected");
     }
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn per_graph_backpressure_isolates_tenants() {
         // A hot graph that has exhausted its per-graph in-flight cap sheds WRITES with
@@ -2328,6 +2359,7 @@ mod tests {
         let _ = handle.await;
     }
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_owner_can_write_own_graph() {
         let state = multi_tenant_state().await;
@@ -2390,6 +2422,7 @@ mod tests {
         assert_denied(&resp);
     }
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_manager_reaches_subordinate_graph() {
         let state = multi_tenant_state().await;
@@ -2401,6 +2434,7 @@ mod tests {
         assert_ok(&resp);
     }
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_team_member_read_only() {
         let state = multi_tenant_state().await;
@@ -2441,6 +2475,7 @@ mod tests {
         assert_denied(&resp);
     }
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_bus_stays_open_to_all() {
         let state = multi_tenant_state().await;
@@ -2454,6 +2489,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_create_graph_records_caller_as_owner() {
         let state = multi_tenant_state().await;
@@ -2493,6 +2529,7 @@ mod tests {
         assert_denied(&resp);
     }
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_delete_graph_requires_write_access() {
         let state = multi_tenant_state().await;
@@ -2507,6 +2544,7 @@ mod tests {
         assert_ok(&resp);
     }
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_channel_operations_unaffected_by_rules() {
         let state = multi_tenant_state().await;
@@ -2602,6 +2640,7 @@ mod tests {
     /// path, index rebuilt per query) runs concurrently on the same graph.
     /// Before KG-2.51 the search held the graph read lock for its whole
     /// duration; now it only memcpys the embedding store under the lock.
+    #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_writers_not_starved_by_large_semantic_search() {
         let state = test_state();
@@ -2866,6 +2905,7 @@ mod tests {
         assert_eq!(rows[0]["id"], "deploy_runbook");
     }
 
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_offloaded_algorithms_round_trip() {
         // Snapshot+spawn_blocking arms must preserve result semantics.
@@ -2983,6 +3023,7 @@ mod tests {
     /// per-graph. This reproduces the starvation scenario: a long-running write
     /// txn on graph A (a stand-in for sustained ingestion holding A's write lock)
     /// must NOT block writers targeting graph B.
+    #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_writers_to_distinct_graphs_do_not_serialize() {
         let state = test_state();
@@ -3049,6 +3090,7 @@ mod tests {
     /// onto the SAME per-graph worker without each needing its own `lock_graph`
     /// acquisition first, so this now proves a REAL batching win, not just a 1:1
     /// accounting identity.
+    #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn dispatch_coalesces_concurrent_writes_to_one_graph() {
         let state = test_state();
@@ -3124,6 +3166,18 @@ mod tests {
     /// different code path than this test already does (both go through
     /// `mutation_batch::lock_graph`, unconditionally, with no per-caller
     /// carve-out).
+    // This test drives `handlers::txn::seal_txn_recovery_plan`'s REAL
+    // `#[cfg(all(feature = "redb", feature = "security"))]` arm (it configures
+    // `crate::crypto::ENCRYPTION_KEY_ENV` and asserts a committed transaction),
+    // so it needs the same two features that arm does. `crypto` itself is only
+    // compiled behind `#[cfg(any(feature = "security", feature = "raft"))]`
+    // (`src/lib.rs`), so referencing `crate::crypto::ENCRYPTION_KEY_ENV`
+    // unconditionally broke every build without `security` — including the
+    // slim `server`-only profile. `security` already implies `redb` (see its
+    // feature definition in Cargo.toml), so gating on `security` alone covers
+    // both preconditions. Pre-existing gap in the 2026-08-11 coalescer merge
+    // (e38df149), not something the slim-build fix here introduced.
+    #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn coalesced_write_and_transaction_commit_share_one_graph_lane() {
         // Transaction commit fail-closed requires a configured recovery-plan
@@ -3364,6 +3418,7 @@ mod tests {
 
     /// CAS exactly-once is preserved through the dispatch coalescer: concurrent
     /// claimers of one node via `CompareAndSetNodeFields` yield exactly one winner.
+    #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn dispatch_cas_exactly_once_under_coalescing() {
         let state = test_state();
@@ -3457,6 +3512,7 @@ mod tests {
     }
 
     /// (a) Happy path: begin → stage two nodes + one edge → commit → all present.
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_commit_applies_staged_writes() {
         let state = test_state();
@@ -3596,6 +3652,7 @@ mod tests {
 
     /// (c) OCC conflict: two txns read-modify the SAME node; the first commits, the
     /// second's commit returns Bool(false) (a true rollback — nothing applied).
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_occ_conflict_second_commit_fails() {
         let state = test_state();
@@ -3713,6 +3770,7 @@ mod tests {
 
     /// (e) Regression: standalone single-op CAS still works (degenerate 1-op
     /// auto-commit) and is untouched by the txn machinery.
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn standalone_cas_still_works() {
         let state = test_state();
@@ -3827,6 +3885,7 @@ mod tests {
     /// (a-serializable) Phantom: under `serializable:label=Doc`, txn A declares a
     /// label-scan read-set, txn B inserts a matching `Doc` and commits, then A's
     /// commit returns Bool(false) — the phantom is rejected.
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_serializable_rejects_phantom() {
         let state = test_state();
@@ -3893,6 +3952,7 @@ mod tests {
     /// (a-snapshot) The SAME phantom scenario under `snapshot` ALLOWS A to commit —
     /// proving the levels differ. A touches no node B touched, so the per-node OCC
     /// read-set sees no conflict and snapshot does not watch the label predicate.
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_snapshot_allows_phantom() {
         let state = test_state();
@@ -3952,6 +4012,7 @@ mod tests {
 
     /// A serializable txn whose predicate set is UNCHANGED still commits (the level
     /// rejects only real anomalies, not every concurrent write).
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_serializable_commits_when_predicate_unchanged() {
         let state = test_state();

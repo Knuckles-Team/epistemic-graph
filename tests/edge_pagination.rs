@@ -4,7 +4,18 @@
 //! recovers EXACTLY the same edges — including every parallel edge under one
 //! `(source, target)` pair — as the unbounded `GetEdges` dump, in strictly
 //! increasing `(source, target, ordinal)` order with no duplicates or gaps.
-#![cfg(feature = "server")]
+// Every test in this file dispatches through the REAL secure-envelope auth
+// path (`common::signed_request*` -> `dispatch`), which links against the
+// library WITHOUT `cfg(test)` (integration-test crates are separate compilation
+// units), so it always hits `durable_replay_ledger`'s production fail-closed
+// branch. That branch requires the `security` feature (which also pulls in
+// `redb`, satisfying `common::tempdir_persistence`'s durable-backend need).
+// Without `security`, every test here fails immediately with "secure request
+// context requires the security feature" before it ever reaches pagination
+// logic -- this is a genuine capability requirement, not a mis-asserted slim
+// test (mirrors the `redb`+`security` precedent in
+// `tests/txn_recovery_key_decoupled_d_orc_50.rs`).
+#![cfg(all(feature = "server", feature = "security"))]
 
 mod common;
 
