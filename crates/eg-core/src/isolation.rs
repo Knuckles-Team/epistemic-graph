@@ -198,10 +198,21 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
     // grants tagging above — an axiom node is neither owned nor "tagged
     // public" in the ABox sense, it is simply not a row RLS should be
     // deciding at all. See `RLS_SCHEMA_KEY` for the full reasoning.
-    let schema = map
-        .get(RLS_SCHEMA_KEY)
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    //
+    // BUG A3 (2026-08-12): `schema` is UNCONDITIONALLY `false` here, never
+    // decoded from the blob. It used to read a `_schema: true` property this
+    // crate stamped once (`eg_rdf`'s lowering) and never cleared on axiom
+    // deletion, so an IRI once used as a schema term stayed schema-visible
+    // forever, even after being repurposed as an ordinary ABox individual.
+    // Schema-ness is now DERIVED from `GraphCore::schema_refs` (a live
+    // reverse index: `iri -> count of live schema-defining triples`),
+    // consulted by node id, not decoded from this function's blob-only
+    // input. A caller with a live snapshot must set `.schema` on the
+    // returned value itself — see `IsolationLayer::filter_view` (the bulk
+    // row-filtering path, via `GraphView::schema_node_ids`) and
+    // `GraphReadAuthority::can_see_node` (the single-row fallback, via
+    // `GraphCore::is_schema_node`) for the two call sites that do.
+    let schema = false;
     RowVisibility {
         owner,
         public,
@@ -698,11 +709,19 @@ impl IsolationLayer {
             .node_map
             .keys()
             .filter_map(|id| {
-                let vis = view
+                let mut vis = view
                     .node_properties
                     .get(id)
                     .map(|blob| row_visibility(blob))
                     .unwrap_or_else(RowVisibility::default_public);
+                // BUG A3 (2026-08-12): TBox membership is DERIVED from this
+                // snapshot's live reverse index (`view.schema_node_ids`,
+                // populated from `GraphCore::schema_refs` at snapshot time),
+                // never decoded from the blob (`row_visibility`'s `.schema`
+                // is always `false`) — so an axiom's deletion, which drops
+                // `id` from `schema_refs`, is reflected on the very NEXT
+                // snapshot with no separate "clear the marker" step.
+                vis.schema = view.schema_node_ids.contains(id);
                 if self.can_see_row(agent_id, &vis) {
                     None
                 } else {
@@ -816,6 +835,54 @@ mod tests {
             roles: vec![],
         });
         layer
+    }
+
+    /// BUG A3 diagnostic (2026-08-12): isolate the derive-from-live-reverse-
+    /// index mechanism from the whole SPARQL/pgwire stack -- mark two nodes
+    /// schema directly on a `GraphCore`, snapshot + `filter_view` for an
+    /// ordinary non-System actor, and confirm they survive (schema-exempt).
+    /// Then unmark and confirm they revert to ABox default-deny on the NEXT
+    /// snapshot, with no separate "clear" step.
+    #[test]
+    fn schema_ref_marked_node_survives_filter_view_then_reverts_on_unmark() {
+        let mut layer = IsolationLayer::new();
+        layer.register_agent(AgentIdentity {
+            agent_id: "worker1".to_string(),
+            role: AgentRole::Agent,
+            teams: vec![],
+            roles: vec![],
+        });
+        let core = crate::graph::GraphCore::new();
+        core.add_node("<http://ex/Sensor>".to_string(), Vec::new());
+        core.add_node("<http://ex/Device>".to_string(), Vec::new());
+        core.mark_schema_ref("<http://ex/Sensor>");
+        core.mark_schema_ref("<http://ex/Device>");
+
+        let mut view = core.analysis_snapshot();
+        assert!(
+            view.schema_node_ids.contains("<http://ex/Sensor>"),
+            "schema_node_ids must reflect the live mark BEFORE filter_view runs"
+        );
+        layer.filter_view("worker1", &mut view);
+        assert!(
+            view.node_map.contains_key("<http://ex/Sensor>"),
+            "a schema-marked node must survive filter_view for a non-System actor"
+        );
+        assert!(view.node_map.contains_key("<http://ex/Device>"));
+
+        core.unmark_schema_ref("<http://ex/Sensor>");
+        core.unmark_schema_ref("<http://ex/Device>");
+        let mut view2 = core.analysis_snapshot();
+        assert!(
+            !view2.schema_node_ids.contains("<http://ex/Sensor>"),
+            "schema_node_ids must drop the id once its count reaches 0"
+        );
+        layer.filter_view("worker1", &mut view2);
+        assert!(
+            !view2.node_map.contains_key("<http://ex/Sensor>"),
+            "must revert to ABox default-deny once unmarked -- no separate clear step"
+        );
+        assert!(!view2.node_map.contains_key("<http://ex/Device>"));
     }
 
     #[test]

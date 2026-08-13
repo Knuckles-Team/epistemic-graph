@@ -59,16 +59,40 @@ pub(crate) async fn try_handle(
             } else {
                 chunk_size
             };
-            let (batch, now) = match compile_blob_batch(
+            // BUG A2 (2026-08-12): `BlobBegin`'s `Method` payload carries no
+            // upload identity of its own (it is the call that MINTS one), so
+            // the durable idempotency key compiled for it must be identified
+            // by the freshly allocated cursor id, never the wire `req_id` —
+            // `req_id` is only locally unique within one connection (a brand
+            // new, otherwise unrelated connection restarts its counter from
+            // 1 on every reconnect) and `CarrierAuthority` carries no
+            // per-connection component, so two independent connections from
+            // the same tenant/actor previously collided on the identical
+            // idempotency key for their first `BlobBegin()` call and the
+            // second silently replayed the first's already-torn-down cursor
+            // ("committed blob upload cursor is missing" below). Allocate
+            // the id FIRST so it can be folded into the batch identity —
+            // see `compile_blob_batch_at`'s doc for the full mechanism.
+            let proposed = cursors.allocate_upload_id();
+            let expected = match cursors.store.mutation_version(
+                authority.tenant_scope(),
+                &authority.namespace("blob-cas", "control"),
+            ) {
+                Ok(v) => v,
+                Err(error) => return Ok(Response::err(req_id, error)),
+            };
+            let now = crate::server::dispatch::authoritative_now_ms();
+            let (batch, now) = match compile_blob_batch_at(
                 cursors.store.as_ref(),
-                req_id,
+                proposed,
                 authority,
                 &original_method,
+                expected,
+                now,
             ) {
                 Ok(value) => value,
                 Err(error) => return Ok(Response::err(req_id, error)),
             };
-            let proposed = cursors.allocate_upload_id();
             let store = cursors.store.clone();
             let owner_scope = authority.owner_scope().to_string();
             let committed = run_blocking(req_id, move || {
@@ -330,9 +354,39 @@ pub(crate) fn compile_blob_batch(
 /// Rebuild an exact blob child after a coordinator restart. The expected native
 /// version and timestamp came from the authenticated encrypted parent plan; they
 /// are never re-sampled after an acknowledgement-lost child commit.
+///
+/// `identity_id` is folded into the durable idempotency key
+/// (`mutation_batch::opaque_request_key`) alongside `authority`'s tenant/actor
+/// scope and `method`'s own encoded bytes — it exists to distinguish otherwise
+/// identical-looking attempts, NOT to name the caller's wire request id.
+/// **BUG A2 (2026-08-12):** every other blob method's own `Method` payload
+/// already carries the cursor/digest it operates on (`BlobChunkPut{cursor,
+/// ..}`, `BlobCommit{cursor}`, `BlobRef{digest}`, ...), so passing the wire
+/// `req_id` here is safe FOR THOSE — the method bytes alone already
+/// disambiguate two different uploads. `BlobBegin{chunk_size}` is the one
+/// exception: it carries no upload identity at all (it is the call that
+/// MINTS one), so its caller must pass the freshly allocated cursor id here,
+/// never the wire `req_id`. The wire request id is a small integer that a
+/// brand-new, otherwise-unrelated connection restarts from 1 on every
+/// reconnect (`epistemic_graph.client.EpistemicGraphClient._next_id`), while
+/// `CarrierAuthority` carries no per-connection/session component at all — so
+/// two independent connections from the same tenant/actor calling
+/// `BlobBegin()` with the same default `chunk_size` as their first RPC
+/// produced the EXACT SAME idempotency key. The engine's
+/// `eg_mutation_store::begin` idempotency ledger never expires (by design —
+/// it survives an acknowledgement-lost retry across a coordinator restart),
+/// so the SECOND connection's `BlobBegin` silently REPLAYED the first
+/// connection's already-committed result: the FIRST connection's cursor id,
+/// whose durable `CAS_UPLOADS` row had already been torn down by ITS
+/// `BlobCommit` (`ChunkStore::commit_upload_batch` removes the row on
+/// commit — correctly, per-upload teardown). The handler then looked up that
+/// stale, already-removed id and failed with "committed blob upload cursor
+/// is missing". See `Method::BlobBegin`'s handler arm for the caller-side
+/// fix (allocate the cursor id BEFORE compiling the batch, then pass it here
+/// as `identity_id`).
 pub(crate) fn compile_blob_batch_at(
     _store: &dyn store::ChunkStore,
-    req_id: u64,
+    identity_id: u64,
     authority: &CarrierAuthority,
     method: &Method,
     expected: u64,
@@ -340,11 +394,11 @@ pub(crate) fn compile_blob_batch_at(
 ) -> Result<(MutationBatch, u64), String> {
     let scope = authority.namespace("blob-cas", "control");
     let batch_id =
-        crate::server::mutation_batch::opaque_request_key("blob", &scope, req_id, method);
+        crate::server::mutation_batch::opaque_request_key("blob", &scope, identity_id, method);
     let batch = crate::server::mutation_batch::compile_opaque_method(
         crate::server::mutation_batch::CompileBatch {
             batch_id: &batch_id,
-            request_id: req_id,
+            request_id: identity_id,
             principal: Some(authority.actor_scope()),
             tenant: authority.tenant_scope(),
             graph: &scope,

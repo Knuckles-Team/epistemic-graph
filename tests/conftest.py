@@ -40,8 +40,24 @@ def bootstrap_context() -> dict[str, object]:
     return request_context(roles=[], scopes=["security:bootstrap"])
 
 
-def strict_server_env(state_dir: str, *, auth_secret: str) -> dict[str, str]:
-    return {
+def strict_server_env(
+    state_dir: str, *, auth_secret: str, persist_dir: str | None = None
+) -> dict[str, str]:
+    """`persist_dir` is OPTIONAL and keyword-only, defaulting to unset, so every
+    existing caller of this helper keeps its exact current behavior.
+
+    `main.rs` refuses to start without a durable-state directory (`error: the
+    served engine requires an externally configured durable-state
+    directory`) — `start_epistemic_graph_server` below was written before
+    that gate existed and never grew a `--persist-dir`/`GRAPH_SERVICE_
+    PERSIST_DIR` of its own, so the shared session-scoped engine silently
+    failed to bind its socket and every test in the session hung on a
+    `FileNotFoundError` racing a server that never started, with the real
+    cause sitting unread in the subprocess's captured stderr. Fixed at that
+    ONE call site (which now passes `persist_dir` explicitly); every OTHER
+    caller of this helper is unchanged.
+    """
+    env = {
         "GRAPH_SERVICE_AUTH_SECRET": auth_secret,
         # Explicit, deliberate opt-out of the MANDATORY-OIDC posture (secure
         # by default since 2026-07-22 — see auth.rs's `require_oidc()`). This
@@ -60,6 +76,9 @@ def strict_server_env(state_dir: str, *, auth_secret: str) -> dict[str, str]:
             {TEST_AGENT_ID: TEST_SIGNER_KEY}
         ),
     }
+    if persist_dir is not None:
+        env["GRAPH_SERVICE_PERSIST_DIR"] = persist_dir
+    return env
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -80,21 +99,20 @@ def start_epistemic_graph_server(request, tmp_path_factory):
     runtime_dir = tmp_path_factory.mktemp("epistemic-graph-runtime")
     socket_path = str(runtime_dir / "engine.sock")
     state_dir = str(runtime_dir / "security")
+    persist_dir = str(runtime_dir / "persist")
+    os.makedirs(persist_dir, exist_ok=True)
     # Real secret so the suite exercises the HMAC auth path end-to-end
     # (an empty secret makes the server refuse to start by design).
     auth_secret = "test-epistemic-graph-secret"
-    server_env = strict_server_env(state_dir, auth_secret=auth_secret)
-    # `main.rs` refuses to start at all without an externally configured durable
-    # store directory (`args.persist_dir.is_none()` exits(2) before the listener
-    # opens) — unconditional, regardless of the `redb` feature. `strict_server_env`
-    # deliberately does NOT set this itself (test_auth_enforcement.py's own
-    # `_clean_env` layers a DIFFERENT persist dir on top precisely so it can
-    # exercise that startup gate directly), so this session fixture — the one
-    # actually booting the shared engine every other test connects to — must set
-    # it here. Found because it was silently ABSENT: the server exited(2)
-    # immediately, the socket never appeared, and this fixture's `connect()` below
-    # would have failed the whole session at collection time.
-    server_env["GRAPH_SERVICE_PERSIST_DIR"] = str(runtime_dir / "persist")
+    # Both branches independently found the same defect: `main.rs` exits(2)
+    # before opening the listener when no durable-state dir is configured, so the
+    # shared session engine silently never started and every dependent test failed
+    # at fixture setup. Taking the parameterized form: it is keyword-only and
+    # defaults to unset (so every other caller is byte-identical), and unlike the
+    # alternative it also CREATES the directory rather than only naming it.
+    server_env = strict_server_env(
+        state_dir, auth_secret=auth_secret, persist_dir=persist_dir
+    )
 
     if os.path.exists(socket_path):
         os.remove(socket_path)
@@ -127,7 +145,14 @@ def start_epistemic_graph_server(request, tmp_path_factory):
         stderr=subprocess.PIPE,
     )
 
-    for _ in range(30):
+    # A cold `cargo run` still pays a full relink of this crate's large
+    # `full`-feature binary even when nothing needs recompiling (observed
+    # ~40s on a loaded build host) -- the previous 15s budget (30 * 0.5s)
+    # was tight enough to make the FIRST test of a session flake with a
+    # confusing downstream `FileNotFoundError` from the client racing a
+    # socket that was still on its way, not a real server-start failure.
+    # Generous, bounded budget; still fails fast once the socket is live.
+    for _ in range(240):
         if os.path.exists(socket_path):
             break
         time.sleep(0.5)

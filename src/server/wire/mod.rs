@@ -2586,9 +2586,11 @@ impl WireSession {
             }
             #[cfg(feature = "sparql")]
             XmodalStmt::SparqlUpdate(update) => {
-                let methods = crate::server::handlers::txn::sparql_update_to_methods(&update)
-                    .map_err(user_err)?;
-                self.stage_or_commit_owl(graph, methods, in_txn).await
+                let (methods, schema_refs) =
+                    crate::server::handlers::txn::sparql_update_to_methods(&update)
+                        .map_err(user_err)?;
+                self.stage_or_commit_owl(graph, methods, schema_refs, in_txn)
+                    .await
             }
             #[cfg(feature = "sparql")]
             XmodalStmt::SparqlConstruct(query) => {
@@ -2605,29 +2607,51 @@ impl WireSession {
                         .isolation
                         .filter_view(&actor, &mut view);
                 }
-                let methods =
+                let (methods, schema_refs) =
                     crate::server::handlers::txn::construct_view_to_methods(&view, &query)
                         .map_err(user_err)?;
-                self.stage_or_commit_owl(graph, methods, in_txn).await
+                self.stage_or_commit_owl(graph, methods, schema_refs, in_txn)
+                    .await
             }
         }
     }
 
     /// Stage (in a txn) or auto-commit (off-txn) OWL/CONSTRUCT-lowered graph methods.
+    ///
+    /// `schema_refs` (BUG A3, 2026-08-12) — node ids [`triples_to_methods`]
+    /// identified as schema-defining-triple occurrences, see that function's
+    /// doc. The OFF-TXN (auto-commit) branch marks them on the live core
+    /// immediately after `methods` commits, so a lone `SPARQL UPDATE INSERT
+    /// DATA { ... }` statement (no explicit `BEGIN`/`COMMIT TRANSACTION`) —
+    /// the common case, and what a bare `simple_query` always is — gets the
+    /// TBox exemption exactly like the native `eg_rdf::update::insert_triple`
+    /// path does. The IN-TXN branch stages `methods` for a LATER, SEPARATE
+    /// commit this seam does not yet track `schema_refs` through (a larger,
+    /// separately-scoped change — the ids are dropped, fail-closed: a node
+    /// inserted inside an explicit multi-statement transaction does not get
+    /// the exemption yet, never a widened one).
     #[cfg(feature = "sparql")]
     async fn stage_or_commit_owl(
         &self,
         graph: &str,
         methods: Vec<crate::protocol::Method>,
+        schema_refs: Vec<String>,
         in_txn: bool,
     ) -> WireResult<WireOutcome> {
         if in_txn {
+            let _ = schema_refs; // KNOWN GAP (BUG A3) -- see this fn's doc.
             self.xmodal.lock().owl_methods.extend(methods);
             Ok(WireOutcome::command("SPARQL"))
         } else {
             let mut ts = self.new_txn_state(graph).await?;
             ts.axioms.extend(methods);
             self.commit_txn_state(ts).await?;
+            if !schema_refs.is_empty() {
+                let core = self.graph_core(graph).await?;
+                for id in &schema_refs {
+                    core.mark_schema_ref(id);
+                }
+            }
             Ok(WireOutcome::command("SPARQL"))
         }
     }
