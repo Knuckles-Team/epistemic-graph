@@ -31,19 +31,6 @@ PlanMatViewDrop
 # thin nodes/edges/graph client; bind here until a Python UDF sub-client is added.
 RegisterUdf
 RunUdf
-# Engine-level security (CONCEPT:KG-2.231, `security` feature): AuditVerify walks a
-# graph's hash-chained tamper-evident audit log and reports OK or the first break. It
-# is an engine-side maintenance/forensic op routed through dispatch (the audit
-# subsystem), not a nodes/edges/graph client call; bind here until a Python security
-# sub-client is added.
-AuditVerify
-# Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security, `security` feature): a periodic engine job
-# Merkle-anchors a graph's :ToolCall/:RunTrace provenance-node window into the SAME
-# audit chain AuditVerify walks; AuditProveInclusion produces + server-verifies a
-# Merkle inclusion proof for one node against a prior anchor. Same engine-side
-# forensic-op posture as AuditVerify immediately above; bind here until a Python
-# security sub-client is added.
-AuditProveInclusion
 # Generic namespaced Key→Value surface (CONCEPT:EG-022, `kv` feature): a drop-in KV
 # store keyed by (namespace, key) layered over the same durable redb substrate, NOT
 # graph-scoped. It is an engine-side substrate surface (like the Blob*/Ts* ops), not a
@@ -76,14 +63,16 @@ ShexValidate
 # nodes/edges/graph client. Bind here until a Python RDF/ICV sub-client is added.
 IcvConfigure
 
-# --- EG-318 agent-memory / scene-graph / trajectory + CEP wire ops (deferred to B3.16 / B3.14) ---
+# --- EG-318 agent-memory / scene-graph / trajectory wire ops (deferred to B3.16) ---
 # These expose eg-core LIBRARY primitives over the wire (hierarchical summaries EG-220,
 # episodic->semantic consolidation EG-221, decay/reinforce/evict maintenance EG-222, the 3D
-# scene-graph EG-087, action/policy trajectory memory EG-099) plus the live-CEP subscription
-# surface. They landed in Program B as engine Methods but have NO Python consumer yet — B1.7's
-# scope was broker/streams/NL/RBAC/backup. Per the Wire-First rule (no speculative binding), they
-# are baselined here until their MCP/wire surface + a live caller land (roadmap B3.16 / B3.14);
-# bind them in client.py then. Agent-memory / summaries (EG-220/221/222):
+# scene-graph EG-087, action/policy trajectory memory EG-099). They landed in Program B as
+# engine Methods but have NO Python consumer yet — B1.7's scope was broker/streams/NL/RBAC/
+# backup. Per the Wire-First rule (no speculative binding), they are baselined here until
+# their MCP/wire surface + a live caller land (roadmap B3.16); bind them in client.py then.
+# The live-CEP subscription surface (B3.14) is now bound —
+# client.streaming.{cep_subscribe,cep_poll,cep_unsubscribe} — and no longer listed here.
+# Agent-memory / summaries (EG-220/221/222):
 CreateSummaryNode
 SummariesAtLevel
 SummaryChildren
@@ -104,10 +93,6 @@ StartTrajectory
 AppendStep
 BestTrajectory
 DiscountedReturn
-# Live complex-event-processing subscription surface (B3.14):
-CepSubscribe
-CepUnsubscribe
-CepPoll
 
 # Durable analytics job plane (INT-P2-1, `jobs` feature) — submit/status/cancel/resume
 # over a redb-backed AnalyticsJob state machine, and the generic in-flight CancelRequest —
