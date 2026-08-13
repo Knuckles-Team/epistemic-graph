@@ -264,8 +264,11 @@ authoritative inventory.
   (`client.query.causal_estimate(..., mode=...)`/`causal_counterfactual`/`rank_by_provenance`).
   `epistemic`, `epistemic-redaction`, `epistemic-tms`, `epistemic-causal`, and
   `evidence-graph` are all in `full`.
-- **Multimodal evidence graph (X-1).** `eg_modality::EvidenceLocus` carries 11
-  governed located-evidence address kinds spanning document/table/image/audio/
+- **Multimodal evidence graph (X-1).** `eg_modality::EvidenceLocus` carries 12
+  governed located-evidence address kinds (`EvidenceAddress`: `CharacterRange`,
+  `TableCellRange`, `ImageRegion`, `PageRegion`, `AudioRange`, `VideoTimeRange`,
+  `FrameRange`, `MetricWindow`, `Point`, `RowVersion`, `CodeSymbol`, `TraceSpan`)
+  spanning document/table/image/audio/
   video/metric/row/code/trace sources and is reachable under the `epistemic`
   feature. Its citation resolver
   (`eg-epistemic::evidence`) is facade-reachable via

@@ -8962,7 +8962,7 @@ class StreamingClient:
 
     A reactive surface over the engine's per-graph durable change record (the
     ledger): every durable mutation emits an ordered, cursor-addressable change into
-    a per-graph in-memory feed. From that ONE feed three surfaces are served over the
+    a per-graph in-memory feed. From that ONE feed four surfaces are served over the
     SAME framed-MessagePack transport (cursor / long-poll — NO side-channel socket):
 
       * **CDC feed** (``cdc_read``) — tail the ordered ``CdcEvent`` changes since a
@@ -8973,9 +8973,19 @@ class StreamingClient:
       * **Subscriptions / triggers** (``watch`` / ``register_trigger`` / ``fired_triggers``)
         — a LISTEN/NOTIFY-style long-poll over a graph/label cursor, plus
         condition→action triggers whose firings are pollable.
+      * **Live CEP standing queries** (``cep_subscribe`` / ``cep_poll`` /
+        ``cep_unsubscribe``) — register a complex-event-processing pattern ONCE, then
+        pull the matches it detects as CDC changes flow. Delivery is PULL by
+        default (``cep_poll`` long-polls, like ``watch``); the engine ADDITIONALLY
+        pushes each match onto a broker exchange when
+        ``EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE`` is configured — both delivery modes
+        coexist, ``cep_poll`` is never the only way to consume a match once that is
+        armed.
 
     The ``streaming`` feature is part of the mandatory main build and remains present in
-    the source-built ``cluster`` and ``full-extras`` layers.
+    the source-built ``cluster`` and ``full-extras`` layers. Live CEP additionally
+    requires the engine's `stream` feature (also in `full`); a `streaming`-only build
+    (e.g. `pi`) drops ``Cep*`` to the "not available in this build" catch-all.
     """
 
     def __init__(self, client: EpistemicGraphClient) -> None:
@@ -9089,6 +9099,61 @@ class StreamingClient:
             "FiredTriggers",
             {"graph": graph, "from_seq": int(from_seq), "limit": int(limit)},
         )
+
+    async def cep_subscribe(
+        self,
+        pattern: dict[str, Any],
+        *,
+        window: dict[str, Any],
+        buffer: int = 0,
+    ) -> int:
+        """Register a live CEP standing query (CONCEPT:EG-KG.query.protocol-types) — the PUSH
+        half of the event-stream + complex-event-processing modality, fed by the SAME
+        CDC hub ``watch``/``register_trigger`` use: each detected match is keyed by the
+        changed node/edge's ``label`` (falling back to the change kind when unlabeled).
+        ``pattern`` is a ``CepNodeSpec`` dict, one of:
+        ``{"Sequence": [matcher, ...]}`` (matchers in order, other events may occur
+        between steps, the whole chain inside ``window``);
+        ``{"Within": {"within": int, "pattern": <CepNodeSpec>}}`` (tighten an inner
+        pattern to complete within ``within`` time units); or
+        ``{"Absence": {"a": matcher, "b": matcher, "within": int}}`` (emit a match at
+        every event matching ``a`` that is NOT followed by ``b`` within ``within``).
+        Each ``matcher`` is ``{"key": str | None, "preds": [pred, ...]}`` where ``key``
+        filters by event key (``None`` ⇒ any) and each ``pred`` is
+        ``{"Eq": {"field": str, "value": Any}}``, ``{"Gt": {"field": str, "value": float}}``,
+        ``{"Lt": {"field": str, "value": float}}``, or ``{"Exists": {"field": str}}``.
+        ``window`` is ``{"Sliding": {"size": int}}`` or ``{"Tumbling": {"size": int}}``.
+        ``buffer`` (0 ⇒ a server default) bounds how many unconsumed matches are
+        retained for a lagging poller before the oldest are dropped. Delivery is PULL
+        by default — poll with :meth:`cep_poll` — and is ADDITIONALLY pushed to a
+        broker exchange when the engine has ``EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE``
+        configured (consume with ``client.broker.consume``); both delivery modes
+        coexist, neither replaces the other. Returns the subscription id, passed to
+        :meth:`cep_poll` / :meth:`cep_unsubscribe`."""
+        spec = {"pattern": pattern, "window": window}
+        return await self._client._send(
+            "CepSubscribe",
+            {"pattern_msgpack": msgpack.packb(spec), "buffer": int(buffer)},
+        )
+
+    async def cep_poll(
+        self, sub_id: int, *, timeout_ms: int = 0
+    ) -> list[dict[str, Any]]:
+        """Long-poll CEP subscription ``sub_id`` for the matches pushed since the last
+        poll (CONCEPT:EG-KG.query.protocol-types) — mirrors :meth:`watch`'s long-poll shape:
+        returns immediately if any are buffered, else blocks up to ``timeout_ms`` for
+        the FIRST one (0 ⇒ don't block), then returns whatever arrived. Each match is
+        ``{"events": [{"ts": int, "key": str, "attrs": {...}}, ...], "start_ts": int,
+        "end_ts": int}``. An empty list means "nothing yet" — re-poll to keep tailing.
+        Raises if ``sub_id`` was dropped (unsubscribed, or never registered)."""
+        return await self._client._send(
+            "CepPoll", {"sub_id": int(sub_id), "timeout_ms": int(timeout_ms)}
+        )
+
+    async def cep_unsubscribe(self, sub_id: int) -> bool:
+        """Drop CEP standing query ``sub_id`` and its subscriber (CONCEPT:EG-KG.query.protocol-types).
+        Returns ``True`` if it existed."""
+        return await self._client._send("CepUnsubscribe", {"sub_id": int(sub_id)})
 
 
 class BlobClient:
@@ -10432,13 +10497,21 @@ class ServedModalityClient:
 class AdminClient:
     """CONCEPT:EG-KG.ingest.broker-streams-namespaces — Ops / maintenance namespace: online backup + restore (EG-090).
 
-    A thin binding over the ``Method::Backup`` / ``Method::Restore`` admin RPCs.
+    A thin binding over the ``Method::Backup`` / ``Method::Restore`` / ``Method::
+    AuditVerify`` / ``Method::AuditProveInclusion`` admin RPCs.
     :meth:`backup` takes an ONLINE consistent snapshot (per-shard ``begin_read()`` MVCC,
     no quiesce) into an operator-provisioned private backup root. The methods accept
     logical bundle names, never host paths. :meth:`restore` STAGES a rebuilt copy in
     a sibling dir (the running engine holds an exclusive lock on its live store) for the
     operator to swap in after stopping the engine — an in-place restore uses the offline
     ``restore`` CLI. Redb-only; a non-redb build returns "not available".
+
+    :meth:`audit_verify` / :meth:`audit_prove_inclusion` are the tamper-evident audit
+    surface (CONCEPT:EG-KG.sharding.row-level-security, feature `security`): both walk the target
+    graph's durable, hash-chained audit log under the `kg:admin` capability gate — an
+    ops/maintenance read, not an ordinary graph row read, which is why they sit here
+    rather than on `.ledger` (the in-memory transaction ledger is a different durable
+    concern entirely). Both require a durable redb backend.
     """
 
     def __init__(self, client: EpistemicGraphClient) -> None:
@@ -10466,6 +10539,37 @@ class AdminClient:
                     "target_shards", target_shards, minimum=1, maximum=64
                 ),
             },
+        )
+
+    async def audit_verify(self) -> dict[str, Any]:
+        """Walk this graph's durable, hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security)
+        and report whether it verifies clean, or where the first break is. `kg:admin`-
+        gated; requires a durable redb backend. Returns ``{"graph", "ok", "entries",
+        "first_broken_seq", "detail"}`` — ``ok`` is ``False`` and ``first_broken_seq``
+        names the offending audit-chain seq the moment ANY entry's hash link breaks
+        (tampering or corruption), never before that point."""
+        return await self._client._send("AuditVerify")
+
+    async def audit_prove_inclusion(
+        self, node_id: str, *, anchor_seq: int | None = None
+    ) -> dict[str, Any]:
+        """Produce + server-side-verify a Merkle inclusion proof that ``node_id``'s
+        CURRENT durable content matches what a prior provenance anchor committed
+        (CONCEPT:EG-KG.sharding.row-level-security) — the extension that lets :meth:`audit_verify`'s
+        tamper-evidence reach an anchored NODE's CONTENT, not just mutation ordering.
+        ``anchor_seq`` selects a specific anchor by its audit-chain seq (``None`` ⇒
+        this graph's most recent anchor). `kg:admin`-gated; requires a durable redb
+        backend and at least one provenance anchor already written for this graph
+        (``EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS``). Returns ``{"graph", "node_id",
+        "anchor_seq", "window_size", "included", "verified", "anchored_root_sha256",
+        "computed_root_sha256", "proof", "detail"}`` — ``included=False`` (not an
+        error) means ``node_id`` simply was not part of that anchor's window;
+        ``verified=False`` means the node's durable bytes changed after anchoring,
+        whether by tampering or an ordinary later overwrite. Raises if the graph has
+        no anchor yet or ``anchor_seq`` names an entry that is not one."""
+        return await self._client._send(
+            "AuditProveInclusion",
+            {"node_id": node_id, "anchor_seq": anchor_seq},
         )
 
 

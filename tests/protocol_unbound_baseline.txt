@@ -3,62 +3,78 @@
 # A variant belongs here only if it is reached through a declared wire adapter or
 # is an engine-internal/maintenance op. Adding a NEW Method variant forces a choice:
 # bind it in client.py, or add it here with a reason — the gate fails otherwise.
-CompactNodesByType
-DiffAgainst
-Fork
+#
+# --- Review-date ratchet (2026-08-13 triage, chore/eg-unbound-triage) ---
+# Every entry below now also carries an inline metadata comment:
+#   <Method>  # owner=<@handle> review-by=<YYYY-MM-DD> [note=<short reason tag>]
+#   <Method>  # owner=<@handle> PERMANENT reason=<durable justification>
+# `review-by` entries are re-litigated at that date: `test_protocol_parity.py`
+# fails the build once the date has passed (see `_stale_entries`), converting a
+# silent "temporarily deferred" into a scheduled decision. `PERMANENT` is reserved
+# for genuinely engine-internal/maintenance ops that will never get a Python
+# caller by design (document exactly why) — it never expires and is exempt from
+# the date check, but is NOT a way to dodge the review; it's a distinct, audited
+# claim. Adding a new entry with neither form fails `test_baseline_entries_well_formed`
+# immediately — low friction (one trailing comment), but no entry ships unmetered.
+# To push a date out, edit it deliberately (a real decision), don't just re-add
+# the line with a fresh clock — that motion is itself something a reviewer should
+# be able to see in the diff.
+CompactNodesByType  # owner=@genius review-by=2027-02-13 note=maint-op-no-caller-found
+DiffAgainst  # owner=@genius review-by=2026-09-12 note=BIND-candidate-2026-08-13-triage
+Fork  # owner=@genius review-by=2026-09-12 note=BIND-candidate-2026-08-13-triage
 # Distributed graph compute (CONCEPT:KG-2.227, `compute-dist` feature, cluster tier):
 # cross-shard Pregel + the materialized-view lifecycle. These are cluster-orchestrated
 # server ops driven by the engine's multi-Raft coordinator, not the thin client's
 # nodes/edges/graph API; bind them here until a Python distributed-compute sub-client
-# is added.
-DistributedCompute
-CreateMatView
-GetMatView
-RefreshMatView
+# is added. Verified 2026-08-13: `compute-dist` is NOT in the default `full` feature
+# bundle (only `cluster = ["full", "raft", "compute-dist", ...]` adds it) — absent from
+# every production `full` deployment, so Wire-First correctly applies at low urgency.
+DistributedCompute  # owner=@genius review-by=2027-02-13 note=cluster-only-not-in-full
+CreateMatView  # owner=@genius review-by=2027-02-13 note=cluster-only-not-in-full
+GetMatView  # owner=@genius review-by=2027-02-13 note=cluster-only-not-in-full
+RefreshMatView  # owner=@genius review-by=2027-02-13 note=cluster-only-not-in-full
 # Plan-backed materialized views (CONCEPT:EG-KG.storage.plan-backed-matview, handoff-1
-# Lane C, `matview` feature ⇒ cluster tier): a NAMED durable `wire::Plan` over one graph
-# executed once + cached, invalidated off the CDC stream. Server-side lifecycle driven by
-# the matview manager (src/server/matview/), NOT the thin nodes/edges/graph client —
-# the plan-backed generalization of the CreateMatView/GetMatView/RefreshMatView trio
-# above; bind here until a Python distributed-compute / matview sub-client is added.
-PlanMatViewDefine
-PlanMatViewGet
-PlanMatViewRefresh
-PlanMatViewDrop
+# Lane C): a NAMED durable `wire::Plan` over one graph executed once + cached,
+# invalidated off the CDC stream. Server-side lifecycle driven by the matview manager
+# (src/server/matview/), NOT the thin nodes/edges/graph client — the plan-backed
+# generalization of the CreateMatView/GetMatView/RefreshMatView trio above.
+# CORRECTED 2026-08-13: this entry's original reason ("`matview` feature ⇒ cluster
+# tier", added 2026-07-04 in aa9f769) is now FACTUALLY WRONG — commit 6698644
+# (2026-07-21, "Milestones 2+3: wire the incremental circuit into the matview manager
+# + single-node placement") moved `matview` INTO the default `full` feature bundle
+# ("PLAN-BACKED incremental matviews are native to the single-node main build; only
+# the UNRELATED algo-only Pregel matview stays cluster-gated" — that commit's own
+# Cargo.toml doc comment). This quartet ships in every production `full` deployment
+# today with zero Python binding. Flagged BIND in the 2026-08-13 triage.
+PlanMatViewDefine  # owner=@genius review-by=2026-09-12 note=BIND-stale-reason-matview-now-in-full
+PlanMatViewGet  # owner=@genius review-by=2026-09-12 note=BIND-stale-reason-matview-now-in-full
+PlanMatViewRefresh  # owner=@genius review-by=2026-09-12 note=BIND-stale-reason-matview-now-in-full
+PlanMatViewDrop  # owner=@genius review-by=2026-09-12 note=BIND-stale-reason-matview-now-in-full
 # WASM-sandboxed UDF surface (CONCEPT:KG-2.228, `wasm-udf` feature): an agent pushes a
 # sandboxed compute module (RegisterUdf) and runs it (RunUdf) — also reached via the
 # eg-plan `Op::Udf` inside a unified query. Engine-side capability surface, not the
 # thin nodes/edges/graph client; bind here until a Python UDF sub-client is added.
-RegisterUdf
-RunUdf
-# Engine-level security (CONCEPT:KG-2.231, `security` feature): AuditVerify walks a
-# graph's hash-chained tamper-evident audit log and reports OK or the first break. It
-# is an engine-side maintenance/forensic op routed through dispatch (the audit
-# subsystem), not a nodes/edges/graph client call; bind here until a Python security
-# sub-client is added.
-AuditVerify
-# Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security, `security` feature): a periodic engine job
-# Merkle-anchors a graph's :ToolCall/:RunTrace provenance-node window into the SAME
-# audit chain AuditVerify walks; AuditProveInclusion produces + server-verifies a
-# Merkle inclusion proof for one node against a prior anchor. Same engine-side
-# forensic-op posture as AuditVerify immediately above; bind here until a Python
-# security sub-client is added.
-AuditProveInclusion
+# `wasm-udf` IS in the default `full` bundle, but no AU/MCP caller was found
+# 2026-08-13 — genuine Wire-First deferral.
+RegisterUdf  # owner=@genius review-by=2027-02-13 note=in-full-no-caller-found
+RunUdf  # owner=@genius review-by=2027-02-13 note=in-full-no-caller-found
 # Generic namespaced Key→Value surface (CONCEPT:EG-022, `kv` feature): a drop-in KV
 # store keyed by (namespace, key) layered over the same durable redb substrate, NOT
 # graph-scoped. It is an engine-side substrate surface (like the Blob*/Ts* ops), not a
 # nodes/edges/graph client call, and has no Python consumer yet; bind here until a
 # Python KV sub-client + a live caller exist (Wire-First — no speculative binding).
-KvGet
-KvPut
-KvDelete
-KvScan
-KvCas
+# `kv` IS in the default `full` bundle; no AU/MCP caller found 2026-08-13.
+KvGet  # owner=@genius review-by=2027-02-13 note=in-full-no-caller-found
+KvPut  # owner=@genius review-by=2027-02-13 note=in-full-no-caller-found
+KvDelete  # owner=@genius review-by=2027-02-13 note=in-full-no-caller-found
+KvScan  # owner=@genius review-by=2027-02-13 note=in-full-no-caller-found
+KvCas  # owner=@genius review-by=2027-02-13 note=in-full-no-caller-found
 # Runtime SWRL/Datalog custom-rule reasoning (CONCEPT:EG-021/EG-023, `rdf` feature):
 # a parameterised rule-reasoning request over the graph view. Read-only engine-side
 # reasoning op with no Python consumer yet (the bound RDF surface covers add/remove/
-# get/sparql/owl); bind here until a live caller exists (Wire-First).
-RunRules
+# get/sparql/owl); bind here until a live caller exists (Wire-First). `rdf` is pulled
+# into `full` transitively via `sparql`; no AU/MCP caller found 2026-08-13.
+RunRules  # owner=@genius review-by=2027-02-13 note=in-full-no-caller-found
 
 # --- Wave 18-22 engine ops served via wire adapters / HTTP surfaces, not the thin Python client ---
 # NOTE: broker/streams (EG-275..284/314), NL->query (EG-080), RBAC admin (EG-092), and
@@ -68,46 +84,76 @@ RunRules
 
 # ShEx validation (CONCEPT:EG-133): reached via the RDF/SPARQL surface. SHACL
 # validation is bound as `client.rdf.validate_shacl` and is no longer baselined.
-ShexValidate
+# Verified 2026-08-13: no AU/MCP caller references ShEx; `shex` is in `full`.
+ShexValidate  # owner=@genius review-by=2027-02-13 note=in-full-no-caller-found
 # X5-enforce write-time ICV policy registration (CONCEPT:EG-KG.ontology.rdf-update-guard):
 # the write-time counterpart of SHACL validation, reached through connector governance — the SHACL
 # shapes payload is emitted by agent-utilities' connector-manifest compiler (alongside
 # its RLS/ABAC policy output) and registered directly, not through this thin
 # nodes/edges/graph client. Bind here until a Python RDF/ICV sub-client is added.
-IcvConfigure
+# CORRECTED 2026-08-13: the claimed wire adapter does NOT exist — grepped
+# agent-utilities' connector-manifest compiler
+# (agent_utilities/knowledge_graph/ontology/connector_manifest.py) and the whole
+# `agent-packages` tree for any caller of `IcvConfigure`/`icv_configure`: zero hits
+# outside this engine's own internal dispatch/audit code. The SHACL-emitting
+# connector-manifest pipeline exists but never registers its output as a write-time
+# integrity policy — EG-KG.ontology.rdf-update-guard governance is silently dark in
+# production. Flagged BIND (highest-confidence finding of this triage).
+IcvConfigure  # owner=@genius review-by=2026-09-12 note=BIND-claimed-adapter-does-not-exist
 
-# --- EG-318 agent-memory / scene-graph / trajectory + CEP wire ops (deferred to B3.16 / B3.14) ---
+# --- EG-318 agent-memory / scene-graph / trajectory wire ops ---
 # These expose eg-core LIBRARY primitives over the wire (hierarchical summaries EG-220,
 # episodic->semantic consolidation EG-221, decay/reinforce/evict maintenance EG-222, the 3D
-# scene-graph EG-087, action/policy trajectory memory EG-099) plus the live-CEP subscription
-# surface. They landed in Program B as engine Methods but have NO Python consumer yet — B1.7's
-# scope was broker/streams/NL/RBAC/backup. Per the Wire-First rule (no speculative binding), they
-# are baselined here until their MCP/wire surface + a live caller land (roadmap B3.16 / B3.14);
-# bind them in client.py then. Agent-memory / summaries (EG-220/221/222):
-CreateSummaryNode
-SummariesAtLevel
-SummaryChildren
-Consolidate
-DecayMemories
-DecayNode
-EvictBelow
-Maintain
-Reinforce
-# 3D scene-graph (EG-087):
-AddSceneObject
-SetPose
-Reparent
-SceneChildren
-WorldTransform
-# Action/policy trajectory memory (EG-099):
-StartTrajectory
-AppendStep
-BestTrajectory
-DiscountedReturn
-# Live complex-event-processing subscription surface (B3.14):
-CepSubscribe
-CepUnsubscribe
-CepPoll
+# scene-graph EG-087, action/policy trajectory memory EG-099). They landed in Program B as
+# engine Methods but have NO Python consumer yet — B1.7's scope was broker/streams/NL/RBAC/
+# backup. Per the Wire-First rule (no speculative binding), they are baselined here until
+# their MCP/wire surface + a live caller land (roadmap B3.16); bind them in client.py then.
+# The live-CEP subscription surface (B3.14) is now bound —
+# client.streaming.{cep_subscribe,cep_poll,cep_unsubscribe} — and no longer listed here.
+# STATUS 2026-08-13: the whole family is UNGATED (no `#[cfg(feature = ...)]` on any of
+# these 18 variants — additive, ships in every serving tier incl. `pi`/`node`/`full`), and
+# CHANGELOG's own EG-318 entry states the intent plainly: "so AU/MCP can drive them
+# remotely (previously in-process only)." Evidence differs by sub-family — see per-line
+# notes — so this triage splits the family rather than blanket-classifying it.
+#
+# Memory ops (EG-220/221/222): agent_utilities/knowledge_graph/memory/lifecycle.py's
+# `MemoryLifecycle._call_primitive` ALREADY drives CreateSummaryNode/Consolidate/Maintain
+# today via a raw-wire escape hatch (`engine._send_wire` -> `async_client._send(name,
+# payload)`, same low-level dispatch client.py's typed methods use) whenever
+# `AGENT_UTILITIES_MEMORY_LIFECYCLE` is enabled — a real, working caller the static
+# `_send("X"` scan in this gate can't see. The other 6 memory ops complete the SAME
+# primitive family with no caller yet. Flagged BIND (all 9 — formalize the 3 already
+# depended on via a fragile string-keyed escape hatch, close the rest of the family).
+CreateSummaryNode  # owner=@genius review-by=2026-09-12 note=BIND-live-caller-via-raw-wire-escape-hatch
+Consolidate  # owner=@genius review-by=2026-09-12 note=BIND-live-caller-via-raw-wire-escape-hatch
+Maintain  # owner=@genius review-by=2026-09-12 note=BIND-live-caller-via-raw-wire-escape-hatch
+Reinforce  # owner=@genius review-by=2026-09-12 note=BIND-completes-memory-primitive-family
+DecayNode  # owner=@genius review-by=2026-09-12 note=BIND-completes-memory-primitive-family
+DecayMemories  # owner=@genius review-by=2026-09-12 note=BIND-completes-memory-primitive-family
+EvictBelow  # owner=@genius review-by=2026-09-12 note=BIND-completes-memory-primitive-family
+SummaryChildren  # owner=@genius review-by=2026-09-12 note=BIND-completes-memory-primitive-family
+SummariesAtLevel  # owner=@genius review-by=2026-09-12 note=BIND-completes-memory-primitive-family
+# 3D scene-graph (EG-087): only reference anywhere in agent-packages is the dispatch
+# probe table in agent_utilities/mcp/tools/engine_surface_tools.py
+# (_MEMORY_ACTION_CANDIDATES), which degrades cleanly when the sub-client is absent —
+# no active robotics/ROS2 integration calls these today (`ros2-*` is `full-extras`-only,
+# opt-in). Weakest evidence of the three EG-318 sub-families; Wire-First still applies.
+AddSceneObject  # owner=@genius review-by=2027-02-13 note=in-full-only-dispatch-probe-no-live-caller
+SetPose  # owner=@genius review-by=2027-02-13 note=in-full-only-dispatch-probe-no-live-caller
+Reparent  # owner=@genius review-by=2027-02-13 note=in-full-only-dispatch-probe-no-live-caller
+WorldTransform  # owner=@genius review-by=2027-02-13 note=in-full-only-dispatch-probe-no-live-caller
+SceneChildren  # owner=@genius review-by=2027-02-13 note=in-full-only-dispatch-probe-no-live-caller
+# Action/policy trajectory memory (EG-099): agent_utilities/knowledge_graph/memory/
+# weights_distillation.py already models + reads EG-099 :Trajectory/:Step nodes for
+# GRPO distillation (demand for the DATA MODEL is real and live), but reads them via
+# generic node/property queries rather than these typed ops, so the specific
+# deterministic-replay guarantees these Methods add (id derivation, atomic step
+# append) aren't exercised yet. engine_surface_tools.py's dispatch table also
+# anticipates start_trajectory/append_step/discounted_return. Flagged BIND.
+StartTrajectory  # owner=@genius review-by=2026-09-12 note=BIND-data-model-already-in-live-use
+AppendStep  # owner=@genius review-by=2026-09-12 note=BIND-data-model-already-in-live-use
+DiscountedReturn  # owner=@genius review-by=2026-09-12 note=BIND-data-model-already-in-live-use
+BestTrajectory  # owner=@genius review-by=2026-09-12 note=BIND-data-model-already-in-live-use
 
 # Durable analytics job plane (INT-P2-1, `jobs` feature) — submit/status/cancel/resume
 # over a redb-backed AnalyticsJob state machine, and the generic in-flight CancelRequest —
@@ -118,4 +164,4 @@ CepPoll
 # {node_id, addrs, tls_name} row at startup via the replicated ClusterAdmin
 # command path — engine-internal maintenance; a client must never write another
 # node's topology row. Clients READ topology via ClusterMembers (bound).
-NodeInfoUpsert
+NodeInfoUpsert  # owner=@genius PERMANENT reason=raft-startup-self-report-only-a-client-must-never-write-another-nodes-topology-row-read-path-is-ClusterMembers
