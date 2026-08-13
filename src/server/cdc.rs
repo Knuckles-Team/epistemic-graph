@@ -28,8 +28,8 @@ use parking_lot::Mutex;
 use tokio::sync::Notify;
 
 use crate::wire::{
-    CdcEvent, CdcKind, ContinuousAgg, ContinuousQueryResult, ContinuousQuerySpec, FiredAction,
-    TriggerInfo, WatchBatch,
+    CdcEvent, CdcKind, CdcReadResult, ContinuousAgg, ContinuousQueryResult, ContinuousQuerySpec,
+    FiredAction, FiredTriggersResult, TriggerInfo, WatchBatch,
 };
 
 /// Default per-graph ring capacity (events retained for cursor reads). Overridable
@@ -46,16 +46,22 @@ fn ring_cap() -> usize {
 /// Per-graph CDC state: a monotonic seq, the retained event ring, the fired-trigger
 /// log, and a `Notify` so a `Watch` long-poll wakes the instant a change lands.
 struct GraphFeed {
-    /// Next seq to assign (== count of events ever emitted for this graph).
+    /// Next seq to assign (== count of events ever emitted for this graph, in
+    /// THIS epoch — see `CdcHub::epoch`). Doubles as the change-ring's `head_seq`.
     next_seq: u64,
     /// Bounded ring of recent events (front = oldest retained).
     ring: VecDeque<CdcEvent>,
     /// Seq of the oldest event still retained (`ring.front().seq`); a `from_seq`
-    /// below this is behind the window.
+    /// below this is behind the window (B-8: the change ring's `watermark`).
     oldest_seq: u64,
     /// Fired-trigger log (CONCEPT:EG-KG.query.wire-codec), its own monotonic cursor.
+    /// Doubles as the fired log's `head_seq` (B-8 follow-up).
     next_fire: u64,
     fired: VecDeque<FiredAction>,
+    /// `fire_seq` of the oldest retained firing (`fired.front().fire_seq`); a
+    /// `from_seq` below this is behind the fired log's window (B-8 follow-up: the
+    /// fired log's own `watermark`, mirroring `oldest_seq` for the change ring).
+    fired_oldest: u64,
     notify: Arc<Notify>,
     cap: usize,
 }
@@ -68,6 +74,7 @@ impl GraphFeed {
             oldest_seq: 0,
             next_fire: 0,
             fired: VecDeque::with_capacity(64),
+            fired_oldest: 0,
             notify: Arc::new(Notify::new()),
             cap,
         }
@@ -98,6 +105,19 @@ pub struct CdcHub {
     queries: Mutex<HashMap<String, ContinuousQuery>>,
     triggers: Mutex<HashMap<String, Trigger>>,
     cap: usize,
+    /// Process-lifetime identity of THIS hub instance (B-8, 2026-08-13): a fresh,
+    /// random id minted once here and stable for the hub's life. `CdcHub` is a
+    /// purely in-memory ring (module doc above) with no cross-restart continuity —
+    /// a process restart constructs a brand-new `CdcHub` (`main.rs`), hence a brand
+    /// new `epoch`, and every graph's seq numbering restarts from 0 in it. A
+    /// `from_seq` cursor issued against a PRIOR epoch can be numerically "in range"
+    /// of the new epoch's `[watermark, head_seq]` window without naming the same
+    /// events at all — a purely numeric bounds check cannot tell the epochs apart.
+    /// Every `CdcRead`/`Watch`/`FiredTriggers` response carries this epoch so a
+    /// caller that persists `(epoch, from_seq)` alongside its cursor can detect a
+    /// restart as an explicit, provable condition instead of inferring completeness
+    /// from a merely-empty or merely-short read. See `CdcReadResult`'s doc.
+    epoch: u64,
     /// Live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types), feature `stream`. Created LAZILY
     /// on the first `CepSubscribe` (`cep_surface`), so a CDC feed with no CEP subscriber
     /// pays nothing and the drain-task spawn always happens inside the async handler (a
@@ -128,6 +148,12 @@ impl CdcHub {
             queries: Mutex::new(HashMap::new()),
             triggers: Mutex::new(HashMap::new()),
             cap: ring_cap(),
+            // B-8: minted fresh per hub (== per process, in production). A 64-bit
+            // random draw is astronomically unlikely to collide across restarts,
+            // and the cost of a missed collision is a rare false-negative gap
+            // detection (identical failure mode the pre-fix code always had), never
+            // a false positive that would wrongly reject a legitimate resume.
+            epoch: rand::random(),
             #[cfg(feature = "stream")]
             cep: std::sync::OnceLock::new(),
             #[cfg(feature = "owl")]
@@ -260,28 +286,57 @@ impl CdcHub {
         seq
     }
 
-    /// Read the ordered feed for `graph` from `from_seq` (inclusive), capped at `limit`
-    /// (0 ⇒ 1024). `Err` when `from_seq` is behind the retained window (the consumer
-    /// must re-seed). An empty `Ok(vec)` means "caught up" (cursor at/after the head).
-    pub fn read(&self, graph: &str, from_seq: u64, limit: u32) -> Result<Vec<CdcEvent>, String> {
+    /// This hub instance's process-lifetime epoch id (B-8). See the field's doc.
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    /// Read the ordered feed for `graph` from `from_seq` (inclusive), capped at
+    /// `limit` (0 ⇒ 1024) (B-8, 2026-08-13). `gap: true` when `from_seq` fell behind
+    /// the retained ring window in THIS epoch — `events` is then always empty and
+    /// the caller must re-seed rather than treat the empty result as "caught up".
+    /// `gap: false` with an empty `events` genuinely means "caught up" (cursor
+    /// at/after the head). Every result carries `watermark`/`head_seq`/`epoch` so a
+    /// caller resuming a PERSISTED cursor across a restart (a fresh epoch, where the
+    /// numeric bounds check below cannot itself detect the discontinuity — see
+    /// `CdcReadResult`'s doc) can still prove it by comparing `epoch` to what it
+    /// last observed.
+    pub fn read(&self, graph: &str, from_seq: u64, limit: u32) -> CdcReadResult {
         let cap = if limit == 0 { 1024 } else { limit as usize };
         let feeds = self.feeds.lock();
         let Some(feed) = feeds.get(graph) else {
-            return Ok(Vec::new());
+            // No feed yet for this graph in this epoch. `from_seq == 0` is a
+            // legitimate cold start (nothing to read yet — not a gap). Any other
+            // `from_seq` claims history this epoch has never produced, which is
+            // exactly the epoch-reset shape the checks below cover once a feed
+            // exists, so it gets the same explicit signal here.
+            return if from_seq == 0 {
+                CdcReadResult::ok(Vec::new(), 0, 0, self.epoch)
+            } else {
+                CdcReadResult::gap(0, 0, self.epoch)
+            };
         };
-        if from_seq < feed.oldest_seq {
-            return Err(format!(
-                "CDC cursor {from_seq} is behind the retained window (oldest seq {}); re-seed",
-                feed.oldest_seq
-            ));
+        // Two distinct, both-explicit gap conditions (B-8):
+        //   - `from_seq < oldest_seq`: within-epoch trim — this epoch's own ring
+        //     dropped entries the cursor still needs.
+        //   - `from_seq > next_seq`: the cursor claims to have already seen events
+        //     this epoch has never produced — the numerically-detectable slice of
+        //     the epoch-reset case (a restart with FEWER events emitted so far than
+        //     the prior epoch's cursor implies). The remaining slice (a restart
+        //     that happens to have produced enough fresh events to make the old
+        //     cursor look numerically plausible again) is NOT detectable from
+        //     numbers alone — that's what `epoch` on the returned result is for.
+        if from_seq < feed.oldest_seq || from_seq > feed.next_seq {
+            return CdcReadResult::gap(feed.oldest_seq, feed.next_seq, self.epoch);
         }
-        Ok(feed
+        let events = feed
             .ring
             .iter()
             .filter(|e| e.seq >= from_seq)
             .take(cap)
             .cloned()
-            .collect())
+            .collect();
+        CdcReadResult::ok(events, feed.oldest_seq, feed.next_seq, self.epoch)
     }
 
     /// The current head seq (next to be assigned) for `graph` — `Watch`'s `next_seq`
@@ -309,6 +364,7 @@ impl CdcHub {
                 feed.next_seq = 0;
                 feed.oldest_seq = 0;
                 feed.next_fire = 0;
+                feed.fired_oldest = 0;
                 Some(feed.notify.clone())
             } else {
                 None
@@ -327,24 +383,38 @@ impl CdcHub {
 
     /// Build a `Watch` batch: the matching changes since `from_seq` (filtered by
     /// `label`), and the cursor to resume from. Non-blocking — the handler does the
-    /// `Notify`-await loop, calling this each wake.
-    pub fn watch_batch(
-        &self,
-        graph: &str,
-        from_seq: u64,
-        label: &str,
-        limit: u32,
-    ) -> Result<WatchBatch, String> {
-        let events: Vec<CdcEvent> = self
-            .read(graph, from_seq, limit)?
+    /// `Notify`-await loop, calling this each wake. B-8: `Watch` tails the identical
+    /// ring `read` does, so it carries the identical `gap`/`watermark`/`head_seq`/
+    /// `epoch` signalling — see `read`'s doc.
+    pub fn watch_batch(&self, graph: &str, from_seq: u64, label: &str, limit: u32) -> WatchBatch {
+        let result = self.read(graph, from_seq, limit);
+        if result.gap {
+            return WatchBatch {
+                events: Vec::new(),
+                next_seq: from_seq,
+                gap: true,
+                watermark: result.watermark,
+                head_seq: result.head_seq,
+                epoch: result.epoch,
+            };
+        }
+        let events: Vec<CdcEvent> = result
+            .events
             .into_iter()
             .filter(|e| label.is_empty() || e.label == label)
             .collect();
         let next_seq = events
             .last()
             .map(|e| e.seq + 1)
-            .unwrap_or_else(|| from_seq.max(self.head_seq(graph)));
-        Ok(WatchBatch { events, next_seq })
+            .unwrap_or_else(|| from_seq.max(result.head_seq));
+        WatchBatch {
+            events,
+            next_seq,
+            gap: false,
+            watermark: result.watermark,
+            head_seq: result.head_seq,
+            epoch: result.epoch,
+        }
     }
 
     // ── Continuous queries (CONCEPT:EG-KG.query.streaming-cdc-subscriptions) ────────────────────────────────
@@ -474,19 +544,32 @@ impl CdcHub {
             .collect()
     }
 
-    /// Poll the fired-trigger log for `graph` from `from_seq` (inclusive).
-    pub fn fired(&self, graph: &str, from_seq: u64, limit: u32) -> Vec<FiredAction> {
+    /// Poll the fired-trigger log for `graph` from `from_seq` (inclusive) (B-8
+    /// follow-up, 2026-08-13). Same gap signalling as `read`, scoped to the
+    /// fired-trigger log's own `fire_seq` cursor and its own `fired_oldest`/
+    /// `next_fire` watermark/head pair — see `read`'s doc and
+    /// `FiredTriggersResult`'s doc.
+    pub fn fired(&self, graph: &str, from_seq: u64, limit: u32) -> FiredTriggersResult {
         let cap = if limit == 0 { 1024 } else { limit as usize };
         let feeds = self.feeds.lock();
         let Some(feed) = feeds.get(graph) else {
-            return Vec::new();
+            return if from_seq == 0 {
+                FiredTriggersResult::ok(Vec::new(), 0, 0, self.epoch)
+            } else {
+                FiredTriggersResult::gap(0, 0, self.epoch)
+            };
         };
-        feed.fired
+        if from_seq < feed.fired_oldest || from_seq > feed.next_fire {
+            return FiredTriggersResult::gap(feed.fired_oldest, feed.next_fire, self.epoch);
+        }
+        let fired = feed
+            .fired
             .iter()
             .filter(|f| f.fire_seq >= from_seq)
             .take(cap)
             .cloned()
-            .collect()
+            .collect();
+        FiredTriggersResult::ok(fired, feed.fired_oldest, feed.next_fire, self.epoch)
     }
 
     /// Record a firing for every trigger matching this change. Runs under the feed
@@ -523,9 +606,12 @@ impl CdcHub {
                 node_id: event.node_id.clone(),
                 action: t.action,
             });
-            // Bound the fired log to the same cap as the ring.
+            // Bound the fired log to the same cap as the ring, maintaining
+            // `fired_oldest` (B-8 follow-up) the same way `emit` maintains
+            // `oldest_seq` for the change ring.
             if feed.fired.len() > feed.cap {
                 feed.fired.pop_front();
+                feed.fired_oldest = feed.fired.front().map(|f| f.fire_seq).unwrap_or(fire_seq);
             }
         }
     }
@@ -960,7 +1046,7 @@ mod tests {
             Some(props(serde_json::json!({"type": "Doc"}))),
         );
         assert_eq!(seq, 0);
-        assert_eq!(hub.read("g", 0, 0).unwrap().len(), 1);
+        assert_eq!(hub.read("g", 0, 0).events.len(), 1);
     }
 
     #[test]
@@ -985,16 +1071,20 @@ mod tests {
         assert_eq!((s0, s1), (0, 1));
 
         // Read from the start returns both in order.
-        let all = hub.read("g", 0, 0).unwrap();
+        let result = hub.read("g", 0, 0);
+        assert!(!result.gap);
+        let all = result.events;
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].seq, 0);
         assert_eq!(all[0].node_id, "n1");
         assert_eq!(all[1].seq, 1);
         assert_eq!(all[1].label, "Doc");
 
-        // Re-read from a later cursor skips the seen one.
-        let next = hub.read("g", all.last().unwrap().seq + 1, 0).unwrap();
-        assert!(next.is_empty());
+        // Re-read from a later cursor (exactly caught up: from_seq == head_seq) is
+        // NOT a gap and returns empty.
+        let next = hub.read("g", all.last().unwrap().seq + 1, 0);
+        assert!(!next.gap);
+        assert!(next.events.is_empty());
 
         // A fresh write then a read from that cursor returns only it.
         hub.emit(
@@ -1005,9 +1095,90 @@ mod tests {
             None,
             None,
         );
-        let tail = hub.read("g", 2, 0).unwrap();
-        assert_eq!(tail.len(), 1);
-        assert_eq!(tail[0].kind, CdcKind::RemoveNode);
+        let tail = hub.read("g", 2, 0);
+        assert!(!tail.gap);
+        assert_eq!(tail.events.len(), 1);
+        assert_eq!(tail.events[0].kind, CdcKind::RemoveNode);
+    }
+
+    /// B-8 (2026-08-13): a cursor beyond the current epoch's head is an explicit
+    /// `gap`, not a silently-empty "caught up" read — this is the numerically-
+    /// detectable slice of the epoch-reset failure mode `CdcReadResult` documents
+    /// (e.g. a consumer resuming a PERSISTED cursor after the process restarted and
+    /// produced fewer events so far than the old cursor implies). Proves the fix
+    /// directly: before this change, `read`'s only check was `from_seq <
+    /// oldest_seq`, so `from_seq > next_seq` was served as an empty `Ok(vec![])`
+    /// indistinguishable from a genuine "nothing new yet".
+    #[test]
+    fn cdc_read_from_seq_ahead_of_head_is_an_explicit_gap_not_a_silent_empty_read() {
+        let hub = CdcHub::new();
+        hub.emit(
+            "g",
+            CdcKind::AddNode,
+            "n1".into(),
+            String::new(),
+            None,
+            Some(props(serde_json::json!({"type": "Doc"}))),
+        );
+        // Exactly one event exists (head_seq == 1). A cursor of 5 claims to have
+        // already seen events this feed never produced.
+        let result = hub.read("g", 5, 0);
+        assert!(
+            result.gap,
+            "from_seq(5) > head_seq(1) must be flagged as a gap, not served as caught-up"
+        );
+        assert!(result.events.is_empty());
+        assert_eq!(result.head_seq, 1);
+        assert_eq!(result.watermark, 0);
+    }
+
+    /// B-8: `CdcRead`'s `epoch` lets a caller prove a restart even in the ONE case
+    /// the numeric `from_seq <= head_seq` bounds check cannot itself catch — a
+    /// restarted hub that has already produced enough fresh events to make the old
+    /// cursor look numerically plausible again in the NEW epoch. Two independently
+    /// constructed hubs stand in for "the same process across a restart": the
+    /// second hub's `epoch` differs from the first's, even though, numerically,
+    /// the old cursor is perfectly "in range" of the new hub's ring.
+    #[test]
+    fn cdc_epoch_differs_across_a_simulated_restart_even_when_from_seq_is_numerically_in_range() {
+        let hub_before = CdcHub::new();
+        for n in ["a", "b", "c"] {
+            hub_before.emit(
+                "g",
+                CdcKind::AddNode,
+                n.into(),
+                String::new(),
+                None,
+                Some(props(serde_json::json!({"type": "Doc"}))),
+            );
+        }
+        let cursor = hub_before.head_seq("g"); // 3
+        let epoch_before = hub_before.read("g", 0, 0).epoch;
+
+        // Simulate a process restart: a brand-new hub, then enough fresh writes to
+        // make `cursor` (3) numerically valid again.
+        let hub_after = CdcHub::new();
+        for n in ["x", "y", "z", "w", "v"] {
+            hub_after.emit(
+                "g",
+                CdcKind::AddNode,
+                n.into(),
+                String::new(),
+                None,
+                Some(props(serde_json::json!({"type": "Doc"}))),
+            );
+        }
+        let result = hub_after.read("g", cursor, 0);
+        // The numeric check alone cannot see a problem: cursor(3) is within
+        // [watermark(0), head_seq(5)] of the new epoch, so `gap` is false and a
+        // real (but WRONG) batch of events is returned.
+        assert!(!result.gap);
+        assert_ne!(
+            epoch_before, result.epoch,
+            "the epoch must differ across a restart even though from_seq stayed \
+             numerically in range -- this is the signal a caller compares to catch \
+             the case `gap` structurally cannot"
+        );
     }
 
     #[test]
@@ -1109,7 +1280,8 @@ mod tests {
             None,
             Some(props(serde_json::json!({"type": "Doc"}))),
         );
-        assert!(hub.fired("g", 0, 0).is_empty());
+        assert!(!hub.fired("g", 0, 0).gap);
+        assert!(hub.fired("g", 0, 0).fired.is_empty());
         // Matching label + op → fires.
         hub.emit(
             "g",
@@ -1119,7 +1291,9 @@ mod tests {
             None,
             Some(props(serde_json::json!({"type": "Alert"}))),
         );
-        let fired = hub.fired("g", 0, 0);
+        let result = hub.fired("g", 0, 0);
+        assert!(!result.gap);
+        let fired = result.fired;
         assert_eq!(fired.len(), 1);
         assert_eq!(fired[0].trigger, "t1");
         assert_eq!(fired[0].node_id, "n1");
@@ -1161,8 +1335,21 @@ mod tests {
         // ClearGraph resets the feed: seq rewinds to 0, ring empties, CQ resets.
         hub.reset_graph("g");
         assert_eq!(hub.head_seq("g"), 0);
-        assert!(hub.read("g", 0, 0).unwrap().is_empty());
+        let post_reset = hub.read("g", 0, 0);
+        assert!(!post_reset.gap);
+        assert!(post_reset.events.is_empty());
         assert_eq!(hub.read_query("cnt").unwrap().value, 0.0);
+
+        // B-8: a consumer that still holds its PRE-reset cursor (2) gets an
+        // explicit gap, not a silent "caught up" — `ClearGraph` is the in-process,
+        // numerically-detectable instance of the same epoch-reset shape a process
+        // restart produces (see `cdc_epoch_differs_across_a_simulated_restart_*`
+        // for the case a bare bounds check cannot catch on its own).
+        let stale_cursor_read = hub.read("g", 2, 0);
+        assert!(
+            stale_cursor_read.gap,
+            "a cursor from before reset_graph must be flagged, not silently served empty"
+        );
 
         // A post-reset write is seq 0 again (a consumer re-seeds from 0).
         let seq = hub.emit(

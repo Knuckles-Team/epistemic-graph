@@ -648,7 +648,11 @@ impl EgStore {
                         });
                     }
                     let response = if matches!(method, Method::Commit { .. }) {
-                        let Method::Commit { txn_id } = method else {
+                        // B-9: the replicated consensus apply path has no use for a
+                        // caller idempotency key (Raft's log IS the durability/replay
+                        // mechanism here) -- only `txn_id` is threaded through, exactly
+                        // as before.
+                        let Method::Commit { txn_id, .. } = method else {
                             unreachable!();
                         };
                         crate::server::apply_replicated_transaction_prepare(

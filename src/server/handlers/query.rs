@@ -5827,6 +5827,7 @@ mod txn_ryow_dispatch_tests {
                 5,
                 Method::Commit {
                     txn_id: txn.clone(),
+                    idempotency_key: None,
                 },
             ),
         )

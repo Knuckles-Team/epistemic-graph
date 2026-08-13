@@ -60,9 +60,20 @@ pub async fn drain_and_invalidate(
     from_seq: u64,
     limit: u32,
 ) -> Result<u64, String> {
-    let events = peer_feed.read(graph, from_seq, limit)?;
+    // B-8: `read` now returns a typed `CdcReadResult` rather than a `Result` — this
+    // internal replication helper keeps its own `Result` contract, translating an
+    // explicit `gap` into an `Err` so a caller that fell behind the peer's ring (or
+    // resumed across the peer's restart) fails loudly rather than silently
+    // invalidating nothing and believing itself current.
+    let result = peer_feed.read(graph, from_seq, limit);
+    if result.gap {
+        return Err(format!(
+            "peer CDC cursor {from_seq} is no longer servable (watermark {}, head {}, epoch {}); re-seed",
+            result.watermark, result.head_seq, result.epoch
+        ));
+    }
     let mut next = from_seq;
-    for ev in &events {
+    for ev in &result.events {
         apply_remote_change(state, ev).await;
         next = ev.seq + 1;
     }

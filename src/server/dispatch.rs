@@ -843,6 +843,7 @@ mod consensus_admin_route_tests {
             },
             Method::Commit {
                 txn_id: "opaque-txn".to_string(),
+                idempotency_key: None,
             },
             Method::CreateChannel {
                 channel_id: "opaque-channel".to_string(),

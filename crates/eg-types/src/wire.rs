@@ -1140,7 +1140,7 @@ pub enum CdcKind {
 /// node/edge property blob (MessagePack) pre- and post-mutation; `None` means absent
 /// (an add has no `before`, a remove no `after`).
 #[cfg(feature = "streaming")]
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct CdcEvent {
     pub seq: u64,
     pub graph: String,
@@ -1206,12 +1206,37 @@ pub struct ContinuousQueryResult {
 
 /// A batch returned by a `Watch` long-poll (CONCEPT:EG-KG.query.wire-codec): the matching changes
 /// since the client's cursor plus the next cursor to resume from.
+///
+/// B-8 (2026-08-13): `Watch` tails the SAME bounded, explicitly-ephemeral
+/// `CdcHub` ring `CdcRead` does (`src/server/cdc.rs`'s module doc) via the
+/// identical `from_seq` cursor, so it can fall off the back of that ring in
+/// the identical two ways `CdcReadResult` documents (within-epoch trim, or
+/// an epoch reset from a process restart / `ClearGraph`/`FromMsgpack`/
+/// `Reconcile`) — an empty `events` used to be indistinguishable from "caught
+/// up". `gap: true` makes that explicit (`events` is then always empty);
+/// `watermark`/`head_seq`/`epoch` carry the same meaning as on
+/// `CdcReadResult` so a caller resuming `Watch` can detect the gap exactly
+/// the same way.
 #[cfg(feature = "streaming")]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WatchBatch {
     pub events: Vec<CdcEvent>,
     /// The cursor to pass as `from_seq` next time (one past the last delivered seq).
     pub next_seq: u64,
+    /// True when `from_seq` could not be served contiguously (see the struct
+    /// doc). `events` is always empty when `gap` is true.
+    #[serde(default)]
+    pub gap: bool,
+    /// Oldest seq this epoch's ring can currently vouch for. See
+    /// `CdcReadResult::watermark` — same field, same ephemeral-ring caveat.
+    #[serde(default)]
+    pub watermark: u64,
+    /// The current head seq (next to be assigned) for this graph in this epoch.
+    #[serde(default)]
+    pub head_seq: u64,
+    /// This hub instance's process-lifetime epoch id. See `CdcReadResult::epoch`.
+    #[serde(default)]
+    pub epoch: u64,
 }
 
 /// One trigger registration (CONCEPT:EG-KG.query.wire-codec). When a CDC change in `graph` matches
@@ -1234,7 +1259,7 @@ pub struct TriggerInfo {
 /// A recorded trigger firing (CONCEPT:EG-KG.query.wire-codec). Returned by `FiredTriggers` so a
 /// reaction consumer pulls the action payload + the change that fired it.
 #[cfg(feature = "streaming")]
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct FiredAction {
     /// Per-graph monotonic fired-id (the cursor for `FiredTriggers`).
     pub fire_seq: u64,
@@ -1246,6 +1271,123 @@ pub struct FiredAction {
     /// The opaque action payload registered with the trigger (MessagePack).
     #[serde(default, with = "serde_bytes")]
     pub action: Vec<u8>,
+}
+
+/// Materialized result of a `Method::CdcRead` call (B-8, 2026-08-13). Same
+/// defect class as `GetLedger` (BUG A1): `CdcHub` (`src/server/cdc.rs`) backs
+/// `CdcRead`/`Watch`/`FiredTriggers` with a bounded, per-graph, PURELY
+/// IN-MEMORY ring (default 65,536 entries, `EPISTEMIC_GRAPH_CDC_RING` to
+/// override) — deliberately EPHEMERAL, not durable (see that module's own
+/// doc for the reasoning and why durability is a separate, out-of-scope,
+/// storage-format decision). A caller that persists a `from_seq` cursor and
+/// resumes tailing can fall off the back of that ring in two distinct ways
+/// that both used to look exactly like "nothing happened":
+///
+///   1. **within-epoch trim** — the ring exceeded its cap and dropped the
+///      oldest entries past `from_seq` (same process, same epoch).
+///   2. **epoch reset** — the process restarted (or the graph's feed was
+///      rewound by `ClearGraph`/`FromMsgpack`/`Reconcile`), so the feed's
+///      seq numbering restarted from 0 in a FRESH epoch. This is the more
+///      dangerous case: `from_seq` can be numerically "in range" of the new
+///      epoch's `[watermark, head_seq]` window WITHOUT naming the same
+///      events at all — a purely numeric `from_seq <= head_seq` check
+///      cannot tell the two epochs apart. `epoch` exists for exactly this:
+///      it is a fresh id minted once when the hub is constructed
+///      (`CdcHub::new()`), stable for the process's life. A caller that
+///      persists `(epoch, from_seq)` alongside its cursor and observes a
+///      DIFFERENT `epoch` on a later read has PROOF the feed restarted
+///      under it, even when the server's own numeric check above could not
+///      catch it.
+///
+/// `gap: true` covers case 1 (server-detectable) explicitly — `events` is
+/// always empty in that case, and `watermark`/`head_seq` are the current
+/// values so the caller can re-seed (`watermark` to replay everything still
+/// retained, `head_seq` to resume from "now" and accept the gap). `gap:
+/// false` means `events` is a complete, contiguous read from `from_seq`
+/// WITHIN the returned `epoch` — the caller is still responsible for
+/// comparing `epoch` across resumed reads to catch case 2.
+#[cfg(feature = "streaming")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CdcReadResult {
+    pub events: Vec<CdcEvent>,
+    /// True when `from_seq` fell behind the retained ring window in THIS
+    /// epoch. `events` is always empty when `gap` is true.
+    pub gap: bool,
+    /// Oldest seq this epoch's ring can currently vouch for (0 if nothing
+    /// has been trimmed yet in this epoch, INCLUDING right after a restart —
+    /// which is exactly why `epoch` exists alongside it).
+    pub watermark: u64,
+    /// The current head seq (next to be assigned) for this graph in this epoch.
+    pub head_seq: u64,
+    /// This hub instance's process-lifetime epoch id. See the struct doc.
+    pub epoch: u64,
+}
+
+#[cfg(feature = "streaming")]
+impl CdcReadResult {
+    /// `from_seq` was served contiguously from the retained ring.
+    pub fn ok(events: Vec<CdcEvent>, watermark: u64, head_seq: u64, epoch: u64) -> Self {
+        Self {
+            events,
+            gap: false,
+            watermark,
+            head_seq,
+            epoch,
+        }
+    }
+
+    /// `from_seq` could not be served contiguously (within-epoch trim past
+    /// the ring's retained window). `events` is always empty.
+    pub fn gap(watermark: u64, head_seq: u64, epoch: u64) -> Self {
+        Self {
+            events: Vec::new(),
+            gap: true,
+            watermark,
+            head_seq,
+            epoch,
+        }
+    }
+}
+
+/// Materialized result of a `Method::FiredTriggers` call (B-8 follow-up,
+/// 2026-08-13). The fired-trigger log is a SECOND bounded in-memory ring on
+/// the same per-graph `GraphFeed` the CDC ring lives on (`src/server/cdc.rs`),
+/// with the identical ephemerality and the identical two gap shapes
+/// `CdcReadResult` documents — within-epoch trim and epoch reset — over its
+/// own `fire_seq` cursor rather than the CDC `seq` cursor. See
+/// `CdcReadResult`'s doc for the full reasoning; the fields here mean exactly
+/// the same thing, scoped to the fired-trigger log instead of the change feed.
+#[cfg(feature = "streaming")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FiredTriggersResult {
+    pub fired: Vec<FiredAction>,
+    pub gap: bool,
+    pub watermark: u64,
+    pub head_seq: u64,
+    pub epoch: u64,
+}
+
+#[cfg(feature = "streaming")]
+impl FiredTriggersResult {
+    pub fn ok(fired: Vec<FiredAction>, watermark: u64, head_seq: u64, epoch: u64) -> Self {
+        Self {
+            fired,
+            gap: false,
+            watermark,
+            head_seq,
+            epoch,
+        }
+    }
+
+    pub fn gap(watermark: u64, head_seq: u64, epoch: u64) -> Self {
+        Self {
+            fired: Vec::new(),
+            gap: true,
+            watermark,
+            head_seq,
+            epoch,
+        }
+    }
 }
 
 // ── spatial wire-variant round-trip (CONCEPT:EG-KG.ontology.singles-concept) ─────────────────────────

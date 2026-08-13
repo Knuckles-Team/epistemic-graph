@@ -2394,7 +2394,7 @@ mod tests {
         );
 
         // CDC: one AddNode event was emitted into the hub's feed for this graph.
-        let events = cdc_hub.read(graph_name, 0, 100).expect("cdc read");
+        let events = cdc_hub.read(graph_name, 0, 100).events;
         assert_eq!(
             events.len(),
             1,
@@ -2468,7 +2468,7 @@ mod tests {
             "Reinforce is now audited -- exactly one audit-chain entry"
         );
         assert_eq!(
-            cdc_hub.read(graph_name, 0, 100).expect("cdc read").len(),
+            cdc_hub.read(graph_name, 0, 100).events.len(),
             0,
             "Reinforce must NOT emit a CDC event (CDC stays the policy-gated leg)"
         );
@@ -2537,7 +2537,7 @@ mod tests {
             "{tag}: exactly one audit-chain entry must land"
         );
 
-        let events = cdc_hub.read(&graph_name, 0, 100).expect("cdc read");
+        let events = cdc_hub.read(&graph_name, 0, 100).events;
         assert_eq!(
             events.len(),
             1,
@@ -2712,7 +2712,7 @@ mod tests {
             .await;
             assert!(seed_resp.error.is_none(), "{tag}: seed AddNode failed");
             assert_eq!(
-                cdc_hub.read(&graph_name, 0, 100).expect("cdc read").len(),
+                cdc_hub.read(&graph_name, 0, 100).events.len(),
                 1,
                 "{tag}: seed AddNode must emit exactly one CDC event"
             );
@@ -2749,7 +2749,7 @@ mod tests {
             );
 
             assert_eq!(
-                cdc_hub.read(&graph_name, 0, 100).expect("cdc read").len(),
+                cdc_hub.read(&graph_name, 0, 100).events.len(),
                 0,
                 "{tag}: the CDC feed must be RESET (empty) after the whole-graph replace"
             );
@@ -2828,7 +2828,7 @@ mod tests {
             "exactly one audited mutation (DeclareExchange) went through the gateway"
         );
         assert_eq!(
-            cdc_hub.read(graph_name, 0, 100).expect("cdc read").len(),
+            cdc_hub.read(graph_name, 0, 100).events.len(),
             0,
             "DeclareExchange must NOT emit a CDC event (Outbox methods never do)"
         );

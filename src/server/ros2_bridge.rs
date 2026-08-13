@@ -328,7 +328,15 @@ pub async fn run_ros2_bridge(
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1024);
     tokio::spawn(async move {
         let mut cursor: u64 = 0;
-        while let Ok(batch) = out_cdc.watch_batch(&out_graph, cursor, "", 256) {
+        loop {
+            let batch = out_cdc.watch_batch(&out_graph, cursor, "", 256);
+            // B-8: `watch_batch` now signals an unservicable cursor explicitly via
+            // `gap` instead of an `Err` (e.g. `ClearGraph` reset the feed under this
+            // bridge) — end the publish task the same way the old `Err` arm did,
+            // rather than resume from a cursor whose history is no longer provable.
+            if batch.gap {
+                return;
+            }
             // Re-check on every batch, not just at connect time: authenticated row
             // ownership can be registered for this engine while the bridge is
             // already streaming, and this unauthenticated carrier must stop

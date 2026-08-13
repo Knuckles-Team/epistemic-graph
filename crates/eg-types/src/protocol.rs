@@ -2916,8 +2916,30 @@ pub enum Method {
         txn_id: String,
         text: String,
     },
+    /// Commit the staged transaction (see the section doc above for the OCC
+    /// serialization/apply contract). `idempotency_key` (B-9, 2026-08-13,
+    /// optional) is a CALLER-chosen dedup key, extending the SAME
+    /// `(tenant, graph, idempotency_key)`-scoped durable dedup mechanism
+    /// `ApplyChangeEnvelope` uses (`change_envelope.rs`'s
+    /// `idempotency_key`/`applied` vs `idempotent_skip` vocabulary) onto the
+    /// txn commit's own durable receipt, rather than a second mechanism.
+    /// Without it, retry-safety depends entirely on the caller still holding
+    /// the exact server-issued `txn_id` (already durable via the receipt) --
+    /// provably safe for "commit succeeded, response lost, retry with the SAME
+    /// txn_id", but NOT for "I lost track of txn_id and had to re-`BeginTxn`
+    /// and re-stage" (a fresh `txn_id` looks like a brand-new transaction).
+    /// WITH a caller key, a retry that re-stages under a fresh `txn_id` still
+    /// lands on the SAME durable receipt and replay-skips.
+    ///
+    /// Returns `Bool` when `idempotency_key` is omitted (UNCHANGED wire shape).
+    /// Returns a `Json` `{"committed": bool, "replayed": bool}` when a key is
+    /// supplied, so the caller can tell "applied just now" from "already
+    /// applied — this is the cached result" (mirrors `ApplyChangeEnvelope`'s
+    /// `applied`/`idempotent_skip` status).
     Commit {
         txn_id: String,
+        #[serde(deserialize_with = "deserialize_required_option")]
+        idempotency_key: Option<String>,
     },
     Rollback {
         txn_id: String,
@@ -3415,9 +3437,13 @@ pub enum Method {
     // are gated `streaming` (folds into pi/node/cluster/full — no heavy dep); a build
     // without it drops them → the dispatch "not available in this build" catch-all.
     /// Read the ordered change feed for `graph` from cursor `from_seq` (inclusive),
-    /// up to `limit` events (CONCEPT:EG-KG.query.streaming-cdc-subscriptions). Returns a `Raw` `Vec<CdcEvent>`. The
-    /// consumer re-reads from `last.seq + 1` to skip what it has seen. `limit` 0 ⇒ a
-    /// default cap.
+    /// up to `limit` events (CONCEPT:EG-KG.query.streaming-cdc-subscriptions). Returns a `Raw`
+    /// `CdcReadResult` (B-8, 2026-08-13: `{events, gap, watermark, head_seq, epoch}` —
+    /// was a bare `Vec<CdcEvent>`, which made a genuinely-caught-up cursor
+    /// indistinguishable from one that silently fell off the ring; see
+    /// `CdcReadResult`'s doc). The consumer re-reads from `last.seq + 1` to skip what
+    /// it has seen, and MUST check `gap` before treating an empty `events` as "caught
+    /// up" — `gap: true` means it is not. `limit` 0 ⇒ a default cap.
     #[cfg(feature = "streaming")]
     CdcRead {
         graph: String,
@@ -3450,8 +3476,11 @@ pub enum Method {
     /// matching CDC changes for `graph` since `from_seq`, blocking up to `timeout_ms`
     /// for the FIRST one if none are pending yet (then returns what arrived). `label`
     /// (empty ⇒ all) filters by node/edge label. Returns a `Raw` `WatchBatch`
-    /// (`{events, next_seq}`); the client passes `next_seq` back to resume. Transport-
-    /// compatible: one Request → one Response, cursor-driven.
+    /// (`{events, next_seq, gap, watermark, head_seq, epoch}` — B-8, 2026-08-13: tails
+    /// the identical ephemeral ring `CdcRead` does, so it carries the same gap
+    /// signalling; see `CdcReadResult`'s doc); the client passes `next_seq` back to
+    /// resume, and MUST check `gap` before treating an empty `events` as "caught up".
+    /// Transport-compatible: one Request → one Response, cursor-driven.
     #[cfg(feature = "streaming")]
     Watch {
         graph: String,
@@ -3485,8 +3514,12 @@ pub enum Method {
         graph: String,
     },
     /// Poll the fired-trigger log for `graph` from cursor `from_seq` (CONCEPT:EG-KG.query.wire-codec):
-    /// the reactions that fired since the cursor. Returns a `Raw` `Vec<FiredAction>`;
-    /// the consumer dispatches each action then resumes from `last.fire_seq + 1`.
+    /// the reactions that fired since the cursor. Returns a `Raw` `FiredTriggersResult`
+    /// (B-8 follow-up, 2026-08-13: `{fired, gap, watermark, head_seq, epoch}` — the
+    /// fired-trigger log is a second bounded ring with the identical ephemerality as
+    /// the CDC ring `CdcRead` reads; see `CdcReadResult`'s doc); the consumer
+    /// dispatches each action then resumes from `last.fire_seq + 1`, and MUST check
+    /// `gap` before treating an empty `fired` as "caught up".
     #[cfg(feature = "streaming")]
     FiredTriggers {
         graph: String,
