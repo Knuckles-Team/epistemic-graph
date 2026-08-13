@@ -711,6 +711,13 @@ mod tests {
     /// looks for them in. The round-trip proof.
     #[tokio::test(flavor = "multi_thread")]
     async fn roundtrip_k1_to_k4_preserves_all_graphs() {
+        // Held for the whole test: it seeds a K=1 backend, migrates it to K=4, then
+        // reopens the K=4 layout — every open must resolve the same
+        // `EPISTEMIC_GRAPH_ENCRYPTION_KEY` cipher, or the reopen panics with
+        // "decryption failed (wrong key or tampered ciphertext)". See
+        // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let root = std::env::temp_dir().join(format!("eg-migrate-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("k1");
@@ -772,6 +779,10 @@ mod tests {
     /// recoverable backup; reopening picks up the new K.
     #[tokio::test(flavor = "multi_thread")]
     async fn in_place_migration_swaps_and_backs_up() {
+        // See `roundtrip_k1_to_k4_preserves_all_graphs` above: held for the whole
+        // test (this one also reopens after an in-place migration + backup).
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let dir = std::env::temp_dir().join(format!("eg-migrate-inplace-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

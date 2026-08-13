@@ -807,6 +807,13 @@ mod tests {
     /// nodes/edges/ledger survive identically.
     #[tokio::test(flavor = "multi_thread")]
     async fn backup_restore_roundtrip_preserves_everything() {
+        // Held for the whole test: it opens a `RedbBackend` (`src`), backs it up, then
+        // opens a SECOND `RedbBackend` (`restored`) and requires the restored data to
+        // read back identically — which only holds if `EPISTEMIC_GRAPH_ENCRYPTION_KEY`
+        // resolves the SAME way at both opens. See
+        // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let root = std::env::temp_dir().join(format!("eg-backup-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");
@@ -899,6 +906,11 @@ mod tests {
     /// every graph re-routed by EG-026 and still fully readable.
     #[tokio::test(flavor = "multi_thread")]
     async fn restore_can_reshard() {
+        // See `backup_restore_roundtrip_preserves_everything` above: held for the
+        // whole test (this one also opens a source backend and a re-sharded restored
+        // backend that must resolve the same cipher).
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let root = std::env::temp_dir().join(format!("eg-backup-reshard-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");

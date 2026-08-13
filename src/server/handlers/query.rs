@@ -4220,13 +4220,19 @@ mod current_auth_test_support {
         agent_id: &str,
         method: Method,
     ) -> Request {
-        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-        std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-        std::env::set_var(
-            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-            std::env::temp_dir().join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
-        );
+        // See `cost.rs`'s `req()` for why this is `Once`-guarded: process-global
+        // `set_var`, called from every request built by every test in this module.
+        static TEST_AUTH_ENV: std::sync::Once = std::sync::Once::new();
+        TEST_AUTH_ENV.call_once(|| {
+            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+            std::env::set_var(
+                "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+                std::env::temp_dir()
+                    .join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
+            );
+        });
         let context = RequestContextClaims {
             principal: agent_id.to_string(),
             tenant: "tenant-shared".to_string(),
@@ -5542,6 +5548,15 @@ mod txn_ryow_dispatch_tests {
         // the SAME seal requirement `redb_backend::tests::cm_dir` already documents and
         // provisions for its own cross-modal ACID tests. Mirror that exact pattern (a
         // `std::sync::Once`-guarded env var set, since it is process-global).
+        // The `Once` below sets a process-global env var, and `EPISTEMIC_GRAPH_
+        // ENCRYPTION_KEY` must then stay stable for the rest of this test (a
+        // `RedbBackend` resolves+caches its cipher ONCE at `open()`, called right
+        // below). Both callers of `state()` (`in_txn_cross_modal_ryow`,
+        // `commit_makes_txn_writes_visible_off_txn`) hold `crate::crypto::
+        // acquire_test_env_lock()` for their ENTIRE body — see that lock's doc — so
+        // this `Once` always fires (or, after the first caller, is a no-op check)
+        // inside that held lock. Do NOT also acquire the lock here: `std::sync::
+        // Mutex` is not reentrant, and the caller already holds it.
         static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
         ENCRYPTION_KEY.call_once(|| {
             std::env::set_var(
@@ -5662,6 +5677,10 @@ mod txn_ryow_dispatch_tests {
     // reachable in-txn; an identical OFF-txn query sees none of it.
     #[tokio::test]
     async fn in_txn_cross_modal_ryow() {
+        // Held for the whole test: `state()` provisions `EPISTEMIC_GRAPH_ENCRYPTION_KEY`
+        // once (process-global) and this test's transaction-commit path depends on it
+        // staying set throughout — see `crate::crypto::acquire_test_env_lock`'s doc.
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let state = state();
         let txn = begin(&state, 1).await;
         // Stage: node `sn` (Widget) + its embedding, node `tn` (Gadget), edge sn→tn.
@@ -5764,6 +5783,8 @@ mod txn_ryow_dispatch_tests {
     // no persistence backend) is invisible off-txn before commit, visible after.
     #[tokio::test]
     async fn commit_makes_txn_writes_visible_off_txn() {
+        // See `in_txn_cross_modal_ryow` above: held for the whole test.
+        let _env_lock = crate::crypto::acquire_test_env_lock();
         let state = state();
         let txn = begin(&state, 1).await;
         ok(
