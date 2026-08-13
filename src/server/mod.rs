@@ -3644,7 +3644,7 @@ mod tests {
     #[tokio::test]
     async fn commit_without_idempotency_key_returns_bare_bool() {
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         #[cfg(feature = "security")]
         ensure_txn_recovery_key();
         let state = test_state();
@@ -3700,7 +3700,7 @@ mod tests {
     #[tokio::test]
     async fn commit_with_same_idempotency_key_applies_once_and_reports_replay() {
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         #[cfg(feature = "security")]
         ensure_txn_recovery_key();
         let state = test_state();
@@ -3793,9 +3793,15 @@ mod tests {
         let ResultPayload::Json(second_value) = &second else {
             panic!("a keyed Commit must return Json {{committed, replayed}}, got {second:?}");
         };
+        // The CACHED outcome (`committed`) must match the original attempt's --
+        // this is the "same cached result" proof. `replayed` is EXPECTED to
+        // differ (false on the original, true on the replay); that flag IS the
+        // signal B-9 adds, so it is asserted separately, not folded into an
+        // object-level equality that would spuriously fail on the very field
+        // under test.
         assert_eq!(
-            second_value, first_value,
-            "a replay must return the SAME cached result as the original commit"
+            second_value["committed"], first_value["committed"],
+            "a replay must report the SAME cached `committed` outcome as the original commit"
         );
         assert_eq!(
             second_value["replayed"], true,
@@ -5096,12 +5102,23 @@ ex:p1 a ex:Paper .
         }
     }
 
+    /// B-8 (2026-08-13): `CdcRead` now returns a typed `CdcReadResult`
+    /// (`{events, gap, watermark, head_seq, epoch}`), not a bare `Vec<CdcEvent>`
+    /// — see that struct's doc. Every existing caller of this helper reads a
+    /// cursor that is legitimately in range (never behind the ring, never past
+    /// the head), so asserting `!gap` here converts a wrongly-behaving fix into
+    /// a loud test failure instead of a silently wrong `events` list.
     #[cfg(feature = "streaming")]
     fn cdc_events(resp: &Response) -> Vec<crate::wire::CdcEvent> {
-        match &resp.result {
+        let result: crate::wire::CdcReadResult = match &resp.result {
             Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(b).unwrap(),
-            other => panic!("expected Raw(Vec<CdcEvent>), got {other:?}"),
-        }
+            other => panic!("expected Raw(CdcReadResult), got {other:?}"),
+        };
+        assert!(
+            !result.gap,
+            "test cursor was expected to be in range, but the engine reported a gap: {result:?}"
+        );
+        result.events
     }
 
     /// A write through dispatch lands in the CDC feed in order; re-reading from a
@@ -5438,10 +5455,14 @@ ex:p1 a ex:Paper .
             ),
         )
         .await;
-        let fired: Vec<crate::wire::FiredAction> = match f.result {
+        // B-8 follow-up: `FiredTriggers` now returns a typed `FiredTriggersResult`
+        // (`{fired, gap, watermark, head_seq, epoch}`), not a bare `Vec<FiredAction>`.
+        let fired_result: crate::wire::FiredTriggersResult = match f.result {
             Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
-            other => panic!("expected Raw(Vec<FiredAction>), got {other:?}"),
+            other => panic!("expected Raw(FiredTriggersResult), got {other:?}"),
         };
+        assert!(!fired_result.gap, "cursor 0 must not be a gap: {fired_result:?}");
+        let fired = fired_result.fired;
         assert_eq!(fired.len(), 1, "exactly one firing (only the Alert add)");
         assert_eq!(fired[0].trigger, "on_alert");
         assert_eq!(fired[0].node_id, "a1");

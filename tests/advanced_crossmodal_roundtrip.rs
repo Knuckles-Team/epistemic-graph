@@ -555,6 +555,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
             13,
             Method::Commit {
                 txn_id: txn.clone(),
+                idempotency_key: None,
             },
         ),
     ))
@@ -679,7 +680,7 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
     .await;
     let cb = Box::pin(dispatch(
         &state,
-        req(7, Method::Commit { txn_id: b.clone() }),
+        req(7, Method::Commit { txn_id: b.clone(), idempotency_key: None }),
     ))
     .await;
     assert!(
@@ -692,7 +693,7 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
     // predicate, detects the phantom, and rolls A back.
     let ca = Box::pin(dispatch(
         &state,
-        req(8, Method::Commit { txn_id: a.clone() }),
+        req(8, Method::Commit { txn_id: a.clone(), idempotency_key: None }),
     ))
     .await;
     assert!(
@@ -1156,6 +1157,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
             7,
             Method::Commit {
                 txn_id: txn.clone(),
+                idempotency_key: None,
             },
         ),
     ))
@@ -1433,7 +1435,7 @@ async fn streaming_cdc_matview_rebuild_eg395() {
 
     // The CDC subscription observes the ordered cross-modal change stream (the two node
     // AddNode events at least; the edge emits too).
-    let events = hub.read("__commons__", start, 100).expect("cdc read");
+    let events = hub.read("__commons__", start, 100).events;
     let robot_adds = events
         .iter()
         .filter(|e| e.label == "Robot" && format!("{:?}", e.kind).contains("AddNode"))
@@ -1548,7 +1550,7 @@ async fn plan_writeback_stages_and_commits_inferred_edges_atomically_d7() {
         "staged-but-uncommitted writeback must be invisible off-txn"
     );
 
-    let commit_resp = Box::pin(dispatch(&state, req(8, Method::Commit { txn_id: txn }))).await;
+    let commit_resp = Box::pin(dispatch(&state, req(8, Method::Commit { txn_id: txn, idempotency_key: None }))).await;
     assert!(
         matches!(commit_resp.result, Some(ResultPayload::Bool(true))),
         "the cross-modal commit (anchor node + writeback edges) must succeed: {:?}",

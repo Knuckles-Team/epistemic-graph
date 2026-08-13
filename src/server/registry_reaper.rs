@@ -415,7 +415,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .read("__commons__", cdc_seq_before, 0)
-                .expect("cdc read")
+                .events
         };
         assert!(
             events
@@ -577,7 +577,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .read("__commons__", cdc_seq_before, 0)
-                .expect("cdc read")
+                .events
         };
         let removed: Vec<&str> = events
             .iter()

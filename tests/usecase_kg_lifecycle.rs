@@ -281,6 +281,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
             16,
             Method::Commit {
                 txn_id: txn.clone(),
+                idempotency_key: None,
             },
         ),
     ))
@@ -351,7 +352,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                 },
             )
             .await;
-            let c = Box::pin(dispatch(&state, req(103, Method::Commit { txn_id: txn }))).await;
+            let c = Box::pin(dispatch(&state, req(103, Method::Commit { txn_id: txn, idempotency_key: None }))).await;
             assert!(matches!(c.result, Some(ResultPayload::Bool(true))));
         })
     };

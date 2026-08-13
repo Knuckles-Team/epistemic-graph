@@ -232,6 +232,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
             target,
             Method::Commit {
                 txn_id: txn_id.clone(),
+                idempotency_key: None,
             },
         ),
     ))
@@ -259,6 +260,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
             target,
             Method::Commit {
                 txn_id: txn_id.clone(),
+                idempotency_key: None,
             },
         ),
     ))
