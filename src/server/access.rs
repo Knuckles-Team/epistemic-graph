@@ -327,9 +327,18 @@ impl GraphReadAuthority {
     /// RAW core's `read_through` for such a node (`Method::GetNodeProperties`)
     /// must re-derive the SAME visibility decision `filter_view` would have made,
     /// on exactly that one row, rather than serving it unfiltered.
+    ///
+    /// `is_schema` (BUG A3, 2026-08-12) is the caller-supplied, DERIVED
+    /// TBox/ABox answer for this exact node id (`GraphCore::is_schema_node`) —
+    /// this function has no id, only a blob, so it cannot look it up itself;
+    /// `row_visibility`'s own `.schema` is always `false` (it no longer
+    /// decodes a `_schema` property, which nothing clears on axiom deletion).
+    /// See `IsolationLayer::filter_view` for the bulk-path sibling of this
+    /// same derivation.
     #[cfg(feature = "security")]
-    pub(crate) fn can_see_node(&self, properties_msgpack: &[u8]) -> bool {
-        let vis = row_visibility(properties_msgpack);
+    pub(crate) fn can_see_node(&self, properties_msgpack: &[u8], is_schema: bool) -> bool {
+        let mut vis = row_visibility(properties_msgpack);
+        vis.schema = is_schema;
         self.isolation.can_see_row(&self.actor, &vis)
     }
 
@@ -337,7 +346,7 @@ impl GraphReadAuthority {
     /// `security`, so the projection is never bypassed) — exists only so callers
     /// type-check in a `not(security)` build, mirroring `project_core_active`.
     #[cfg(not(feature = "security"))]
-    pub(crate) fn can_see_node(&self, _properties_msgpack: &[u8]) -> bool {
+    pub(crate) fn can_see_node(&self, _properties_msgpack: &[u8], _is_schema: bool) -> bool {
         true
     }
 
@@ -376,6 +385,22 @@ impl GraphReadAuthority {
                 .map(|value| value.as_ref().clone())
                 .unwrap_or_default();
             projected.add_node_no_ledger(node_id.clone(), properties);
+            // BUG A3 follow-up (2026-08-12): a fresh `GraphCore::new()` starts
+            // with an EMPTY `schema_refs`, so without this, a schema node that
+            // legitimately survived `filter_view` above (via the SOURCE
+            // core's real TBox membership) would fail RLS again on the very
+            // next `analysis_snapshot()` taken of THIS projected core — every
+            // read surface that calls `rls.filter_view` a second time against
+            // an already-projected core (SQL/UQL, `handlers/query.rs`) would
+            // silently re-hide it, exactly reproducing BUG A3's symptom one
+            // layer downstream of the fix in `eg_core::isolation`. Mirror the
+            // SOURCE core's TBox membership onto the projection for every node
+            // that survived filtering; a single ref is enough (the projection
+            // is a throwaway, read-only snapshot — never mutated further, so
+            // exact refcount fidelity does not matter here).
+            if core.is_schema_node(node_id) {
+                projected.mark_schema_ref(node_id);
+            }
         }
 
         let mut edge_keys: Vec<(String, String)> = view.edge_properties.keys().cloned().collect();
@@ -1873,7 +1898,6 @@ const RLS_ROUTED: &[&str] = &[
     "GetEdgePropertiesBatch",
     "GetEdges",
     "GetEdgesPage",
-    "GetLedger",
     "GetMatView",
     "GetNeighbors",
     "GetNeighborsBatch",
@@ -1956,6 +1980,24 @@ const REASON_SERVER_LIFECYCLE: &str =
     "server-lifecycle / liveness methods touch no tenant-owned row";
 const REASON_AUDIT_CHAIN_ADMIN_GATED: &str =
     "AuditVerify/AuditProveInclusion walk the hash-chained audit log (incl. its provenance-anchor entries) under the kg:admin capability gate -- not a graph row read";
+// BUG A1 (2026-08-12): GetLedger was previously (wrongly) RLS_ROUTED. Its handler
+// (`handlers::graph_ops::try_handle`, `Method::GetLedger` arm) reads the mutation
+// ledger off `raw_core` (captured before `read_authority.project_core` shadows
+// `core`), the SAME raw-core pattern `raw_ledger_len` uses just above in that file
+// for `Metrics.total_mutations` -- the ledger is process-observability (an
+// audit/debug trail of every committed mutation string), never row-visible node/edge
+// data, so RLS's per-row `_owner`/`_visibility`/`_grants` model does not apply to it
+// at all. It is instead authorized by its own dedicated `ledger:read` RBAC action
+// (`eg_capabilities::policy`), enforced in `dispatch.rs` (`verified_context.
+// allows_method`) BEFORE any handler runs -- routing it through row-level
+// `project_core` as well was a redundant SECOND gate that, instead of narrowing
+// visibility, silently destroyed the data: `project_core`'s detached copy is built
+// via `add_node_no_ledger`/`add_edge_no_ledger` and therefore never carries a ledger
+// at all (see `build_projection`'s own doc), so GetLedger returned `[]` on every
+// request in the default (`security`-compiled) build regardless of how many
+// mutations had committed.
+const REASON_LEDGER_ADMIN_OBSERVABILITY: &str =
+    "src/server/handlers/graph_ops.rs's GetLedger arm reads raw_core.get_ledger() (captured before project_core shadows core, same pattern as raw_ledger_len for Metrics.total_mutations) -- the mutation ledger is process-observability, not row-visible data, and is gated by its own ledger:read RBAC authz_action (eg_capabilities::policy) enforced in dispatch.rs before any handler runs, not by per-row RLS";
 const REASON_VERIFIED_TENANT_CLAIM: &str =
     "dispatch.rs compares the request's tenant against verified_context.claims().tenant before serving it (GetChangeEnvelope/GetContentVersion/GetChangeCursor) -- an explicit verified-tenant-claim check, not a graph row";
 const REASON_CLUSTER_ADMIN_GATED: &str =
@@ -2029,6 +2071,8 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_AUDIT_CHAIN_ADMIN_GATED
     ("AuditVerify", REASON_AUDIT_CHAIN_ADMIN_GATED),
     ("AuditProveInclusion", REASON_AUDIT_CHAIN_ADMIN_GATED),
+    // REASON_LEDGER_ADMIN_OBSERVABILITY
+    ("GetLedger", REASON_LEDGER_ADMIN_OBSERVABILITY),
     // REASON_VERIFIED_TENANT_CLAIM
     ("GetChangeCursor", REASON_VERIFIED_TENANT_CLAIM),
     ("GetChangeEnvelope", REASON_VERIFIED_TENANT_CLAIM),

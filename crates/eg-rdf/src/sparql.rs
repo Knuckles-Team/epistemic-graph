@@ -259,6 +259,14 @@ fn merge_views<'v>(views: impl Iterator<Item = &'v GraphView>) -> GraphView {
                 .or_default()
                 .extend(blobs.iter().cloned());
         }
+        // BUG A3 (2026-08-12): each source view's TBox membership (derived at
+        // ITS OWN snapshot time, `GraphCore::schema_refs`) must survive the
+        // merge too -- omitting this would silently drop the schema exemption
+        // for a class/property node reached only through a multi-graph
+        // `FROM`/`GRAPH` merge, since `filter_view` no longer has a `_schema`
+        // property key on the (now schema-blind) merged blob to fall back to.
+        out.schema_node_ids
+            .extend(v.schema_node_ids.iter().cloned());
     }
     out
 }

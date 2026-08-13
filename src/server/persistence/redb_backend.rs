@@ -6881,6 +6881,139 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// GetLedger RPC-boundary regression (BUG A1, 2026-08-12): `GetLedger` used to
+    /// read the mutation ledger off the RLS-projected `core` shadowed inside
+    /// `handlers::graph_ops::try_handle` (`GraphReadAuthority::project_core`),
+    /// whose detached copy is built via `add_node_no_ledger`/`add_edge_no_ledger`
+    /// and therefore NEVER carries a ledger at all -- see `build_projection`'s own
+    /// doc in `server::access`. Because `security` (hence
+    /// `GraphReadAuthority::is_active()`) is compiled into the DEFAULT `full`
+    /// build, `GetLedger` returned `[]` on EVERY served request, regardless of
+    /// how many mutations had actually committed -- indistinguishable from
+    /// "nothing to sync" at every real production caller
+    /// (`agent_utilities.workflows.epistemic_sync.flush_ledger_to_backend`).
+    ///
+    /// Commit N real mutations over the SAME served dispatch path this bug
+    /// lived on, call `GetLedger`, and assert exactly N entries come back
+    /// `populated: true` -- proving the fix reads the REAL, authoritative
+    /// ledger (`raw_core`), not the RLS projection's permanently-empty one.
+    /// `watermark` must be `0` here: well under the ledger's 100k cap, this
+    /// instance has never dropped anything (see
+    /// `eg_core::graph::tests::ledger_cap_drop_advances_the_watermark` for
+    /// the cap-drop case itself -- that mechanism is a SEPARATE, real gap
+    /// this fix does not paper over: the ledger remains a purely in-memory,
+    /// ephemeral buffer, not a durable change log).
+    #[tokio::test]
+    async fn get_ledger_dispatch_returns_real_committed_mutations() {
+        use crate::protocol::{LedgerReadResult, ResultPayload};
+
+        const SECRET: &str = "get-ledger-secret";
+        let dir = std::env::temp_dir().join(format!("eg-get-ledger-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend = Arc::new(
+            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+                .expect("open redb backend"),
+        );
+        let state = new_state(Some(dir_s.clone()));
+        {
+            let mut s = state.write().await;
+            s.auth_secret = SECRET.to_string();
+            s.persistence = Some(backend.clone());
+        }
+        let req = |id: u64, method: Method| current_request(SECRET, id, "__commons__", method);
+
+        // Three real, committed mutations over the served dispatch path.
+        for (rid, nid) in [(1u64, "gl1"), (2, "gl2"), (3, "gl3")] {
+            let r = dispatch_on_heap(
+                &state,
+                req(
+                    rid,
+                    Method::AddNode {
+                        node_id: nid.into(),
+                        properties_msgpack: props(serde_json::json!({"v": rid})),
+                    },
+                ),
+            )
+            .await;
+            assert!(r.error.is_none(), "add failed: {:?}", r.error);
+        }
+
+        let decode = |r: crate::protocol::Response| -> LedgerReadResult {
+            match r.result {
+                Some(ResultPayload::Json(v)) => serde_json::from_value(v).unwrap(),
+                other => panic!("expected a typed LedgerReadResult, got {other:?}"),
+            }
+        };
+        let ledger = decode(dispatch_on_heap(&state, req(4, Method::GetLedger)).await);
+        assert!(
+            ledger.populated,
+            "a real, committed ledger must be reported populated: {ledger:?}"
+        );
+        assert_eq!(
+            ledger.entries.len(),
+            3,
+            "GetLedger must return exactly the 3 committed mutations, not the \
+             RLS-projected permanently-empty ledger: {:?}",
+            ledger.entries
+        );
+        assert_eq!(
+            ledger.watermark, 0,
+            "nothing has been dropped from this fresh, far-under-cap ledger"
+        );
+        for needle in ["gl1", "gl2", "gl3"] {
+            assert!(
+                ledger.entries.iter().any(|e| e.contains(needle)),
+                "missing {needle} in ledger entries: {:?}",
+                ledger.entries
+            );
+        }
+
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The genuinely-empty case is explicitly typed too (BUG A1, 2026-08-12): a
+    /// freshly-created graph with ZERO committed mutations answers `populated:
+    /// true, entries: []` -- a REAL empty ledger, which a bare `Vec<String>`
+    /// could never distinguish from "the read failed" and a typed
+    /// [`LedgerReadResult`] now can. No prior write, no persistence backend
+    /// needed -- `GetLedger` is the very first request this graph ever sees.
+    #[tokio::test]
+    async fn get_ledger_dispatch_types_a_genuinely_empty_ledger_distinctly() {
+        use crate::protocol::{LedgerReadResult, ResultPayload};
+
+        const SECRET: &str = "get-ledger-empty-secret";
+        let state = new_state(None);
+        {
+            let mut s = state.write().await;
+            s.auth_secret = SECRET.to_string();
+        }
+        let req = |id: u64, method: Method| current_request(SECRET, id, "__commons__", method);
+
+        let decode = |r: crate::protocol::Response| -> LedgerReadResult {
+            match r.result {
+                Some(ResultPayload::Json(v)) => serde_json::from_value(v).unwrap(),
+                other => panic!("expected a typed LedgerReadResult, got {other:?}"),
+            }
+        };
+        let ledger = decode(dispatch_on_heap(&state, req(1, Method::GetLedger)).await);
+        assert!(
+            ledger.populated,
+            "a genuinely empty ledger is still POPULATED (the read succeeded, \
+             there is simply nothing in it): {ledger:?}"
+        );
+        assert!(
+            ledger.entries.is_empty(),
+            "expected zero entries on a never-mutated graph: {:?}",
+            ledger.entries
+        );
+        assert_eq!(
+            ledger.watermark, 0,
+            "a never-mutated graph has never dropped anything"
+        );
+    }
+
     /// Provenance-anchor inclusion proof (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring) —
     /// the tamper-detection acceptance test: a `:ToolCall` node's window is
     /// anchored, its inclusion proof verifies against that anchor's chain-protected
