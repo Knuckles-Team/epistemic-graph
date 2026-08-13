@@ -2354,6 +2354,27 @@ class LedgerNotPopulatedError(RuntimeError):
     """
 
 
+class CdcGapError(RuntimeError):
+    """``CdcRead``/``Watch``/``FiredTriggers`` reported that a cursor could not
+    be served contiguously (B-8, 2026-08-13) — the same defect class as
+    ``GetLedger``'s :class:`LedgerNotPopulatedError` above, applied to the
+    engine's CDC feed (``CdcHub``, ``src/server/cdc.rs``).
+
+    ``CdcHub`` is a bounded, PURELY IN-MEMORY ring per graph — DELIBERATELY
+    EPHEMERAL, not durable (see that module's own doc for the reasoning;
+    making it durable is a separate storage-format/migration decision, out
+    of scope for this fix). Before this fix, a cursor that fell off the back
+    of that ring — because the ring trimmed past it, or because the engine
+    process restarted and the feed's seq numbering restarted from 0 — was
+    served as a silently empty result, indistinguishable from "caught up".
+    This exception makes that condition explicit instead: distinct from a
+    genuinely caught-up read (an empty event list with NO error), it means
+    the caller's cursor names history this epoch of the feed can no longer
+    (or never did) vouch for, and the caller must re-seed rather than assume
+    nothing happened.
+    """
+
+
 class NodeClient:
     """CONCEPT:AU-KG.query.object-graph-mapper — Topology Node Namespace"""
 
@@ -8532,10 +8553,54 @@ class TxnClient:
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
-    async def commit(self, txn_id: str) -> bool:
+    async def commit(
+        self, txn_id: str, *, idempotency_key: str | None = None
+    ) -> bool:
         """Commit the transaction. ``True`` ⇒ applied + persisted; ``False`` ⇒ OCC
-        conflict (nothing applied — a true rollback; re-begin and retry)."""
-        return await self._client._send("Commit", {"txn_id": txn_id})
+        conflict (nothing applied — a true rollback; re-begin and retry).
+
+        ``idempotency_key`` (optional, B-9, 2026-08-13) makes a RETRY of this
+        exact logical commit provably safe, extending the SAME durable
+        ``(tenant, graph, idempotency_key)``-scoped dedup mechanism
+        :meth:`ChangesClient.apply`/``ApplyChangeEnvelope`` uses onto ``Commit``.
+        Without a key, retry-safety depends on the caller still holding the
+        exact server-issued ``txn_id`` — already durable via this txn's commit
+        receipt, and fine for "commit succeeded, response lost, retry with the
+        SAME txn_id" — but NOT for "I lost track of ``txn_id`` and had to
+        ``begin()`` + re-stage from scratch": a fresh ``txn_id`` looks like a
+        brand-new transaction. Pass the SAME ``idempotency_key`` on every retry
+        of the identical logical commit (even across a re-stage under a new
+        ``txn_id``) to close that gap: a repeat applies the write-set AT MOST
+        ONCE. Use :meth:`commit_with_outcome` if you need to know whether a
+        given call was the original apply or a replay of an earlier one."""
+        result = await self._client._send(
+            "Commit",
+            {"txn_id": txn_id, "idempotency_key": idempotency_key},
+            idempotency_key=idempotency_key,
+        )
+        if isinstance(result, dict):
+            return bool(result.get("committed", False))
+        return bool(result)
+
+    async def commit_with_outcome(
+        self, txn_id: str, *, idempotency_key: str
+    ) -> tuple[bool, bool]:
+        """Like :meth:`commit`, but requires ``idempotency_key`` and reports
+        ``(committed, replayed)`` (B-9, 2026-08-13) — ``replayed`` is ``True``
+        when this call's result is the CACHED outcome of an earlier commit
+        under the same key rather than a fresh apply, mirroring
+        ``ApplyChangeEnvelope``'s ``applied``/``idempotent_skip`` vocabulary."""
+        result = await self._client._send(
+            "Commit",
+            {"txn_id": txn_id, "idempotency_key": idempotency_key},
+            idempotency_key=idempotency_key,
+        )
+        if not isinstance(result, dict):
+            raise TypeError(
+                "commit_with_outcome requires the engine's keyed Commit response "
+                f"shape (a dict carrying 'committed'/'replayed'); got {result!r}"
+            )
+        return bool(result.get("committed", False)), bool(result.get("replayed", False))
 
     async def rollback(self, txn_id: str) -> bool:
         """Discard the staged transaction (nothing was applied/persisted)."""
@@ -9061,11 +9126,69 @@ class StreamingClient:
         ``kind`` (AddNode/RemoveNode/UpdateNode/AddEdge/RemoveEdge), ``node_id``,
         ``target_id``, ``label``, and the ``before``/``after`` property blobs (raised as
         ``bytes``; ``had_before``/``had_after`` flag presence). Re-read from
-        ``events[-1]["seq"] + 1`` to skip seen. Raises if the cursor is behind the
-        retained ring window."""
-        return await self._client._send(
+        ``events[-1]["seq"] + 1`` to skip seen.
+
+        Raises :class:`CdcGapError` when ``from_seq`` could not be served
+        contiguously (B-8, 2026-08-13) -- CALLERS THAT PERSIST A CURSOR ACROSS
+        RESTARTS SHOULD USE :meth:`cdc_read_with_watermark` INSTEAD, since a
+        restart is the one gap shape this method's plain raise cannot help a
+        caller recover from on its own (see that method's doc for why)."""
+        events, _watermark, _head_seq, _epoch = await self.cdc_read_with_watermark(
+            graph, from_seq, limit=limit
+        )
+        return events
+
+    async def cdc_read_with_watermark(
+        self, graph: str, from_seq: int = 0, *, limit: int = 0
+    ) -> tuple[list[dict[str, Any]], int, int, int]:
+        """Like :meth:`cdc_read`, but also returns ``(watermark, head_seq, epoch)``.
+
+        B-8 (2026-08-13): the engine's CDC feed (``CdcHub``, ``src/server/cdc.rs``)
+        is a bounded, purely IN-MEMORY ring per graph (default 65,536 events,
+        ``EPISTEMIC_GRAPH_CDC_RING`` to override) -- DELIBERATELY EPHEMERAL, not
+        durable (see that module's doc for the reasoning; making it durable is a
+        separate storage-format/migration decision, out of scope here). A
+        persisted ``from_seq`` cursor can therefore become unservicable in two
+        distinct ways:
+
+          1. **within-epoch trim** -- the ring dropped entries older than
+             ``from_seq`` (still the same process). This method raises
+             :class:`CdcGapError` for you.
+          2. **epoch reset** -- the engine process restarted (or the graph's
+             feed was rewound by ``ClearGraph``/``FromMsgpack``/``Reconcile``),
+             so ``from_seq`` may be numerically "in range" of the FRESH epoch's
+             ``[watermark, head_seq]`` window without naming the same events at
+             all -- a case a bare bounds check cannot detect on its own. This
+             method also raises for the numerically-detectable slice of that
+             case; for the remaining slice, a caller that persists a cursor
+             ACROSS PROCESS RESTARTS must additionally persist the returned
+             ``epoch`` alongside it and compare on its NEXT read -- a different
+             ``epoch`` is PROOF the feed restarted even when no exception was
+             raised.
+
+        ``watermark`` is the oldest seq this epoch's ring can currently vouch
+        for; ``head_seq`` is the current head (next seq to be assigned).
+        """
+        result = await self._client._send(
             "CdcRead", {"graph": graph, "from_seq": int(from_seq), "limit": int(limit)}
         )
+        if not isinstance(result, dict):
+            raise TypeError(
+                "CdcRead must return the typed CdcReadResult shape (a dict); "
+                f"got {result!r}"
+            )
+        watermark = int(result.get("watermark", 0))
+        head_seq = int(result.get("head_seq", 0))
+        epoch = int(result.get("epoch", 0))
+        if result.get("gap", False):
+            raise CdcGapError(
+                f"CdcRead: cursor {from_seq} for graph {graph!r} could not be "
+                f"served contiguously (watermark={watermark}, head_seq={head_seq}, "
+                f"epoch={epoch}) -- this is NOT the same as a genuinely caught-up "
+                "read; re-seed the cursor (and compare `epoch` if you persist "
+                "cursors across restarts)"
+            )
+        return list(result.get("events", [])), watermark, head_seq, epoch
 
     async def register_continuous_query(
         self, name: str, graph: str, agg: str, *, label: str = "", field: str = ""
@@ -9105,9 +9228,17 @@ class StreamingClient:
         """LISTEN/NOTIFY-style long-poll subscription: return the matching CDC changes
         for ``graph`` since ``from_seq`` (filtered by ``label``, empty ⇒ all). If none
         are pending, block up to ``timeout_ms`` for the first one (0 ⇒ don't block).
-        Returns ``{"events": [...], "next_seq": int}`` — pass ``next_seq`` back to keep
-        tailing. One Request → one Response; re-issue to continue watching."""
-        return await self._client._send(
+        Returns ``{"events": [...], "next_seq": int, "watermark": int, "head_seq": int,
+        "epoch": int}`` — pass ``next_seq`` back to keep tailing. One Request → one
+        Response; re-issue to continue watching.
+
+        Raises :class:`CdcGapError` when ``from_seq`` fell off the SAME ephemeral
+        ring :meth:`cdc_read` reads (B-8, 2026-08-13) — surfaced immediately,
+        never silently swallowed into an empty ``events`` batch. Compare the
+        returned ``epoch`` across resumed calls to also catch a restart that a
+        bare bounds check cannot detect on its own (see
+        :meth:`cdc_read_with_watermark`'s doc for the full reasoning)."""
+        result = await self._client._send(
             "Watch",
             {
                 "graph": graph,
@@ -9116,6 +9247,14 @@ class StreamingClient:
                 "timeout_ms": int(timeout_ms),
             },
         )
+        if isinstance(result, dict) and result.get("gap", False):
+            raise CdcGapError(
+                f"Watch: cursor {from_seq} for graph {graph!r} could not be served "
+                f"contiguously (watermark={result.get('watermark')}, "
+                f"head_seq={result.get('head_seq')}, epoch={result.get('epoch')}) -- "
+                "re-seed the cursor"
+            )
+        return result
 
     async def register_trigger(
         self,
@@ -9156,11 +9295,29 @@ class StreamingClient:
         """Poll the fired-trigger log for ``graph`` from cursor ``from_seq``: the
         reactions that fired, each ``{"fire_seq", "trigger", "change_seq", "node_id",
         "action"}`` (``action`` raised as ``bytes``). Resume from
-        ``fired[-1]["fire_seq"] + 1``."""
-        return await self._client._send(
+        ``fired[-1]["fire_seq"] + 1``.
+
+        Raises :class:`CdcGapError` when ``from_seq`` fell off the fired-trigger
+        log's own bounded ring (B-8 follow-up, 2026-08-13) -- a SECOND ephemeral
+        ring with the identical gap shapes :meth:`cdc_read` documents, over its
+        own ``fire_seq`` cursor rather than the CDC ``seq`` cursor."""
+        result = await self._client._send(
             "FiredTriggers",
             {"graph": graph, "from_seq": int(from_seq), "limit": int(limit)},
         )
+        if not isinstance(result, dict):
+            raise TypeError(
+                "FiredTriggers must return the typed FiredTriggersResult shape "
+                f"(a dict); got {result!r}"
+            )
+        if result.get("gap", False):
+            raise CdcGapError(
+                f"FiredTriggers: cursor {from_seq} for graph {graph!r} could not "
+                f"be served contiguously (watermark={result.get('watermark')}, "
+                f"head_seq={result.get('head_seq')}, epoch={result.get('epoch')}) "
+                "-- re-seed the cursor"
+            )
+        return list(result.get("fired", []))
 
     async def cep_subscribe(
         self,

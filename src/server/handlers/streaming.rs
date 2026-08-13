@@ -126,6 +126,10 @@ fn sanitize_watch(authority: &GraphReadAuthority, batch: WatchBatch) -> WatchBat
             .filter_map(|event| sanitize_event(authority, event))
             .collect(),
         next_seq: batch.next_seq,
+        gap: batch.gap,
+        watermark: batch.watermark,
+        head_seq: batch.head_seq,
+        epoch: batch.epoch,
     }
 }
 
@@ -161,16 +165,18 @@ pub(crate) async fn try_handle(
                 Ok(h) => h,
                 Err(r) => return Ok(r),
             };
-            Ok(match hub.read(&graph, from_seq, limit) {
-                Ok(events) => {
-                    let events: Vec<CdcEvent> = events
-                        .into_iter()
-                        .filter_map(|event| sanitize_event(read_authority, event))
-                        .collect();
-                    Response::ok(req_id, ResultPayload::raw(&events))
-                }
-                Err(e) => Response::err(req_id, e),
-            })
+            // B-8: `read` now returns a typed `CdcReadResult` carrying
+            // `gap`/`watermark`/`head_seq`/`epoch` instead of a bare `Vec<CdcEvent>`
+            // (which made a genuinely-caught-up cursor and a silently-fallen-off-the-
+            // ring one indistinguishable `[]`) — sanitize only the events (a `gap`
+            // result's `events` is always empty already) and pass the rest through.
+            let mut result = hub.read(&graph, from_seq, limit);
+            result.events = result
+                .events
+                .into_iter()
+                .filter_map(|event| sanitize_event(read_authority, event))
+                .collect();
+            Ok(Response::ok(req_id, ResultPayload::raw(&result)))
         }
 
         Method::RegisterContinuousQuery { name, spec_msgpack } => {
@@ -261,12 +267,14 @@ pub(crate) async fn try_handle(
             let notified = notify.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            // First pass: anything already pending since the cursor?
-            let batch = match hub.watch_batch(&graph, from_seq, &label, 0) {
-                Ok(batch) => sanitize_watch(read_authority, batch),
-                Err(e) => return Ok(Response::err(req_id, e)),
-            };
-            if !batch.events.is_empty() {
+            // First pass: anything already pending since the cursor? B-8: `gap` is
+            // surfaced IMMEDIATELY, never masked behind a long-poll wait — waiting
+            // could let unrelated fresh writes numerically "resolve" the
+            // `from_seq > head_seq` check without the cursor's original history
+            // ever having been recovered, turning an explicit signal back into a
+            // silent one.
+            let batch = sanitize_watch(read_authority, hub.watch_batch(&graph, from_seq, &label, 0));
+            if batch.gap || !batch.events.is_empty() {
                 return Ok(Response::ok(req_id, ResultPayload::raw(&batch)));
             }
             // Nothing yet — long-poll: await the next change up to timeout_ms, then
@@ -276,10 +284,7 @@ pub(crate) async fn try_handle(
             if !wait.is_zero() {
                 let _ = tokio::time::timeout(wait, notified).await;
             }
-            let batch = match hub.watch_batch(&graph, from_seq, &label, 0) {
-                Ok(batch) => sanitize_watch(read_authority, batch),
-                Err(e) => return Ok(Response::err(req_id, e)),
-            };
+            let batch = sanitize_watch(read_authority, hub.watch_batch(&graph, from_seq, &label, 0));
             Ok(Response::ok(req_id, ResultPayload::raw(&batch)))
         }
 
@@ -353,15 +358,20 @@ pub(crate) async fn try_handle(
                 Err(r) => return Ok(r),
             };
             let prefix = owned_prefix(carrier, "trigger");
-            let mut fired = hub.fired(&graph, from_seq, limit);
-            fired.retain_mut(|action| {
+            // B-8 follow-up: `fired` now returns a typed `FiredTriggersResult`
+            // (`gap`/`watermark`/`head_seq`/`epoch`) instead of a bare
+            // `Vec<FiredAction>` — a `gap` result's `fired` is always empty already,
+            // so the visibility filter below is a no-op for it.
+            let mut result = hub.fired(&graph, from_seq, limit);
+            result.fired.retain_mut(|action| {
                 let Some(display) = action.trigger.strip_prefix(&prefix) else {
                     return false;
                 };
                 let visible = hub
                     .read(&graph, action.change_seq, 1)
-                    .ok()
-                    .and_then(|events| events.into_iter().next())
+                    .events
+                    .into_iter()
+                    .next()
                     .and_then(|event| sanitize_event(read_authority, event))
                     .is_some();
                 if visible {
@@ -369,7 +379,7 @@ pub(crate) async fn try_handle(
                 }
                 visible
             });
-            Ok(Response::ok(req_id, ResultPayload::raw(&fired)))
+            Ok(Response::ok(req_id, ResultPayload::raw(&result)))
         }
 
         other => Err(other),

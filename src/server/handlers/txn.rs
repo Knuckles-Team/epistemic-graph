@@ -111,6 +111,38 @@ fn transaction_receipt_id(txn_id: &str) -> String {
     )
 }
 
+/// B-9 (2026-08-13): the durable receipt/idempotency identity a `Commit` attempt
+/// uses. Mirrors `ApplyChangeEnvelope`'s `(tenant, graph, idempotency_key)`
+/// dedup scope onto the txn commit's own `AdminSaga` receipt mechanism, rather
+/// than inventing a second one -- see `begin_txn_receipt`'s doc.
+///
+/// Without a caller key (`idempotency_key: None`), this is BYTE-IDENTICAL to
+/// `transaction_receipt_id(txn_id)` -- today's behavior, unchanged: the receipt
+/// is keyed purely by the server-issued `txn_id`, so a retry is only provably
+/// safe when the caller still has that exact `txn_id` (a dropped-response retry
+/// with the same handle). That already works today via `AdminSaga` replay.
+///
+/// With a caller key, the receipt is keyed by THAT instead -- a disjoint id
+/// space (`"idempotency"` vs `"transaction"` as the hashed middle field, so a
+/// key-derived id can never collide with a txn_id-derived one) -- so a retry
+/// that necessarily re-stages under a FRESH `txn_id` (the caller lost track of
+/// the original and had to re-`BeginTxn`) still lands on the SAME durable
+/// receipt row and replay-skips, closing the gap `transaction_receipt_id` alone
+/// cannot: proving "committed, response lost" apart from "never committed" even
+/// when the caller no longer has the original `txn_id` to retry with.
+fn commit_receipt_id(txn_id: &str, idempotency_key: Option<&str>) -> String {
+    match idempotency_key {
+        Some(key) => {
+            crate::server::mutation_batch::opaque_coordinator_key(
+                "transaction-receipt",
+                "idempotency",
+                key,
+            )
+        }
+        None => transaction_receipt_id(txn_id),
+    }
+}
+
 #[cfg(feature = "raft")]
 fn cross_shard_transaction_id(parent_id: &str) -> String {
     // Use the digest-only parent id in the disjoint 2PC table as well.  This gives
@@ -179,6 +211,10 @@ fn receipt_coordinator_id(_receipt: &TxnReceipt) -> String {
     String::new()
 }
 
+/// Begin (or replay-detect) the durable commit receipt for a staged transaction
+/// (B-9, 2026-08-13). `idempotency_key` is the caller-supplied dedup key from
+/// `Method::Commit` -- see `commit_receipt_id`'s doc for exactly how it changes
+/// (or, when absent, does NOT change) the receipt's identity.
 #[cfg(feature = "redb")]
 fn begin_txn_receipt(
     backend: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
@@ -186,6 +222,7 @@ fn begin_txn_receipt(
     caller: Option<&str>,
     txn_id: &str,
     txn: &GraphTxnState,
+    idempotency_key: Option<&str>,
 ) -> Result<(TxnReceipt, Option<ResultPayload>), String> {
     let backend = backend.ok_or_else(|| {
         "transaction commit requires an authoritative MutationBatch backend".to_string()
@@ -200,7 +237,7 @@ fn begin_txn_receipt(
         caller,
         crate::server::handlers::admin::AdminSagaPayload {
             domain: crate::mutation_batch::MutationDomain::ControlPlane,
-            batch_id: &transaction_receipt_id(txn_id),
+            batch_id: &commit_receipt_id(txn_id, idempotency_key),
             event_type: "transaction_recovery_plan",
             payload_digest: &payload_digest,
             encrypted_payload: &encrypted_payload,
@@ -217,6 +254,7 @@ fn begin_txn_receipt(
     _caller: Option<&str>,
     _txn_id: &str,
     _txn: &GraphTxnState,
+    _idempotency_key: Option<&str>,
 ) -> Result<((), Option<ResultPayload>), String> {
     Err("transaction commit requires the redb MutationBatch coordinator".to_string())
 }
@@ -818,7 +856,17 @@ pub(crate) async fn try_handle(
                 .expect("TxnMaterializeBelief is a derived read stage"),
         )
         .await),
-        Method::Commit { txn_id } => Ok(commit(state, req_id, Some(caller), &txn_id).await),
+        Method::Commit {
+            txn_id,
+            idempotency_key,
+        } => Ok(commit(
+            state,
+            req_id,
+            Some(caller),
+            &txn_id,
+            idempotency_key.as_deref(),
+        )
+        .await),
         Method::Rollback { txn_id } => Ok(rollback(state, req_id, &txn_id).await),
         other => Err(other),
     }
@@ -833,8 +881,8 @@ fn method_txn_id(method: &Method) -> Option<&str> {
         | Method::TxnCas { txn_id, .. }
         | Method::TxnAddEmbedding { txn_id, .. }
         | Method::TxnBlobRef { txn_id, .. }
-        | Method::Commit { txn_id }
         | Method::Rollback { txn_id } => Some(txn_id),
+        Method::Commit { txn_id, .. } => Some(txn_id),
         #[cfg(feature = "tsdb")]
         Method::TxnAddMeasurement { txn_id, .. } => Some(txn_id),
         #[cfg(feature = "owl")]
@@ -1543,11 +1591,36 @@ async fn stage_materialize_belief(
 /// ([`commit_multi_graph`]). The coordinator, the span gate, the durable 2PC records,
 /// and recovery are the `raft harness`-proven Lane N machinery; THIS is the
 /// user-facing wire that hands a staged multi-graph write-set to it.
+/// B-9 (2026-08-13): wrap a `Commit` response's `Bool` result into
+/// `{"committed": bool, "replayed": bool}` when the caller supplied an
+/// idempotency key on the request -- the same `applied`/`idempotent_skip`
+/// vocabulary `ApplyChangeEnvelope` reports, extended onto `Commit` rather than
+/// inventing a second one. An error response passes through unchanged either
+/// way. **Without a caller key the response is BYTE-FOR-BYTE UNCHANGED** (still
+/// a bare `Bool`) -- this is the VERIFY contract's "without the key the
+/// behaviour is unchanged".
+fn tag_commit_response(response: Response, replayed: bool, keyed: bool) -> Response {
+    if !keyed {
+        return response;
+    }
+    match response.result {
+        Some(ResultPayload::Bool(committed)) => Response::ok(
+            response.id,
+            ResultPayload::Json(serde_json::json!({
+                "committed": committed,
+                "replayed": replayed,
+            })),
+        ),
+        _ => response,
+    }
+}
+
 async fn commit(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     caller: Option<&str>,
     txn_id: &str,
+    idempotency_key: Option<&str>,
 ) -> Response {
     if consensus_apply_is_authorized() {
         return Response::err(
@@ -1555,6 +1628,7 @@ async fn commit(
             "clustered Commit requires the typed participant protocol",
         );
     }
+    let keyed = idempotency_key.is_some();
     // Serialize every first attempt/retry for this opaque parent.  This also closes
     // the restart race where two callers simultaneously discover the same Prepared
     // plan and try to resume its remaining children.
@@ -1579,17 +1653,28 @@ async fn commit(
         if let Err(error) = authorize_txn_plan(state, caller, &txn).await {
             return Response::err(req_id, error);
         }
-        let (receipt, replayed) =
-            match begin_txn_receipt(persistence.clone(), req_id, caller, txn_id, &txn) {
-                Ok(value) => value,
-                Err(error) => return Response::err(req_id, error),
-            };
+        // B-9: `begin_txn_receipt` resolves the receipt's identity via
+        // `commit_receipt_id` -- keyed by `idempotency_key` when the caller
+        // supplied one (so THIS retry, even under a freshly re-staged `txn_id`,
+        // lands on the SAME durable receipt row as a prior attempt that used the
+        // same key), or by `txn_id` alone exactly as before when it did not.
+        let (receipt, replayed) = match begin_txn_receipt(
+            persistence.clone(),
+            req_id,
+            caller,
+            txn_id,
+            &txn,
+            idempotency_key,
+        ) {
+            Ok(value) => value,
+            Err(error) => return Response::err(req_id, error),
+        };
         restore.complete();
         if let Some(result) = replayed {
             if let Err(error) = cleanup_cross_shard_decision(state, txn_id).await {
                 return Response::err(req_id, format!("transaction cleanup failed: {error}"));
             }
-            return Response::ok(req_id, result);
+            return tag_commit_response(Response::ok(req_id, result), true, keyed);
         }
         (txn, receipt)
     } else {
@@ -1598,7 +1683,7 @@ async fn commit(
                 if let Err(error) = cleanup_cross_shard_decision(state, txn_id).await {
                     return Response::err(req_id, format!("transaction cleanup failed: {error}"));
                 }
-                return response;
+                return tag_commit_response(response, true, keyed);
             }
             Ok(None) => {}
             Err(error) => {
@@ -1619,7 +1704,7 @@ async fn commit(
             if let Err(error) = cleanup_cross_shard_decision(state, txn_id).await {
                 return Response::err(req_id, format!("transaction cleanup failed: {error}"));
             }
-            return Response::ok(req_id, result);
+            return tag_commit_response(Response::ok(req_id, result), true, keyed);
         }
         let Some(txn) = recovered else {
             return Response::err(req_id, "prepared transaction has no recovery plan");
@@ -1627,7 +1712,8 @@ async fn commit(
         (txn, receipt)
     };
 
-    commit_prepared(state, req_id, caller, txn_id, txn, receipt).await
+    let response = commit_prepared(state, req_id, caller, txn_id, txn, receipt).await;
+    tag_commit_response(response, false, keyed)
 }
 
 const CONSENSUS_TXN_SCHEMA_VERSION: u16 = 1;
@@ -1710,8 +1796,11 @@ pub(crate) async fn prepare_consensus_commit(
         if let Err(error) = authorize_txn_plan(state, caller, &txn).await {
             return Response::err(req_id, error);
         }
+        // B-9 note: the clustered/consensus prepare phase has no caller
+        // idempotency key of its own (Raft's replicated log is the durability
+        // mechanism here) -- always `None`, byte-identical to pre-B-9 behavior.
         let (receipt, replayed) =
-            match begin_txn_receipt(persistence.clone(), req_id, caller, txn_id, &txn) {
+            match begin_txn_receipt(persistence.clone(), req_id, caller, txn_id, &txn, None) {
                 Ok(value) => value,
                 Err(error) => return Response::err(req_id, error),
             };

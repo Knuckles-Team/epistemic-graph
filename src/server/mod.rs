@@ -3283,7 +3283,7 @@ mod tests {
         let committed = tokio::spawn(async move {
             dispatch_on_heap(
                 &st2,
-                request(5, GRAPH, None, Method::Commit { txn_id: txn }),
+                request(5, GRAPH, None, Method::Commit { txn_id: txn, idempotency_key: None }),
             )
             .await
         });
@@ -3614,6 +3614,7 @@ mod tests {
                 None,
                 Method::Commit {
                     txn_id: txn.clone(),
+                    idempotency_key: None,
                 },
             ),
         )
@@ -3631,6 +3632,181 @@ mod tests {
         // The txn id is consumed.
         let s = state.read().await;
         assert!(s.open_txns.get(&txn).is_none(), "committed txn removed");
+    }
+
+    /// B-9 (2026-08-13): a `Commit` with NO `idempotency_key` returns the SAME
+    /// bare `Bool` wire shape it always has (the VERIFY contract's "without the
+    /// key the behaviour is unchanged"). `txn_commit_applies_staged_writes`
+    /// above already exercises this path end to end; this test pins the exact
+    /// response SHAPE so a future change to the keyed path cannot silently leak
+    /// into the unkeyed one.
+    #[cfg(feature = "redb")]
+    #[tokio::test]
+    async fn commit_without_idempotency_key_returns_bare_bool() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
+        #[cfg(feature = "security")]
+        ensure_txn_recovery_key();
+        let state = test_state();
+        let txn = begin_txn(&state, 1, "__commons__").await;
+        let r = dispatch_on_heap(
+            &state,
+            request(
+                10,
+                "__commons__",
+                None,
+                Method::TxnAddNode {
+                    txn_id: txn.clone(),
+                    node_id: "unkeyed".to_string(),
+                    properties_msgpack: node_props(serde_json::json!({"type": "Doc"})),
+                    graph: None,
+                },
+            ),
+        )
+        .await;
+        assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
+        let r = dispatch_on_heap(
+            &state,
+            request(
+                11,
+                "__commons__",
+                None,
+                Method::Commit {
+                    txn_id: txn,
+                    idempotency_key: None,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(r.result, Some(ResultPayload::Bool(true))),
+            "no idempotency_key -> bare Bool, unchanged wire shape: {:?}",
+            r.result
+        );
+    }
+
+    /// B-9 (2026-08-13): the gap this closes -- a caller loses track of its
+    /// `txn_id` (e.g. `BeginTxn`'s own response never arrived, or the process
+    /// holding it died) and must `BeginTxn` + re-stage from scratch to retry.
+    /// Without a caller idempotency key, a fresh `txn_id` is indistinguishable
+    /// from a genuinely new transaction, so the SAME logical write could be
+    /// applied twice. Proves the fix directly: two INDEPENDENTLY staged
+    /// transactions (fresh `txn_id`s, both begun before either commits so they
+    /// share one OCC `begin_version` and therefore stage byte-identical
+    /// recovery plans) that reuse ONE caller `idempotency_key` at `Commit`
+    /// apply exactly once -- the second call reports `replayed: true` and the
+    /// graph's OCC version does not advance a second time.
+    #[cfg(feature = "redb")]
+    #[tokio::test]
+    async fn commit_with_same_idempotency_key_applies_once_and_reports_replay() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock();
+        #[cfg(feature = "security")]
+        ensure_txn_recovery_key();
+        let state = test_state();
+        let key = "b9-caller-idempotency-key";
+
+        // Both txns begin BEFORE either commits, so both see the SAME OCC
+        // begin_version -- the realistic "lost track, must re-stage" shape,
+        // where the retry reconstructs the identical intended write.
+        let txn_a = begin_txn(&state, 1, "__commons__").await;
+        let txn_b = begin_txn(&state, 2, "__commons__").await;
+        for (id, txn) in [(10u64, &txn_a), (20u64, &txn_b)] {
+            let r = dispatch_on_heap(
+                &state,
+                request(
+                    id,
+                    "__commons__",
+                    None,
+                    Method::TxnAddNode {
+                        txn_id: txn.clone(),
+                        node_id: "kept".to_string(),
+                        properties_msgpack: node_props(serde_json::json!({"type": "Doc"})),
+                        graph: None,
+                    },
+                ),
+            )
+            .await;
+            assert!(
+                matches!(r.result, Some(ResultPayload::Bool(true))),
+                "stage {txn}"
+            );
+        }
+
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        let v_before = core.version();
+
+        // First attempt (txn_a): applies fresh.
+        let r = dispatch_on_heap(
+            &state,
+            request(
+                11,
+                "__commons__",
+                None,
+                Method::Commit {
+                    txn_id: txn_a,
+                    idempotency_key: Some(key.to_string()),
+                },
+            ),
+        )
+        .await;
+        let first = r
+            .result
+            .clone()
+            .unwrap_or_else(|| panic!("first commit must succeed: {:?}", r.error));
+        let ResultPayload::Json(first_value) = &first else {
+            panic!("a keyed Commit must return Json {{committed, replayed}}, got {first:?}");
+        };
+        assert_eq!(first_value["committed"], true, "{first_value:?}");
+        assert_eq!(
+            first_value["replayed"], false,
+            "the FIRST attempt under this key must NOT be reported as a replay: {first_value:?}"
+        );
+        assert!(core.has_node("kept"), "first attempt's write landed");
+        let v_after_first = core.version();
+        assert!(
+            v_after_first > v_before,
+            "the first attempt must advance the graph's OCC version"
+        );
+
+        // Second attempt (txn_b): a DIFFERENT txn_id, but the SAME caller key
+        // and byte-identical staged content -- this is the retry B-9 makes safe.
+        let r = dispatch_on_heap(
+            &state,
+            request(
+                21,
+                "__commons__",
+                None,
+                Method::Commit {
+                    txn_id: txn_b,
+                    idempotency_key: Some(key.to_string()),
+                },
+            ),
+        )
+        .await;
+        let second = r
+            .result
+            .unwrap_or_else(|| panic!("replayed commit must still succeed: {:?}", r.error));
+        let ResultPayload::Json(second_value) = &second else {
+            panic!("a keyed Commit must return Json {{committed, replayed}}, got {second:?}");
+        };
+        assert_eq!(
+            second_value, first_value,
+            "a replay must return the SAME cached result as the original commit"
+        );
+        assert_eq!(
+            second_value["replayed"], true,
+            "B-9: the SECOND attempt under the SAME key must be reported as a replay: {second_value:?}"
+        );
+        let v_after_second = core.version();
+        assert_eq!(
+            v_after_second, v_after_first,
+            "B-9: a replayed Commit must NOT re-apply the write-set -- the graph's \
+             OCC version must not advance a second time"
+        );
     }
 
     /// (b) Rollback: begin → stage → rollback → graph unchanged, nothing persisted.
@@ -3743,7 +3919,7 @@ mod tests {
                 20,
                 "__commons__",
                 None,
-                Method::Commit { txn_id: t1.clone() },
+                Method::Commit { txn_id: t1.clone(), idempotency_key: None },
             ),
         )
         .await;
@@ -3759,7 +3935,7 @@ mod tests {
                 21,
                 "__commons__",
                 None,
-                Method::Commit { txn_id: t2.clone() },
+                Method::Commit { txn_id: t2.clone(), idempotency_key: None },
             ),
         )
         .await;
@@ -3802,7 +3978,7 @@ mod tests {
         // Committing a swept txn is now an unknown-id error (true rollback occurred).
         let r = dispatch_on_heap(
             &state,
-            request(2, "__commons__", None, Method::Commit { txn_id: txn }),
+            request(2, "__commons__", None, Method::Commit { txn_id: txn, idempotency_key: None }),
         )
         .await;
         assert!(r.error.is_some(), "committing a swept txn errors");
@@ -3885,6 +4061,7 @@ mod tests {
                 None,
                 Method::Commit {
                     txn_id: txn.to_string(),
+                    idempotency_key: None,
                 },
             ),
         )

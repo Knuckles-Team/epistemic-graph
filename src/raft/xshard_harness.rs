@@ -623,7 +623,7 @@ async fn user_multigraph_txn_commits_atomically_across_groups() {
 
     let txn_id = begin_two_graph_txn(&state, "ua1", "ub1").await;
     let committed = as_bool(
-        txn_handle(&state, 4, None, Method::Commit { txn_id })
+        txn_handle(&state, 4, None, Method::Commit { txn_id, idempotency_key: None })
             .await
             .unwrap(),
     );
@@ -662,7 +662,7 @@ async fn user_multigraph_txn_atomic_under_participant_kill() {
     assert!(multi.group(GROUP_B).await.is_none(), "B is killed");
 
     let committed = as_bool(
-        txn_handle(&state, 4, None, Method::Commit { txn_id })
+        txn_handle(&state, 4, None, Method::Commit { txn_id, idempotency_key: None })
             .await
             .unwrap(),
     );
