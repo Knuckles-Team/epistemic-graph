@@ -1642,7 +1642,7 @@ mod tests {
         // opens. See `crate::crypto::acquire_test_env_lock`'s doc for the full
         // mechanism (this was the actual root cause of this test's parallel flake).
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = temp_dir("restart");
         let (state, persistence) = durable_state(&dir).await;
         let core = state

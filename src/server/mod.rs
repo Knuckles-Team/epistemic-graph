@@ -3224,7 +3224,7 @@ mod tests {
         // tests::EnvGuard`-protected test transiently clearing/changing it mid-flight
         // would otherwise reproduce the "sealed framing"/"wrong key" failures. See
         // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         ensure_txn_recovery_key();
 
         let state = test_state();
@@ -3547,7 +3547,7 @@ mod tests {
         // `seal_txn_recovery_plan`, which fails closed without a configured
         // `EPISTEMIC_GRAPH_ENCRYPTION_KEY`. See `ensure_txn_recovery_key`'s doc.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         #[cfg(feature = "security")]
         ensure_txn_recovery_key();
         let state = test_state();
@@ -3868,7 +3868,7 @@ mod tests {
     async fn txn_occ_conflict_second_commit_fails() {
         // See `txn_commit_applies_staged_writes` above: held for the whole test.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         #[cfg(feature = "security")]
         ensure_txn_recovery_key();
         let state = test_state();
@@ -4107,7 +4107,7 @@ mod tests {
     async fn txn_serializable_rejects_phantom() {
         // See `txn_commit_applies_staged_writes` above: held for the whole test.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         #[cfg(feature = "security")]
         ensure_txn_recovery_key();
         let state = test_state();
@@ -4179,7 +4179,7 @@ mod tests {
     async fn txn_snapshot_allows_phantom() {
         // See `txn_commit_applies_staged_writes` above: held for the whole test.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         #[cfg(feature = "security")]
         ensure_txn_recovery_key();
         let state = test_state();
@@ -4244,7 +4244,7 @@ mod tests {
     async fn txn_serializable_commits_when_predicate_unchanged() {
         // See `txn_commit_applies_staged_writes` above: held for the whole test.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock();
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         #[cfg(feature = "security")]
         ensure_txn_recovery_key();
         let state = test_state();
