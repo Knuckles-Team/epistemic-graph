@@ -4705,7 +4705,7 @@ mod result_cache_dispatch_tests {
             s.cdc.clone().unwrap()
         };
         // A produced at least one CDC event for the AddNode.
-        let events = hub_a.read("__commons__", 0, 0).unwrap();
+        let events = hub_a.read("__commons__", 0, 0).events;
         assert!(!events.is_empty(), "A's write must emit a CDC event");
 
         // COHERENCE: drain A's feed into B → B invalidates its local cache for the
