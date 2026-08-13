@@ -139,7 +139,10 @@ async fn commit_gateway_coalescable<F>(
 where
     F: FnOnce(&GraphCore) -> Result<ResultPayload, String> + Send + 'static,
 {
-    Box::pin(mutation::commit_coalescable_mutation(ctx, plan, method, apply)).await
+    Box::pin(mutation::commit_coalescable_mutation(
+        ctx, plan, method, apply,
+    ))
+    .await
 }
 
 /// Read a node's human-readable `(name, description, type)` triple from its
@@ -351,7 +354,9 @@ pub(crate) async fn try_handle_gateway(
     read_authority: Option<&GraphReadAuthority>,
     persistence: Option<&Arc<dyn PersistenceBackend>>,
     #[cfg(feature = "streaming")] cdc: Option<&Arc<crate::server::cdc::CdcHub>>,
-    write_coalescer: Option<&Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>>,
+    write_coalescer: Option<
+        &Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>,
+    >,
     authz_ctx: Option<&GatewayAuthzCtx>,
     // CONCEPT:EG-KG.mining.tsdb-typed-absent — the server's live tsdb store, needed ONLY by
     // the gateway-routed `Mine*` arms below to bind a plan-sourced `Op::TsScan` leg (mirrors

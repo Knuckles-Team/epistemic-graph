@@ -385,6 +385,22 @@ impl GraphReadAuthority {
                 .map(|value| value.as_ref().clone())
                 .unwrap_or_default();
             projected.add_node_no_ledger(node_id.clone(), properties);
+            // BUG A3 follow-up (2026-08-12): a fresh `GraphCore::new()` starts
+            // with an EMPTY `schema_refs`, so without this, a schema node that
+            // legitimately survived `filter_view` above (via the SOURCE
+            // core's real TBox membership) would fail RLS again on the very
+            // next `analysis_snapshot()` taken of THIS projected core — every
+            // read surface that calls `rls.filter_view` a second time against
+            // an already-projected core (SQL/UQL, `handlers/query.rs`) would
+            // silently re-hide it, exactly reproducing BUG A3's symptom one
+            // layer downstream of the fix in `eg_core::isolation`. Mirror the
+            // SOURCE core's TBox membership onto the projection for every node
+            // that survived filtering; a single ref is enough (the projection
+            // is a throwaway, read-only snapshot — never mutated further, so
+            // exact refcount fidelity does not matter here).
+            if core.is_schema_node(node_id) {
+                projected.mark_schema_ref(node_id);
+            }
         }
 
         let mut edge_keys: Vec<(String, String)> = view.edge_properties.keys().cloned().collect();

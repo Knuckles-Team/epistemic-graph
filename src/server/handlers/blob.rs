@@ -74,10 +74,10 @@ pub(crate) async fn try_handle(
             // the id FIRST so it can be folded into the batch identity —
             // see `compile_blob_batch_at`'s doc for the full mechanism.
             let proposed = cursors.allocate_upload_id();
-            let expected = match cursors
-                .store
-                .mutation_version(authority.tenant_scope(), &authority.namespace("blob-cas", "control"))
-            {
+            let expected = match cursors.store.mutation_version(
+                authority.tenant_scope(),
+                &authority.namespace("blob-cas", "control"),
+            ) {
                 Ok(v) => v,
                 Err(error) => return Ok(Response::err(req_id, error)),
             };

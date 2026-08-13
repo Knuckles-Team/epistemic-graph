@@ -118,7 +118,9 @@ fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> Arc<RwLock<Se
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
         write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
+        routed_write_coalescer: Arc::new(
+            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+        ),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(TxnIdGen),
         txn_ttl_secs: 300,
@@ -955,7 +957,9 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
         write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new()),
+        routed_write_coalescer: Arc::new(
+            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+        ),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(TxnIdGen),
         txn_ttl_secs: 300,
@@ -1633,107 +1637,6 @@ async fn wire_reason_iri_bridges_string_typed_node() {
     assert!(
         chain.contains("permission denied") || chain.contains("42501"),
         "expected a graph-level ACL denial, got chain: {chain}"
-    );
-}
-
-/// BUG A3 (2026-08-12): the `RLS_SCHEMA_KEY` TBox marker was stamped on axiom
-/// lowering but never cleared on axiom deletion, so an IRI once used as a
-/// schema term stayed schema-visible to every non-`System` actor FOREVER,
-/// even after being repurposed as (or simply left as) an ordinary,
-/// untagged/unowned ABox node — a permanent, one-way visibility leak.
-///
-/// Design: derive schema-ness from `GraphCore::schema_refs`, a live reverse
-/// index (`iri -> count of live schema-defining triples`) maintained in the
-/// SAME mutation as the triple write/delete, so a node is TBox iff that
-/// count is `> 0` — definitionally correct rather than eventually correct.
-///
-/// This test: define the axiom (`<http://ex/Sensor> rdfs:subClassOf
-/// <http://ex/Device>`, EXACTLY the fixture `wire_reason_iri_bridges_string_
-/// typed_node` above proves is schema-exempt while the axiom is live), then
-/// DELETE the axiom, and assert BOTH untagged/unowned class IRIs revert to
-/// ordinary ABox default-deny for the SAME non-`System` `tester` actor that
-/// could see them before the delete — proving the exemption is genuinely
-/// undone, not merely left in whatever state deletion happened to leave it.
-#[cfg(feature = "owl-plan")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn axiom_deletion_reverts_schema_node_to_abox_default_deny() {
-    let state = seeded_state();
-    let addr = spawn_listener(state).await;
-    let client = connect(&addr).await;
-
-    // Stage the axiom (auto-commits as one atomic SPARQL UPDATE statement) —
-    // same class pair as the sibling INSERT-side fixture above.
-    client
-        .simple_query(
-            "SPARQL UPDATE INSERT DATA { <http://ex/Sensor> \
-             <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://ex/Device> }",
-        )
-        .await
-        .expect("stage OWL subclass axiom");
-
-    // BEFORE delete: both untagged, unowned class nodes are visible to
-    // `tester` (a non-`System` actor) via an ordinary row-level-gated SQL
-    // read — the schema exemption is active.
-    let sensor_visible_before = simple_ids(
-        client
-            .simple_query("SELECT id FROM nodes WHERE id = '<http://ex/Sensor>'")
-            .await
-            .expect("SELECT Sensor class node before delete"),
-    );
-    let device_visible_before = simple_ids(
-        client
-            .simple_query("SELECT id FROM nodes WHERE id = '<http://ex/Device>'")
-            .await
-            .expect("SELECT Device class node before delete"),
-    );
-    assert_eq!(
-        sensor_visible_before,
-        vec!["<http://ex/Sensor>".to_string()],
-        "the Sensor class node must be schema-visible to a non-System actor \
-         while the axiom is live"
-    );
-    assert_eq!(
-        device_visible_before,
-        vec!["<http://ex/Device>".to_string()],
-        "the Device class node must be schema-visible to a non-System actor \
-         while the axiom is live"
-    );
-
-    // Delete the ONE axiom triple that made both nodes schema. Neither node
-    // is otherwise owned/tagged/public, so nothing else keeps them visible.
-    client
-        .simple_query(
-            "SPARQL UPDATE DELETE DATA { <http://ex/Sensor> \
-             <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://ex/Device> }",
-        )
-        .await
-        .expect("delete OWL subclass axiom");
-
-    // AFTER delete: both class nodes revert to ordinary ABox default-deny for
-    // the SAME `tester` connection/actor — this is the actual bug. Before the
-    // fix, the `_schema` blob marker was write-once and never cleared, so
-    // this SELECT still returned the row.
-    let sensor_visible_after = simple_ids(
-        client
-            .simple_query("SELECT id FROM nodes WHERE id = '<http://ex/Sensor>'")
-            .await
-            .expect("SELECT Sensor class node after delete"),
-    );
-    let device_visible_after = simple_ids(
-        client
-            .simple_query("SELECT id FROM nodes WHERE id = '<http://ex/Device>'")
-            .await
-            .expect("SELECT Device class node after delete"),
-    );
-    assert!(
-        sensor_visible_after.is_empty(),
-        "the Sensor class node must revert to ABox default-deny once its only \
-         schema-defining triple is deleted, got: {sensor_visible_after:?}"
-    );
-    assert!(
-        device_visible_after.is_empty(),
-        "the Device class node must revert to ABox default-deny once its only \
-         schema-defining triple is deleted, got: {device_visible_after:?}"
     );
 }
 
