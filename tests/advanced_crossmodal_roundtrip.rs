@@ -71,20 +71,46 @@ const SECRET: &str = "advanced-crossmodal-secret";
 /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at the backend's `open()` call -- the same
 /// requirement `redb_backend::tests::cm_dir` provisions. Encryption is symmetric and
 /// transparent to every round-trip these tests make, so a keyed store behaves
-/// identically for their assertions; provision it ONCE, before the first backend opens.
-fn state() -> Arc<RwLock<ServerState>> {
-    #[cfg(feature = "redb")]
-    {
-        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
-        ENCRYPTION_KEY.call_once(|| {
-            std::env::set_var(
-                epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
-                "advanced-crossmodal-recovery-key",
-            )
-        });
-    }
-    common::configure_authority();
-    let (persist_dir, persistence) = common::tempdir_persistence();
+/// identically for their assertions.
+///
+/// This USED to provision the env var via a `std::sync::Once` -- set it a single time
+/// for the whole process and never touch it again. That was the ambient-process-state
+/// bug this fixture had: `Once` only guarantees the *set* runs once, not that the
+/// value *stays* set, and `encryption_at_rest_wrong_key_fails_eg394` (same file)
+/// legitimately mutates this SAME process-global env var (K1 -> K2-wrong -> restore)
+/// while it runs. Every call to `state()` opens its OWN fresh `RedbBackend`
+/// (`common::tempdir_persistence()`), and `RedbBackend::open` resolves + caches the
+/// cipher freshly, synchronously, EVERY time it is called -- so a `state()` call whose
+/// `open()` happened to land in the window after eg394 removed the var (but after
+/// `Once` had already fired for some earlier, unrelated test) saw no key configured at
+/// all and failed closed with "transaction durability requires
+/// EPISTEMIC_GRAPH_ENCRYPTION_KEY to be configured", regardless of what THIS test
+/// actually needed. On a highly parallel dev host that interleaving rarely landed on
+/// the removed window; on a 2-core CI runner it reliably did.
+///
+/// Fix: every call re-provisions the var (not just the first) AND does so under the
+/// SAME `ENC_ENV_LOCK` eg394 holds for its entire body, so the two participants that
+/// mutate this process-global never interleave. This still mutates a process-global
+/// (see the module doc on `RedbBackend::open` for why: `ValueCipher::from_env` is the
+/// only key-provisioning seam that exists today -- there is no `RedbBackend::open`
+/// overload or `DurabilityPolicy` variant that accepts key material directly). A
+/// non-ambient fix would need a new constructor seam, e.g.
+/// `RedbBackend::open_with_cipher(persist_dir, policy, capacity, Option<ValueCipher>)`,
+/// so a test could pass `ValueCipher::from_key_material(..)` straight in without
+/// touching `std::env` at all; see the CLAUDE.md / program notes for that as a
+/// follow-up rather than a silent scope-creep here.
+async fn state() -> Arc<RwLock<ServerState>> {
+    let (persist_dir, persistence) = {
+        #[cfg(all(feature = "security", feature = "redb"))]
+        let _guard = ENC_ENV_LOCK.lock().await;
+        #[cfg(feature = "redb")]
+        std::env::set_var(
+            epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+            "advanced-crossmodal-recovery-key",
+        );
+        common::configure_authority();
+        common::tempdir_persistence()
+    };
     Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
         cold_tracker: std::sync::Arc::new(
@@ -386,7 +412,7 @@ async fn off_txn_text(state: &Arc<RwLock<ServerState>>, id: u64, text: &str) -> 
 /// atomic-commit-of-measurement path is exercised by the durability suite.)
 #[tokio::test]
 async fn five_modality_in_txn_ryow_then_commit_eg390() {
-    let state = state();
+    let state = state().await;
     let txn = begin(&state, 1, None).await;
 
     // ── stage all five modalities ──
@@ -627,7 +653,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
 /// phantom anomaly a serializable isolation level must reject across modalities.
 #[tokio::test]
 async fn concurrent_serializable_phantom_conflict_eg392() {
-    let state = state();
+    let state = state().await;
     // Seed one committed Sensor so the predicate read-set is non-empty at A's begin.
     ok(
         &state,
@@ -776,7 +802,7 @@ fn register_identity_req(
 async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
     use epistemic_graph::isolation::AgentRole;
 
-    let state = state();
+    let state = state().await;
 
     // ── Seed the committed base as the provisioned system identity. One PUBLIC
     // (unowned) row + one agent_a-owned PRIVATE row, each with an embedding so the
@@ -961,7 +987,7 @@ async fn sparql_post(addr: &str, query: &str) -> String {
 async fn pgwire_sparql_native_consistent_snapshot_eg393() {
     use epistemic_graph::server::{pgwire, sparql_http};
 
-    let state = state();
+    let state = state().await;
 
     // ── bind the pgwire listener on an ephemeral port with mandatory SCRAM. ──
     let pg_probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -979,9 +1005,21 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
     // ── bind the /sparql listener on an ephemeral port over the SAME state. ──
     // A18: `serve()` resolves its bearer/JWT read-leg credential from the
     // environment ONCE at startup (mirroring `kvcache_http`), so the env var
-    // must be set before it is spawned. `--test-threads=1` (this crate's
-    // mandatory test-run mode) makes a process-global env var safe here — no
-    // other test in THIS binary runs concurrently.
+    // must be set before it is spawned. CORRECTION (found while fixing the
+    // `EPISTEMIC_GRAPH_ENCRYPTION_KEY` ambient-env defect elsewhere in this file):
+    // the previous comment here claimed "`--test-threads=1` (this crate's
+    // mandatory test-run mode)" makes this safe -- that is FALSE; this binary is
+    // run with the default parallel test-threads in CI (`cargo test --test
+    // advanced_crossmodal_roundtrip`, no `--test-threads=1` anywhere in this
+    // repo's CI config). What actually makes this one safe today is narrower and
+    // more fragile: `pgwire_sparql_native_consistent_snapshot_eg393` is the ONLY
+    // test in this binary that reads OR mutates `SPARQL_BEARER_TOKEN_ENV` (grep
+    // confirmed), so there is no second participant to race. That is exactly the
+    // same shape of false assumption ("this is the ONLY test that touches X")
+    // that made the `EPISTEMIC_GRAPH_ENCRYPTION_KEY` bug invisible — it holds only
+    // as long as nobody adds a second sparql-serving test to this file without
+    // also serializing it against this one (the `ENC_ENV_LOCK` pattern above is
+    // the template to copy if that happens).
     std::env::set_var(sparql_http::SPARQL_BEARER_TOKEN_ENV, SPARQL_BEARER);
     let sparql_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let sparql_addr = sparql_listener.local_addr().unwrap().to_string();
@@ -1191,8 +1229,13 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Serialize the process-global `EPISTEMIC_GRAPH_ENCRYPTION_KEY` env toggle so the keyed
-/// open/reopen roundtrip never races another test reading it. This is the ONLY test in this
-/// binary that touches the encryption env.
+/// open/reopen roundtrip below never races another test reading OR mutating it.
+/// **Not** this test's private lock: `state()` above (the fixture nearly every other
+/// test in this binary calls) ALSO provisions this same env var before opening its own
+/// `RedbBackend`, and must hold this SAME lock while doing so -- see `state()`'s doc for
+/// the ambient-process-state bug that shape produced (`plan_writeback_stages_and_commits_inferred_edges_atomically_d7`
+/// panicking on a low-core-count CI runner because this test's set/restore interleaved
+/// with `state()`'s stale one-time `Once` outside any lock).
 #[cfg(all(feature = "security", feature = "redb"))]
 static ENC_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -1374,7 +1417,7 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
 async fn streaming_cdc_matview_rebuild_eg395() {
     use epistemic_graph::wire::{ContinuousAgg, ContinuousQuerySpec};
 
-    let state = state();
+    let state = state().await;
     let hub = {
         let s = state.read().await;
         s.cdc.clone().expect("streaming build has a CdcHub")
@@ -1484,7 +1527,7 @@ async fn streaming_cdc_matview_rebuild_eg395() {
 /// began, mirroring `TxnConstruct`'s "evaluated now" semantics).
 #[tokio::test]
 async fn plan_writeback_stages_and_commits_inferred_edges_atomically_d7() {
-    let state = state();
+    let state = state().await;
 
     // Committed BEFORE the txn: the entities the writeback plan will scan.
     ok(
@@ -1583,7 +1626,7 @@ async fn plan_writeback_stages_and_commits_inferred_edges_atomically_d7() {
 /// unit-tests in eg-plan), and the active rule set is non-empty.
 #[tokio::test]
 async fn explain_plan_surfaces_the_optimizer_rewrite() {
-    let state = state();
+    let state = state().await;
     for k in 0..50u32 {
         ok(
             &state,
@@ -1651,7 +1694,7 @@ async fn explain_plan_surfaces_the_optimizer_rewrite() {
 #[cfg(feature = "epistemic")]
 #[tokio::test]
 async fn explain_belief_returns_full_justification_tree() {
-    let state = state();
+    let state = state().await;
     ok(
         &state,
         1,
@@ -1723,7 +1766,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
     use epistemic_graph::isolation::AgentRole;
     use epistemic_graph::protocol::{DisclosureLevelWire, ExplainBeliefRedactedResult};
 
-    let state = state();
+    let state = state().await;
 
     // Seed the claim/evidence/secret topology as the provisioned system identity.
     // `claim1`/`evidence1` are meant PUBLIC (visible to `stranger` too, so its earned
@@ -1896,7 +1939,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
 async fn epistemic_status_returns_every_facet_over_rpc() {
     use epistemic_graph::protocol::EpistemicStatusResult;
 
-    let state = state();
+    let state = state().await;
     ok(
         &state,
         1,
@@ -1983,7 +2026,7 @@ async fn explain_evidence_resolves_a_located_citation_over_rpc() {
         EvidenceAddressWire, EvidenceLocusWire, EvidenceResourceWire, ExplainEvidenceResult,
     };
 
-    let state = state();
+    let state = state().await;
 
     ok(
         &state,
@@ -2094,7 +2137,7 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
     use epistemic_graph::isolation::AgentRole;
     use epistemic_graph::protocol::ExplainEvidenceResult;
 
-    let state = state();
+    let state = state().await;
     let locus = json!({
         "id": "eg:locus:0000000000000001",
         "subject": { "kind": "occurrence", "id": "eg:occurrence:0000000000000002" },
@@ -2275,7 +2318,7 @@ async fn causal_estimate_do_calculus_matches_hand_derivation_over_rpc() {
     };
     use std::collections::BTreeMap;
 
-    let state = state();
+    let state = state().await;
 
     let variables = vec![
         StructuralEquationWire {
@@ -2361,7 +2404,7 @@ async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_ove
         CalibrationWire, RankByProvenanceResult, RetrievalCandidateWire,
     };
 
-    let state = state();
+    let state = state().await;
 
     let candidates = vec![
         RetrievalCandidateWire {
@@ -2431,7 +2474,7 @@ async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_ove
 async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
     use epistemic_graph::protocol::ResolveConflictResult;
 
-    let state = state();
+    let state = state().await;
     let mut setup_id = 0u64;
     for (id, confidence) in [("a", 0.5), ("b", 0.5), ("c", 0.9)] {
         setup_id += 1;
@@ -2577,7 +2620,7 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
     use epistemic_graph::isolation::AgentRole;
     use epistemic_graph::protocol::ResolveConflictResult;
 
-    let state = state();
+    let state = state().await;
     // `a`/`c` are meant PUBLIC (this test's own doc comment: the SAME textbook AF
     // `resolve_conflict_matches_tms_crate_semantics_over_rpc` uses, "except `b` is now"
     // private) -- default-deny RLS hides an untagged, unowned row from a non-`System`
