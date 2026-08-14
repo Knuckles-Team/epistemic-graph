@@ -808,7 +808,27 @@ mod tests {
                 agent_id: agent_id.into(),
                 role: AgentRole::Agent,
                 teams: Vec::new(),
+                #[cfg(feature = "security")]
+                roles: vec!["commons-reader".into()],
+                #[cfg(not(feature = "security"))]
                 roles: Vec::new(),
+            });
+        }
+        // Under `security`, `check_access` defers entirely to RBAC -- the old
+        // "`__commons__` is readable by all authenticated agents" graph-type rule
+        // is ignored for a non-System identity, so `graph_read_authority` on
+        // `__commons__` needs an explicit grant. `graph_acl_denies_a_peer_owned_graph`
+        // targets `agent:actor-b` instead and stays denied -- this grant is scoped
+        // to `__commons__` only.
+        #[cfg(feature = "security")]
+        {
+            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+            isolation.add_role(Role::new("commons-reader"));
+            isolation.add_grant(Grant {
+                role: "commons-reader".into(),
+                resource: ResourceSelector::Graph("__commons__".into()),
+                action: RbacAction::Read,
+                effect: GrantEffect::Allow,
             });
         }
         isolation

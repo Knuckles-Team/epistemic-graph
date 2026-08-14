@@ -7228,12 +7228,18 @@ mod eg318_dispatch_tests {
                 agent_id: "alice".into(),
                 role: AgentRole::Agent,
                 teams: vec![],
+                #[cfg(feature = "security")]
+                roles: vec!["alice-self".into()],
+                #[cfg(not(feature = "security"))]
                 roles: vec![],
             });
             s.isolation.register_agent(AgentIdentity {
                 agent_id: "bob".into(),
                 role: AgentRole::Agent,
                 teams: vec![],
+                #[cfg(feature = "security")]
+                roles: vec!["bob-self".into()],
+                #[cfg(not(feature = "security"))]
                 roles: vec![],
             });
             let _ = s.registry.create_graph(
@@ -7246,6 +7252,31 @@ mod eg318_dispatch_tests {
                 crate::protocol::GraphType::Agent,
                 Some("bob".into()),
             );
+            // Under `security`, `check_access` defers entirely to RBAC (the
+            // owner-derived Agent-graph rule below is ignored for a non-System
+            // identity): grant each owner read+write on their own graph so this
+            // module's "ordinary graph ACL boundary" proof exercises the SAME
+            // owner-write / peer-denied shape through RBAC. Bob gets no grant on
+            // `acme:private`, and alice none on `other:private`, so cross-tenant
+            // reads stay denied exactly as asserted below.
+            #[cfg(feature = "security")]
+            {
+                use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+                for (role, graph) in [
+                    ("alice-self", "acme:private"),
+                    ("bob-self", "other:private"),
+                ] {
+                    s.isolation.add_role(Role::new(role));
+                    for action in [RbacAction::Read, RbacAction::Write] {
+                        s.isolation.add_grant(Grant {
+                            role: role.to_string(),
+                            resource: ResourceSelector::Graph(graph.to_string()),
+                            action,
+                            effect: GrantEffect::Allow,
+                        });
+                    }
+                }
+            }
         }
         let request = |id: u64, graph: &str, agent: &str, method: Method| {
             sign_current_test_request(
@@ -7638,6 +7669,32 @@ mod blob_dispatch_tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir.to_string()),
+            // `BlobRef` creates a durable :Media graph node -- a GATEWAY_ROUTED
+            // write that fails closed without a persistence backend, same
+            // reasoning as `server::mod.rs`'s `test_state()`. A separate
+            // uniquely-named dir from the blob chunk store above (redb's
+            // exclusive per-process file lock is per-file, not per-test, but
+            // keeping them apart avoids any accidental path collision).
+            #[cfg(feature = "redb")]
+            persistence: Some(std::sync::Arc::new(
+                crate::server::persistence::redb_backend::RedbBackend::open(
+                    std::env::temp_dir()
+                        .join(format!(
+                            "eg-blob-dispatch-graph-{}-{}",
+                            std::process::id(),
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_nanos())
+                                .unwrap_or(0)
+                        ))
+                        .to_string_lossy()
+                        .into_owned(),
+                    crate::durability::DurabilityPolicy::Each,
+                    256,
+                )
+                .expect("open blob-dispatch test redb backend"),
+            )),
+            #[cfg(not(feature = "redb"))]
             persistence: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),

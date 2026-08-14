@@ -1142,8 +1142,29 @@ mod tests {
             agent_id: "service:bolt-test".to_string(),
             role: crate::isolation::AgentRole::Agent,
             teams: Vec::new(),
+            #[cfg(feature = "security")]
+            roles: vec!["bolt-test".into()],
+            #[cfg(not(feature = "security"))]
             roles: Vec::new(),
         });
+        // Under `security`, `check_access` defers entirely to RBAC (the
+        // `GraphType::Commons` "open to all authenticated agents" rule below is
+        // ignored for a non-System identity) -- grant the same shape explicitly so
+        // `authorize_cypher`'s `check_graph_access` on `__commons__` isn't a bare
+        // default-deny.
+        #[cfg(feature = "security")]
+        {
+            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+            isolation.add_role(Role::new("bolt-test"));
+            for action in [RbacAction::Read, RbacAction::Write] {
+                isolation.add_grant(Grant {
+                    role: "bolt-test".into(),
+                    resource: ResourceSelector::Graph("__commons__".into()),
+                    action,
+                    effect: GrantEffect::Allow,
+                });
+            }
+        }
         Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
@@ -1156,6 +1177,33 @@ mod tests {
             #[cfg(feature = "kv")]
             kv: None,
             persist_dir: None,
+            // A REAL per-test durable backend, same reasoning as
+            // `server::mod.rs`'s `test_state()` (redb takes an exclusive
+            // per-process file lock, so each call gets its own uniquely-named
+            // dir): BEGIN/COMMIT session-control mutations and durable-domain
+            // writes fail closed without one. `durable_state()` below
+            // immediately overrides this with its own explicitly-tracked
+            // backend for the tests that need to inspect/restart it.
+            #[cfg(feature = "redb")]
+            persistence: Some(std::sync::Arc::new(
+                crate::server::persistence::redb_backend::RedbBackend::open(
+                    std::env::temp_dir()
+                        .join(format!(
+                            "eg-bolt-server-test-{}-{}",
+                            std::process::id(),
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_nanos())
+                                .unwrap_or(0)
+                        ))
+                        .to_string_lossy()
+                        .into_owned(),
+                    crate::durability::DurabilityPolicy::Each,
+                    256,
+                )
+                .expect("open bolt test redb backend"),
+            )),
+            #[cfg(not(feature = "redb"))]
             persistence: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
