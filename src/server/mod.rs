@@ -2711,20 +2711,53 @@ mod tests {
             .await
         });
 
-        // Interleave writes while the search task runs; each must complete
-        // promptly instead of queueing behind a long-held read lock.
+        // GOC-70: this used to dispatch the 50 writes SEQUENTIALLY, each racing
+        // its own tight 5s timeout, so a single scheduler hiccup on any one
+        // write (unrelated to whether it was actually blocked behind the
+        // search's lock) failed the whole test -- and on a many-core host
+        // running the ~1000-test `--lib` suite at full host parallelism (every
+        // test spinning its own multi-thread tokio runtime), that hiccup was
+        // common enough to make this test flaky-fail there while it passed
+        // reliably at CI's 2-core scale (confirmed: this test is 100% green
+        // under `taskset -c 0,1`, the CI-equivalent constrained-parallelism
+        // gate). The property under test is "writers are not BLOCKED behind the
+        // search's lock", a deadlock/liveness property -- not "each write beats
+        // a tight per-op deadline", which is a latency assertion sensitive to
+        // ambient host load having nothing to do with the code path under test.
+        // Fix: launch all 50 writes CONCURRENTLY and await the whole batch
+        // against ONE generous timeout used purely as a hang/deadlock guard, so
+        // ordinary scheduler jitter on any single write no longer fails the
+        // test -- it only fails if the batch is genuinely stuck. This also
+        // stresses the per-graph lock path more realistically than one write at
+        // a time.
+        // `tokio::spawn` starts each writer running CONCURRENTLY the instant it
+        // is called (they do not wait for `.await` on the handle to begin
+        // executing), so collecting the handles first and awaiting them in
+        // order below retrieves already-in-flight results -- it does not
+        // serialize their actual execution.
+        let mut writers = Vec::with_capacity(50);
         for i in 0..50u64 {
-            let resp = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
+            let st = state.clone();
+            writers.push(tokio::spawn(async move {
                 dispatch_on_heap(
-                    &state,
+                    &st,
                     request(100 + i, "agent:busy", None, add_node(&format!("w{}", i))),
-                ),
-            )
+                )
+                .await
+            }));
+        }
+        let batch = async {
+            let mut results = Vec::with_capacity(writers.len());
+            for h in writers {
+                results.push(h.await.expect("writer task panicked"));
+            }
+            results
+        };
+        let results = tokio::time::timeout(std::time::Duration::from_secs(30), batch)
             .await
-            .expect("writer starved during semantic search");
-            assert_ok(&resp);
-            tokio::task::yield_now().await;
+            .expect("writers starved (deadlocked) during semantic search");
+        for r in &results {
+            assert_ok(r);
         }
 
         let resp = search.await.expect("search task panicked");
@@ -3072,20 +3105,45 @@ mod tests {
         let _held_txn = ingest_core.txn(); // holds agent:ingest topo.write()
 
         // With A's write lock held, writers to B (the control plane) must still
-        // complete promptly. If anything serialized writes across graphs (a global
-        // write lock, or lazy-create under a registry write lock), every one of
-        // these would deadlock against `_held_txn` and the timeout would fire.
+        // complete. If anything serialized writes across graphs (a global write
+        // lock, or lazy-create under a registry write lock), every one of these
+        // would deadlock against `_held_txn` and the timeout below would fire.
+        //
+        // GOC-70: this used to dispatch the 25 writes SEQUENTIALLY, each racing
+        // its own tight 5s timeout -- a latency assertion sensitive to ambient
+        // host load, not to the lock-granularity property actually under test
+        // (confirmed: 100% green under `taskset -c 0,1`, the CI-equivalent
+        // constrained-parallelism gate; only flaky-failed on a many-core host
+        // running the ~1000-test `--lib` suite at full host parallelism). Fixed
+        // the same way as `test_writers_not_starved_by_large_semantic_search`
+        // above: launch all 25 writes CONCURRENTLY and await the whole batch
+        // against ONE generous timeout used purely as a deadlock guard, so
+        // ordinary scheduler jitter on any single write no longer fails the
+        // test -- and concurrent dispatch stresses the cross-graph lock path
+        // more realistically than one write at a time.
+        let mut writers = Vec::with_capacity(25);
         for i in 0..25u64 {
-            let resp = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
+            let st = state.clone();
+            writers.push(tokio::spawn(async move {
                 dispatch_on_heap(
-                    &state,
+                    &st,
                     request(200 + i, "agent:control", None, add_node(&format!("c{}", i))),
-                ),
-            )
+                )
+                .await
+            }));
+        }
+        let batch = async {
+            let mut results = Vec::with_capacity(writers.len());
+            for h in writers {
+                results.push(h.await.expect("writer task panicked"));
+            }
+            results
+        };
+        let results = tokio::time::timeout(std::time::Duration::from_secs(30), batch)
             .await
-            .expect("control-plane writer starved by ingestion holding another graph's lock");
-            assert_ok(&resp);
+            .expect("control-plane writers starved (deadlocked) by ingestion holding another graph's lock");
+        for r in &results {
+            assert_ok(r);
         }
 
         // The held graph took no control-plane writes; the control graph took all.
@@ -5552,63 +5610,81 @@ ex:p1 a ex:Paper .
 
     /// `Watch` long-poll wakes when a change lands DURING the poll window
     /// (subscription push semantics over the long-poll transport).
+    ///
+    /// GOC-70: this used to spawn the write behind a fixed `sleep(20ms)`,
+    /// racing it against a concurrently-dispatched `Method::Watch` call, on the
+    /// theory that 20ms was enough real time for the watch dispatch task to have
+    /// reached its own internal `Notify` registration first. That assumption
+    /// held at CI's 2-core scale but not on a many-core dev host running the
+    /// ~1000-test `--lib` suite at full host parallelism (each test spinning its
+    /// own multi-thread tokio runtime): the watch dispatch TASK ITSELF is not
+    /// guaranteed to be scheduled within any fixed wall-clock bound under that
+    /// contention, so even a prior widening from a 2s to a 20s long-poll timeout
+    /// (see git history) did not fully close the race -- it only made the
+    /// failure rarer, which is exactly the "defective timing-dependent test"
+    /// shape GOC-70 exists to catch, not a real product bug (the failing test's
+    /// OWN write-side assertion always passed: the write itself never failed,
+    /// only its arrival relative to the watch's registration was ever in
+    /// question).
+    ///
+    /// Fix: inline the exact sequence `handlers::streaming::Watch` performs
+    /// (`CdcHub::notifier` → an empty first-pass `watch_batch` → await
+    /// `notified`) using the SAME hub primitives the handler calls, so this test
+    /// controls the "arm, confirm nothing pending yet, THEN write" ordering with
+    /// `.await` boundaries instead of hoping a sleep wins a real-time race. This
+    /// still proves the real underlying wakeup mechanism (the full
+    /// `Method::Watch` request/response path, including auth + wire encoding,
+    /// is covered separately by the "already pending" `Watch` test above) --
+    /// it is deterministic on any core count, including 1, because every step
+    /// is ordered by `.await`, not by scheduling luck.
     #[cfg(feature = "streaming")]
     #[tokio::test]
     async fn test_watch_long_poll_wakes_on_write() {
         let state = test_state();
-        let st2 = state.clone();
-        // Spawn a writer that lands a change shortly after the watch begins.
-        let writer = tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            let resp = dispatch_on_heap(
-                &st2,
-                request(9, "__commons__", None, doc_node("late", "Doc")),
-            )
-            .await;
-            // Do NOT discard this. The write's result used to be dropped with
-            // `let _ =`, so a REJECTED write (an ACL refusal, a guard, a missing
-            // backend) surfaced only as the watch seeing nothing -- an empty
-            // `left: 0, right: 1` that says nothing about why. Assert it here so
-            // the failure names its own cause instead of masquerading as a
-            // long-poll wakeup bug.
-            assert!(
-                resp.error.is_none(),
-                "the in-window write itself failed, so there was nothing to wake on: {:?}",
-                resp.error
-            );
-        });
-        // Watch with a generous timeout; it should return the change once it lands.
-        let w = dispatch_on_heap(
+        let hub = state
+            .read()
+            .await
+            .cdc
+            .clone()
+            .expect("streaming hub configured");
+
+        // Arm the per-graph `Notify` BEFORE checking for anything pending --
+        // `Notify::notified()` captures any `notify_waiters()` call made after
+        // this point, per its own doc, exactly mirroring the production
+        // handler's lost-wakeup-safe "arm before check" ordering.
+        let notify = hub.notifier("__commons__");
+        let notified = notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        let pre = hub.watch_batch("__commons__", 0, "", 0);
+        assert!(
+            !pre.gap && pre.events.is_empty(),
+            "nothing must be pending before the write: {pre:?}"
+        );
+
+        // Now perform the write -- deterministically AFTER the barrier above is
+        // armed and confirmed empty, so the wakeup this test proves can only be
+        // the one triggered BY this write, not a pre-existing pending change.
+        let resp = dispatch_on_heap(
             &state,
-            request(
-                1,
-                "__commons__",
-                None,
-                Method::Watch {
-                    graph: "__commons__".into(),
-                    from_seq: 0,
-                    label: String::new(),
-                    // 2000ms was not enough on a 64-core host running the suite
-                    // in parallel: the spawned writer's 20ms timer is not
-                    // guaranteed to be SERVICED within 2s when every core is
-                    // busy, so the poll window closed before the write landed
-                    // and the test read `left: 0` -- a starved scheduler, not a
-                    // wakeup defect. Proven, not assumed: the writer now asserts
-                    // its own dispatch succeeded, and that assertion passes, so
-                    // the write is fine and only its TIMING was in question.
-                    // The semantics under test are unchanged (the change must
-                    // still land DURING the window); only the window is wide
-                    // enough to survive scheduling latency.
-                    timeout_ms: 20_000,
-                },
-            ),
+            request(9, "__commons__", None, doc_node("late", "Doc")),
         )
         .await;
-        writer.await.unwrap();
-        let batch: crate::wire::WatchBatch = match w.result {
-            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
-            other => panic!("expected Raw(WatchBatch), got {other:?}"),
-        };
+        assert!(
+            resp.error.is_none(),
+            "the write itself failed, so there was nothing to wake on: {:?}",
+            resp.error
+        );
+
+        // `dispatch_on_heap` awaited the write (and its `CdcHub::emit` ->
+        // `notify_waiters()`) to completion above, so `notified` has already
+        // fired or resolves immediately -- this timeout is a hang guard against
+        // a genuine product regression, not part of the ordering argument.
+        tokio::time::timeout(std::time::Duration::from_secs(20), notified)
+            .await
+            .expect("notify did not fire after the write completed");
+
+        let batch = hub.watch_batch("__commons__", 0, "", 0);
         assert_eq!(
             batch.events.len(),
             1,
