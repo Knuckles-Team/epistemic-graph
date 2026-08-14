@@ -19,8 +19,11 @@
 //!   `resolve_evidence` to resolve an `Evidence` node through an
 //!   [`resolver::EvidenceResolver`].
 //! * [`resolver::EvidenceResolver`] — the evidence-resolver seam: resolves an
-//!   `EvidenceLocus` back to its [`resolver::ResolvedArtifact`] (a text excerpt or
-//!   a blob reference). This crate ships the trait only — deliberately no
+//!   `EvidenceLocus` back to its [`resolver::ResolvedArtifact`] (a text excerpt,
+//!   an intentionally-opaque blob reference, or a typed
+//!   [`resolver::UnresolvedReason`] when no exact result can be produced — an
+//!   address that promises a region/interval is never silently reported as a
+//!   blob-only success; GOC-05 gate 3). This crate ships the trait only — deliberately no
 //!   resolver implementation of its own, since a leaf crate below the server
 //!   cannot reach the blob CAS (see "Dependency footprint" below). The real,
 //!   production resolver is `CasEvidenceResolver` in the facade
@@ -45,4 +48,4 @@ pub mod graph;
 pub mod resolver;
 
 pub use graph::{AlignmentGraph, AlignmentLink, AlignmentNode, AlignmentNodeId, AlignmentRelation};
-pub use resolver::{subject_ref, EvidenceResolver, ResolvedArtifact};
+pub use resolver::{subject_ref, EvidenceResolver, ResolvedArtifact, UnresolvedReason};

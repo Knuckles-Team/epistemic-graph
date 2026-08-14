@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use eg_alignment::{subject_ref, EvidenceResolver, ResolvedArtifact};
+use eg_alignment::{subject_ref, EvidenceResolver, ResolvedArtifact, UnresolvedReason};
 use eg_core::graph::GraphView;
 use eg_modality::{EvidenceAddress, EvidenceLocus};
 
@@ -68,10 +68,37 @@ impl EvidenceResolver for CasEvidenceResolver<'_> {
                     excerpt: lines[start..end].join("\n"),
                 })
             }
-            _ => Some(ResolvedArtifact::Blob {
+            // `RowVersion`/`TraceSpan` are themselves opaque, versioned/keyed
+            // pointers, not byte ranges into a source rendition — a downstream
+            // store resolves them by key, so reporting the CAS reference here
+            // IS the exact, intentional result (GOC-05 "Address and resolver
+            // contract": "`BlobRef` is success only when the declared address
+            // is intentionally opaque").
+            EvidenceAddress::RowVersion { .. } | EvidenceAddress::TraceSpan { .. } => {
+                Some(ResolvedArtifact::Blob {
+                    subject_ref: subject.to_string(),
+                    blob_ref,
+                    note: "resolved from the engine content-addressed store".to_string(),
+                })
+            }
+            // Every other address kind (table cell, image region, page region,
+            // audio/video range, frame range, metric window, point) names an
+            // exact region/interval within a decoded rendition. No provider
+            // capable of that decode is registered in this build yet
+            // (GOC-06/GOC-07 own the codecs) — reporting the raw blob digest
+            // here would misreport an unresolved region as exact evidence, the
+            // exact violation GOC-05 gate 3 forbids. Report the typed
+            // unresolved reason instead of a silent blob-only fallback.
+            EvidenceAddress::TableCellRange { .. }
+            | EvidenceAddress::ImageRegion { .. }
+            | EvidenceAddress::PageRegion { .. }
+            | EvidenceAddress::AudioRange { .. }
+            | EvidenceAddress::VideoTimeRange { .. }
+            | EvidenceAddress::FrameRange { .. }
+            | EvidenceAddress::MetricWindow { .. }
+            | EvidenceAddress::Point { .. } => Some(ResolvedArtifact::Unresolved {
                 subject_ref: subject.to_string(),
-                blob_ref,
-                note: "resolved from the engine content-addressed store".to_string(),
+                reason: UnresolvedReason::CodecUnavailable,
             }),
         }
     }
@@ -150,14 +177,36 @@ mod tests {
         ));
     }
 
+    /// GOC-05 gate 3: an address that promises a region (here `ImageRegion`)
+    /// must never silently degrade to a blob-only "success" when no decoder
+    /// exists to crop that region — it must report a typed unresolved reason.
     #[test]
-    fn non_text_address_returns_the_real_digest_reference() {
+    fn region_address_without_a_registered_codec_reports_unresolved_not_a_blob_fallback() {
         let (resolver, mut evidence) = resolver_fixture(&[0xff; 64]);
         evidence.address = EvidenceAddress::ImageRegion {
             x: 0.0,
             y: 0.0,
             width: 10.0,
             height: 10.0,
+        };
+        assert_eq!(
+            resolver.resolve(&evidence),
+            Some(ResolvedArtifact::Unresolved {
+                subject_ref: subject_ref(&evidence).to_string(),
+                reason: UnresolvedReason::CodecUnavailable,
+            })
+        );
+    }
+
+    /// `RowVersion`/`TraceSpan` addresses are intentionally opaque, versioned
+    /// pointers rather than byte ranges, so — unlike `ImageRegion` above —
+    /// resolving to the raw CAS reference IS the exact result, not a fallback.
+    #[test]
+    fn opaque_pointer_addresses_resolve_to_the_real_digest_reference() {
+        let (resolver, mut evidence) = resolver_fixture(&[0xab; 32]);
+        evidence.address = EvidenceAddress::RowVersion {
+            row_ref: r("row", 7),
+            version: 3,
         };
         assert!(matches!(
             resolver.resolve(&evidence),
@@ -184,6 +233,14 @@ mod tests {
     /// `CasEvidenceResolver` production code path `ExplainEvidence` uses, not a
     /// fabricated excerpt/digest. This is the one place `eg-alignment`'s graph and
     /// the real CAS resolver are exercised together.
+    ///
+    /// GOC-05 note: the image hop asserts `Unresolved{CodecUnavailable}`, not a
+    /// resolved blob — this build has no image-region decoder, so the digest
+    /// alone is not the *region* the locus addresses (see
+    /// `region_address_without_a_registered_codec_reports_unresolved_not_a_blob_fallback`
+    /// above). The cross-modal path/join itself is unaffected: `path_exists`
+    /// still holds through the alignment edges regardless of whether the
+    /// evidence at an intermediate node resolves exactly.
     #[test]
     fn alignment_graph_cross_modal_join_resolves_through_cas() {
         let cas = store();
@@ -248,12 +305,11 @@ mod tests {
         );
         assert_eq!(
             graph.resolve_evidence(image_node, &resolver),
-            Some(ResolvedArtifact::Blob {
+            Some(ResolvedArtifact::Unresolved {
                 subject_ref: image_subject,
-                blob_ref: image_committed.digest,
-                note: "resolved from the engine content-addressed store".to_string(),
+                reason: UnresolvedReason::CodecUnavailable,
             }),
-            "the image region resolves to the real CAS digest"
+            "the image region is honestly unresolved, not misreported via the raw CAS digest"
         );
 
         // The claim node has no located span — never resolved.
