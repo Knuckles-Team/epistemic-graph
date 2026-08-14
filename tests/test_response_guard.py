@@ -37,12 +37,33 @@ def capped_server(tmp_path_factory: pytest.TempPathFactory):
     runtime = tmp_path_factory.mktemp("eg-guard")
     sock = str(runtime / "capped.sock")
 
+    # `persist_dir` MUST be passed through to `strict_server_env` explicitly.
+    # This module launches its OWN dedicated server, independent of the shared
+    # session engine in conftest.py -- but that session fixture's `os.environ.
+    # update(server_env)` leaves `GRAPH_SERVICE_PERSIST_DIR` pointing at ITS OWN
+    # persist dir in the ambient process environment for the rest of the pytest
+    # run. Omitting `persist_dir` here means `env = {**os.environ, **strict_
+    # server_env(...)}` silently inherits that ambient value instead of this
+    # module's own, and the dedicated server then refuses to start ("persist dir
+    # ... is already locked by another epistemic-graph engine") because the
+    # still-running session engine already holds that directory's lock -- the
+    # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
+    persist_dir = str(runtime / "persist")
+    os.makedirs(persist_dir, exist_ok=True)
     proc = subprocess.Popen(
         [
             "cargo",
             "run",
             "--features",
-            "full",
+            # Not plain `full`: this module and `test_viz_client.py`/
+            # `test_epi_gapfill_roundtrip.py`/`test_graceful_shutdown.py` all
+            # build to the SAME shared `target-isolated` output (`.cargo/
+            # config.toml`); if they requested different feature strings,
+            # whichever ran later would pay a ~40-60s relink of the earlier
+            # one's build -- often enough to blow the 60s pytest-timeout.
+            # `viz-static-export` is unused here but a strict superset is
+            # always a safe substitute for `full` alone.
+            "full viz-static-export",
             "--bin",
             "epistemic-graph-server",
             "--",
@@ -52,7 +73,11 @@ def capped_server(tmp_path_factory: pytest.TempPathFactory):
         cwd=rust_dir,
         env={
             **os.environ,
-            **strict_server_env(str(runtime / "security"), auth_secret=_SECRET),
+            **strict_server_env(
+                str(runtime / "security"),
+                auth_secret=_SECRET,
+                persist_dir=persist_dir,
+            ),
             "EPISTEMIC_GRAPH_MAX_RESPONSE_NODES": str(_CAP),
         },
         stdout=subprocess.PIPE,

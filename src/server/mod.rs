@@ -1540,28 +1540,21 @@ mod tests {
         // whole seam) is itself the trust boundary — the equivalent of a
         // privileged service account, not an end-user subject to per-row
         // ownership — so `System` is the correct role here, not a narrowly RBAC-
-        // scoped one.
+        // scoped one. The identity ALSO needs the `federation-reader` RBAC role
+        // (under the `security` feature) so the coarse graph-level grant check
+        // passes independently of RLS. Both must land in ONE `register_agent`
+        // call: `IsolationLayer::register_agent` documents itself as "register OR
+        // UPDATE" — a second call for the same `agent_id` overwrites the whole
+        // identity record (including `role`), it does not merge fields. A prior
+        // version of this test registered `role: System` and then immediately
+        // re-registered the same agent as `role: Agent` to add the RBAC role list,
+        // silently discarding the System role and reintroducing the exact
+        // RLS-fail-closed "No field named year" symptom this comment describes.
         {
             let mut s = remote.write().await;
             s.isolation.register_agent(AgentIdentity {
                 agent_id: "agent:federation-test".into(),
                 role: AgentRole::System,
-                teams: Vec::new(),
-                roles: Vec::new(),
-            });
-        }
-        build_unified_fixture(&remote).await;
-        // The foreign read below authenticates as "agent:federation-test" against
-        // the REMOTE engine over the wire -- a genuinely different identity from
-        // the fixture's "system" caller, so it must be provisioned (and, under the
-        // `security` feature, RBAC-granted Read on `__commons__`) on `remote`'s own
-        // isolation layer or the federated read is denied before it ever reaches
-        // the traversal.
-        {
-            let mut s = remote.write().await;
-            s.isolation.register_agent(AgentIdentity {
-                agent_id: "agent:federation-test".into(),
-                role: AgentRole::Agent,
                 teams: Vec::new(),
                 #[cfg(feature = "security")]
                 roles: vec!["federation-reader".into()],
@@ -1580,6 +1573,7 @@ mod tests {
                 });
             }
         }
+        build_unified_fixture(&remote).await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let remote_addr = listener.local_addr().unwrap().to_string();
         let remote_for_serve = remote.clone();
@@ -4767,8 +4761,23 @@ mod tests {
     /// empty one. Real tests of the guard's ENFORCEMENT behavior configure their
     /// own non-empty shapes; this is for the many round-trip tests that exist to
     /// prove something else and just need the write to be let through.
+    ///
+    /// `IcvConfigure` is policy-idempotent (CONCEPT:EG-P0-2 `MutationPlan::idempotent`),
+    /// and its replay-dedup cache (`mutation::idempotency_store`) is a PROCESS-GLOBAL
+    /// `OnceLock`, keyed only by `(graph_name, method content)` — it has no notion of
+    /// "which `test_state()`" issued the call. Every `#[tokio::test]` in this module
+    /// gets its own fresh, independent `ServerState`/`GraphCore`, but they all run in
+    /// the SAME process and therefore share ONE idempotency cache: a second test
+    /// calling this helper with byte-identical `graph`/shapes content would replay the
+    /// FIRST test's cached response instead of actually registering a policy on the
+    /// second test's own core — an order-dependent false pass/fail entirely internal
+    /// to this test module, not a product defect. A per-call nonce embedded as a
+    /// harmless Turtle comment keeps every call's cache key unique (same convention
+    /// `test_owl_reason_distributed_two_graphs` already uses per-graph, below).
     #[cfg(all(feature = "rdf", feature = "shacl"))]
     async fn configure_icv_enforce(state: &Arc<RwLock<ServerState>>, req_id: u64, graph: &str) {
+        static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let nonce = NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let r = dispatch_on_heap(
             state,
             request(
@@ -4778,7 +4787,9 @@ mod tests {
                 Method::IcvConfigure {
                     graph: None,
                     mode: "enforce".into(),
-                    shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".into(),
+                    shapes: format!(
+                        "@prefix sh: <http://www.w3.org/ns/shacl#> .\n# configure_icv_enforce:{nonce}"
+                    ),
                 },
             ),
         )

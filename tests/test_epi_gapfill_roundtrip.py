@@ -19,11 +19,18 @@ reach it.
    grounded/preferred/stable argumentation semantics directly (previously reachable
    only COMPOSED inside ``epistemic_status``), via :meth:`QueryClient.resolve_conflict`.
 
-This is self-contained: it builds + manages its OWN server process (one dedicated
-binary built with every gap-fill feature), independent of the session-wide ``full``
-fixture in ``conftest.py`` (which does not carry ``epistemic-causal``/
-``epistemic-redaction``/``jobs``/``epistemic-tms`` — all opt-in, not folded into
-``full``).
+This is self-contained: it builds + manages its OWN server process, independent of
+the session-wide ``full`` fixture in ``conftest.py``. ``epistemic-causal``/
+``epistemic-redaction``/``jobs``/``epistemic-tms`` are all now folded into ``full``
+(see the root ``Cargo.toml``'s ``full`` feature list) -- ``FEATURES`` below also adds
+``viz-static-export`` even though this module never exercises it, purely so its own
+``_build()`` targets the SAME feature string as ``test_viz_client.py``'s (that file's
+own "self-building-fixture pattern" this docstring already referenced). Both modules
+build to the SAME shared ``target-isolated`` output (`.cargo/config.toml`); if they
+requested different feature strings, whichever ran second would pay a ~40-60s relink
+of the other's build (see ``test_graceful_shutdown.py``'s "cold `cargo run`" comment)
+— often enough to blow the 60s pytest-timeout. A strict superset is always a safe
+substitute for a subset request, so aligning the two eliminates the thrash.
 """
 
 from __future__ import annotations
@@ -38,6 +45,7 @@ from conftest import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
     bootstrap_context,
+    find_server_binary,
     request_context,
     strict_server_env,
 )
@@ -46,7 +54,7 @@ from epistemic_graph.client import SyncEpistemicGraphClient
 
 RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 AUTH_SECRET = "test-epi-gapfill-roundtrip-secret"
-FEATURES = "full epistemic-causal epistemic-redaction epistemic-tms jobs"
+FEATURES = "full viz-static-export"
 
 
 def _build() -> str | None:
@@ -59,14 +67,30 @@ def _build() -> str | None:
     )
     if r.returncode != 0:
         return None
-    binary = os.path.join(RUST_DIR, "target", "debug", "epistemic-graph-server")
-    return binary if os.path.exists(binary) else None
+    # `find_server_binary()` honors `CARGO_TARGET_DIR`/the repo's own
+    # `.cargo/config.toml` (`target-isolated`) -- the build above lands wherever
+    # that resolves, which is NOT necessarily the hardcoded legacy `target/debug`.
+    return find_server_binary()
 
 
-def _launch(binary: str, socket_path: str, state_dir: str) -> subprocess.Popen:
+def _launch(
+    binary: str, socket_path: str, state_dir: str, persist_dir: str
+) -> subprocess.Popen:
+    # `persist_dir` MUST be passed through to `strict_server_env` explicitly.
+    # This module launches its OWN dedicated server, independent of the shared
+    # session engine in conftest.py -- but that session fixture's `os.environ.
+    # update(server_env)` leaves `GRAPH_SERVICE_PERSIST_DIR` pointing at ITS OWN
+    # persist dir in the ambient process environment for the rest of the pytest
+    # run. Omitting `persist_dir` here means `env = {**os.environ, **strict_
+    # server_env(...)}` silently inherits that ambient value instead of this
+    # module's own, and the dedicated server then refuses to start ("persist dir
+    # ... is already locked by another epistemic-graph engine") because the
+    # still-running session engine already holds that directory's lock -- the
+    # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
+    os.makedirs(persist_dir, exist_ok=True)
     env = {
         **os.environ,
-        **strict_server_env(state_dir, auth_secret=AUTH_SECRET),
+        **strict_server_env(state_dir, auth_secret=AUTH_SECRET, persist_dir=persist_dir),
     }
     if os.path.exists(socket_path):
         os.remove(socket_path)
@@ -101,7 +125,9 @@ def gapfill_client(tmp_path_factory):
         return  # pragma: no cover - pytest.skip is NoReturn
     runtime = tmp_path_factory.mktemp("epi-gapfill")
     socket_path = str(runtime / "engine.sock")
-    proc = _launch(binary, socket_path, str(runtime / "security"))
+    proc = _launch(
+        binary, socket_path, str(runtime / "security"), str(runtime / "persist")
+    )
     bootstrap = SyncEpistemicGraphClient.connect(
         socket_path=socket_path,
         auth_secret=AUTH_SECRET,

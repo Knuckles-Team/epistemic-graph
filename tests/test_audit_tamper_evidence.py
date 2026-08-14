@@ -31,42 +31,14 @@ from conftest import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
     bootstrap_context,
+    find_server_binary,
     request_context,
     strict_server_env,
 )
 
 from epistemic_graph.client import SyncEpistemicGraphClient
 
-
-def _find_server_binary() -> str | None:
-    """Locate an already-built `full`-featured `epistemic-graph-server`.
-
-    Checks, in order: `$CARGO_TARGET_DIR` (this worktree's own isolated build, per
-    the repo's `.cargo/config.toml` -- never a target dir shared with another
-    worktree), the repo-relative `target-isolated` that config file defaults to,
-    then the legacy `target` layout `test_service_layer.py` looks for. Never
-    triggers a build itself -- the session fixture (or a prior manual build)
-    already paid that cost for the SAME `full` feature set this file needs.
-    """
-    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    candidates = []
-    target_dir_env = os.environ.get("CARGO_TARGET_DIR")
-    if target_dir_env:
-        candidates.append(os.path.join(target_dir_env, "release", "epistemic-graph-server"))
-        candidates.append(os.path.join(target_dir_env, "debug", "epistemic-graph-server"))
-    candidates += [
-        os.path.join(root, "target-isolated", "release", "epistemic-graph-server"),
-        os.path.join(root, "target-isolated", "debug", "epistemic-graph-server"),
-        os.path.join(root, "target", "release", "epistemic-graph-server"),
-        os.path.join(root, "target", "debug", "epistemic-graph-server"),
-    ]
-    for candidate in candidates:
-        if os.path.isfile(candidate):
-            return candidate
-    return None
-
-
-_SERVER_BIN = _find_server_binary()
+_SERVER_BIN = find_server_binary()
 
 pytestmark = [
     pytest.mark.concept("CONCEPT:EG-KG.sharding.row-level-security"),

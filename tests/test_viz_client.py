@@ -24,6 +24,7 @@ from conftest import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
     bootstrap_context,
+    find_server_binary,
     request_context,
     strict_server_env,
 )
@@ -45,14 +46,30 @@ def _build() -> str | None:
     )
     if r.returncode != 0:
         return None
-    binary = os.path.join(RUST_DIR, "target", "debug", "epistemic-graph-server")
-    return binary if os.path.exists(binary) else None
+    # `find_server_binary()` honors `CARGO_TARGET_DIR`/the repo's own
+    # `.cargo/config.toml` (`target-isolated`) -- the build above lands wherever
+    # that resolves, which is NOT necessarily the hardcoded legacy `target/debug`.
+    return find_server_binary()
 
 
-def _launch(binary: str, socket_path: str, state_dir: str) -> subprocess.Popen:
+def _launch(
+    binary: str, socket_path: str, state_dir: str, persist_dir: str
+) -> subprocess.Popen:
+    # `persist_dir` MUST be passed through to `strict_server_env` explicitly.
+    # This module launches its OWN dedicated server, independent of the shared
+    # session engine in conftest.py -- but that session fixture's `os.environ.
+    # update(server_env)` leaves `GRAPH_SERVICE_PERSIST_DIR` pointing at ITS OWN
+    # persist dir in the ambient process environment for the rest of the pytest
+    # run. Omitting `persist_dir` here means `env = {**os.environ, **strict_
+    # server_env(...)}` silently inherits that ambient value instead of this
+    # module's own, and the dedicated server then refuses to start ("persist dir
+    # ... is already locked by another epistemic-graph engine") because the
+    # still-running session engine already holds that directory's lock -- the
+    # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
+    os.makedirs(persist_dir, exist_ok=True)
     env = {
         **os.environ,
-        **strict_server_env(state_dir, auth_secret=AUTH_SECRET),
+        **strict_server_env(state_dir, auth_secret=AUTH_SECRET, persist_dir=persist_dir),
     }
     if os.path.exists(socket_path):
         os.remove(socket_path)
@@ -87,7 +104,9 @@ def viz_client(tmp_path_factory):
         return  # pragma: no cover - pytest.skip is NoReturn
     runtime = tmp_path_factory.mktemp("viz-client")
     socket_path = str(runtime / "engine.sock")
-    proc = _launch(binary, socket_path, str(runtime / "security"))
+    proc = _launch(
+        binary, socket_path, str(runtime / "security"), str(runtime / "persist")
+    )
     bootstrap = SyncEpistemicGraphClient.connect(
         socket_path=socket_path,
         auth_secret=AUTH_SECRET,

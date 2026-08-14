@@ -13,6 +13,7 @@ from conftest import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
     bootstrap_context,
+    find_server_binary,
     request_context,
     strict_server_env,
 )
@@ -20,7 +21,13 @@ from conftest import (
 from epistemic_graph.client import SyncEpistemicGraphClient
 
 RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-SERVER_BIN = os.path.join(RUST_DIR, "target", "debug", "epistemic-graph-server")
+# `find_server_binary()` honors `CARGO_TARGET_DIR`/the repo's own
+# `.cargo/config.toml` (`target-isolated`) -- this module spawns its own server
+# subprocess directly, so a hardcoded `target/debug` path never resolves in an
+# ordinary checkout of this repo (see conftest.py's `find_server_binary` doc).
+SERVER_BIN = find_server_binary() or os.path.join(
+    RUST_DIR, "target", "debug", "epistemic-graph-server"
+)
 SECRET = "test-isolation-secret"
 
 
@@ -28,11 +35,26 @@ SECRET = "test-isolation-secret"
 def isolation_server(tmp_path_factory):
     runtime = tmp_path_factory.mktemp("isolation")
     sock = str(runtime / "isolation.sock")
+    # `persist_dir` MUST be passed through to `strict_server_env` explicitly.
+    # This module launches its OWN dedicated server, independent of the shared
+    # session engine in conftest.py -- but that session fixture's `os.environ.
+    # update(server_env)` leaves `GRAPH_SERVICE_PERSIST_DIR` pointing at ITS OWN
+    # persist dir in the ambient process environment for the rest of the pytest
+    # run. Omitting `persist_dir` here means `env = {**os.environ, **strict_
+    # server_env(...)}` silently inherits that ambient value instead of this
+    # module's own, and the dedicated server then refuses to start ("persist dir
+    # ... is already locked by another epistemic-graph engine") because the
+    # still-running session engine already holds that directory's lock -- the
+    # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
+    persist_dir = str(runtime / "persist")
+    os.makedirs(persist_dir, exist_ok=True)
     proc = subprocess.Popen(
         [SERVER_BIN, "--socket-path", sock],
         env={
             **os.environ,
-            **strict_server_env(str(runtime / "security"), auth_secret=SECRET),
+            **strict_server_env(
+                str(runtime / "security"), auth_secret=SECRET, persist_dir=persist_dir
+            ),
         },
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

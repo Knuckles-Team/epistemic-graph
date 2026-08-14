@@ -30,6 +30,7 @@ from conftest import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
     bootstrap_context,
+    find_server_binary,
     request_context,
     strict_server_env,
 )
@@ -41,8 +42,16 @@ AUTH_SECRET = "test-graceful-shutdown-secret"
 
 
 def _build_full() -> str | None:
+    # `--features "full viz-static-export"`, not plain `full`: this module and
+    # `test_viz_client.py`/`test_epi_gapfill_roundtrip.py` all build to the SAME
+    # shared `target-isolated` output (`.cargo/config.toml`); if they requested
+    # different feature strings, whichever ran later would pay a ~40-60s relink
+    # of the earlier one's build (see the "cold `cargo run`" comment below) --
+    # often enough to blow the 60s pytest-timeout. `viz-static-export` is unused
+    # here but a strict superset is always a safe substitute for `full` alone,
+    # so requesting the SAME superset as those other modules eliminates the thrash.
     r = subprocess.run(
-        ["cargo", "build", "--features", "full"],
+        ["cargo", "build", "--features", "full viz-static-export"],
         cwd=RUST_DIR,
         capture_output=True,
         text=True,
@@ -50,8 +59,10 @@ def _build_full() -> str | None:
     if r.returncode != 0:
         print(r.stderr)
         return None
-    binary = os.path.join(RUST_DIR, "target", "debug", "epistemic-graph-server")
-    return binary if os.path.exists(binary) else None
+    # `find_server_binary()` honors `CARGO_TARGET_DIR`/the repo's own
+    # `.cargo/config.toml` (`target-isolated`) -- the build above lands wherever
+    # that resolves, which is NOT necessarily the hardcoded legacy `target/debug`.
+    return find_server_binary()
 
 
 def _launch(
