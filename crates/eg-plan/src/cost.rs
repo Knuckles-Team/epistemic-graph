@@ -282,9 +282,16 @@ mod index_method {
     /// Every registered [`IndexMethod`] — ANN always, BM25 only under `text` (its wire
     /// `Op::RankText` variant does not exist otherwise).
     fn methods() -> Vec<Box<dyn IndexMethod>> {
-        let mut m: Vec<Box<dyn IndexMethod>> = vec![Box::new(AnnIndexMethod)];
+        let m: Vec<Box<dyn IndexMethod>> = vec![Box::new(AnnIndexMethod)];
+        // Rebind rather than declaring `mut` up front: without `text` nothing is
+        // ever pushed, and an unconditional `mut` is an `unused_mut` error under
+        // `-D warnings` in a no-text build.
         #[cfg(feature = "text")]
-        m.push(Box::new(Bm25IndexMethod));
+        let m = {
+            let mut m = m;
+            m.push(Box::new(Bm25IndexMethod));
+            m
+        };
         m
     }
 
@@ -297,6 +304,10 @@ mod index_method {
 
     /// The registered [`IndexMethod`]'s cost estimate for `op`, or `None` if no method
     /// claims it (a caller falls back to its own default costing).
+    ///
+    /// Gated with its re-export: the only callers are the `text`-gated
+    /// `Op::RankText` cost arms, so without `text` this is dead code.
+    #[cfg(feature = "text")]
     pub fn estimate(
         op: &Op,
         in_card: f64,
@@ -310,7 +321,12 @@ mod index_method {
 }
 
 #[cfg(feature = "query")]
-pub(crate) use index_method::{estimate as index_method_estimate, is_index_method_op};
+pub(crate) use index_method::is_index_method_op;
+// `estimate` has exactly two consumers, both the `text`-gated `Op::RankText` arms
+// below, so re-exporting it under bare `query` leaves it unused in a
+// query-without-text build (`-D warnings` then fails the workspace clippy row).
+#[cfg(all(feature = "query", feature = "text"))]
+pub(crate) use index_method::estimate as index_method_estimate;
 #[cfg(feature = "query")]
 pub use index_method::{IndexMethod, IndexMethodCostEstimate};
 
