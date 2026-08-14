@@ -6,16 +6,49 @@
 
 use eg_modality::{EvidenceLocus, OpaqueRef};
 
+/// Why a locus's exact bounded value could not be produced (GOC-05 gate 3: an
+/// address that promises a region/interval must not silently degrade to a
+/// blob-only "success"). Names match the lane doc's resolver reason-code
+/// catalog (`GOC-05-universal-artifact-evidence-ontology.md` "Address and
+/// resolver contract").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnresolvedReason {
+    /// No decoded/normalized rendition exists yet for this occurrence.
+    MissingRendition,
+    /// The address kind has a defined exact-resolution contract, but no
+    /// provider capable of decoding it is registered in this build (e.g. no
+    /// image/audio/video/table region decoder — GOC-06/GOC-07's job).
+    CodecUnavailable,
+    /// Policy denied resolving this locus for the calling scope.
+    PolicyDenied,
+    /// The referenced bytes could not be read back intact.
+    CorruptBytes,
+    /// The address's numeric coordinates fall outside the resolved content.
+    OutOfRange,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ResolvedArtifact {
     Text {
         subject_ref: String,
         excerpt: String,
     },
+    /// Exact resolution success only when the address itself is an
+    /// intentionally opaque reference (e.g. `RowVersion`/`TraceSpan` — a
+    /// versioned pointer a downstream store resolves by key, not a byte range
+    /// this resolver decodes). An address that names a byte range/region/
+    /// interval must resolve to `Text`/a typed exact result or `Unresolved` —
+    /// never silently degrade to this variant (GOC-05 gate 3).
     Blob {
         subject_ref: String,
         blob_ref: String,
         note: String,
+    },
+    /// The typed, honest "could not produce an exact result" outcome. Never
+    /// reported as evidence success by a caller — see `UnresolvedReason`.
+    Unresolved {
+        subject_ref: String,
+        reason: UnresolvedReason,
     },
 }
 
