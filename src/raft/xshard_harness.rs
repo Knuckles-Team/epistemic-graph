@@ -391,6 +391,11 @@ async fn killed_participant_during_prepare_aborts_with_no_partial_commit() {
 /// On restart, recovery reads the COMMIT decision and re-applies → BOTH graphs land.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
+    // Held for the whole test: opens the backend TWICE (initial + a restart reopen
+    // of the SAME dir) and both opens must resolve the same encryption-at-rest
+    // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
+    #[cfg(feature = "security")]
+    let _env_lock = crate::crypto::acquire_test_env_lock().await;
     let dir = fresh_dir("recovercommit");
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
@@ -454,6 +459,11 @@ async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
 /// only happens after a durable decision).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
+    // Held for the whole test: opens the backend TWICE (initial + a restart reopen
+    // of the SAME dir) and both opens must resolve the same encryption-at-rest
+    // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
+    #[cfg(feature = "security")]
+    let _env_lock = crate::crypto::acquire_test_env_lock().await;
     let dir = fresh_dir("recoverabort");
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
@@ -823,6 +833,11 @@ async fn parallel_prepare_multi_writer_commits_atomically() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
+    // Held for the whole test: opens the backend TWICE (initial + a restart reopen
+    // of the SAME dir) and both opens must resolve the same encryption-at-rest
+    // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
+    #[cfg(feature = "security")]
+    let _env_lock = crate::crypto::acquire_test_env_lock().await;
     let dir = fresh_dir("parrecover");
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
@@ -1950,6 +1965,11 @@ async fn cross_group_2pc_commits_atomically_across_distinct_shards() {
 /// than the pre-ADR-2 single shard 0.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cross_group_2pc_survives_crash_mid_prepare_across_distinct_shards() {
+    // Held for the whole test: opens the backend TWICE (initial + a restart reopen
+    // of the SAME dir) and both opens must resolve the same encryption-at-rest
+    // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
+    #[cfg(feature = "security")]
+    let _env_lock = crate::crypto::acquire_test_env_lock().await;
     let dir = fresh_dir("xshard-ksharded-crash");
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
         RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, 3)

@@ -4597,6 +4597,15 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn redb_durable_roundtrip() {
+        // Held for the whole test: this test opens the backend TWICE (write side,
+        // then a fresh reload side) and both opens must resolve the SAME
+        // encryption-at-rest cipher or the reload's read fails with "encrypted
+        // durable value is missing sealed framing" -- same requirement as
+        // `k_gt_1_routes_to_deterministic_shard_and_survives_restart` above. Never
+        // sets the key itself; only needs the ambient value to stay constant across
+        // both opens. See `crate::crypto::acquire_test_env_lock`'s doc.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         // Commit nodes/edges through the awaited barrier, drop, and reload.
         let dir = std::env::temp_dir().join(format!("eg-redb-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -4840,6 +4849,12 @@ mod tests {
     /// `test_find_analogous_subgraphs` tenant-churn failure at the engine level.
     #[tokio::test(flavor = "multi_thread")]
     async fn delete_then_recreate_same_name_keeps_new_writes() {
+        // Held for the whole test: opens the backend TWICE (initial + an in-process
+        // reopen of the SAME dir, see the retry loop below) and both opens must
+        // resolve the same encryption-at-rest cipher. See
+        // `crate::crypto::acquire_test_env_lock`'s doc.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         use crate::protocol::ResultPayload;
         use crate::server::persistence::read_through::BackendReadThroughFactory;
 
@@ -5171,6 +5186,11 @@ mod tests {
     /// durably registered on create + backfilled on write).
     #[tokio::test(flavor = "multi_thread")]
     async fn dispatch_authoritative_durable_without_checkpoint() {
+        // Held for the whole test: opens the backend TWICE (initial dispatch-driven
+        // writes, then a redb-only reload) and both opens must resolve the same
+        // encryption-at-rest cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         use crate::protocol::ResultPayload;
 
         const SECRET: &str = "redb-auth-dispatch";
@@ -7225,6 +7245,14 @@ mod tests {
     /// K=1 uses the same indexed filename contract as every other shard count.
     #[tokio::test]
     async fn k1_uses_canonical_indexed_layout() {
+        // Defensive: this test opens a backend twice (K=1 shard layout, then a plain
+        // `open()` over the same dir after removal+recreation). Neither open ever
+        // writes/reads an encrypted value, so an ambient key toggle between the two
+        // opens is very unlikely to be observable here -- but hold the lock anyway so
+        // this is never the crate's third instance of the "two opens, ambient key
+        // mid-flight" class. See `crate::crypto::acquire_test_env_lock`'s doc.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-shard-k1-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -7289,6 +7317,18 @@ mod tests {
     /// ACROSS A RESTART (reopen + read the node back from disk).
     #[tokio::test(flavor = "multi_thread")]
     async fn k_gt_1_routes_to_deterministic_shard_and_survives_restart() {
+        // Held for the whole test: this test opens the backend TWICE (initial write,
+        // then a restart reopen) and both `RedbBackend::open_with_shards` calls must
+        // resolve the SAME encryption-at-rest cipher (`ValueCipher::from_env`,
+        // resolved fresh at each `open`) or the restart reopen's read fails with
+        // "encrypted durable value is missing sealed framing" -- the exact
+        // destructive-read mismatch documented on `RedbBackend::transaction_recovery_cipher`.
+        // This test never sets `EPISTEMIC_GRAPH_ENCRYPTION_KEY` itself; it only needs
+        // the AMBIENT value (set or unset) to stay constant across both opens, which
+        // requires excluding every other test that mutates that process-global for its
+        // duration. See `crate::crypto::acquire_test_env_lock`'s doc.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-shard-route-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -7733,6 +7773,16 @@ mod tests {
     /// K=4 shards, commit, drop, reopen, load → every graph is recovered from its shard.
     #[tokio::test(flavor = "multi_thread")]
     async fn parallel_load_recovers_all_shards_off_the_writer() {
+        // Held for the whole test: same requirement as
+        // `k_gt_1_routes_to_deterministic_shard_and_survives_restart` above -- this
+        // test opens the backend TWICE (initial write, then a restart reopen after
+        // `shutdown()`/drop) and both opens must resolve the same encryption-at-rest
+        // cipher or the reload's read fails with "encrypted durable value is missing
+        // sealed framing". Never sets the key itself; only needs the ambient value to
+        // stay constant across both opens. See `crate::crypto::acquire_test_env_lock`'s
+        // doc.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         const K: usize = 4;
         let dir = std::env::temp_dir().join(format!("eg-f-load-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

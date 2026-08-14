@@ -1373,6 +1373,12 @@ async fn durable_log_replays_from_redb_after_restart() {
 /// brand-new backend over the same files. No committed (fsynced) entry is lost.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fault_injection_no_committed_log_entry_lost_on_restart() {
+    // Held for the whole test: opens the backend TWICE (initial + a restart reopen
+    // of the SAME dir) and both opens must resolve the same encryption-at-rest
+    // cipher, or the reopen's read fails with "encrypted durable value is missing
+    // sealed framing". See `crate::crypto::acquire_test_env_lock`'s doc.
+    #[cfg(feature = "security")]
+    let _env_lock = crate::crypto::acquire_test_env_lock().await;
     let dir = fresh_dir("faultlog");
     // DurabilityPolicy::Each = a committed (awaited) append is fsynced before the await
     // returns, so anything we observe as Ok IS on disk.
