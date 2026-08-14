@@ -871,6 +871,84 @@ mod tests {
             s.registry
                 .create_graph("global:ontology", GraphType::Global, None)
                 .unwrap();
+
+            // Under the `security` feature, `IsolationLayer::check_access` defers
+            // entirely to the RBAC evaluator (CONCEPT:EG-KG.compute.feature) -- the
+            // `GraphType`/`graph_owner`-derived rules below are IGNORED for any
+            // non-System identity. These grants reproduce, via RBAC, the EXACT same
+            // access shape the graph-type rules describe (owner full access to their
+            // own agent graph incl. one they create dynamically in tests, team
+            // members read / manager read+write on the team graph, all-agents
+            // read+write on `__commons__`, all-agents read-only on `global:*`, and a
+            // manager's read+write reach onto a subordinate's agent graph) so the
+            // ACL-shape tests below exercise the SAME intended policy through the
+            // now-mandatory RBAC path instead of failing closed on an empty policy.
+            #[cfg(feature = "security")]
+            {
+                use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+                let mut grant = |role: &str, resource: ResourceSelector, action: RbacAction| {
+                    s.isolation.add_role(Role::new(role));
+                    s.isolation.add_grant(Grant {
+                        role: role.to_string(),
+                        resource,
+                        action,
+                        effect: GrantEffect::Allow,
+                    });
+                };
+                // Owners: full (read+write) access to their own agent graph.
+                // worker2's "agent:worker2" doesn't exist yet at fixture time --
+                // `test_create_graph_records_caller_as_owner` creates it -- but an
+                // RBAC grant is independent of graph existence.
+                for (agent, own_graph) in
+                    [("worker1", "agent:worker1"), ("worker2", "agent:worker2")]
+                {
+                    let role = format!("{agent}-self");
+                    grant(
+                        &role,
+                        ResourceSelector::Graph(own_graph.into()),
+                        RbacAction::Read,
+                    );
+                    grant(
+                        &role,
+                        ResourceSelector::Graph(own_graph.into()),
+                        RbacAction::Write,
+                    );
+                }
+                // Team members: read-only on their team graph.
+                grant(
+                    "team-alpha-member",
+                    ResourceSelector::Graph("team:alpha".into()),
+                    RbacAction::Read,
+                );
+                // Manager: read+write on the team graph, and reaches (read+write)
+                // into a subordinate's agent graph.
+                for action in [RbacAction::Read, RbacAction::Write] {
+                    grant(
+                        "manager",
+                        ResourceSelector::Graph("team:alpha".into()),
+                        action,
+                    );
+                    grant(
+                        "manager",
+                        ResourceSelector::Graph("agent:worker1".into()),
+                        action,
+                    );
+                }
+                // Global graphs: read-only for every agent.
+                for role in ["worker1-self", "worker2-self", "manager"] {
+                    grant(
+                        role,
+                        ResourceSelector::Graph("global:ontology".into()),
+                        RbacAction::Read,
+                    );
+                }
+                // Commons: read+write for every authenticated agent.
+                for role in ["worker1-self", "worker2-self", "manager"] {
+                    for action in [RbacAction::Read, RbacAction::Write] {
+                        grant(role, ResourceSelector::Graph("__commons__".into()), action);
+                    }
+                }
+            }
         }
         state
     }
@@ -1473,6 +1551,35 @@ mod tests {
             });
         }
         build_unified_fixture(&remote).await;
+        // The foreign read below authenticates as "agent:federation-test" against
+        // the REMOTE engine over the wire -- a genuinely different identity from
+        // the fixture's "system" caller, so it must be provisioned (and, under the
+        // `security` feature, RBAC-granted Read on `__commons__`) on `remote`'s own
+        // isolation layer or the federated read is denied before it ever reaches
+        // the traversal.
+        {
+            let mut s = remote.write().await;
+            s.isolation.register_agent(AgentIdentity {
+                agent_id: "agent:federation-test".into(),
+                role: AgentRole::Agent,
+                teams: Vec::new(),
+                #[cfg(feature = "security")]
+                roles: vec!["federation-reader".into()],
+                #[cfg(not(feature = "security"))]
+                roles: vec![],
+            });
+            #[cfg(feature = "security")]
+            {
+                use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+                s.isolation.add_role(Role::new("federation-reader"));
+                s.isolation.add_grant(Grant {
+                    role: "federation-reader".into(),
+                    resource: ResourceSelector::Graph("__commons__".into()),
+                    action: RbacAction::Read,
+                    effect: GrantEffect::Allow,
+                });
+            }
+        }
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let remote_addr = listener.local_addr().unwrap().to_string();
         let remote_for_serve = remote.clone();
@@ -3434,7 +3541,15 @@ mod tests {
         let committed = tokio::spawn(async move {
             dispatch_on_heap(
                 &st2,
-                request(5, GRAPH, None, Method::Commit { txn_id: txn, idempotency_key: None }),
+                request(
+                    5,
+                    GRAPH,
+                    None,
+                    Method::Commit {
+                        txn_id: txn,
+                        idempotency_key: None,
+                    },
+                ),
             )
             .await
         });
@@ -4076,7 +4191,10 @@ mod tests {
                 20,
                 "__commons__",
                 None,
-                Method::Commit { txn_id: t1.clone(), idempotency_key: None },
+                Method::Commit {
+                    txn_id: t1.clone(),
+                    idempotency_key: None,
+                },
             ),
         )
         .await;
@@ -4092,7 +4210,10 @@ mod tests {
                 21,
                 "__commons__",
                 None,
-                Method::Commit { txn_id: t2.clone(), idempotency_key: None },
+                Method::Commit {
+                    txn_id: t2.clone(),
+                    idempotency_key: None,
+                },
             ),
         )
         .await;
@@ -4135,7 +4256,15 @@ mod tests {
         // Committing a swept txn is now an unknown-id error (true rollback occurred).
         let r = dispatch_on_heap(
             &state,
-            request(2, "__commons__", None, Method::Commit { txn_id: txn, idempotency_key: None }),
+            request(
+                2,
+                "__commons__",
+                None,
+                Method::Commit {
+                    txn_id: txn,
+                    idempotency_key: None,
+                },
+            ),
         )
         .await;
         assert!(r.error.is_some(), "committing a swept txn errors");
@@ -4629,34 +4758,42 @@ mod tests {
 
     // ── RDF/SPARQL Method round-trips through dispatch (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql/218) ──
 
+    /// Register a minimal but VALID SHACL shapes document (no constraints) on
+    /// `graph` -- satisfies the mandatory rdf-update-guard integrity-policy
+    /// requirement (CONCEPT:EG-KG.ontology.rdf-update-guard): once the `shacl` feature is compiled in,
+    /// `icv_guard::CoreIcvGuard::check_graph` fails EVERY `AddTriples`/
+    /// `RemoveTriples` on a graph closed ("no integrity policy is registered")
+    /// until that graph has one registered via `IcvConfigure`, even a permissive
+    /// empty one. Real tests of the guard's ENFORCEMENT behavior configure their
+    /// own non-empty shapes; this is for the many round-trip tests that exist to
+    /// prove something else and just need the write to be let through.
+    #[cfg(all(feature = "rdf", feature = "shacl"))]
+    async fn configure_icv_enforce(state: &Arc<RwLock<ServerState>>, req_id: u64, graph: &str) {
+        let r = dispatch_on_heap(
+            state,
+            request(
+                req_id,
+                graph,
+                None,
+                Method::IcvConfigure {
+                    graph: None,
+                    mode: "enforce".into(),
+                    shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r);
+    }
+
     /// AddTriples → GetRdf round-trips through the dispatch chain: Turtle in, the
     /// graph populated, N-Triples out reparses to the same triple set (xsd + @lang).
     #[cfg(feature = "rdf")]
     #[tokio::test]
     async fn test_add_triples_then_get_rdf_round_trips() {
         let state = test_state();
-        // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): `AddTriples` fails closed
-        // unless the target graph has a registered integrity policy —
-        // `icv_guard::check_before_write` rejects BEFORE any RDF write lands when
-        // `core.integrity_policy()` is `None`. Register a permissive (empty
-        // shapes) enforcing policy first so this round-trip test exercises the
-        // load/serialize path, not the guard.
-        assert_ok(
-            &dispatch_on_heap(
-                &state,
-                request(
-                    0,
-                    "__commons__",
-                    None,
-                    Method::IcvConfigure {
-                        graph: None,
-                        mode: "enforce".to_string(),
-                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
-                    },
-                ),
-            )
-            .await,
-        );
+        #[cfg(feature = "shacl")]
+        configure_icv_enforce(&state, 0, "__commons__").await;
         let ttl = r#"
 @prefix ex: <http://example.org/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
@@ -4704,43 +4841,8 @@ ex:bob   a ex:Person ; ex:name "Bob"@en .
     #[tokio::test]
     async fn test_sparql_method_round_trips() {
         let state = test_state();
-        // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
-        // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
-        // closed without a registered integrity policy.
-        //
-        // The shapes graph carries a unique trailing comment (`# test:...`) so
-        // this `IcvConfigure` call's policy-idempotent replay-dedup key
-        // (`mutation::idempotency_key`, keyed on `(method-debug, graph_name)`
-        // with NO per-`ServerState`/per-core scoping) never collides with the
-        // IDENTICAL call in `test_owl_explain_method_round_trips`/
-        // `test_owl_reason_method_round_trips`/`test_owl_reason_distributed_two_graphs`
-        // /`test_add_triples_then_get_rdf_round_trips`, all of which target the
-        // SAME "__commons__" graph name. Without this, whichever of those tests
-        // runs FIRST in this binary (they share ONE process — `--test-threads=1`
-        // or not) wins the real `configure()` call; every later one gets the
-        // FIRST test's cached "ok" response replayed WITHOUT ever calling
-        // `configure()` on ITS OWN fresh `test_state()` core, so that core's
-        // `integrity_policy()` stays `None` and the subsequent `AddTriples`
-        // fails closed with "no integrity policy is registered" — a genuine
-        // process-global idempotency-cache scoping gap (CONCEPT:EG-P0-2),
-        // not something any one test did wrong on its own.
-        assert_ok(
-            &dispatch_on_heap(
-                &state,
-                request(
-                    0,
-                    "__commons__",
-                    None,
-                    Method::IcvConfigure {
-                        graph: None,
-                        mode: "enforce".to_string(),
-                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .\n# test:sparql"
-                            .to_string(),
-                    },
-                ),
-            )
-            .await,
-        );
+        #[cfg(feature = "shacl")]
+        configure_icv_enforce(&state, 0, "__commons__").await;
         let ttl = r#"
 @prefix ex: <http://example.org/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
@@ -4805,32 +4907,8 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[tokio::test]
     async fn test_owl_reason_method_round_trips() {
         let state = test_state();
-        // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
-        // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
-        // closed without a registered integrity policy.
-        //
-        // Unique trailing comment on the shapes graph: see
-        // `test_sparql_method_round_trips`'s identical note — this avoids a
-        // process-global `IcvConfigure` idempotency-replay collision with the
-        // other tests that configure the SAME "__commons__" graph with
-        // byte-identical (method, graph) content.
-        assert_ok(
-            &dispatch_on_heap(
-                &state,
-                request(
-                    0,
-                    "__commons__",
-                    None,
-                    Method::IcvConfigure {
-                        graph: None,
-                        mode: "enforce".to_string(),
-                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .\n# test:owl-reason"
-                            .to_string(),
-                    },
-                ),
-            )
-            .await,
-        );
+        #[cfg(feature = "shacl")]
+        configure_icv_enforce(&state, 0, "__commons__").await;
         // TBox + one individual, loaded as RDF; HumanHeart ⊑ HumanComponent is derived
         // through ∃partOf.Body on the LHS — RL cannot reach it.
         let ttl = r#"
@@ -4900,32 +4978,8 @@ ex:myHeart a ex:HumanHeart .
     #[tokio::test]
     async fn test_owl_explain_method_round_trips() {
         let state = test_state();
-        // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
-        // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
-        // closed without a registered integrity policy.
-        //
-        // Unique trailing comment on the shapes graph: see
-        // `test_sparql_method_round_trips`'s identical note — this avoids a
-        // process-global `IcvConfigure` idempotency-replay collision with the
-        // other tests that configure the SAME "__commons__" graph with
-        // byte-identical (method, graph) content.
-        assert_ok(
-            &dispatch_on_heap(
-                &state,
-                request(
-                    0,
-                    "__commons__",
-                    None,
-                    Method::IcvConfigure {
-                        graph: None,
-                        mode: "enforce".to_string(),
-                        shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .\n# test:owl-explain"
-                            .to_string(),
-                    },
-                ),
-            )
-            .await,
-        );
+        #[cfg(feature = "shacl")]
+        configure_icv_enforce(&state, 0, "__commons__").await;
         let ttl = r#"
 @prefix ex:  <http://example.org/> .
 @prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
@@ -5161,16 +5215,8 @@ ex:p1 a ex:Paper .
                     .await,
                 );
             }
-            // X5 (CONCEPT:EG-KG.ontology.rdf-update-guard): see
-            // `test_add_triples_then_get_rdf_round_trips` — `AddTriples` fails
-            // closed without a registered integrity policy, per-graph.
-            //
-            // Unique trailing comment on the shapes graph (see
-            // `test_sparql_method_round_trips`'s identical note): the
-            // "__commons__" iteration's `IcvConfigure` call would otherwise be
-            // byte-identical to the one every other `test_*_round_trips` test
-            // in this module issues against the SAME graph, colliding on the
-            // process-global `IcvConfigure` idempotency-replay cache.
+            #[cfg(feature = "shacl")]
+            configure_icv_enforce(&state, 0, g).await;
             assert_ok(
                 &dispatch_on_heap(
                     &state,
@@ -5612,7 +5658,10 @@ ex:p1 a ex:Paper .
             Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
             other => panic!("expected Raw(FiredTriggersResult), got {other:?}"),
         };
-        assert!(!fired_result.gap, "cursor 0 must not be a gap: {fired_result:?}");
+        assert!(
+            !fired_result.gap,
+            "cursor 0 must not be a gap: {fired_result:?}"
+        );
         let fired = fired_result.fired;
         assert_eq!(fired.len(), 1, "exactly one firing (only the Alert add)");
         assert_eq!(fired[0].trigger, "on_alert");
