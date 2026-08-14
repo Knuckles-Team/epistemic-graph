@@ -524,6 +524,17 @@ mod tests {
     /// The umbrella proof — runs all four scenarios (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness).
     #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
     async fn crossshard_modality_2pc_single_decision_eg396() {
+        // Held for the whole test: two of the four scenarios below
+        // (`scenario_coord_kill_post_decision`, `scenario_coord_kill_pre_decision`)
+        // open a backend TWICE each (initial + a restart reopen of the SAME dir) via
+        // `fresh_dir`'s ambient-env provisioning, and both opens in each pair must
+        // resolve the same encryption-at-rest cipher. `prove_crossshard_modality_2pc_
+        // single_decision` is also called from a non-`cfg(test)` `--features cluster`
+        // integration-test entrypoint, so it cannot hold this crate-private lock
+        // itself; the in-crate test wrapper (here) is the right place. See
+        // `crate::crypto::acquire_test_env_lock`'s doc.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let report = prove_crossshard_modality_2pc_single_decision()
             .await
             .expect("cross-shard modality 2PC proof runs");
@@ -545,6 +556,12 @@ mod tests {
     /// Scenario 3 in isolation — coordinator kill after COMMIT decision → recover commit.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn coord_kill_post_decision_recovers_commit_both_modalities() {
+        // Held for the whole test: `scenario_coord_kill_post_decision` opens the
+        // backend TWICE (initial + a restart reopen of the SAME dir); both opens
+        // must resolve the same encryption-at-rest cipher. See
+        // `crate::crypto::acquire_test_env_lock`'s doc.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         assert!(scenario_coord_kill_post_decision()
             .await
             .expect("recover-commit scenario"));
@@ -553,6 +570,12 @@ mod tests {
     /// Scenario 4 in isolation — coordinator kill before decision → recover abort.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn coord_kill_pre_decision_recovers_abort_neither_modality() {
+        // Held for the whole test: `scenario_coord_kill_pre_decision` opens the
+        // backend TWICE (initial + a restart reopen of the SAME dir); both opens
+        // must resolve the same encryption-at-rest cipher. See
+        // `crate::crypto::acquire_test_env_lock`'s doc.
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
         assert!(scenario_coord_kill_pre_decision()
             .await
             .expect("recover-abort scenario"));
