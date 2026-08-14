@@ -275,21 +275,42 @@ repos:
     stages: [pre-push, manual]
   # rust-ci gate 6 — facade full test matrix (~9 min). Too slow for every commit:
   # staged pre-push + manual so it runs on push and in the parity check.
-  # DIFFERENTIAL, not absolute-green. `main` here is legitimately red: the
-  # facade-full row carries long-standing failures that were invisible for as
-  # long as the suite ABORTED on a stack overflow before reporting them. An
-  # absolute gate over that state deadlocks -- it blocks every fix, including
-  # the fixes for the failures it is complaining about. So this ratchets by test
-  # NAME against scripts/facade_full_test_baseline.txt: any failure NOT in the
-  # baseline is a regression and fails the push; a baselined failure is tracked
-  # debt and passes; a baselined test that starts passing is reported so the
-  # list only shrinks. Same shape as the concept-governance and swallowed-error
-  # ratchets, and as the merge queue's own base-ref differential gating.
-  # A crash with no per-test results is NEVER ratcheted over -- that is the one
-  # outcome that hides everything behind it.
+  #
+  # RATCHET RETIRED (2026-08-14): this hook used to run scripts/cargo_test_ratchet.py,
+  # a differential gate over scripts/facade_full_test_baseline.txt, because `main`
+  # was legitimately red — the facade-full row carried 55 long-standing failures
+  # that were invisible for as long as the suite ABORTED on a stack overflow
+  # before reporting them (baselined 2026-08-08). But `.github/workflows/release.yml`'s
+  # own "Test (facade full)" step (the ONLY release-blocking test-suite gate,
+  # by that file's own two-workflow design doc: release.yml is release-critical
+  # and deliberately absolute, advisory.yml is where `continue-on-error` debt
+  # lives) never ran the ratchet — it ran this same raw `cargo test` command,
+  # so it failed on every one of those 55 baselined "known" failures while this
+  # hook passed over them: a green local pre-push did not imply a green CI run,
+  # which is why publishing had been dark since 2.23.0.
+  # Re-validating the baseline (2026-08-14, CI-faithful unconstrained matrix run
+  # on R710) found 54 of the 55 entries now PASS — the durability-contract and
+  # ACL/RDF-update-guard fixture gaps the header described were fixed by later
+  # commits (the B-8/B-9 durability-contract rebase, the coalescer stats fix)
+  # without anyone re-running `--update-baseline`, i.e. the baseline itself had
+  # gone stale and was silently hiding that the debt was already gone. The
+  # single remaining entry, `server::mqtt_wire::tests::eg281_listener_connect_
+  # subscribe_publish_deliver_roundtrip`, was GOC-70 (scheduling-dependent, not
+  # a product defect: reproduced 0/5 in true single-test isolation on an idle
+  # host) and was fixed structurally (a listener-wide publish-notify wakeup
+  # replacing the blind 200ms poll as the primary delivery path — see
+  # src/server/mqtt_wire/mod.rs `accept_loop`/`handle_connection`) rather than
+  # re-baselined.
+  # With the baseline now empty, the ratchet has nothing left to ratchet over,
+  # so this hook runs the SAME command as release.yml's "Test (facade full)"
+  # step, byte-for-byte, instead of the ratchet wrapper: a green local pre-push
+  # now IS a green CI run for this step, by construction, not by convention.
+  # scripts/cargo_test_ratchet.py and scripts/facade_full_test_baseline.txt
+  # are kept (unwired) in case a future red-main episode needs the same
+  # differential-gating shape again — see that script's own module docstring.
   - id: cargo-test-full
-    name: cargo test -p epistemic-graph --features full (HEAVY, differential — pre-push/manual)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then python3 scripts/cargo_test_ratchet.py; fi'
+    name: cargo test -p epistemic-graph --features full (HEAVY, absolute-green — matches release.yml — pre-push/manual)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p epistemic-graph --features full --no-fail-fast; fi'
     language: system
     pass_filenames: false
     always_run: true

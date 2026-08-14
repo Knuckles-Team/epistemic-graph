@@ -1,6 +1,22 @@
 #!/usr/bin/env python3
 """Differential gate for the facade-full test suite.
 
+RETIRED (2026-08-14), kept on standby: `scripts/facade_full_test_baseline.txt`
+was re-validated and driven to 0 (54 of 55 baselined failures had already
+started passing without anyone re-running --update-baseline; the last,
+eg281, was fixed structurally rather than re-baselined). `.pre-commit-
+config.yaml`'s `cargo-test-full` hook no longer invokes this script -- it
+runs the same absolute-green `cargo test -p epistemic-graph --features full
+--no-fail-fast` that `.github/workflows/release.yml`'s "Test (facade full)"
+step runs, so a green local pre-push now implies a green CI run for this
+step by construction (this divergence -- CI ran the raw command with no
+ratchet and no continue-on-error while this script quietly passed over 55
+baselined failures locally -- is why publishing had been dark since 2.23.0).
+This module is left working and importable so a future legitimate red-main
+episode can re-wire the same differential-gating shape by re-running
+`--update-baseline` and pointing the hook back at it; don't delete it, but
+don't assume it is on the enforced path either.
+
 `main` is legitimately RED here: the facade-full row carries a set of
 long-standing failures that predate any one change, and for a long time they
 were invisible because the suite ABORTED on a stack overflow before reporting.
