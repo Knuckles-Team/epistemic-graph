@@ -268,7 +268,16 @@ repos:
   # --quiet`. Gate 6 (facade full) is heavy → its own pre-push/manual hook below.
   - id: cargo-test
     name: cargo test (lower crates all-features)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast; fi'
+    # D-PERF-1 (test-suite acceleration): switched to `cargo nextest run`, a
+    # straight swap for this hook because nothing downstream parses its output
+    # (unlike `cargo-test-full`'s ratchet, which stays on plain `cargo test` —
+    # see that hook's comment). Process-per-test isolation + a per-test
+    # timeout are strict wins here with no CI-fidelity change for this
+    # narrow, already-green lower-crate slice. Requires `cargo-nextest`
+    # installed (`cargo install cargo-nextest` or the prebuilt binary from
+    # https://get.nexte.st) — same install bar as `cargo-deny`/`cargo-audit`
+    # already required by sibling hooks in this file.
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo nextest run -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast; fi'
     language: system
     pass_filenames: false
     always_run: true
@@ -353,7 +362,9 @@ repos:
   # minute — CI is the always-on backstop.
   - id: replay-determinism
     name: cargo test replay_determinism -p eg-jobs -p eg-statechart (DE7 crash-replay proofs — pre-push/manual)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast; fi'
+    # D-PERF-1: nextest swap, same rationale as the `cargo-test` hook above —
+    # no downstream parser depends on this hook's exact output shape.
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo nextest run -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast; fi'
     language: system
     pass_filenames: false
     always_run: true

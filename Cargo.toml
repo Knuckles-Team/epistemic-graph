@@ -1764,3 +1764,41 @@ lto = "fat"
 codegen-units = 1
 strip = true
 panic = "unwind"
+
+# Test-suite acceleration (D-PERF-1): no [profile.test]/[profile.dev] tuning
+# existed before this, so `cargo test`/`cargo nextest run` paid full debug-info
+# codegen for every one of the 65 workspace crates x 25 integration binaries —
+# measured at ~2.3GB per heavy test binary. `debug = 0` (line-number-only via
+# split-debuginfo would still emit a .dSYM-equivalent; we don't need symbols at
+# all for routine green/red runs) removes nearly all of that weight; a real
+# panic backtrace still resolves function names via the existing symbol table,
+# it just loses inlined variable-level DWARF -- acceptable for CI/local gates,
+# and any engineer debugging a specific failure can rebuild that one binary
+# with `CARGO_PROFILE_TEST_DEBUG=1` (or `line-tables-only`) for a symbol-rich
+# rebuild without touching this default. `opt-level = 1` cuts codegen (and,
+# more importantly, LINK) time relative to opt-level 0 by keeping generated
+# object code smaller -- 0 sometimes generates MORE code (no inlining of
+# trivial wrappers) which paradoxically slows the link step on a workspace
+# this wide. `incremental = true` is cargo's own default for dev/test but is
+# named explicitly here so local iterative `cargo test -p <crate>` reruns stay
+# fast; nextest's process-per-test model does not defeat incremental caching
+# (it reuses the one already-linked binary, it just forks a process per test).
+[profile.test]
+opt-level = 1
+debug = 0
+incremental = true
+codegen-units = 256
+
+# Mirrors [profile.test] for `cargo check`/`cargo build --dev`/`cargo clippy`
+# (clippy compiles under the dev profile) so the clippy gates get the same
+# faster-link win as the test gates. `debug = "line-tables-only"` (not `0`,
+# unlike [profile.test]) is deliberate: this profile also serves interactive
+# `cargo run`/`cargo build` during development, so it keeps enough DWARF for a
+# panic backtrace / gdb `bt` to resolve file:line, just not full variable-level
+# inspection -- most of the size win, without making a live debugging session
+# on a plain `cargo build` blind.
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+incremental = true
+codegen-units = 256

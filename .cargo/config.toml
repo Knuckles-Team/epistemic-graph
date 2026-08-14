@@ -35,5 +35,35 @@
 # needed after checkout. An exported CARGO_TARGET_DIR still overrides this
 # (cargo's own precedence) — lane-guard's cargo-target-override check
 # detects that case loudly; see docs/architecture/lane-concurrency.md.
+#
+# `rustc-wrapper = "sccache"` (D-PERF-1, test-suite acceleration program):
+# caches every rustc invocation's object-code output keyed on the exact
+# source+flags, so a cold clone on a second/third host (we build the same
+# workspace from scratch on multiple build hosts routinely) or a re-run after
+# `git clean` reuses compiled artifacts instead of recompiling all 65 crates.
+# sccache defaults its cache dir to `~/.cache/sccache`; on hosts where $HOME is
+# NFS-mounted, export `SCCACHE_DIR=/var/tmp/l9/sccache` (or another local-disk
+# path) before building — sccache over NFS is exactly the kind of pathological
+# I/O pattern that caused the 60-minute link hang this program exists to fix.
+# NOTE: cargo hard-errors ("could not execute process `sccache`") if the
+# binary is not on PATH — this is not a soft fallback. Every build host in
+# the fleet installs it (`apt-get install sccache` / see AGENTS.md); a
+# personal checkout without it installed should override with
+# `CARGO_BUILD_RUSTC_WRAPPER=` (empty) rather than editing this file.
 [build]
 target-dir = "target-isolated"
+rustc-wrapper = "sccache"
+
+# mold (D-PERF-1): linking 65 crates x 25 integration-test binaries is
+# link-bound, not compile-bound, and mold is materially faster than the
+# default bfd/gold linker on a many-core host (parallel section resolution).
+# `-fuse-ld=mold` is understood natively by gcc>=12/clang>=12 (both present on
+# our build hosts) with no `-B`/linker-path plumbing needed. Scoped to the
+# x86_64 Linux target only (the fleet's build hosts); does not touch the
+# aarch64 cross-build path used for wheel releases (maturin/zig), which has
+# its own toolchain and where mold is not installed. Verify it actually
+# engaged with `readelf -p .comment <binary> | grep mold` — a silently-ignored
+# flag (e.g. mold not on PATH) falls back to the default linker with no error,
+# so don't just trust the flag is set.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
