@@ -129,7 +129,10 @@
 //! non-`epistemic` build, are `Vec::new()` unconditionally (the feature gate, not the
 //! data, decides).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+// Only the `epistemic`-gated `AuxEdgeIndex` below uses HashMap.
+#[cfg(feature = "epistemic")]
+use std::collections::HashMap;
 
 use eg_core::graph::GraphView;
 use eg_modality::EvidenceLocus;
