@@ -62,7 +62,7 @@ mod tests {
     fn quantum_job_composes_as_a_named_foreign_source() {
         let (store, _dir) = open_store();
         let candidates = vec!["n1".to_string(), "n2".to_string(), "n3".to_string()];
-        let job = crate::job::submit_quantum_job(
+        let submitted = crate::job::submit_quantum_job(
             &store,
             InputSnapshotHandle::new("test-graph", 1),
             JobPolicy {
@@ -106,8 +106,15 @@ mod tests {
             &mut registry,
             "quantum_demo",
             store.clone(),
-            finished.job_id,
+            finished.job_id.clone(),
         );
+        // The worker must have claimed the job we just submitted -- without this the
+        // test could pass against an unrelated job left in the store.
+        assert_eq!(
+            finished.job_id, submitted.job_id,
+            "the claimed job must be the one just submitted"
+        );
+
         let rows = registry.resolve("quantum_demo").expect("resolves");
         let mut ids = rows.ids();
         ids.sort();

@@ -869,6 +869,18 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
             feature = "stream",
             feature = "epistemic"
         )))]
+        // Whether this arm is reachable depends on a feature resolution this crate
+        // cannot see: `Op`'s variants are gated in the crate that DEFINES it, while
+        // the handler arms above are gated on THIS crate's features. When cargo
+        // unifies those identically (e.g. a query-only build, where the unhandled
+        // variants do not exist either) every value is already matched and the arm
+        // is dead; when a dependent enables the Op variants without enabling the
+        // matching handler features here, it is the only thing standing between a
+        // caller and a non-exhaustive match. That second case is real — it is why
+        // the arm exists — so it must stay, and the lint has to be silenced for the
+        // first. Narrowing the `cfg` cannot express this: it would have to name the
+        // OTHER crate's resolved features.
+        #[allow(unreachable_patterns)]
         _ => Err("plan operator requires a modality feature not enabled in this build".into()),
     }
 }
