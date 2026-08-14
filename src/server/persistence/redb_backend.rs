@@ -4797,7 +4797,17 @@ mod tests {
         .await;
         assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
 
-        let r = dispatch_on_heap(&state, req(5, Method::Commit { txn_id: txn, idempotency_key: None })).await;
+        let r = dispatch_on_heap(
+            &state,
+            req(
+                5,
+                Method::Commit {
+                    txn_id: txn,
+                    idempotency_key: None,
+                },
+            ),
+        )
+        .await;
         assert!(
             matches!(r.result, Some(ResultPayload::Bool(true))),
             "commit ok: {:?}",
@@ -6096,9 +6106,17 @@ mod tests {
         // COMMIT — all three modalities land atomically.
         assert_eq!(
             as_bool(
-                txn_handle(&state, 5, None, Method::Commit { txn_id, idempotency_key: None })
-                    .await
-                    .unwrap()
+                txn_handle(
+                    &state,
+                    5,
+                    None,
+                    Method::Commit {
+                        txn_id,
+                        idempotency_key: None
+                    }
+                )
+                .await
+                .unwrap()
             ),
             Some(true),
             "cross-modal commit"
@@ -6200,9 +6218,17 @@ mod tests {
         let txn_id = stage_crossmodal(&state, "media", "m1", "sha256:def").await;
 
         // COMMIT must FAIL (the durable barrier errored) → Response is an error.
-        let resp = txn_handle(&state, 5, None, Method::Commit { txn_id, idempotency_key: None })
-            .await
-            .unwrap();
+        let resp = txn_handle(
+            &state,
+            5,
+            None,
+            Method::Commit {
+                txn_id,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .unwrap();
         assert!(resp.error.is_some(), "commit surfaces the durable failure");
         assert!(resp.result.is_none(), "no Bool ack on a failed commit");
 
@@ -6394,9 +6420,17 @@ mod tests {
 
         assert_eq!(
             as_bool(
-                txn_handle(&state, 7, None, Method::Commit { txn_id, idempotency_key: None })
-                    .await
-                    .unwrap()
+                txn_handle(
+                    &state,
+                    7,
+                    None,
+                    Method::Commit {
+                        txn_id,
+                        idempotency_key: None
+                    }
+                )
+                .await
+                .unwrap()
             ),
             Some(true),
             "five-modality commit"
@@ -6496,9 +6530,17 @@ mod tests {
             stage_five_modalities(&state, "media", "m1", "sha256:def", "sensor", &points).await;
 
         // COMMIT must FAIL (the durable barrier errored) → error Response, no ack.
-        let resp = txn_handle(&state, 7, None, Method::Commit { txn_id, idempotency_key: None })
-            .await
-            .unwrap();
+        let resp = txn_handle(
+            &state,
+            7,
+            None,
+            Method::Commit {
+                txn_id,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .unwrap();
         assert!(resp.error.is_some(), "commit surfaces the durable failure");
         assert!(resp.result.is_none(), "no Bool ack on a failed commit");
 
@@ -6624,7 +6666,17 @@ mod tests {
         .await;
         assert!(r.error.is_none(), "stage measurement: {:?}", r.error);
 
-        let commit = dispatch_on_heap(&state, req(4, Method::Commit { txn_id, idempotency_key: None })).await;
+        let commit = dispatch_on_heap(
+            &state,
+            req(
+                4,
+                Method::Commit {
+                    txn_id,
+                    idempotency_key: None,
+                },
+            ),
+        )
+        .await;
         assert_eq!(
             as_bool(commit),
             Some(true),

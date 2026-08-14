@@ -273,7 +273,8 @@ pub(crate) async fn try_handle(
             // `from_seq > head_seq` check without the cursor's original history
             // ever having been recovered, turning an explicit signal back into a
             // silent one.
-            let batch = sanitize_watch(read_authority, hub.watch_batch(&graph, from_seq, &label, 0));
+            let batch =
+                sanitize_watch(read_authority, hub.watch_batch(&graph, from_seq, &label, 0));
             if batch.gap || !batch.events.is_empty() {
                 return Ok(Response::ok(req_id, ResultPayload::raw(&batch)));
             }
@@ -284,7 +285,8 @@ pub(crate) async fn try_handle(
             if !wait.is_zero() {
                 let _ = tokio::time::timeout(wait, notified).await;
             }
-            let batch = sanitize_watch(read_authority, hub.watch_batch(&graph, from_seq, &label, 0));
+            let batch =
+                sanitize_watch(read_authority, hub.watch_batch(&graph, from_seq, &label, 0));
             Ok(Response::ok(req_id, ResultPayload::raw(&batch)))
         }
 

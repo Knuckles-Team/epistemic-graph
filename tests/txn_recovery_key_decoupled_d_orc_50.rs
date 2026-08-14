@@ -240,7 +240,18 @@ async fn compare_and_set_node_embedding(
         staged_embedding.error
     );
 
-    Box::pin(dispatch(state, req(103, graph, Method::Commit { txn_id, idempotency_key: None }))).await
+    Box::pin(dispatch(
+        state,
+        req(
+            103,
+            graph,
+            Method::Commit {
+                txn_id,
+                idempotency_key: None,
+            },
+        ),
+    ))
+    .await
 }
 
 /// (1) REGRESSION GUARD — the OLD coupled behavior really does break existing plaintext
