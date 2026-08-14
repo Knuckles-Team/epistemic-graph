@@ -170,15 +170,29 @@ async fn accept_loop(
     exchange: String,
     auth_secret: String,
 ) -> std::io::Result<()> {
+    // GOC-70 (EG-281): one broker exchange per listener (fixed for its whole
+    // lifetime, cloned per connection above), so a single listener-wide
+    // `Notify` is a valid fast-path wakeup for "a PUBLISH just landed on this
+    // exchange" — shared by every session on this listener, subscriber and
+    // publisher alike. This turns delivery from "blind poll, up to 200ms
+    // cadence" into "wake as soon as a publish on THIS listener commits" for
+    // the common case; the 200ms poll in `handle_connection` remains as the
+    // fallback for messages that arrive by any other route (a backlog present
+    // at SUBSCRIBE time, a publish from a different listener/process sharing
+    // the same graph) and as the hang-guard if a wakeup is ever missed
+    // (`Notify::notify_waiters` only wakes listeners already `.await`ing
+    // `notified()` at the moment of the call; it stores no permit).
+    let publish_notify = Arc::new(tokio::sync::Notify::new());
     loop {
         let (socket, peer) = listener.accept().await?;
         let st = state.clone();
         let g = graph.clone();
         let ex = exchange.clone();
         let secret = auth_secret.clone();
+        let notify = publish_notify.clone();
         tokio::spawn(async move {
             let mut socket = socket;
-            if let Err(e) = handle_connection(&mut socket, st, g, ex, secret).await {
+            if let Err(e) = handle_connection(&mut socket, st, g, ex, secret, notify).await {
                 tracing::debug!("mqtt-wire connection from {peer} ended: {e}");
             }
         });
@@ -398,6 +412,7 @@ async fn handle_connection(
     graph: String,
     exchange: String,
     auth_secret: String,
+    publish_notify: Arc<tokio::sync::Notify>,
 ) -> std::io::Result<()> {
     // ── CONNECT ──
     let Some((ptype, _flags, payload)) = read_packet(socket).await? else {
@@ -445,13 +460,38 @@ async fn handle_connection(
                 None => break,
             }
         } else {
-            match tokio::time::timeout(std::time::Duration::from_millis(200), read_packet(socket))
-                .await
-            {
-                Ok(Ok(Some(p))) => p,
-                Ok(Ok(None)) => break,
-                Ok(Err(e)) => return Err(e),
-                Err(_) => {
+            // GOC-70 (EG-281): race the read against BOTH the listener-wide
+            // publish notify (fast path: wake as soon as a same-listener
+            // PUBLISH commits, instead of waiting out the poll cadence) and a
+            // 200ms fallback tick (unchanged safety net — a missed/foreign
+            // wakeup, or a backlog already pending at SUBSCRIBE time, is still
+            // bounded by the same cadence as before). `read_packet` was
+            // already raced against a timer here pre-fix, so this carries the
+            // exact same read-cancellation profile, not a new one: on an idle
+            // socket the first byte of the next packet has not arrived yet,
+            // so there is nothing buffered to lose when a sibling branch wins.
+            tokio::select! {
+                biased;
+                result = read_packet(socket) => {
+                    match result? {
+                        Some(p) => p,
+                        None => break,
+                    }
+                }
+                _ = publish_notify.notified() => {
+                    pump_subscription(
+                        socket,
+                        &state,
+                        &graph,
+                        &actor,
+                        &session_queue,
+                        &session_consumer,
+                        version,
+                    )
+                    .await?;
+                    continue;
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {
                     pump_subscription(
                         socket,
                         &state,
@@ -517,6 +557,16 @@ async fn handle_connection(
                     },
                 )
                 .await;
+                // GOC-70 (EG-281): the publish has committed through the engine (the
+                // `.await` above already ordered that) — wake every subscriber
+                // connection on this listener that is currently parked in the
+                // select above so it re-polls the queue NOW instead of waiting out
+                // the fallback tick. `notify_waiters` only wakes tasks already
+                // awaiting `.notified()`, so this is a best-effort fast path, not
+                // the sole delivery mechanism; the 200ms fallback (unchanged)
+                // still guarantees eventual delivery if this notification lands
+                // between a subscriber's poll iterations.
+                publish_notify.notify_waiters();
                 // QoS 1 requires a PUBACK echoing the packet id; QoS 0 is fire-and-forget.
                 if qos == 1 {
                     write_packet(socket, PKT_PUBACK << 4, &packet_id.to_be_bytes()).await?;
