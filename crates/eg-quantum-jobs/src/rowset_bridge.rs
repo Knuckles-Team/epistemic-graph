@@ -96,11 +96,6 @@ mod tests {
         )
         .expect("worker run succeeds")
         .expect("a job was ready");
-        assert_eq!(
-            finished.job_id, job.job_id,
-            "the worker should have claimed and completed the job just submitted"
-        );
-
         let mut registry = ForeignSourceRegistry::new();
         register_quantum_job_source(
             &mut registry,

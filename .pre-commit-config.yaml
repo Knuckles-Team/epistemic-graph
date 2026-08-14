@@ -79,7 +79,14 @@ repos:
   hooks:
   - id: dependency-readiness
     name: Dependency readiness — every declared intra-fleet constraint is installable
-    entry: bash -c 'uv run --with repository-manager python -m repository_manager.dependency_readiness .'
+    # Prefer the local repository-manager checkout, fall back to PyPI (CI).
+    # PyPI still holds 2.0.1, which predates this module entirely, so a plain
+    # `--with repository-manager` can never satisfy the import and the gate
+    # fails everywhere it is declared. --no-project keeps the tool out of this
+    # repo's own env (eg is Python 3.11; the tool needs >=3.12) and
+    # --prerelease=allow is required because agent-utilities depends on
+    # fastmcp>=4.0.0b1.
+    entry: bash -c 'P=../agents/repository-manager; [ -d "$P" ] || P=repository-manager; uv run --no-project --python 3.12 --prerelease=allow --with "$P" python -m repository_manager.dependency_readiness .'
     language: system
     pass_filenames: false
     always_run: true
