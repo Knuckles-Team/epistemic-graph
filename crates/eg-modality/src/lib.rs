@@ -71,6 +71,7 @@ mod contract;
 mod native;
 mod provenance;
 mod registry;
+pub mod rows;
 mod rowset;
 pub mod served;
 mod tck;
@@ -91,6 +92,13 @@ pub use native::{
 };
 pub use provenance::Provenance;
 pub use registry::{register_modality, registered_modalities, ModalityDescriptor};
+pub use rows::{
+    events_are_contiguous, ChunkManifestV1, ModalityEventV1, ModalityRow, ModalityRowOperation,
+    RowKey, RowSchemaError, MODALITY_ARTIFACT, MODALITY_CHUNK_MANIFEST, MODALITY_EVENT,
+    MODALITY_EVIDENCE_LOCUS, MODALITY_FEATURE, MODALITY_IDEMPOTENCY, MODALITY_INDEX_POSTING,
+    MODALITY_OCCURRENCE, MODALITY_PROJECTION_CURSOR, MODALITY_RENDITION,
+    MODALITY_ROW_SCHEMA_VERSION, MODALITY_ROW_TABLES, MODALITY_SEGMENT,
+};
 pub use rowset::RowSetShape;
 pub use served::{
     ApplyDisposition, ApplyOutcome, LifecycleState, ServedDelete, ServedError, ServedEvent,
