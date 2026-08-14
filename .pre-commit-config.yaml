@@ -77,6 +77,13 @@ repos:
     exclude: ^(tests/|test/|scripts/|script/|__tests__/)
 - repo: local
   hooks:
+  - id: dependency-readiness
+    name: Dependency readiness — every declared intra-fleet constraint is installable
+    entry: bash -c 'uv run --with repository-manager python -m repository_manager.dependency_readiness .'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   - id: uv-lock
     name: uv-lock (verify, never mutate)
     entry: bash -c 'uv lock --check'
