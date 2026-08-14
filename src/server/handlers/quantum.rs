@@ -429,11 +429,17 @@ fn handle_rank(
 const QAOA_GAMMA: f64 = std::f64::consts::FRAC_PI_4;
 const QAOA_BETA: f64 = std::f64::consts::FRAC_PI_8;
 
+/// The compiled QAOA circuit plus its resolved cost terms: one
+/// `(qubit_a, qubit_b, weight)` triple per Max-Cut edge, already index-mapped off
+/// the caller's node ids. Named so the builder's return type stays readable
+/// (clippy::type_complexity).
+type QaoaBuild = (QuantumProgram, Vec<(u32, u32, f64)>);
+
 fn build_qaoa_program(
     nodes: &[String],
     edges: &[QuantumQaoaEdge],
     p_layers: u32,
-) -> Result<(QuantumProgram, Vec<(u32, u32, f64)>), String> {
+) -> Result<QaoaBuild, String> {
     if nodes.is_empty() {
         return Err("optimize_with_qaoa requires at least one node".to_string());
     }
