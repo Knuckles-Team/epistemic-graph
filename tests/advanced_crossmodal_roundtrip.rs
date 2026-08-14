@@ -706,7 +706,13 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
     .await;
     let cb = Box::pin(dispatch(
         &state,
-        req(7, Method::Commit { txn_id: b.clone(), idempotency_key: None }),
+        req(
+            7,
+            Method::Commit {
+                txn_id: b.clone(),
+                idempotency_key: None,
+            },
+        ),
     ))
     .await;
     assert!(
@@ -719,7 +725,13 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
     // predicate, detects the phantom, and rolls A back.
     let ca = Box::pin(dispatch(
         &state,
-        req(8, Method::Commit { txn_id: a.clone(), idempotency_key: None }),
+        req(
+            8,
+            Method::Commit {
+                txn_id: a.clone(),
+                idempotency_key: None,
+            },
+        ),
     ))
     .await;
     assert!(
@@ -1610,7 +1622,17 @@ async fn plan_writeback_stages_and_commits_inferred_edges_atomically_d7() {
         "staged-but-uncommitted writeback must be invisible off-txn"
     );
 
-    let commit_resp = Box::pin(dispatch(&state, req(8, Method::Commit { txn_id: txn, idempotency_key: None }))).await;
+    let commit_resp = Box::pin(dispatch(
+        &state,
+        req(
+            8,
+            Method::Commit {
+                txn_id: txn,
+                idempotency_key: None,
+            },
+        ),
+    ))
+    .await;
     assert!(
         matches!(commit_resp.result, Some(ResultPayload::Bool(true))),
         "the cross-modal commit (anchor node + writeback edges) must succeed: {:?}",

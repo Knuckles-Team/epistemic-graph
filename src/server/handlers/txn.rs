@@ -132,13 +132,11 @@ fn transaction_receipt_id(txn_id: &str) -> String {
 /// when the caller no longer has the original `txn_id` to retry with.
 fn commit_receipt_id(txn_id: &str, idempotency_key: Option<&str>) -> String {
     match idempotency_key {
-        Some(key) => {
-            crate::server::mutation_batch::opaque_coordinator_key(
-                "transaction-receipt",
-                "idempotency",
-                key,
-            )
-        }
+        Some(key) => crate::server::mutation_batch::opaque_coordinator_key(
+            "transaction-receipt",
+            "idempotency",
+            key,
+        ),
         None => transaction_receipt_id(txn_id),
     }
 }

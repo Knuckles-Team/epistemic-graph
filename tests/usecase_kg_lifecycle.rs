@@ -352,7 +352,17 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                 },
             )
             .await;
-            let c = Box::pin(dispatch(&state, req(103, Method::Commit { txn_id: txn, idempotency_key: None }))).await;
+            let c = Box::pin(dispatch(
+                &state,
+                req(
+                    103,
+                    Method::Commit {
+                        txn_id: txn,
+                        idempotency_key: None,
+                    },
+                ),
+            ))
+            .await;
             assert!(matches!(c.result, Some(ResultPayload::Bool(true))));
         })
     };
