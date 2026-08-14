@@ -1029,7 +1029,24 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
             sparql_http::serve(sparql_listener, state).await;
         });
     }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    // GOC-70: bounded-retry readiness probe instead of a fixed sleep. Only the
+    // pgwire side needs this: `sparql_http::serve` is handed an ALREADY-bound
+    // `TcpListener` (bound synchronously above, before spawn), so the OS
+    // backlog accepts connections to `sparql_addr` as soon as `bind()`
+    // returned, independent of whether the `serve` task has reached its first
+    // `accept()` poll yet. `pgwire::serve_with_auth`, by contrast, does its
+    // OWN internal bind inside the spawned task, so `pg_addr` genuinely isn't
+    // listening until that task runs far enough — a flat sleep here assumed
+    // it would within an arbitrary window, not guaranteed under scheduler
+    // contention (a low-core CI runner sharing cycles across many tokio
+    // workers). 1s budget (50 * 20ms), matching
+    // `tests/{mysql,mssql}_roundtrip.rs`'s established pattern.
+    for _ in 0..50 {
+        if tokio::net::TcpStream::connect(&pg_addr).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
 
     // The pgwire user "tester" IS the engine `agent_id` (`server::pgwire::auth`: "a pg
     // connection's `user` IS an engine `agent_id`" -- SCRAM binds the login to that

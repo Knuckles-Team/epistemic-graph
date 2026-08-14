@@ -513,14 +513,36 @@ mod tests {
         Arc::new(GraphCore::new())
     }
 
-    /// N concurrent producers writing distinct nodes to ONE graph must (a) all land
-    /// (no lost writes) and (b) be applied in FEWER topology-lock acquisitions than
-    /// ops — i.e. the coalescer actually batched (the contention win), not one
+    /// N producers writing distinct nodes to ONE graph must (a) all land (no lost
+    /// writes) and (b) be applied in FEWER topology-lock acquisitions than ops —
+    /// i.e. the coalescer actually batched (the contention win), not one
     /// lock-per-op.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    ///
+    /// GOC-70: the pile-up that makes batching happen is constructed
+    /// DETERMINISTICALLY rather than hoped for from the scheduler. The original
+    /// shape spawned 500 `tokio::spawn` tasks under `worker_threads = 4` and relied
+    /// on the OS scheduler actually overlapping enough of them within the 2ms
+    /// linger window to fill a batch — true on a lightly-loaded many-core host,
+    /// false on a 2-core CI runner where four tokio workers contend for two cores
+    /// and uncontended enqueues can drain one-by-one before the next is even
+    /// submitted (the exact failure class that broke
+    /// `dispatch_coalesces_concurrent_writes_to_one_graph` in 2.25.0). Here every
+    /// op is enqueued from ONE synchronous loop on the test's own task, with no
+    /// `.await` inside the loop: `try_enqueue` is a non-blocking `try_send`, so
+    /// this task cannot be preempted mid-loop (tokio only yields a task at an
+    /// await point) and the worker task — spawned separately — gets no
+    /// opportunity to run until the loop finishes and this task starts awaiting
+    /// replies. That guarantees all `N` ops sit in the queue before the worker
+    /// drains its first batch, on ANY core count, including 1. The batching
+    /// outcome is then a structural consequence of `max_batch` (500 ops /
+    /// 128-per-batch ⇒ at most 4 batches), not a timing race.
+    #[tokio::test]
     async fn concurrent_writes_coalesce_into_fewer_lock_acquisitions() {
         let core = Arc::new(GraphCore::new());
-        // Big batch window + a little linger so concurrent producers pile up.
+        // Big batch window so the deterministic pile-up (below) coalesces into few
+        // batches. `max_linger` is irrelevant here — the queue is already full of
+        // every op before the worker's first poll, so it never has to wait out a
+        // linger window to see a full batch.
         let cfg = CoalescerConfig {
             max_batch: 128,
             queue_capacity: 4096,
@@ -529,25 +551,21 @@ mod tests {
         let writer = GraphWriter::spawn("hot".into(), core.clone(), cfg);
 
         const N: usize = 500;
-        let mut handles = Vec::with_capacity(N);
+        let mut receivers = Vec::with_capacity(N);
         for i in 0..N {
-            let w = writer.clone();
-            let c = core.clone();
-            handles.push(tokio::spawn(async move {
-                let (reply, rx) = oneshot::channel();
-                let op = WriteOp::AddNode {
-                    node_id: format!("n{i}"),
-                    properties_msgpack: node_props(i as i64),
-                    reply,
-                };
-                if let Err(op) = w.try_enqueue(op) {
-                    w.apply_one_inline(&c, "hot", op);
-                }
-                rx.await.unwrap()
-            }));
+            let (reply, rx) = oneshot::channel();
+            let op = WriteOp::AddNode {
+                node_id: format!("n{i}"),
+                properties_msgpack: node_props(i as i64),
+                reply,
+            };
+            if let Err(op) = writer.try_enqueue(op) {
+                writer.apply_one_inline(&core, "hot", op);
+            }
+            receivers.push(rx);
         }
-        for h in handles {
-            assert!(matches!(h.await.unwrap(), WriteOutcome::Ok));
+        for rx in receivers {
+            assert!(matches!(rx.await.unwrap(), WriteOutcome::Ok));
         }
 
         // Correctness: every write landed exactly once.

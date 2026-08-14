@@ -253,6 +253,26 @@ async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
     spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await
 }
 
+/// GOC-70: bounded-retry replacement for a fixed pre-connect sleep. A flat
+/// `sleep(200ms)` before connecting assumes the listener task has bound its
+/// socket within an arbitrary window — true on a lightly-loaded host, not
+/// guaranteed on a contended/low-core one (the listener task competes for the
+/// same scheduler as everything else). Mirrors the already-correct pattern in
+/// `tests/mysql_roundtrip.rs::spawn_listener` / `tests/mssql_roundtrip.rs`:
+/// poll with a real connect attempt, generous 1s total budget (50 * 20ms),
+/// which both confirms readiness immediately when possible and tolerates a
+/// slow scheduler without masking a genuine bind failure (a hang here means
+/// the listener never bound at all, a real bug, and this still returns after
+/// ~1s rather than hanging forever).
+async fn wait_for_listener_ready(addr: &str) {
+    for _ in 0..50 {
+        if tokio::net::TcpStream::connect(addr).await.is_ok() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
 /// Bind + serve with an EXPLICIT auth mode (CONCEPT:EG-KG.query.concept-13). Used by the auth
 /// tests to pin SCRAM deterministically (no process-global env toggle).
 async fn spawn_listener_mode(
@@ -268,8 +288,7 @@ async fn spawn_listener_mode(
     tokio::spawn(async move {
         let _ = pgwire::serve_with_auth(&serve_addr, state, mode).await;
     });
-    // Give the listener a moment to bind.
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    wait_for_listener_ready(&addr_s).await;
     addr_s
 }
 
@@ -293,7 +312,7 @@ async fn spawn_listener_abortable(
     let handle = tokio::spawn(async move {
         let _ = pgwire::serve_with_auth(&serve_addr, state, pgwire::PgWireAuthMode::Scram).await;
     });
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    wait_for_listener_ready(&addr_s).await;
     (addr_s, handle)
 }
 
