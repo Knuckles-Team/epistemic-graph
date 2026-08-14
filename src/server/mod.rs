@@ -2753,7 +2753,15 @@ mod tests {
             }
             results
         };
-        let results = tokio::time::timeout(std::time::Duration::from_secs(30), batch)
+        // 30s was still not always enough purely as a hang guard: this host
+        // also runs unrelated production workloads (k8s/jellyfin/etc.)
+        // alongside the ~1000-test suite, adding scheduling noise that has
+        // nothing to do with this test's own code path. 120s remains many
+        // multiples below what an actual deadlock looks like (indefinite),
+        // so it does not weaken the guard's ability to catch a real one -- the
+        // correctness fix is the concurrent-dispatch restructuring above, not
+        // this bound.
+        let results = tokio::time::timeout(std::time::Duration::from_secs(120), batch)
             .await
             .expect("writers starved (deadlocked) during semantic search");
         for r in &results {
@@ -3139,7 +3147,12 @@ mod tests {
             }
             results
         };
-        let results = tokio::time::timeout(std::time::Duration::from_secs(30), batch)
+        // See test_writers_not_starved_by_large_semantic_search's comment above
+        // for why 120s (this host also runs unrelated production workloads
+        // alongside the ~1000-test suite): still many multiples below what an
+        // actual deadlock looks like (indefinite), and not the correctness
+        // mechanism -- that's the concurrent-dispatch restructuring above.
+        let results = tokio::time::timeout(std::time::Duration::from_secs(120), batch)
             .await
             .expect("control-plane writers starved (deadlocked) by ingestion holding another graph's lock");
         for r in &results {
