@@ -378,6 +378,12 @@ async fn stale_epoch_request_gets_redirected() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn catalog_persists_and_reloads_with_epoch() {
+    // Held for the whole test: opens the backend TWICE (initial + a restart reopen
+    // of the SAME dir) -- same "ambient key must stay constant across both opens"
+    // requirement as `reshard_harness::reshard_data_durable_across_restart`. See
+    // `crate::crypto::acquire_test_env_lock`'s doc.
+    #[cfg(feature = "security")]
+    let _env_lock = crate::crypto::acquire_test_env_lock().await;
     let dir = fresh_dir("persist");
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
