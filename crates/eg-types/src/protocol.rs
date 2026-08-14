@@ -5939,22 +5939,29 @@ pub struct EvidenceCitationWire {
 /// Wire mirror of `eg_alignment::ResolvedArtifact` (SURPASS gap-closure: "unify the
 /// two evidence resolvers", "real crop/slice codecs"). `kind` is `"text"` (a real
 /// excerpt — currently `CharacterRange` by character range, `CodeSymbol` by line
-/// range) or `"blob"` (every other locus kind: the real CAS digest is named, but no
-/// in-tree codec exists to crop/slice pixels/audio/video samples out of it yet — see
-/// `CasEvidenceResolver`'s module docs for exactly which kinds get which treatment).
+/// range), `"blob"` (an address that is itself an intentionally opaque, versioned
+/// pointer — e.g. `RowVersion`/`TraceSpan` — where the real CAS digest IS the exact
+/// result), or `"unresolved"` (GOC-05 gate 3: an address that promises a region/
+/// interval but has no registered decoder yet — the honest typed outcome instead of
+/// silently reporting a raw digest as if it were that region; see `reason`).
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolvedArtifactWire {
-    /// `"text"` or `"blob"`.
+    /// `"text"`, `"blob"`, or `"unresolved"`.
     pub kind: String,
     pub subject_ref: String,
     /// The resolved excerpt, when `kind == "text"`.
     pub excerpt: Option<String>,
     /// The real CAS digest, when `kind == "blob"`.
     pub blob_ref: Option<String>,
-    /// A human-readable note on what the `blob` reference represents (e.g. "no
-    /// in-tree codec to crop pixels with"), when `kind == "blob"`.
+    /// A human-readable note on what the `blob` reference represents, when
+    /// `kind == "blob"`.
     pub note: Option<String>,
+    /// The typed unresolved reason (`missing_rendition` / `codec_unavailable` /
+    /// `policy_denied` / `corrupt_bytes` / `out_of_range`), when
+    /// `kind == "unresolved"`.
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// Materialized result of a `Method::ExplainEvidence` run. Returned via

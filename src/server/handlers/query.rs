@@ -2673,6 +2673,7 @@ fn resolved_artifact_wire(
             excerpt: Some(excerpt),
             blob_ref: None,
             note: None,
+            reason: None,
         },
         eg_alignment::ResolvedArtifact::Blob {
             subject_ref,
@@ -2684,7 +2685,34 @@ fn resolved_artifact_wire(
             excerpt: None,
             blob_ref: Some(blob_ref),
             note: Some(note),
+            reason: None,
         },
+        eg_alignment::ResolvedArtifact::Unresolved {
+            subject_ref,
+            reason,
+        } => crate::protocol::ResolvedArtifactWire {
+            kind: "unresolved".to_string(),
+            subject_ref,
+            excerpt: None,
+            blob_ref: None,
+            note: None,
+            reason: Some(unresolved_reason_wire(reason).to_string()),
+        },
+    }
+}
+
+/// Stable, machine-readable string form of `eg_alignment::UnresolvedReason` for
+/// `ResolvedArtifactWire.reason` — the resolver reason-code catalog GOC-05's
+/// acceptance gates require ("Attach exact resolver outputs and every
+/// unresolved reason code").
+#[cfg(all(feature = "evidence-graph", feature = "alignment"))]
+fn unresolved_reason_wire(reason: eg_alignment::UnresolvedReason) -> &'static str {
+    match reason {
+        eg_alignment::UnresolvedReason::MissingRendition => "missing_rendition",
+        eg_alignment::UnresolvedReason::CodecUnavailable => "codec_unavailable",
+        eg_alignment::UnresolvedReason::PolicyDenied => "policy_denied",
+        eg_alignment::UnresolvedReason::CorruptBytes => "corrupt_bytes",
+        eg_alignment::UnresolvedReason::OutOfRange => "out_of_range",
     }
 }
 
