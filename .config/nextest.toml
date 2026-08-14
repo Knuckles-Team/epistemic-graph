@@ -1,0 +1,90 @@
+# nextest configuration (D-PERF-1, test-suite acceleration program).
+#
+# Why nextest over `cargo test`: every #[test] runs in its OWN process (not a
+# thread inside one shared test-binary process), which gives us three things
+# `cargo test` structurally cannot:
+#   1. Process isolation for tests that mutate process-global state (the
+#      `EPISTEMIC_GRAPH_ENCRYPTION_KEY` env-var race documented in AGENTS.md
+#      under "all six gates verified green on a 64-core host, and CI (2-core)
+#      failed anyway" — `advanced_crossmodal_roundtrip.rs`'s
+#      `ENC_ENV_LOCK`-guarded tests raced another test's transient mutation of
+#      that var). Under nextest each test gets a fresh process and therefore a
+#      fresh env, so that whole defect class cannot recur structurally, not
+#      just by convention. See AGENTS.md rule 2 ("never depend on ambient
+#      process-global state") — nextest makes violating it far harder.
+#   2. A per-test timeout (`slow-timeout` below): a hung test costs the
+#      timeout, not the rest of the binary's tests never running.
+#   3. `--partition` sharding across machines/CI shards (not wired into any
+#      script yet; available for whoever needs to split the `cargo-test` gate
+#      across R510/rw710 or CI matrix legs).
+#
+# CI-fidelity note (read before assuming this is a drop-in replacement):
+# nextest's process-per-test model means a test that was silently passing
+# *because* it ran interleaved with another test in the same process (reading
+# that test's env-var mutation, a `static` it initialized, a `OnceLock` it
+# populated) will now run alone and can fail differently than it did under
+# `cargo test`. That is a FEATURE for the encryption-key class of bug (AGENTS.md
+# rule 2) but means: if a test starts failing only after switching to nextest,
+# treat it as a real ambient-state bug the old runner was hiding, not a nextest
+# regression — do not silence it, fix the ambient dependency (see AGENTS.md
+# "the rules, in order of how a test should satisfy them").
+#
+# nextest does not run doctests (`cargo test --doc`) — cargo still owns those;
+# they are cheap and unaffected by any of this.
+
+[store]
+dir = "target-isolated/nextest"
+
+[profile.default]
+# Mirrors the `--no-fail-fast` every heavy `cargo test` invocation in
+# .mergequeue.yaml / pre-commit already passes explicitly — a single failing
+# test must never hide the rest of the run's results.
+fail-fast = false
+# No global retries: a flaky test must be fixed, not laundered green by rerun
+# (AGENTS.md "no masking" / this program's own non-negotiables). Retries are
+# only for a named, already-triaged flaky test via a scoped [[profile.default.overrides]]
+# entry below, each with a comment citing the flake.
+retries = 0
+# Generous, not tight: a per-test wall-clock ceiling so one hung test costs
+# minutes, not the rest of a 5400s gate budget. "slow" first warns (visible in
+# output, does not fail), "terminate" is the actual kill. 120s slow-warning /
+# 600s terminate is 10x the mergequeue's own facade-full/replay-determinism
+# gate granularity headroom and well above anything in this suite's real
+# runtime (the slowest observed single test in this pass was under 5s) while
+# still bounding a genuine hang far below the old failure mode of "blocks the
+# whole binary until the 5400s gate timeout".
+slow-timeout = { period = "120s", terminate-after = 5 }
+
+[profile.default.junit]
+path = "junit.xml"
+
+# CI profile: same semantics as default, but always emits JUnit (some CI
+# consumers expect the file to exist unconditionally) and never retries.
+[profile.ci]
+fail-fast = false
+retries = 0
+slow-timeout = { period = "120s", terminate-after = 5 }
+
+[profile.ci.junit]
+path = "junit-ci.xml"
+
+# --- Resource-heavy integration binaries: bound concurrency, don't serialize ---
+#
+# AGENTS.md rule 5 ("bound resource use... a sibling test's allocation
+# contaminates a process-wide absolute reading under parallel execution")
+# already told every test author to use RSS deltas, not absolute readings —
+# but a handful of integration binaries stand up a real multi-tenant engine
+# or large synthetic corpora and are heavy enough in absolute RAM that running
+# many of them at full 24-way nextest concurrency simultaneously risks OOM on
+# an 8-core/lower-RAM host (R510). This is a CONCURRENCY cap, not the
+# correctness-motivated serialization the encryption-key lock existed for —
+# it's the same tool the old code used (`acquire_test_env_lock`) for a
+# different, legitimate reason (memory headroom), so it stays, scoped
+# narrowly, rather than applying test-threads=1 globally (which the
+# non-negotiables explicitly forbid as a way to hide races).
+[[profile.default.overrides]]
+filter = 'binary_id(~advanced_crossmodal_roundtrip) + binary_id(~replay_determinism) + binary_id(~fuzz_pipelines)'
+test-group = 'heavy-engine'
+
+[test-groups.heavy-engine]
+max-threads = 4
