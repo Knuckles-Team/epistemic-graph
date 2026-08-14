@@ -1,5 +1,7 @@
+import hashlib
 import json
 import os
+import stat
 import subprocess
 import time
 
@@ -81,6 +83,46 @@ def strict_server_env(
     return env
 
 
+def _prebuilt_test_binary() -> str | None:
+    """Return a validated `EPISTEMIC_GRAPH_TEST_BINARY` path, or ``None``.
+
+    BUG-045: the pytest pre-push gate previously ALWAYS paid for a `cargo build` +
+    `cargo run` of the full-featured engine here, on top of the separate ~41-minute
+    PEP 517 `maturin`/`full,ast-extended`/`-C lto=thin -C codegen-units=1` release
+    build `uv run --all-extras` triggers just to install this package (a build whose
+    OUTPUT this fixture never even uses — it always built and ran its own copy). A
+    caller that already has a matching binary (a prior `cargo build --features full`
+    in this same checkout, or a CI artifact) can point `EPISTEMIC_GRAPH_TEST_BINARY`
+    at it to skip the Cargo build+run entirely. Optional
+    `EPISTEMIC_GRAPH_TEST_BINARY_SHA256` verifies its integrity the same way the
+    exact-artifact certification tests already do (`test_durable_crash.py`,
+    `test_exact_release_campaigns.py`) — unset ⇒ no digest check, just an
+    executable-file check. Unset/invalid/missing ⇒ ``None`` and the caller falls
+    back to today's cargo build+run, unchanged.
+    """
+
+    binary = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY", "") or "").strip()
+    if not binary:
+        return None
+    path = os.path.abspath(binary)
+    if not os.path.isfile(path):
+        return None
+    mode = os.stat(path).st_mode
+    if not mode & stat.S_IXUSR:
+        return None
+    digest = str(
+        os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY_SHA256", "") or ""
+    ).strip()
+    if digest:
+        hasher = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        if hasher.hexdigest() != digest.lower():
+            return None
+    return path
+
+
 @pytest.fixture(scope="session", autouse=True)
 def start_epistemic_graph_server(request, tmp_path_factory):
     # Exact-artifact certification owns and restarts its supplied binary, while
@@ -118,14 +160,19 @@ def start_epistemic_graph_server(request, tmp_path_factory):
         os.remove(socket_path)
 
     print("Starting epistemic-graph-server...")
-    # Build with `full` (= compute + server): the suite exercises the finance,
-    # datascience, reasoning AND ast (ParseFiles/IndexRepository) domains, which a
-    # `server`-only build compiles out — every such test would otherwise fail with
-    # "Method not available in this server build".
-    subprocess.run(["cargo", "build", "--features", "full"], cwd=rust_dir, check=False)
-
-    process = subprocess.Popen(
-        [
+    prebuilt = _prebuilt_test_binary()
+    if prebuilt is not None:
+        print(f"Using pre-built EPISTEMIC_GRAPH_TEST_BINARY: {prebuilt}")
+        command = [prebuilt, "--socket-path", socket_path]
+    else:
+        # Build with `full` (= compute + server): the suite exercises the finance,
+        # datascience, reasoning AND ast (ParseFiles/IndexRepository) domains, which
+        # a `server`-only build compiles out — every such test would otherwise fail
+        # with "Method not available in this server build".
+        subprocess.run(
+            ["cargo", "build", "--features", "full"], cwd=rust_dir, check=False
+        )
+        command = [
             "cargo",
             "run",
             "--features",
@@ -135,7 +182,10 @@ def start_epistemic_graph_server(request, tmp_path_factory):
             "--",
             "--socket-path",
             socket_path,
-        ],
+        ]
+
+    process = subprocess.Popen(
+        command,
         cwd=rust_dir,
         env={
             **os.environ,
