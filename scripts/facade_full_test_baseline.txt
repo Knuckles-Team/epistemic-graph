@@ -8,58 +8,18 @@
 # remaining 55 are REAL fixture gaps now that tests reach the true
 # authorization paths: graph ACLs for the test principal, and the
 # EG-KG.ontology.rdf-update-guard integrity requirement.
-cost::tests::integration::fair_cap_protects_small_tenant
-redb_store::security_tests::edge_ordinals_monotonic_o1_counter_and_reseed_after_restart
-redb_store::security_tests::encryption_no_plaintext_on_disk_round_trips_and_wrong_key_fails
-server::bolt_wire::tests::bolt_atomic_commit_survives_backend_restart
-server::bolt_wire::tests::bolt_explicit_transaction_begin_run_commit
-server::bolt_wire::tests::bolt_failure_then_ignored_until_reset
-server::bolt_wire::tests::bolt_hello_run_pull_roundtrip_against_cypher_engine
-server::bolt_wire::tests::bolt_rollback_discards_staged_write_without_touching_live_graph
-server::dispatch::admin_scope_tests::identity_bootstrap_is_atomic_under_concurrent_requests
-server::dispatch::blob_dispatch_tests::roundtrip_dedup_bounded_memory_and_gc
-server::dispatch::eg318_dispatch_tests::timeseries_is_graph_authorized_and_tenant_scoped
-server::graphql_sub::tests::hidden_only_change_does_not_change_visible_payload
-server::graphql_sub::tests::rls_projection_hides_peer_and_untagged_rows
-server::handlers::modality::tests::resource_gate_is_bounded_and_every_leaf_is_12_of_12
-server::handlers::query::dispatch_write_tests::cypher_create_then_match_via_dispatch
-server::handlers::query::dispatch_write_tests::graphql_mutation_creates_node_via_dispatch
-server::handlers::query::dispatch_write_tests::wire_sql_insert_node_then_select_via_dispatch
-server::handlers::query::rls_aware_cache_no_cross_agent_leak::agent_a_cached_result_is_not_served_to_agent_b
-server::handlers::query::rls_aware_cache_no_cross_agent_leak::agent_a_graphql_cached_result_is_not_served_to_agent_b
-server::handlers::query::txn_ryow_dispatch_tests::commit_makes_txn_writes_visible_off_txn
-server::kvcache_http::shared_store::tests::version_bump_invalidates_derived_context_fleet_wide
-server::lake::rest::tests::commit_table_post_triggers_compaction_and_returns_load_table_shape
-server::lake::rest::tests::http_listener_serves_config_namespaces_and_load_table
-server::lake::rest::tests::list_and_load_table_shapes_match_iceberg_rest_spec
-server::lake::tests::drain_series_materializes_only_new_points_each_call
-server::lake::tests::evolve_add_column_widens_schema_for_future_writes_only
-server::mqtt_wire::tests::eg281_listener_connect_subscribe_publish_deliver_roundtrip
-server::mysql_wire::tests::mysql_wire_roundtrip_select_create_insert
-server::persistence::backup::tests::backup_restore_roundtrip_preserves_everything
-server::persistence::backup::tests::rejects_future_format
-server::persistence::backup::tests::restore_can_reshard
-server::persistence::cold_offload::admission_tests::lazy_startup_hydrates_nothing_until_accessed
-server::persistence::redb_backend::tests::delete_then_recreate_same_name_keeps_new_writes
-server::stomp_wire::tests::eg282_listener_connect_subscribe_send_message_roundtrip
-server::tests::dispatch_coalesces_concurrent_writes_to_one_graph
-server::tests::memory_cap_evicts_graphs_over_cap
-server::tests::per_graph_backpressure_isolates_tenants
-server::tests::test_add_triples_then_get_rdf_round_trips
-server::tests::test_ann_warms_on_demand_after_threshold_crossing_post_boot
-server::tests::test_anonymous_denied_when_rules_exist
-server::tests::test_bus_stays_open_to_all
-server::tests::test_create_graph_records_caller_as_owner
-server::tests::test_cypher_match_returns_rows
-server::tests::test_delete_graph_requires_write_access
-server::tests::test_federated_query_two_engines_equals_manual_join
-server::tests::test_global_graph_read_only
-server::tests::test_graphql_routes_and_equals_cypher
-server::tests::test_manager_reaches_subordinate_graph
-server::tests::test_offloaded_algorithms_round_trip
-server::tests::test_owl_explain_method_round_trips
-server::tests::test_owl_reason_distributed_two_graphs
-server::tests::test_owl_reason_method_round_trips
-server::tests::test_owner_can_write_own_graph
-server::tests::test_sparql_method_round_trips
-server::tests::test_team_member_read_only
+#
+# 2026-08-14: 55 -> 0. Re-validated every entry against a CI-faithful
+# unconstrained `cargo test -p epistemic-graph --features full --no-fail-fast`
+# run on R710: 54 of the 55 already PASS (fixed by later commits -- the B-8/B-9
+# durability-contract rebase and the coalescer stats fix -- without the
+# baseline ever being re-shrunk). The 55th, `server::mqtt_wire::tests::
+# eg281_listener_connect_subscribe_publish_deliver_roundtrip`, was diagnosed as
+# GOC-70 (scheduling-dependent, not a product defect) and fixed structurally.
+# The RATCHET IS NOW RETIRED (see .pre-commit-config.yaml's `cargo-test-full`
+# hook, which runs the same absolute-green command as release.yml's
+# "Test (facade full)" step instead of scripts/cargo_test_ratchet.py). This
+# file is kept empty, not deleted, so a future legitimate red-main episode can
+# reactivate the same differential-gating shape by re-running
+# `python3 scripts/cargo_test_ratchet.py --update-baseline` and re-wiring the
+# hook -- see that script's module docstring.

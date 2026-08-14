@@ -89,6 +89,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   forwards `SpawnDelegation.oidc_token` onto the envelope in `on`-mode delegation.
 
 ### Fixed
+- **MQTT delivery latency was scheduling-dependent, not event-driven (EG-281, GOC-70)** — `server::mqtt_wire::tests::eg281_listener_connect_subscribe_publish_deliver_roundtrip`
+  was the last failure in the facade-full suite (1023 passed / 1 failed
+  unconstrained), racing a 5s delivery timeout against the subscriber
+  connection's internal delivery pump, which only ran on a blind 200ms poll
+  tick. Diagnosis: 3/3 passes under `taskset -c 0,1` (the CI-equivalent
+  2-core constrained gate) across two independent matrix runs, only
+  flaky-failing on a many-core host running the ~1000-test `--lib` suite at
+  full host parallelism — the GOC-70 defect class (assert what's true
+  regardless of scheduling), not a routing/dedup/wire-codec defect (the other
+  9 `eg281_*` unit tests covering packet parsing/encoding were never
+  affected). Fixed structurally in `src/server/mqtt_wire/mod.rs`: `accept_loop`
+  now holds one listener-wide `tokio::sync::Notify` (valid because a listener's
+  broker exchange is fixed for its lifetime), the `PKT_PUBLISH` handler calls
+  `notify_waiters()` once its `PublishIdempotent` engine call has committed,
+  and `handle_connection`'s subscriber read loop races `read_packet` against
+  BOTH that notify (fast path — wake immediately on a same-listener publish)
+  and the original 200ms tick (unchanged fallback for a backlog already
+  pending at SUBSCRIBE time or a publish from elsewhere sharing the graph, and
+  the hang-guard if a wakeup is ever missed, since `notify_waiters` wakes only
+  already-parked listeners and stores no permit). No timeout was widened as
+  the fix.
+  Also re-validated all 55 entries in `scripts/facade_full_test_baseline.txt`
+  (the facade-full test ratchet) against the same CI-faithful run: 54 already
+  passed (fixed by later commits without the baseline ever being re-shrunk)
+  and this was the last one. With the baseline now empty, retired the ratchet
+  as the enforcement mechanism — `.pre-commit-config.yaml`'s `cargo-test-full`
+  hook now runs the identical absolute-green command
+  `.github/workflows/release.yml`'s "Test (facade full)" step runs, instead of
+  `scripts/cargo_test_ratchet.py`. That divergence (CI ran the raw, absolute
+  command against a suite the local ratchet quietly passed over 55 baselined
+  failures) is why publishing had been dark since 2.23.0; a green local
+  pre-push now implies a green CI run for this step by construction, not by
+  convention. `scripts/cargo_test_ratchet.py` is left in place, unwired, for a
+  future legitimate red-main episode.
 - **Cypher anonymous-node inline-property-map audit (W0.8, CONCEPT:EG-KG.query.anon-propmap-parity)** — investigated a
   reported footgun where `MATCH (:Label {k: $v})` (an anonymous node pattern
   carrying an inline property map) was believed to silently under-match relative
