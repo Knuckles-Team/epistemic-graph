@@ -43,6 +43,15 @@ _BUILD_ENV = (
     "CXX",
     "LDFLAGS",
     "MACOSX_DEPLOYMENT_TARGET",
+    # BUG-045: maturin's own PEP 517 backend (`maturin.get_maturin_pep517_args`)
+    # reads this to append extra CLI args (e.g. a fast-iteration `--profile dev`
+    # for a local/test install, in place of the default release+thin-LTO build).
+    # It MUST be part of the cache key: a cached wheel built under one value of
+    # this var (say `--profile dev`) must never be served for a request made
+    # under a different value (say unset, i.e. the real release profile) — the
+    # two are different artifacts. Every other field the maturin invocation is
+    # sensitive to was already fingerprinted here; this one was missing.
+    "MATURIN_PEP517_ARGS",
     "PKG_CONFIG_PATH",
     "PYO3_CONFIG_FILE",
     "PYO3_CROSS",
