@@ -4738,6 +4738,8 @@ mod result_cache_dispatch_tests {
 ))]
 mod rls_aware_cache_no_cross_agent_leak {
     use super::current_auth_test_support::{current_isolation_with_agents, current_request_as};
+    #[cfg(feature = "security")]
+    use crate::acl::{AgentIdentity, AgentRole};
     use crate::channels::ChannelManager;
     use crate::protocol::{Method, Request, Response, ResultPayload};
     use crate::registry::GraphRegistry;
@@ -4750,16 +4752,69 @@ mod rls_aware_cache_no_cross_agent_leak {
     const SECRET: &str = "rls-cache-test-secret";
 
     fn state() -> Arc<RwLock<ServerState>> {
+        let mut isolation = current_isolation_with_agents(&["alice", "bob"]);
+        // Under `security`, `check_access` defers entirely to RBAC -- the old
+        // "`__commons__` is open to all authenticated agents" graph-type rule is
+        // ignored for a non-System identity. Grant alice/bob the SAME shape
+        // explicitly so their `AddNode`/`CypherQuery`/`GraphQl` calls below reach
+        // the RLS cache logic this module actually tests, instead of failing
+        // closed on an empty RBAC policy before RLS is ever exercised.
+        #[cfg(feature = "security")]
+        {
+            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+            isolation.add_role(Role::new("commons-rw"));
+            for action in [RbacAction::Read, RbacAction::Write] {
+                isolation.add_grant(Grant {
+                    role: "commons-rw".into(),
+                    resource: ResourceSelector::Graph("__commons__".into()),
+                    action,
+                    effect: GrantEffect::Allow,
+                });
+            }
+            for agent in ["alice", "bob"] {
+                isolation.register_agent(AgentIdentity {
+                    agent_id: agent.into(),
+                    role: AgentRole::Agent,
+                    teams: Vec::new(),
+                    roles: vec!["commons-rw".into()],
+                });
+            }
+        }
         Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry: GraphRegistry::new(),
-            isolation: current_isolation_with_agents(&["alice", "bob"]),
+            isolation,
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: None,
+            // A REAL per-test durable backend (same reasoning as
+            // `server::mod.rs`'s `test_state()`): `AddNode` is a
+            // durability-domain GATEWAY_ROUTED write and fails closed without
+            // one, before the RLS-cache behavior this module tests is ever
+            // reached.
+            #[cfg(feature = "redb")]
+            persistence: Some(std::sync::Arc::new(
+                crate::server::persistence::redb_backend::RedbBackend::open(
+                    std::env::temp_dir()
+                        .join(format!(
+                            "eg-rls-cache-test-{}-{}",
+                            std::process::id(),
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_nanos())
+                                .unwrap_or(0)
+                        ))
+                        .to_string_lossy()
+                        .into_owned(),
+                    crate::durability::DurabilityPolicy::Each,
+                    256,
+                )
+                .expect("open rls-cache test redb backend"),
+            )),
+            #[cfg(not(feature = "redb"))]
             persistence: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),

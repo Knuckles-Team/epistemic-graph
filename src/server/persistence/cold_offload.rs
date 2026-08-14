@@ -875,7 +875,13 @@ mod admission_tests {
             #[cfg(feature = "redb")]
             cold_tracker: Arc::new(ColdTenantTracker::new()),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            // A bare `IsolationLayer::new()` has NO registered agents, so
+            // `check_access` denies every graph -- even a System caller -- before
+            // the lazy-hydration behavior this test proves is ever reached. Use
+            // the SAME fixture identity ("unit-test-agent", System) the write
+            // side (`redb_state`, above) registers via `current_isolation()`, so
+            // `req()`'s caller resolves post-reload exactly like it did pre-reload.
+            isolation: current_isolation(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir_s.clone()),
