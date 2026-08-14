@@ -725,7 +725,20 @@ mod tests {
         tokio::spawn(async move {
             let _ = serve_with_auth(&serve_addr, state, MysqlAuthMode::Native).await;
         });
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        // GOC-70: bounded-retry readiness probe instead of a fixed sleep — a
+        // flat 200ms wait before the caller's immediate `TcpStream::connect`
+        // (in `client_connect`, no retry there) assumes the listener bound
+        // within an arbitrary window, which is not guaranteed on a
+        // contended/low-core host. `tests/mysql_roundtrip.rs::spawn_listener`
+        // (a separate integration-test binary covering the same server code)
+        // already uses this exact pattern; this in-module copy had been
+        // missed. 1s total budget (50 * 20ms).
+        for _ in 0..50 {
+            if TcpStream::connect(&addr).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
         addr
     }
 

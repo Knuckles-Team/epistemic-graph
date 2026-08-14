@@ -2747,9 +2747,29 @@ mod tests {
         tokio::spawn(async move {
             let _ = serve_listener(&serve_addr, mem_store(), TEST_SECRET.to_string()).await;
         });
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-
-        let mut s = TcpStream::connect(&addr).await.unwrap();
+        // GOC-70: bounded-retry connect instead of a fixed pre-connect sleep —
+        // a flat 150ms wait assumes the listener bound within an arbitrary
+        // window, not guaranteed on a contended/low-core host. 1s budget
+        // (50 * 20ms), matching the already-correct pattern in
+        // tests/mysql_roundtrip.rs::spawn_listener.
+        let mut s = {
+            let mut last_err = None;
+            let mut connected = None;
+            for _ in 0..50 {
+                match TcpStream::connect(&addr).await {
+                    Ok(stream) => {
+                        connected = Some(stream);
+                        break;
+                    }
+                    Err(e) => {
+                        last_err = Some(e);
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }
+            }
+            connected
+                .unwrap_or_else(|| panic!("connect to {addr} after bounded retry: {last_err:?}"))
+        };
         authenticate(&mut s).await;
         // PING (inline).
         s.write_all(b"PING\r\n").await.unwrap();
@@ -2787,7 +2807,14 @@ mod tests {
         tokio::spawn(async move {
             let _ = serve_listener(&serve_addr, mem_store(), TEST_SECRET.to_string()).await;
         });
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        // GOC-70: see eg174_listener_roundtrip_over_tcp's comment above — bounded
+        // retry instead of a fixed sleep, same 1s budget.
+        for _ in 0..50 {
+            if TcpStream::connect(&addr).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
         addr
     }
 
