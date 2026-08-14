@@ -248,6 +248,15 @@ async fn reshard_keeps_data_and_serves_after() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reshard_data_durable_across_restart() {
+    // Held for the whole test: opens the backend TWICE (initial + a restart reopen
+    // of the SAME dir) and both opens must resolve the same encryption-at-rest
+    // cipher, or the reopen's read fails with "encrypted durable value is missing
+    // sealed framing". `fresh_dir`'s `Once`-guarded key provisioning only fires the
+    // FIRST time it's called process-wide, so it does not by itself protect this
+    // test's two opens against an unrelated test's concurrent env mutation between
+    // them. See `crate::crypto::acquire_test_env_lock`'s doc.
+    #[cfg(feature = "security")]
+    let _env_lock = crate::crypto::acquire_test_env_lock().await;
     let dir = fresh_dir("durable");
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
