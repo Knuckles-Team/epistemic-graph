@@ -8553,9 +8553,7 @@ class TxnClient:
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
-    async def commit(
-        self, txn_id: str, *, idempotency_key: str | None = None
-    ) -> bool:
+    async def commit(self, txn_id: str, *, idempotency_key: str | None = None) -> bool:
         """Commit the transaction. ``True`` ⇒ applied + persisted; ``False`` ⇒ OCC
         conflict (nothing applied — a true rollback; re-begin and retry).
 
