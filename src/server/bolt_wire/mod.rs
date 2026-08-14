@@ -1176,6 +1176,33 @@ mod tests {
             #[cfg(feature = "kv")]
             kv: None,
             persist_dir: None,
+            // A REAL per-test durable backend, same reasoning as
+            // `server::mod.rs`'s `test_state()` (redb takes an exclusive
+            // per-process file lock, so each call gets its own uniquely-named
+            // dir): BEGIN/COMMIT session-control mutations and durable-domain
+            // writes fail closed without one. `durable_state()` below
+            // immediately overrides this with its own explicitly-tracked
+            // backend for the tests that need to inspect/restart it.
+            #[cfg(feature = "redb")]
+            persistence: Some(std::sync::Arc::new(
+                crate::server::persistence::redb_backend::RedbBackend::open(
+                    std::env::temp_dir()
+                        .join(format!(
+                            "eg-bolt-server-test-{}-{}",
+                            std::process::id(),
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_nanos())
+                                .unwrap_or(0)
+                        ))
+                        .to_string_lossy()
+                        .into_owned(),
+                    crate::durability::DurabilityPolicy::Each,
+                    256,
+                )
+                .expect("open bolt test redb backend"),
+            )),
+            #[cfg(not(feature = "redb"))]
             persistence: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),

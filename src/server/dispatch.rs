@@ -8426,6 +8426,32 @@ mod blob_dispatch_tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir.to_string()),
+            // `BlobRef` creates a durable :Media graph node -- a GATEWAY_ROUTED
+            // write that fails closed without a persistence backend, same
+            // reasoning as `server::mod.rs`'s `test_state()`. A separate
+            // uniquely-named dir from the blob chunk store above (redb's
+            // exclusive per-process file lock is per-file, not per-test, but
+            // keeping them apart avoids any accidental path collision).
+            #[cfg(feature = "redb")]
+            persistence: Some(std::sync::Arc::new(
+                crate::server::persistence::redb_backend::RedbBackend::open(
+                    std::env::temp_dir()
+                        .join(format!(
+                            "eg-blob-dispatch-graph-{}-{}",
+                            std::process::id(),
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_nanos())
+                                .unwrap_or(0)
+                        ))
+                        .to_string_lossy()
+                        .into_owned(),
+                    crate::durability::DurabilityPolicy::Each,
+                    256,
+                )
+                .expect("open blob-dispatch test redb backend"),
+            )),
+            #[cfg(not(feature = "redb"))]
             persistence: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
