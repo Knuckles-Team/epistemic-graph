@@ -16,18 +16,18 @@ from conftest import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
     bootstrap_context,
+    find_server_binary,
     request_context,
     strict_server_env,
 )
 
-# Skip all tests if the server binary is not available.
-_SERVER_BIN = os.path.join(
+# Skip all tests if the server binary is not available. `find_server_binary()`
+# honors `CARGO_TARGET_DIR`/the repo's own `.cargo/config.toml` (`target-isolated`)
+# -- a hardcoded `target/debug`+`target/release` fallback never resolves in an
+# ordinary checkout of this repo (see conftest.py's `find_server_binary` doc).
+_SERVER_BIN = find_server_binary() or os.path.join(
     os.path.dirname(__file__), "..", "target", "debug", "epistemic-graph-server"
 )
-if not os.path.isfile(_SERVER_BIN):
-    _SERVER_BIN = os.path.join(
-        os.path.dirname(__file__), "..", "target", "release", "epistemic-graph-server"
-    )
 
 pytestmark = pytest.mark.skipif(
     not os.path.isfile(_SERVER_BIN),
@@ -41,12 +41,29 @@ def service():
     tmpdir = tempfile.mkdtemp()
     socket_path = os.path.join(tmpdir, "test.sock")
     secret = "test-secret-key"
+    # `persist_dir` MUST be passed through to `strict_server_env` explicitly.
+    # This module launches its OWN dedicated server, independent of the shared
+    # session engine in conftest.py -- but that session fixture's `os.environ.
+    # update(server_env)` leaves `GRAPH_SERVICE_PERSIST_DIR` pointing at ITS OWN
+    # persist dir in the ambient process environment for the rest of the pytest
+    # run. Omitting `persist_dir` here means `env = {**os.environ, **strict_
+    # server_env(...)}` silently inherits that ambient value instead of this
+    # module's own, and the dedicated server then refuses to start ("persist dir
+    # ... is already locked by another epistemic-graph engine") because the
+    # still-running session engine already holds that directory's lock -- the
+    # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
+    persist_dir = os.path.join(tmpdir, "persist")
+    os.makedirs(persist_dir, exist_ok=True)
 
     proc = subprocess.Popen(
         [_SERVER_BIN, "--socket-path", socket_path],
         env={
             **os.environ,
-            **strict_server_env(os.path.join(tmpdir, "security"), auth_secret=secret),
+            **strict_server_env(
+                os.path.join(tmpdir, "security"),
+                auth_secret=secret,
+                persist_dir=persist_dir,
+            ),
         },
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

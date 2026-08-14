@@ -116,13 +116,20 @@ scratch/
 *.orig
 *.rej
 
-# Maturin's per-target build lock (`.target.<name>-maturin.lock`). NOT covered by
-# the `target-*/` rules above — those match DIRECTORIES; this is a dotfile at the
-# repo root. A stale zero-byte one from 2026-08-02 sat untracked in the canonical
-# checkout and silently blocked EVERY epistemic-graph merge-queue drain, because
-# the queue refuses to fast-forward a canonical checkout carrying uncommitted
-# changes and an untracked file counts as one.
+# Maturin's per-target build lock. NOT covered by the `target-*/` rules above —
+# those match DIRECTORIES; this is a dotfile at the repo root, named
+# `.target.<name>-maturin.lock` when `CARGO_TARGET_DIR` is the default `target`,
+# or `.<target-dir-basename>.<name>-maturin.lock` (e.g.
+# `.target-isolated.epistemic-graph-maturin.lock`) when it's overridden — which
+# it always is here, since `.cargo/config.toml` commits `target-dir =
+# "target-isolated"` as this repo's own default. A stale zero-byte one from
+# 2026-08-02 sat untracked in the canonical checkout and silently blocked EVERY
+# epistemic-graph merge-queue drain, because the queue refuses to fast-forward a
+# canonical checkout carrying uncommitted changes and an untracked file counts
+# as one. `.target.*` alone never matched the `target-isolated` naming, so the
+# same class of stray file recurred under this repo's own committed default.
 .target.*
+.target-isolated.*
 
 # clients/js (D-EGTC-2's sibling gate): `npm install` materializes this from
 # the committed package-lock.json every gate run — never commit the tree itself.

@@ -9,6 +9,7 @@ from conftest import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
     bootstrap_context,
+    find_server_binary,
     request_context,
     strict_server_env,
 )
@@ -16,7 +17,13 @@ from conftest import (
 from epistemic_graph.client import SyncEpistemicGraphClient
 
 RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-SERVER_BIN = os.path.join(RUST_DIR, "target", "debug", "epistemic-graph-server")
+# `find_server_binary()` honors `CARGO_TARGET_DIR`/the repo's own
+# `.cargo/config.toml` (`target-isolated`) -- this module spawns its own server
+# subprocesses directly, so a hardcoded `target/debug` path never resolves in
+# an ordinary checkout of this repo (see conftest.py's `find_server_binary` doc).
+SERVER_BIN = find_server_binary() or os.path.join(
+    RUST_DIR, "target", "debug", "epistemic-graph-server"
+)
 
 
 def _clean_env(socket_path, *, auth_secret, **overrides):
@@ -87,7 +94,12 @@ def test_empty_secret_refuses_to_start(tmp_path):
         proc.kill()
     assert proc.returncode == 2
     stderr = proc.stderr.read().decode()
-    assert "authentication secret" in stderr.lower()
+    # Matches `main.rs`'s actual refusal message ("no auth secret configured —
+    # refusing to start... Set GRAPH_SERVICE_AUTH_SECRET ... HMAC-SHA256
+    # authentication.") -- the exact phrase "authentication secret" never
+    # appears in it (a stale assertion, not a stale message: the message reads
+    # fine on its own merits).
+    assert "no auth secret configured" in stderr.lower()
     assert not os.path.exists(sock)
 
 

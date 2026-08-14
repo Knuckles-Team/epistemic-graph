@@ -83,6 +83,41 @@ def strict_server_env(
     return env
 
 
+def find_server_binary() -> str | None:
+    """Locate an already-built `full`-featured `epistemic-graph-server`.
+
+    Checks, in order: `$CARGO_TARGET_DIR` (this worktree's own isolated build, per
+    the repo's `.cargo/config.toml` -- never a target dir shared with another
+    worktree), the repo-relative `target-isolated` that config file defaults to,
+    then the legacy `target` layout a plain `cargo build` (with no override at
+    all) would use. Never triggers a build itself -- the session fixture (or a
+    prior manual build) already paid that cost for the SAME `full` feature set
+    every caller of this helper needs. A module that spawns its own server
+    subprocess directly (rather than going through the session fixture's own
+    `cargo run`, which always lands wherever `CARGO_TARGET_DIR` points) MUST use
+    this instead of a hardcoded `target/debug/...` path -- the committed
+    `.cargo/config.toml` defaults every build in this repo to `target-isolated`,
+    so a hardcoded `target/debug` path never resolves in an ordinary checkout,
+    not just a multi-worktree host that also exports the env var.
+    """
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    candidates = []
+    target_dir_env = os.environ.get("CARGO_TARGET_DIR")
+    if target_dir_env:
+        candidates.append(os.path.join(target_dir_env, "release", "epistemic-graph-server"))
+        candidates.append(os.path.join(target_dir_env, "debug", "epistemic-graph-server"))
+    candidates += [
+        os.path.join(root, "target-isolated", "release", "epistemic-graph-server"),
+        os.path.join(root, "target-isolated", "debug", "epistemic-graph-server"),
+        os.path.join(root, "target", "release", "epistemic-graph-server"),
+        os.path.join(root, "target", "debug", "epistemic-graph-server"),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 def _prebuilt_test_binary() -> str | None:
     """Return a validated `EPISTEMIC_GRAPH_TEST_BINARY` path, or ``None``.
 
