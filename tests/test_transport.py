@@ -11,7 +11,7 @@ from epistemic_graph.pool import ConnectionPool, ShardRouter
 
 # We mock a small echo/health server to test transport without running the full daemon.
 class MockServer:
-    def __init__(self, host="127.0.0.1", port=9100):
+    def __init__(self, host="127.0.0.1", port=0):
         self.host = host
         self.port = port
         self.server = None
@@ -124,10 +124,14 @@ async def test_rpc_timeout_is_bounded_and_connection_fatal():
         except Exception:  # noqa: BLE001
             pass
 
-    server = await asyncio.start_server(silent_handler, "127.0.0.1", 9120)
+    # Port `0` binds an OS-assigned ephemeral port instead of a fixed one -- a
+    # hardcoded port is a structural collision hazard against any co-resident
+    # engine or concurrent test run (GOC-70).
+    server = await asyncio.start_server(silent_handler, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
     try:
         client = await EpistemicGraphClient.connect(
-            tcp_addr="127.0.0.1:9120",
+            tcp_addr=f"127.0.0.1:{port}",
             auth_secret="s",
             verified_context=request_context(),
             timeout=0.2,
@@ -168,10 +172,14 @@ async def test_send_reconnects_after_connection_drop():
         except (asyncio.IncompleteReadError, ConnectionResetError):
             pass
 
-    server = await asyncio.start_server(handler, "127.0.0.1", 9121)
+    # Port `0` binds an OS-assigned ephemeral port instead of a fixed one -- a
+    # hardcoded port is a structural collision hazard against any co-resident
+    # engine or concurrent test run (GOC-70).
+    server = await asyncio.start_server(handler, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
     try:
         client = await EpistemicGraphClient.connect(
-            tcp_addr="127.0.0.1:9121",
+            tcp_addr=f"127.0.0.1:{port}",
             auth_secret="s",
             verified_context=request_context(),
             timeout=1.0,
