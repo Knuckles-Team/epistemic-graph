@@ -24,7 +24,9 @@
 //! included. This test now compares the FULL `MachineInstance`, not a
 //! timestamp-excluding projection.
 
-use eg_statechart::{Context, EventInput, MachineInstance, State, StatechartDef, StatechartStore, Transition};
+use eg_statechart::{
+    Context, EventInput, MachineInstance, State, StatechartDef, StatechartStore, Transition,
+};
 use proptest::prelude::*;
 
 /// A flat two-state machine (`locked` --coin--> `unlocked` --push--> `locked`),
