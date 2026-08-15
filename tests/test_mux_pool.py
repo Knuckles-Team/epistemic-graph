@@ -29,7 +29,7 @@ class WorkMockServer:
     is the arrival order of method names (for the ordering assertion).
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 9301, work: float = 0.05):
+    def __init__(self, host: str = "127.0.0.1", port: int = 0, work: float = 0.05):
         self.host = host
         self.port = port
         self.work = work
@@ -68,6 +68,14 @@ class WorkMockServer:
         self.server = await asyncio.start_server(
             self.handle_client, self.host, self.port
         )
+        # Port `0` asks the OS for an unused ephemeral port -- read back whichever
+        # one it actually bound so a caller that requested `0` can connect. A
+        # hardcoded port here is a structural collision hazard: it would fail
+        # "address already in use" against any co-resident engine or concurrent
+        # test run that happens to hold that same port, independent of anything
+        # this test actually exercises (GOC-70 -- construct conditions
+        # deterministically, never depend on ambient/process-global state).
+        self.port = self.server.sockets[0].getsockname()[1]
 
     async def stop(self):
         if self.server:
@@ -109,11 +117,11 @@ async def test_map_concurrent_parallelizes_the_wire():
     # Serial sum = 8 * 50ms = 400ms; multiplexed over 8 connections ≈ 50ms.
     n = 8
     work = 0.05
-    server = WorkMockServer(port=9301, work=work)
+    server = WorkMockServer(work=work)
     await server.start()
     try:
         pool = ConnectionPool(
-            "tcp://127.0.0.1:9301",
+            f"tcp://127.0.0.1:{server.port}",
             verified_context=request_context(),
             auth_secret="s",
             max_size=n,
@@ -147,11 +155,11 @@ async def test_sequential_awaits_are_the_baseline():
     # Control: eight explicitly sequential awaits take roughly the serial sum.
     n = 8
     work = 0.05
-    server = WorkMockServer(port=9302, work=work)
+    server = WorkMockServer(work=work)
     await server.start()
     try:
         pool = ConnectionPool(
-            "tcp://127.0.0.1:9302",
+            f"tcp://127.0.0.1:{server.port}",
             verified_context=request_context(),
             auth_secret="s",
             max_size=n,
@@ -173,11 +181,11 @@ async def test_sequential_awaits_are_the_baseline():
 async def test_pool_respects_cap_under_concurrency():
     # CONCEPT:EG-KG.backend.multiplexed-connections — with a cap of 2, four concurrent ops never exceed 2 in
     # flight: the surplus waits for a connection (correctness over saturation).
-    server = WorkMockServer(port=9303, work=0.05)
+    server = WorkMockServer(work=0.05)
     await server.start()
     try:
         pool = ConnectionPool(
-            "tcp://127.0.0.1:9303",
+            f"tcp://127.0.0.1:{server.port}",
             verified_context=request_context(),
             auth_secret="s",
             max_size=2,
@@ -203,11 +211,11 @@ async def test_pool_respects_cap_under_concurrency():
 async def test_pool_reuses_warm_connections():
     # A released connection is reused, not re-dialed: two sequential checkouts hand
     # back the SAME client object.
-    server = WorkMockServer(port=9304, work=0.0)
+    server = WorkMockServer(work=0.0)
     await server.start()
     try:
         pool = ConnectionPool(
-            "tcp://127.0.0.1:9304",
+            f"tcp://127.0.0.1:{server.port}",
             verified_context=request_context(),
             auth_secret="s",
             max_size=4,
@@ -226,11 +234,11 @@ async def test_pool_reuses_warm_connections():
 @pytest.mark.asyncio
 async def test_ordering_preserved_within_one_caller():
     # A logical node-before-edge write awaits each dependency before issuing the next.
-    server = WorkMockServer(port=9305, work=0.0)
+    server = WorkMockServer(work=0.0)
     await server.start()
     try:
         pool = ConnectionPool(
-            "tcp://127.0.0.1:9305",
+            f"tcp://127.0.0.1:{server.port}",
             verified_context=request_context(),
             auth_secret="s",
             max_size=4,
@@ -251,11 +259,11 @@ async def test_shard_router_map_concurrent_parallelizes_one_graph():
     # pool concurrently (each on its own connection), results in order.
     n = 6
     work = 0.05
-    server = WorkMockServer(port=9306, work=work)
+    server = WorkMockServer(work=work)
     await server.start()
     try:
         router = ShardRouter(
-            ["tcp://127.0.0.1:9306"],
+            [f"tcp://127.0.0.1:{server.port}"],
             verified_context=request_context(),
             auth_secret="s",
         )

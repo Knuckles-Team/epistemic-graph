@@ -42,7 +42,7 @@ class PipelinedMockServer:
     come back OUT OF ORDER. ``max_inflight`` is the high-water mark of simultaneous
     in-flight requests on a single connection (the direct measure of pipelining)."""
 
-    def __init__(self, host="127.0.0.1", port=9401):
+    def __init__(self, host="127.0.0.1", port=0):
         self.host = host
         self.port = port
         self.server = None
@@ -120,6 +120,14 @@ class PipelinedMockServer:
         self.server = await asyncio.start_server(
             self.handle_client, self.host, self.port
         )
+        # Port `0` asks the OS for an unused ephemeral port -- read back whichever
+        # one it actually bound so a caller that requested `0` can connect. A
+        # hardcoded port here is a structural collision hazard: it would fail
+        # "address already in use" against any co-resident engine or concurrent
+        # test run that happens to hold that same port, independent of anything
+        # this test actually exercises (GOC-70 -- construct conditions
+        # deterministically, never depend on ambient/process-global state).
+        self.port = self.server.sockets[0].getsockname()[1]
 
     async def stop(self):
         if self.server:
@@ -142,9 +150,9 @@ async def test_one_connection_pipelines_concurrently():
     # N independent calls on ONE connection, each ~60ms of server work. Serial sum
     # = N*60ms; pipelined ≈ 60ms. The server must SEE all N in flight at once.
     n, work = 8, 0.06
-    server = PipelinedMockServer(port=9401)
+    server = PipelinedMockServer()
     await server.start()
-    client = await _client_to(9401)
+    client = await _client_to(server.port)
     try:
         t0 = time.perf_counter()
         results = await asyncio.gather(
@@ -170,9 +178,9 @@ async def test_out_of_order_completion_is_demuxed():
     # A slow call issued FIRST and a fast call issued SECOND on ONE connection: the
     # fast one completes first (out of order) and each result still reaches the
     # correct caller.
-    server = PipelinedMockServer(port=9402)
+    server = PipelinedMockServer()
     await server.start()
-    client = await _client_to(9402)
+    client = await _client_to(server.port)
     completion: list[str] = []
     try:
 
@@ -199,9 +207,9 @@ async def test_one_error_does_not_corrupt_other_inflight():
     # Among several concurrent in-flight requests on ONE connection, one returns a
     # server ERROR. It must raise for ONLY that caller; the others complete with the
     # correct results and the connection stays usable.
-    server = PipelinedMockServer(port=9403)
+    server = PipelinedMockServer()
     await server.start()
-    client = await _client_to(9403)
+    client = await _client_to(server.port)
     try:
 
         async def ok(tag: int):
@@ -224,9 +232,9 @@ async def test_one_error_does_not_corrupt_other_inflight():
 
 @pytest.mark.asyncio
 async def test_stale_route_error_exposes_structured_redirect():
-    server = PipelinedMockServer(port=9405)
+    server = PipelinedMockServer()
     await server.start()
-    client = await _client_to(9405)
+    client = await _client_to(server.port)
     try:
         with pytest.raises(StaleRouteError) as excinfo:
             await client._send("Op", {"stale": True})
@@ -244,9 +252,9 @@ async def test_stale_route_error_exposes_structured_redirect():
 async def test_within_caller_ordering_preserved():
     # Sequential awaits on one client keep wire order — each await blocks on its own
     # id, so a single logical sequence (node→edge→commit) is never reordered.
-    server = PipelinedMockServer(port=9404)
+    server = PipelinedMockServer()
     await server.start()
-    client = await _client_to(9404)
+    client = await _client_to(server.port)
     try:
         order = []
         for tag in ("AddNode", "AddEdge", "Commit"):
