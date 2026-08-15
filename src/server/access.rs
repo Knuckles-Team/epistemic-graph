@@ -299,13 +299,20 @@ impl GraphReadAuthority {
             return cached;
         }
 
+        // U-142/U-143/U-145 (BUG-130): capture the whole-image generation BEFORE the
+        // (potentially slow, unlocked) rebuild starts, not after. A whole-image
+        // replacement/clear (`GraphCore::replace_snapshot`/`clear`/`hibernate`) that
+        // lands while this build is in flight bumps the generation; `put_cached_projection`
+        // then refuses to publish this now-stale result. See
+        // `GraphCore::projection_cache_generation`'s doc.
+        let generation = core.projection_cache_generation();
         // D-EGP-1 (t1-grounding-0802): time the rebuild a miss triggers — see
         // `crate::metrics::projection_cache_miss` for why this is the decisive
         // measurement for the RLS-cache-thrash hypothesis.
         let build_started = std::time::Instant::now();
         let projected = self.build_projection(core);
         crate::metrics::projection_cache_miss(build_started.elapsed().as_secs_f64());
-        core.put_cached_projection(actor, current_version, projected.clone());
+        core.put_cached_projection(actor, current_version, generation, projected.clone());
         projected
     }
 

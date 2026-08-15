@@ -269,3 +269,45 @@ more broadly; it is not blocked by adopting (a) now.
    out so a REGRESSION in the cache (e.g. a key bug that never hits) is
    caught by the existing slow-query logging, not only by the next perf
    sweep.
+
+## Addendum (BUG-130 / U-142, U-143, U-145) — whole-image generation
+
+(a)'s invalidate-on-`version()`-change key handles every ORDINARY committed
+mutation (each one bumps `version`), but it does **not** cover a whole-image
+transition that can leave `version()` numerically unchanged: a same-version
+resident-image reconciliation (`GraphCore::prepare_snapshot_publish` /
+`install_committed_snapshot`, which route through `replace_snapshot`) or an
+intentional non-version-bumping wipe (`GraphCore::clear`, and `hibernate`,
+which reuses it). Live, this reproduced as U-142 (native Cypher observing an
+empty snapshot while a governed node read on the same graph still saw data)
+and its cache-specific angle U-143 (a cache serving stale nonempty rows after
+a fresh native execution had already gone empty).
+
+The sibling `result_cache` already called `invalidate_all()` at both
+`replace_snapshot` and `clear`, but that alone is insufficient: `project_core`
+builds its (expensive, `O(V log V + E log E + V*d)`) projection **off-lock**,
+so a whole-image transition landing while a build is in flight could still
+publish a now-stale result microseconds after a bare "clear the map"
+invalidation ran.
+
+Fix (`crates/eg-core/src/rls_projection_cache.rs`): a monotonic `generation`
+counter lives inside the SAME mutex as the cache entries. A caller captures
+`generation()` immediately before starting its unlocked rebuild and passes it
+back to `put`, which only stores if that captured value is still current —
+checked under the identical lock `invalidate_all` uses to bump the generation
+and clear entries, so there is no window between the check and the store
+where a concurrent invalidation can land unnoticed. `replace_snapshot` and
+`clear` (and therefore `hibernate`) each call `invalidate_projection_cache()`
+alongside their existing `result_cache.invalidate_all()`. See
+`rls_projection_cache.rs`'s own module doc and its
+`a_build_racing_invalidation_never_publishes_its_stale_result` /
+`invalidate_all_evicts_a_same_version_entry_that_a_plain_version_check_would_keep_serving`
+tests for the exact race this closes.
+
+U-148's memory-pressure eviction (`src/cost.rs::enforce_memory_budgets`,
+`src/server/persistence/cold_offload.rs::offload_cold_tenants`) turned out to
+be a second, independent instance of the U-142 SYMPTOM produced by a
+different mechanism (the registry never transitioning a fully-reclaimed
+graph to catalog-only, so dispatch's lazy-open never re-fires) — see
+`plans/graph-os-completion-program/designs/BUG-REMEDIATION-DESIGNS.md#bug-130--unified-projection-cache-and-eviction-registry-staleness-u-142u-143u-145u-148`
+for the unified writeup covering both.
