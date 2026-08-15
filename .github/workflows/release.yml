@@ -384,10 +384,16 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          # Install the folded wheel WITH the `numeric` extra so numpy is present for the
-          # kernel's zero-copy interop — lets the smoke assert a REAL compute, not just an
-          # import. (pip supports the `<wheel>[extra]` spec.)
-          pip install "$(ls dist/epistemic_graph-*.whl)[numeric]"
+          # Install the BARE wheel — NO `[numeric]` extra. numpy (the kernel's zero-copy
+          # interop boundary) is an unconditional base Requires-Dist (CONCEPT:EG-346); the
+          # `[numeric]` extra is only a no-op compatibility alias for old
+          # `epistemic-graph[numeric]` pins (pyproject.toml `[project.optional-dependencies]`).
+          # Installing with the extra here would silently mask a regression that re-gated
+          # numpy behind it — the exact 2.14.0-2.23.0 shape `check_wheel_completeness.py`
+          # exists to catch — because the extra would still pull numpy in even though the
+          # bare install no longer would. Smoke must prove the bare-install contract, not a
+          # weaker one.
+          pip install "$(ls dist/epistemic_graph-*.whl)"
           # (1) The binary must be executable (inject must preserve 0755) — fails loud
           #     with "Permission denied" otherwise.
           epistemic-graph-server --help
@@ -414,8 +420,10 @@ jobs:
 
   # NOTE: the eg-numeric kernel is NO LONGER a separately-published package. Its
   # Surface-A pyo3 `.so` is FOLDED INTO the `epistemic-graph` main wheel in the
-  # `build` job above, so `pip install epistemic-graph[numeric]` provides
-  # `epistemic_graph.numeric` from ONE published package.
+  # `build` job above, so a BARE `pip install epistemic-graph` (no extra tag)
+  # provides `epistemic_graph.numeric` from ONE published package (CONCEPT:EG-346).
+  # `epistemic-graph[numeric]` still resolves for old pins, but is a no-op alias —
+  # it is not what makes the kernel present.
 
   # ── Multi-arch Docker DB image (BUILD + in-image `--help` smoke; no push).
   #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip — so it
