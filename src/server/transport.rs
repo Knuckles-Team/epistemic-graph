@@ -362,6 +362,30 @@ fn validate_msgpack_frame(input: &[u8], max_items: usize) -> Result<(), ()> {
     .map_err(|_| ())
 }
 
+/// Minimal correlation-id-only view of a request frame (U-98). A frame that
+/// fails to decode as a full [`Request`] — e.g. a closed wire enum like
+/// `GraphType` rejecting an unsupported string — still carries a well-formed
+/// `id` field in the vast majority of cases (only the field the decoder
+/// choked on is malformed). Recovering just that field lets the error
+/// response route back to the ACTUAL caller waiting on it instead of being
+/// silently dropped under a synthetic id `0`, which otherwise starves the
+/// caller for its full timeout/retry budget (see `_pending`/`_read_loop` in
+/// `epistemic_graph/client.py`, which drops any response whose id has no
+/// matching in-flight future).
+#[derive(Debug, serde::Deserialize)]
+struct MinimalRequestId {
+    id: u64,
+}
+
+/// Best-effort recovery of a malformed request's correlation id. Falls back to
+/// `0` only when even this minimal envelope cannot be parsed — never dispatches
+/// the invalid request, only borrows its `id` for the error reply.
+fn recover_request_id(payload: &[u8]) -> u64 {
+    rmp_serde::from_slice::<MinimalRequestId>(payload)
+        .map(|m| m.id)
+        .unwrap_or(0)
+}
+
 /// Run the same allocation-free structural preflight over MessagePack embedded
 /// inside a request's binary field. The outer frame scanner deliberately treats
 /// `bin` as opaque bytes, so handlers must call this before nested deserialization.
@@ -643,7 +667,11 @@ where
         }
 
         if validate_msgpack_frame(&payload, max_items).is_err() {
-            let resp = Response::err(0, "invalid or over-complex request encoding");
+            let id = recover_request_id(&payload);
+            let resp = Response::err(
+                id,
+                "INVALID_ARGUMENT: invalid or over-complex request encoding",
+            );
             if tx.send(encode_frame(&resp)).await.is_err() {
                 break;
             }
@@ -653,7 +681,13 @@ where
         let req: Request = match rmp_serde::from_slice(&payload) {
             Ok(r) => r,
             Err(_) => {
-                let resp = Response::err(0, "invalid request encoding");
+                // Never dispatch the undecodable request — only recover its
+                // correlation id so the bounded structured error reaches the
+                // caller actually waiting on it instead of starving out under
+                // id 0 (U-96/U-98: a closed wire enum like `GraphType`
+                // rejecting an unsupported value surfaces here).
+                let id = recover_request_id(&payload);
+                let resp = Response::err(id, "INVALID_ARGUMENT: invalid request encoding");
                 if tx.send(encode_frame(&resp)).await.is_err() {
                     break;
                 }
@@ -1256,6 +1290,54 @@ mod tests {
         let mut trailing = valid;
         trailing.push(0xc0);
         assert!(validate_msgpack_frame(&trailing, 1_000).is_err());
+    }
+
+    #[test]
+    fn recover_request_id_reads_the_id_of_an_otherwise_undecodable_request() {
+        // U-96/U-98: `graph_type: "Ontology"` is not one of the closed
+        // `GraphType` wire values (`Agent`/`Team`/`Global`/`Commons`), so the
+        // full `Request` fails to decode. Before the fix, that failure always
+        // answered under a synthetic id `0`, which the Python client's
+        // `_pending` map never has a future for — the response is dropped and
+        // the caller starves out its whole timeout/retry budget instead of
+        // seeing the error immediately (see `epistemic_graph/client.py`
+        // `_read_loop`). The id must still be recoverable from the same bytes
+        // that failed to decode as a full `Request`.
+        let payload = rmp_serde::to_vec_named(&serde_json::json!({
+            "id": 555_555_u64,
+            "graph": "tenant__local__ontology",
+            "auth_token": "",
+            "agent_id": "system",
+            "method": "CreateGraph",
+            "params": {
+                "graph_name": "tenant__local__ontology",
+                "graph_type": "Ontology",
+            },
+        }))
+        .unwrap();
+
+        // The full request genuinely fails to decode (proves the test reproduces
+        // the actual defect, not a strawman).
+        assert!(
+            rmp_serde::from_slice::<Request>(&payload).is_err(),
+            "an unsupported GraphType value must fail full Request decode"
+        );
+
+        // But the id is still recoverable from the very same bytes.
+        assert_eq!(recover_request_id(&payload), 555_555);
+    }
+
+    #[test]
+    fn recover_request_id_falls_back_to_zero_only_when_the_id_itself_is_unreadable() {
+        // A frame with no readable `id` field at all (e.g. a bare nil, or a
+        // completely non-map payload) has nothing to recover — id 0 is the
+        // documented last resort, not a silent success case.
+        assert_eq!(recover_request_id(&[0xc0]), 0); // msgpack nil
+        assert_eq!(recover_request_id(b"not msgpack at all"), 0);
+
+        // A well-formed map missing `id` entirely also falls back.
+        let no_id = rmp_serde::to_vec_named(&serde_json::json!({"graph": "g"})).unwrap();
+        assert_eq!(recover_request_id(&no_id), 0);
     }
 
     #[test]
