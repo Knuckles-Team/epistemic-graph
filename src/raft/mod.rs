@@ -626,6 +626,13 @@ pub enum NativeMutationCommand {
     AnalyticsJob {
         sealed_method: SealedNativeMethod,
     },
+    /// Durable native statechart definition/instance transitions (CONCEPT:INT-P2-2),
+    /// structurally identical to `AnalyticsJob` above -- own `statecharts.redb`,
+    /// not graph-scoped.
+    #[cfg(feature = "statechart")]
+    Statechart {
+        sealed_method: SealedNativeMethod,
+    },
     /// SQLite catalog import transitions.
     #[cfg(feature = "sqlite-file")]
     SqliteCatalog {
@@ -835,6 +842,13 @@ pub const NATIVE_CONSENSUS_METHODS: &[&str] = &[
     "CreateGraph",
     "DeleteGraph",
     "ApplyMultisigMutation",
+    "Statechart",
+    "ReserveDevelopmentLane",
+    "RenewDevelopmentLane",
+    "ObserveDevelopmentLane",
+    "FinishDevelopmentLane",
+    "CleanupDevelopmentLane",
+    "UpdateDevelopmentLaneQuota",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -850,6 +864,8 @@ pub(crate) enum NativeMutationDomain {
     TimeSeries,
     #[cfg(feature = "jobs")]
     AnalyticsJob,
+    #[cfg(feature = "statechart")]
+    Statechart,
     #[cfg(feature = "sqlite-file")]
     SqliteCatalog,
     SessionControl,
@@ -883,6 +899,24 @@ fn native_domain(method: &Method) -> Option<NativeMutationDomain> {
         #[cfg(feature = "reasoning")]
         Method::RunDatalogReasoning { .. } => Some(NativeMutationDomain::GraphState),
         Method::IcvConfigure { .. } => Some(NativeMutationDomain::GraphState),
+        // The 6 DevelopmentLane write methods (RMDD-28) are graph-scoped (keyed by
+        // `req.graph`, sanitized the same way `dispatch_graph_op_inner`'s
+        // `is_development_lane_method` block does) and their commit
+        // (`redb_store::development_lane::commit_development_lane`) already reads
+        // ONLY the authority-normalized `authoritative_now_ms()` clock the caller
+        // binds before dispatch (never a local wall-clock read) -- so, exactly
+        // like `EvictLRU`/`Sql` above, replaying the SAME committed Method on every
+        // replica is deterministic. They share this domain rather than a dedicated
+        // one because they are, structurally, one more heterogeneous graph-scoped
+        // native operation -- `dispatch_graph_op_inner`'s own `is_development_lane_
+        // method` block (not this domain tag) decides they skip the generic
+        // MutationBatch/audit/CDC gateway, exactly as it already does today.
+        Method::ReserveDevelopmentLane { .. }
+        | Method::RenewDevelopmentLane { .. }
+        | Method::ObserveDevelopmentLane { .. }
+        | Method::FinishDevelopmentLane { .. }
+        | Method::CleanupDevelopmentLane { .. }
+        | Method::UpdateDevelopmentLaneQuota { .. } => Some(NativeMutationDomain::GraphState),
 
         Method::BeginTxn { .. }
         | Method::TxnAddNode { .. }
@@ -932,6 +966,14 @@ fn native_domain(method: &Method) -> Option<NativeMutationDomain> {
         Method::TsAppend { .. } => Some(NativeMutationDomain::TimeSeries),
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => Some(NativeMutationDomain::AnalyticsJob),
+        // Not graph-scoped (own `statecharts.redb`, keyed by def_id/instance_id) --
+        // structurally identical to `AnalyticsJob` above, just gated `statechart`
+        // instead of `jobs` (see `handlers::statechart` module docs). Deterministic
+        // replay across replicas: `StatechartStore::instantiate_batch`/`send_event`
+        // take a caller-supplied request-derived id / explicit `now_ms` rather than
+        // reading a local counter/clock (CONCEPT:INT-P2-2, D-DE7-2 closed).
+        #[cfg(feature = "statechart")]
+        Method::Statechart { .. } => Some(NativeMutationDomain::Statechart),
         #[cfg(feature = "sqlite-file")]
         Method::ImportSqliteFile { .. } => Some(NativeMutationDomain::SqliteCatalog),
 
@@ -1012,6 +1054,8 @@ impl NativeMutationCommand {
             NativeMutationDomain::TimeSeries => Self::TimeSeries { sealed_method },
             #[cfg(feature = "jobs")]
             NativeMutationDomain::AnalyticsJob => Self::AnalyticsJob { sealed_method },
+            #[cfg(feature = "statechart")]
+            NativeMutationDomain::Statechart => Self::Statechart { sealed_method },
             #[cfg(feature = "sqlite-file")]
             NativeMutationDomain::SqliteCatalog => Self::SqliteCatalog { sealed_method },
             NativeMutationDomain::SessionControl => Self::SessionControl { sealed_method },
@@ -1045,6 +1089,8 @@ impl NativeMutationCommand {
             Self::TimeSeries { .. } => Some(NativeMutationDomain::TimeSeries),
             #[cfg(feature = "jobs")]
             Self::AnalyticsJob { .. } => Some(NativeMutationDomain::AnalyticsJob),
+            #[cfg(feature = "statechart")]
+            Self::Statechart { .. } => Some(NativeMutationDomain::Statechart),
             #[cfg(feature = "sqlite-file")]
             Self::SqliteCatalog { .. } => Some(NativeMutationDomain::SqliteCatalog),
             Self::SessionControl { .. } => Some(NativeMutationDomain::SessionControl),
@@ -1081,6 +1127,8 @@ impl NativeMutationCommand {
             Self::TimeSeries { sealed_method } => Some(sealed_method),
             #[cfg(feature = "jobs")]
             Self::AnalyticsJob { sealed_method } => Some(sealed_method),
+            #[cfg(feature = "statechart")]
+            Self::Statechart { sealed_method } => Some(sealed_method),
             #[cfg(feature = "sqlite-file")]
             Self::SqliteCatalog { sealed_method } => Some(sealed_method),
         }

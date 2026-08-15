@@ -13,28 +13,45 @@
 //!   * `STATECHART_INSTANCES` — `instance_id -> msgpack(MachineInstance)`, one small
 //!     row per running machine.
 //!
-//! Cluster ordering: every authoritative instance write (both `instantiate` and a
-//! FIRING `send_event`) routes through the universal `MutationBatch` /
-//! durable-commit gateway (`eg-mutation-store`) — the SAME `begin` → change-rows →
-//! `finish` → `commit` sequence `eg-jobs`' `mutate_job_batch` uses, on the *same*
-//! redb `WriteTransaction` that mutates the `STATECHART_INSTANCES` row. So each
-//! transition carries an atomic terminal batch record, a monotonic domain version,
-//! a route fence, an idempotency row and an outbox intent — exactly the evidence a
-//! Raft state machine needs to order and replay it deterministically, with no
-//! coordinator/native-row split-brain window. The per-instance OCC `version`
-//! compare-and-set is preserved on top of that (it still guards lost updates on a
-//! single node), and single-node behavior is byte-for-byte identical: a batch is
-//! content-addressed by the exact instance image it persists, so a replayed
-//! proposal is an idempotent no-op. A well-defined NO-OP event still writes nothing
-//! — it never opens a batch.
+//! Cluster ordering: every authoritative instance write (`instantiate`/
+//! `instantiate_batch` and a FIRING `send_event`) routes through the universal
+//! `MutationBatch` / durable-commit gateway (`eg-mutation-store`) — the SAME
+//! `begin` → change-rows → `finish` → `commit` sequence `eg-jobs`' `mutate_job_batch`
+//! uses, on the *same* redb `WriteTransaction` that mutates the
+//! `STATECHART_INSTANCES` row. So each transition carries an atomic terminal batch
+//! record, a monotonic domain version, a route fence, an idempotency row and an
+//! outbox intent — exactly the evidence a Raft state machine needs to order and
+//! replay it. The per-instance OCC `version` compare-and-set is preserved on top
+//! of that (it still guards lost updates on a single node). A well-defined NO-OP
+//! event still writes nothing — it never opens a batch.
+//!
+//! **Determinism (CONCEPT:INT-P2-2, was tracked as D-DE7-2 — now closed).**
+//! `instantiate` reads the local wall clock and a local `AtomicU64` instance-id
+//! counter; `send_event`'s content-addressed transition batch would embed
+//! whichever value it read. Neither is safe to replay byte-identically across Raft
+//! replicas, mirroring the exact gap `eg-jobs`' wall-clock `submit` has (that
+//! crate's own module doc calls `eg-statechart` its "disciplined sibling" — this is
+//! the one property that used to NOT hold). The fix follows `eg-jobs`' own
+//! resolution exactly: [`StatechartStore::instantiate_batch`] derives the new
+//! instance's id from a caller-supplied, pre-Raft-proposal `request_batch_id`
+//! (mirrors `job_id_for_batch`) instead of the local counter, and
+//! [`StatechartStore::send_event`] takes an explicit `now_ms: i64` parameter
+//! instead of reading the clock internally (mirrors `claim_next`/
+//! `checkpoint_fenced`/…). The served `Method::Statechart` handler
+//! (`src/server/handlers/statechart.rs`) uses ONLY these deterministic entry
+//! points, sourcing `now_ms` from `authoritative_now_ms()` — which resolves to the
+//! SAME leader-selected commit time on every replica. `instantiate`'s wall-clock/
+//! local-counter form remains for single-node/test callers only (mirrors
+//! `eg-jobs::submit`), exactly as `crates/eg-statechart/tests/replay_determinism.rs`
+//! now proves.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use eg_types::mutation_batch::{
-    MutationBatch, MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
-    MutationSurface, MUTATION_BATCH_VERSION,
+    MutationBatch, MutationBatchRecord, MutationDomain, MutationOperation, MutationOutboxIntent,
+    MutationRequestContext, MutationSurface, MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
@@ -280,6 +297,11 @@ impl StatechartStore {
     /// (CONCEPT:INT-P2-2). The initial context is seeded from `initial_context`, then
     /// the initial state's Moore `entry` actions are applied (entering s₀ fires its
     /// entry). `version` starts at 0.
+    ///
+    /// Reads the local wall clock and a local `AtomicU64` counter for the instance
+    /// id, exactly like `eg-jobs`' wall-clock `submit`. NOT replay-safe across Raft
+    /// replicas (see that method's doc); the served `Method::Statechart` handler
+    /// uses [`Self::instantiate_batch`] instead. Kept for single-node/test callers.
     pub fn instantiate(
         &self,
         def_id: &str,
@@ -320,44 +342,110 @@ impl StatechartStore {
             created_at_ms: now,
             updated_at_ms: now,
         };
-        self.put_instance(&instance)?;
+        let blob = encode_instance(&instance)?;
+        let batch = instance_batch(&instance, &blob)?;
+        let committed_at_ms = instance.updated_at_ms.max(0) as u64;
+        self.commit_instance_blob(&instance, &blob, &batch, committed_at_ms)?;
         Ok(instance)
     }
 
-    /// Persist a fresh instance image through the universal durable-commit gateway
-    /// (the `instantiate` write path). This is the blind-insert analogue of
-    /// `eg-jobs`' `put_raw_batch`: the row change and its terminal batch/version/
-    /// fence/idempotency/outbox evidence commit as one all-or-nothing redb txn. The
-    /// batch is content-addressed by the exact bytes being written, so a replayed
-    /// proposal (same image) is an idempotent no-op.
-    fn put_instance(&self, instance: &MachineInstance) -> Result<()> {
-        let blob = encode_instance(instance)?;
-        let batch = instance_batch(instance, &blob)?;
-        let committed_at_ms = instance.updated_at_ms.max(0) as u64;
+    /// Create a fresh instance deterministically (CONCEPT:INT-P2-2), mirroring
+    /// `eg-jobs`' `submit_batch`: the caller supplies `request_batch_id` — an
+    /// opaque identity derived from the REQUEST (e.g. request id + method), fixed
+    /// BEFORE Raft proposal and therefore identical on every state-machine replica
+    /// — plus the authoritative `committed_at_ms` (the leader-selected commit time
+    /// every replica applies via `authoritative_now_ms()`, never a local read of
+    /// `SystemTime::now()`). The new instance's id is derived from
+    /// `request_batch_id` rather than a local `AtomicU64` counter, exactly as
+    /// `eg-jobs::job_id_for_batch` derives a job id from its pre-agreed batch
+    /// identity — so no local clock or local counter enters the replicated state.
+    /// Returns `(instance, replayed)`: `replayed` is `true` when this exact
+    /// request already committed (idempotent replay).
+    pub fn instantiate_batch(
+        &self,
+        def_id: &str,
+        initial_context: Context,
+        tenant: &str,
+        actor: &str,
+        request_batch_id: &str,
+        committed_at_ms: u64,
+    ) -> Result<(MachineInstance, bool)> {
+        let def = self.get_def(def_id)?;
+        let (configuration, entry_actions) =
+            initial_configuration(&def).map_err(|error| StatechartError::InvalidTransition {
+                instance_id: "<new>".to_string(),
+                reason: error.to_string(),
+            })?;
+        let entry_event = EventInput::new("__init__");
+        let context = apply_all(initial_context, &entry_actions, &entry_event);
+
+        let now = committed_at_ms as i64;
+        let status = if configuration.is_final(&def) {
+            InstanceStatus::Final
+        } else {
+            InstanceStatus::Active
+        };
+        let instance = MachineInstance {
+            instance_id: instance_id_for_request(request_batch_id),
+            def_id: def_id.to_string(),
+            configuration,
+            context,
+            version: 0,
+            status,
+            tenant: tenant.to_string(),
+            actor: actor.to_string(),
+            events_seen: 0,
+            transitions_fired: 0,
+            created_at_ms: now,
+            updated_at_ms: now,
+        };
+        let blob = encode_instance(&instance)?;
+        let batch = creation_batch(&instance, request_batch_id)?;
+        self.commit_instance_blob(&instance, &blob, &batch, committed_at_ms)
+    }
+
+    /// Persist an instance image through the universal durable-commit gateway, one
+    /// all-or-nothing redb txn covering the row write and its terminal batch/
+    /// version/fence/idempotency/outbox evidence (mirrors `eg-jobs`'
+    /// `put_raw_batch`). `batch` is caller-supplied so both a content-addressed
+    /// transition batch ([`instance_batch`]/[`Self::send_event`]) and a
+    /// request-addressed creation batch ([`creation_batch`]/
+    /// [`Self::instantiate_batch`]) share one commit path. Returns
+    /// `(instance, replayed)`: on `Begin::Replay` the REPLAYED image (decoded from
+    /// the already-committed record) is returned, which is byte-identical to
+    /// `instance` for any batch whose identity is a pure function of the persisted
+    /// image or of an idempotent request identity.
+    fn commit_instance_blob(
+        &self,
+        instance: &MachineInstance,
+        blob: &[u8],
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<(MachineInstance, bool)> {
         let wtx = self.db.begin_write().map_err(redb_err)?;
-        match eg_mutation_store::begin(&wtx, &batch).map_err(redb_err)? {
-            eg_mutation_store::Begin::Replay(_record) => {
-                // This exact instance image already committed durably; nothing to do.
+        match eg_mutation_store::begin(&wtx, batch).map_err(redb_err)? {
+            eg_mutation_store::Begin::Replay(record) => {
+                let replayed = decode_instance_result(&record)?;
                 wtx.abort().map_err(redb_err)?;
-                Ok(())
+                Ok((replayed, true))
             }
             eg_mutation_store::Begin::Apply { source_version } => {
                 {
                     let mut table = wtx.open_table(INSTANCES).map_err(redb_err)?;
                     table
-                        .insert(instance.instance_id.as_str(), blob.as_slice())
+                        .insert(instance.instance_id.as_str(), blob)
                         .map_err(redb_err)?;
                 }
                 eg_mutation_store::finish(
                     &wtx,
-                    &batch,
-                    Some(blob),
+                    batch,
+                    Some(blob.to_vec()),
                     committed_at_ms,
                     source_version,
                 )
                 .map_err(redb_err)?;
-                eg_mutation_store::commit(wtx, &batch).map_err(redb_err)?;
-                Ok(())
+                eg_mutation_store::commit(wtx, batch).map_err(redb_err)?;
+                Ok((instance.clone(), false))
             }
         }
     }
@@ -388,11 +476,20 @@ impl StatechartStore {
     /// * If the event is a NO-OP (undefined edge or all guards false), nothing is
     ///   written and the unchanged instance is returned — a no-op costs one read.
     /// * A malformed request (event not in Σ, corrupt stored state) is an `Err`.
+    ///
+    /// `now_ms` is caller-supplied (mirrors `eg-jobs`' fenced transition methods —
+    /// `claim_next`/`checkpoint_fenced`/… — which ALL take an explicit `now: i64`
+    /// rather than reading `SystemTime::now()` internally): the served
+    /// `Method::Statechart` handler passes `authoritative_now_ms()`, which resolves
+    /// to the SAME leader-selected commit time on every Raft state-machine replica,
+    /// so the resulting instance image — and the `MutationBatch` content-addressed
+    /// from it — is byte-identical across replicas.
     pub fn send_event(
         &self,
         instance_id: &str,
         event: &EventInput,
         expected_version: Option<u64>,
+        now_ms: i64,
     ) -> Result<SendOutcome> {
         // Read + decide first; the pure transition function does not need the write txn
         // open, and a no-op must not take a write at all.
@@ -421,7 +518,7 @@ impl StatechartStore {
         // the exact bytes we will persist (the key that makes a replayed Raft proposal
         // an idempotent no-op). A well-defined no-op returned above; it never reaches
         // here.
-        let now = now_ms();
+        let now = now_ms;
         let mut next = instance.clone();
         next.configuration = outcome.next.clone();
         next.context = outcome.next_context.clone();
@@ -638,6 +735,84 @@ fn instance_batch(instance: &MachineInstance, encoded: &[u8]) -> Result<Mutation
     Ok(batch)
 }
 
+/// Derive a NEW instance's id from its pre-agreed, pre-Raft-proposal request
+/// identity rather than a local `AtomicU64` counter — the creation-time analogue
+/// of `instance_batch`'s result-content-addressing, and the direct mirror of
+/// `eg-jobs::job_id_for_batch`. `request_batch_id` is already a caller-computed
+/// opaque digest (e.g. of request id + method), so this only domain-separates it
+/// into an instance id shaped like the local-counter form (`sc-<hex>`).
+fn instance_id_for_request(request_batch_id: &str) -> InstanceId {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(b"eg-statechart.consensus-instance-id.v1\0");
+    digest.update(request_batch_id.as_bytes());
+    format!("sc-{}", hex::encode(&digest.finalize()[..16]))
+}
+
+/// The creation-time sibling of `instance_batch`: rather than content-addressing
+/// the batch from the persisted image (which is circular for a brand-new instance
+/// — the image embeds the id this batch must also help derive), the batch
+/// identity IS the caller-supplied `request_batch_id`, fixed before Raft proposal
+/// and therefore identical on every replica. Same fixed `(tenant, graph)` scope
+/// and gateway shape as `instance_batch`, so creation and transition batches share
+/// ONE totally-ordered mutation log, per this module's `INSTANCE_MUTATION_*` doc.
+fn creation_batch(instance: &MachineInstance, request_batch_id: &str) -> Result<MutationBatch> {
+    use sha2::{Digest, Sha256};
+    let principal = format!(
+        "principal:sha256:{}",
+        hex::encode(Sha256::digest(instance.actor.as_bytes()))
+    );
+    let batch_id = request_batch_id.to_string();
+    let operation = MutationOperation {
+        ordinal: 0,
+        surface: MutationSurface::Lifecycle,
+        domain: MutationDomain::Lifecycle,
+        method: Method::ApplyMutation {
+            event_type: "statechart_instance_create".to_string(),
+            query: batch_id.clone(),
+        },
+    };
+    let batch = MutationBatch {
+        schema_version: MUTATION_BATCH_VERSION,
+        batch_id: batch_id.clone(),
+        context: MutationRequestContext {
+            request_id: 0,
+            principal,
+            purpose: None,
+            policy_fingerprint: None,
+            trace_id: None,
+        },
+        tenant: INSTANCE_MUTATION_TENANT.to_string(),
+        graph: INSTANCE_MUTATION_GRAPH.to_string(),
+        placement_epoch: 0,
+        idempotency_key: batch_id.clone(),
+        expected_graph_version: None,
+        fencing_token: None,
+        authoritative_state: None,
+        operations: vec![operation.clone()],
+        outbox: vec![MutationOutboxIntent {
+            topic: "engine.statechart-instance.instantiated".to_string(),
+            key: batch_id,
+            payload: rmp_serde::to_vec_named(&operation).map_err(codec_err)?,
+            headers: std::collections::BTreeMap::new(),
+        }],
+        created_at_ms: instance.updated_at_ms.max(0) as u64,
+    };
+    batch.validate().map_err(codec_err)?;
+    Ok(batch)
+}
+
+/// Decode a committed instance image out of a replayed `MutationBatchRecord`
+/// (mirrors `eg-jobs::decode_job_result`) — the value `commit_instance_blob`
+/// returns on `Begin::Replay`.
+fn decode_instance_result(record: &MutationBatchRecord) -> Result<MachineInstance> {
+    let bytes = record
+        .result_msgpack
+        .as_deref()
+        .ok_or_else(|| codec_err("committed statechart instance batch has no result"))?;
+    decode_stored(bytes)
+}
+
 fn map_transition_error(instance_id: &str, error: TransitionError) -> StatechartError {
     StatechartError::InvalidTransition {
         instance_id: instance_id.to_string(),
@@ -727,7 +902,7 @@ mod tests {
             instance_id = instance.instance_id.clone();
             // drive it forward once
             let out = store
-                .send_event(&instance_id, &EventInput::new("coin"), None)
+                .send_event(&instance_id, &EventInput::new("coin"), None, now_ms())
                 .unwrap();
             assert!(out.outcome.fired);
             assert!(out.instance.in_state("unlocked"));
@@ -740,7 +915,7 @@ mod tests {
         assert!(rehydrated.in_state("unlocked"));
         assert_eq!(rehydrated.version, 1);
         let out = store
-            .send_event(&instance_id, &EventInput::new("push"), None)
+            .send_event(&instance_id, &EventInput::new("push"), None, now_ms())
             .unwrap();
         assert!(out.instance.in_state("locked"));
         assert_eq!(out.instance.version, 2);
@@ -755,7 +930,7 @@ mod tests {
             .unwrap();
         // 'push' from 'locked' is undefined ⇒ no-op.
         let out = store
-            .send_event(&instance.instance_id, &EventInput::new("push"), None)
+            .send_event(&instance.instance_id, &EventInput::new("push"), None, now_ms())
             .unwrap();
         assert!(!out.outcome.fired);
         assert_eq!(out.instance.version, 0);
@@ -771,7 +946,7 @@ mod tests {
             .unwrap();
         // stored version is 0; claim to be at 5.
         let err = store
-            .send_event(&instance.instance_id, &EventInput::new("coin"), Some(5))
+            .send_event(&instance.instance_id, &EventInput::new("coin"), Some(5), now_ms())
             .unwrap_err();
         assert!(matches!(
             err,
@@ -796,7 +971,7 @@ mod tests {
             .instantiate(&def_id, Context::new(), "t", "a")
             .unwrap();
         let err = store
-            .send_event(&instance.instance_id, &EventInput::new("teleport"), None)
+            .send_event(&instance.instance_id, &EventInput::new("teleport"), None, now_ms())
             .unwrap_err();
         assert!(matches!(err, StatechartError::InvalidTransition { .. }));
     }
@@ -822,7 +997,7 @@ mod tests {
         // transition result payload and the post-commit outbox intent — the eg-jobs
         // precedent, mirrored.
         let out = store
-            .send_event(&instance.instance_id, &EventInput::new("coin"), None)
+            .send_event(&instance.instance_id, &EventInput::new("coin"), None, now_ms())
             .unwrap();
         assert!(out.outcome.fired);
         assert!(out.instance.in_state("unlocked"));
@@ -854,7 +1029,7 @@ mod tests {
         // A well-defined NO-OP must NOT open a batch: the gateway version is unchanged.
         // 'coin' from 'unlocked' is undefined ⇒ no-op.
         let noop = store
-            .send_event(&instance.instance_id, &EventInput::new("coin"), None)
+            .send_event(&instance.instance_id, &EventInput::new("coin"), None, now_ms())
             .unwrap();
         assert!(!noop.outcome.fired);
         assert_eq!(
@@ -865,7 +1040,7 @@ mod tests {
 
         // And an OCC conflict likewise commits nothing through the gateway.
         let conflict = store
-            .send_event(&instance.instance_id, &EventInput::new("push"), Some(99))
+            .send_event(&instance.instance_id, &EventInput::new("push"), Some(99), now_ms())
             .unwrap_err();
         assert!(matches!(conflict, StatechartError::VersionConflict { .. }));
         assert_eq!(
@@ -950,7 +1125,7 @@ mod tests {
             // Initial configuration descended into the default child.
             assert!(inst.in_state("active") && inst.in_state("idle"));
             let out = store
-                .send_event(&instance_id, &EventInput::new("start"), None)
+                .send_event(&instance_id, &EventInput::new("start"), None, now_ms())
                 .unwrap();
             assert!(out.instance.in_state("active") && out.instance.in_state("running"));
         }
@@ -959,7 +1134,7 @@ mod tests {
         let rehydrated = store.get_instance(&instance_id).unwrap();
         assert!(rehydrated.in_state("running"));
         let out = store
-            .send_event(&instance_id, &EventInput::new("kill"), None)
+            .send_event(&instance_id, &EventInput::new("kill"), None, now_ms())
             .unwrap();
         assert!(out.instance.in_state("off"));
         assert!(!out.instance.in_state("active"));
