@@ -23,8 +23,11 @@ def test_transitive_closure_infers_edge(clean_graph):
     clean_graph.nodes.add("a", {"type": "Person"})
     clean_graph.nodes.add("b", {"type": "Person"})
     clean_graph.nodes.add("c", {"type": "Person"})
-    clean_graph.edges.add("a", "b", {"type": "ancestor"})
-    clean_graph.edges.add("b", "c", {"type": "ancestor"})
+    # Edge predicate/type rides the `relationship` property key (the convention
+    # `extract_facts` in `crates/eg-compute/src/reasoning.rs` reads), not `type`
+    # (which is the NODE-type key) -- see that function's `val.get("relationship")`.
+    clean_graph.edges.add("a", "b", {"relationship": "ancestor"})
+    clean_graph.edges.add("b", "c", {"relationship": "ancestor"})
 
     result = clean_graph.reasoning.reason(transitive_properties=["ancestor"])
 
@@ -52,7 +55,7 @@ def test_symmetric_property_infers_reverse(clean_graph):
     # alice --spouse--> bob, spouse symmetric  ⇒  bob --spouse--> alice
     clean_graph.nodes.add("alice", {"type": "Person"})
     clean_graph.nodes.add("bob", {"type": "Person"})
-    clean_graph.edges.add("alice", "bob", {"type": "spouse"})
+    clean_graph.edges.add("alice", "bob", {"relationship": "spouse"})
 
     result = clean_graph.reasoning.reason(symmetric_properties=["spouse"])
 

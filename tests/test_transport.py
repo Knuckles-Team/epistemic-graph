@@ -51,6 +51,11 @@ class MockServer:
         self.server = await asyncio.start_server(
             self.handle_client, self.host, self.port
         )
+        # Port `0` asks the OS for an unused ephemeral port; read back whichever
+        # one it actually bound so a caller that requested `0` can connect. A
+        # caller that requested a specific port keeps binding that exact port
+        # (this is a no-op reassignment in that case).
+        self.port = self.server.sockets[0].getsockname()[1]
 
     async def stop(self):
         if self.server:
@@ -60,12 +65,18 @@ class MockServer:
 
 @pytest.mark.asyncio
 async def test_frame_handling_and_pool():
-    server = MockServer(port=9101)
+    # Port `0` binds an OS-assigned ephemeral port instead of a fixed one --
+    # 9101 happens to also be this repo's documented example Prometheus
+    # `--metrics-addr`/`GRAPH_SERVICE_METRICS_ADDR` port (see AGENTS.md), so a
+    # hardcoded 9101 here collides with an unrelated already-running engine on
+    # a shared dev host ("address already in use"), independent of anything
+    # this test actually exercises.
+    server = MockServer(port=0)
     await server.start()
 
     try:
         pool = ConnectionPool(
-            "tcp://127.0.0.1:9101",
+            f"tcp://127.0.0.1:{server.port}",
             verified_context=request_context(),
             auth_secret="s",
             min_size=2,
@@ -167,15 +178,22 @@ async def test_send_reconnects_after_connection_drop():
         )
         assert await client.ping() == "pong"  # served on the first connection
 
-        # The server has closed the first connection; the next call detects the
-        # dead stream and marks it closed (the unavoidable single failure).
-        with pytest.raises((ConnectionError, TimeoutError)):
-            await client.ping()
-        assert client._closed is True
-
-        # THE FIX: the following call transparently reconnects (new connection,
-        # connections["n"] == 2) and succeeds instead of failing forever.
-        assert await client.ping() == "pong"
+        # The server has closed the first connection. `_ensure_connection` now
+        # re-dials in place whenever it observes `_closed` (set by the reader
+        # loop's EOF handler) BEFORE issuing a call, not just on the call
+        # AFTER a failure -- so whether the reader loop notices the drop
+        # before or after this next `ping()` is issued is a scheduling race,
+        # not a behavioral contract: it may transparently reconnect and
+        # succeed immediately, or surface the single stale-write failure the
+        # module docstring above describes. Either way, THE FIX under test is
+        # that the client is never stuck: the call sequence below always ends
+        # up connected again, on a NEW connection, and serving `pong`.
+        try:
+            result = await client.ping()
+        except (ConnectionError, TimeoutError):
+            assert client._closed is True
+            result = await client.ping()
+        assert result == "pong"
         assert client._closed is False
         assert connections["n"] == 2
     finally:

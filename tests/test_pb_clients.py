@@ -218,8 +218,13 @@ async def test_admin_and_nl_wire_shapes() -> None:
     by = {m: (p, g) for m, p, g in fake.sent}
     assert by["Backup"][0] == {"destination": "scheduled-001", "label": "nightly"}
     assert by["Restore"][0] == {"source": "scheduled-001", "target_shards": 2}
-    # NlQuery carries the text in params and the target graph in the envelope.
-    assert by["NlQuery"][0] == {"text": "all agents that cite paper X"}
+    # NlQuery carries the text AND the target graph in params (`Method::NlQuery`'s
+    # own `graph` field -- the `/nl` HTTP facade has no request envelope, so the
+    # graph must ride the method itself) as well as in the envelope.
+    assert by["NlQuery"][0] == {
+        "text": "all agents that cite paper X",
+        "graph": "agent:planner",
+    }
     assert by["NlQuery"][1] == "agent:planner"
     assert rep == {"nodes": 10, "shards": 1}
     assert res == {

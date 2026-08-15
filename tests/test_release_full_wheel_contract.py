@@ -13,7 +13,22 @@ import yaml
 pytestmark = pytest.mark.no_engine
 
 REPO = Path(__file__).resolve().parents[1]
-WORKFLOW = REPO / ".github" / "workflows" / "release-build.yml"
+WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
+
+
+def _build_job_source(raw: str) -> str:
+    """Isolate the `build` job's YAML text from the rest of `release.yml`.
+
+    `release.yml` now also carries the `gates` job (the former rust-ci.yml
+    test suite), which legitimately uses `toolchain: stable` (to run cargo
+    test/clippy) and `--no-default-features` (the slim-server build check) —
+    neither describes the release wheel matrix. Callers asserting on
+    wheel-build-only behavior must check this slice, not the whole file, or
+    they'll trip on the unrelated `gates` job content.
+    """
+    start = raw.index("\n  build:\n")
+    end = raw.index("\n  docker-image:\n", start)
+    return raw[start:end]
 
 
 def test_maturin_default_and_python_extra_are_full() -> None:
@@ -72,7 +87,7 @@ def test_agent_skills_have_one_canonical_owner() -> None:
 def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
     raw = WORKFLOW.read_text(encoding="utf-8")
     workflow = yaml.safe_load(raw)
-    matrix = workflow["jobs"]["wheels"]["strategy"]["matrix"]["include"]
+    matrix = workflow["jobs"]["build"]["strategy"]["matrix"]["include"]
     targets = {entry["name"]: entry["target"] for entry in matrix}
     assert targets == {
         "linux-aarch64": "aarch64-unknown-linux-gnu",
@@ -82,7 +97,7 @@ def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
         "windows-x86_64": "x86_64-pc-windows-msvc",
     }
     assert 'MATURIN_FEATURES: "full,ast-extended"' in raw
-    assert "--no-default-features" not in raw
+    assert "--no-default-features" not in _build_job_source(raw)
     assert "scripts/inject_numeric_kernel.py" in raw
     assert "scripts/normalize_wheel_build_paths.py" in raw
     assert "import epistemic_graph.numeric" in raw
@@ -95,8 +110,9 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     )["toolchain"]["channel"]
 
     assert re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", toolchain)
-    assert "toolchain: ${{ steps.rust-toolchain.outputs.channel }}" in raw
-    assert "toolchain: stable" not in raw
+    build_job_raw = _build_job_source(raw)
+    assert "toolchain: ${{ steps.rust-toolchain.outputs.channel }}" in build_job_raw
+    assert "toolchain: stable" not in build_job_raw
     assert 'CARGO_BUILD_JOBS: "1"' in raw
     assert 'CARGO_INCREMENTAL: "0"' in raw
     assert "max-parallel: 1" in raw
@@ -109,9 +125,16 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     ):
         assert f"--out {output}" in raw
     assert raw.count("scripts/inject_numeric_kernel.py") == 2
-    assert raw.count("scripts/normalize_wheel_sbom.py") == 2
-    assert raw.count("scripts/normalize_wheel_build_paths.py") == 2
-    assert raw.count("scripts/check_wheel_privacy.py") == 2
+    # These three scripts each run 3x, not 2x: once in the `build` job for
+    # each of the primary/reproduction release-wheel passes, PLUS once more
+    # in the `gates` job (normalizing/auditing the standalone eg-numeric
+    # Surface-A parity wheel built there for the numpy-parity gate). That
+    # third call is a legitimate, unrelated wheel and doesn't affect the
+    # primary/reproduction reproducibility this test protects — a drop below
+    # 3 still means one of those calls went missing.
+    assert raw.count("scripts/normalize_wheel_sbom.py") == 3
+    assert raw.count("scripts/normalize_wheel_build_paths.py") == 3
+    assert raw.count("scripts/check_wheel_privacy.py") == 3
     assert raw.count("sccache: 'false'") == 4
     assert (
         raw.count("CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target")
@@ -126,3 +149,10 @@ def test_incomplete_fallback_artifacts_cannot_be_published() -> None:
     assert "command: sdist" not in raw
     assert "dist/*.tar.gz" not in raw
     assert not (REPO / ".github" / "workflows" / "pipeline.yml").exists()
+    # The two-workflow redesign folded the former release-build.yml (this
+    # test's wheel-build workflow, pre-rename) and rust-ci.yml into
+    # release.yml/advisory.yml and deleted both. A resurrected
+    # release-build.yml would be exactly the kind of unguarded fallback
+    # release path this test exists to rule out.
+    assert not (REPO / ".github" / "workflows" / "release-build.yml").exists()
+    assert not (REPO / ".github" / "workflows" / "rust-ci.yml").exists()
