@@ -374,8 +374,7 @@ mod tests {
         let intruder_auth = authority("a", "intruder");
         let intruder_tenant = intruder_auth.tenant_scope();
         let intruder_actor = intruder_auth.actor_scope();
-        let err =
-            op_get_state(&store, intruder_tenant, intruder_actor, &instance_id).unwrap_err();
+        let err = op_get_state(&store, intruder_tenant, intruder_actor, &instance_id).unwrap_err();
         assert!(err.contains("not found or not owned"));
         // ...cannot drive it...
         assert!(op_send_event(
@@ -402,8 +401,14 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
-        assert!(op_instantiate(&store, 1, &authority("a", "t"), &def_id, serde_json::json!(42))
-            .is_err());
+        assert!(op_instantiate(
+            &store,
+            1,
+            &authority("a", "t"),
+            &def_id,
+            serde_json::json!(42)
+        )
+        .is_err());
     }
 
     #[test]

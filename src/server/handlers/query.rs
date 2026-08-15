@@ -2636,11 +2636,7 @@ fn resolve_conflict_wire(
         undecided,
         extension_sets: extension_sets
             .into_iter()
-            .map(|e| {
-                e.into_iter()
-                    .filter(|id| node_ids.contains(id))
-                    .collect()
-            })
+            .map(|e| e.into_iter().filter(|id| node_ids.contains(id)).collect())
             .collect(),
     })
 }
@@ -2670,8 +2666,14 @@ fn restrict_belief_graph_to_component(
         std::collections::HashMap::new();
     for (target, edges) in &bg.in_edges {
         for (source, _kind) in edges {
-            adjacency.entry(target.as_str()).or_default().push(source.as_str());
-            adjacency.entry(source.as_str()).or_default().push(target.as_str());
+            adjacency
+                .entry(target.as_str())
+                .or_default()
+                .push(source.as_str());
+            adjacency
+                .entry(source.as_str())
+                .or_default()
+                .push(target.as_str());
         }
     }
 

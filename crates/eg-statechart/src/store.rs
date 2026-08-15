@@ -930,7 +930,12 @@ mod tests {
             .unwrap();
         // 'push' from 'locked' is undefined ⇒ no-op.
         let out = store
-            .send_event(&instance.instance_id, &EventInput::new("push"), None, now_ms())
+            .send_event(
+                &instance.instance_id,
+                &EventInput::new("push"),
+                None,
+                now_ms(),
+            )
             .unwrap();
         assert!(!out.outcome.fired);
         assert_eq!(out.instance.version, 0);
@@ -946,7 +951,12 @@ mod tests {
             .unwrap();
         // stored version is 0; claim to be at 5.
         let err = store
-            .send_event(&instance.instance_id, &EventInput::new("coin"), Some(5), now_ms())
+            .send_event(
+                &instance.instance_id,
+                &EventInput::new("coin"),
+                Some(5),
+                now_ms(),
+            )
             .unwrap_err();
         assert!(matches!(
             err,
@@ -971,7 +981,12 @@ mod tests {
             .instantiate(&def_id, Context::new(), "t", "a")
             .unwrap();
         let err = store
-            .send_event(&instance.instance_id, &EventInput::new("teleport"), None, now_ms())
+            .send_event(
+                &instance.instance_id,
+                &EventInput::new("teleport"),
+                None,
+                now_ms(),
+            )
             .unwrap_err();
         assert!(matches!(err, StatechartError::InvalidTransition { .. }));
     }
@@ -997,7 +1012,12 @@ mod tests {
         // transition result payload and the post-commit outbox intent — the eg-jobs
         // precedent, mirrored.
         let out = store
-            .send_event(&instance.instance_id, &EventInput::new("coin"), None, now_ms())
+            .send_event(
+                &instance.instance_id,
+                &EventInput::new("coin"),
+                None,
+                now_ms(),
+            )
             .unwrap();
         assert!(out.outcome.fired);
         assert!(out.instance.in_state("unlocked"));
@@ -1029,7 +1049,12 @@ mod tests {
         // A well-defined NO-OP must NOT open a batch: the gateway version is unchanged.
         // 'coin' from 'unlocked' is undefined ⇒ no-op.
         let noop = store
-            .send_event(&instance.instance_id, &EventInput::new("coin"), None, now_ms())
+            .send_event(
+                &instance.instance_id,
+                &EventInput::new("coin"),
+                None,
+                now_ms(),
+            )
             .unwrap();
         assert!(!noop.outcome.fired);
         assert_eq!(
@@ -1040,7 +1065,12 @@ mod tests {
 
         // And an OCC conflict likewise commits nothing through the gateway.
         let conflict = store
-            .send_event(&instance.instance_id, &EventInput::new("push"), Some(99), now_ms())
+            .send_event(
+                &instance.instance_id,
+                &EventInput::new("push"),
+                Some(99),
+                now_ms(),
+            )
             .unwrap_err();
         assert!(matches!(conflict, StatechartError::VersionConflict { .. }));
         assert_eq!(

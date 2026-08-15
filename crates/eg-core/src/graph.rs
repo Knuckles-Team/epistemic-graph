@@ -5507,8 +5507,7 @@ impl GraphCore {
                 }
                 "ADD_EDGE" if parts.len() >= 4 => {
                     if let Ok(props) = hex::decode(parts[3]) {
-                        let _ =
-                            txn.add_edge(parts[1].to_string(), parts[2].to_string(), props);
+                        let _ = txn.add_edge(parts[1].to_string(), parts[2].to_string(), props);
                     }
                 }
                 "REMOVE_NODE" if parts.len() >= 2 => {
