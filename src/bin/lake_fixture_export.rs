@@ -2,7 +2,7 @@
 //! Iceberg artifacts (Parquet data files, `_delta_log`, `metadata.json`, Avro
 //! manifests) straight to a plain local directory, via the SAME `eg-lake` production
 //! write calls `src/server/lake::LakeManager::materialize_batch` makes against the
-//! blob CAS (CONCEPT:EG-317, W4.8).
+//! blob CAS (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, W4.8).
 //!
 //! Exists so the Python read-parity test suite
 //! (`tests/test_lake_iceberg_delta_parity.py`) can point a real, unmodified

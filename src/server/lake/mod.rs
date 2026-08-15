@@ -1,4 +1,4 @@
-//! WAL/series → lakehouse materialization tier (CONCEPT:EG-317 engine-side seam,
+//! WAL/series → lakehouse materialization tier (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns engine-side seam,
 //! INT-P2-3).
 //!
 //! `eg-lake` is deliberately a pure LEAF crate (no workspace edges) that owns the
@@ -77,7 +77,7 @@ pub const LINEAGE_RING_CAP: usize = 200;
 /// The lake namespace new series-backed tables register under by default.
 pub const DEFAULT_NAMESPACE: &str = "engine";
 
-/// The kind of write a materialization performs (CONCEPT:EG-317). Threads into the
+/// The kind of write a materialization performs (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). Threads into the
 /// OpenLineage `lifecycleStateChange` facet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LakeOp {
@@ -130,7 +130,7 @@ struct TableEntry {
 
 /// Owns every materialized lake table, the aggregate Iceberg-REST catalog, the
 /// blob-CAS path index for the bytes this tier writes, the per-series drain cursor, and
-/// the bounded OpenLineage event ring (CONCEPT:EG-317, INT-P2-3). Process-global (like
+/// the bounded OpenLineage event ring (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, INT-P2-3). Process-global (like
 /// `udf_registry`/`foreign_sources` on `ServerState`) — a lake table is not per-graph.
 pub struct LakeManager {
     tables: Mutex<HashMap<(String, String), TableEntry>>,
@@ -380,7 +380,7 @@ impl LakeManager {
     }
 
     /// Incremental append: materialize only tsdb points newer than the per-series
-    /// drain cursor (the WAL-drain semantics — CONCEPT:EG-317's engine-side seam). The
+    /// drain cursor (the WAL-drain semantics — CONCEPT:EG-KG.storage.lsn-as-snapshot-returns's engine-side seam). The
     /// table name is the series id itself (sanitized); the namespace is
     /// [`DEFAULT_NAMESPACE`]. Returns `Ok(None)` when there is nothing new to drain.
     pub fn drain_series(
@@ -529,7 +529,7 @@ impl LakeManager {
         self.delete_where(store, namespace, table, |_row| true)
     }
 
-    /// Additive-only schema evolution (CONCEPT:EG-317): append a new nullable column
+    /// Additive-only schema evolution (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns): append a new nullable column
     /// to the table's current `LakeSchema` for FUTURE writes, via
     /// [`LakeTable::evolve_add_column`] — which also bumps the table's Iceberg
     /// schema-id and records the new schema version, so a subsequent

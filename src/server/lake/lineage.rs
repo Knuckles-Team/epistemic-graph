@@ -1,4 +1,4 @@
-//! OpenLineage `RunEvent` construction + (optional) HTTP export (CONCEPT:EG-317,
+//! OpenLineage `RunEvent` construction + (optional) HTTP export (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns,
 //! INT-P2-3) for the lake materialization tier.
 //!
 //! Every `LakeManager` materialize/compact/delete run builds one OpenLineage

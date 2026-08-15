@@ -388,7 +388,7 @@ mod native {
 #[cfg(feature = "ros2-dds")]
 pub use native::NativeDdsTransport;
 
-// ── S5: CycloneDDS-C-backed `rmw` transport (CONCEPT:EG-347 follow-on) ──────────────
+// ── S5: CycloneDDS-C-backed `rmw` transport (CONCEPT:EG-KG.ingest.rmw-cyclonedds-leg) ──
 //
 // The SECOND native leg of the `DdsTransport` seam: where [`native::NativeDdsTransport`]
 // (feature `ros2-dds`) is pure-Rust Dust DDS (wire-COMPATIBLE with rmw's mangled
@@ -466,7 +466,7 @@ mod cyclone {
     type Writer = DataWriter<CycloneRos2String>;
     type Reader = DataReader<CycloneRos2String>;
 
-    /// CycloneDDS-C-backed [`DdsTransport`] (CONCEPT:EG-347 follow-on). Owns one DDS
+    /// CycloneDDS-C-backed [`DdsTransport`] (CONCEPT:EG-KG.ingest.rmw-cyclonedds-leg). Owns one DDS
     /// `DomainParticipant` + a publisher/subscriber pair, a per-ROS-topic cache of the
     /// underlying DDS `Topic` entity id, and a per-topic writer/reader map. Links the REAL
     /// CycloneDDS C stack (vendored + cmake-built — see the `cyclonedds` dependency doc in

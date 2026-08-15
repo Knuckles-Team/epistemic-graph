@@ -92,7 +92,7 @@ export EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE="${RAFT_AUTH_SECRET_FILE:?set a run
 # PlacementRoute.endpoints can hand it to a discovering client, replacing
 # the static GRAPH_RAFT_GROUP_ENDPOINTS map. Fails closed (refuses to
 # start) without it once EPISTEMIC_GRAPH_RAFT_NODE_ID/_PEERS are set.
-export EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR="${NODE_1_CLIENT_ADDR:?e.g. tcp://10.0.0.10:8765}"
+export EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR="${NODE_1_CLIENT_ADDR:?e.g. tcp://192.0.2.10:8765 (RFC 5737 documentation address -- substitute the real one at runtime)}"
 export SERVER="${NODE_1_HOST:?set the node 1 host alias at runtime}"
 export ENGINE_PERSIST="${ENGINE_PERSIST:?set to node 1's existing data directory}"
 docker stack deploy -c services/epistemic-graph/compose.dev.yml epistemic-graph-1
