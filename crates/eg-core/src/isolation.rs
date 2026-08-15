@@ -542,6 +542,16 @@ impl IsolationLayer {
         !self.agents.is_empty()
     }
 
+    /// Whether `agent_id` is a known, provisioned identity — independent of any
+    /// particular graph. [`Self::check_access`] denies an unregistered agent
+    /// unconditionally, before it ever consults a graph's type/owner
+    /// (`self.agents.get(agent_id)` is the very first thing it checks), so this is
+    /// exactly that identity-only slice of the decision, usable by a caller that
+    /// does not yet know (or want to reveal) whether the target graph exists.
+    pub fn is_registered(&self, agent_id: &str) -> bool {
+        self.agents.contains_key(agent_id)
+    }
+
     /// Check if an agent has the requested access level to a graph.
     pub fn check_access(
         &self,

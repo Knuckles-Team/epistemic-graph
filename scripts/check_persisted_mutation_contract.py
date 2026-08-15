@@ -303,13 +303,23 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
         _const_slice(mutation_runtime, "CONSENSUS_FANOUT_METHODS"),
         "CONSENSUS_FANOUT_METHODS",
     )
+    # `clustered_mutation_inventory_is_complete` (the Rust test this gate mirrors)
+    # ALSO extends its `covered` set from `SELF_ROUTED_ADMIN_METHODS` -- methods
+    # with their own self-routing handler (resolves MultiRaft, does its own leader
+    # check) rather than a bounded `NativeMutationCommand`. Missing this union
+    # made the gate flag `RaftAddLearner`/`RaftChangeMembership` as "missing" even
+    # though the real Rust test already covers them via that const.
+    self_routed_admin = _string_set(
+        _const_slice(mutation_runtime, "SELF_ROUTED_ADMIN_METHODS"),
+        "SELF_ROUTED_ADMIN_METHODS",
+    )
     cluster_test = _function(
         mutation_runtime, "clustered_mutation_inventory_is_complete"
     )
     explicit_cluster = set(
         re.findall(r'covered\.insert\("([A-Z][A-Za-z0-9_]*)"\)', cluster_test)
     )
-    cluster_owned = routed | native_consensus | fanout | explicit_cluster
+    cluster_owned = routed | native_consensus | fanout | self_routed_admin | explicit_cluster
     require(
         cluster_owned == mutating,
         "cluster mutation ownership does not exactly cover mutating policy: "

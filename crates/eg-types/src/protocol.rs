@@ -29,6 +29,21 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// `skip_serializing_if` predicate for a `usize` field whose default is `0`
+/// (`TransactionSource`/`SequenceSource`/`VectorSource`/`TextSource::limit`,
+/// `GraphSource::limit`). A graph-derived source dict built by hand (the
+/// common case -- callers pass e.g. `{"node_label": "Paper", "direction":
+/// "out"}` with no `limit` key at all) never hashes an unset `limit` into the
+/// `eg2.` MAC's canonical body; without this, the server's own
+/// re-serialization used to recompute that MAC would emit an explicit
+/// `limit: 0` the client never sent, failing every such call with
+/// "Authentication failed" -- the same class of bug `is_false` above fixes
+/// for `MineAssociate::as_claim`.
+#[cfg(any(feature = "mining", feature = "graphlearn"))]
+fn is_zero_usize(value: &usize) -> bool {
+    *value == 0
+}
+
 /// serde default for association-rule `min_support` (CONCEPT:EG-KG.mining.frequent-itemset-mining):
 /// keep an itemset supported by ≥10% of transactions.
 #[cfg(feature = "mining")]
@@ -4732,7 +4747,7 @@ pub struct TextSource {
     /// The string property to tokenize into the document.
     pub field: String,
     /// Cap the number of nodes scanned (0 = uncapped).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
     pub limit: usize,
 }
 
@@ -4828,14 +4843,14 @@ pub struct TransactionSource {
     /// Which value of each neighbor becomes an item: `label` (the neighbor's
     /// type/label, default) or `prop:<key>` (a neighbor property value). When
     /// `None`, the neighbor's node id is used verbatim.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item_field: Option<String>,
     /// Optional edge-relation filter: only follow edges whose `relationship`
     /// property equals this. `None` ⇒ all edges.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relation: Option<String>,
     /// Cap the number of basket owners scanned (0 = uncapped).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
     pub limit: usize,
 }
 
@@ -4864,14 +4879,14 @@ pub struct SequenceSource {
     /// Which value of each neighbor becomes an item: `label` (the neighbor's
     /// type/label, default) or `prop:<key>` (a neighbor property value). When
     /// `None`, the neighbor's node id is used verbatim.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item_field: Option<String>,
     /// Optional edge-relation filter: only follow edges whose `relationship`
     /// property equals this. `None` ⇒ all edges.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relation: Option<String>,
     /// Cap the number of sequence owners scanned (0 = uncapped).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
     pub limit: usize,
 }
 
@@ -4887,7 +4902,7 @@ pub struct VectorSource {
     /// The node label whose instances each contribute one embedding row.
     pub node_label: String,
     /// Cap the number of nodes scanned (0 = uncapped).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
     pub limit: usize,
 }
 
@@ -5102,10 +5117,10 @@ pub struct GraphSource {
     pub direction: String,
     /// Optional edge-relation filter: only use edges whose `relationship` equals
     /// this. `None` ⇒ all edges among the label's nodes.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relation: Option<String>,
     /// Cap the number of label nodes scanned (0 = uncapped).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
     pub limit: usize,
 }
 

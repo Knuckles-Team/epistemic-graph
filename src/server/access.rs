@@ -777,6 +777,40 @@ fn check_graph_access_with_policy(
     }
 }
 
+/// Deny an unregistered/unauthenticated caller (or an unprovisioned isolation
+/// policy) BEFORE the target graph's existence is resolved.
+///
+/// [`IsolationLayer::check_access`] denies an unregistered agent unconditionally —
+/// `self.agents.get(agent_id)` is the very first thing it checks, before it ever
+/// looks at the graph's type/owner — so this mirrors just that identity-only slice
+/// of the decision. Calling it ahead of the graph-existence lookup means a caller
+/// who could never pass ACL for ANY graph is denied with the SAME `ACCESS_DENIED`
+/// message they would eventually get anyway, instead of first learning whether the
+/// target graph exists via a distinguishable "Graph '...' not found" response — an
+/// unregistered caller must not be able to probe graph names this way. A caller who
+/// IS registered always falls through unchanged to the existing
+/// existence-then-`check_graph_access` sequence, which still makes the real,
+/// graph-type/owner-aware decision.
+pub(crate) fn check_caller_is_known(
+    isolation: &IsolationLayer,
+    caller: Option<&str>,
+    graph_name: &str,
+    access: AccessLevel,
+) -> Result<(), String> {
+    let agent = require_verified_caller(caller)?;
+    if !isolation.has_rules() {
+        crate::metrics::access_denied();
+        return Err("ACCESS_DENIED: a provisioned identity/RBAC policy is required".to_string());
+    }
+    if isolation.is_registered(agent) {
+        return Ok(());
+    }
+    crate::metrics::access_denied();
+    Err(format!(
+        "ACCESS_DENIED: verified principal lacks {access:?} access to graph '{graph_name}'"
+    ))
+}
+
 /// Resolve the authenticated ACL actor. Transport objects may exist before
 /// authentication, but an absent or empty identity must never reach ACL, quota,
 /// admission, or durable state as a synthetic bucket.

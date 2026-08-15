@@ -2561,6 +2561,7 @@ fn resolve_conflict_wire(
     view: &crate::graph::GraphView,
 ) -> Result<crate::protocol::ResolveConflictResult, String> {
     let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let bg = restrict_belief_graph_to_component(&bg, node_ids);
 
     let (extension_sets, surviving, defeated, undecided): (
         Vec<std::collections::BTreeSet<String>>,
@@ -2617,6 +2618,17 @@ fn resolve_conflict_wire(
         }
     };
 
+    // `extension_sets` reports each computed extension PROJECTED onto the caller's
+    // requested `node_ids` — matching the scope `surviving`/`defeated`/`undecided`
+    // already use. `BeliefGraph::from_graph_view` necessarily builds the argumentation
+    // framework off every argument in the graph (Dung semantics need the whole attack
+    // topology to compute an extension correctly), so an unfiltered extension would
+    // leak every OTHER unattacked claim in the graph (which is trivially always "in"
+    // any extension) into a response about a specific, caller-named conflict — turning
+    // a targeted 3-argument query into a whole-graph dump. Filtering to `node_ids`
+    // keeps the extension's SET MEMBERSHIP semantics for the queried arguments intact
+    // (an id here really is in that extension) while not describing arguments the
+    // caller never asked about.
     Ok(crate::protocol::ResolveConflictResult {
         semantics: semantics.to_string(),
         surviving,
@@ -2624,9 +2636,83 @@ fn resolve_conflict_wire(
         undecided,
         extension_sets: extension_sets
             .into_iter()
-            .map(|e| e.into_iter().collect())
+            .map(|e| {
+                e.into_iter()
+                    .filter(|id| node_ids.contains(id))
+                    .collect()
+            })
             .collect(),
     })
+}
+
+/// Restrict `bg` to the weakly-connected component (over ALL its epistemic edges,
+/// direction ignored) reachable from `seeds`. Dung argumentation semantics are
+/// separable across disconnected components of the attack/support topology -- an
+/// argument with no attack/support path to `seeds` cannot influence (or be
+/// influenced by) any of them under grounded/preferred/stable semantics -- so this
+/// changes nothing about `seeds`' own computed status. It DOES change the argument
+/// COUNT `eg_epistemic::tms` sees: unrestricted, `BeliefGraph::from_graph_view`
+/// carries every node in the whole graph as a trivially-unattacked "argument"
+/// (`from_graph_view` seeds `priors` from every node, whether or not it
+/// participates in any epistemic edge), so a caller-scoped 3-argument query over a
+/// graph that happens to also hold dozens of unrelated `Claim`s would otherwise
+/// blow `tms::MAX_PREFERRED_ARGUMENTS` and silently fall back to a single
+/// (grounded-only) extension -- misclassifying a genuinely credulous id as
+/// `defeated` instead of `undecided`. Restricting to the component actually
+/// relevant to `seeds` keeps the argument count proportional to the query, not the
+/// whole graph.
+#[cfg(feature = "epistemic-tms")]
+fn restrict_belief_graph_to_component(
+    bg: &eg_epistemic::BeliefGraph,
+    seeds: &[String],
+) -> eg_epistemic::BeliefGraph {
+    let mut adjacency: std::collections::HashMap<&str, Vec<&str>> =
+        std::collections::HashMap::new();
+    for (target, edges) in &bg.in_edges {
+        for (source, _kind) in edges {
+            adjacency.entry(target.as_str()).or_default().push(source.as_str());
+            adjacency.entry(source.as_str()).or_default().push(target.as_str());
+        }
+    }
+
+    let mut reachable: std::collections::BTreeSet<String> = seeds.iter().cloned().collect();
+    let mut stack: Vec<String> = seeds.to_vec();
+    while let Some(node) = stack.pop() {
+        if let Some(neighbors) = adjacency.get(node.as_str()) {
+            for &neighbor in neighbors {
+                if reachable.insert(neighbor.to_string()) {
+                    stack.push(neighbor.to_string());
+                }
+            }
+        }
+    }
+
+    let priors = bg
+        .priors
+        .iter()
+        .filter(|(id, _)| reachable.contains(id.as_str()))
+        .map(|(id, confidence)| (id.clone(), *confidence))
+        .collect();
+    let in_edges = bg
+        .in_edges
+        .iter()
+        .filter(|(target, _)| reachable.contains(target.as_str()))
+        .map(|(target, edges)| {
+            (
+                target.clone(),
+                edges
+                    .iter()
+                    .filter(|(source, _)| reachable.contains(source.as_str()))
+                    .cloned()
+                    .collect(),
+            )
+        })
+        .collect();
+    eg_epistemic::BeliefGraph {
+        priors,
+        in_edges,
+        ..Default::default()
+    }
 }
 
 /// `Method::WhatChanged` (EPI-P3-5, L53) — between two transaction times, which beliefs

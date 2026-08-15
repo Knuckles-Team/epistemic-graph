@@ -2132,6 +2132,9 @@ fn apply_mutation_batch_in_wtx(
                         &mut native_work_items,
                     )?;
                 }
+                Method::ClearLedger => {
+                    clear_ledger_rows(graph_fname, &mut ledger)?;
+                }
                 method @ (Method::ClaimWorkItem { .. }
                 | Method::RenewWorkItemLease { .. }
                 | Method::CommitWorkItemResult { .. }
@@ -2725,6 +2728,7 @@ fn supports_atomic_batch_rows(method: &Method) -> bool {
             | Method::BatchUpdate { .. }
             | Method::AddEmbedding { .. }
             | Method::ClearGraph
+            | Method::ClearLedger
             | Method::CreateGraph { .. }
             | Method::DeleteGraph { .. }
             | Method::ClaimWorkItem { .. }
@@ -8571,6 +8575,28 @@ pub(crate) fn clear_graph_rows(
     // AddEdge (incl. checkpoint re-population, which clears then re-adds) re-seeds from
     // the post-clear state. Covers ClearGraph, purge_graph_rows, and apply_checkpoint.
     invalidate_graph_edge_ords(graph);
+    Ok(())
+}
+
+/// `Method::ClearLedger`'s durable table-row effect: remove every durable
+/// `LEDGER` row for `graph`, leaving `nodes`/`edges`/resources untouched --
+/// the row-scoped sibling of [`clear_graph_rows`]'s ledger-clearing loop
+/// (factored out rather than shared, since `ClearGraph` legitimately clears
+/// nodes/edges/resources TOO and this method must not).
+pub(crate) fn clear_ledger_rows(
+    graph: &str,
+    ledger: &mut redb::Table<(&str, u64), &str>,
+) -> Result<(), String> {
+    let seqs: Vec<u64> = ledger
+        .range((graph, 0u64)..)
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .take_while(|(k, _)| k.value().0 == graph)
+        .map(|(k, _)| k.value().1)
+        .collect();
+    for seq in seqs {
+        let _ = ledger.remove((graph, seq));
+    }
     Ok(())
 }
 
