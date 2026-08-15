@@ -2139,7 +2139,8 @@ fn apply_mutation_batch_in_wtx(
                 | Method::RenewWorkItemLease { .. }
                 | Method::CommitWorkItemResult { .. }
                 | Method::CancelWorkItem { .. }
-                | Method::DeferWorkItem { .. }) => {
+                | Method::DeferWorkItem { .. }
+                | Method::CasWorkItemMetadata { .. }) => {
                     let result = apply_work_item_rows(
                         graph_fname,
                         method,
@@ -2743,6 +2744,7 @@ fn supports_atomic_batch_rows(method: &Method) -> bool {
             | Method::CommitWorkItemResult { .. }
             | Method::CancelWorkItem { .. }
             | Method::DeferWorkItem { .. }
+            | Method::CasWorkItemMetadata { .. }
             | Method::ReserveWorkItemResources { .. }
             | Method::ReleaseWorkItemResources { .. }
             | Method::ReclaimWorkItemResources { .. }
@@ -5985,6 +5987,131 @@ fn apply_work_item_rows(
                     "changed_work_item_ids": [work_item_id],
                 }),
             )))
+        }
+        // BUG-111: native atomic CAS for WorkItem SCHEDULING METADATA
+        // (`checkpoint_id` / `metadata` / `prio_bucket`), the sole native
+        // replacement for a generic `CompareAndSetNodeFields` against a
+        // claimed WorkItem row (unconditionally refused by
+        // `work_item_capability::validate_generic_method`). Runs in the same
+        // durable WorkItem transaction as `ClaimWorkItem`/`RenewWorkItemLease`
+        // above; cannot touch `status`/`lease_owner`/`lease_epoch`/
+        // `fencing_token`/`tenant` — no field on the request names them.
+        Method::CasWorkItemMetadata { request } => {
+            use crate::epistemic_operations::{
+                CasWorkItemMetadataOutcome, CasWorkItemMetadataResult,
+                CasWorkItemMetadataResultSchemaVersion,
+            };
+
+            let tenant = &request.tenant_ref;
+            let work_item_id = &request.work_item_id;
+            let now_ms = request.now_ms;
+
+            let field_pairs_set = [
+                request.set_checkpoint_id.is_some(),
+                request.set_metadata_msgpack.is_some(),
+                request.set_prio_bucket.is_some(),
+            ]
+            .into_iter()
+            .filter(|set| *set)
+            .count();
+            if field_pairs_set != 1 {
+                return Err(
+                    "CasWorkItemMetadata requires exactly one of set_checkpoint_id / \
+                     set_metadata_msgpack / set_prio_bucket"
+                        .to_string(),
+                );
+            }
+            if request.expected_status.is_empty() {
+                return Err("CasWorkItemMetadata requires a non-empty expected_status".into());
+            }
+            if tenant.trim().is_empty() || work_item_id.trim().is_empty() {
+                return Err("CasWorkItemMetadata requires tenant_ref and work_item_id".into());
+            }
+
+            let respond = |outcome: CasWorkItemMetadataOutcome, changed: Vec<String>| {
+                Ok(Some(crate::protocol::ResultPayload::raw(
+                    &CasWorkItemMetadataResult {
+                        schema_version: CasWorkItemMetadataResultSchemaVersion::V1,
+                        outcome,
+                        work_item_id: work_item_id.clone(),
+                        changed_work_item_ids: changed,
+                    },
+                )))
+            };
+
+            let current = nodes
+                .get((graph, work_item_id.as_str()))
+                .map_err(|e| e.to_string())?
+                .map(|value| crypto.unseal(value.value()))
+                .transpose()?;
+            let Some(bytes) = current else {
+                return respond(CasWorkItemMetadataOutcome::NotFound, vec![]);
+            };
+            let mut props = decode(&bytes)?;
+
+            let status_ok = request
+                .expected_status
+                .iter()
+                .any(|status| status == property_string(&props, "status"));
+            let tenant_ok = property_string(&props, "tenant") == tenant;
+            let lease_ok = match &request.expected_lease {
+                Some(fence) => {
+                    property_string(&props, "lease_owner") == fence.worker_ref
+                        && property_u64(&props, "lease_epoch") == fence.lease_epoch
+                        && property_u64(&props, "fencing_token") == fence.fencing_token
+                }
+                None => true,
+            };
+            if !status_ok || !tenant_ok || !lease_ok {
+                return respond(CasWorkItemMetadataOutcome::Conflict, vec![]);
+            }
+
+            let now_s = now_ms as f64 / 1000.0;
+            if let Some(set_checkpoint_id) = &request.set_checkpoint_id {
+                let current_checkpoint_id = props
+                    .get("checkpoint_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string);
+                if current_checkpoint_id != request.expected_checkpoint_id {
+                    return respond(CasWorkItemMetadataOutcome::Conflict, vec![]);
+                }
+                props.insert(
+                    "checkpoint_id".into(),
+                    serde_json::Value::String(set_checkpoint_id.clone()),
+                );
+            } else if let Some(set_metadata_bytes) = &request.set_metadata_msgpack {
+                let current_metadata = props
+                    .get("metadata")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Object(Default::default()));
+                let expected_metadata = match &request.expected_metadata_msgpack {
+                    Some(bytes) => decode_durable::<serde_json::Value>(bytes)
+                        .map_err(|_| "invalid expected_metadata_msgpack".to_string())?,
+                    None => serde_json::Value::Object(Default::default()),
+                };
+                if current_metadata != expected_metadata {
+                    return respond(CasWorkItemMetadataOutcome::Conflict, vec![]);
+                }
+                let set_metadata = decode_durable::<serde_json::Value>(set_metadata_bytes)
+                    .map_err(|_| "invalid set_metadata_msgpack".to_string())?;
+                props.insert("metadata".into(), set_metadata);
+            } else if let Some(set_prio_bucket) = request.set_prio_bucket {
+                let expected_prio_bucket = request.expected_prio_bucket.unwrap_or(0);
+                let current_prio_bucket = props
+                    .get("prio_bucket")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(0);
+                if current_prio_bucket != expected_prio_bucket {
+                    return respond(CasWorkItemMetadataOutcome::Conflict, vec![]);
+                }
+                props.insert(
+                    "prio_bucket".into(),
+                    serde_json::Value::from(set_prio_bucket),
+                );
+            }
+            props.insert("updated_at".into(), serde_json::Value::from(now_s));
+            write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
+            respond(CasWorkItemMetadataOutcome::Applied, vec![work_item_id.clone()])
         }
         Method::CommitWorkItemResult {
             tenant,
@@ -12490,6 +12617,274 @@ mod mutation_batch_tests {
         assert_eq!(stored["status"], "dead_letter");
         assert_eq!(stored["attempt"], 3);
         assert_eq!(stored["error_ref"], "lease_exhausted");
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// BUG-111: deterministic proof that a `CasWorkItemMetadata` CONFLICT is a
+    /// real, distinct outcome, not a silent overwrite. Two "contenders" race
+    /// for the same field the same way ANY real race would -- both derive
+    /// their request from the SAME pre-claim read (`expected_checkpoint_id:
+    /// None`) -- but the race is constructed DETERMINISTICALLY (two
+    /// sequential `commit_at` calls against one synchronous db, never a
+    /// spawned/sleeping thread; GOC-70) rather than hoped into existence.
+    /// The winner's `commit_at` call happens-before the loser's by
+    /// construction, so this is not a flaky "usually the first one wins" --
+    /// it is the exact same interleaving on every run.
+    #[test]
+    fn cas_work_item_metadata_deterministic_conflict_never_silently_overwrites() {
+        use crate::epistemic_operations::{
+            CasWorkItemMetadataLeaseFence, CasWorkItemMetadataOutcome, CasWorkItemMetadataRequest,
+            CasWorkItemMetadataRequestSchemaVersion, CasWorkItemMetadataResult,
+        };
+
+        let path = temp_path("cas-metadata-conflict");
+        let db = open(&path);
+
+        let mut seed = batch("cas-metadata-seed", "cas-metadata-seed-key");
+        seed.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: ready_work_item_method("cas-a", 3),
+        }];
+        commit_at(&db, &seed, None).unwrap();
+
+        let claim = commit_native_claim(
+            &db,
+            "cas-metadata-claim",
+            "cas-metadata-claim-key",
+            4,
+            Some("cas-a"),
+            "worker-a",
+            0,
+            60_000,
+            64,
+        );
+        assert!(claim.claimed);
+        let lease = CasWorkItemMetadataLeaseFence {
+            worker_ref: claim.lease_holder_ref.clone().unwrap(),
+            lease_epoch: claim.lease_epoch.unwrap(),
+            fencing_token: claim.fencing_token.unwrap(),
+        };
+
+        let cas_request = |expected_checkpoint_id: Option<&str>,
+                            set_checkpoint_id: &str,
+                            expected_graph_version: u64| {
+            let mut op = batch(
+                &format!("cas-metadata-{set_checkpoint_id}"),
+                &format!("cas-metadata-{set_checkpoint_id}-key"),
+            );
+            op.expected_graph_version = Some(expected_graph_version);
+            op.operations = vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::CasWorkItemMetadata {
+                    request: CasWorkItemMetadataRequest {
+                        schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
+                        tenant_ref: "tenant-a".into(),
+                        work_item_id: "cas-a".into(),
+                        expected_lease: Some(lease.clone()),
+                        expected_status: vec!["leased".into(), "running".into()],
+                        expected_checkpoint_id: expected_checkpoint_id.map(str::to_string),
+                        set_checkpoint_id: Some(set_checkpoint_id.to_string()),
+                        expected_metadata_msgpack: None,
+                        set_metadata_msgpack: None,
+                        expected_prio_bucket: None,
+                        set_prio_bucket: None,
+                        now_ms: 1_000,
+                    },
+                },
+            }];
+            op
+        };
+
+        let decode_result = |committed: &MutationBatchCommit| -> CasWorkItemMetadataResult {
+            let payload: crate::protocol::ResultPayload = decode_durable(
+                committed
+                    .record
+                    .result_msgpack
+                    .as_deref()
+                    .expect("cas result"),
+            )
+            .unwrap();
+            let bytes = match payload {
+                crate::protocol::ResultPayload::Raw(inner)
+                | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+                other => {
+                    panic!("CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}")
+                }
+            };
+            decode_durable(&bytes).unwrap()
+        };
+
+        // Contender A: reads checkpoint_id == None, wins.
+        let winner = commit_at(&db, &cas_request(None, "checkpoint:1", 5), None).unwrap();
+        let winner_result = decode_result(&winner);
+        assert_eq!(winner_result.outcome, CasWorkItemMetadataOutcome::Applied);
+        assert_eq!(winner_result.changed_work_item_ids, vec!["cas-a".to_string()]);
+
+        // Contender B: derived its request from the SAME pre-claim read
+        // (checkpoint_id == None) -- now stale, because A already committed.
+        // It must be told CONFLICT, distinctly from both Applied and NotFound.
+        let loser = commit_at(&db, &cas_request(None, "checkpoint:2", 6), None).unwrap();
+        let loser_result = decode_result(&loser);
+        assert_eq!(loser_result.outcome, CasWorkItemMetadataOutcome::Conflict);
+        assert_eq!(loser_result.changed_work_item_ids, Vec::<String>::new());
+
+        // The loser's write never landed: the durable row still carries the
+        // WINNER's value, not the loser's, and not some third corrupted value.
+        let stored = read_one_node(&db, "graph-a", "cas-a", DurableCrypto::none())
+            .unwrap()
+            .expect("cas-a remains durable");
+        let stored: serde_json::Value = decode_durable(&stored).unwrap();
+        assert_eq!(stored["checkpoint_id"], "checkpoint:1");
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// BUG-111: a WorkItem row that does not exist is `not_found`, a THIRD
+    /// distinct outcome from `applied`/`conflict` -- never collapsed into
+    /// either.
+    #[test]
+    fn cas_work_item_metadata_missing_row_is_not_found() {
+        use crate::epistemic_operations::{
+            CasWorkItemMetadataOutcome, CasWorkItemMetadataRequest,
+            CasWorkItemMetadataRequestSchemaVersion, CasWorkItemMetadataResult,
+        };
+
+        let path = temp_path("cas-metadata-missing");
+        let db = open(&path);
+
+        let mut op = batch("cas-metadata-missing", "cas-metadata-missing-key");
+        op.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: Method::CasWorkItemMetadata {
+                request: CasWorkItemMetadataRequest {
+                    schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
+                    tenant_ref: "tenant-a".into(),
+                    work_item_id: "does-not-exist".into(),
+                    expected_lease: None,
+                    expected_status: vec!["leased".into(), "running".into()],
+                    expected_checkpoint_id: None,
+                    set_checkpoint_id: Some("checkpoint:1".into()),
+                    expected_metadata_msgpack: None,
+                    set_metadata_msgpack: None,
+                    expected_prio_bucket: None,
+                    set_prio_bucket: None,
+                    now_ms: 1_000,
+                },
+            },
+        }];
+        let committed = commit_at(&db, &op, None).unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("cas result"),
+        )
+        .unwrap();
+        let bytes = match payload {
+            crate::protocol::ResultPayload::Raw(inner)
+            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            other => {
+                panic!("CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}")
+            }
+        };
+        let result: CasWorkItemMetadataResult = decode_durable(&bytes).unwrap();
+        assert_eq!(result.outcome, CasWorkItemMetadataOutcome::NotFound);
+        assert_eq!(result.changed_work_item_ids, Vec::<String>::new());
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// BUG-111: an ACKED CAS survives a restart. The db handle standing in
+    /// for the engine process is dropped and the SAME on-disk file reopened
+    /// (exactly `last_permitted_reclaim_survives_restart_but_the_next_reclaim_
+    /// dead_letters`'s established restart idiom) -- the durable redb commit
+    /// already fsync'd before this test ever saw the "applied" result, so if
+    /// the RPC used a side path instead of the same durable WorkItem
+    /// transaction, this is where it would show up as a lost write.
+    #[test]
+    fn cas_work_item_metadata_applied_write_survives_restart() {
+        use crate::epistemic_operations::{
+            CasWorkItemMetadataLeaseFence, CasWorkItemMetadataRequest,
+            CasWorkItemMetadataRequestSchemaVersion,
+        };
+
+        let path = temp_path("cas-metadata-restart");
+        {
+            let db = open(&path);
+            let mut seed = batch("cas-metadata-restart-seed", "cas-metadata-restart-seed-key");
+            seed.operations = vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: ready_work_item_method("cas-restart", 3),
+            }];
+            commit_at(&db, &seed, None).unwrap();
+
+            let claim = commit_native_claim(
+                &db,
+                "cas-metadata-restart-claim",
+                "cas-metadata-restart-claim-key",
+                4,
+                Some("cas-restart"),
+                "worker-a",
+                0,
+                60_000,
+                64,
+            );
+            assert!(claim.claimed);
+
+            let mut apply = batch("cas-metadata-restart-apply", "cas-metadata-restart-apply-key");
+            apply.expected_graph_version = Some(5);
+            apply.operations = vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::CasWorkItemMetadata {
+                    request: CasWorkItemMetadataRequest {
+                        schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
+                        tenant_ref: "tenant-a".into(),
+                        work_item_id: "cas-restart".into(),
+                        expected_lease: Some(CasWorkItemMetadataLeaseFence {
+                            worker_ref: claim.lease_holder_ref.clone().unwrap(),
+                            lease_epoch: claim.lease_epoch.unwrap(),
+                            fencing_token: claim.fencing_token.unwrap(),
+                        }),
+                        expected_status: vec!["leased".into(), "running".into()],
+                        expected_checkpoint_id: None,
+                        set_checkpoint_id: Some("checkpoint:durable".into()),
+                        expected_metadata_msgpack: None,
+                        set_metadata_msgpack: None,
+                        expected_prio_bucket: None,
+                        set_prio_bucket: None,
+                        now_ms: 1_000,
+                    },
+                },
+            }];
+            commit_at(&db, &apply, None).unwrap();
+            drop(db);
+        }
+
+        // Reopen the SAME on-disk file as a fresh handle -- standing in for
+        // a process restart. Nothing from the dropped `db`'s in-memory state
+        // can leak forward; only what actually committed to disk is here.
+        let db = open(&path);
+        let stored = read_one_node(&db, "graph-a", "cas-restart", DurableCrypto::none())
+            .unwrap()
+            .expect("cas-restart remains durable across restart");
+        let stored: serde_json::Value = decode_durable(&stored).unwrap();
+        assert_eq!(stored["checkpoint_id"], "checkpoint:durable");
+        assert_eq!(stored["status"], "leased");
 
         drop(db);
         let _ = std::fs::remove_file(path);

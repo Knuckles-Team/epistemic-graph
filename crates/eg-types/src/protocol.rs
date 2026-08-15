@@ -569,6 +569,19 @@ pub enum Method {
         reason_ref: Option<String>,
         now_ms: u64,
     },
+    /// Atomic compare-and-set on one WorkItem's non-authority SCHEDULING
+    /// METADATA (`checkpoint_id` / `metadata` / `prio_bucket`) — the native
+    /// replacement for a generic `CompareAndSetNodeFields` against a
+    /// WorkItem row, which `work_item_capability::validate_generic_method`
+    /// (RMDD-29) unconditionally refuses once the row is claimed (BUG-111).
+    /// Runs inside the SAME durable WorkItem transaction as `ClaimWorkItem`/
+    /// `RenewWorkItemLease`, never a side path. Cannot touch `status`/
+    /// `lease_owner`/`lease_epoch`/`fencing_token`/`tenant` — the request
+    /// carries no such field — so it can never manufacture or extend native
+    /// lease authority.
+    CasWorkItemMetadata {
+        request: crate::epistemic_operations::CasWorkItemMetadataRequest,
+    },
     /// Atomically reserve the immutable shared-host resources for the exact
     /// WorkItem attempt/fence.  The engine re-reads the WorkItem admission
     /// extension and host records; request fields are assertions, never a

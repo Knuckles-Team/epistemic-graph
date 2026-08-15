@@ -267,6 +267,21 @@ pub fn audit_line(method: &Method) -> Option<String> {
             next_retry_at_ms,
             ..
         } => format!("DEFER_WORK_ITEM|{tenant}|{work_item_id}|{lease_epoch}|{next_retry_at_ms}"),
+        // BUG-111: never logs the checkpoint/metadata/prio_bucket VALUE itself
+        // (privacy) -- only the identity + which single field class changed.
+        Method::CasWorkItemMetadata { request } => {
+            let field = if request.set_checkpoint_id.is_some() {
+                "checkpoint_id"
+            } else if request.set_metadata_msgpack.is_some() {
+                "metadata"
+            } else {
+                "prio_bucket"
+            };
+            format!(
+                "CAS_WORK_ITEM_METADATA|{}|{}|{field}",
+                request.tenant_ref, request.work_item_id
+            )
+        }
         Method::ReserveWorkItemResources { request } => format!(
             "RESERVE_WORK_ITEM_RESOURCES|{}|{}|{}",
             request.tenant_ref, request.work_item_id, request.attempt
