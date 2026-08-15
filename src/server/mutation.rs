@@ -713,7 +713,7 @@ fn idempotency_store() -> &'static IdempotencyStore {
 /// meaningful when `MutationPlan::idempotent` is true; the fallback `Debug`-based
 /// arm covers a future idempotent addition to [`GATEWAY_ROUTED`] generically
 /// (correct but not as precise as a bespoke key).
-fn idempotency_key(graph_name: &str, method: &Method) -> String {
+fn idempotency_key(graph_name: &str, method: &Method, req_id: u64) -> String {
     #[cfg(feature = "modality-serving")]
     let modality_discriminator = |value: &eg_types::ServedModalityKind| match value {
         eg_types::ServedModalityKind::Document => "document",
@@ -722,6 +722,25 @@ fn idempotency_key(graph_name: &str, method: &Method) -> String {
         eg_types::ServedModalityKind::Video => "video",
     };
     match method {
+        // `ClearGraph`/`ClearLedger` carry NO distinguishing fields, so the
+        // generic `{other:?}|{graph_name}` key below is IDENTICAL across every
+        // call ever made against a graph, for the life of the process. Found
+        // via a hang repro (two `ClearGraph` calls, the second never
+        // returning -- fixed separately by re-stamping a cache hit's `id`,
+        // see `commit_prepare`): unlike `RemoveNode`/`RemoveEdge` (whose keys
+        // are scoped to the target id, so a repeat on a DIFFERENT id never
+        // collides), a content-free method's "idempotent" policy flag only
+        // means repeated application converges to the same state -- it does
+        // NOT mean a later call is safe to skip and answer from a stale
+        // cached result, because a graph that was cleared and then written to
+        // again genuinely needs the SECOND `ClearGraph` to run. Folding
+        // `req_id` in makes every call its own cache entry (this client's
+        // ids are connection-scoped monotonic, never reused for a retry), so
+        // the op always re-executes -- the correct semantics for a command
+        // whose effect depends on the CURRENT graph state, not just its own
+        // (empty) input.
+        Method::ClearGraph => format!("ClearGraph|{graph_name}|{req_id}"),
+        Method::ClearLedger => format!("ClearLedger|{graph_name}|{req_id}"),
         Method::RemoveNode { node_id } => format!("RemoveNode|{graph_name}|{node_id}"),
         Method::RemoveEdge {
             source_id,
@@ -1225,11 +1244,27 @@ fn commit_prepare(
     // 2. Idempotency-replay dedup -- ONLY for methods policy marks idempotent. A
     // byte-identical replay short-circuits BEFORE touching storage: no re-apply, no
     // second durable record, no second audit-chain entry, no duplicate CDC event.
+    //
+    // BUG (found via a hang repro: two `ClearGraph` calls on the same connection,
+    // the second never returning): the cached `Response` was replayed VERBATIM,
+    // including its `id` field frozen at whatever request first populated this
+    // dedup key. `idempotency_key` is content-addressed on `(graph_name, method)`
+    // only -- for a zero-argument method like `ClearGraph` that key is the SAME
+    // for every call to this graph for the rest of the process's life, so every
+    // later caller got back a response correlated to a DIFFERENT (the very
+    // first) request id. The transport demuxes purely by `Response.id`
+    // (`epistemic_graph/client.py`'s `self._pending[req_id]`), so a mismatched id
+    // is silently unmatchable -- the caller's future never resolves and the RPC
+    // hangs until its own client-side timeout, even though the engine already
+    // "answered". Rewriting `id` to the CURRENT request before returning is
+    // required for ANY cached-response replay, independent of key granularity --
+    // a response must always correlate to the request it is answering.
     let dedup_key = plan
         .idempotent
-        .then(|| idempotency_key(ctx.graph_name, method));
+        .then(|| idempotency_key(ctx.graph_name, method, ctx.req_id));
     if let Some(key) = &dedup_key {
-        if let Some(cached) = idempotency_store().get(key) {
+        if let Some(mut cached) = idempotency_store().get(key) {
+            cached.id = ctx.req_id;
             return Err(cached);
         }
     }

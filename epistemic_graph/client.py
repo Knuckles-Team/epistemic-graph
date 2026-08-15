@@ -321,6 +321,25 @@ _PLAN_F32_METHODS = frozenset(
     }
 )
 
+# Current Rust `Method` fields typed `BTreeMap<String, _>` (CausalEstimate/
+# CausalCounterfactual's `do_values`/`actual`) always serialize in SORTED key
+# order -- a `BTreeMap` iterates that way by construction, unlike an ordinary
+# Rust map. The `eg2.` MAC's canonical body hash is recomputed server-side from
+# `rmp_serde::to_vec_named` of the DESERIALIZED, then re-serialized typed
+# `Method` (`Method::canonical_body_bytes`), so it always sees these fields
+# key-sorted -- regardless of what order the wire bytes carried them in. A
+# caller-supplied Python `dict` preserves INSERTION order, so a caller passing
+# e.g. ``{"z": 1.0, "x": 1.5, "y": 1.95}`` (an unsorted unit) would otherwise
+# hash a different byte sequence than the server recomputes, failing with
+# "Authentication failed" whenever the dict has more than one key in
+# non-alphabetical insertion order. Sorting only these known fields (mirroring
+# `_DIRECT_F32_VECTOR_FIELDS`'s per-method-per-field precedent) reproduces the
+# server's `BTreeMap` order without guessing at the whole schema.
+_BTREEMAP_SORTED_FIELDS = {
+    "CausalEstimate": frozenset({"do_values"}),
+    "CausalCounterfactual": frozenset({"actual", "do_values"}),
+}
+
 
 class _CanonicalF32:
     """One schema-declared Rust ``f32`` in the signed method body.
@@ -397,6 +416,106 @@ def _mark_plan_f32(plan: Any, *, path: str) -> None:
     mark_ops(plan["ops"], ops_path=f"{path}.ops")
 
 
+def _sort_btreemap_field(container: dict[str, Any], field: str) -> None:
+    """Reorder one ``BTreeMap``-typed field's keys to match Rust's sorted
+    iteration order (see ``_BTREEMAP_SORTED_FIELDS``). No-op if absent/not a
+    dict -- an omitted key is a separate (and separately handled) concern."""
+
+    value = container.get(field)
+    if isinstance(value, dict):
+        container[field] = {key: value[key] for key in sorted(value)}
+
+
+def _reorder_dict_keys(value: Any, order: tuple[str, ...]) -> Any:
+    """Return a copy of dict ``value`` with the keys in ``order`` moved first
+    (in that order); any other keys keep their existing relative order after
+    them. No-op for a non-dict. See ``_canonical_fitted_model`` for why this
+    matters to the ``eg2.`` MAC, not just aesthetics."""
+
+    if not isinstance(value, dict):
+        return value
+    ordered = {key: value[key] for key in order if key in value}
+    for key, item in value.items():
+        if key not in ordered:
+            ordered[key] = item
+    return ordered
+
+
+def _canonical_decision_tree(tree: Any) -> Any:
+    """Reorder one ``crate::wire::DecisionTree``/``TreeNode`` blob's keys to
+    Rust's declared field order (``feature, threshold, left, right, value``
+    per node) -- see ``_canonical_fitted_model``."""
+
+    if not isinstance(tree, dict):
+        return tree
+    nodes = tree.get("nodes")
+    if isinstance(nodes, list):
+        tree = {
+            **tree,
+            "nodes": [
+                _reorder_dict_keys(
+                    node, ("feature", "threshold", "left", "right", "value")
+                )
+                for node in nodes
+            ],
+        }
+    return _reorder_dict_keys(tree, ("nodes",))
+
+
+def _canonical_fitted_model(model: Any) -> Any:
+    """Reorder a ``crate::wire::FittedModel`` blob's dict keys to match Rust's
+    struct declaration order, for THIS client's own canonical signing copy only
+    (the actual wire payload -- what ``predict_estimator`` sends -- is untouched).
+
+    ``fit_estimator``'s response and ``predict_estimator``'s ``model`` request
+    argument are the identical blob shape, but a *response* payload is built
+    off a ``serde_json``-shaped path (alphabetically-keyed) while the `eg2.`
+    MAC's canonical body hash is recomputed from `Method::canonical_body_bytes`
+    (`rmp_serde::to_vec_named`, Rust DECLARATION order) once the server
+    deserializes `predict_estimator`'s request into a typed `Method`. A caller
+    that -- like every real caller -- just forwards `fit_estimator`'s own
+    response dict back into `predict_estimator` therefore hashes it in the
+    WRONG order (e.g. a `TreeNode`'s alphabetical `feature, left, right,
+    threshold, value` instead of the declared `feature, threshold, left,
+    right, value`), failing with "Authentication failed" before
+    `predict_estimator` ever runs -- for every non-`Linear` estimator kind
+    (`Linear`'s own two fields happen to already coincide in both orders).
+    """
+
+    if not isinstance(model, dict):
+        return model
+    kind = model.get("kind")
+    inner = model.get("model")
+    if isinstance(inner, dict):
+        if kind == "Linear":
+            inner = _reorder_dict_keys(inner, ("coefficients", "intercept"))
+        elif kind == "Tree":
+            inner = _canonical_decision_tree(inner)
+        elif kind == "Forest":
+            trees = inner.get("trees")
+            if isinstance(trees, list):
+                inner = {**inner, "trees": [_canonical_decision_tree(t) for t in trees]}
+            inner = _reorder_dict_keys(inner, ("trees",))
+        elif kind == "GradientBoosting":
+            trees = inner.get("trees")
+            if isinstance(trees, list):
+                inner = {**inner, "trees": [_canonical_decision_tree(t) for t in trees]}
+            inner = _reorder_dict_keys(inner, ("init", "learning_rate", "trees"))
+        elif kind == "AdaBoost":
+            trees = inner.get("trees")
+            if isinstance(trees, list):
+                inner = {**inner, "trees": [_canonical_decision_tree(t) for t in trees]}
+            inner = _reorder_dict_keys(inner, ("trees", "weights"))
+        elif kind == "Svr":
+            inner = _reorder_dict_keys(
+                inner, ("support_vectors", "dual_coef", "intercept", "kernel", "gamma")
+            )
+    reordered = dict(model)
+    if isinstance(inner, dict):
+        reordered["model"] = inner
+    return _reorder_dict_keys(reordered, ("kind", "model"))
+
+
 def _mark_method_f32(method_wire: dict[str, Any], *, path: str = "method") -> None:
     """Mark current Rust ``f32`` fields only at typed ``Method`` schema paths."""
 
@@ -404,6 +523,12 @@ def _mark_method_f32(method_wire: dict[str, Any], *, path: str = "method") -> No
     params = method_wire.get("params")
     if not isinstance(method, str) or not isinstance(params, dict):
         return
+
+    for field in _BTREEMAP_SORTED_FIELDS.get(method, ()):
+        _sort_btreemap_field(params, field)
+
+    if method == "DsPredictEstimator" and isinstance(params.get("model"), dict):
+        params["model"] = _canonical_fitted_model(params["model"])
 
     for field in _DIRECT_F32_VECTOR_FIELDS.get(method, ()):
         _mark_f32_vector(params, field, path=f"{path}.{method}.{field}")
@@ -6829,16 +6954,24 @@ class MiningClient:
         node linked to its item nodes. Returns
         ``{rules: [{antecedent, consequent, support, confidence, lift}], ...}``.
         """
-        params: dict[str, Any] = {
-            "min_support": min_support,
-            "min_confidence": min_confidence,
-            "algorithm": algorithm,
-            "writeback": writeback,
-        }
+        # Key insertion order here matters, not just presence: the server signs
+        # the `eg2.` MAC over a hash of the params as ITS `Method::MineAssociate`
+        # struct re-serializes them (`rmp_serde::to_vec_named`, which always
+        # emits fields in Rust declaration order -- transactions, source,
+        # min_support, min_confidence, algorithm, writeback), while this
+        # client's own canonical hash packs the dict in PYTHON insertion order.
+        # Building this out of declaration order used to fail every associate()
+        # call with "Authentication failed" even after `source`/`transactions`
+        # were each individually present-or-omitted correctly on both sides.
+        params: dict[str, Any] = {}
         if transactions is not None:
             params["transactions"] = transactions
         if source is not None:
             params["source"] = source
+        params["min_support"] = min_support
+        params["min_confidence"] = min_confidence
+        params["algorithm"] = algorithm
+        params["writeback"] = writeback
         return await self._client._send("MineAssociate", params)
 
     async def cluster(
@@ -10850,7 +10983,24 @@ class EpistemicGraphClient:
         self._verified_context_override: contextvars.ContextVar[
             RequestContextClaims | None
         ] = contextvars.ContextVar("eg_verified_context_override", default=None)
-        self._request_id = 0
+        # Seed from a random base rather than 0. The server derives a durable
+        # replay/idempotency identity for row-local mutations (`ClearGraph`,
+        # `AddNode`, ...) from `(graph, id, method+params)` alone
+        # (`opaque_request_key` in `src/server/mutation_batch.rs`) -- it has no
+        # visibility into which CONNECTION minted `id`. Every connection's `id`
+        # sequence used to start at 1, so two independently-connected clients
+        # issuing the same first call (e.g. "connect, then ClearGraph") on the
+        # same graph collided on the exact same durable batch id: the SECOND
+        # connection's call was silently treated as an idempotent replay of the
+        # first and its `apply` never ran (observed as `ClearGraph` calls from
+        # a freshly reconnected pytest fixture silently no-op'ing, leaking prior
+        # tests' nodes through a "cleared" graph). A random ~48-bit start makes
+        # a same-graph/same-position/same-payload collision between two
+        # connections astronomically unlikely, matching how the envelope's own
+        # nonce is minted, without weakening the same-connection retry-replay
+        # semantics the mechanism is meant to provide (a single connection's
+        # ids are still monotonically increasing and never reused).
+        self._request_id = secrets.randbits(48)
         self._closed = False
         # ── CONCEPT:EG-KG.backend.framed-response — single-connection request PIPELINING (demux) ──
         # The engine (src/server/transport.rs) processes many requests on ONE
