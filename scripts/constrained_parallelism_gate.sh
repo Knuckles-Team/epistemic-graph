@@ -63,20 +63,92 @@
 # must never set that.
 #
 # USAGE:
-#   scripts/constrained_parallelism_gate.sh                # default: 2 cores, --lib + extra integration binaries
+#   scripts/constrained_parallelism_gate.sh                # default: 2 same-NUMA-node cores, --lib + extra integration binaries
 #   EG_CONSTRAINED_CORES=0,1,2,3 scripts/constrained_parallelism_gate.sh
+#   EG_CONSTRAINED_TIMEOUT=2400 scripts/constrained_parallelism_gate.sh    # raise the per-tier hang-kill deadline (default 1200s)
 #   EG_CONSTRAINED_EXTRA_TESTS=0 scripts/constrained_parallelism_gate.sh   # --lib ONLY (fast local loop, not for CI/pre-push)
 #   EG_CONSTRAINED_FILTER='write_coalescer::' scripts/constrained_parallelism_gate.sh  # scope to one area
 #
 # Coordinate with `rm_gates(action=run, stage=heavy)` (feat/rm-gates,
 # in-flight sibling lane): this belongs in the heavy tier as one more
 # pre-push check, not as a second, parallel enforcement mechanism.
+#
+# CORE SELECTION (fix/txn-snapshot-phantom-deadlock, 2026-08-15): the old
+# hardcoded default `EG_CONSTRAINED_CORES=0,1` picks logical CPUs 0 and 1
+# LITERALLY, with no regard for topology. On a single-socket box (a real
+# 2-vCPU CI runner, most laptops) that is harmless -- CPU 0 and CPU 1 are the
+# only two CPUs there is. On a multi-socket dev/build host it is NOT: e.g. a
+# 4-socket Xeon E5-4620 (`lscpu -p=CPU,NODE`) puts CPU 0 on NUMA node 0 and
+# CPU 1 on NUMA node 1 -- literally different sockets, different memory
+# controllers, cache coherence over QPI. That is a materially different (and
+# strictly harsher) scheduling regime than "2 vCPUs of a small VM", which is
+# what this gate exists to emulate (see the file header). It was the prime
+# suspect after a real-world hang was observed running this gate on exactly
+# such a host (`server::tests::txn_snapshot_allows_phantom`, stuck ~48min,
+# all threads parked in `futex_do_wait`/`ep_poll`, zero forward progress) --
+# investigated on `fix/txn-snapshot-phantom-deadlock`: the SAME command
+# (`taskset -c 0,1 cargo test -p epistemic-graph --features full --lib
+# --no-fail-fast`) was re-run 6 times on the same host, 3 uncontended and 3
+# while 4 extra `taskset -c 0,1`-pinned busy-loops deliberately hammered
+# those exact 2 cores, plus the single hanging test in isolation 5 more
+# times (--test-threads=1) -- 0/11 reproductions. The test itself is fully
+# sequential (no spawned/concurrent tasks; GOC-70 rule 3 does not apply --
+# there is no scheduler-dependent race to construct deterministically), so a
+# genuine lock-ordering defect reachable through its one linear call chain
+# would be expected to reproduce on EVERY run, not 0 of 11 under deliberate
+# adversarial contention on the very cores in question. That -- plus the
+# confirmed cross-socket pinning this host's "0,1" produces -- points at a
+# host-level anomaly coincident with (not caused by) this test, most likely
+# transient memory/swap pressure or scheduler pathology from the OTHER heavy
+# cargo/rustc jobs that regularly co-run on shared build hosts here (see
+# workspace CLAUDE.md / `systemd-oomd-kills-tmux-scope`), not a product
+# defect -- so the test is UNCHANGED. What we can and must fix is the gate:
+# (1) default to two CPUs confirmed to share one NUMA node, so "2-core
+# affinity" actually means what the header comment says it means, and (2)
+# never let this gate block a host indefinitely again, regardless of root
+# cause -- see the `timeout` wrapping below.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-CORES="${EG_CONSTRAINED_CORES:-0,1}"
+# Pick two logical CPUs that share a NUMA node when topology is discoverable
+# (same-socket, the faithful analog of a small single-socket CI VM);
+# otherwise fall back to the literal "0,1" default. On a single-node host
+# (or one `lscpu` can't introspect) this is a no-op -- 0,1 already satisfies
+# it or there is nothing better to compute.
+default_cores() {
+  if command -v lscpu >/dev/null 2>&1; then
+    same_node_pair=$(lscpu -p=CPU,NODE 2>/dev/null | grep -v '^#' | awk -F, '
+      { if (!($2 in seen)) { seen[$2] = $1 } else if (!done[$2]) { print seen[$2] "," $1; done[$2] = 1; exit } }
+    ')
+    if [ -n "$same_node_pair" ]; then
+      echo "$same_node_pair"
+      return
+    fi
+  fi
+  echo "0,1"
+}
+
+CORES="${EG_CONSTRAINED_CORES:-$(default_cores)}"
 TARGET_DIR="${CARGO_TARGET_DIR:-target-isolated}"
 export CARGO_TARGET_DIR="$TARGET_DIR"
+
+# Bound EVERY constrained `cargo test` invocation below with a hard wall-clock
+# ceiling. A gate that can hang forever is a gate people stop running (see
+# this file's header investigation): whatever the cause -- a real product
+# deadlock, or the host-level contention this program's evidence points to --
+# this script must fail loudly and release the host within a bounded time,
+# never sit silent for 48 minutes. 1200s (20min) is chosen against the
+# measured baselines on the reference host during that investigation: ~24-27s
+# uncontended, ~47-73s under deliberate 4-way same-core contention -- 20min is
+# a >15x margin over the worst measured figure, and still far below the
+# point where a genuinely wedged run would be indistinguishable from "just
+# slow." Override with EG_CONSTRAINED_TIMEOUT for a slower/smaller runner;
+# never remove the bound.
+TIMEOUT_SECS="${EG_CONSTRAINED_TIMEOUT:-1200}"
+if ! command -v timeout >/dev/null 2>&1; then
+  echo "FAIL: 'timeout' (coreutils) is not installed -- this gate refuses to run unbounded." >&2
+  exit 2
+fi
 
 if ! command -v taskset >/dev/null 2>&1; then
   cat >&2 <<EOF
@@ -104,16 +176,40 @@ if ! cargo test --no-run -p epistemic-graph --features full --lib; then
   exit 1
 fi
 
-echo "-- step 2/2: running --lib suite under taskset -c $CORES --"
+echo "-- step 2/2: running --lib suite under taskset -c $CORES (bounded to ${TIMEOUT_SECS}s) --"
 # --no-fail-fast: a fail-fast run stops at the first failure across binaries,
 # which would under-report exactly the class this gate exists to find.
-if taskset -c "$CORES" cargo test -p epistemic-graph --features full --lib --no-fail-fast; then
+# timeout -k 30: send TERM at the deadline, KILL 30s later if it ignores TERM
+# (a genuinely wedged process, all threads parked, often won't react to TERM).
+if timeout -k 30 "${TIMEOUT_SECS}s" taskset -c "$CORES" cargo test -p epistemic-graph --features full --lib --no-fail-fast; then
   constrained_rc=0
 else
   constrained_rc=$?
 fi
 
-if [ "$constrained_rc" -ne 0 ]; then
+if [ "$constrained_rc" -eq 124 ] || [ "$constrained_rc" -eq 137 ]; then
+  cat >&2 <<EOF
+
+FAIL: the lib suite did not finish within ${TIMEOUT_SECS}s under $n_cores-core
+CPU affinity (cores $CORES) -- killed, not a test assertion failure. This
+gate used to be able to hang silently and indefinitely instead of failing;
+see this file's header (fix/txn-snapshot-phantom-deadlock investigation) for
+why that changed. A timeout here means one of:
+  - a genuine product deadlock reachable only under this constraint -- get a
+    thread backtrace of the NEXT hang before it's killed: run this script's
+    inner command by hand, and while it's stuck, \`sudo gdb -p <pid> -batch
+    -ex "thread apply all bt"\` (or temporarily
+    \`sudo sysctl -w kernel.yama.ptrace_scope=0\`, then restore it);
+  - host-level contention/pressure (co-running heavy builds, swap) -- retry
+    on a quieter host/time before assuming a product defect;
+  - this host's CORES selection is unrepresentative -- check \`lscpu
+    -p=CPU,NODE\` for the cores in \`$CORES\`; they should share a NUMA node.
+Do NOT raise EG_CONSTRAINED_TIMEOUT to make this go away without first
+establishing which of the above it is -- that masks the same class of defect
+this gate exists to catch.
+EOF
+  exit "$constrained_rc"
+elif [ "$constrained_rc" -ne 0 ]; then
   cat >&2 <<EOF
 
 FAIL: the lib suite failed under $n_cores-core CPU affinity but (presumably)
@@ -148,7 +244,23 @@ if [ "${EG_CONSTRAINED_EXTRA_TESTS:-1}" != "0" ]; then
     echo "FAIL: extra-target build failed." >&2
     exit 1
   fi
-  if ! taskset -c "$CORES" cargo test -p epistemic-graph --features full "${build_args[@]}" --no-fail-fast; then
+  if timeout -k 30 "${TIMEOUT_SECS}s" taskset -c "$CORES" cargo test -p epistemic-graph --features full "${build_args[@]}" --no-fail-fast; then
+    extra_rc=0
+  else
+    extra_rc=$?
+  fi
+  if [ "$extra_rc" -eq 124 ] || [ "$extra_rc" -eq 137 ]; then
+    cat >&2 <<EOF
+
+FAIL: the extra integration-test binaries did not finish within
+${TIMEOUT_SECS}s under $n_cores-core CPU affinity (cores $CORES) -- killed,
+not a test assertion failure. See the --lib tier's identical-shaped timeout
+message above for how to get a backtrace from the next hang and how to tell
+a host-contention artifact from a real product deadlock before touching
+EG_CONSTRAINED_TIMEOUT.
+EOF
+    exit "$extra_rc"
+  elif [ "$extra_rc" -ne 0 ]; then
     cat >&2 <<EOF
 
 FAIL: an integration-test binary failed under $n_cores-core CPU affinity but
@@ -161,7 +273,7 @@ see \`tests/advanced_crossmodal_roundtrip.rs\`'s \`ENC_ENV_LOCK\` for the
 serialization pattern to copy, not \`--test-threads=1\` (that would mask the
 defect class, not fix it).
 EOF
-    exit 1
+    exit "$extra_rc"
   fi
   echo "== PASS: full lib suite + extra integration binaries green under $n_cores-core CPU affinity (cores $CORES) =="
 else
