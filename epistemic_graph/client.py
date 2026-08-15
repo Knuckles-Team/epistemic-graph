@@ -426,6 +426,36 @@ def _sort_btreemap_field(container: dict[str, Any], field: str) -> None:
         container[field] = {key: value[key] for key in sorted(value)}
 
 
+def _sorted_json_value(value: Any) -> Any:
+    """Recursively sort every object's keys in an opaque JSON blob to match
+    Rust ``serde_json::Value``'s ``Map`` -- this workspace does not enable
+    serde_json's ``preserve_order`` feature (no ``indexmap`` in its Cargo.lock
+    dependency list), so ``serde_json::Map`` is BTreeMap-backed and ALWAYS
+    iterates/serializes an object's keys in sorted order, at every nesting
+    depth, regardless of what order they were inserted in.
+
+    A field typed plain ``serde_json::Value`` on the Rust side (e.g.
+    ``VizRenderRequest::spec_json``, carrying an opaque caller-provided
+    ``eg_viz_core::ViewSpec`` the wire protocol never types) is exactly such a
+    blob: the server's ``eg2.`` MAC canonical-body recomputation re-serializes
+    the DESERIALIZED value, which is always key-sorted -- but a caller-built
+    Python dict (e.g. ``{"version": 1, "marks": [...]}``, whose insertion
+    order is neither alphabetical nor Rust's declared field order, because
+    there IS no declared field order for an opaque blob) hashes its own
+    insertion order. The two diverge on any object with more than one key
+    that isn't already alphabetically ordered, failing with "Authentication
+    failed" before the request ever reaches its handler -- the same MAC class
+    documented on ``_BTREEMAP_SORTED_FIELDS``, generalized to unbounded
+    nesting depth since a JSON blob (unlike a flat ``BTreeMap<String, V>``
+    field) has no fixed schema to enumerate known field names for."""
+
+    if isinstance(value, dict):
+        return {key: _sorted_json_value(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        return [_sorted_json_value(item) for item in value]
+    return value
+
+
 def _reorder_dict_keys(value: Any, order: tuple[str, ...]) -> Any:
     """Return a copy of dict ``value`` with the keys in ``order`` moved first
     (in that order); any other keys keep their existing relative order after
@@ -538,6 +568,17 @@ def _mark_method_f32(method_wire: dict[str, Any], *, path: str = "method") -> No
             params.get("plan"),
             path=f"{path}.{method}.params.plan",
         )
+
+    if method == "Viz":
+        op = params.get("op")
+        render = op.get("Render") if isinstance(op, dict) else None
+        if isinstance(render, dict):
+            if "spec_json" in render:
+                render["spec_json"] = _sorted_json_value(render["spec_json"])
+            dataset = render.get("dataset")
+            inline = dataset.get("InlineColumns") if isinstance(dataset, dict) else None
+            if isinstance(inline, dict):
+                _sort_btreemap_field(inline, "columns")
 
     if method == "KnowledgeStream":
         request = params.get("request")
@@ -8954,6 +8995,30 @@ class RdfClient:
         return await self._client._send(
             "ShaclValidate",
             {"shapes": shapes, "data_graph": data_graph},
+        )
+
+    async def icv_configure(
+        self,
+        shapes: str,
+        *,
+        graph: str | None = None,
+        mode: str = "enforce",
+    ) -> bool:
+        """X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard) -- (re)register the
+        connection's graph's SHACL shapes as WRITE-TIME closed-world integrity
+        constraints. ``AddTriples``/``RemoveTriples``/``ApplyMutation`` (SPARQL
+        UPDATE) all REQUIRE a graph to have a registered policy before they accept
+        any RDF write at all -- there is no "no policy configured" pass-through.
+        ``mode`` must be ``"enforce"`` (the only current mode: a violating change
+        aborts the commit with the introduced violations). ``shapes`` is a
+        non-empty SHACL shapes Turtle document; a shape whose ``sh:targetClass``
+        matches nothing in the graph registers a policy that validates
+        successfully without constraining anything. ``graph`` (optional) must
+        match the connection's own graph when given -- ``None`` (the default)
+        configures the connection's graph directly."""
+        return await self._client._send(
+            "IcvConfigure",
+            {"graph": graph, "mode": mode, "shapes": shapes},
         )
 
     async def add_triples(

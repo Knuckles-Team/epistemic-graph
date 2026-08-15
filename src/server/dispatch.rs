@@ -10,8 +10,8 @@ use tokio::sync::RwLock;
 use tracing::info;
 
 use super::access::{
-    check_graph_access, is_admin_authz_action, require_admin_capability, requires_write,
-    CarrierAuthority, GraphReadAuthority,
+    check_caller_is_known, check_graph_access, is_admin_authz_action, require_admin_capability,
+    requires_write, CarrierAuthority, GraphReadAuthority,
 };
 use super::auth::{
     verify_multisig_mutation_signatures, verify_register_identity_signature,
@@ -5768,6 +5768,31 @@ async fn dispatch_graph_op_inner(
             .await;
         s = timed_read(state).await;
     }
+
+    // TsAppend used to self-route before this boundary, which accidentally classified
+    // it as neither a graph read nor write. It is now graph-scoped and requires the
+    // same Write ACL as every other mutation; all other Ts methods require Read.
+    let access = if requires_write(&method) || matches!(&method, Method::TsAppend { .. }) {
+        AccessLevel::Write
+    } else {
+        AccessLevel::Read
+    };
+    #[cfg(feature = "raft")]
+    let state_machine_authorized = is_replicated_apply();
+    #[cfg(not(feature = "raft"))]
+    let state_machine_authorized = false;
+
+    // Deny an unregistered/unauthenticated caller BEFORE existence is resolved —
+    // never let "Graph not found" vs "ACCESS_DENIED" tell a caller who could never
+    // pass ACL for any graph whether the target graph exists (see
+    // `access::check_caller_is_known`'s doc). A registered caller always falls
+    // through unchanged to the real, graph-type/owner-aware decision below.
+    if !state_machine_authorized {
+        if let Err(denied) = check_caller_is_known(&s.isolation, caller, graph_name, access) {
+            return Response::err(req_id, denied);
+        }
+    }
+
     let entry = match s.registry.get(graph_name) {
         Some(e) => e,
         None => return Response::err(req_id, format!("Graph '{}' not found", graph_name)),
@@ -5797,18 +5822,6 @@ async fn dispatch_graph_op_inner(
         }
     }
 
-    // TsAppend used to self-route before this boundary, which accidentally classified
-    // it as neither a graph read nor write. It is now graph-scoped and requires the
-    // same Write ACL as every other mutation; all other Ts methods require Read.
-    let access = if requires_write(&method) || matches!(&method, Method::TsAppend { .. }) {
-        AccessLevel::Write
-    } else {
-        AccessLevel::Read
-    };
-    #[cfg(feature = "raft")]
-    let state_machine_authorized = is_replicated_apply();
-    #[cfg(not(feature = "raft"))]
-    let state_machine_authorized = false;
     if !state_machine_authorized {
         if let Err(denied) = check_graph_access(
             &s.isolation,

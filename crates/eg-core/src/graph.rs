@@ -5483,6 +5483,16 @@ impl GraphCore {
 
     pub fn apply_ledger(&self, transactions: Vec<String>) -> Result<(), String> {
         // Replay the whole batch under one write txn (atomic + no per-op re-lock).
+        //
+        // A ledger entry's property segment is HEX-ENCODED (`HexLedger`, this
+        // module, "byte-identical to hex::encode") -- so replaying it requires
+        // `hex::decode` back to the original msgpack property bytes, not a raw
+        // `.as_bytes()` reinterpretation of the hex TEXT itself (which just
+        // re-encodes the ASCII hex-digit characters as a bogus, undecodable
+        // "property blob", silently corrupting every node/edge `ApplyLedger`
+        // ever replayed -- caught by the durable commit's own bounded-msgpack
+        // decode rejecting it as "invalid or exceeds resource limits" the
+        // moment the corrupted blob is durably validated).
         let mut txn = self.txn();
         for tx in transactions {
             let parts: Vec<&str> = tx.split('|').collect();
@@ -5491,14 +5501,15 @@ impl GraphCore {
             }
             match parts[0] {
                 "ADD_NODE" if parts.len() >= 3 => {
-                    txn.add_node(parts[1].to_string(), parts[2].as_bytes().to_vec());
+                    if let Ok(props) = hex::decode(parts[2]) {
+                        txn.add_node(parts[1].to_string(), props);
+                    }
                 }
                 "ADD_EDGE" if parts.len() >= 4 => {
-                    let _ = txn.add_edge(
-                        parts[1].to_string(),
-                        parts[2].to_string(),
-                        parts[3].as_bytes().to_vec(),
-                    );
+                    if let Ok(props) = hex::decode(parts[3]) {
+                        let _ =
+                            txn.add_edge(parts[1].to_string(), parts[2].to_string(), props);
+                    }
                 }
                 "REMOVE_NODE" if parts.len() >= 2 => {
                     txn.remove_node(parts[1].to_string());

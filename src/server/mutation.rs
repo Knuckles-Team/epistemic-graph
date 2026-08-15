@@ -562,6 +562,17 @@ pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
     if matches!(method, Method::PlacementAdmin { .. }) {
         return ClusterMutationRoute::VolatileControl;
     }
+    // `RegisterServer` (CONCEPT:EG-KG.sharding.server-registry, W2.5) never itself reaches
+    // this classifier at runtime: `dispatch.rs`'s `handle_register_server` intercepts it
+    // BEFORE the mutation gateway, validates it, and self-translates into a
+    // `Method::AddNode` against `__commons__` dispatched through the ordinary
+    // `dispatch_graph_op` path (which IS `GATEWAY_ROUTED`, hence already properly
+    // raft-replicated). Same shape as `PlacementAdmin` immediately above: this generic
+    // layer does nothing extra for the method NAMED `RegisterServer` because its own
+    // mechanism (the translation) already lands the mutation on an already-safe path.
+    if matches!(method, Method::RegisterServer { .. }) {
+        return ClusterMutationRoute::VolatileControl;
+    }
     if matches!(method, Method::ApplyChangeEnvelope { .. }) {
         return ClusterMutationRoute::ConsensusNative;
     }
@@ -741,6 +752,25 @@ fn idempotency_key(graph_name: &str, method: &Method, req_id: u64) -> String {
         // (empty) input.
         Method::ClearGraph => format!("ClearGraph|{graph_name}|{req_id}"),
         Method::ClearLedger => format!("ClearLedger|{graph_name}|{req_id}"),
+        // `PublishIdempotent`'s policy (`eg_capabilities::policy`) marks it
+        // `idempotent: true` because its OWN handler already de-duplicates by
+        // `(producer_id, seq)` -- "replays are idempotent by construction", per
+        // that policy's own comment. But the generic fallback key below is
+        // content-addressed on the method's full Debug repr, so a second call
+        // with the SAME `(exchange, routing_key, payload, producer_id, seq,
+        // now_ms)` -- the exact scenario `PublishIdempotent` exists to detect
+        // -- produces the IDENTICAL dedup key and gets the FIRST call's cached
+        // `Response` replayed verbatim, including its `duplicate: false`. The
+        // caller can never observe the handler's own correct `duplicate: true`
+        // answer; the outer cache masks it before the handler runs a second
+        // time. Same root cause as `ClearGraph`/`ClearLedger` above (a later
+        // call's CORRECT response genuinely differs from the first's, so it is
+        // unsound to skip re-executing it), same fix: fold `req_id` in so
+        // every call reaches the handler, whose own producer/seq bookkeeping
+        // is the actual source of truth for `duplicate`.
+        Method::PublishIdempotent { .. } => {
+            format!("PublishIdempotent|{graph_name}|{req_id}")
+        }
         Method::RemoveNode { node_id } => format!("RemoveNode|{graph_name}|{node_id}"),
         Method::RemoveEdge {
             source_id,
@@ -1848,6 +1878,19 @@ fn prepublish_success(core: &GraphCore, method: &Method) -> Option<ResultPayload
         | Method::RemoveNode { .. }
         | Method::RemoveEdge { .. }
         | Method::ClearGraph
+        // `ClearLedger` mutates `GraphCore::ledger` (an in-memory `Mutex<Vec<String>>`
+        // that is NOT part of the node/edge row data `GraphRowDelta` diffs) -- omitting
+        // it here previously routed it into the "runtime-result" branch below, which
+        // runs `apply` against an ISOLATED staged clone (`GraphCore::from_snapshot`)
+        // built for diffing row mutations, then computes+publishes only the ROW delta
+        // between base and staged snapshots. Since clearing the ledger produces no row
+        // delta at all (it isn't a node/edge field), the staged clone's ledger got
+        // cleared and then silently discarded with the rest of that throwaway clone --
+        // the LIVE core's ledger was never touched, so `ClearLedger` durably recorded
+        // and ACKED success while doing nothing observable. Same fix as `ClearGraph`
+        // (already listed here for the identical reason): route it through the
+        // row-local fast path, so `apply` runs directly against the live `ctx.core`.
+        | Method::ClearLedger
         | Method::AddEmbedding { .. } => Some(ResultPayload::String("ok".to_string())),
         Method::AddEdge {
             source_id,
@@ -3995,6 +4038,10 @@ mod tests {
         covered.insert("ServedModality");
         covered.insert("Shutdown");
         covered.insert("PlacementAdmin");
+        // Self-translates into a gateway-routed `Method::AddNode` before this
+        // classifier ever runs on it -- see `cluster_mutation_route`'s
+        // `RegisterServer` arm (`VolatileControl`) for the full explanation.
+        covered.insert("RegisterServer");
 
         let missing: Vec<_> = expected.difference(&covered).copied().collect();
         let stale: Vec<_> = covered.difference(&expected).copied().collect();
