@@ -376,119 +376,16 @@ pub(crate) fn compute_delta(bulk: &RawGraphRows, latest: &RawGraphRows) -> RawGr
     delta
 }
 
+// D-P0-U04: the scan-and-remove logic for MUTATION_IDEMPOTENCY/MUTATION_BATCHES/
+// MUTATION_OUTBOX/MUTATION_OUTBOX_DELIVERY/MUTATION_PROJECTION_CURSOR/
+// MUTATION_GRAPH_VERSION/MUTATION_FENCE/MUTATION_LIFECYCLE_HEAD now lives ONCE in
+// the server-independent `redb_store` layer (`clear_mutation_authority_rows`) --
+// `Method::DeleteGraph`'s own commit path uses the SAME function so an ordinary
+// graph delete purges prior-incarnation mutation authority exactly like a source
+// shard does after an online move, instead of carrying two copies of this table
+// set that could silently drift apart.
 fn clear_mutation_rows(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let batch_ids: Vec<String> = {
-        let table = wtx
-            .open_table(MUTATION_IDEMPOTENCY)
-            .map_err(|e| e.to_string())?;
-        table
-            .iter()
-            .map_err(|e| e.to_string())?
-            .filter_map(|row| row.ok())
-            .filter_map(|(key, value)| {
-                let (_, row_graph, _) = key.value();
-                (row_graph == graph).then(|| value.value().to_string())
-            })
-            .collect()
-    };
-    {
-        let mut table = wtx
-            .open_table(MUTATION_IDEMPOTENCY)
-            .map_err(|e| e.to_string())?;
-        let keys: Vec<(String, String)> = table
-            .iter()
-            .map_err(|e| e.to_string())?
-            .filter_map(|row| row.ok())
-            .filter_map(|(key, _)| {
-                let (tenant, row_graph, idempotency) = key.value();
-                (row_graph == graph).then(|| (tenant.to_string(), idempotency.to_string()))
-            })
-            .collect();
-        for (tenant, idempotency) in keys {
-            table
-                .remove((tenant.as_str(), graph, idempotency.as_str()))
-                .map_err(|e| e.to_string())?;
-        }
-    }
-    for batch_id in &batch_ids {
-        {
-            let mut table = wtx
-                .open_table(MUTATION_BATCHES)
-                .map_err(|e| e.to_string())?;
-            table.remove(batch_id.as_str()).map_err(|e| e.to_string())?;
-        }
-        {
-            let mut table = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
-            let keys: Vec<u32> = table
-                .range((batch_id.as_str(), 0u32)..)
-                .map_err(|e| e.to_string())?
-                .filter_map(|row| row.ok())
-                .take_while(|(key, _)| key.value().0 == batch_id.as_str())
-                .map(|(key, _)| key.value().1)
-                .collect();
-            for ordinal in keys {
-                table
-                    .remove((batch_id.as_str(), ordinal))
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-        {
-            let mut table = wtx
-                .open_table(MUTATION_OUTBOX_DELIVERY)
-                .map_err(|e| e.to_string())?;
-            let keys: Vec<(u32, String)> = table
-                .range((batch_id.as_str(), 0u32, "")..)
-                .map_err(|e| e.to_string())?
-                .filter_map(|row| row.ok())
-                .take_while(|(key, _)| key.value().0 == batch_id.as_str())
-                .map(|(key, _)| {
-                    let (_, ordinal, consumer) = key.value();
-                    (ordinal, consumer.to_string())
-                })
-                .collect();
-            for (ordinal, consumer) in keys {
-                table
-                    .remove((batch_id.as_str(), ordinal, consumer.as_str()))
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-    }
-    {
-        let mut table = wtx
-            .open_table(MUTATION_PROJECTION_CURSOR)
-            .map_err(|e| e.to_string())?;
-        let keys: Vec<(String, String)> = table
-            .iter()
-            .map_err(|e| e.to_string())?
-            .filter_map(|row| row.ok())
-            .filter_map(|(key, _)| {
-                let (tenant, row_graph, projection) = key.value();
-                (row_graph == graph).then(|| (tenant.to_string(), projection.to_string()))
-            })
-            .collect();
-        for (tenant, projection) in keys {
-            table
-                .remove((tenant.as_str(), graph, projection.as_str()))
-                .map_err(|e| e.to_string())?;
-        }
-    }
-    {
-        let mut table = wtx
-            .open_table(MUTATION_GRAPH_VERSION)
-            .map_err(|e| e.to_string())?;
-        table.remove(graph).map_err(|e| e.to_string())?;
-    }
-    {
-        let mut table = wtx.open_table(MUTATION_FENCE).map_err(|e| e.to_string())?;
-        table.remove(graph).map_err(|e| e.to_string())?;
-    }
-    {
-        let mut table = wtx
-            .open_table(MUTATION_LIFECYCLE_HEAD)
-            .map_err(|e| e.to_string())?;
-        table.remove(graph).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    crate::redb_store::clear_mutation_authority_rows(wtx, graph)
 }
 
 #[cfg(feature = "security")]

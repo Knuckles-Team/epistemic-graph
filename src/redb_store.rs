@@ -2343,6 +2343,13 @@ fn apply_mutation_batch_in_wtx(
     }
     if matches!(lifecycle, Some((false, _, _))) {
         clear_change_material_rows(wtx, graph_fname)?;
+        // D-P0-U04: drop the PRIOR incarnation's mutation-authority rows
+        // (idempotency keys, outbox/delivery, projection cursors, fence,
+        // lifecycle head, graph version) before this delete writes its own
+        // fresh tombstone record below -- otherwise a same-name recreate can
+        // collide with or attempt to decrypt an old-incarnation mutation
+        // record after key loss/rotation.
+        clear_mutation_authority_rows(wtx, graph_fname)?;
     }
 
     if crashpoint == Some(MutationBatchCrashpoint::AfterRowsBeforeMetadata) {
@@ -8965,6 +8972,152 @@ pub(crate) fn clear_change_material_rows(
     Ok(())
 }
 
+/// Remove every mutation-authority row `graph`'s PRIOR incarnation owns —
+/// its `MUTATION_IDEMPOTENCY` replay keys, `MUTATION_BATCHES`/`MUTATION_OUTBOX`/
+/// `MUTATION_OUTBOX_DELIVERY` records, `MUTATION_PROJECTION_CURSOR` watermarks,
+/// and the single-row `MUTATION_GRAPH_VERSION`/`MUTATION_FENCE`/
+/// `MUTATION_LIFECYCLE_HEAD` entries (D-P0-U04, CONCEPT:EG-KG.storage.kg-kg).
+///
+/// `Method::DeleteGraph` previously cleared graph/change-material/resource/lane
+/// rows (`clear_graph_rows`/`clear_change_material_rows`/`clear_resource_rows`)
+/// but INTENTIONALLY left this mutation-authority material behind — the same
+/// history a genuinely distinct online-reshard move already purges via
+/// `server::persistence::online_reshard::purge_moved_mutation_rows`, which now
+/// calls this exact function instead of carrying its own private copy. Left in
+/// place, a same-name recreate after key loss/rotation could collide with or
+/// attempt to decrypt a PRIOR incarnation's idempotency key, outbox delivery
+/// row, projection cursor, or fence — corrupting exactly-once mutation replay
+/// for the NEW incarnation. The caller (the `Method::DeleteGraph` commit path in
+/// `commit_ops`) invokes this BEFORE it writes the delete operation's own fresh
+/// `MUTATION_BATCHES`/`MUTATION_IDEMPOTENCY`/... tombstone record, so the old
+/// incarnation's authority is atomically gone in the SAME transaction that
+/// records the deletion — never a separate, interruptible pass.
+///
+/// `MUTATION_IDEMPOTENCY` is keyed `(tenant, graph, idempotency_key) -> batch_id`
+/// — `graph` is not the leading key component, so every prior incarnation's
+/// batch_id is discovered by a full-table scan filtered on the graph component
+/// (there is no cheaper index; DeleteGraph is a rare, deliberate operation).
+/// `MUTATION_OUTBOX`/`MUTATION_OUTBOX_DELIVERY` ARE keyed by `batch_id` first,
+/// so once the batch_ids are known their rows are removed by a plain
+/// `(batch_id, ..)` range scan.
+pub(crate) fn clear_mutation_authority_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let batch_ids: Vec<String> = {
+        let table = wtx
+            .open_table(MUTATION_IDEMPOTENCY)
+            .map_err(|e| e.to_string())?;
+        table
+            .iter()
+            .map_err(|e| e.to_string())?
+            .filter_map(|row| row.ok())
+            .filter_map(|(key, value)| {
+                let (_, row_graph, _) = key.value();
+                (row_graph == graph).then(|| value.value().to_string())
+            })
+            .collect()
+    };
+    {
+        let mut table = wtx
+            .open_table(MUTATION_IDEMPOTENCY)
+            .map_err(|e| e.to_string())?;
+        let keys: Vec<(String, String)> = table
+            .iter()
+            .map_err(|e| e.to_string())?
+            .filter_map(|row| row.ok())
+            .filter_map(|(key, _)| {
+                let (tenant, row_graph, idempotency) = key.value();
+                (row_graph == graph).then(|| (tenant.to_string(), idempotency.to_string()))
+            })
+            .collect();
+        for (tenant, idempotency) in keys {
+            table
+                .remove((tenant.as_str(), graph, idempotency.as_str()))
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    for batch_id in &batch_ids {
+        {
+            let mut table = wtx
+                .open_table(MUTATION_BATCHES)
+                .map_err(|e| e.to_string())?;
+            table.remove(batch_id.as_str()).map_err(|e| e.to_string())?;
+        }
+        {
+            let mut table = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+            let keys: Vec<u32> = table
+                .range((batch_id.as_str(), 0u32)..)
+                .map_err(|e| e.to_string())?
+                .filter_map(|row| row.ok())
+                .take_while(|(key, _)| key.value().0 == batch_id.as_str())
+                .map(|(key, _)| key.value().1)
+                .collect();
+            for ordinal in keys {
+                table
+                    .remove((batch_id.as_str(), ordinal))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        {
+            let mut table = wtx
+                .open_table(MUTATION_OUTBOX_DELIVERY)
+                .map_err(|e| e.to_string())?;
+            let keys: Vec<(u32, String)> = table
+                .range((batch_id.as_str(), 0u32, "")..)
+                .map_err(|e| e.to_string())?
+                .filter_map(|row| row.ok())
+                .take_while(|(key, _)| key.value().0 == batch_id.as_str())
+                .map(|(key, _)| {
+                    let (_, ordinal, consumer) = key.value();
+                    (ordinal, consumer.to_string())
+                })
+                .collect();
+            for (ordinal, consumer) in keys {
+                table
+                    .remove((batch_id.as_str(), ordinal, consumer.as_str()))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    {
+        let mut table = wtx
+            .open_table(MUTATION_PROJECTION_CURSOR)
+            .map_err(|e| e.to_string())?;
+        let keys: Vec<(String, String)> = table
+            .iter()
+            .map_err(|e| e.to_string())?
+            .filter_map(|row| row.ok())
+            .filter_map(|(key, _)| {
+                let (tenant, row_graph, projection) = key.value();
+                (row_graph == graph).then(|| (tenant.to_string(), projection.to_string()))
+            })
+            .collect();
+        for (tenant, projection) in keys {
+            table
+                .remove((tenant.as_str(), graph, projection.as_str()))
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    {
+        let mut table = wtx
+            .open_table(MUTATION_GRAPH_VERSION)
+            .map_err(|e| e.to_string())?;
+        table.remove(graph).map_err(|e| e.to_string())?;
+    }
+    {
+        let mut table = wtx.open_table(MUTATION_FENCE).map_err(|e| e.to_string())?;
+        table.remove(graph).map_err(|e| e.to_string())?;
+    }
+    {
+        let mut table = wtx
+            .open_table(MUTATION_LIFECYCLE_HEAD)
+            .map_err(|e| e.to_string())?;
+        table.remove(graph).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Drop EVERY durable row for `graph` in ONE durable transaction (CONCEPT:EG-KG.backend.tenant-delete-recreate-same,
 /// the tenant-DELETE path). Unlike `clear_graph_rows` (which empties a LIVE graph's
 /// data but keeps its `graph_meta` identity), this ALSO removes the `semantic_store`
@@ -13073,12 +13226,157 @@ mod mutation_batch_tests {
             Some("delete-graph-a"),
             "the lifecycle fence must survive restart"
         );
+        // D-P0-U04: DeleteGraph now purges the prior incarnation's mutation-
+        // authority rows (`clear_mutation_authority_rows`), INCLUDING the old
+        // Create's own `MUTATION_IDEMPOTENCY` entry -- so this retry no longer
+        // finds a matching idempotency record and never reaches the
+        // idempotency-replay STALE_FENCE check (that check only runs when an
+        // existing record IS found). The retry is instead rejected by the
+        // separate, unconditional optimistic-concurrency guard: `create`'s
+        // `expected_graph_version` (3, captured before Delete) can never match
+        // the authoritative version once ANY later batch — including the
+        // Delete itself — has committed, since the version counter is
+        // monotonic and NOT reset by DeleteGraph (only mutation-authority
+        // ROWS are cleared, not the version fence, which guards a different,
+        // graph-name-scoped invariant). So the resurrection is still
+        // deterministically rejected, just by STALE_VERSION rather than
+        // STALE_FENCE -- the invariant this test protects (a stale Create can
+        // never resurrect graph metadata after Delete) is unchanged.
         let stale = commit_at(&db, &create, None).unwrap_err();
-        assert!(stale.contains("STALE_FENCE"));
+        assert!(stale.contains("STALE_VERSION"), "got: {stale}");
         assert!(
             read_all_graph_meta(&db).unwrap().is_empty(),
             "retrying the old Create must not resurrect graph metadata after Delete"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// D-P0-U04 regression: `Method::DeleteGraph` must atomically remove the
+    /// PRIOR incarnation's mutation-authority rows (idempotency replay keys,
+    /// `MUTATION_BATCHES`/`MUTATION_OUTBOX` records) -- not only graph/change/
+    /// resource/lane rows -- so a same-name recreate never collides with or
+    /// attempts to decrypt an old-incarnation mutation record. Fails before
+    /// the `clear_mutation_authority_rows` call was wired into `DeleteGraph`'s
+    /// commit path (the idempotency/outbox rows below survived the delete);
+    /// passes after.
+    #[test]
+    fn delete_graph_purges_prior_incarnation_mutation_authority() {
+        let path = temp_path("mutation-authority-purge");
+        let db = open(&path);
+
+        let mut create = batch("create-graph-a", "create-key");
+        create.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Lifecycle,
+            domain: MutationDomain::Lifecycle,
+            method: Method::CreateGraph {
+                graph_name: "graph-a".to_string(),
+                graph_type: GraphType::Agent,
+            },
+        }];
+        commit_at(&db, &create, None).unwrap();
+
+        // An ORDINARY (non-lifecycle) content mutation against the live graph --
+        // this is what stamps MUTATION_IDEMPOTENCY/MUTATION_BATCHES/MUTATION_OUTBOX
+        // for the incarnation being deleted below.
+        let mut content = batch("content-batch-1", "content-key-1");
+        content.expected_graph_version = Some(4);
+        commit_at(&db, &content, None).unwrap();
+
+        // Prove the prior incarnation's mutation authority is actually there
+        // before delete (so the assertions below are a real before/after, not
+        // a vacuous pass against rows that were never written).
+        {
+            let rtx = db.begin_read().unwrap();
+            let idem = rtx.open_table(MUTATION_IDEMPOTENCY).unwrap();
+            assert_eq!(
+                idem.get(("tenant-a", "graph-a", "content-key-1"))
+                    .unwrap()
+                    .map(|v| v.value().to_string()),
+                Some("content-batch-1".to_string()),
+                "fixture sanity: idempotency row must exist before delete"
+            );
+            let batches = rtx.open_table(MUTATION_BATCHES).unwrap();
+            assert!(batches.get("content-batch-1").unwrap().is_some());
+            let outbox = rtx.open_table(MUTATION_OUTBOX).unwrap();
+            assert!(outbox.get(("content-batch-1", 0u32)).unwrap().is_some());
+        }
+
+        let mut delete = batch("delete-graph-a", "delete-key");
+        delete.expected_graph_version = Some(5);
+        delete.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Lifecycle,
+            domain: MutationDomain::Lifecycle,
+            method: Method::DeleteGraph {
+                graph_name: "graph-a".to_string(),
+            },
+        }];
+        commit_at(&db, &delete, None).unwrap();
+
+        // The PRIOR incarnation's mutation-authority rows must be gone --
+        // this is the D-P0-U04 assertion.
+        {
+            let rtx = db.begin_read().unwrap();
+            let idem = rtx.open_table(MUTATION_IDEMPOTENCY).unwrap();
+            assert!(
+                idem.get(("tenant-a", "graph-a", "content-key-1"))
+                    .unwrap()
+                    .is_none(),
+                "DeleteGraph must remove the prior incarnation's idempotency row"
+            );
+            let batches = rtx.open_table(MUTATION_BATCHES).unwrap();
+            assert!(
+                batches.get("content-batch-1").unwrap().is_none(),
+                "DeleteGraph must remove the prior incarnation's MutationBatch record"
+            );
+            let outbox = rtx.open_table(MUTATION_OUTBOX).unwrap();
+            assert!(
+                outbox.get(("content-batch-1", 0u32)).unwrap().is_none(),
+                "DeleteGraph must remove the prior incarnation's outbox rows"
+            );
+        }
+
+        // A recreate under the SAME name reusing the SAME idempotency key must
+        // be treated as fresh work, not resolved as a replay of the deleted
+        // incarnation's stale batch_id.
+        // The graph-version counter is a monotonic per-graph-name authority,
+        // NOT reset by delete (the delete's own commit above already bumped it
+        // to 6: 3 (fixture initial) -> 4 (create) -> 5 (content) -> 6 (delete)).
+        // Only the mutation-AUTHORITY rows this fix targets (idempotency/
+        // outbox/batches/fence/lifecycle-head) are cleared, so a caller must
+        // still supply the next real version to pass optimistic concurrency --
+        // clearing mutation authority intentionally does not also erase the
+        // version fence, which guards a different invariant (monotonic replay
+        // ordering for whichever incarnation currently owns the name).
+        let mut recreate = batch("create-graph-a-v2", "create-key-v2");
+        recreate.expected_graph_version = Some(6);
+        recreate.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Lifecycle,
+            domain: MutationDomain::Lifecycle,
+            method: Method::CreateGraph {
+                graph_name: "graph-a".to_string(),
+                graph_type: GraphType::Agent,
+            },
+        }];
+        commit_at(&db, &recreate, None).unwrap();
+        let mut content_v2 = batch("content-batch-1-v2", "content-key-1");
+        content_v2.expected_graph_version = Some(7);
+        commit_at(&db, &content_v2, None).unwrap();
+        {
+            let rtx = db.begin_read().unwrap();
+            let idem = rtx.open_table(MUTATION_IDEMPOTENCY).unwrap();
+            assert_eq!(
+                idem.get(("tenant-a", "graph-a", "content-key-1"))
+                    .unwrap()
+                    .map(|v| v.value().to_string()),
+                Some("content-batch-1-v2".to_string()),
+                "the reused idempotency key must resolve to the NEW incarnation's \
+                 batch, never the deleted incarnation's stale batch_id"
+            );
+        }
+
         let _ = std::fs::remove_file(path);
     }
 
