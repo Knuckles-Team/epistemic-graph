@@ -18,6 +18,8 @@ Two contracts, both proven against the actual compiled binary on a private socke
 
 Both use the stock ``full`` build, which is redb-authoritative by default
 (CONCEPT:AU-KG.backend.backend-modes) so every ``nodes.add`` is commit-before-ack.
+Prefers the shared ``EPISTEMIC_GRAPH_TEST_BINARY`` (conftest.py's
+``_prebuilt_test_binary()``) over its own ``cargo build`` when one is configured.
 """
 
 import os
@@ -29,6 +31,7 @@ import pytest
 from conftest import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
+    _prebuilt_test_binary,
     bootstrap_context,
     find_server_binary,
     request_context,
@@ -42,6 +45,11 @@ AUTH_SECRET = "test-graceful-shutdown-secret"
 
 
 def _build_full() -> str | None:
+    # Prefer the shared `EPISTEMIC_GRAPH_TEST_BINARY` (see conftest.py's
+    # `_prebuilt_test_binary()`) before ever paying for a `cargo build` here.
+    prebuilt = _prebuilt_test_binary()
+    if prebuilt is not None:
+        return prebuilt
     # `--features "full viz-static-export"`, not plain `full`: this module and
     # `test_viz_client.py`/`test_epi_gapfill_roundtrip.py` all build to the SAME
     # shared `target-isolated` output (`.cargo/config.toml`); if they requested

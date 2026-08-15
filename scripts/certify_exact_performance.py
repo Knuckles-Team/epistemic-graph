@@ -1020,6 +1020,14 @@ def _spawn_engine(
         "TZ": "UTC",
         "XDG_RUNTIME_DIR": str(runtime_dir),
         "GRAPH_SERVICE_AUTH_SECRET": authority.auth_secret,
+        # Explicit, deliberate opt-out of the MANDATORY-OIDC posture (secure by
+        # default since 2026-07-22 -- see `auth.rs`'s `require_oidc()`); without
+        # it the engine refuses to start ("EPISTEMIC_GRAPH_REQUIRE_OIDC requires
+        # OIDC identity binding ... but no usable OIDC verifier is configured")
+        # in this sealed certification sandbox, which has no Keycloak/OIDC
+        # provider. Mirrors `certify_exact_fault_restart.py`'s `Engine.start`
+        # and `tests/conftest.py`'s `strict_server_env` (same rationale).
+        "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
         "EPISTEMIC_GRAPH_AUDIENCE": authority.context["audience"],
         "EPISTEMIC_GRAPH_TENANT": authority.context["tenant"],
         "EPISTEMIC_GRAPH_POLICY_VERSION": authority.context["policy_version"],
