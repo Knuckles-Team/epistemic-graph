@@ -62,6 +62,22 @@ does not soft-fall-back when a configured rustc-wrapper is missing). See the
 module docstring tests in tests/test_ci_gate_replica_consistency_check.py for
 proof both classes of drift actually fire.
 
+LOCAL-HOST TOOLCHAIN DEGRADATION (GAP 4, see that section below): the mirror
+image of the .cargo/config.toml check above. A RUN step whose OWN cargo
+invocation names (directly, or transitively through the root Cargo.toml's
+`[features]` graph — a `--features full-extras` implies `ros2-rmw`, for
+example) a feature this repo documents as needing an external build-time
+tool (e.g. `cmake` for `ros2-rmw`'s vendored CycloneDDS C build) that THIS
+ONE machine doesn't have on PATH right now is reclassified from RUN to
+NOT_VALIDATED_LOCALLY before it is ever attempted — reported loudly, in the
+summary, by name, never silently and never counted as a pass. This is never
+a CI defect (a GitHub-hosted runner, or a different dev host, may have the
+tool) — it is the opposite failure mode from the runner-side check: "this
+host can't validate this step" vs. "no host CI runs on ever could". The
+detection reads the step's actual command text, not a job/workflow name, so
+it applies uniformly wherever a heavy, toolchain-gated feature combination
+is invoked — see check_toolchain_requirements.
+
 Usage:
   scripts/ci_gate_replica.py                    # full run (heavy — pre-push/manual only)
   scripts/ci_gate_replica.py --dry-run           # print the plan, execute nothing
@@ -77,10 +93,13 @@ import fnmatch
 import os
 import posixpath
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -89,6 +108,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 CARGO_CONFIG_PATH = REPO_ROOT / ".cargo" / "config.toml"
+CARGO_TOML_PATH = REPO_ROOT / "Cargo.toml"
 
 # ─────────────────────────────────────────────────────────────────────────
 # Per-repo configuration. This is the ONLY hand-maintained classification
@@ -363,13 +383,23 @@ def classify_step(step: dict) -> tuple[str, str]:
     return "SKIP_LOUD", f"marketplace action '{uses}' has no local equivalent — not executed here"
 
 
-def build_plan_for_workflow(spec: WorkflowSpec, doc: dict) -> tuple[list[dict], list[str], list[str]]:
+def build_plan_for_workflow(
+    spec: WorkflowSpec, doc: dict, feature_table: dict[str, list[str]] | None = None
+) -> tuple[list[dict], list[str], list[str]]:
     """Returns (plan, unclassified_jobs, stale_config_job_ids) for one
     workflow. unclassified_jobs: jobs present in the workflow that are
     neither in spec.executable_jobs nor spec.job_skip_reasons — the drift
     this script exists to catch. stale_config_job_ids: job ids in the spec
     that no longer exist in the workflow (the opposite drift), also a
-    consistency failure."""
+    consistency failure.
+
+    `feature_table` (GAP 4): the root Cargo.toml's parsed `[features]` graph,
+    used to reclassify a RUN step to NOT_VALIDATED_LOCALLY when its own
+    cargo invocation needs an external build tool this host doesn't have —
+    see check_toolchain_requirements. Lazily loaded from CARGO_TOML_PATH
+    when not supplied, so existing 2-arg callers are unaffected."""
+    if feature_table is None:
+        feature_table = _load_cargo_features()
     jobs = doc.get("jobs", {}) or {}
     plan: list[dict] = []
     unclassified: list[str] = []
@@ -396,6 +426,10 @@ def build_plan_for_workflow(spec: WorkflowSpec, doc: dict) -> tuple[list[dict], 
                     mode, detail = "SKIP_LOUD", spec.job_skip_reasons[job_id]
                 else:
                     mode, detail = classify_step(step2)
+                    if mode == "RUN":
+                        toolchain_reason = check_toolchain_requirements(detail, feature_table)
+                        if toolchain_reason is not None:
+                            mode, detail = "TOOLCHAIN_MISSING", toolchain_reason
                 plan.append(
                     {
                         "workflow": spec.filename,
@@ -552,6 +586,186 @@ def check_build_tool_dependencies(cargo_config_path: Path, workflow_texts: dict[
                 f"{source} setting."
             )
     return problems
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# GAP 4 — local-host external-toolchain detection for a `run:` step's own
+# cargo invocation.
+#
+# This is the MIRROR IMAGE of GAP 2 above (check_build_tool_dependencies),
+# not a duplicate of it — the two must never be confused or let one weaken
+# the other:
+#
+#   * GAP 2 (runner-side): does this repo's OWN build config (.cargo/
+#     config.toml: rustc-wrapper/linker/runner/rustflags) hard-depend on a
+#     binary that NONE of the workflow files ever install on the CI RUNNER?
+#     That is always a real defect — every runner is an ephemeral, shared,
+#     reproducible box; if the workflow never installs the tool, the build
+#     WILL break there. It fails `--consistency-check`, i.e. the whole gate,
+#     loudly. (The incident this closes: commit 652f91c's `rustc-wrapper =
+#     "sccache"` with no install step anywhere.)
+#   * GAP 4 (local-side, here): does a `run:` step's cargo invocation name a
+#     cargo FEATURE (`--features`/`-F`/`--all-features`) that, per this
+#     repo's OWN root Cargo.toml, needs an external binary to COMPILE, that
+#     THIS ONE DEV HOST happens not to have on PATH right now? That is never
+#     a defect — CI-hosted runners, or a future host, may have it; only the
+#     one machine running this replica right now doesn't. It is classified
+#     NOT_VALIDATED_LOCALLY (already a NON_BLOCKING_STATUS) — reported
+#     loudly, never counted as a pass, never fails the gate.
+#
+# The detection is deliberately NOT keyed on a job or workflow name (a
+# `if job == "feature-matrix"` special-case was explicitly rejected for
+# this — a rename, reorder, or a brand new job invoking the same feature
+# would silently blind it). Instead it reads the ACTUAL shell text of the
+# step being classified, extracts whatever `--features`/`-F`/
+# `--all-features` flags cargo itself would see, resolves them through the
+# root Cargo.toml's real `[features]` graph (parsed with the stdlib TOML
+# parser — this table is standard, well-formed TOML, unlike the narrow
+# `.cargo/config.toml` dialect GAP 2 hand-parses above), and checks each
+# resolved feature against TOOLCHAIN_FEATURE_REQUIREMENTS.
+#
+# TOOLCHAIN_FEATURE_REQUIREMENTS is intentionally SHORT and evidence-backed,
+# not a guess: every entry is verified against this repo's own documented
+# design AND, where practical, empirically. Two verified findings that
+# shaped it:
+#   * `ros2-rmw` (Cargo.toml ~line 1009-1011) pulls `cyclonedds-rust-sys`,
+#     whose build.rs vendors the CycloneDDS C sources and configures+builds
+#     them with `cmake` at COMPILE time — a real, unconditional local
+#     build-time dependency. Listed below.
+#   * `gpu-cuda` is DELIBERATELY NOT listed, even though it is the feature
+#     named in this task's own problem statement as needing `nvcc`. Cargo.
+#     toml says outright (line ~157-158, ~1020-1021) that it "builds clean
+#     everywhere via dynamic-loading" — verified by reading cudarc 0.17.8's
+#     own build.rs (only its `cuda-version-from-build-system` feature path
+#     shells out to `nvcc --version`; this repo pins the fixed
+#     `cuda-12060` feature instead, so that path never runs) AND by
+#     actually running `cargo check -p eg-ann --no-default-features
+#     --features gpu-cuda` on a host with no nvcc anywhere on PATH, which
+#     SUCCEEDED. `ros2-dds` (pure-Rust Dust DDS) and `ros2-bridge`
+#     (pure-Rust tokio-tungstenite) build clean everywhere for the same
+#     reason cudarc does: no C/GPU toolchain in their dependency graph at
+#     all. Listing any of these three would be a FALSE POSITIVE — silently
+#     downgrading a step that actually compiles fine here from a real,
+#     counted RUN to an uncounted NOT_VALIDATED_LOCALLY is exactly the
+#     coverage regression this whole script exists to prevent (see the
+#     module docstring: a skip must always be true, never a guess).
+# ─────────────────────────────────────────────────────────────────────────
+
+TOOLCHAIN_FEATURE_REQUIREMENTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "ros2-rmw": (
+        (
+            "cmake",
+            "ros2-rmw pulls the cyclonedds-rust-sys crate, whose build.rs "
+            "vendors the CycloneDDS C sources and configures+builds them "
+            "with cmake at compile time (root Cargo.toml, the ros2-rmw "
+            "feature's doc comment, ~line 1009-1011) — this is unconditional "
+            "at build time, independent of whether a live ROS2/rmw daemon "
+            "is present to actually talk to.",
+        ),
+        (
+            "cc",
+            "the same vendored CycloneDDS C build cyclonedds-rust-sys "
+            "performs for ros2-rmw also needs a C compiler on PATH.",
+        ),
+    ),
+}
+
+
+def _load_cargo_features(cargo_toml_path: Path = CARGO_TOML_PATH) -> dict[str, list[str]]:
+    """Parse a Cargo.toml's `[features]` table with the stdlib TOML parser
+    (this is ordinary, well-formed TOML — unlike .cargo/config.toml's
+    narrower dialect, no hand-rolled parser is needed or appropriate here).
+    Returns {} if the file is missing or carries no `[features]` table."""
+    if not cargo_toml_path.is_file():
+        return {}
+    with open(cargo_toml_path, "rb") as f:
+        doc = tomllib.load(f)
+    return doc.get("features", {}) or {}
+
+
+def _extract_requested_features(run_text: str) -> tuple[set[str], bool]:
+    """Tokenize a step's shell text the way a shell would (falling back to a
+    plain whitespace split if it contains something shlex can't tokenize,
+    e.g. an unbalanced quote from a stripped GHA expression) and pull out
+    every `--features`/`-F` value plus whether `--all-features` appears
+    anywhere. Deliberately tolerant of multiple cargo invocations in one
+    step (`&&`-chained) — every occurrence in the whole text is unioned.
+    Comma- AND space-separated feature lists are both cargo-valid, so both
+    are split on."""
+    try:
+        tokens = shlex.split(run_text, posix=True)
+    except ValueError:
+        tokens = run_text.split()
+
+    features: set[str] = set()
+    all_features = False
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--all-features":
+            all_features = True
+        elif tok in ("--features", "-F"):
+            if i + 1 < len(tokens):
+                features.update(v.strip() for v in re.split(r"[,\s]+", tokens[i + 1]) if v.strip())
+                i += 1
+        elif tok.startswith("--features="):
+            features.update(v.strip() for v in re.split(r"[,\s]+", tok[len("--features=") :]) if v.strip())
+        i += 1
+    return features, all_features
+
+
+def _expand_features(requested: set[str], feature_table: dict[str, list[str]], all_features: bool) -> set[str]:
+    """Transitively resolve a set of requested cargo feature names through
+    the workspace `[features]` graph, e.g. `full-extras` -> {full-extras,
+    full, gpu-cuda, ros2-bridge, ros2-dds, ros2-rmw, ...}. `--all-features`
+    seeds the closure with every feature the table defines, matching
+    cargo's own semantics for that flag. An implied entry of the form
+    `dep:pkg` (optional-dependency activation) or `pkg/feature` /
+    `pkg?/feature` (a DIFFERENT crate's feature) is not itself a name in
+    THIS table, so it naturally stops the walk there rather than needing
+    special-casing — only entries that are themselves keys in this
+    workspace's own feature table are followed further."""
+    if all_features:
+        requested = requested | set(feature_table)
+    seen: set[str] = set()
+    stack = list(requested)
+    while stack:
+        f = stack.pop()
+        if f in seen:
+            continue
+        seen.add(f)
+        for implied in feature_table.get(f, []):
+            name = implied.split("/", 1)[0].rstrip("?")
+            if name.startswith("dep:"):
+                continue
+            if name in feature_table and name not in seen:
+                stack.append(name)
+    return seen
+
+
+def check_toolchain_requirements(run_text: str, feature_table: dict[str, list[str]]) -> str | None:
+    """Returns a human reason string naming the first missing required tool
+    if `run_text` invokes cargo requesting, directly or transitively, a
+    workspace feature TOOLCHAIN_FEATURE_REQUIREMENTS documents as needing an
+    external build-time tool not currently on PATH — else None (nothing
+    required, or everything required is present). Looks only at what the
+    step's OWN command line actually names; no job/step name is consulted,
+    so this applies uniformly to every RUN step in every workflow."""
+    if "cargo" not in run_text:
+        return None
+    requested, all_features = _extract_requested_features(run_text)
+    if not requested and not all_features:
+        return None
+    for feature in sorted(_expand_features(requested, feature_table, all_features)):
+        for tool, why in TOOLCHAIN_FEATURE_REQUIREMENTS.get(feature, ()):
+            if shutil.which(tool) is None:
+                return (
+                    f"{tool!r} not on PATH -- required to compile the {feature!r} feature here "
+                    f"({why}). NOT a CI defect: this host lacks the toolchain, the build config "
+                    f"does not lack an install step (see check_build_tool_dependencies for that "
+                    f"check)."
+                )
+    return None
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -860,7 +1074,8 @@ def main() -> int:
         elif mode == "ARTIFACT_IO":
             results.append({**item, "status": "ARTIFACT_IO", "elapsed": 0.0})
         else:
-            print(f"\n### NOT VALIDATED LOCALLY [{item['workflow']}:{item['job']}] {item['name']}\n    reason: {item['detail']}")
+            tag = "TOOLCHAIN ABSENT LOCALLY" if mode == "TOOLCHAIN_MISSING" else "NOT VALIDATED LOCALLY"
+            print(f"\n### {tag} [{item['workflow']}:{item['job']}] {item['name']}\n    reason: {item['detail']}")
             results.append({**item, "status": "NOT_VALIDATED_LOCALLY", "elapsed": 0.0})
 
     print("\n################ SUMMARY ################")
@@ -878,6 +1093,16 @@ def main() -> int:
                 blocking_fail = True
             else:
                 advisory_fail = True
+
+    not_validated = [r for r in results if r["status"] == "NOT_VALIDATED_LOCALLY"]
+    if not_validated:
+        print(
+            f"\n### {len(not_validated)} STEP(S) NOT VALIDATED LOCALLY — these were NEVER RUN on "
+            "this host and are NOT a pass, never counted as one:"
+        )
+        for r in not_validated:
+            print(f"  - [{r['workflow']}:{r['job']}] {r['name']}\n      reason: {r['detail']}")
+
     print(f"BLOCKING_FAIL={'1' if blocking_fail else '0'}")
     print(f"ADVISORY_FAIL={'1' if advisory_fail else '0'} (never fails the pre-push gate — reported loudly only)")
     print(f"OVERALL_FAIL={'1' if blocking_fail else '0'}")
