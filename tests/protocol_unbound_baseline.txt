@@ -86,20 +86,10 @@ RunRules  # owner=@genius review-by=2027-02-13 note=in-full-no-caller-found
 # validation is bound as `client.rdf.validate_shacl` and is no longer baselined.
 # Verified 2026-08-13: no AU/MCP caller references ShEx; `shex` is in `full`.
 ShexValidate  # owner=@genius review-by=2027-02-13 note=in-full-no-caller-found
-# X5-enforce write-time ICV policy registration (CONCEPT:EG-KG.ontology.rdf-update-guard):
-# the write-time counterpart of SHACL validation, reached through connector governance — the SHACL
-# shapes payload is emitted by agent-utilities' connector-manifest compiler (alongside
-# its RLS/ABAC policy output) and registered directly, not through this thin
-# nodes/edges/graph client. Bind here until a Python RDF/ICV sub-client is added.
-# CORRECTED 2026-08-13: the claimed wire adapter does NOT exist — grepped
-# agent-utilities' connector-manifest compiler
-# (agent_utilities/knowledge_graph/ontology/connector_manifest.py) and the whole
-# `agent-packages` tree for any caller of `IcvConfigure`/`icv_configure`: zero hits
-# outside this engine's own internal dispatch/audit code. The SHACL-emitting
-# connector-manifest pipeline exists but never registers its output as a write-time
-# integrity policy — EG-KG.ontology.rdf-update-guard governance is silently dark in
-# production. Flagged BIND (highest-confidence finding of this triage).
-IcvConfigure  # owner=@genius review-by=2026-09-12 note=BIND-claimed-adapter-does-not-exist
+# `IcvConfigure` is now bound: `client.rdf.icv_configure(shapes, graph=, mode=)`
+# (added while driving the pytest suite to green -- AddTriples/RemoveTriples
+# unconditionally require a registered integrity policy before accepting any RDF
+# write at all, and nothing in this suite could configure one before this).
 
 # --- EG-318 agent-memory / scene-graph / trajectory wire ops ---
 # These expose eg-core LIBRARY primitives over the wire (hierarchical summaries EG-220,

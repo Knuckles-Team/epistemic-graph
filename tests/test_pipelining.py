@@ -54,15 +54,26 @@ class PipelinedMockServer:
         delay = float(params.get("delay", 0.0))
         await asyncio.sleep(delay)
         if params.get("stale"):
+            # The current wire shape (`crate::epistemic_operations::{OperationResult,
+            # OperationRedirect}`, `#[serde(deny_unknown_fields)]`) -- an EXACT set of
+            # keys, matched by the client's `_exact_mapping`. `StaleRouteError` reads
+            # `target_ref`/`group`/`epoch`/`fencing_token`/`leader_ref` off the
+            # `redirect` sub-object (not `graph`/`leader_node`, which don't exist on
+            # that class).
             detail = {
-                "code": "STALE_ROUTE",
-                "message": "route moved",
-                "route": {
-                    "graph": "tenant:graph",
+                "schema_version": "1",
+                "operation_id": "op-stale-1",
+                "status": "redirected",
+                "result_kind": None,
+                "result_ref": None,
+                "error": None,
+                "redirect": {
+                    "kind": "placement",
+                    "target_ref": "tenant:graph",
                     "group": 5,
                     "epoch": 12,
-                    "fencing_token": "g5:e12",
-                    "leader_node": 2,
+                    "fencing_token": 501012,
+                    "leader_ref": "node:2",
                 },
             }
             resp = {
@@ -219,11 +230,11 @@ async def test_stale_route_error_exposes_structured_redirect():
     try:
         with pytest.raises(StaleRouteError) as excinfo:
             await client._send("Op", {"stale": True})
-        assert excinfo.value.graph == "tenant:graph"
+        assert excinfo.value.target_ref == "tenant:graph"
         assert excinfo.value.group == 5
         assert excinfo.value.epoch == 12
-        assert excinfo.value.fencing_token == "g5:e12"
-        assert excinfo.value.leader_node == 2
+        assert excinfo.value.fencing_token == 501012
+        assert excinfo.value.leader_ref == "node:2"
     finally:
         await client.close()
         await server.stop()

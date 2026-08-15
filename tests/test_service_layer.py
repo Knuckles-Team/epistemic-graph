@@ -94,6 +94,42 @@ def service():
     finally:
         bootstrap.close()
 
+    # `test_service_channel_p2p`/`test_service_channel_group` exercise multi-agent
+    # channel flows (create/join/leave/send as "agent:a"/"agent:b"). `dispatch.rs`'s
+    # channel handlers require `creator`/`agent_id`/`sender` to exactly equal the
+    # AUTHENTICATED caller (`ACCESS_DENIED: channel creator must be caller`, etc. --
+    # an impersonation guard with no System bypass), and ACL itself requires a
+    # registered identity even for the otherwise-open `__commons__` graph -- so both
+    # agents need their own registered identity up front, the same way
+    # `test_isolation.py` does. `register_identity` needs the ordinary `security:*`
+    # admin scope (`request_context()`'s default `scopes=["*"]`), NOT the narrowly
+    # `security:bootstrap`-scoped context `bootstrap_context()` mints, which is only
+    # good for the one-time `bootstrap_system_identity` call above.
+    system = SyncEpistemicGraphClient.connect(
+        socket_path=socket_path,
+        auth_secret=secret,
+        verified_context=request_context(),
+    )
+    try:
+        system.consensus.register_identity(
+            "agent:a",
+            "Agent",
+            [],
+            [],
+            signer_id=TEST_AGENT_ID,
+            signer_key=TEST_SIGNER_KEY,
+        )
+        system.consensus.register_identity(
+            "agent:b",
+            "Agent",
+            [],
+            [],
+            signer_id=TEST_AGENT_ID,
+            signer_key=TEST_SIGNER_KEY,
+        )
+    finally:
+        system.close()
+
     yield {"socket_path": socket_path, "auth_secret": secret, "proc": proc}
 
     proc.send_signal(signal.SIGTERM)
@@ -113,12 +149,12 @@ def client_factory(service):
 
     clients = []
 
-    async def _make(graph_name="__commons__"):
+    async def _make(graph_name="__commons__", agent_id=TEST_AGENT_ID):
         c = await EpistemicGraphClient.connect(
             socket_path=service["socket_path"],
             auth_secret=service["auth_secret"],
             graph_name=graph_name,
-            verified_context=request_context(),
+            verified_context=request_context(agent_id=agent_id),
         )
         clients.append(c)
         return c
@@ -277,7 +313,14 @@ def test_service_channel_p2p(service, client_factory):
     """Test P2P channel creation, messaging, and close with imprint."""
 
     async def _test():
-        client = await client_factory()
+        # `CreateChannel`/`SendMessage`/`CloseChannel` all require the acting
+        # identity to be the AUTHENTICATED caller (`creator`/`sender` must equal
+        # `authority.agent_id()`, and `CloseChannel` further requires the caller
+        # to be the channel's own creator) -- an unconditional impersonation
+        # guard with no System bypass -- so every "agent:a" action below runs
+        # through a client actually authenticated as "agent:a" (registered in
+        # the `service` fixture).
+        client = await client_factory(agent_id="agent:a")
         await client.channels.create(
             "channel:p2p:a:b", "PeerToPeer", "agent:a", ["agent:b"]
         )
@@ -299,14 +342,21 @@ def test_service_channel_group(service, client_factory):
     """Test group channel join/leave/close lifecycle."""
 
     async def _test():
-        client = await client_factory()
-        await client.channels.create("channel:group:test", "Group", "agent:a", [])
-        await client.channels.join("channel:group:test", "agent:b")
-        members = await client.channels.get_members("channel:group:test")
+        # As in `test_service_channel_p2p`: `CreateChannel`/`JoinChannel`/
+        # `LeaveChannel` each require the acting identity to be the
+        # authenticated caller, so "agent:a" and "agent:b" each need their own
+        # authenticated client. `GetChannelMembers` only requires the caller to
+        # be a channel MEMBER (`authorize_member`), which "agent:a" (the
+        # creator) already is.
+        client_a = await client_factory(agent_id="agent:a")
+        client_b = await client_factory(agent_id="agent:b")
+        await client_a.channels.create("channel:group:test", "Group", "agent:a", [])
+        await client_b.channels.join("channel:group:test", "agent:b")
+        members = await client_a.channels.get_members("channel:group:test")
         assert len(members) == 2
 
-        await client.channels.leave("channel:group:test", "agent:b")
-        members = await client.channels.get_members("channel:group:test")
+        await client_b.channels.leave("channel:group:test", "agent:b")
+        members = await client_a.channels.get_members("channel:group:test")
         assert len(members) == 1
 
     asyncio.run(_test())

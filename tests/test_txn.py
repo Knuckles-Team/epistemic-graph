@@ -30,6 +30,8 @@ class _FakeClient:
         method: str,
         params: dict[str, Any] | None = None,
         graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
     ) -> Any:
         self.sent.append((method, params))
         if method == "BeginTxn":
