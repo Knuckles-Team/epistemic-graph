@@ -58,6 +58,14 @@ pub struct RowVisibility {
     /// (absent-or-`"public"` ⇒ true, `"private"` ⇒ false) when present; else from
     /// `_shared_scope` (`"org"`/`"commons"` ⇒ true, `"private"` ⇒ false) when
     /// present; else `true` (the pre-existing bare-absent default).
+    ///
+    /// **BUG-064 trust boundary.** A `_visibility='public'` reading is NOT
+    /// taken at face value when it cannot legitimately have been written: a
+    /// row also carrying `_owner_id`/`_shared_scope` defers to that
+    /// convention's own value instead (only it has a known production
+    /// writer), and a fully unowned row with no `_grants` treats a bare
+    /// `_visibility` tag alone as uncorroborated. See [`row_visibility`]'s
+    /// doc comment for the full incident this closes.
     pub public: bool,
     /// Agent_ids explicitly granted read (`_grants`, comma-separated). No
     /// `agent-utilities`-side equivalent exists yet (GOC-61 designs a distinct
@@ -165,16 +173,67 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    // BUG-064: whether an au (`tenant_sharing.py`) convention key is present
+    // on this row at all — `_owner_id` or `_shared_scope`. Used below to
+    // decide how much to trust a native `_visibility` key on the SAME row.
+    let au_tagged = map.contains_key(RLS_OWNER_ID_KEY) || map.contains_key(RLS_SHARED_SCOPE_KEY);
+    let shared_scope_public = map
+        .get(RLS_SHARED_SCOPE_KEY)
+        .and_then(|v| v.as_str())
+        .map(|v| v.eq_ignore_ascii_case("org") || v.eq_ignore_ascii_case("commons"));
     let public = match map.get(RLS_VISIBILITY_KEY).and_then(|v| v.as_str()) {
-        Some(v) => !v.eq_ignore_ascii_case("private"),
-        None => match map.get(RLS_SHARED_SCOPE_KEY).and_then(|v| v.as_str()) {
+        Some(v) => {
+            let native_public = !v.eq_ignore_ascii_case("private");
+            // BUG-064 (see BUG-LEDGER.md#BUG-064): the native `_visibility`
+            // key has ZERO known legitimate production writers in either
+            // repo (grep-confirmed across all history) — its only
+            // real-world occurrence to date was an out-of-band admin RPC
+            // (`engine_lifecycle_batch_update`) that blanket-executed
+            // `MATCH (n) WHERE n._visibility IS NULL SET n._visibility =
+            // 'public'` on 2026-08-07, stamping 45,478 nodes irrespective of
+            // their real ownership/scope. Because this branch used to be
+            // consulted BEFORE `_shared_scope` unconditionally, that one
+            // write silently converted every reachable owned row —
+            // including ones genuinely `_shared_scope='private'` — into
+            // `public` for any non-System caller, and made every untagged
+            // unowned row look "explicitly public". A `_visibility='public'`
+            // read here is therefore trusted only when there is a
+            // legitimate story for how it could have been written:
+            // * a row also tagged by the au convention (`_owner_id` /
+            //   `_shared_scope`) is decided by THAT convention's own
+            //   `_shared_scope` instead — the one write chokepoint proven to
+            //   write these keys in production (`tenant_sharing.stamp_ownership`).
+            //   A `_visibility` key can only have arrived out-of-band on
+            //   such a row.
+            // * a row with NO owner at all and no `_grants` has no
+            //   tenant/ACL context establishing WHO decided it should be
+            //   public, so a bare tag alone is not corroboration — see the
+            //   BUG-064 disposition: "a bare `_visibility='public'` with no
+            //   real owner/tenant must not by itself grant a non-System
+            //   caller anything".
+            // A genuinely NATIVE `_owner`-tagged row (no au tagging) keeps
+            // trusting `_visibility` as before: the incident's writer never
+            // sets `_owner`, so that combination cannot be its output, and
+            // this is the only pre-existing "owner marks own row public"
+            // path this crate itself ever exercises.
+            // `_visibility='private'` is always honored outright — fewer
+            // false grants is the safe direction and needs no override.
+            if native_public && au_tagged {
+                shared_scope_public.unwrap_or(false)
+            } else if native_public && owner.is_none() && !map.contains_key(RLS_GRANTS_KEY) {
+                false
+            } else {
+                native_public
+            }
+        }
+        None => match shared_scope_public {
             // `tenant_sharing.SCOPE_ORG`/`SCOPE_COMMONS` — visible beyond the
             // owner (tenant/graph-level isolation already happened upstream of
             // this row, at graph selection, so "org" here correctly maps to
             // "public within this graph" exactly as `visibility_predicate`
             // treats it). `SCOPE_PRIVATE` ⇒ false. Absent ⇒ the pre-existing
             // bare-absent default (true).
-            Some(v) => v.eq_ignore_ascii_case("org") || v.eq_ignore_ascii_case("commons"),
+            Some(v) => v,
             None => true,
         },
     };
@@ -1159,17 +1218,52 @@ mod tests {
             }
 
             #[test]
-            fn explicitly_public_unowned_row_is_visible() {
+            fn explicit_grant_makes_a_bare_visibility_tagged_unowned_row_visible() {
+                // BUG-064: a bare `_visibility='public'` tag on a fully
+                // unowned row, with NOTHING else corroborating it, is
+                // exactly the shape the incident's blanket mis-stamp
+                // produced (see `unowned_bare_visibility_tag_alone_is_no_longer_trusted`
+                // below) and is no longer sufficient on its own. An
+                // explicit `_grants` entry naming the caller is still
+                // honored — that IS a genuine per-row ACL decision.
                 let layer = setup();
                 let mut v = GraphView::default();
                 let idx = v.graph.add_node("shared".to_string());
                 v.node_map.insert("shared".to_string(), idx);
-                v.node_properties
-                    .insert("shared".to_string(), props(&[("_visibility", "public")]));
+                v.node_properties.insert(
+                    "shared".to_string(),
+                    props(&[("_visibility", "public"), ("_grants", "worker1")]),
+                );
                 layer.filter_view("worker1", &mut v);
                 assert!(
                     v.node_properties.contains_key("shared"),
-                    "an explicitly public unowned row must remain visible"
+                    "a public tag corroborated by an explicit grant must remain visible"
+                );
+            }
+
+            #[test]
+            fn unowned_bare_visibility_tag_alone_is_no_longer_trusted() {
+                // BUG-064 (BUG-LEDGER.md#BUG-064): reproduces the exact shape
+                // of the 21,064-row exposure — a fully unowned row whose ONLY
+                // RLS signal is a bare native `_visibility='public'` key, with
+                // no `_grants` and no au (`_owner_id`/`_shared_scope`) tag.
+                // `_visibility` has zero known legitimate production writers
+                // in either repo; the only real-world instance of this exact
+                // shape was an out-of-band admin RPC that blanket-stamped it
+                // onto every previously-untagged node. It must now be denied
+                // to a non-System caller.
+                let layer = setup();
+                let mut v = GraphView::default();
+                let idx = v.graph.add_node("mis_stamped".to_string());
+                v.node_map.insert("mis_stamped".to_string(), idx);
+                v.node_properties.insert(
+                    "mis_stamped".to_string(),
+                    props(&[("_visibility", "public")]),
+                );
+                layer.filter_view("worker1", &mut v);
+                assert!(
+                    !v.node_properties.contains_key("mis_stamped"),
+                    "an unowned row whose only signal is a bare `_visibility` tag must stay hidden (BUG-064)"
                 );
             }
 
@@ -1295,10 +1389,18 @@ mod tests {
             }
 
             #[test]
-            fn native_visibility_key_wins_when_both_conventions_present() {
-                // `_visibility` (native) is checked before falling back to
-                // `_shared_scope` — a row carrying both is decided by the
-                // native key, never silently overridden by the fallback.
+            fn shared_scope_wins_over_a_conflicting_native_visibility_public_tag() {
+                // BUG-064 (BUG-LEDGER.md#BUG-064): this test used to assert
+                // the OPPOSITE — that native `_visibility=public` overrides a
+                // conflicting `_shared_scope=private` — and that precedence
+                // is exactly the mechanism the incident exploited: an
+                // out-of-band write that only ever sets `_visibility` was
+                // able to silently invert a legitimate `_shared_scope`
+                // private designation on every row it touched. `_shared_scope`
+                // is the one convention with a known legitimate production
+                // writer (`tenant_sharing.stamp_ownership`) for a row that
+                // carries it at all, so it now governs whenever present,
+                // regardless of what an untrusted `_visibility` key claims.
                 let layer = setup();
                 let mut v = GraphView::default();
                 let idx = v.graph.add_node("mixed".to_string());
@@ -1313,9 +1415,24 @@ mod tests {
                 );
                 layer.filter_view("worker1", &mut v);
                 assert!(
-                    v.node_properties.contains_key("mixed"),
-                    "native `_visibility=public` must win over a conflicting `_shared_scope=private`"
+                    !v.node_properties.contains_key("mixed"),
+                    "`_shared_scope=private` must win over a conflicting native `_visibility=public` (BUG-064)"
                 );
+
+                // The owner and their manager remain unaffected either way.
+                let mut vb = GraphView::default();
+                let idxb = vb.graph.add_node("mixed".to_string());
+                vb.node_map.insert("mixed".to_string(), idxb);
+                vb.node_properties.insert(
+                    "mixed".to_string(),
+                    props(&[
+                        ("_owner", "worker2"),
+                        ("_visibility", "public"),
+                        ("_shared_scope", "private"),
+                    ]),
+                );
+                layer.filter_view("worker2", &mut vb);
+                assert!(vb.node_properties.contains_key("mixed"));
             }
 
             #[test]
