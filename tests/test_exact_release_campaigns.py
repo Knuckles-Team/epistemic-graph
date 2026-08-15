@@ -2,6 +2,13 @@
 
 The harnesses own every engine process and receive one explicit artifact.  The test
 never locates or builds an executable and never starts campaigns concurrently.
+
+The opt-in signal is the DEDICATED ``EPISTEMIC_GRAPH_EXACT_CERTIFICATION=1``
+flag, deliberately independent of ``EPISTEMIC_GRAPH_TEST_BINARY``/``_SHA256``
+(see ``test_durable_crash.py``'s module docstring for why: those two are also
+the routine BUG-045 perf-optimization pair set on every ordinary run, so
+gating this expensive release-gate campaign on their presence made an
+ordinary fast run hard-fail here by accident).
 """
 
 from __future__ import annotations
@@ -49,6 +56,11 @@ CAMPAIGNS = (
 
 @pytest.mark.timeout(4800)
 def test_exact_release_campaigns_are_serial_and_complete(tmp_path: Path) -> None:
+    if os.environ.get("EPISTEMIC_GRAPH_EXACT_CERTIFICATION", "").strip() != "1":
+        pytest.skip(
+            "exact-artifact release certification was not requested "
+            "(set EPISTEMIC_GRAPH_EXACT_CERTIFICATION=1 to opt in)"
+        )
     binary = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY", "") or "").strip()
     digest = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY_SHA256", "") or "").strip()
     performance_evidence = str(
@@ -57,8 +69,6 @@ def test_exact_release_campaigns_are_serial_and_complete(tmp_path: Path) -> None
     performance_digest = str(
         os.environ.get("EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE_SHA256", "") or ""
     ).strip()
-    if not binary and not digest:
-        pytest.skip("exact-artifact release certification was not requested")
     assert binary, "EPISTEMIC_GRAPH_TEST_BINARY is required for exact certification"
     assert digest, (
         "EPISTEMIC_GRAPH_TEST_BINARY_SHA256 is required for exact certification"

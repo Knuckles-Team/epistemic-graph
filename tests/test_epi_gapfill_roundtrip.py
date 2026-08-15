@@ -19,8 +19,12 @@ reach it.
    grounded/preferred/stable argumentation semantics directly (previously reachable
    only COMPOSED inside ``epistemic_status``), via :meth:`QueryClient.resolve_conflict`.
 
-This is self-contained: it builds + manages its OWN server process, independent of
-the session-wide ``full`` fixture in ``conftest.py``. ``epistemic-causal``/
+This is self-contained: it manages its OWN server process (dedicated socket +
+persist dir), independent of the session-wide ``full`` fixture in
+``conftest.py`` -- but it reuses that same module's ``EPISTEMIC_GRAPH_TEST_BINARY``
+seam (``_prebuilt_test_binary()``) before ever paying for its own ``cargo build``,
+so setting that env var (as the session fixture's caller already does) skips the
+build here too. ``epistemic-causal``/
 ``epistemic-redaction``/``jobs``/``epistemic-tms`` are all now folded into ``full``
 (see the root ``Cargo.toml``'s ``full`` feature list) -- ``FEATURES`` below also adds
 ``viz-static-export`` even though this module never exercises it, purely so its own
@@ -44,6 +48,7 @@ import pytest
 from conftest import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
+    _prebuilt_test_binary,
     bootstrap_context,
     find_server_binary,
     request_context,
@@ -58,7 +63,15 @@ FEATURES = "full viz-static-export"
 
 
 def _build() -> str | None:
-    """Build the gap-fill binary ONCE and return its path (or None on failure)."""
+    """Return the shared `EPISTEMIC_GRAPH_TEST_BINARY` (see conftest.py's
+    `_prebuilt_test_binary()`) when one is configured, honoring the SAME
+    seam the session-wide `full` fixture uses so this module never pays its
+    own `cargo build` when a caller already has a matching binary. Falls back
+    to building the gap-fill binary ONCE and returning its path (or None on
+    failure) only when no prebuilt binary is configured."""
+    prebuilt = _prebuilt_test_binary()
+    if prebuilt is not None:
+        return prebuilt
     r = subprocess.run(
         ["cargo", "build", "--features", FEATURES],
         cwd=RUST_DIR,

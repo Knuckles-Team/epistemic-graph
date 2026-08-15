@@ -4,12 +4,16 @@
 server built from THIS worktree and get back real, non-empty, format-appropriate
 rendered bytes plus a real ``view_result``.
 
-Self-contained: it builds + manages its OWN server process (a dedicated binary
-built with ``viz-static-export`` on top of ``full``), independent of the
-session-wide ``full`` fixture in ``conftest.py`` (which does not carry
-``viz-static-export`` — deliberately opt-in, not folded into ``full``; see the
-root ``Cargo.toml``'s doc comment on that feature). Mirrors
-``test_epi_gapfill_roundtrip.py``'s exact self-building-fixture pattern.
+Self-contained: it manages its OWN server process (a dedicated binary built
+with ``viz-static-export`` on top of ``full``, on its own socket + persist
+dir), independent of the session-wide ``full`` fixture in ``conftest.py``
+(which does not carry ``viz-static-export`` — deliberately opt-in, not folded
+into ``full``; see the root ``Cargo.toml``'s doc comment on that feature). It
+reuses ``conftest.py``'s ``EPISTEMIC_GRAPH_TEST_BINARY`` seam
+(``_prebuilt_test_binary()``) before ever paying for its own ``cargo build`` —
+a caller-supplied binary is trusted to have been built with a superset of the
+features this module needs, exactly like the session fixture already trusts
+it. Mirrors ``test_epi_gapfill_roundtrip.py``'s exact fixture pattern.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ import pytest
 from conftest import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
+    _prebuilt_test_binary,
     bootstrap_context,
     find_server_binary,
     request_context,
@@ -37,7 +42,12 @@ FEATURES = "full viz-static-export"
 
 
 def _build() -> str | None:
-    """Build the viz-enabled binary ONCE and return its path (or None on failure)."""
+    """Return the shared `EPISTEMIC_GRAPH_TEST_BINARY` (see conftest.py's
+    `_prebuilt_test_binary()`) when one is configured, else build the
+    viz-enabled binary ONCE and return its path (or None on failure)."""
+    prebuilt = _prebuilt_test_binary()
+    if prebuilt is not None:
+        return prebuilt
     r = subprocess.run(
         ["cargo", "build", "--features", FEATURES],
         cwd=RUST_DIR,

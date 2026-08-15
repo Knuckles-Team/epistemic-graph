@@ -50,6 +50,7 @@ import time
 from pathlib import Path
 
 import pytest
+from conftest import _prebuilt_test_binary
 
 # This module drives its OWN dedicated `lake-fixture-export`/`epistemic-graph-server`
 # subprocesses; it does not need the shared session-scoped engine conftest starts for
@@ -302,8 +303,17 @@ def iceberg_server(tmp_path_factory):
         "GRAPH_SERVICE_PERSIST_DIR": str(persist_dir),
         "EPISTEMIC_GRAPH_ICEBERG_ADDR": f"127.0.0.1:{iceberg_port}",
     }
-    proc = subprocess.Popen(
-        [
+    # Prefer the shared `EPISTEMIC_GRAPH_TEST_BINARY` (see conftest.py's
+    # `_prebuilt_test_binary()`) so this module never pays for its own `cargo
+    # build`/`cargo run` compile of the real server binary when a caller
+    # already has a matching one -- this is the same `epistemic-graph-server`
+    # binary the shared session fixture uses, just launched on a private
+    # socket/port so `--iceberg-addr` can be exercised in isolation.
+    prebuilt = _prebuilt_test_binary()
+    if prebuilt is not None:
+        command = [prebuilt, "--socket-path", socket_path]
+    else:
+        command = [
             "cargo",
             "run",
             "--quiet",
@@ -314,7 +324,9 @@ def iceberg_server(tmp_path_factory):
             "--",
             "--socket-path",
             socket_path,
-        ],
+        ]
+    proc = subprocess.Popen(
+        command,
         cwd=str(REPO_ROOT),
         env=env,
         stdout=subprocess.PIPE,
