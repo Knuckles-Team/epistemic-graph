@@ -35,7 +35,7 @@ use tokio::sync::RwLock;
 use eg_statechart::{Context, EventInput, StatechartDef, StatechartError, StatechartStore};
 use eg_types::statechart::StatechartOp;
 
-use crate::protocol::{Response, ResultPayload};
+use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::state::ServerState;
 
@@ -83,7 +83,7 @@ pub(crate) async fn handle(
     let result = match op {
         StatechartOp::Define { def_msgpack } => op_define(&store, &def_msgpack),
         StatechartOp::Instantiate { def_id, context } => {
-            op_instantiate(&store, &def_id, context, tenant, actor)
+            op_instantiate(&store, req_id, authority, &def_id, context)
         }
         StatechartOp::SendEvent {
             instance_id,
@@ -125,16 +125,46 @@ fn op_define(store: &StatechartStore, def_msgpack: &[u8]) -> Result<serde_json::
     Ok(serde_json::json!({ "def_id": def_id }))
 }
 
+/// Create an instance deterministically (CONCEPT:INT-P2-2): `request_batch_id` is
+/// a pure hash of the request identity (tenant+actor namespace, request id, the
+/// exact `Instantiate` op) — fixed BEFORE Raft proposal and therefore identical on
+/// every state-machine replica — and `committed_at_ms` is the leader-selected
+/// commit time every replica applies via `authoritative_now_ms()`. Together they
+/// remove `StatechartStore::instantiate`'s local clock/counter reads from the
+/// replicated write path, mirroring `handlers::jobs::compile_job_batch` +
+/// `JobStore::submit_batch`.
 fn op_instantiate(
     store: &StatechartStore,
+    req_id: u64,
+    authority: &CarrierAuthority,
     def_id: &str,
     context: serde_json::Value,
-    tenant: &str,
-    actor: &str,
 ) -> Result<serde_json::Value, String> {
+    let tenant = authority.tenant_scope();
+    let actor = authority.actor_scope();
+    let method = Method::Statechart {
+        op: StatechartOp::Instantiate {
+            def_id: def_id.to_string(),
+            context: context.clone(),
+        },
+    };
+    let request_batch_id = crate::server::mutation_batch::opaque_request_key(
+        "statechart-instantiate",
+        &authority.namespace("statechart-instances", "instantiate"),
+        req_id,
+        &method,
+    );
+    let committed_at_ms = crate::server::dispatch::authoritative_now_ms();
     let context = Context::from_value(context)?;
-    let instance = store
-        .instantiate(def_id, context, tenant, actor)
+    let (instance, _replayed) = store
+        .instantiate_batch(
+            def_id,
+            context,
+            tenant,
+            actor,
+            &request_batch_id,
+            committed_at_ms,
+        )
         .map_err(|e| e.to_string())?;
     serde_json::to_value(&instance).map_err(|e| e.to_string())
 }
@@ -153,8 +183,13 @@ fn op_send_event(
     // instance id never becomes a cross-tenant read/write handle.
     owned_instance(store, tenant, actor, instance_id)?;
     let event_input = EventInput::with_payload(event, payload);
+    // `authoritative_now_ms()` resolves to the SAME leader-selected commit time on
+    // every Raft state-machine replica (see `StatechartStore::send_event`'s doc),
+    // so the resulting instance image and its content-addressed MutationBatch are
+    // byte-identical across replicas.
+    let now_ms = crate::server::dispatch::authoritative_now_ms() as i64;
     let outcome = store
-        .send_event(instance_id, &event_input, expected_version)
+        .send_event(instance_id, &event_input, expected_version, now_ms)
         .map_err(|e| e.to_string())?;
     let effects: Vec<&eg_statechart::Action> = outcome.outcome.effects().collect();
     Ok(serde_json::json!({
@@ -226,6 +261,17 @@ mod tests {
         (StatechartStore::open_in_dir(dir.path()).unwrap(), dir)
     }
 
+    /// A `CarrierAuthority` for a given `(actor, tenant)` pair, mirroring
+    /// `sql_tables.rs`'s own test helper of the same shape.
+    fn authority(actor: &str, tenant: &str) -> CarrierAuthority {
+        CarrierAuthority::from_verified(
+            &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                actor, tenant,
+            ),
+        )
+        .unwrap()
+    }
+
     fn turnstile_msgpack() -> Vec<u8> {
         let def = StatechartDef {
             name: "turnstile".into(),
@@ -261,18 +307,21 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let inst = op_instantiate(&store, &def_id, serde_json::Value::Null, "t1", "a1").unwrap();
+        let auth = authority("a1", "t1");
+        let inst = op_instantiate(&store, 1, &auth, &def_id, serde_json::Value::Null).unwrap();
         let instance_id = inst["instance_id"].as_str().unwrap().to_string();
         assert_eq!(
             inst["configuration"]["active"],
             serde_json::json!(["locked"])
         );
+        let tenant = auth.tenant_scope();
+        let actor = auth.actor_scope();
 
         // fire coin -> unlocked
         let sent = op_send_event(
             &store,
-            "t1",
-            "a1",
+            tenant,
+            actor,
             &instance_id,
             "coin".into(),
             serde_json::Value::Null,
@@ -289,8 +338,8 @@ mod tests {
         // undefined edge (coin from unlocked) is a no-op, not an error
         let noop = op_send_event(
             &store,
-            "t1",
-            "a1",
+            tenant,
+            actor,
             &instance_id,
             "coin".into(),
             serde_json::Value::Null,
@@ -300,12 +349,12 @@ mod tests {
         assert_eq!(noop["fired"], serde_json::json!(false));
 
         // get + list are owner-scoped
-        let got = op_get_state(&store, "t1", "a1", &instance_id).unwrap();
+        let got = op_get_state(&store, tenant, actor, &instance_id).unwrap();
         assert_eq!(
             got["configuration"]["active"],
             serde_json::json!(["unlocked"])
         );
-        let listed = op_list(&store, "t1", "a1", None).unwrap();
+        let listed = op_list(&store, tenant, actor, None).unwrap();
         assert_eq!(listed["count"], serde_json::json!(1));
     }
 
@@ -316,17 +365,23 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
-        let inst = op_instantiate(&store, &def_id, serde_json::Value::Null, "owner", "a").unwrap();
+        let owner_auth = authority("a", "owner");
+        let inst =
+            op_instantiate(&store, 1, &owner_auth, &def_id, serde_json::Value::Null).unwrap();
         let instance_id = inst["instance_id"].as_str().unwrap().to_string();
 
-        // A different tenant cannot read it...
-        let err = op_get_state(&store, "intruder", "a", &instance_id).unwrap_err();
+        // A different tenant (same actor label) cannot read it...
+        let intruder_auth = authority("a", "intruder");
+        let intruder_tenant = intruder_auth.tenant_scope();
+        let intruder_actor = intruder_auth.actor_scope();
+        let err =
+            op_get_state(&store, intruder_tenant, intruder_actor, &instance_id).unwrap_err();
         assert!(err.contains("not found or not owned"));
         // ...cannot drive it...
         assert!(op_send_event(
             &store,
-            "intruder",
-            "a",
+            intruder_tenant,
+            intruder_actor,
             &instance_id,
             "coin".into(),
             serde_json::Value::Null,
@@ -335,7 +390,7 @@ mod tests {
         .is_err());
         // ...and does not see it in their listing.
         assert_eq!(
-            op_list(&store, "intruder", "a", None).unwrap()["count"],
+            op_list(&store, intruder_tenant, intruder_actor, None).unwrap()["count"],
             serde_json::json!(0)
         );
     }
@@ -347,7 +402,8 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
-        assert!(op_instantiate(&store, &def_id, serde_json::json!(42), "t", "a").is_err());
+        assert!(op_instantiate(&store, 1, &authority("a", "t"), &def_id, serde_json::json!(42))
+            .is_err());
     }
 
     #[test]
@@ -357,13 +413,14 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
-        let inst = op_instantiate(&store, &def_id, serde_json::Value::Null, "t", "a").unwrap();
+        let auth = authority("a", "t");
+        let inst = op_instantiate(&store, 1, &auth, &def_id, serde_json::Value::Null).unwrap();
         let instance_id = inst["instance_id"].as_str().unwrap().to_string();
         // stored version is 0; a stale expected_version is rejected
         let err = op_send_event(
             &store,
-            "t",
-            "a",
+            auth.tenant_scope(),
+            auth.actor_scope(),
             &instance_id,
             "coin".into(),
             serde_json::Value::Null,

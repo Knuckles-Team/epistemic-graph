@@ -809,6 +809,17 @@ fn native_route_target(
                 "control",
             )
         }
+        // Not graph-scoped (own `statecharts.redb`, keyed by def_id/instance_id) --
+        // one totally-ordered consensus route per tenant, structurally identical
+        // to `AnalyticsJob` above.
+        #[cfg(feature = "statechart")]
+        NativeMutationCommand::Statechart { .. } => {
+            crate::server::mutation_batch::opaque_coordinator_key(
+                "raft-native-statechart",
+                tenant_scope,
+                "control",
+            )
+        }
         #[cfg(feature = "sqlite-file")]
         NativeMutationCommand::SqliteCatalog { .. } => {
             crate::server::mutation_batch::opaque_coordinator_key(

@@ -32,6 +32,10 @@ hex = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
+# Already a dev-dependency of eg-jobs/eg-plan (workspace-wide, not a NEW crates.io
+# dependency) -- reused here for DE7's replay-determinism property test, the same
+# way eg-jobs' own sibling test does.
+proptest = "1"
 
 [features]
 default = []

@@ -702,7 +702,7 @@ mod tests {
         assert!(instance.in_state("submitted"));
 
         let claimed = store
-            .send_event(&instance.instance_id, &EventInput::new("claim"), None)
+            .send_event(&instance.instance_id, &EventInput::new("claim"), None, 1)
             .unwrap();
         assert!(claimed.instance.in_state("running"));
 
@@ -714,6 +714,7 @@ mod tests {
                     payload(&[("stalled", serde_json::json!(true))]),
                 ),
                 None,
+                2,
             )
             .unwrap();
         assert!(stalled.instance.in_state("stalled"));
