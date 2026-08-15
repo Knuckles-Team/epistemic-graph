@@ -27,8 +27,17 @@ import shutil
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ci_gate_replica.py"
+
+# Static tests of a Python script that parses YAML/TOML and shells out to
+# `bash -c` for its OWN (mocked-away, in these tests) subprocess calls --
+# never touches the compiled engine. Without this marker every test here
+# would pay the shared session fixture's `cargo build --features full` +
+# server-start cost (conftest.py) for nothing.
+pytestmark = pytest.mark.no_engine
 
 
 def _load_module():
@@ -266,3 +275,140 @@ def test_build_affecting_predicate_excludes_unrelated_paths():
         "epistemic_graph/client.py",
     ):
         assert is_build_affecting(path) is False, f"expected {path!r} to NOT be build-affecting"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# GAP 4 — local-host external-toolchain detection for a RUN step's own
+# cargo invocation. Mirror image of GAP 2 above: GAP 2 fires when the REPO's
+# build config needs a binary no CI RUNNER installs (always a real defect);
+# this fires when a step needs a binary THIS DEV HOST doesn't have (never a
+# defect — classified NOT_VALIDATED_LOCALLY, not FAILED). Both directions
+# proven below, plus the "must not create a false skip" guard for the
+# feature this task's own problem statement assumed was toolchain-gated
+# (gpu-cuda) but, per cudarc 0.17.8's own build.rs and an empirical
+# `cargo check --features gpu-cuda`, is not.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_expand_features_resolves_full_extras_to_ros2_rmw_transitively():
+    m = _load_module()
+    table = m._load_cargo_features()
+    resolved = m._expand_features({"full-extras"}, table, all_features=False)
+    for expected in ("full-extras", "full", "gpu-cuda", "ros2-bridge", "ros2-dds", "ros2-rmw"):
+        assert expected in resolved, f"{expected!r} missing from full-extras closure: {sorted(resolved)}"
+
+
+def test_all_features_flag_seeds_the_closure_with_every_feature():
+    m = _load_module()
+    table = m._load_cargo_features()
+    resolved = m._expand_features(set(), table, all_features=True)
+    assert "ros2-rmw" in resolved
+    assert resolved == set(table) | m._expand_features(set(table), table, all_features=False)
+
+
+def test_extract_requested_features_handles_space_and_equals_and_all_features():
+    m = _load_module()
+    assert m._extract_requested_features(
+        "cargo build --no-default-features --features full-extras"
+    ) == ({"full-extras"}, False)
+    assert m._extract_requested_features("cargo build --features=a,b -p foo") == ({"a", "b"}, False)
+    assert m._extract_requested_features(
+        "cargo clippy --workspace --all-features --all-targets -- -D warnings"
+    ) == (set(), True)
+    assert m._extract_requested_features("echo not a cargo invocation at all") == (set(), False)
+
+
+def test_check_toolchain_requirements_flags_missing_cmake_for_ros2_rmw(monkeypatch):
+    """Direction 1: tool genuinely absent -> a named, loud reason, not a
+    silent skip and not an attempted run."""
+    m = _load_module()
+    table = m._load_cargo_features()
+    monkeypatch.setattr(m.shutil, "which", lambda tool: None)
+    reason = m.check_toolchain_requirements("cargo build --no-default-features --features full-extras", table)
+    assert reason is not None
+    assert "cmake" in reason
+    assert "ros2-rmw" in reason
+
+
+def test_check_toolchain_requirements_passes_when_tool_present(monkeypatch):
+    """Direction 2: same feature, tool now resolvable on PATH (a stub is
+    enough -- only presence is checked, matching how a real CI runner or a
+    different dev host would already have it) -> no longer flagged, the
+    step is left as an ordinary RUN to be attempted."""
+    m = _load_module()
+    table = m._load_cargo_features()
+    monkeypatch.setattr(m.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    reason = m.check_toolchain_requirements("cargo build --no-default-features --features full-extras", table)
+    assert reason is None
+
+
+def test_check_toolchain_requirements_does_not_false_positive_on_gpu_cuda(monkeypatch):
+    """Regression guard for the exact wrong premise this task's own problem
+    statement started from: gpu-cuda must NOT be treated as nvcc-gated. If
+    it ever were, a step that actually compiles fine here would be silently
+    downgraded from a counted RUN to an uncounted NOT_VALIDATED_LOCALLY --
+    the coverage-regression failure mode this whole script exists to
+    prevent. Simulates nvcc (and every other tool) being ABSENT to prove
+    gpu-cuda alone never trips any entry."""
+    m = _load_module()
+    table = m._load_cargo_features()
+    monkeypatch.setattr(m.shutil, "which", lambda tool: None)
+    reason = m.check_toolchain_requirements("cargo build --no-default-features --features gpu-cuda", table)
+    assert reason is None, f"gpu-cuda must never be toolchain-gated here, got: {reason!r}"
+    reason = m.check_toolchain_requirements("cargo build --no-default-features --features ros2-dds", table)
+    assert reason is None
+    reason = m.check_toolchain_requirements("cargo build --no-default-features --features ros2-bridge", table)
+    assert reason is None
+
+
+def test_check_toolchain_requirements_ignores_non_cargo_text():
+    m = _load_module()
+    table = m._load_cargo_features()
+    assert m.check_toolchain_requirements("python3 scripts/bench_gate.py", table) is None
+
+
+def test_build_plan_reclassifies_run_step_when_required_tool_missing(monkeypatch):
+    """End-to-end: build_plan_for_workflow (not just the helper function)
+    turns the real advisory.yml full-extras leg from RUN into
+    NOT_VALIDATED_LOCALLY-bound TOOLCHAIN_MISSING when cmake is absent, and
+    leaves every OTHER matrix leg (that doesn't transitively need ros2-rmw)
+    alone as RUN -- proving this is NOT a `job == "feature-matrix"`
+    special-case: legs of the very same job are treated differently based
+    purely on what their own command line requests."""
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
+    table = m._load_cargo_features()
+    monkeypatch.setattr(m.shutil, "which", lambda tool: None)
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["advisory.yml"], doc, feature_table=table)
+    by_job = {p["job"]: p for p in plan if p["job"].startswith("feature-matrix#") and p["name"].startswith("Build ")}
+    assert by_job["feature-matrix#full-extras"]["mode"] == "TOOLCHAIN_MISSING"
+    assert "cmake" in by_job["feature-matrix#full-extras"]["detail"]
+    assert by_job["feature-matrix#full"]["mode"] == "RUN"
+    assert by_job["feature-matrix#slim-lib"]["mode"] == "RUN"
+    assert by_job["feature-matrix#default"]["mode"] == "RUN"
+
+
+def test_build_plan_leaves_full_extras_as_run_when_toolchain_present():
+    """Direction 2 at the build_plan_for_workflow level, using whatever this
+    test host's REAL PATH provides (no monkeypatch) -- proves the mechanism
+    does not default to pessimistic/always-skip; it actually checks."""
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
+    table = m._load_cargo_features()
+    if m.shutil.which("cmake") is None or m.shutil.which("cc") is None:
+        pytest.skip("this test host itself lacks cmake/cc; nothing to prove here")
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["advisory.yml"], doc, feature_table=table)
+    full_extras = next(p for p in plan if p["job"] == "feature-matrix#full-extras" and p["name"] == "Build full-extras")
+    assert full_extras["mode"] == "RUN"
+
+
+def test_consistency_check_unaffected_by_toolchain_detection():
+    """--consistency-check must still pass on the real repo state and still
+    fail on an unclassified job regardless of GAP 4 -- the two mechanisms
+    are orthogonal (job/workflow coverage vs. per-step local tool
+    availability)."""
+    m = _load_module()
+    assert m.consistency_check(verbose=False) is True
+    release_doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    release_doc["jobs"]["another-new-job"] = {"runs-on": "ubuntu-latest", "steps": [{"run": "echo hi"}]}
+    assert m.consistency_check(verbose=False, workflow_docs={"release.yml": release_doc}) is False
