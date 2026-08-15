@@ -3511,7 +3511,7 @@ fn run(
     loop {
         match rx.recv_timeout(tick) {
             Ok(cmd) => {
-                if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto) {
+                if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto, &stats) {
                     // shutdown: flush whatever is pending durably, then stop.
                     commit_now(&mut pending, Durability::Immediate, false);
                     break;
@@ -3519,7 +3519,7 @@ fn run(
                 // Drain the rest of the burst so it coalesces into one commit.
                 let mut stop = false;
                 while let Ok(cmd) = rx.try_recv() {
-                    if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto) {
+                    if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto, &stats) {
                         stop = true;
                         break;
                     }
@@ -3560,13 +3560,13 @@ fn run(
                         lingered = true;
                         match rx.recv_timeout(group_commit.linger) {
                             Ok(cmd) => {
-                                if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto) {
+                                if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto, &stats) {
                                     commit_now(&mut pending, Durability::Immediate, true);
                                     return;
                                 }
                                 // Drain everyone who arrived during the linger window.
                                 while let Ok(cmd) = rx.try_recv() {
-                                    if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto) {
+                                    if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto, &stats) {
                                         commit_now(&mut pending, Durability::Immediate, true);
                                         return;
                                     }
@@ -3641,7 +3641,28 @@ fn handle_cmd(
     // Auto-sized early-flush op threshold (CONCEPT:AU-KG.backend.b-auto-sizeb).
     flush_threshold: usize,
     crypto: crate::redb_store::DurableCrypto<'_>,
+    // Group-commit observability (CONCEPT:EG-KG.backend.adaptive-linger-coalesce). Every flush this
+    // function performs — the early-flush bound below AND every "flush pending
+    // mutations first" side effect of a read/purge/register/etc. command — is a REAL
+    // group commit and must be accounted identically to the run-loop's own
+    // `commit_now`, or `commit_stats()` silently undercounts (down to 0) any batch
+    // that happens to settle on one of these paths instead, even though the ops
+    // durably landed and every commit-before-ack waiter still fires correctly. See
+    // the local `flush` helper immediately below and GOC-70 rule 1 (account for the
+    // op on whichever path it took — don't assert a specific path was taken).
+    stats: &RedbCommitStats,
 ) -> bool {
+    // Every `commit_and_notify` call in this function MUST go through this helper so
+    // the batch is recorded before it is committed+acked, exactly like `run`'s
+    // `commit_now` — same ordering guarantee (record happens-before the oneshot
+    // notify on this single writer thread), just reused across every early-flush
+    // call site instead of only the run-loop's own drain/linger/tick path.
+    let flush = |pending: &mut Pending| {
+        if !pending.is_empty() {
+            stats.record(pending.ops.len(), false);
+        }
+        commit_and_notify(db, pending, Durability::Immediate, crypto);
+    };
     match cmd {
         Cmd::Mutation {
             graph,
@@ -3655,7 +3676,7 @@ fn handle_cmd(
             // commit-before-ack waiter for the ops in this flush. The threshold is
             // hardware-auto-sized (CONCEPT:AU-KG.backend.b-auto-sizeb) — small on a Pi, large on a big box.
             if pending.ops.len() >= flush_threshold {
-                commit_and_notify(db, pending, Durability::Immediate, crypto);
+                flush(pending);
             }
             false
         }
@@ -3667,7 +3688,7 @@ fn handle_cmd(
         } => {
             // Flush pending mutations first so a graph's rows and its meta land in a
             // consistent order, then durably write the graph_meta row.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = write_graph_meta(db, &graph, &name, graph_type);
             let _ = done.send(res);
             false
@@ -3676,7 +3697,7 @@ fn handle_cmd(
             // Flush pending mutations first so we never purge a graph and then
             // re-apply a buffered op for it out of order, then drop ALL of its rows
             // (incl. graph_meta) in one durable transaction.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(purge_graph_rows(db, &graph, crypto));
             false
         }
@@ -3687,20 +3708,20 @@ fn handle_cmd(
         } => {
             // Flush pending (incl. any awaited ops) so the read reflects the latest
             // durable state, then point-read the node row.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(read_one_node(db, &graph, &node_id, crypto));
             false
         }
         Cmd::Load { reply } => {
             // Flush pending so the read sees the latest, then scan the owned DB.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(read_all_dumps(db, crypto));
             false
         }
         Cmd::ReadGraphDump { graph, reply } => {
             // Flush pending so the rehydrated dump reflects the latest durable state,
             // then range-scan ONE graph's rows (CONCEPT:EG-KG.storage.100m-tenant).
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(read_graph_dump(db, &graph, crypto));
             false
         }
@@ -3711,7 +3732,7 @@ fn handle_cmd(
         } => {
             // Flush pending first (same consistency contract as ReadGraphDump), then
             // fetch ONE bounded page straight off the durable store (CONCEPT:EG-KG.sharding.paged-lazy-open, L38).
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(crate::redb_store::read_graph_dump_page(
                 db,
                 &graph,
@@ -3731,14 +3752,14 @@ fn handle_cmd(
         Cmd::ExportGraphRaw { graph, reply } => {
             // CONCEPT:EG-KG.backend.catalog-shard-resolve — flush pending so every committed mutation is captured, then
             // scan this graph's rows VERBATIM (raw blobs — encryption + audit chain kept).
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(super::online_reshard::export_graph_raw(db, &graph));
             false
         }
         Cmd::ImportGraphRaw { graph, rows, reply } => {
             // CONCEPT:EG-KG.backend.catalog-shard-resolve — flush pending first (consistency), then land the migrated
             // rows verbatim in ONE durable commit (the move's commit-before-ack point).
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(super::online_reshard::import_graph_raw(db, &graph, &rows));
             false
         }
@@ -3749,14 +3770,14 @@ fn handle_cmd(
         } => {
             // CONCEPT:EG-KG.backend.flush-pending-first — flush pending first (consistency), then land ONLY the delta
             // rows (upserts + removals) in ONE durable commit (the under-quiesce write).
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(super::online_reshard::import_graph_delta(
                 db, &graph, &delta,
             ));
             false
         }
         Cmd::PurgeMovedMutationRows { graph, reply } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(super::online_reshard::purge_moved_mutation_rows(db, &graph));
             false
         }
@@ -3764,13 +3785,13 @@ fn handle_cmd(
         Cmd::AuditVerify { graph, reply } => {
             // Flush pending so the chain walk includes the latest durable audit
             // entries, then verify the hash chain (CONCEPT:EG-KG.sharding.row-level-security).
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(crate::redb_store::verify_audit(db, &graph));
             false
         }
         #[cfg(all(test, feature = "security"))]
         Cmd::TestTamperAudit { graph, seq, reply } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = (|| {
                 let wtx = db.begin_write().map_err(|e| e.to_string())?;
                 {
@@ -3806,7 +3827,7 @@ fn handle_cmd(
             // Flush pending first so the anchor's cache-seed (on first touch) and
             // its audit-chain append see the latest durable state, mirroring
             // AuditVerify/TestTamperAudit above.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = crate::redb_store::provenance_anchor_commit(
                 db,
                 &mut pending.provenance_anchor_cache,
@@ -3825,7 +3846,7 @@ fn handle_cmd(
             anchor_seq,
             reply,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = crate::redb_store::prove_inclusion(db, &graph, &node_id, anchor_seq, crypto);
             let _ = reply.send(res);
             false
@@ -3841,7 +3862,7 @@ fn handle_cmd(
             // Flush pending first so this cross-modal txn observes the latest durable
             // state (its vector read-modify-write of the SEMANTIC blob must start from
             // the committed store), then land ALL modalities in ONE WriteTransaction.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = commit_crossmodal(
                 db,
                 &graph,
@@ -3870,7 +3891,7 @@ fn handle_cmd(
             } = *payload;
             // Preserve queue order, then let one immediate transaction own every
             // modality and every universal coordinator record.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = commit_mutation_batch_crossmodal(
                 db,
                 crate::redb_store::CrossModalCommitInput {
@@ -3904,7 +3925,7 @@ fn handle_cmd(
             // Preserve command ordering and make the batch its own indivisible
             // commit point.  Pending best-effort/grouped writes land first; none
             // can be folded into or acknowledged as part of half this batch.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = if let Some(state) = authoritative_state_msgpack.as_deref() {
                 commit_mutation_batch_state(
                     db,
@@ -3941,7 +3962,7 @@ fn handle_cmd(
             authority,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = (|| {
                 let mut wtx = db.begin_write().map_err(|error| error.to_string())?;
                 wtx.set_durability(Durability::Immediate)
@@ -3961,7 +3982,7 @@ fn handle_cmd(
             authority,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = (|| {
                 let mut wtx = db.begin_write().map_err(|error| error.to_string())?;
                 wtx.set_durability(Durability::Immediate)
@@ -3981,7 +4002,7 @@ fn handle_cmd(
             now_ms,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = crate::redb_store::development_lane::commit_development_lane(
                 db, &graph, &method, now_ms, crypto,
             );
@@ -3996,7 +4017,7 @@ fn handle_cmd(
             } = *payload;
             // Ordering and atomicity mirror MutationBatch: pending grouped writes
             // commit first, then this envelope owns one indivisible fsync point.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = commit_change_envelope(
                 db,
                 &graph,
@@ -4017,7 +4038,7 @@ fn handle_cmd(
             } = *payload;
             // Same ordering/atomicity as the single envelope: flush any pending
             // grouped writes first, then this whole page owns one indivisible fsync.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let res = commit_change_envelopes(
                 db,
                 &graph,
@@ -4041,7 +4062,7 @@ fn handle_cmd(
         } => {
             // A claim observes every prior batch/outbox write and installs all
             // returned leases atomically before any worker is notified.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let result =
                 claim_mutation_outbox(db, &graph, &consumer, now_ms, lease_ms, limit, crypto);
             let _ = done.send(result);
@@ -4054,7 +4075,7 @@ fn handle_cmd(
             now_ms,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let result = ack_mutation_outbox(db, &graph, &lease, &projection, now_ms, crypto);
             let _ = done.send(result);
             false
@@ -4084,7 +4105,7 @@ fn handle_cmd(
             hi,
             reply,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(read_raft_log_range(db, group_id, lo, hi, crypto));
             false
         }
@@ -4093,7 +4114,7 @@ fn handle_cmd(
             from,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(delete_raft_log_from(db, group_id, from));
             false
         }
@@ -4102,12 +4123,12 @@ fn handle_cmd(
             upto,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(purge_raft_log_upto(db, group_id, upto));
             false
         }
         Cmd::RaftLogBounds { group_id, reply } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(raft_log_bounds(db, group_id));
             false
         }
@@ -4119,7 +4140,7 @@ fn handle_cmd(
         } => {
             // Flush pending first so meta ordering is consistent with the log, then
             // durably write the meta row in its own transaction.
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(put_raft_meta(db, group_id, &key, &val));
             false
         }
@@ -4128,7 +4149,7 @@ fn handle_cmd(
             key,
             reply,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(get_raft_meta(db, group_id, &key));
             false
         }
@@ -4138,7 +4159,7 @@ fn handle_cmd(
             slice,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(put_xshard_prepare(db, &txn_id, group_id, &slice, crypto));
             false
         }
@@ -4147,7 +4168,7 @@ fn handle_cmd(
             group_id,
             reply,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(get_xshard_prepare(db, &txn_id, group_id, crypto));
             false
         }
@@ -4157,12 +4178,12 @@ fn handle_cmd(
             retain_for_parent,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(put_xshard_decision(db, &txn_id, commit, retain_for_parent));
             false
         }
         Cmd::XshardRecoverablePendingPut { txn_id, done } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(put_xshard_recoverable_pending(db, &txn_id));
             false
         }
@@ -4171,68 +4192,68 @@ fn handle_cmd(
             group_id,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(clear_xshard_prepare(db, &txn_id, group_id));
             false
         }
         Cmd::XshardDecisionClear { txn_id, done } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(clear_xshard_decision(db, &txn_id));
             false
         }
         Cmd::XshardScanPrepares { reply } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(scan_xshard_prepares(db, crypto));
             false
         }
         Cmd::XshardScanDecisions { reply } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(scan_xshard_decisions(db));
             false
         }
         Cmd::XshardDecisionGet { txn_id, reply } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(get_xshard_decision(db, &txn_id));
             false
         }
         Cmd::XshardDecisionRetainGet { txn_id, reply } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(get_xshard_decision_retain(db, &txn_id));
             false
         }
         #[cfg(feature = "compute-dist")]
         Cmd::MatViewPut { name, blob, done } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(crate::redb_store::put_matview(db, &name, &blob));
             false
         }
         #[cfg(feature = "compute-dist")]
         Cmd::MatViewScan { reply } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(crate::redb_store::scan_matviews(db));
             false
         }
         #[cfg(feature = "matview")]
         Cmd::PlanMatViewPut { name, blob, done } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(crate::redb_store::put_plan_matview(db, &name, &blob));
             false
         }
         #[cfg(feature = "matview")]
         Cmd::PlanMatViewDelete { name, done } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(crate::redb_store::delete_plan_matview(db, &name));
             false
         }
         #[cfg(feature = "matview")]
         Cmd::PlanMatViewScan { reply } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(crate::redb_store::scan_plan_matviews(db));
             false
         }
         #[cfg(feature = "matview")]
         Cmd::MatViewOperatorStatePut { name, blob, done } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(crate::redb_store::put_matview_operator_state(
                 db, &name, &blob,
             ));
@@ -4240,13 +4261,13 @@ fn handle_cmd(
         }
         #[cfg(feature = "matview")]
         Cmd::MatViewOperatorStateDelete { name, done } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = done.send(crate::redb_store::delete_matview_operator_state(db, &name));
             false
         }
         #[cfg(feature = "matview")]
         Cmd::MatViewOperatorStateScan { reply } => {
-            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            flush(pending);
             let _ = reply.send(crate::redb_store::scan_matview_operator_state(db));
             false
         }
@@ -5572,6 +5593,31 @@ mod tests {
     /// `Interval` (the live authoritative cadence) where, pre-EG-024, a drained
     /// channel commits immediately at ~1 op/fsync.
     ///
+    /// GOC-70 (fix/micro-linger-stats-race): on the real 2-vCPU CI runner this test
+    /// failed with `ops == 0` — NOT a "stats read before the writer ran" race (the
+    /// durability assertions right above prove every write was already durably on
+    /// disk by then, and `stats.record()` is called on the SAME writer thread
+    /// strictly before that batch's `done` oneshots fire, so anything already acked
+    /// is, by program order + the oneshot channel's release/acquire handoff, already
+    /// reflected in the counters). The real bug: `handle_cmd`'s early-flush bound
+    /// (`pending.ops.len() >= flush_threshold`, memory-safety valve for a burst that
+    /// outpaces the tick) called `commit_and_notify` DIRECTLY, bypassing
+    /// `stats.record()` entirely — a batch that settles via that path durably lands
+    /// (acks fire correctly) but was silently never accounted for. `n` (256) here
+    /// used to exactly equal the old capacity-512-derived `flush_threshold` (256),
+    /// so whenever every op landed in the channel before the writer's first drain —
+    /// routine when a couple of tokio workers contend for 2 real CPUs, rare when the
+    /// writer OS thread gets its own core almost immediately on a many-core dev
+    /// box — the WHOLE batch took that unaccounted path. Fixed at the root
+    /// (`handle_cmd` now records stats on every commit path it takes, not only the
+    /// run-loop's own drain/linger/tick path) so `ops`/`commits` are accounted
+    /// identically no matter which path a batch settles through, on any core count
+    /// (GOC-70 rule 1). The capacity below is also raised so `flush_threshold` sits
+    /// well above `n`, keeping this test's OWN outcome about the micro-linger
+    /// mechanism specifically, not incidentally about the separate early-flush bound
+    /// (GOC-70 rule 3 — deterministically avoid the confound rather than depend on
+    /// which side of a threshold collision the scheduler happens to land on).
+    ///
     /// Serializes the env-mutating linger tests. `EPISTEMIC_GRAPH_REDB_GROUP_*` are
     /// process-global and read once inside `RedbBackend::open`, so two parallel tests
     /// setting different values would race the config read (the disabled test could
@@ -5595,7 +5641,22 @@ mod tests {
                     // Long interval so the ONLY thing that commits a batch is the barrier
                     // path (+ its micro-linger), never the tick.
                     DurabilityPolicy::Interval(Duration::from_millis(500)),
-                    512,
+                    // Channel capacity 4096 ⇒ `resolve_flush_threshold` (capacity/2, clamped
+                    // 256..16384) resolves to 2048 — comfortably above `n` below (256), so
+                    // the writer's early-flush memory bound (`handle_cmd`'s `pending.ops.len()
+                    // >= flush_threshold` early commit) can never fire for this batch. That
+                    // path used to collide with `n` (old capacity 512 ⇒ threshold == 256 ==
+                    // n exactly): on a scheduling pattern where every op lands in the channel
+                    // before the writer's first drain (routine on a CPU-constrained 2-vCPU
+                    // runner, rare on a many-core dev box — the exact asymmetry that hid this
+                    // from local verification), ALL 256 ops would flush through that early
+                    // path in one shot. This test exists to prove the MICRO-LINGER mechanism
+                    // specifically (CONCEPT:EG-KG.backend.adaptive-linger-coalesce), not the
+                    // separate early-flush bound, so we now deterministically keep `n` out of
+                    // the early-flush path's reach on any core count — see GOC-70 rule 3
+                    // (construct the mechanism's own contention deterministically rather than
+                    // colliding with an unrelated threshold by chance).
+                    4096,
                 )
                 .expect("open"),
             );
