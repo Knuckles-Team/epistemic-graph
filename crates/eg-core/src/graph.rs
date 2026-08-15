@@ -2991,13 +2991,51 @@ impl GraphCore {
         self.rls_projection_cache.get(actor, current_version)
     }
 
+    /// U-142/U-143/U-145 (BUG-130) — the current whole-image generation of the
+    /// projection cache. A caller MUST capture this immediately before starting an
+    /// (expensive, unlocked) [`Self::put_cached_projection`] build and pass the same
+    /// value back to it, so a whole-image replacement/clear that lands mid-build
+    /// (`Self::invalidate_projection_cache`, called from `replace_snapshot`/`clear`)
+    /// discards that build's now-stale result instead of publishing it. See
+    /// `crate::rls_projection_cache`'s `generation` field doc for the full rationale.
+    #[cfg(feature = "security")]
+    pub fn projection_cache_generation(&self) -> u64 {
+        self.rls_projection_cache.generation()
+    }
+
     /// D-OP-1 / D-OB-20 — store a freshly built RLS projection for `actor` at
     /// `version`. Call this AFTER the projection is fully built, never while
     /// holding any lock the build itself needed. See [`Self::cached_projection`]'s
-    /// doc for why this is `pub`.
+    /// doc for why this is `pub`. `generation` must be the value
+    /// [`Self::projection_cache_generation`] returned right before the build started
+    /// (U-145) — a mismatch at store time means a whole-image replacement invalidated
+    /// the cache while this build was in flight, and the result is dropped rather
+    /// than published.
     #[cfg(feature = "security")]
-    pub fn put_cached_projection(&self, actor: String, version: u64, projected: Arc<GraphCore>) {
-        self.rls_projection_cache.put(actor, version, projected);
+    pub fn put_cached_projection(
+        &self,
+        actor: String,
+        version: u64,
+        generation: u64,
+        projected: Arc<GraphCore>,
+    ) {
+        self.rls_projection_cache
+            .put(actor, version, generation, projected);
+    }
+
+    /// U-142/U-143/U-145 (BUG-130) — advance the projection cache's whole-image
+    /// generation and drop every cached entry. Called from every whole-image
+    /// transition that does not already imply a `version()` bump the cache's
+    /// (actor, version) key would itself catch: [`Self::replace_snapshot`]
+    /// (same-version resident-image replacement/reconciliation) and [`Self::clear`]
+    /// (and [`Self::hibernate`], which reuses it) — a wipe that intentionally does
+    /// not bump `version` (see that method's own doc). Mirrors the sibling
+    /// `result_cache.invalidate_all()` call already present at both sites; unlike
+    /// that cache, this one is per-actor and `security`-only, hence the separate
+    /// entry point.
+    #[cfg(feature = "security")]
+    fn invalidate_projection_cache(&self) {
+        self.rls_projection_cache.invalidate_all();
     }
 
     /// Atomically read-and-clear the dirty flag. The checkpoint calls this BEFORE
@@ -5285,6 +5323,13 @@ impl GraphCore {
             // to revalidate) — W1.6/P7.
             self.dep_clock.reset();
         }
+        // U-142/U-143/U-145 (BUG-130): this whole-image replacement may publish at
+        // the SAME `version()` a caller (`prepare_snapshot_publish`/
+        // `install_committed_snapshot`) already reconciled to, so the per-actor RLS
+        // projection cache's (actor, version) key alone would not detect it. See
+        // `Self::invalidate_projection_cache`'s doc.
+        #[cfg(feature = "security")]
+        self.invalidate_projection_cache();
         Ok(())
     }
 
@@ -5345,6 +5390,12 @@ impl GraphCore {
             // Wiping the graph also retires the dependency clock's per-dimension history (W1.6/P7).
             self.dep_clock.reset();
         }
+        // U-142/U-143/U-145 (BUG-130): same reasoning as `result_cache` above, applied
+        // to the per-actor RLS projection cache — `clear`/`hibernate` wipe the image
+        // WITHOUT bumping `version`, so `(actor, version)` alone would keep serving a
+        // pre-wipe projection as "current". See `Self::invalidate_projection_cache`.
+        #[cfg(feature = "security")]
+        self.invalidate_projection_cache();
     }
 
     /// Hibernate this graph's in-memory state (CONCEPT:EG-KG.storage.100m-tenant — cold-tenant

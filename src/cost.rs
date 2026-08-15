@@ -535,6 +535,23 @@ pub async fn enforce_memory_budgets(
                 }
             }
 
+            // U-148 / BUG-130: Steps 1-2 above only ever drop this graph's RAM
+            // (`GraphCore::evict_resident_nodes`/`hibernate`) — they never touch the
+            // REGISTRY's residency bookkeeping. When they leave the durability-confirmed
+            // core fully empty, the registry still reports `is_resident(name) == true`
+            // with zero topology: the dispatch lazy-open path (`cold_offload::lazy_open`)
+            // short-circuits on that residency check and never rehydrates it, so every
+            // whole-graph read (Cypher, counts, traversal) observes a permanently empty
+            // snapshot while a point `get_node_properties` still finds data through the
+            // separate read-through seam. Mirror `admit_capacity`'s already-correct
+            // pattern: once fully durable-confirmed-empty, transition the registry entry
+            // to catalog-only so the NEXT access takes the existing bounded durable
+            // lazy-open instead of silently serving the stale empty resident image.
+            if core.node_count() == 0 {
+                let mut s = state.write().await;
+                s.registry.evict_resident(&name);
+            }
+
             // Recompute this graph's residual footprint and update the tenant total.
             let new_mem = core.memory_estimate();
             tenant_resident = tenant_resident.saturating_sub(mem).saturating_add(new_mem);
@@ -690,7 +707,7 @@ mod tests {
         use crate::channels::ChannelManager;
         use crate::durability::DurabilityPolicy;
         use crate::isolation::IsolationLayer;
-        use crate::protocol::{GraphType, Method, Request, Response};
+        use crate::protocol::{GraphType, Method, Request, Response, ResultPayload};
         use crate::registry::GraphRegistry;
         use crate::server::persistence::read_through::{
             BackendGraphMaterializer, BackendReadThroughFactory,
@@ -1044,6 +1061,123 @@ mod tests {
                 "evicted node must still read: {:?}",
                 r.error
             );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        /// U-142/U-148 (BUG-130) — regression closing the exact coverage gap the bug
+        /// report calls out: `over_budget_evicts_and_rehydrates` above only ever
+        /// checks `GetNodeProperties`, whose redb point-read seam serves an
+        /// evicted-but-still-"resident" node just fine and therefore MASKS this
+        /// defect. Pre-fix, `enforce_memory_budgets` durability-confirmed every node
+        /// empty via `GraphCore::evict_resident_nodes` but never told the REGISTRY —
+        /// `GraphRegistry::get`/`is_resident` kept reporting the graph resident with
+        /// zero topology, so `dispatch.rs`'s cold-path lazy-open (gated on a registry
+        /// MISS) never re-triggered, and the graph stayed permanently, silently empty
+        /// to any whole-graph operation for the rest of the process's life. A
+        /// governed `GetNodeProperties` point read still worked (redb read-through has
+        /// no registry-residency dependency); a native Cypher `MATCH` did not (it runs
+        /// `analysis_snapshot()` over the live, now-permanently-empty resident
+        /// `GraphCore`, with no read-through fallback). FAILS without the
+        /// `registry.evict_resident` call added to `enforce_memory_budgets`; PASSES
+        /// with it.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn budget_eviction_leaves_graph_catalog_only_so_cypher_and_point_read_agree() {
+            let dir =
+                std::env::temp_dir().join(format!("eg-cost-cypher-evict-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let dir_s = dir.to_string_lossy().to_string();
+            let state = redb_state(&dir_s).await;
+
+            const NODE_COUNT: usize = 20;
+            create(&state, 1, "acme:solo").await;
+            let mut id = 100u64;
+            for i in 0..NODE_COUNT {
+                add(&state, id, "acme:solo", &format!("n{i}")).await;
+                id += 1;
+            }
+
+            // `acme:solo` is the ONLY graph for tenant `acme`, so a budget far below
+            // its footprint forces the enforcer to reclaim it down to zero (there is
+            // no colder sibling graph to reclaim instead).
+            let cfg = CostConfig {
+                global_ceiling_bytes: 1,
+                per_tenant_budget_bytes: 1,
+                interval_secs: 1,
+            };
+            enforce_memory_budgets(&state, cfg).await;
+
+            // The registry must have transitioned this graph OUT of the resident map
+            // entirely (catalog-only) — not merely emptied its topology while still
+            // reporting resident. This is the exact defect: pre-fix, `registry.get`
+            // still returned `Some` here because only the `GraphCore`'s RAM was
+            // cleared, never the registry entry.
+            {
+                let s = state.read().await;
+                assert!(
+                    s.registry.get("acme:solo").is_none(),
+                    "a fully durability-reclaimed graph must leave the resident map \
+                     (go catalog-only), or dispatch's cold-path lazy-open (gated on a \
+                     registry MISS) never re-triggers on the next access"
+                );
+                let manifest = s
+                    .registry
+                    .materialization_manifest("acme:solo")
+                    .expect("an evicted graph remains cataloged, just not resident");
+                assert_eq!(
+                    manifest.phase,
+                    crate::registry::MaterializationPhase::CatalogOnly,
+                    "an evicted graph must be catalog-only, ready for the next lazy-open"
+                );
+            }
+
+            // GOVERNED POINT READ: rehydrates via lazy-open, sees the durable node.
+            let point = dispatch_on_heap(
+                &state,
+                req(
+                    9001,
+                    "acme:solo",
+                    Method::GetNodeProperties {
+                        node_id: "n0".into(),
+                    },
+                ),
+            )
+            .await;
+            assert!(point.error.is_none(), "point read: {:?}", point.error);
+
+            // NATIVE CYPHER over the SAME graph, the SAME data, via the whole-graph
+            // MATCH path (`analysis_snapshot()`, no read-through fallback) — must see
+            // every durably-written node, not zero. This is the assertion prior
+            // "only GetNodeProperties" coverage never made, and the one U-142/U-148
+            // reproduced live: governed reads saw data while Cypher saw none.
+            let cypher = dispatch_on_heap(
+                &state,
+                req(
+                    9002,
+                    "acme:solo",
+                    Method::CypherQuery {
+                        query: "MATCH (n) RETURN n".into(),
+                        mode: crate::protocol::CypherMode::Read,
+                    },
+                ),
+            )
+            .await;
+            assert!(cypher.error.is_none(), "cypher: {:?}", cypher.error);
+            let bytes = match &cypher.result {
+                Some(ResultPayload::Raw(b)) => b.clone(),
+                other => panic!("expected Raw cypher result, got {other:?}"),
+            };
+            let result: crate::protocol::QueryResult = rmp_serde::from_slice(&bytes).unwrap();
+            assert_eq!(
+                result.rows.len(),
+                NODE_COUNT,
+                "Cypher must observe every durably-written node once the budget \
+                 eviction's catalog-only transition lets dispatch lazily reopen the \
+                 graph — a stale/empty-but-\"resident\" image would report 0 rows \
+                 here even though the governed point read above already found data \
+                 (through redb's separate read-through seam, which does not depend \
+                 on registry residency the way a whole-graph scan does)"
+            );
+
             let _ = std::fs::remove_dir_all(&dir);
         }
 
