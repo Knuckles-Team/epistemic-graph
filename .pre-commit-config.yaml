@@ -204,6 +204,16 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # Anti-drift check for the ci-gate-replica hook (pre-push/manual, below) —
+  # pure YAML parse, no cargo/build, <1s, so it runs on EVERY commit rather
+  # than waiting for a push to discover release.yml grew a job
+  # ci_gate_replica.py doesn't know how to classify.
+  - id: ci-gate-replica-consistency
+    name: CI gate replica — anti-drift check (release.yml jobs all classified)
+    entry: python3 scripts/ci_gate_replica.py --consistency-check
+    language: system
+    pass_filenames: false
+    always_run: true
   # rust-ci.yml `protocol-parity` job — the Python client mirrors the Rust `Method`
   # enum by sending variant-name strings (no PyO3/codegen), so a renamed/removed Rust
   # variant or an unbound new one silently drifts. This gate catches it on every
@@ -443,6 +453,30 @@ repos:
   - id: wheel-smoke
     name: wheel smoke + privacy/completeness audit — maturin build + fold + normalize + audit (HEAVY — pre-push/manual)
     entry: bash -c 'if [ -f "pyproject.toml" ] && grep -q "tool.maturin" pyproject.toml; then bash scripts/wheel_privacy_gate.sh; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-push, manual]
+  # ci-gate-replica: the individual hooks above were hand-derived mirrors of
+  # release.yml's `gates` job, one at a time, over several lanes — real but
+  # not provably complete, and drift-prone (the eg-numeric kernel build +
+  # numpy-parity gate steps were never wired into ANY local hook until this
+  # one; that gap is exactly what shipped 2.14.0-2.23.0 with no numeric
+  # kernel, invisible to every gate above). This hook instead PARSES
+  # .github/workflows/release.yml at run time (scripts/ci_gate_replica.py)
+  # and executes every step of its `gates` job verbatim — a step added there
+  # is run here with NO change to this file. Its own --consistency-check
+  # fails loudly if release.yml grows a job this script doesn't know how to
+  # classify (see the meta-tests in
+  # tests/test_ci_gate_replica_consistency_check.py). The `build`/
+  # `docker-image`/`publish-*` jobs are NOT executable locally (5-platform
+  # native matrix; tag-gated registry/PyPI publish) and are reported
+  # "NOT VALIDATED LOCALLY" with a reason in the run's summary rather than
+  # omitted — run `scripts/ci_gate_replica.sh --dry-run` to see the full
+  # plan without executing anything.
+  - id: ci-gate-replica
+    name: CI gate replica — parses release.yml, runs its gates job, reports NOT VALIDATED LOCALLY for the rest (HEAVY — pre-push/manual)
+    entry: bash -c 'bash scripts/ci_gate_replica.sh'
     language: system
     pass_filenames: false
     always_run: true
