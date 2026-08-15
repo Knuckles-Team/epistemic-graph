@@ -76,6 +76,25 @@ struct Inner {
     // Recency order, oldest at the front. `HashMap` iteration order is not defined,
     // so eviction order is tracked explicitly here rather than relied on from the map.
     order: VecDeque<String>,
+    // U-142/U-143/U-145 (BUG-130) — monotonic WHOLE-IMAGE generation, distinct from
+    // the per-write `version` key above. `version` only ever advances on a normal
+    // committed mutation; it is untouched by a same-version resident-image
+    // replacement (`GraphCore::prepare_snapshot_publish`/`install_committed_snapshot`
+    // reconciling to the SAME already-committed version) or by a whole-image wipe
+    // that intentionally does not bump `version` at all (`GraphCore::clear`, and
+    // `hibernate`, which reuses it — see their own doc comments). Either path can
+    // leave a per-actor entry cached at a `version` that is still numerically
+    // "current" while the actual graph content underneath it changed completely —
+    // exactly the disagreement live U-142 reproduced (governed node reads see the
+    // current image, Cypher over the same graph sees the just-replaced/emptied
+    // one, or vice versa) and that U-143 observed as a cache serving stale nonempty
+    // rows after a fresh native execution had already gone empty. `invalidate_all`
+    // bumps this on every such whole-image transition; `put` only publishes a build
+    // if the generation it captured before starting is still current, which also
+    // closes the race the sibling `result_cache`'s `invalidate_all()`-then-clear
+    // idiom does not: an expensive projection build in flight when a whole-image
+    // replacement happens must not publish its now-stale result afterward.
+    generation: u64,
 }
 
 impl Inner {
@@ -99,9 +118,10 @@ impl std::fmt::Debug for ProjectionCache {
     /// which is itself not `Debug`, and per-actor cache contents are not diagnostic
     /// output anyone should print anyway).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let len = self.0.lock().entries.len();
+        let inner = self.0.lock();
         f.debug_struct("ProjectionCache")
-            .field("len", &len)
+            .field("len", &inner.entries.len())
+            .field("generation", &inner.generation)
             .finish()
     }
 }
@@ -110,7 +130,9 @@ impl ProjectionCache {
     /// Fresh hit only: `None` on a cold miss OR a stale (version-mismatched) entry.
     /// A stale entry is left in place (not evicted here) — it is cheap to hold until
     /// the next `put` for that actor overwrites it, and evicting eagerly would need
-    /// the same lock a concurrent rebuild's `put` also wants.
+    /// the same lock a concurrent rebuild's `put` also wants. Entries are unreachable
+    /// past an `invalidate_all` regardless (it clears them outright), so `get` never
+    /// needs to consult `generation` itself.
     pub(crate) fn get(&self, actor: &str, current_version: u64) -> Option<Arc<GraphCore>> {
         let mut inner = self.0.lock();
         let hit = match inner.entries.get(actor) {
@@ -123,11 +145,27 @@ impl ProjectionCache {
         hit
     }
 
-    /// Insert/overwrite this actor's entry with a freshly built projection. Called
-    /// AFTER the build completes, under a separate (short) lock acquisition from
-    /// `get`'s — see the module doc for why the build itself must stay off-lock.
-    pub(crate) fn put(&self, actor: String, version: u64, core: Arc<GraphCore>) {
+    /// The current whole-image generation, to be captured by a caller BEFORE it
+    /// starts an (unlocked, potentially slow) rebuild and handed back to [`Self::put`]
+    /// once that rebuild finishes — see the `generation` field doc for why.
+    pub(crate) fn generation(&self) -> u64 {
+        self.0.lock().generation
+    }
+
+    /// Insert/overwrite this actor's entry with a freshly built projection, but ONLY
+    /// if `generation` (captured via [`Self::generation`] right before the build
+    /// started) is still the current one. A mismatch means an `invalidate_all` landed
+    /// while this build was in flight — the just-built projection reflects an image
+    /// that no longer exists, so it is discarded rather than published (never a
+    /// correctness hazard to skip a store: the next reader simply re-triggers a
+    /// fresh, now-current build). Checked and written under the SAME lock
+    /// `invalidate_all` takes, so there is no window between the check and the
+    /// store where a concurrent invalidation could sneak in.
+    pub(crate) fn put(&self, actor: String, version: u64, generation: u64, core: Arc<GraphCore>) {
         let mut inner = self.0.lock();
+        if generation != inner.generation {
+            return;
+        }
         if !inner.entries.contains_key(&actor) && inner.entries.len() >= CAPACITY {
             if let Some(evict) = inner.order.pop_front() {
                 inner.entries.remove(&evict);
@@ -135,6 +173,23 @@ impl ProjectionCache {
         }
         inner.touch(&actor);
         inner.entries.insert(actor, (version, core));
+    }
+
+    /// Advance the generation and drop every cached entry (U-142/U-143/U-145,
+    /// BUG-130). Call this from every whole-image transition that a plain `version`
+    /// bump does not already cover on its own — `GraphCore::replace_snapshot`
+    /// (same-version resident-image replacement) and `GraphCore::clear`/`hibernate`
+    /// (wipe without a version bump). Bumping generation and clearing entries under
+    /// ONE lock acquisition (rather than the sibling `result_cache`'s separate
+    /// bump-then-clear) is what lets [`Self::put`]'s single re-check under the same
+    /// lock be airtight: an in-flight build's eventual `put` either lands strictly
+    /// before this call (and is then wiped by the `entries.clear()` below) or strictly
+    /// after (and is then rejected by the generation check) — never both bypassed.
+    pub(crate) fn invalidate_all(&self) {
+        let mut inner = self.0.lock();
+        inner.generation += 1;
+        inner.entries.clear();
+        inner.order.clear();
     }
 }
 
@@ -156,7 +211,7 @@ mod tests {
     fn hit_after_put_at_same_version() {
         let cache = ProjectionCache::default();
         let c = core();
-        cache.put("alice".to_string(), 3, c.clone());
+        cache.put("alice".to_string(), 3, cache.generation(), c.clone());
         let hit = cache.get("alice", 3);
         assert!(hit.is_some());
         assert!(Arc::ptr_eq(&hit.unwrap(), &c));
@@ -165,7 +220,7 @@ mod tests {
     #[test]
     fn stale_version_is_a_miss() {
         let cache = ProjectionCache::default();
-        cache.put("alice".to_string(), 3, core());
+        cache.put("alice".to_string(), 3, cache.generation(), core());
         assert!(cache.get("alice", 4).is_none());
     }
 
@@ -174,8 +229,13 @@ mod tests {
         let cache = ProjectionCache::default();
         let alice_core = core();
         let bob_core = core();
-        cache.put("alice".to_string(), 1, alice_core.clone());
-        cache.put("bob".to_string(), 1, bob_core.clone());
+        cache.put(
+            "alice".to_string(),
+            1,
+            cache.generation(),
+            alice_core.clone(),
+        );
+        cache.put("bob".to_string(), 1, cache.generation(), bob_core.clone());
         assert!(Arc::ptr_eq(&cache.get("alice", 1).unwrap(), &alice_core));
         assert!(Arc::ptr_eq(&cache.get("bob", 1).unwrap(), &bob_core));
     }
@@ -184,15 +244,91 @@ mod tests {
     fn capacity_evicts_the_oldest_actor() {
         let cache = ProjectionCache::default();
         for i in 0..CAPACITY {
-            cache.put(format!("actor-{i}"), 0, core());
+            cache.put(format!("actor-{i}"), 0, cache.generation(), core());
         }
         // `actor-0` is the oldest in recency order (inserted first, never touched
         // since). One more DISTINCT actor beyond capacity must evict it — checked
         // without any intervening `get` on `actor-0`, since a `get` would itself
         // touch (and thus protect) the entry this test is verifying gets evicted.
-        cache.put("actor-overflow".to_string(), 0, core());
+        cache.put("actor-overflow".to_string(), 0, cache.generation(), core());
         assert!(cache.get("actor-0", 0).is_none());
         assert!(cache.get("actor-overflow", 0).is_some());
         assert!(cache.get("actor-1", 0).is_some());
+    }
+
+    /// U-142/U-143/U-145 (BUG-130) — the regression this cache exists to satisfy:
+    /// a whole-image transition (`GraphCore::replace_snapshot`/`clear`/`hibernate`)
+    /// can leave `version()` numerically unchanged (a same-version reconciliation)
+    /// or deliberately skip bumping it at all (`clear`/`hibernate`). Without an
+    /// independent generation, a cached entry at that same `version` would still
+    /// look "current" to `get` and would keep serving the PRE-replacement content —
+    /// exactly the governed-vs-Cypher disagreement U-142 reproduced live. FAILS
+    /// without the generation check in `put`/`invalidate_all` (the old code had no
+    /// `invalidate_all` at all, so the stale entry would remain gettable forever);
+    /// PASSES with it.
+    #[test]
+    fn invalidate_all_evicts_a_same_version_entry_that_a_plain_version_check_would_keep_serving() {
+        let cache = ProjectionCache::default();
+        let stale = core();
+        cache.put("alice".to_string(), 7, cache.generation(), stale.clone());
+        assert!(cache.get("alice", 7).is_some(), "sanity: cache is warm");
+
+        // Simulates `GraphCore::replace_snapshot`/`clear` — the resident image
+        // changed underneath the SAME `version` (or without bumping it at all).
+        cache.invalidate_all();
+
+        assert!(
+            cache.get("alice", 7).is_none(),
+            "a whole-image replacement/clear must evict every cached projection even \
+             when the (version) key alone would still read as current — a plain \
+             version-keyed cache with no generation would wrongly return `stale` here"
+        );
+    }
+
+    /// U-145's specific race: an expensive projection build starts (captures the
+    /// CURRENT generation), a whole-image replacement invalidates while that build
+    /// is still in flight, and only THEN does the build finish and try to publish.
+    /// Constructed deterministically per GOC-70 — no spawned tasks / no hoping two
+    /// threads interleave a particular way; the generation is captured, the
+    /// invalidation is executed synchronously, and only then is the (now-stale)
+    /// build result handed to `put`, reproducing the exact ordering "build starts
+    /// before invalidation, publishes after" without depending on scheduling.
+    #[test]
+    fn a_build_racing_invalidation_never_publishes_its_stale_result() {
+        let cache = ProjectionCache::default();
+        // Step 1: a build for `alice` starts and captures the generation token
+        // BEFORE the (expensive, here-elided) rebuild work runs.
+        let generation_at_build_start = cache.generation();
+
+        // Step 2: a whole-image replacement lands WHILE that build is still
+        // running (deterministically sequenced here, not raced).
+        cache.invalidate_all();
+
+        // Step 3: the build finishes and tries to publish using the generation it
+        // captured in step 1 — now stale.
+        let stale_result = core();
+        cache.put(
+            "alice".to_string(),
+            0,
+            generation_at_build_start,
+            stale_result.clone(),
+        );
+
+        assert!(
+            cache.get("alice", 0).is_none(),
+            "a build that started before an invalidation must not publish its \
+             now-stale result after the invalidation completed"
+        );
+
+        // A fresh build started AFTER the invalidation (current generation) still
+        // publishes normally — invalidation does not wedge the cache shut.
+        let fresh_result = core();
+        cache.put(
+            "alice".to_string(),
+            0,
+            cache.generation(),
+            fresh_result.clone(),
+        );
+        assert!(Arc::ptr_eq(&cache.get("alice", 0).unwrap(), &fresh_result));
     }
 }
