@@ -747,7 +747,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv,
-        // LTAP lakehouse materialization manager (CONCEPT:EG-317 engine-side seam,
+        // LTAP lakehouse materialization manager (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns engine-side seam,
         // INT-P2-3). Process-global + always constructed (empty) on a `lake` build —
         // the periodic drain sweep and the `lake-rest` Iceberg-REST listener below
         // both share this ONE handle.
@@ -937,7 +937,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("--obs-addr ignored: binary built without the `obs` feature");
     }
 
-    // ── Iceberg-REST catalog (CONCEPT:EG-317, INT-P2-3) ────────────────────────────
+    // ── Iceberg-REST catalog (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, INT-P2-3) ────────────────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
     // lake-rest` AND --iceberg-addr / EPISTEMIC_GRAPH_ICEBERG_ADDR is set. With the
     // feature off, or unset, this is a no-op. Serves the standards Iceberg-REST
@@ -982,7 +982,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("--iceberg-addr ignored: binary built without the `lake-rest` feature");
     }
 
-    // ── WAL/series → lakehouse materialization sweep (CONCEPT:EG-317, INT-P2-3) ────
+    // ── WAL/series → lakehouse materialization sweep (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, INT-P2-3) ────
     // Opt-in AND feature-gated: only runs when built `--features lake` AND a positive
     // interval is configured via EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS
     // (0/unset ⇒ disabled — the standing sweep never starts; a caller can still drive

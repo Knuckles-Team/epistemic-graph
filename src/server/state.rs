@@ -257,7 +257,7 @@ pub struct ServerState {
     /// catch-all.
     #[cfg(feature = "kv")]
     pub kv: Option<Arc<crate::server::kv::KvStore>>,
-    /// LTAP lakehouse materialization manager (CONCEPT:EG-317 engine-side seam, feature
+    /// LTAP lakehouse materialization manager (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns engine-side seam, feature
     /// `lake`, INT-P2-3). Owns the in-process Iceberg-REST catalog + every table's
     /// [`eg_lake::LakeTable`] (schema + durable LSN snapshot), the blob-CAS path index
     /// for the Parquet/Delta/Iceberg bytes it writes, and the bounded OpenLineage event

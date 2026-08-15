@@ -430,7 +430,7 @@ pub mod s3;
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
 
-/// LTAP lakehouse materialization tier (CONCEPT:EG-317 engine-side seam, feature
+/// LTAP lakehouse materialization tier (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns engine-side seam, feature
 /// `lake`, INT-P2-3): converts real `eg_tsdb` series into `eg_lake::LakeBatch`es,
 /// materializes them to Parquet on the blob CAS with Delta/Iceberg logs + an
 /// Iceberg-REST catalog + OpenLineage run events. The `rest` submodule (feature
@@ -584,7 +584,9 @@ mod tests {
     ///
     /// Same fix as `result_cache_dispatch_tests` (ae64cfd) and `redb_backend`'s tests
     /// (92586a7), and mirrors `src/cost.rs`'s `dispatch_on_heap`. Route every call in
-    /// this module through here -- raising RUST_MIN_STACK would only mask the class.
+    /// this module through here -- raising the thread stack size via a process
+    /// environment override would only mask the class (see
+    /// `check_current_only_architecture.py`'s gate against exactly that).
     fn dispatch_on_heap<'a>(
         state: &'a Arc<RwLock<ServerState>>,
         request: Request,
