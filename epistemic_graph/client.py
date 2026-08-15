@@ -266,6 +266,12 @@ _CANONICAL_BINARY_FIELDS = frozenset(
         "properties_msgpack",
         "conditions_msgpack",
         "updates_msgpack",
+        # Statechart::Define's payload (see `Statechart.define` below, which packs
+        # the definition and sends {"Define": {"def_msgpack": [...]}}). Omitting it
+        # here left the field outside canonicalization, so the client's MAC did not
+        # match the server's recomputation and every Statechart::Define was rejected
+        # with "Authentication failed".
+        "def_msgpack",
         "props_msgpack",
         "semantic_props_msgpack",
         "pose_msgpack",
