@@ -5388,6 +5388,22 @@ class ChannelsClient:
         return await self._client._send("GetChannelMembers", {"channel_id": channel_id})
 
 
+#: The engine's closed `GraphType` wire enum (`crates/eg-types/src/protocol.rs`
+#: `pub enum GraphType { Agent, Team, Global, Commons }`). Pinned against that
+#: exact set by `tests/test_create_graph_type_allowlist.py`.
+#:
+#: U-96/U-98: a semantic content label (e.g. `"Ontology"`) is NOT a member of
+#: this closed enum. Before this allowlist, an unsupported value was sent over
+#: the wire, failed to deserialize server-side, and the server's decode-failure
+#: path answered under a synthetic correlation id `0` -- which this client's
+#: `_pending` map never has a future for, so the caller silently timed out and
+#: retried instead of failing fast with a clear error. Validating client-side,
+#: before `_send`, turns that multi-minute timeout into an immediate,
+#: unambiguous `ValueError` and guarantees no request is ever transmitted for
+#: an unsupported type.
+VALID_GRAPH_TYPES = frozenset({"Agent", "Team", "Global", "Commons"})
+
+
 class MultiTenantClient:
     """CONCEPT:AU-KG.research.research-pipeline-runner — Multi-Tenant Management Namespace"""
 
@@ -5395,6 +5411,14 @@ class MultiTenantClient:
         self._client = client
 
     async def create(self, graph_name: str, graph_type: str = "Agent") -> None:
+        if graph_type not in VALID_GRAPH_TYPES:
+            raise ValueError(
+                f"unsupported graph_type {graph_type!r}; the engine's closed "
+                f"GraphType wire enum only accepts one of "
+                f"{sorted(VALID_GRAPH_TYPES)} (U-96: a semantic content label "
+                "like 'Ontology' is not a lifecycle/isolation graph category "
+                "-- keep ontology semantics in governed graph contents instead)"
+            )
         await self._client._send(
             "CreateGraph", {"graph_name": graph_name, "graph_type": graph_type}
         )
@@ -7937,15 +7961,34 @@ class QueryClient:
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
 
-    async def sql(self, query: str) -> list[dict[str, Any]]:
+    async def sql(
+        self, query: str, params_msgpack: bytes = b""
+    ) -> list[dict[str, Any]]:
         """Run ``query`` and return a list of row dicts keyed by column name.
 
         The engine returns ``{"columns": [...], "rows": [<msgpack-blob>, ...]}``
         (a ``Raw`` payload the transport already double-unpacks); each row blob is
         a list of cell values aligned to ``columns``. We zip them into dicts so a
         caller gets ordinary records.
+
+        U-144: ``params_msgpack`` is ALWAYS sent explicitly (defaulting to
+        ``b""``, matching the wire struct's own default), never omitted. The
+        server's HMAC verification recomputes the signed body hash from the
+        FULLY DESERIALIZED ``Method::Sql {{ query, params_msgpack }}`` —
+        `serde`'s `#[serde(default)]` only relaxes what a DEcode may omit, it
+        does not make ENcode skip the field, so `canonical_body_bytes()`
+        always includes `params_msgpack` in the map it hashes. Omitting the
+        key client-side (as this method used to) signs a *different*,
+        shorter map than the one the server reconstructs and re-hashes, so
+        the MAC never matches and every call fails closed with the generic
+        `"Authentication failed"` -- under the exact same verified session
+        that reaches `CypherQuery` fine, because `CypherQuery`'s `query`/
+        `mode` fields have no such optional/omittable field for the plain
+        Python wrapper to under-specify.
         """
-        result = await self._client._send("Sql", {"query": query})
+        result = await self._client._send(
+            "Sql", {"query": query, "params_msgpack": params_msgpack}
+        )
         return self._rows_to_dicts(result)
 
     async def cypher_read(self, query: str) -> list[dict[str, Any]]:
