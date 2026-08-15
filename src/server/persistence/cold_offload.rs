@@ -173,6 +173,16 @@ pub async fn offload_cold_tenants(
         }
         if let Some(freed) = offload_graph_core(&core, &persistence, &name) {
             if freed > 0 {
+                // U-148 / BUG-130: `offload_graph_core` only drops this graph's RAM
+                // (`GraphCore::hibernate`) — it never removes the registry's residency
+                // entry. Left as-is, `is_resident(name)` stays `true` with zero
+                // topology, so the lazy-open dispatch path never rehydrates it and
+                // every whole-graph read (Cypher, counts, traversal) observes a
+                // permanently empty snapshot. Mirror `admit_capacity`'s already-correct
+                // pattern: transition the now durability-confirmed-empty entry to
+                // catalog-only so the NEXT access takes the existing bounded durable
+                // lazy-open instead.
+                state.write().await.registry.evict_resident(&name);
                 tracker.mark_offloaded(&name);
                 offloaded += 1;
             }
