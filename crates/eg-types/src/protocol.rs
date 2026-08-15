@@ -18,6 +18,17 @@ where
     Option::<T>::deserialize(deserializer)
 }
 
+/// `skip_serializing_if` predicate for a `bool` field whose default is
+/// `false` (serde requires `fn(&T) -> bool`, so `std::ops::Not::not`'s
+/// by-value signature doesn't fit). Omitting a still-`false` field from the
+/// server's own re-serialization (`Method::canonical_body_bytes`) matches a
+/// client that never sent the key at all -- see `MineAssociate::as_claim`'s
+/// use for why this matters to the `eg2.` MAC, not just wire compactness.
+#[cfg(all(feature = "mining", feature = "epistemic"))]
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 /// serde default for association-rule `min_support` (CONCEPT:EG-KG.mining.frequent-itemset-mining):
 /// keep an itemset supported by ≥10% of transactions.
 #[cfg(feature = "mining")]
@@ -2413,7 +2424,13 @@ pub enum Method {
     #[cfg(feature = "epistemic")]
     ExplainBelief {
         node_id: String,
-        #[serde(default)]
+        // `skip_serializing_if` matches the client: it omits the key entirely
+        // when the caller doesn't pass `disclosure_level` -- without this, the
+        // server's own re-serialization (`Method::canonical_body_bytes`, used
+        // to recompute the `eg2.` MAC) would emit an explicit `null` the
+        // client never hashed, failing every un-redacted `explain_belief`
+        // call with "Authentication failed" before it reaches this handler.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         disclosure_level: Option<DisclosureLevelWire>,
     },
     /// The Phase-3 acceptance capstone (EPI-P3-5, L53): "what do we believe, why, on
@@ -3589,11 +3606,20 @@ pub enum Method {
     #[cfg(feature = "mining")]
     MineAssociate {
         /// Explicit transactions — each a set of item labels. Empty ⇒ use `source`.
-        #[serde(default)]
+        // `skip_serializing_if`: the client omits this key entirely when
+        // calling with a graph-derived `source` instead — see the matching
+        // note on `source` below.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         transactions: Vec<Vec<String>>,
         /// Graph-derived transaction source (compute-near-data). Used when
         /// `transactions` is empty.
-        #[serde(default)]
+        // `skip_serializing_if` matches the client's own omission of this key
+        // when calling with explicit `transactions` instead: without it, the
+        // server's own re-serialization (used to recompute the `eg2.` MAC
+        // from the parsed `Method`) would emit an explicit `null` the client
+        // never hashed, failing every `MineAssociate` call with
+        // "Authentication failed" before it reaches this handler.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         source: Option<TransactionSource>,
         /// Minimum fractional support (0.0–1.0) an itemset must meet.
         #[serde(default = "default_min_support")]
@@ -3615,8 +3641,12 @@ pub enum Method {
         /// belief layer can propagate confidence over the mined finding. Requires
         /// `writeback` (the `:AssociationRule` node is the claim's evidence anchor).
         /// Gated `all(mining, epistemic)`; unset ⇒ write-back is byte-identical.
+        // `skip_serializing_if`: `epistemic_graph/client.py`'s `associate()`
+        // never sends this key at all (see the `source`/`transactions` note
+        // above for why an unconditionally-serialized default breaks the
+        // `eg2.` MAC's canonical-body recomputation).
         #[cfg(all(feature = "mining", feature = "epistemic"))]
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "is_false")]
         as_claim: bool,
     },
 

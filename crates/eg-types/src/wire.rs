@@ -812,26 +812,56 @@ pub struct YearData {
 
 /// Hyperparameters for the estimators. All optional; per-estimator defaults are
 /// applied at fit time to mirror scikit-learn's defaults.
+// `skip_serializing_if = "Option::is_none"` on every field below is
+// load-bearing, not cosmetic: the server's `eg2.` MAC covers a hash of
+// `rmp_serde::to_vec_named(Method)` -- the DESERIALIZED, then RE-serialized
+// typed value (`Method::canonical_body_bytes`), recomputed independently of
+// whatever bytes actually rode the wire. The Python client independently
+// hashes only the params it actually sent (never filling in the fields a
+// caller omitted). Without `skip_serializing_if`, a caller-omitted `None`
+// field still round-trips as an explicit `null` key once the server
+// re-serializes the struct, so the two hashes silently diverge and every
+// request carrying a PARTIAL `EstimatorParams` (i.e. every real caller: no
+// Python `fit_estimator` call ever sets all sixteen hyperparameters) fails
+// signature verification with the generic "Authentication failed" -- it
+// never reaches `fit_estimator`'s own logic. Omitting a `None` field here
+// makes the server's re-serialization match a client that also omitted it,
+// which is exactly what every `epistemic_graph/client.py` caller does.
 #[cfg(feature = "datascience")]
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EstimatorParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub alpha: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub l1_ratio: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_depth: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub min_samples_split: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub min_samples_leaf: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub n_estimators: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub learning_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_features: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub subsample: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub random_state: Option<u64>,
     // SVR
-    #[serde(rename = "C")]
+    #[serde(rename = "C", skip_serializing_if = "Option::is_none")]
     pub c: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub epsilon: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gamma: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub kernel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_iter: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tol: Option<f64>,
 }
 
