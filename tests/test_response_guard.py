@@ -20,6 +20,7 @@ import pytest
 from conftest import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
+    _prebuilt_test_binary,
     bootstrap_context,
     request_context,
     strict_server_env,
@@ -50,8 +51,23 @@ def capped_server(tmp_path_factory: pytest.TempPathFactory):
     # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
     persist_dir = str(runtime / "persist")
     os.makedirs(persist_dir, exist_ok=True)
-    proc = subprocess.Popen(
-        [
+    env = {
+        **os.environ,
+        **strict_server_env(
+            str(runtime / "security"),
+            auth_secret=_SECRET,
+            persist_dir=persist_dir,
+        ),
+        "EPISTEMIC_GRAPH_MAX_RESPONSE_NODES": str(_CAP),
+    }
+    # Prefer the shared `EPISTEMIC_GRAPH_TEST_BINARY` (see conftest.py's
+    # `_prebuilt_test_binary()`) so this module never pays for its own `cargo
+    # build`/`cargo run` compile when a caller already has a matching binary.
+    prebuilt = _prebuilt_test_binary()
+    if prebuilt is not None:
+        command = [prebuilt, "--socket-path", sock]
+    else:
+        command = [
             "cargo",
             "run",
             "--features",
@@ -69,17 +85,11 @@ def capped_server(tmp_path_factory: pytest.TempPathFactory):
             "--",
             "--socket-path",
             sock,
-        ],
+        ]
+    proc = subprocess.Popen(
+        command,
         cwd=rust_dir,
-        env={
-            **os.environ,
-            **strict_server_env(
-                str(runtime / "security"),
-                auth_secret=_SECRET,
-                persist_dir=persist_dir,
-            ),
-            "EPISTEMIC_GRAPH_MAX_RESPONSE_NODES": str(_CAP),
-        },
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )

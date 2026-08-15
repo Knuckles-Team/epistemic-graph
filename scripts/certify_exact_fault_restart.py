@@ -288,6 +288,19 @@ class ExactEngine:
             "TMPDIR": str(self.temporary_dir),
             "TZ": "UTC",
             "GRAPH_SERVICE_AUTH_SECRET": self.authority.auth_secret,
+            # Explicit, deliberate opt-out of the MANDATORY-OIDC posture (secure
+            # by default since 2026-07-22 -- see `auth.rs`'s `require_oidc()`).
+            # Without this the engine refuses to start at all ("invalid verified
+            # request-context configuration: EPISTEMIC_GRAPH_REQUIRE_OIDC
+            # requires OIDC identity binding ... but no usable OIDC verifier is
+            # configured"), which every certification run here hit as
+            # `engine_exited_during_startup` -- no Keycloak/OIDC provider exists
+            # in this sealed, network-isolated certification sandbox, and the
+            # `eg2.` HMAC-envelope protocol this harness authenticates with is
+            # exactly the documented local/dev/test opt-out use case (mirrors
+            # `tests/conftest.py`'s `strict_server_env`, which sets the same var
+            # for the identical reason).
+            "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
             "EPISTEMIC_GRAPH_AUDIENCE": AUDIENCE,
             "EPISTEMIC_GRAPH_TENANT": tenant,
             "EPISTEMIC_GRAPH_POLICY_VERSION": POLICY_VERSION,
