@@ -214,19 +214,16 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  # rust-ci.yml `protocol-parity` job — the Python client mirrors the Rust `Method`
-  # enum by sending variant-name strings (no PyO3/codegen), so a renamed/removed Rust
-  # variant or an unbound new one silently drifts. This gate catches it on every
-  # commit (pure stdlib text-parse, ~0.3s; `--noconftest` skips the package-importing
-  # conftest so no wheel build/install is needed). Kept in rust-ci.yml too (CI
-  # defense-in-depth) — pre-commit now catches it first.
-  - id: protocol-parity
-    name: Protocol parity (Python client ⇄ Rust Method enum)
-    entry: python3 -m pytest tests/test_protocol_parity.py --noconftest -q
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [pre-push, manual]
+  # perf/gate-dedup (2026-08-15): the standalone `protocol-parity` hook that used
+  # to live here ran `python3 -m pytest tests/test_protocol_parity.py --noconftest
+  # -q` on every push — byte-for-byte the SAME command release.yml's `gates` job
+  # runs as its "Protocol parity (Python client ⇄ Rust Method enum)" step, which
+  # `ci-gate-replica` (below) executes verbatim by parsing release.yml at run
+  # time. Verified via `scripts/ci_gate_replica.py --dry-run`. Removed from the
+  # automatic pre-push stage so the check runs once per push, not twice; the
+  # commit-stage `protocol-parity`-equivalent coverage is unaffected (this hook
+  # was pre-push/manual only, never commit-stage). To run it standalone:
+  #   python3 -m pytest tests/test_protocol_parity.py --noconftest -q
   # rust-ci gate 1 — workspace format. APPLIES rather than only checking: a
   # check-only hook makes the committer re-run the formatter by hand for a
   # mechanical, always-safe rewrite, and if they push before noticing, CI's own
@@ -290,22 +287,18 @@ repos:
   # rust-ci gates 5 + 7 — the FAST test legs (lower crates all-features, then the
   # slim-server feature-gating guard row). Replaces the old weak `cargo test
   # --quiet`. Gate 6 (facade full) is heavy → its own pre-push/manual hook below.
-  - id: cargo-test
-    name: cargo test (lower crates all-features)
-    # D-PERF-1 (test-suite acceleration): switched to `cargo nextest run`, a
-    # straight swap for this hook because nothing downstream parses its output
-    # (unlike `cargo-test-full`'s ratchet, which stays on plain `cargo test` —
-    # see that hook's comment). Process-per-test isolation + a per-test
-    # timeout are strict wins here with no CI-fidelity change for this
-    # narrow, already-green lower-crate slice. Requires `cargo-nextest`
-    # installed (`cargo install cargo-nextest` or the prebuilt binary from
-    # https://get.nexte.st) — same install bar as `cargo-deny`/`cargo-audit`
-    # already required by sibling hooks in this file.
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo nextest run -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast; fi'
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [pre-push, manual]
+  # perf/gate-dedup (2026-08-15): the standalone `cargo-test` (lower crates)
+  # hook that used to live here ran `cargo nextest run -p eg-types -p eg-core -p
+  # eg-compute --all-features --no-fail-fast` on every push — the same crate/
+  # feature/test scope as release.yml's `gates` job "Test (lower crates, all
+  # features)" step (`cargo test -p eg-types -p eg-core -p eg-compute
+  # --all-features --no-fail-fast`), which `ci-gate-replica` (below) executes
+  # verbatim. nextest vs plain `cargo test` is a harness swap, not a different
+  # test selection (D-PERF-1's own rationale: "nothing downstream parses its
+  # output"), so this was the same tests running twice per push. Verified via
+  # `scripts/ci_gate_replica.py --dry-run`. Removed from the automatic pre-push
+  # stage. To run it standalone:
+  #   cargo nextest run -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
   # rust-ci gate 6 — facade full test matrix (~9 min). Too slow for every commit:
   # staged pre-push + manual so it runs on push and in the parity check.
   #
@@ -341,13 +334,15 @@ repos:
   # scripts/cargo_test_ratchet.py and scripts/facade_full_test_baseline.txt
   # are kept (unwired) in case a future red-main episode needs the same
   # differential-gating shape again — see that script's own module docstring.
-  - id: cargo-test-full
-    name: cargo test -p epistemic-graph --features full (HEAVY, absolute-green — matches release.yml — pre-push/manual)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p epistemic-graph --features full --no-fail-fast; fi'
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [pre-push, manual]
+  # perf/gate-dedup (2026-08-15): the `cargo-test-full` hook that lived here ran
+  # the EXACT command above (`cargo test -p epistemic-graph --features full
+  # --no-fail-fast`) on every push — byte-for-byte release.yml's `gates` job
+  # "Test (facade full)" step, which `ci-gate-replica` (below) executes
+  # verbatim. This was the confirmed root cause of a 70+-minute eg push running
+  # this ~9-min (warm) / much longer (cold) command TWICE. Verified via
+  # `scripts/ci_gate_replica.py --dry-run`. Removed from the automatic pre-push
+  # stage. To run it standalone:
+  #   cargo test -p epistemic-graph --features full --no-fail-fast
   # GOC-70: epistemic-graph 2.25.0 shipped with all six gates verified green on
   # a 64-core dev host, and CI (2 cores) failed anyway --
   # `dispatch_coalesces_concurrent_writes_to_one_graph` asserted a scheduling-
@@ -384,15 +379,17 @@ repos:
   # crate's own crash simulation drops and reopens a real `redb::Database`
   # (cold compile + real file I/O), too slow for every commit but well under a
   # minute — CI is the always-on backstop.
-  - id: replay-determinism
-    name: cargo test replay_determinism -p eg-jobs -p eg-statechart (DE7 crash-replay proofs — pre-push/manual)
-    # D-PERF-1: nextest swap, same rationale as the `cargo-test` hook above —
-    # no downstream parser depends on this hook's exact output shape.
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo nextest run -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast; fi'
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [pre-push, manual]
+  # perf/gate-dedup (2026-08-15): the standalone `replay-determinism` hook that
+  # used to live here ran `cargo nextest run -p eg-jobs -p eg-statechart --test
+  # replay_determinism --no-fail-fast` on every push — the same crate/test
+  # scope as release.yml's `gates` job "Test (replay-determinism —
+  # eg-jobs/eg-statechart crash-replay proofs, DE7)" step (`cargo test -p
+  # eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast`), which
+  # `ci-gate-replica` (below) executes verbatim. Same nextest-vs-cargo-test
+  # harness swap as the `cargo-test` hook above, not a different test
+  # selection. Verified via `scripts/ci_gate_replica.py --dry-run`. Removed
+  # from the automatic pre-push stage. To run it standalone:
+  #   cargo nextest run -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast
   # W0.12 — Rust dependency CVE gate: fail-closed `cargo deny check advisories`
   # against `deny.toml`, mirroring the Python side's fail-closed OSV gate
   # (`dependency-audit` hook / `scripts/audit_dependencies.py` +
