@@ -52,7 +52,6 @@
 # `CARGO_BUILD_RUSTC_WRAPPER=` (empty) rather than editing this file.
 [build]
 target-dir = "target-isolated"
-rustc-wrapper = "sccache"
 
 # mold (D-PERF-1): linking 65 crates x 25 integration-test binaries is
 # link-bound, not compile-bound, and mold is materially faster than the
@@ -65,5 +64,3 @@ rustc-wrapper = "sccache"
 # engaged with `readelf -p .comment <binary> | grep mold` — a silently-ignored
 # flag (e.g. mold not on PATH) falls back to the default linker with no error,
 # so don't just trust the flag is set.
-[target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
