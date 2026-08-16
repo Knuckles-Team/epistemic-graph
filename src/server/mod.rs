@@ -2500,6 +2500,85 @@ mod tests {
         assert_ok(&resp);
     }
 
+    /// BUG-193 regression: a node written through the REAL production write
+    /// path (`Method::AddNode`, dispatched exactly like every other wire
+    /// caller — the mutation gateway's `try_handle_gateway`) by a non-System
+    /// caller who supplies no explicit ownership key comes back stamped
+    /// `_owner_id` = that caller's `agent_id` (`isolation::
+    /// stamp_owner_id_if_absent`) and is visible to its writer under
+    /// row-level RLS. Directly contrasted, in the SAME graph, with an
+    /// ownerless LEGACY-shaped row (`_visibility: "public"`, no owner, no
+    /// grants, no au tag — byte-identical to the 21,064-row BUG-064 incident
+    /// population) written straight against `GraphCore`, bypassing the
+    /// gateway entirely the way the incident's out-of-band writer did — that
+    /// row MUST stay hidden. Proves BUG-193's fix and BUG-192's protection
+    /// compose correctly rather than one silently undoing the other.
+    /// `agent:worker1` is graph-OWNED by `worker1` at the graph-ACL level,
+    /// but `can_see_row`/row-level RLS never consults graph ownership, so
+    /// the hidden/visible split below is a genuine per-row result, not a
+    /// graph-ACL side effect.
+    #[cfg(feature = "redb")]
+    #[tokio::test]
+    async fn bug193_native_write_is_owner_stamped_and_visible_legacy_shape_stays_hidden() {
+        let state = multi_tenant_state().await;
+
+        // A real write by worker1 carrying NO ownership key of either
+        // convention in the caller-supplied blob (`add_node` sends `{}`).
+        let resp = dispatch_on_heap(
+            &state,
+            request(
+                1,
+                "agent:worker1",
+                Some("worker1"),
+                add_node("native-write"),
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+
+        let (core, isolation) = {
+            let s = state.read().await;
+            (
+                s.registry.get("agent:worker1").unwrap().core.clone(),
+                s.isolation.clone(),
+            )
+        };
+
+        // The chokepoint stamped `_owner_id` from the caller — never present
+        // in the caller-supplied blob.
+        let stamped = eg_types::msgpack::decode_property_value(
+            &core.get_node_properties("native-write").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            stamped["_owner_id"], "worker1",
+            "a natively-written row with no caller-supplied owner must be \
+             stamped with the writer's agent_id (BUG-193)"
+        );
+
+        // The exact BUG-064 incident shape, written directly against
+        // `GraphCore` — bypassing the gateway the way the out-of-band
+        // `engine_lifecycle_batch_update` incident did.
+        core.add_node(
+            "legacy-incident-shape".to_string(),
+            rmp_serde::to_vec_named(&serde_json::json!({ "_visibility": "public" })).unwrap(),
+        );
+        core.mark_dirty();
+
+        let context = super::auth::VerifiedRequestContext::verified_for_test("worker1");
+        let authority = super::access::GraphReadAuthority::from_verified(&context, &isolation)
+            .expect("worker1 is a registered non-System identity");
+        let projected = authority.project_core(&core);
+        assert!(
+            projected.has_node("native-write"),
+            "the natively-written, owner-stamped row must be visible to its writer"
+        );
+        assert!(
+            !projected.has_node("legacy-incident-shape"),
+            "the ownerless legacy-shaped row (BUG-064 incident population) must stay hidden"
+        );
+    }
+
     #[tokio::test]
     async fn test_peer_denied_read_and_write() {
         let state = multi_tenant_state().await;

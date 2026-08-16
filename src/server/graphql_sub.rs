@@ -1003,10 +1003,17 @@ mod tests {
                 "_owner": "actor-b", "_visibility": "private"
             })),
         );
+        // BUG-193: `_owner_id`, not a bare ownerless `_visibility: "public"` —
+        // that exact shape is the 21,064-row BUG-064 incident population and
+        // is denied by `row_visibility`'s BUG-192 middle branch. This models
+        // what a real gateway write now produces (`stamp_owner_id_if_absent`
+        // stamps `_owner_id` from the caller when absent); with no
+        // `_visibility`/`_shared_scope` set, the row keeps the pre-existing
+        // bare-absent-default (visible beyond its owner).
         core.add_node(
             "public".into(),
             properties(json!({
-                "type": "Person", "name": "Public", "_visibility": "public"
+                "type": "Person", "name": "Public", "_owner_id": "system-writer"
             })),
         );
         core.add_node(

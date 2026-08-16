@@ -226,16 +226,13 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
                 native_public
             }
         }
-        None => match shared_scope_public {
-            // `tenant_sharing.SCOPE_ORG`/`SCOPE_COMMONS` — visible beyond the
-            // owner (tenant/graph-level isolation already happened upstream of
-            // this row, at graph selection, so "org" here correctly maps to
-            // "public within this graph" exactly as `visibility_predicate`
-            // treats it). `SCOPE_PRIVATE` ⇒ false. Absent ⇒ the pre-existing
-            // bare-absent default (true).
-            Some(v) => v,
-            None => true,
-        },
+        // `tenant_sharing.SCOPE_ORG`/`SCOPE_COMMONS` — visible beyond the
+        // owner (tenant/graph-level isolation already happened upstream of
+        // this row, at graph selection, so "org" here correctly maps to
+        // "public within this graph" exactly as `visibility_predicate`
+        // treats it). `SCOPE_PRIVATE` ⇒ false. Absent ⇒ the pre-existing
+        // bare-absent default (true).
+        None => shared_scope_public.unwrap_or(true),
     };
     let grants = map
         .get(RLS_GRANTS_KEY)
@@ -279,6 +276,60 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
         tagged,
         schema,
     }
+}
+
+/// Stamp the BUG-052/GOC-61 canonical ownership key (`_owner_id`) onto a
+/// freshly-written node's property blob when the writer did not already
+/// supply an ownership key of EITHER convention — BUG-193's write-side
+/// counterpart to [`row_visibility`]'s read-side fallback.
+///
+/// Returns `Some(new_blob)` only when a stamp was actually added; `None`
+/// means "use the original blob unchanged", covering every case that must
+/// NOT be touched:
+/// * the blob already carries `_owner` or `_owner_id` (an explicit
+///   caller-supplied owner, including an `agent-utilities`-style write, is
+///   NEVER overridden — this is additive-only, exactly like the read-side
+///   fallback);
+/// * the blob does not decode as a string-keyed map (an undecodable blob is
+///   already denied by [`row_visibility`]; stamping it would not help and
+///   risks masking the real encoding error);
+/// * `caller_agent_id` is empty (nothing to stamp).
+///
+/// Deliberately does NOT set `_visibility`/`_shared_scope` — visibility
+/// breadth is caller-supplied content, not an identity fact this function
+/// has any authority to invent; an absent scope keeps the pre-existing
+/// bare-absent-default (`row_visibility`'s `None => shared_scope_public.
+/// unwrap_or(true)`), so a stamped-but-scope-silent row stays visible to its
+/// writer AND, by the same pre-existing default, to any other caller who
+/// would already have seen an equivalent unstamped-but-tagged row.
+///
+/// Callers are expected to skip this entirely for a `System`-authority
+/// caller ([`IsolationLayer::is_system`]) — System writes (bootstrap,
+/// migration, internal maintenance) are not a real per-agent owner and must
+/// not be stamped as one.
+#[cfg(feature = "security")]
+pub fn stamp_owner_id_if_absent(blob: &[u8], caller_agent_id: &str) -> Option<Vec<u8>> {
+    if caller_agent_id.is_empty() {
+        return None;
+    }
+    let mut map: std::collections::BTreeMap<String, serde_json::Value> =
+        eg_types::msgpack::decode_bounded(
+            blob,
+            eg_types::msgpack::MsgpackLimits::new(
+                eg_types::msgpack::MAX_PROPERTY_BYTES,
+                eg_types::msgpack::MAX_PROPERTY_ITEMS,
+                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            ),
+        )
+        .ok()?;
+    if map.contains_key(RLS_OWNER_KEY) || map.contains_key(RLS_OWNER_ID_KEY) {
+        return None;
+    }
+    map.insert(
+        RLS_OWNER_ID_KEY.to_string(),
+        serde_json::Value::String(caller_agent_id.to_string()),
+    );
+    rmp_serde::to_vec_named(&map).ok()
 }
 
 #[cfg(feature = "security")]
@@ -703,6 +754,18 @@ impl IsolationLayer {
             }
         }
         false
+    }
+
+    /// Is `agent_id` registered with [`AgentRole::System`] — the same bypass
+    /// [`can_see_row`](Self::can_see_row) checks first, exposed standalone for
+    /// write-side callers (BUG-193) that need to know whether to exempt a
+    /// caller from owner-stamping without duplicating the private `agents`
+    /// lookup. An unregistered `agent_id` is never `System`.
+    #[cfg(feature = "security")]
+    pub fn is_system(&self, agent_id: &str) -> bool {
+        self.agents
+            .get(agent_id)
+            .is_some_and(|identity| identity.role == AgentRole::System)
     }
 
     /// Per-agent Row-Level Security (CONCEPT:EG-KG.sharding.row-level-security): may `agent_id` SEE one

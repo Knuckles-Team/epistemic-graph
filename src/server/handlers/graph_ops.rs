@@ -364,7 +364,7 @@ pub(crate) async fn try_handle_gateway(
     #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))] tsdb_store: Option<
         &Arc<eg_tsdb::store::SeriesStore>,
     >,
-    method: Method,
+    mut method: Method,
 ) -> Result<Response, Method> {
     if !mutation::is_gateway_routed(&method) {
         return Err(method);
@@ -399,6 +399,56 @@ pub(crate) async fn try_handle_gateway(
     let (isolation, graph_type, owner) = authz_ctx.expect(
         "dispatch_graph_op must capture a GatewayAuthzCtx for every mutation::is_gateway_routed method",
     );
+
+    // BUG-193: stamp the BUG-052/GOC-61 canonical `_owner_id` onto a brand-new
+    // node's property blob when the caller did not already supply an
+    // ownership key, so a genuinely natively-written row is no longer
+    // permanently unowned (the gap BUG-193 names: `_owner`/`isolation.rs`'s
+    // own native key had no production writer at all). Mutating `method`
+    // HERE — before either arm below clones it for the durable-commit path
+    // AND the `apply` closure — keeps the persisted blob and the applied RAM
+    // blob byte-identical, which is required for crash-recovery replay to
+    // reproduce the same row. Scoped to the two methods that hand the
+    // gateway a caller-supplied node property blob directly (`AddNode`,
+    // `CreateNodeIfAbsent`); the coalescable batch surface (`BatchUpdate`)
+    // and the staged Cypher/RDF/GraphQL write path are explicitly OUT of
+    // scope for this lane — see `plans/graph-os-completion-program/
+    // BUG-LEDGER.md#BUG-193` for the documented boundary. A `System`-role
+    // caller (bootstrap/migration/internal maintenance) is exempt: it is not
+    // a real per-agent owner and must not be stamped as one. An absent
+    // `caller` (state-machine-authorized replicated apply) is likewise
+    // exempt — there is no per-request identity to stamp with there.
+    #[cfg(feature = "security")]
+    if matches!(
+        method,
+        Method::AddNode { .. } | Method::CreateNodeIfAbsent { .. }
+    ) {
+        if let Some(caller_id) = caller {
+            if !isolation.is_system(caller_id) {
+                let blob = match &method {
+                    Method::AddNode {
+                        properties_msgpack, ..
+                    }
+                    | Method::CreateNodeIfAbsent {
+                        properties_msgpack, ..
+                    } => properties_msgpack,
+                    _ => unreachable!("matched above"),
+                };
+                if let Some(stamped) = crate::isolation::stamp_owner_id_if_absent(blob, caller_id) {
+                    match &mut method {
+                        Method::AddNode {
+                            properties_msgpack, ..
+                        }
+                        | Method::CreateNodeIfAbsent {
+                            properties_msgpack, ..
+                        } => *properties_msgpack = stamped,
+                        _ => unreachable!("matched above"),
+                    }
+                }
+            }
+        }
+    }
+
     let plan = MutationPlan::for_method(&method);
     let ctx = MutationCtx {
         req_id,

@@ -1295,6 +1295,19 @@ mod universal_row_read_tests {
         rmp_serde::to_vec_named(&map).unwrap()
     }
 
+    /// BUG-193: the "public" row below is tagged `_owner_id` (the BUG-052/GOC-61
+    /// canonical convention), NOT a bare `_visibility: "public"` with no owner —
+    /// that shape is exactly the 21,064-row BUG-064 incident population, and
+    /// `row_visibility`'s BUG-192 middle branch correctly denies it (see
+    /// `isolation::tests::rls::default_deny::unowned_bare_visibility_tag_alone_is_no_longer_trusted`).
+    /// A real production write through the mutation gateway now stamps
+    /// `_owner_id` from the caller's identity when absent
+    /// (`stamp_owner_id_if_absent`, wired in `handlers::graph_ops::
+    /// try_handle_gateway`); this fixture models that shape rather than the
+    /// unstamped one no production write path can produce anymore. With no
+    /// `_visibility`/`_shared_scope` key set, the row keeps the pre-existing
+    /// bare-absent-default (visible beyond its owner), so it stays visible to
+    /// both `alice` and `bob` exactly as this fixture's tests require.
     fn shared_graph() -> (Arc<GraphCore>, IsolationLayer) {
         let core = Arc::new(GraphCore::new());
         core.add_node(
@@ -1315,7 +1328,7 @@ mod universal_row_read_tests {
         );
         core.add_node(
             "public".to_string(),
-            properties(&[("_visibility", "public"), ("type", "Thing")]),
+            properties(&[("_owner_id", "system-writer"), ("type", "Thing")]),
         );
         // A topology row with no valid property metadata is hidden in strict mode.
         core.add_node("untagged".to_string(), Vec::new());
@@ -1449,7 +1462,7 @@ mod universal_row_read_tests {
         // old snapshot; the fix must miss on the version mismatch and rebuild.
         core.add_node(
             "alice-new-public-node".to_string(),
-            properties(&[("_visibility", "public"), ("type", "Thing")]),
+            properties(&[("_owner_id", "system-writer"), ("type", "Thing")]),
         );
         core.mark_dirty();
         let second = alice.project_core(&core);
@@ -1491,7 +1504,7 @@ mod universal_row_read_tests {
                 let id = format!("n{i}");
                 core.add_node(
                     id.clone(),
-                    properties(&[("_visibility", "public"), ("type", "Thing")]),
+                    properties(&[("_owner_id", "system-writer"), ("type", "Thing")]),
                 );
                 semantic
                     .add_embedding(id, vec![(i % 7) as f32 * 0.01; EMBEDDING_DIM])
@@ -1719,7 +1732,7 @@ mod universal_row_read_tests {
                 let id = format!("n{i}");
                 core.add_node(
                     id.clone(),
-                    properties(&[("_visibility", "public"), ("type", "Thing")]),
+                    properties(&[("_owner_id", "system-writer"), ("type", "Thing")]),
                 );
                 // A real embedding-shaped vector, not a zero-cost stand-in — the
                 // memcpy cost `project_core` pays is proportional to this, not to
@@ -1793,7 +1806,7 @@ mod universal_row_read_tests {
                 let id = format!("n{i}");
                 core.add_node(
                     id.clone(),
-                    properties(&[("_visibility", "public"), ("type", "Thing")]),
+                    properties(&[("_owner_id", "system-writer"), ("type", "Thing")]),
                 );
                 semantic
                     .add_embedding(id, vec![(i % 7) as f32 * 0.01; EMBEDDING_DIM])
@@ -1822,7 +1835,7 @@ mod universal_row_read_tests {
         // under any write traffic at all, not a contrived worst case.
         core.add_node(
             "unrelated-write".to_string(),
-            properties(&[("_visibility", "public"), ("type", "Thing")]),
+            properties(&[("_owner_id", "system-writer"), ("type", "Thing")]),
         );
 
         let miss_started = std::time::Instant::now();

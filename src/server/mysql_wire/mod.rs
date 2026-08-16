@@ -502,15 +502,25 @@ mod tests {
         {
             let core = registry.get("__commons__").unwrap().core.clone();
             for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
-                // `_visibility: "public"` is mandatory under default-deny RLS
-                // (`IsolationLayer::can_see_row`): an unowned row with no RLS
-                // metadata is hidden from a non-System actor, not just a
-                // permissive default — see `bolt_wire::tests::test_state`'s
-                // identical seeding convention.
+                // Some RLS ownership tag is mandatory under default-deny RLS
+                // (`IsolationLayer::can_see_row`): an untagged row is hidden
+                // from a non-System actor, not just a permissive default —
+                // see `bolt_wire::tests::test_state`'s identical seeding
+                // convention. A bare `_visibility: "public"` with NO owner is
+                // no longer sufficient on its own (BUG-192/BUG-064: that
+                // exact shape is the 21,064-row incident population and is
+                // correctly denied by `row_visibility`'s middle branch) — tag
+                // `_owner_id` instead, the BUG-052/GOC-61 canonical
+                // convention a real gateway write now stamps when the caller
+                // supplies none (BUG-193, `stamp_owner_id_if_absent`). With
+                // no `_visibility`/`_shared_scope` set, the row keeps the
+                // pre-existing bare-absent-default (visible beyond its
+                // owner), so it is still readable by the test's non-owning
+                // wire caller.
                 let blob = rmp_serde::to_vec_named(&serde_json::json!({
                     "type": ty,
                     "rank": rank,
-                    "_visibility": "public"
+                    "_owner_id": "system-writer"
                 }))
                 .unwrap();
                 core.add_node(id.to_string(), blob);
