@@ -816,6 +816,8 @@ def diff_touches_build_affecting_files(base_ref: str, repo_root: Path = REPO_ROO
         capture_output=True,
         text=True,
         check=True,
+        stdin=subprocess.DEVNULL,
+        timeout=120,
     ).stdout
     changed = [line.strip() for line in out.splitlines() if line.strip()]
     hits = build_affecting_files(changed)
@@ -932,7 +934,21 @@ def _run_step(run_text: str, job_env: dict) -> tuple[object, float]:
     t0 = time.monotonic()
     status: object
     try:
-        proc = subprocess.run(["bash", "-c", cmd_text], cwd=REPO_ROOT, env=env, timeout=STEP_TIMEOUT_SECS)
+        proc = subprocess.run(
+                ["bash", "-c", cmd_text],
+                cwd=REPO_ROOT,
+                env=env,
+                timeout=STEP_TIMEOUT_SECS,
+                # A replicated CI step is NON-INTERACTIVE by definition: on a real
+                # runner stdin is closed. Without this the child inherits OUR stdin,
+                # which under systemd-run/pre-commit never delivers EOF, so any step
+                # that reads input blocks for the FULL STEP_TIMEOUT_SECS (3600s)
+                # instead of failing immediately. Measured: a single pre-push run
+                # sat for 9.5 hours -- ~9 steps x 1h -- emitting nothing, because
+                # pre-commit buffers hook output until the hook exits, so it looked
+                # wedged rather than slow.
+                stdin=subprocess.DEVNULL,
+            )
         status = proc.returncode
     except subprocess.TimeoutExpired:
         status = "TIMEOUT"
