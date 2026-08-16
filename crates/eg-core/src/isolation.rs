@@ -218,8 +218,53 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
             // path this crate itself ever exercises.
             // `_visibility='private'` is always honored outright — fewer
             // false grants is the safe direction and needs no override.
+            //
+            // BUG-193 follow-up (found during review, before landing —
+            // `bug193_stamped_visibility_interaction` pins it): the
+            // `unwrap_or` default below only fires when `_shared_scope` is
+            // ABSENT (`shared_scope_public == None`) despite `au_tagged`
+            // being true via `_owner_id` alone. Before BUG-193, that
+            // combination could not occur in production: the only known
+            // `_owner_id` writer (`tenant_sharing.stamp_ownership`) ALWAYS
+            // sets `_shared_scope` in the same write (§7 of
+            // `decisions/GOC-61-ownership-property-convention.md` measures
+            // this as a live invariant — 24,414/24,414). `unwrap_or(false)`
+            // was therefore a defensive default for a combination that
+            // "shouldn't happen" for that population, not a load-bearing
+            // decision. BUG-193's own write-side stamp
+            // (`stamp_owner_id_if_absent`) breaks that invariant on
+            // purpose: it stamps `_owner_id` from the caller's identity but
+            // deliberately never invents a `_shared_scope` (visibility
+            // breadth is caller-supplied content, not an identity fact the
+            // stamp has authority to invent — see that fn's doc). So a
+            // native caller who explicitly writes `_visibility: "public"`
+            // with no ownership key of their own now ALSO ends up
+            // `au_tagged` (via the stamp) with `_shared_scope` still
+            // absent — and `unwrap_or(false)` would silently downgrade
+            // their explicit "public" declaration to visible-to-owner-only
+            // for every other caller, a real regression this exact edit
+            // closes. `unwrap_or(native_public)` instead: when there is no
+            // au `_shared_scope` to contradict it, trust the row's own
+            // explicit native `_visibility` value — exactly the same
+            // "trust the caller's stated visibility absent a corroborating,
+            // more-authoritative signal" posture the `None` arm below
+            // already takes for a row with no `_visibility` key at all.
+            // Does NOT reopen BUG-064: every BUG-064 incident row has
+            // `_owner_id IS NULL` (confirmed live, `decisions/
+            // GOC-61-ownership-property-convention.md` §7 and
+            // `BUG-LEDGER.md#BUG-064`), so `au_tagged` is `false` for that
+            // population — it never reaches this branch at all and keeps
+            // hitting the `owner.is_none()` branch below unchanged
+            // (`unowned_bare_visibility_tag_alone_is_no_longer_trusted`
+            // pins that). And whenever `_shared_scope` IS present (the
+            // ordinary au-mediated-write shape), `shared_scope_public` is
+            // `Some(..)` and this default is never consulted — the
+            // `au_shared_scope_private_still_overrides_a_conflicting_
+            // native_public_tag` test pins that a real, explicit
+            // `_shared_scope: private` still wins over a conflicting native
+            // tag, unaffected by this change.
             if native_public && au_tagged {
-                shared_scope_public.unwrap_or(false)
+                shared_scope_public.unwrap_or(native_public)
             } else if native_public && owner.is_none() && !map.contains_key(RLS_GRANTS_KEY) {
                 false
             } else {
@@ -1545,6 +1590,87 @@ mod tests {
 
             fn props_bytes(pairs: &[(&str, &str)]) -> Vec<u8> {
                 (*props(pairs)).clone()
+            }
+        }
+
+        // ── BUG-193 follow-up: owner-stamping interacting with an explicit
+        // native `_visibility` tag must not silently downgrade a caller's
+        // stated "public" intent to owner-only ─────────────────────────────
+        mod bug193_stamped_visibility_interaction {
+            use super::*;
+
+            fn props_bytes(pairs: &[(&str, &str)]) -> Vec<u8> {
+                (*props(pairs)).clone()
+            }
+
+            /// A native caller writes `{_visibility: "public"}` with no
+            /// ownership key; the BUG-193 write chokepoint
+            /// (`stamp_owner_id_if_absent`) stamps `_owner_id` from the
+            /// writer's identity, producing exactly this shape (no
+            /// `_shared_scope` — the stamp never invents one). Before the
+            /// companion fix in `row_visibility`, this made `au_tagged` true
+            /// and the `au_tagged` branch fell back to
+            /// `shared_scope_public.unwrap_or(false)` — silently downgrading
+            /// the writer's explicit "public" declaration to
+            /// visible-to-owner-only for every OTHER caller, even though no
+            /// `_shared_scope` was ever set by anyone (a real bug found and
+            /// fixed before landing, not a hypothetical). Pins the fixed
+            /// behavior: an explicit native `_visibility: "public"` is
+            /// trusted as corroboration when `_shared_scope` is absent, so
+            /// the row stays visible to a NON-owning peer, exactly as its
+            /// author intended.
+            #[test]
+            fn stamped_owner_with_explicit_native_public_visibility_is_visible_to_a_peer() {
+                let layer = setup();
+                let blob = props_bytes(&[("_visibility", "public"), ("_owner_id", "worker1")]);
+                let vis = row_visibility(&blob);
+                assert_eq!(vis.owner.as_deref(), Some("worker1"));
+                assert!(
+                    vis.public,
+                    "an explicit `_visibility: public` with no `_shared_scope` to \
+                     contradict it must still resolve `public`, even once `_owner_id` \
+                     is present"
+                );
+                assert!(
+                    layer.can_see_row("worker2", &vis),
+                    "a peer (not the owner) must still see a row its writer explicitly \
+                     marked public, even after BUG-193 stamps the writer's `_owner_id`"
+                );
+                assert!(
+                    layer.can_see_row("worker1", &vis),
+                    "the owner itself must obviously still see its own row"
+                );
+            }
+
+            /// The contrasting, still-correctly-protected case: `_shared_scope`
+            /// IS present (a genuine au-mediated write) and says `private` —
+            /// that must still win over a conflicting native `_visibility`,
+            /// unaffected by the fix above. This is the exact scenario the
+            /// `au_tagged` branch exists to protect (BUG-064: the incident's
+            /// blanket mis-stamp set `_visibility=public` even on
+            /// `_shared_scope=private` au-owned rows), so it must still deny.
+            #[test]
+            fn au_shared_scope_private_still_overrides_a_conflicting_native_public_tag() {
+                let layer = setup();
+                let blob = props_bytes(&[
+                    ("_visibility", "public"),
+                    ("_owner_id", "worker1"),
+                    ("_shared_scope", "private"),
+                ]);
+                let vis = row_visibility(&blob);
+                assert!(
+                    !vis.public,
+                    "an explicit au `_shared_scope: private` must still override a \
+                     conflicting native `_visibility: public` tag"
+                );
+                assert!(
+                    !layer.can_see_row("worker2", &vis),
+                    "a peer must not see a row whose au-authoritative scope is private"
+                );
+                assert!(
+                    layer.can_see_row("worker1", &vis),
+                    "the owner itself must still see its own private row"
+                );
             }
         }
     }
