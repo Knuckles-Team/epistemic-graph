@@ -13,6 +13,13 @@
 //!   KV-cache surface (a caller entitled to KV pages is not automatically
 //!   entitled to run federated SPARQL reads, so it is independently
 //!   configured rather than sharing the KV-cache surface's issuer);
+//! * the Iceberg-REST catalog surface (`server::lake::rest`, BUG-222,
+//!   `EPISTEMIC_GRAPH_ICEBERG_JWT_*`) — [`JwtValidator::from_env_iceberg`] +
+//!   [`JwtValidator::validate_claims`] (the Iceberg REST spec's own native
+//!   mechanism is an OAuth2 bearer, and — unlike the two bare-boolean surfaces
+//!   above — the verified `tenant` claim is itself compared against this
+//!   deployment's configured tenant before a `CarrierAuthority` is minted, so
+//!   a validly-signed bearer for a different tenant is rejected);
 //! * the primary `eg2.` request envelope (`server::auth`,
 //!   `EPISTEMIC_GRAPH_OIDC_JWT_*`) — [`JwtValidator::from_env_primary`] +
 //!   [`JwtValidator::validate_claims`] (the verified subject/tenant/roles/
@@ -21,7 +28,7 @@
 //!   mismatch — closing the gap where a holder of the shared HMAC secret
 //!   could otherwise claim to be anyone).
 //!
-//! All three entry points share one verification core ([`JwtValidator::decode_with`])
+//! All four entry points share one verification core ([`JwtValidator::decode_with`])
 //! so a signature/issuer/audience/expiry check behaves identically everywhere;
 //! only the claim projection differs (a bare boolean vs. a typed claim set).
 //! This module writes NO signature/JWKS code of its own beyond what already
@@ -76,6 +83,26 @@ const SPARQL_AUDIENCE_ENVS: &[&str] = &[
 /// Env: explicit `/sparql` read-leg JWKS URL. No generic fallback, same
 /// reasoning as [`JWKS_URL_ENV`].
 const SPARQL_JWKS_URL_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_JWKS_URL";
+
+/// Env: explicit Iceberg-REST catalog surface issuer (BUG-222), else reuse
+/// the platform's inbound-JWT / OIDC issuer. Independent of the KV-cache/
+/// `/sparql` surfaces' issuers — a caller entitled to KV pages or federated
+/// SPARQL reads is not automatically entitled to open Iceberg-REST catalog
+/// tables.
+const ICEBERG_ISSUER_ENVS: &[&str] = &[
+    "EPISTEMIC_GRAPH_ICEBERG_JWT_ISSUER",
+    "FASTMCP_SERVER_AUTH_JWT_ISSUER",
+    "OIDC_ISSUER",
+];
+/// Env: explicit Iceberg-REST surface audience, else the platform's fleet audience.
+const ICEBERG_AUDIENCE_ENVS: &[&str] = &[
+    "EPISTEMIC_GRAPH_ICEBERG_JWT_AUDIENCE",
+    "FASTMCP_SERVER_AUTH_JWT_AUDIENCE",
+    "OIDC_AUDIENCE",
+];
+/// Env: explicit Iceberg-REST surface JWKS URL. No generic fallback, same
+/// reasoning as [`JWKS_URL_ENV`].
+const ICEBERG_JWKS_URL_ENV: &str = "EPISTEMIC_GRAPH_ICEBERG_JWKS_URL";
 
 /// Env: explicit primary-`eg2.`-protocol issuer, else the platform's shared
 /// `OIDC_ISSUER`. Independent of the KV-cache surface's issuer — a deployment
@@ -230,6 +257,25 @@ impl JwtValidator {
             SPARQL_ISSUER_ENVS,
             SPARQL_AUDIENCE_ENVS,
             SPARQL_JWKS_URL_ENV,
+        )
+    }
+
+    /// Build the Iceberg-REST catalog surface's OAuth2 bearer validator from
+    /// the environment (BUG-222, `server::lake::rest`). Independently
+    /// configured from [`from_env`](Self::from_env)'s KV-cache surface and
+    /// [`from_env_sparql`](Self::from_env_sparql)'s `/sparql` read leg — the
+    /// Iceberg REST spec's own native mechanism is an OAuth2 bearer token
+    /// (`/v1/oauth/tokens`), verified with the SAME shared JWKS/RSA core. No
+    /// issuer configured ⇒ `Ok(None)`: the surface stays fail-closed (every
+    /// request denied) rather than falling back to an unauthenticated
+    /// posture — unlike the KV-cache/`/sparql` surfaces there is no
+    /// static-secret fallback for Iceberg-REST.
+    pub fn from_env_iceberg() -> Result<Option<Self>, String> {
+        Self::from_envs(
+            "iceberg-rest-client",
+            ICEBERG_ISSUER_ENVS,
+            ICEBERG_AUDIENCE_ENVS,
+            ICEBERG_JWKS_URL_ENV,
         )
     }
 

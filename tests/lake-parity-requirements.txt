@@ -5,3 +5,9 @@
 pytest>=7.0.0
 pyiceberg[pyarrow]>=0.7.0
 deltalake>=0.18.0
+# BUG-222: signs/verifies the OAuth2 bearer test fixtures for the Iceberg-REST
+# carrier tests (a local RSA keypair + JWKS HTTP server standing in for
+# Keycloak, so the REAL Rust oidc::JwtValidator RSA/JWKS path is exercised
+# end-to-end without a live network dependency).
+pyjwt>=2.8.0
+cryptography>=42.0.0

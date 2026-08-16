@@ -306,6 +306,71 @@ impl VerifiedRequestContext {
         ))
     }
 
+    /// Bind an Iceberg-REST OAuth2 bearer's own verified subject + tenant
+    /// claim to the engine-owned request context (BUG-222,
+    /// `server::lake::rest`).
+    ///
+    /// Unlike [`Self::authenticated_fixed_service_actor`] (used by S3 SigV4
+    /// and the KV-cache/`/sparql` bearer-JWT legs — protocols whose own
+    /// credential carries no distinguishable per-caller tenant, so those mint
+    /// ONE fixed service identity for every caller), a Keycloak-issued
+    /// Iceberg bearer's verified `tenant`/`tenant_id`/`org`/`org_id`/`tid`
+    /// claim (projected by `oidc::JwtValidator::validate_claims`) is itself
+    /// compared against this deployment's own configured tenant
+    /// (`EPISTEMIC_GRAPH_TENANT`) and REJECTED on any mismatch — a
+    /// validly-signed bearer minted for a different tenant must never open a
+    /// `CarrierAuthority` against this deployment's catalog. Namespace/table-
+    /// level per-tenant projection of the catalog itself is a separate,
+    /// later concern (GOC-75-W04); this is the identity-binding boundary,
+    /// mirroring [`bind_verified_identity`]'s SAME tenant-claim requirement
+    /// for the primary `eg2.` protocol.
+    ///
+    /// `verified` has already passed RSA/JWKS signature + issuer + audience +
+    /// expiry verification in the caller
+    /// (`oidc::JwtValidator::validate_claims`) — this function only projects
+    /// an already-verified claim set, exactly like
+    /// [`Self::authenticated_fixed_service_actor`] never re-authenticates.
+    #[cfg(feature = "oidc")]
+    fn authenticated_iceberg_bearer(
+        verified: &crate::server::oidc::VerifiedTokenClaims,
+    ) -> Result<Self, String> {
+        let policy = request_context_policy()?;
+        let subject = verified.subject.trim();
+        if subject.is_empty() {
+            return Err("verified Iceberg-REST bearer is missing a subject".to_string());
+        }
+        // A tenant claim is required, not merely compared-if-present: an
+        // absent tenant claim is proof of nothing (same reasoning as
+        // `bind_verified_identity`'s identical requirement below).
+        let tenant = verified
+            .tenant
+            .as_deref()
+            .ok_or_else(|| "verified Iceberg-REST bearer is missing a tenant claim".to_string())?;
+        if tenant != policy.expected_tenant {
+            return Err(
+                "verified Iceberg-REST bearer tenant does not match this deployment's \
+                 configured tenant"
+                    .to_string(),
+            );
+        }
+        let principal = format!("iceberg:{subject}");
+        Ok(Self::from_verified_claims(
+            RequestContextClaims {
+                principal: principal.clone(),
+                tenant: policy.expected_tenant.clone(),
+                audience: policy.expected_audience.clone(),
+                agent_id: principal,
+                roles: vec!["iceberg-rest-client".to_string()],
+                scopes: vec!["kg:read".to_string(), "kg:write".to_string()],
+                policy_version: policy.expected_policy_version.clone(),
+                delegation: Vec::new(),
+                node: None,
+                priority: None,
+            },
+            format!("iceberg-rest-session:{subject}"),
+        ))
+    }
+
     /// Build the engine-owned authority for a native SQL connection after that
     /// protocol has completed its mandatory cryptographic password proof.
     ///
@@ -379,6 +444,25 @@ pub(crate) fn mint_fixed_service_carrier(
         return None;
     }
     VerifiedRequestContext::authenticated_fixed_service_actor(service, scopes)
+        .ok()
+        .and_then(|context| crate::server::access::CarrierAuthority::from_verified(&context).ok())
+}
+
+/// Mint a `CarrierAuthority` for the Iceberg-REST catalog surface (BUG-222,
+/// `server::lake::rest`) from an OAuth2 bearer already verified by
+/// `oidc::JwtValidator::validate_claims` (RSA/JWKS signature + issuer +
+/// audience + expiry). `None` on a missing/absent verification OR a verified
+/// tenant that does not match this deployment's configured tenant — both fail
+/// closed via [`VerifiedRequestContext::authenticated_iceberg_bearer`]. The
+/// caller denies through
+/// [`crate::server::access::unauthenticated_carrier_denied`], the SAME shared
+/// gate every other auxiliary surface uses.
+#[cfg(feature = "oidc")]
+pub(crate) fn mint_iceberg_carrier(
+    verified: Option<&crate::server::oidc::VerifiedTokenClaims>,
+) -> Option<crate::server::access::CarrierAuthority> {
+    let verified = verified?;
+    VerifiedRequestContext::authenticated_iceberg_bearer(verified)
         .ok()
         .and_then(|context| crate::server::access::CarrierAuthority::from_verified(&context).ok())
 }
@@ -2607,6 +2691,103 @@ mod tests {
                 error.contains("OIDC") && error.contains("bearer"),
                 "{error}"
             );
+        }
+    }
+
+    // ── Iceberg-REST OAuth2 bearer carrier (BUG-222, `server::lake::rest`) ─
+    //
+    // `authenticated_iceberg_bearer`/`mint_iceberg_carrier` consume an
+    // ALREADY-verified `oidc::VerifiedTokenClaims` (the caller's own
+    // `JwtValidator::validate_claims` already ran the RSA/JWKS/issuer/
+    // audience/expiry check — exercised end-to-end by `oidc.rs`'s own test
+    // suite and by `server::lake::rest`'s live-listener test), so these tests
+    // exercise the identity-binding + tenant-match decision directly rather
+    // than re-deriving a JWT signing harness.
+    #[cfg(feature = "oidc")]
+    mod iceberg_bearer_carrier {
+        use super::*;
+        use crate::server::oidc::VerifiedTokenClaims;
+
+        fn verified(subject: &str, tenant: Option<&str>) -> VerifiedTokenClaims {
+            VerifiedTokenClaims {
+                subject: subject.to_string(),
+                tenant: tenant.map(str::to_string),
+                roles: HashSet::new(),
+                scopes: HashSet::new(),
+            }
+        }
+
+        #[test]
+        fn matching_tenant_mints_a_real_carrier_and_is_allowed() {
+            // The `#[cfg(test)]` `request_context_policy()` fixture's tenant is
+            // "tenant-shared" (see its definition above) — the SAME deployment
+            // tenant every other test in this file authenticates against.
+            let claims = verified("agent:reader", Some("tenant-shared"));
+            let carrier = crate::server::auth::mint_iceberg_carrier(Some(&claims));
+            assert!(
+                carrier.is_some(),
+                "a bearer whose verified tenant matches this deployment must mint a carrier"
+            );
+            assert!(!crate::server::access::unauthenticated_carrier_denied(
+                carrier.as_ref()
+            ));
+        }
+
+        #[test]
+        fn different_tenant_mints_no_carrier_and_is_denied() {
+            // A validly-verified bearer for ANOTHER deployment's tenant must
+            // never open a CarrierAuthority against this one (BUG-222's own
+            // acceptance bar: "bearer for a different tenant -> 403").
+            let claims = verified("agent:reader", Some("tenant-other"));
+            let carrier = crate::server::auth::mint_iceberg_carrier(Some(&claims));
+            assert!(
+                carrier.is_none(),
+                "a cross-tenant bearer must never mint a carrier"
+            );
+            assert!(crate::server::access::unauthenticated_carrier_denied(
+                carrier.as_ref()
+            ));
+        }
+
+        #[test]
+        fn missing_tenant_claim_mints_no_carrier() {
+            // An absent tenant claim is proof of nothing (mirrors
+            // `bind_verified_identity`'s identical requirement for the
+            // primary `eg2.` protocol) — must fail closed, not default-admit.
+            let claims = verified("agent:reader", None);
+            assert!(crate::server::auth::mint_iceberg_carrier(Some(&claims)).is_none());
+        }
+
+        #[test]
+        fn no_verified_claims_mints_no_carrier() {
+            // No bearer at all (or one that failed RSA/JWKS/issuer/audience/
+            // expiry verification upstream) — the `None` case `carrier_denied`
+            // passes through when a request has no `Authorization` header or
+            // an invalid one.
+            assert!(crate::server::auth::mint_iceberg_carrier(None).is_none());
+        }
+
+        #[test]
+        fn empty_subject_mints_no_carrier() {
+            let claims = verified("   ", Some("tenant-shared"));
+            assert!(crate::server::auth::mint_iceberg_carrier(Some(&claims)).is_none());
+        }
+
+        #[test]
+        fn distinct_subjects_bind_distinct_non_admin_principals() {
+            // Unlike the fixed-service-identity surfaces (S3 SigV4, KV-cache,
+            // `/sparql`), Iceberg-REST's OAuth2 bearer DOES carry a
+            // distinguishable per-caller subject, so two different verified
+            // bearers must not collapse onto the identical carrier identity.
+            let a = verified("agent:alice", Some("tenant-shared"));
+            let b = verified("agent:bob", Some("tenant-shared"));
+            let carrier_a =
+                crate::server::auth::mint_iceberg_carrier(Some(&a)).expect("alice carrier");
+            let carrier_b =
+                crate::server::auth::mint_iceberg_carrier(Some(&b)).expect("bob carrier");
+            assert_ne!(carrier_a.actor_scope(), carrier_b.actor_scope());
+            assert!(!carrier_a.is_admin());
+            assert!(!carrier_b.is_admin());
         }
     }
 }
