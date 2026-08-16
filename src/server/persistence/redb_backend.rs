@@ -3560,13 +3560,27 @@ fn run(
                         lingered = true;
                         match rx.recv_timeout(group_commit.linger) {
                             Ok(cmd) => {
-                                if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto, &stats) {
+                                if handle_cmd(
+                                    cmd,
+                                    db,
+                                    &mut pending,
+                                    flush_threshold,
+                                    crypto,
+                                    &stats,
+                                ) {
                                     commit_now(&mut pending, Durability::Immediate, true);
                                     return;
                                 }
                                 // Drain everyone who arrived during the linger window.
                                 while let Ok(cmd) = rx.try_recv() {
-                                    if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto, &stats) {
+                                    if handle_cmd(
+                                        cmd,
+                                        db,
+                                        &mut pending,
+                                        flush_threshold,
+                                        crypto,
+                                        &stats,
+                                    ) {
                                         commit_now(&mut pending, Durability::Immediate, true);
                                         return;
                                     }

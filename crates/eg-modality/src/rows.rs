@@ -44,7 +44,7 @@ pub const MODALITY_ROW_SCHEMA_VERSION: u16 = 1;
 
 /// Authoritative table names (lane doc "Storage schema"). Kept as protocol
 /// constants here — the single place a persistence adapter (GOC-04-W03) reads
-/// them from — rather than re-declared per call site.
+/// them from — rather than redeclared per call site.
 pub const MODALITY_ARTIFACT: &str = "MODALITY_ARTIFACT";
 pub const MODALITY_OCCURRENCE: &str = "MODALITY_OCCURRENCE";
 pub const MODALITY_RENDITION: &str = "MODALITY_RENDITION";

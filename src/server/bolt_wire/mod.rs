@@ -1122,7 +1122,16 @@ mod tests {
     use tokio::sync::Semaphore;
 
     /// A `ServerState` seeded with public nodes so a signed Cypher read returns
-    /// rows over `__commons__` even under default-deny row isolation.
+    /// rows over `__commons__` even under default-deny row isolation. Tagged
+    /// `_owner_id` (BUG-052/GOC-61 canonical convention), not a bare
+    /// ownerless `_visibility: "public"` — that exact shape is the
+    /// 21,064-row BUG-064 incident population and is denied by
+    /// `row_visibility`'s BUG-192 middle branch. This models what a real
+    /// gateway write now produces (BUG-193, `stamp_owner_id_if_absent`
+    /// stamps `_owner_id` from the caller when absent); with no
+    /// `_visibility`/`_shared_scope` set, the row keeps the pre-existing
+    /// bare-absent-default (visible beyond its owner), so it stays readable
+    /// by this test's non-owning wire caller.
     fn test_state(seed_public_nodes: bool) -> Arc<RwLock<ServerState>> {
         let registry = GraphRegistry::new();
         if seed_public_nodes {
@@ -1131,7 +1140,7 @@ mod tests {
                 let blob = rmp_serde::to_vec_named(&serde_json::json!({
                     "type": ty,
                     "id": id,
-                    "_visibility": "public"
+                    "_owner_id": "system-writer"
                 }))
                 .unwrap();
                 core.add_node(id.to_string(), blob);

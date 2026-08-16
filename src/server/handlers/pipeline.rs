@@ -1381,13 +1381,20 @@ mod tests {
     /// by `bob` and marked private. Same dense-intra/one-cross-edge topology as
     /// [`seed_two_community_graph`], just RLS-tagged so a non-grantee's
     /// `project_core` hides exactly community 1.
+    ///
+    /// BUG-193: "pub*" carries `_owner_id`, not a bare ownerless
+    /// `_visibility: "public"` — that exact shape is the 21,064-row BUG-064
+    /// incident population and is denied by `row_visibility`'s BUG-192
+    /// middle branch. This models what a real gateway write now produces;
+    /// with no `_visibility`/`_shared_scope` set, the row keeps the
+    /// pre-existing bare-absent-default (visible beyond its owner).
     fn seed_two_community_graph_rls(core: &GraphCore) {
         let pub_ids = ["pub_a", "pub_b", "pub_c", "pub_d", "pub_e", "pub_f"];
         let priv_ids = ["priv_a", "priv_b", "priv_c", "priv_d", "priv_e", "priv_f"];
         for id in pub_ids {
             core.add_node(
                 id.into(),
-                node(json!({ "type": "Person", "label": 0, "_visibility": "public" })),
+                node(json!({ "type": "Person", "label": 0, "_owner_id": "system-writer" })),
             );
         }
         for id in priv_ids {
@@ -1428,6 +1435,19 @@ mod tests {
     /// `"private"` — see `row_visibility`'s doc). Tests that read a model through a
     /// non-System `GraphReadAuthority` must tag it explicitly, same as any other
     /// row whose visibility they care about.
+    ///
+    /// BUG-193: an ownerless `visibility: "public"` tag is stamped as
+    /// `_owner_id` (the BUG-052/GOC-61 canonical convention a real gateway
+    /// write now stamps from the caller when absent), NOT a bare
+    /// `_visibility: "public"` with no owner — that exact shape is the
+    /// 21,064-row BUG-064 incident population and is denied by
+    /// `row_visibility`'s BUG-192 middle branch. With no `_visibility`/
+    /// `_shared_scope` key set, the row keeps the pre-existing
+    /// bare-absent-default (visible beyond its owner), so it stays readable
+    /// by a non-owning caller exactly as the ownerless-public callers below
+    /// require. An explicit `owner` still uses the native `_owner` +
+    /// `_visibility` pair unchanged (that shape is unaffected by BUG-192 —
+    /// `_visibility: "private"` is always honored outright).
     fn tag_model_visibility(
         core: &GraphCore,
         model_id: &str,
@@ -1437,10 +1457,18 @@ mod tests {
         let mut props =
             eg_types::msgpack::decode_property_value(&core.get_node_properties(model_id).unwrap())
                 .unwrap();
-        if let Some(owner) = owner {
-            props["_owner"] = json!(owner);
+        match owner {
+            Some(owner) => {
+                props["_owner"] = json!(owner);
+                props["_visibility"] = json!(visibility);
+            }
+            None if visibility == "public" => {
+                props["_owner_id"] = json!("system-writer");
+            }
+            None => {
+                props["_visibility"] = json!(visibility);
+            }
         }
-        props["_visibility"] = json!(visibility);
         core.add_node(
             model_id.to_string(),
             rmp_serde::to_vec_named(&props).unwrap(),
