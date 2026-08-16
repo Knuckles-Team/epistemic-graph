@@ -89,6 +89,7 @@ const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "BrokerReject",
     "BrokerRenewTag",
     "CancelWorkItem",
+    "CasWorkItemMetadata",
     "ClaimNext",
     "ClaimWorkItem",
     "MintWorkItemClaimCapability",
@@ -188,6 +189,7 @@ const MUTATION_APPLY_DURABLE_GRAPHREDB: &[&str] = &[
     "AppendStep",
     "BatchUpdate",
     "CancelWorkItem",
+    "CasWorkItemMetadata",
     "ClaimNext",
     "ClaimWorkItem",
     "ClearGraph",
@@ -341,6 +343,7 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "BrokerReject",
     "BrokerRenewTag",
     "CancelWorkItem",
+    "CasWorkItemMetadata",
     "ClaimNext",
     "ClaimWorkItem",
     "ClearGraph",
@@ -940,7 +943,9 @@ fn all_methods_table_has_the_expected_variant_count() {
     // `viz` is enabled. The two are INDEPENDENT arms contributing one row each --
     // `quantum` and `viz` branched off the same older 369 baseline and each added its
     // own term, so the merged expression carries both, over the current 385 base.
-    let expected = 385
+    // Plus BUG-111 `CasWorkItemMetadata` (native scheduling-metadata CAS,
+    // unconditional): 385 + 1 = 386.
+    let expected = 386
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

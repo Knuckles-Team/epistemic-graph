@@ -11,6 +11,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 > **Documentation clarification (2026-07-23):** The `epistemic-tms` (paraconsistent truth-maintenance + Dung argumentation) and `epistemic-causal` (Pearl do-calculus) features are **included in the default `full` build as of 2.23.1** (EG-P0-6). Both features are unconditionally present in any served deployment; there is no configuration or flag to disable them.
 
 ### Added
+- **`CasWorkItemMetadata` native RPC (BUG-111)** — atomic compare-and-set on a
+  WorkItem's non-authority SCHEDULING METADATA (`checkpoint_id` / `metadata` /
+  `prio_bucket`), closing the capability gap left by
+  `work_item_capability::validate_generic_method` (RMDD-29) unconditionally
+  refusing a generic `CompareAndSetNodeFields` against any already-claimed
+  WorkItem row. Runs inside the same durable WorkItem transaction as
+  `ClaimWorkItem`/`RenewWorkItemLease` (commit-before-ack); returns one of
+  three distinct outcomes — `applied` / `conflict` / `not_found` — never
+  collapsed to a bool. The request can never touch `status`/`lease_owner`/
+  `lease_epoch`/`fencing_token`/`tenant`, so it can never manufacture or
+  extend native lease authority. `epistemic_graph.client.WorkItemClient.
+  cas_metadata` is the Python entrypoint; agent-utilities'
+  `work_item.py`'s `checkpoint_work_item`/`request_work_item_input`/
+  `submit_work_item_input`/`set_work_item_priority` are its first consumers.
 - **Engine-native QoS lanes (W2.4, CONCEPT:EG-KG.coordination.backpressure-busy-signal)** — generalized the EG-044
   admission gate from three method-derived classes to **four admission classes
   derived from the `eg2.` envelope's priority claim**:

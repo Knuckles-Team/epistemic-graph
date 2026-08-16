@@ -3394,6 +3394,119 @@ class WorkItemClient:
             },
         )
 
+    async def cas_metadata(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        expected_status: list[str],
+        now_ms: int,
+        expected_lease: dict[str, Any] | None = None,
+        expected_checkpoint_id: str | None = None,
+        set_checkpoint_id: str | None = None,
+        expected_metadata: dict[str, Any] | None = None,
+        set_metadata: dict[str, Any] | None = None,
+        expected_prio_bucket: int | None = None,
+        set_prio_bucket: int | None = None,
+    ) -> dict[str, Any]:
+        """Atomic compare-and-set on one WorkItem's non-authority SCHEDULING
+        METADATA (BUG-111): ``checkpoint_id`` / ``metadata`` / ``prio_bucket``.
+
+        The native replacement for a generic
+        :meth:`NodeClient.compare_and_set` against a WorkItem row, which the
+        engine's native-WorkItem-authority guard unconditionally refuses once
+        the row is claimed. Exactly one of ``set_checkpoint_id`` /
+        ``set_metadata`` / ``set_prio_bucket`` must be given.
+
+        Pass ``expected_lease`` (``{"worker_ref", "lease_epoch",
+        "fencing_token"}``) when the caller holds the live lease (checkpoint /
+        request-input); omit it for a lease-less external/scheduler caller
+        (submit-input / set-priority), which fences on ``expected_status``
+        (and, for metadata, ``expected_metadata``) alone.
+
+        Returns a mapping whose ``outcome`` is one of three DISTINCT strings
+        — ``"applied"``, ``"conflict"``, ``"not_found"`` — never collapsed to
+        a bool: a caller that cannot tell "lost a race" from "no such item"
+        from "succeeded" cannot safely decide whether to retry, re-read, or
+        abandon its lease (AU-P0-3 fail-closed doctrine).
+        """
+        set_fields = (
+            set_checkpoint_id is not None,
+            set_metadata is not None,
+            set_prio_bucket is not None,
+        )
+        if sum(set_fields) != 1:
+            raise ValueError(
+                "cas_metadata requires exactly one of set_checkpoint_id / "
+                "set_metadata / set_prio_bucket"
+            )
+        if not expected_status:
+            raise ValueError("cas_metadata requires a non-empty expected_status")
+        _string("CasWorkItemMetadata.tenant_ref", tenant)
+        _string("CasWorkItemMetadata.work_item_id", work_item_id)
+
+        lease_field: dict[str, Any] | None = None
+        if expected_lease is not None:
+            lease_field = {
+                "worker_ref": _string(
+                    "CasWorkItemMetadata.expected_lease.worker_ref",
+                    expected_lease["worker_ref"],
+                ),
+                "lease_epoch": _integer(
+                    "CasWorkItemMetadata.expected_lease.lease_epoch",
+                    int(expected_lease["lease_epoch"]),
+                ),
+                "fencing_token": _integer(
+                    "CasWorkItemMetadata.expected_lease.fencing_token",
+                    int(expected_lease["fencing_token"]),
+                ),
+            }
+
+        request = {
+            "schema_version": "1",
+            "tenant_ref": tenant,
+            "work_item_id": work_item_id,
+            "expected_lease": lease_field,
+            "expected_status": list(expected_status),
+            "expected_checkpoint_id": expected_checkpoint_id,
+            "set_checkpoint_id": set_checkpoint_id,
+            "expected_metadata_msgpack": (
+                list(msgpack.packb(expected_metadata or {}))
+                if set_metadata is not None
+                else None
+            ),
+            "set_metadata_msgpack": (
+                list(msgpack.packb(set_metadata)) if set_metadata is not None else None
+            ),
+            "expected_prio_bucket": expected_prio_bucket,
+            "set_prio_bucket": set_prio_bucket,
+            "now_ms": int(now_ms),
+        }
+        result = await self._client._send("CasWorkItemMetadata", {"request": request})
+        answer = _exact_mapping(
+            "CasWorkItemMetadata result",
+            result,
+            frozenset(
+                {"schema_version", "outcome", "work_item_id", "changed_work_item_ids"}
+            ),
+        )
+        if answer["schema_version"] != "1":
+            raise ValueError("CasWorkItemMetadata result schema_version must be 1")
+        if answer["outcome"] not in {"applied", "conflict", "not_found"}:
+            raise ValueError("CasWorkItemMetadata result outcome is invalid")
+        changed = answer["changed_work_item_ids"]
+        if not isinstance(changed, list):
+            raise ValueError("CasWorkItemMetadata result changed ids are invalid")
+        if answer["outcome"] == "applied" and changed != [work_item_id]:
+            raise ValueError(
+                "applied CasWorkItemMetadata result changed ids are invalid"
+            )
+        if answer["outcome"] != "applied" and changed != []:
+            raise ValueError(
+                "non-applied CasWorkItemMetadata result must not change any row"
+            )
+        return answer
+
     async def _require_resource_method(self, method: str) -> None:
         """Negotiate the additive method before sending it to an older engine."""
 
