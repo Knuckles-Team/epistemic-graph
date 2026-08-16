@@ -903,15 +903,16 @@ lake = ["server", "blob", "tsdb", "dep:eg-lake", "eg-lake/lake", "dep:ureq"]
 # one main `full` build alongside `lake` (previously an explicit source feature outside
 # every product bundle) — adds no dependency beyond `lake` itself (the listener reuses
 # the same dependency-free tokio idiom every other auxiliary HTTP surface in this file
-# uses). NOTE (W4.8 finding, see `reports/issue-register.md`): the production wiring in
-# `src/main.rs` serves this listener via `serve_with_security`, which — like every other
-# `serve_with_security`-wired auxiliary HTTP surface in this facade (`obs`, `s3-api`,
-# `sparql-http`, `federation-search`, `kvcache-server`) — currently denies every request
-# unconditionally via the shared `access::unauthenticated_carrier_denied` stub (a
-# pre-existing, cross-cutting gap, not introduced or fixed here); the endpoint set and
-# response shapes are exercised through the feature's own `serve()` (non-security) test
-# suite in `src/server/lake/rest.rs`.
-lake-rest = ["lake"]
+# uses). BUG-222 (closes the W4.8/A18 finding, see `reports/issue-register.md`): the
+# production wiring in `src/main.rs` serves this listener via `serve_with_security`,
+# which now mints a real `CarrierAuthority` from the Iceberg REST spec's own OAuth2
+# bearer convention (`/v1/oauth/tokens`), verified with the SAME shared JWKS/RSA core
+# `kvcache-server`/`sparql-http` use (`oidc` — hence the added dependency below); a
+# missing/invalid/wrong-tenant bearer still denies through the shared
+# `access::unauthenticated_carrier_denied` gate. The endpoint set and response shapes
+# are exercised through the feature's own `serve()` (non-security) test suite in
+# `src/server/lake/rest.rs`.
+lake-rest = ["lake", "oidc"]
 # Remote KV-cache HTTP surface (CONCEPT:EG-187) — exposes the `eg-kvcache` shared,
 # content-addressed backend (EG-186) over HTTP so parallel vLLM/LMCache instances SHARE
 # KV blocks by token-hash (GET/PUT/HEAD /kv/<hash> + /kv/stats, bearer-token guard). A
