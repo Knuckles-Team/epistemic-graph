@@ -300,7 +300,12 @@ async fn stage_rls_overlay(state: &Arc<RwLock<ServerState>>, first_id: u64, agen
             // Default-deny RLS (`eg_core::isolation::row_visibility`) hides ANY
             // untagged row from a non-`System` actor -- an unowned row needs an
             // EXPLICIT `_visibility: "public"` tag to be seen by `agent_b` at all.
-            properties_msgpack: pack(json!({ "type": "Robot", "_visibility": "public" })),
+            // BUG-064: a bare `_visibility: "public"` tag on an unowned row with
+            // no `_grants` is no longer trusted (it has no corroborating story
+            // for who legitimately published it) -- an explicit `_grants` list
+            // is the row-visibility escape hatch for a genuinely public,
+            // deliberately unowned row (see `row_visibility`'s doc comment).
+            properties_msgpack: pack(json!({ "type": "Robot", "_visibility": "public", "_grants": "agent_a,agent_b" })),
             graph: None,
         },
     )
@@ -827,7 +832,7 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
             // Default-deny RLS hides an untagged row from a non-`System` actor --
             // an EXPLICIT `_visibility: "public"` tag is required for an unowned
             // row to be visible at all (see the `stg_pub` note above).
-            properties_msgpack: pack(json!({ "type": "Robot", "_visibility": "public" })),
+            properties_msgpack: pack(json!({ "type": "Robot", "_visibility": "public", "_grants": "agent_a,agent_b" })),
         },
     )
     .await;
@@ -1132,7 +1137,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
         99,
         Method::AddNode {
             node_id: "seed0".into(),
-            properties_msgpack: pack(json!({ "type": "Seed", "_visibility": "public" })),
+            properties_msgpack: pack(json!({ "type": "Seed", "_visibility": "public", "_owner": "tester" })),
         },
     )
     .await;
@@ -1164,7 +1169,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
             // registered identity) must see this row post-commit; default-deny RLS
             // hides an untagged, unowned row from any non-`System` actor.
             properties_msgpack: pack(
-                json!({ "type": "Robot", "name": "unit-1", "_visibility": "public" }),
+                json!({ "type": "Robot", "name": "unit-1", "_visibility": "public", "_owner": "tester" }),
             ),
             graph: None,
         },
@@ -1187,7 +1192,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
         Method::TxnAddNode {
             txn_id: txn.clone(),
             node_id: "<http://ex/machine>".into(),
-            properties_msgpack: pack(json!({ "type": "Machine", "_visibility": "public" })),
+            properties_msgpack: pack(json!({ "type": "Machine", "_visibility": "public", "_owner": "tester" })),
             graph: None,
         },
     )
@@ -1819,7 +1824,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
         Method::AddNode {
             node_id: "claim1".into(),
             properties_msgpack: pack(
-                json!({ "type": "Claim", "confidence": 0.5, "_visibility": "public" }),
+                json!({ "type": "Claim", "confidence": 0.5, "_visibility": "public", "_grants": "agent_a,stranger" }),
             ),
         },
     )
@@ -1830,7 +1835,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
         Method::AddNode {
             node_id: "evidence1".into(),
             properties_msgpack: pack(
-                json!({ "type": "Evidence", "confidence": 0.9, "_visibility": "public" }),
+                json!({ "type": "Evidence", "confidence": 0.9, "_visibility": "public", "_grants": "agent_a,stranger" }),
             ),
         },
     )
@@ -2199,7 +2204,7 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
         Method::AddNode {
             node_id: "claim1".into(),
             properties_msgpack: pack(
-                json!({ "type": "Claim", "confidence": 0.5, "_visibility": "public" }),
+                json!({ "type": "Claim", "confidence": 0.5, "_visibility": "public", "_grants": "agent_a,stranger" }),
             ),
         },
     )
@@ -2213,6 +2218,7 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
                 "type": "Evidence",
                 "confidence": 0.9,
                 "_visibility": "public",
+                "_grants": "agent_a,stranger",
                 "evidence_locus": locus,
             })),
         },
@@ -2670,7 +2676,7 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
         Method::AddNode {
             node_id: "a".into(),
             properties_msgpack: pack(
-                json!({ "type": "Claim", "confidence": 0.5, "_visibility": "public" }),
+                json!({ "type": "Claim", "confidence": 0.5, "_visibility": "public", "_grants": "agent_a,agent_b,agent_c" }),
             ),
         },
     )
@@ -2695,7 +2701,7 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
         Method::AddNode {
             node_id: "c".into(),
             properties_msgpack: pack(
-                json!({ "type": "Claim", "confidence": 0.9, "_visibility": "public" }),
+                json!({ "type": "Claim", "confidence": 0.9, "_visibility": "public", "_grants": "agent_a,agent_b,agent_c" }),
             ),
         },
     )
