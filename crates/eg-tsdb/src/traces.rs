@@ -13,10 +13,14 @@
 //! ## The store
 //!
 //! Spans are kept in-memory keyed by `trace_id` (a trace = every span sharing a
-//! trace id), with secondary indices by `service` and `operation` for fast search.
-//! Retrieval assembles a trace's flat span list into a `parent → children` tree.
-//! Durable persistence (redb/blob segments, mirroring the log tier) is a documented
-//! follow-up; the model + search + assembly + dependency-graph surface land now.
+//! trace id), with secondary indices by `service` and `operation` for fast search
+//! -- this in-RAM store stays the hot search/assembly path. Durable persistence
+//! (BUG-016) is a separate, deliberately decoupled cold tier: [`SpanStore::
+//! snapshot`]/[`SpanStore::recover`] give a deterministic durable-bytes
+//! representation that `src/server/obs/mod.rs::ObsState::persist_traces` writes on
+//! a periodic sweep (mirroring `server::persistence::provenance_anchor`'s
+//! cadence), NOT on every ingest -- persisting the whole store per request would
+//! be BUG-017's write-amplification defect class transplanted onto traces.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Mutex;
@@ -321,6 +325,63 @@ impl SpanStore {
             })
             .collect()
     }
+
+    /// BUG-016 durable-tier support: a deterministic durable-bytes representation
+    /// of every span held, for a periodic durable-tier sweep
+    /// (`src/server/obs/mod.rs::ObsState::persist_traces`). Snapshotting an
+    /// UNCHANGED store twice produces byte-identical output -- traces are
+    /// serialized in sorted-by-id order (`BTreeMap`), never the process's
+    /// randomized `HashMap` iteration order. The `by_service`/`by_operation`
+    /// secondary indices are deliberately NOT part of the snapshot: they are cheap
+    /// to rebuild from `by_trace` via [`insert_span`] on [`SpanStore::recover`], so
+    /// leaving them out avoids the snapshot format carrying two representations of
+    /// the same fact that could drift apart.
+    pub fn snapshot(&self) -> Vec<u8> {
+        let g = self.inner.lock().expect("span store lock");
+        let snapshot = SpanStoreSnapshot {
+            by_trace: g
+                .by_trace
+                .iter()
+                .map(|(id, spans)| (id.clone(), spans.clone()))
+                .collect(),
+        };
+        // `SpanStoreSnapshot` is a plain owned value with a derived `Serialize`
+        // impl and `Vec<u8>` is an infallible `io::Write`; the only way
+        // `to_vec_named` can error is a writer failure, which cannot happen here.
+        rmp_serde::to_vec_named(&snapshot)
+            .expect("in-memory span store snapshot encoding is infallible")
+    }
+
+    /// BUG-016 durable-tier support: rebuild a store from bytes produced by
+    /// [`SpanStore::snapshot`]. This performs only the structural `rmp_serde`
+    /// decode -- `eg-tsdb`'s `traces` feature deliberately carries no extra
+    /// dependency (see this module's own doc comment and the crate's `Cargo.toml`
+    /// feature doc), so it does NOT run the byte/item/depth-bounded preflight
+    /// `eg_types::msgpack` provides for bytes recovered from durable storage.
+    /// Callers recovering bytes from durable storage (e.g.
+    /// `src/server/obs/mod.rs::ObsState::open`) MUST run that bounded validation
+    /// on the raw bytes themselves before calling in here.
+    pub fn recover(bytes: &[u8]) -> Result<Self, String> {
+        let snapshot: SpanStoreSnapshot =
+            rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?;
+        let mut inner = Inner::default();
+        for (_, spans) in snapshot.by_trace {
+            for span in spans {
+                insert_span(&mut inner, span);
+            }
+        }
+        Ok(Self {
+            inner: Mutex::new(inner),
+        })
+    }
+}
+
+/// Durable snapshot wire format for [`SpanStore::snapshot`]/[`SpanStore::recover`]
+/// (BUG-016). A `BTreeMap` (not the live store's `HashMap`) so serialization order
+/// is deterministic by trace id, independent of the process's randomized hash seed.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct SpanStoreSnapshot {
+    by_trace: BTreeMap<String, Vec<Span>>,
 }
 
 fn insert_span(inner: &mut Inner, span: Span) {
@@ -647,5 +708,55 @@ mod tests {
                 call_count: 2
             }
         );
+    }
+
+    /// BUG-016 -- restart-survival proof (unit half): snapshot → drop → recover
+    /// reproduces IDENTICAL search/assembly/dependency results, and re-snapshotting
+    /// the recovered store is byte-identical to the original snapshot (proving
+    /// deterministic serialization, not just "the data is equivalent"). Red without
+    /// `snapshot`/`recover` (the methods did not exist on `main`); green with them.
+    #[test]
+    fn bug_016_span_store_survives_a_snapshot_recover_round_trip() {
+        let store = SpanStore::new();
+        for t in ["t1", "t2"] {
+            store.add_span(span(t, "g", "", "gateway", "GET", 0, 100));
+            store.add_span(span(t, "a", "g", "api", "handle", 10, 50));
+            store.add_span(span(t, "d", "a", "db", "SELECT", 20, 10));
+        }
+        assert_eq!(store.trace_count(), 2);
+
+        let before_search = store.search(&TraceQuery::new(10));
+        let before_deps = store.service_dependencies();
+        let bytes = store.snapshot();
+        drop(store);
+
+        let recovered = SpanStore::recover(&bytes).expect("recover a valid snapshot");
+        assert_eq!(recovered.trace_count(), 2);
+        assert_eq!(
+            recovered.search(&TraceQuery::new(10)),
+            before_search,
+            "search/assembly must reproduce identically after a restart"
+        );
+        assert_eq!(
+            recovered.service_dependencies(),
+            before_deps,
+            "the service-dependency graph must reproduce identically after a restart"
+        );
+
+        // Re-snapshotting the recovered store is byte-identical to the original --
+        // proves deterministic (sorted) serialization, not merely equivalent data.
+        assert_eq!(
+            recovered.snapshot(),
+            bytes,
+            "re-snapshotting an unchanged recovered store must be byte-identical"
+        );
+    }
+
+    /// BUG-016 -- `recover` on corrupt/garbage bytes fails closed (an `Err`), never
+    /// panics and never silently manufactures an empty store.
+    #[test]
+    fn bug_016_recover_rejects_corrupt_bytes_without_panicking() {
+        let garbage = vec![0xff, 0x00, 0x13, 0x37];
+        assert!(SpanStore::recover(&garbage).is_err());
     }
 }
