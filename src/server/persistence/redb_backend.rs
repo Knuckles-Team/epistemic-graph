@@ -5595,10 +5595,11 @@ mod tests {
 
     /// CONCEPT:EG-KG.backend.adaptive-linger-coalesce — the adaptive micro-linger COALESCES concurrent in-flight
     /// authoritative writers into fewer, larger group commits WITHOUT losing
-    /// durability. We fan N concurrent `record_durable` calls (each its own task, so
-    /// the writer sees them arrive within the linger window) and assert:
+    /// durability. We enqueue N ops directly onto the shard's writer channel (see the
+    /// GOC-70 rule 3 note below) and assert:
     ///   * every awaited writer resolves Ok and every node is durably present
     ///     (durability guarantee unchanged — commit-before-ack still holds),
+    ///   * `ops` accounts for every op, exactly (no double count, no drop),
     ///   * the average batch size (`ops / commits`) climbs well above 1, i.e. the
     ///     linger folded many writers into one fsync (the profiled win),
     ///   * lingered commits were actually exercised.
@@ -5608,9 +5609,9 @@ mod tests {
     /// channel commits immediately at ~1 op/fsync.
     ///
     /// GOC-70 (fix/micro-linger-stats-race): on the real 2-vCPU CI runner this test
-    /// failed with `ops == 0` — NOT a "stats read before the writer ran" race (the
-    /// durability assertions right above prove every write was already durably on
-    /// disk by then, and `stats.record()` is called on the SAME writer thread
+    /// once failed with `ops == 0` — NOT a "stats read before the writer ran" race
+    /// (the durability assertions right above prove every write was already durably
+    /// on disk by then, and `stats.record()` is called on the SAME writer thread
     /// strictly before that batch's `done` oneshots fire, so anything already acked
     /// is, by program order + the oneshot channel's release/acquire handoff, already
     /// reflected in the counters). The real bug: `handle_cmd`'s early-flush bound
@@ -5624,13 +5625,30 @@ mod tests {
     /// writer OS thread gets its own core almost immediately on a many-core dev
     /// box — the WHOLE batch took that unaccounted path. Fixed at the root
     /// (`handle_cmd` now records stats on every commit path it takes, not only the
-    /// run-loop's own drain/linger/tick path) so `ops`/`commits` are accounted
-    /// identically no matter which path a batch settles through, on any core count
-    /// (GOC-70 rule 1). The capacity below is also raised so `flush_threshold` sits
-    /// well above `n`, keeping this test's OWN outcome about the micro-linger
-    /// mechanism specifically, not incidentally about the separate early-flush bound
-    /// (GOC-70 rule 3 — deterministically avoid the confound rather than depend on
-    /// which side of a threshold collision the scheduler happens to land on).
+    /// run-loop's own drain/linger/tick path — see the `flush` helper in
+    /// `handle_cmd`) so `ops`/`commits` are accounted identically no matter which
+    /// path a batch settles through, on any core count (GOC-70 rule 1). The capacity
+    /// below is also raised so `flush_threshold` sits well above `n`, keeping this
+    /// test's OWN outcome about the micro-linger mechanism specifically, not
+    /// incidentally about the separate early-flush bound.
+    ///
+    /// GOC-70 rule 3 (deterministic contention, not scheduler luck): the original
+    /// shape fanned N `record_durable` calls out across N separate `tokio::spawn`
+    /// tasks and relied on the executor overlapping enough of them within the 2ms
+    /// linger window — exactly the anti-pattern this file's own
+    /// `write_coalescer::tests::concurrent_writes_coalesce_into_fewer_lock_
+    /// acquisitions` was rewritten away from after it broke
+    /// `dispatch_coalesces_concurrent_writes_to_one_graph` in 2.25.0 (true on a
+    /// lightly-loaded many-core host; not guaranteed when a couple of tokio workers
+    /// and a `spawn_blocking` hop each contend for 2 real CPUs). This test enqueues
+    /// every `Cmd::Mutation` directly onto the shard's channel from ONE synchronous
+    /// loop on the test's own task, with no `.await` inside it — `SyncSender::send`
+    /// is a plain, non-blocking-for-capacity push (capacity 4096 ≫ `n`), so the
+    /// whole 256-op burst lands in the channel in a handful of microseconds, orders
+    /// of magnitude under the 2ms linger window the writer OS thread pays out once
+    /// it drains the first arrival. That leaves coalescing a near-certainty by
+    /// construction rather than a hope that 256 independently-scheduled tasks (each
+    /// its own executor poll + `spawn_blocking` hand-off) all land in time.
     ///
     /// Serializes the env-mutating linger tests. `EPISTEMIC_GRAPH_REDB_GROUP_*` are
     /// process-global and read once inside `RedbBackend::open`, so two parallel tests
@@ -5681,22 +5699,32 @@ mod tests {
 
         let stats = backend.commit_stats();
         let n = 256usize;
-        let mut handles = Vec::new();
+        // GOC-70 rule 3: construct the concurrent pile-up deterministically instead
+        // of spawning N tasks and hoping the scheduler overlaps them (see the doc
+        // comment above). Every op is enqueued directly onto the shard's channel
+        // from this one synchronous loop — no `.await` between sends — then every
+        // completion is awaited only once the whole burst is already queued.
+        let shard = backend.shard_for("g1");
+        let mut receivers = Vec::with_capacity(n);
         for i in 0..n {
-            let b = backend.clone();
-            handles.push(tokio::spawn(async move {
-                b.record_durable(
-                    "g1",
-                    &Method::AddNode {
+            let (done, rx) = oneshot::channel();
+            shard
+                .tx
+                .send(Cmd::Mutation {
+                    graph: "g1".to_string(),
+                    method: Box::new(Method::AddNode {
                         node_id: format!("n{i}"),
                         properties_msgpack: props(serde_json::json!({"i": i})),
-                    },
-                )
-                .await
-            }));
+                    }),
+                    done,
+                })
+                .expect("redb writer thread alive");
+            receivers.push(rx);
         }
-        for h in handles {
-            h.await.unwrap().expect("each durable commit ok");
+        for rx in receivers {
+            rx.await
+                .expect("redb writer dropped completion")
+                .expect("each durable commit ok");
         }
         // Durability: every node present.
         for i in 0..n {
@@ -5712,7 +5740,7 @@ mod tests {
         // The win: many writers folded into far fewer commits than ops.
         let commits = stats.commits();
         let ops = stats.ops();
-        assert!(ops >= n as u64, "all {n} ops counted (got {ops})");
+        assert_eq!(ops, n as u64, "every op must be accounted for exactly once");
         assert!(
             commits < n as u64,
             "linger must coalesce: {commits} commits for {ops} ops (expected << {n})"
