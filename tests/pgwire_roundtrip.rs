@@ -85,14 +85,17 @@ fn grant_commons_access(isolation: &mut IsolationLayer, agent_id: &str) {
 fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> Arc<RwLock<ServerState>> {
     let registry = GraphRegistry::new();
     // Seed three nodes directly via the graph core (the engine write API). Tagged
-    // `_visibility: "public"` since default-deny RLS (`IsolationLayer::can_see_row`)
-    // hides any untagged, unowned row from a non-`System` actor — the pgwire
-    // connection runs as `tester`, not `System`.
+    // `_visibility: "public"` + `_owner: "tester"` since default-deny RLS
+    // (`IsolationLayer::can_see_row`) hides any untagged, unowned row from a
+    // non-`System` actor — the pgwire connection runs as `tester`, not `System`.
+    // BUG-064 (`crates/eg-core/src/isolation.rs::row_visibility`) no longer
+    // trusts a bare `_visibility: "public"` tag on an UNOWNED row with no
+    // `_grants`, so every seeded/inserted row below also carries `_owner`.
     {
         let core = registry.get("__commons__").unwrap().core.clone();
         for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
             let blob = rmp_serde::to_vec_named(
-                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public"}),
+                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public", "_owner": "tester"}),
             )
             .unwrap();
             core.add_node(id.to_string(), blob);
@@ -366,7 +369,7 @@ async fn wire_insert_then_select_round_trip() {
     // the surface the first increment supports; extended Parse/Bind is a follow-up).
     let insert = client
         .simple_query(
-            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('n9', 'Agent', 9, 'public')",
+            "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES ('n9', 'Agent', 9, 'public', 'tester')",
         )
         .await
         .expect("INSERT");
@@ -484,8 +487,9 @@ async fn multi_row_insert_then_count() {
 
     let affected = client
         .execute(
-            "INSERT INTO nodes (id, type, rank, _visibility) VALUES \
-             ('m1','Agent',10,'public'),('m2','Agent',11,'public'),('m3','Tool',12,'public')",
+            "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES \
+             ('m1','Agent',10,'public','tester'),('m2','Agent',11,'public','tester'),\
+             ('m3','Tool',12,'public','tester')",
             &[],
         )
         .await
@@ -510,7 +514,7 @@ async fn insert_returning_row() {
 
     let rows = client
         .query(
-            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('r1','Agent',55,'public') RETURNING id",
+            "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES ('r1','Agent',55,'public', 'tester') RETURNING id",
             &[],
         )
         .await
@@ -751,7 +755,7 @@ async fn extended_update_authoritative_is_durable_without_checkpoint() {
     // over the extended/prepared protocol with a bound parameter.
     client
         .execute(
-            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('n1','Agent',1,'public')",
+            "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES ('n1','Agent',1,'public', 'tester')",
             &[],
         )
         .await
@@ -891,13 +895,16 @@ use epistemic_graph::server::pgwire::derive_pg_password;
 /// stays open to all authenticated agents.
 fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
     let mut registry = GraphRegistry::new();
-    // Tagged `_visibility: "public"` for the same default-deny-RLS reason as
-    // `state_with` above.
+    // Tagged `_visibility: "public"` + `_owner: "worker"` for the same
+    // default-deny-RLS reason as `state_with` above — BUG-064 (see
+    // `crates/eg-core/src/isolation.rs::row_visibility`) no longer trusts a bare
+    // `_visibility: "public"` tag on an UNOWNED row with no `_grants`, so an
+    // explicit owner is required for the tag to be honored.
     {
         let core = registry.get("__commons__").unwrap().core.clone();
         for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
             let blob = rmp_serde::to_vec_named(
-                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public"}),
+                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public", "_owner": "worker"}),
             )
             .unwrap();
             core.add_node(id.to_string(), blob);
@@ -1168,7 +1175,7 @@ async fn wire_txn_rollback_discards_and_ryow() {
     client.simple_query("BEGIN").await.expect("BEGIN");
     client
         .simple_query(
-            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('tx1', 'Agent', 42, 'public')",
+            "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES ('tx1', 'Agent', 42, 'public', 'tester')",
         )
         .await
         .expect("INSERT inside txn");
@@ -1211,7 +1218,7 @@ async fn wire_txn_commit_persists_node_insert() {
     client.simple_query("BEGIN").await.expect("BEGIN");
     client
         .simple_query(
-            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('tx2', 'Agent', 43, 'public')",
+            "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES ('tx2', 'Agent', 43, 'public', 'tester')",
         )
         .await
         .expect("INSERT inside txn");
@@ -1250,7 +1257,7 @@ async fn wire_txn_mixed_node_and_table_commit() {
         .expect("INSERT table inside txn");
     client
         .simple_query(
-            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('mx1', 'Agent', 44, 'public')",
+            "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES ('mx1', 'Agent', 44, 'public', 'tester')",
         )
         .await
         .expect("INSERT node inside txn");
@@ -1308,7 +1315,7 @@ async fn wire_txn_error_blocks_until_rollback_25p02() {
     client.simple_query("ROLLBACK").await.expect("ROLLBACK");
     client
         .simple_query(
-            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('ok', 'Agent', 46, 'public')",
+            "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES ('ok', 'Agent', 46, 'public', 'tester')",
         )
         .await
         .expect("writes work again after ROLLBACK");
@@ -1442,7 +1449,7 @@ async fn wire_txn_mixed_five_modality_commit() {
     // (1) graph node.
     client
         .simple_query(
-            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('mm1', 'Sensor', 7, 'public')",
+            "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES ('mm1', 'Sensor', 7, 'public', 'tester')",
         )
         .await
         .expect("stage graph node");
@@ -1514,7 +1521,7 @@ async fn wire_txn_crossmodal_ryow_isolated_until_commit() {
     // Stage a graph node, its embedding, and a measurement — all inside the txn.
     writer
         .simple_query(
-            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('vv1', 'Widget', 5, 'public')",
+            "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES ('vv1', 'Widget', 5, 'public', 'tester')",
         )
         .await
         .expect("stage graph node");
@@ -1590,7 +1597,7 @@ async fn wire_reason_iri_bridges_string_typed_node() {
     // A string-typed Sensor node (auto-commits as one atomic statement).
     client
         .simple_query(
-            "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('sen1', 'Sensor', 3, 'public')",
+            "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES ('sen1', 'Sensor', 3, 'public', 'tester')",
         )
         .await
         .expect("insert string-typed Sensor node");

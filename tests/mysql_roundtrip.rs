@@ -106,14 +106,17 @@ fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence:
 /// rows to read. `__commons__` is pre-created by the registry.
 fn seeded_state() -> Arc<RwLock<ServerState>> {
     let registry = GraphRegistry::new();
-    // Tagged `_visibility: "public"`: default-deny RLS (`IsolationLayer::can_see_row`)
-    // hides any untagged, unowned row from a non-`System` actor, and the MySQL wire
-    // connection runs as `tester`.
+    // Tagged `_visibility: "public"` + `_owner: "tester"`: default-deny RLS
+    // (`IsolationLayer::can_see_row`) hides any untagged, unowned row from a
+    // non-`System` actor, and the MySQL wire connection runs as `tester`.
+    // BUG-064 (`crates/eg-core/src/isolation.rs::row_visibility`) no longer
+    // trusts a bare `_visibility: "public"` tag on an UNOWNED row with no
+    // `_grants`, so every seeded/inserted row also carries `_owner`.
     {
         let core = registry.get("__commons__").unwrap().core.clone();
         for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
             let blob = rmp_serde::to_vec_named(
-                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public"}),
+                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public", "_owner": "tester"}),
             )
             .unwrap();
             core.add_node(id.to_string(), blob);
@@ -473,7 +476,7 @@ async fn mysql_wire_txn_crossmodal_ryow_isolated_until_commit() {
     // Stage a graph node, its embedding, and a measurement — all inside the txn.
     query(
         &mut writer,
-        "INSERT INTO nodes (id, type, rank, _visibility) VALUES ('vv1', 'Widget', 5, 'public')",
+        "INSERT INTO nodes (id, type, rank, _visibility, _owner) VALUES ('vv1', 'Widget', 5, 'public', 'tester')",
     )
     .await;
     query(&mut writer, "SET EMBEDDING FOR 'vv1' = '[1.0, 0.0, 0.0]'").await;
