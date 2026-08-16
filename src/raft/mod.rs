@@ -796,6 +796,7 @@ pub const NATIVE_CONSENSUS_METHODS: &[&str] = &[
     "CommitWorkItemResult",
     "CancelWorkItem",
     "DeferWorkItem",
+    "CasWorkItemMetadata",
     "ReserveWorkItemResources",
     "ReleaseWorkItemResources",
     "ReclaimWorkItemResources",
@@ -944,6 +945,7 @@ fn native_domain(method: &Method) -> Option<NativeMutationDomain> {
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
         | Method::DeferWorkItem { .. }
+        | Method::CasWorkItemMetadata { .. }
         | Method::ReserveWorkItemResources { .. }
         | Method::ReleaseWorkItemResources { .. }
         | Method::ReclaimWorkItemResources { .. }
@@ -1591,6 +1593,7 @@ mod raft_authority_contract_tests {
 
     fn work_item_mutations() -> Vec<Method> {
         use crate::epistemic_operations::{
+            CasWorkItemMetadataRequest, CasWorkItemMetadataRequestSchemaVersion,
             ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion, ResourceCapacity,
             ResourceHostUpdateRequest, ResourceHostUpdateRequestSchemaVersion,
             ResourceHostUpdateRequestTargetKind, ResourceRequirement, ResourceReservationRequest,
@@ -1731,6 +1734,22 @@ mod raft_authority_contract_tests {
                 reason_ref: Some("barrier".to_string()),
                 now_ms: 50,
             },
+            Method::CasWorkItemMetadata {
+                request: CasWorkItemMetadataRequest {
+                    schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
+                    tenant_ref: "tenant-ref".to_string(),
+                    work_item_id: "work-item".to_string(),
+                    expected_lease: None,
+                    expected_status: vec!["leased".to_string(), "running".to_string()],
+                    expected_checkpoint_id: None,
+                    set_checkpoint_id: Some("checkpoint:1".to_string()),
+                    expected_metadata_msgpack: None,
+                    set_metadata_msgpack: None,
+                    expected_prio_bucket: None,
+                    set_prio_bucket: None,
+                    now_ms: 60,
+                },
+            },
             Method::ReserveWorkItemResources {
                 request: reservation.clone(),
             },
@@ -1778,6 +1797,7 @@ mod raft_authority_contract_tests {
             "CommitWorkItemResult",
             "CancelWorkItem",
             "DeferWorkItem",
+            "CasWorkItemMetadata",
             "ReserveWorkItemResources",
             "ReleaseWorkItemResources",
             "ReclaimWorkItemResources",

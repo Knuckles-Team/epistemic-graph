@@ -211,6 +211,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::CommitWorkItemResult { .. }
             | Method::CancelWorkItem { .. }
             | Method::DeferWorkItem { .. }
+            | Method::CasWorkItemMetadata { .. }
             | Method::ClearGraph
             // Embedding write (CONCEPT:EG-KG.compute.semantic-search): mutates the
             // per-graph `semantic_store` (HNSW index) — classified a write by

@@ -683,6 +683,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::CommitWorkItemResult { .. }
             | Method::CancelWorkItem { .. }
             | Method::DeferWorkItem { .. }
+            | Method::CasWorkItemMetadata { .. }
             | Method::ReserveWorkItemResources { .. }
             | Method::ReleaseWorkItemResources { .. }
             | Method::ReclaimWorkItemResources { .. }

@@ -409,6 +409,7 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> MutationD
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
         | Method::DeferWorkItem { .. }
+        | Method::CasWorkItemMetadata { .. }
         | Method::ReserveWorkItemResources { .. }
         | Method::ReleaseWorkItemResources { .. }
         | Method::ReclaimWorkItemResources { .. }
@@ -543,6 +544,7 @@ pub(crate) fn is_work_item_method(method: &Method) -> bool {
             | Method::CommitWorkItemResult { .. }
             | Method::CancelWorkItem { .. }
             | Method::DeferWorkItem { .. }
+            | Method::CasWorkItemMetadata { .. }
     )
 }
 
@@ -645,7 +647,9 @@ pub(crate) fn work_item_batch_identity(
         | Method::DeferWorkItem {
             idempotency_key, ..
         } => Some(idempotency_key.clone()),
-        Method::ClaimWorkItem { .. } | Method::RenewWorkItemLease { .. } => None,
+        Method::ClaimWorkItem { .. }
+        | Method::RenewWorkItemLease { .. }
+        | Method::CasWorkItemMetadata { .. } => None,
         Method::ReserveWorkItemResources { request }
         | Method::ReleaseWorkItemResources { request }
         | Method::ReclaimWorkItemResources { request } => Some(request.idempotency_key.clone()),
@@ -945,6 +949,7 @@ pub(crate) async fn commit_work_item(
     })?;
     let tenant = match &method {
         Method::ClaimWorkItem { request } => request.tenant_ref.clone(),
+        Method::CasWorkItemMetadata { request } => request.tenant_ref.clone(),
         Method::RenewWorkItemLease { tenant, .. }
         | Method::CommitWorkItemResult { tenant, .. }
         | Method::CancelWorkItem { tenant, .. }

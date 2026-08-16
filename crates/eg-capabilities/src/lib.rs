@@ -298,7 +298,8 @@ pub fn policy(m: &Method) -> MethodPolicy {
         Method::RenewWorkItemLease { .. }
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
-        | Method::DeferWorkItem { .. } => MethodPolicy {
+        | Method::DeferWorkItem { .. }
+        | Method::CasWorkItemMetadata { .. } => MethodPolicy {
             mutates: true,
             durability_domain: DurabilityDomain::GraphRedb,
             authz_action: "work:write",
@@ -2312,6 +2313,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("CommitWorkItemResult", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "terminal result references and outbox commit atomically"),
         ("CancelWorkItem", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "pending cancellation never steals an active lease"),
         ("DeferWorkItem", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "fenced lease release schedules retry without consuming an attempt"),
+        ("CasWorkItemMetadata", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "BUG-111: atomic single-field CAS on non-authority scheduling metadata (checkpoint_id/metadata/prio_bucket); status/lease/tenant are fenced but never written"),
         ("ReserveWorkItemResources", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "resource:reserve", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "controller-only atomic host admission and WorkItem fence validation"),
         ("ReleaseWorkItemResources", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "resource:reserve", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "controller-only lifecycle release with retained tombstone"),
         ("ReclaimWorkItemResources", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "resource:reserve", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "controller-only expiry/supersession reclaim with retained tombstone"),
@@ -2809,7 +2811,9 @@ mod smoke_tests {
         // is enabled. The two are INDEPENDENT arms contributing one row each --
         // `quantum` and `viz` branched off the same older 369 baseline and each
         // added its own term, so the merged expression carries both, over 385.
-        let expected = 385
+        // Plus BUG-111 `CasWorkItemMetadata` (native scheduling-metadata CAS,
+        // unconditional): 385 + 1 = 386.
+        let expected = 386
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
