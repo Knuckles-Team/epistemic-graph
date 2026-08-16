@@ -19,25 +19,27 @@ Run standalone (bypass the slow shared-engine conftest fixture, matching
 
     python3 -m pytest tests/test_lake_iceberg_delta_parity.py --noconftest -q
 
-A18 (see `reports/issue-register.md`): the shared `server::unauthenticated_carrier_denied`
+A18/BUG-222 (see `reports/issue-register.md`): the shared `server::unauthenticated_carrier_denied`
 carrier-check STUB that used to deny EVERY `serve_with_security`-wired auxiliary HTTP
-surface unconditionally is fixed — `s3-api`, `sparql-http` (mutations), and
-`kvcache-server` now mint a real `CarrierAuthority` from their own protocol-native proof
-(SigV4 / `eg2.` envelope / bearer-JWT respectively) and work for an authenticated
-carrier. The production Iceberg-REST listener wiring (`serve_with_security` in
-`src/main.rs`) still denies every HTTP request, honestly now: the Iceberg-REST catalog
-protocol carries no credential this engine can verify yet (no `eg2.` envelope,
-bearer/OAuth2 token, or other proof — the real Iceberg-REST spec's own convention is an
-OAuth2 client-credentials bearer token, a deliberate scheme decision NOT made here), so
-no `CarrierAuthority` can ever be minted for this surface today — same open question for
-`obs`/`federation-search` and SPARQL's own read (SELECT/CONSTRUCT) leg. That is why the
-tests here deliberately do NOT read table bytes back over `--iceberg-addr` HTTP — they
-drive `eg-lake`'s real write path directly instead, which exercises 100% of the same
-materialize/render code the live listener's `LakeManager` calls, only skipping the
-gated HTTP hop. `test_iceberg_rest_listener_responds_when_configured` below proves the
-listener itself starts and speaks HTTP from the real compiled server binary, and
-documents today's 403 (a real, deliberate denial now, not the old stub) rather than
-silently ignoring it.
+surface unconditionally is fixed — `s3-api`, `sparql-http` (mutations), `kvcache-server`,
+and now the Iceberg-REST catalog surface itself all mint a real `CarrierAuthority` from
+their own protocol-native proof (SigV4 / `eg2.` envelope / bearer-JWT / OAuth2 bearer
+respectively) and work for an authenticated carrier. The Iceberg-REST catalog protocol's
+native mechanism is an OAuth2 bearer token (the spec's own `/v1/oauth/tokens`
+convention), verified against a configured Keycloak-compatible JWKS issuer
+(`EPISTEMIC_GRAPH_ICEBERG_JWT_*`, `crate::server::oidc::JwtValidator`) — a validly-signed
+bearer whose tenant claim matches the deployment's own configured tenant now mints a
+`CarrierAuthority` and is served; an unauthenticated request, or a validly-signed bearer
+for a DIFFERENT tenant, both still fail closed (403). `test_iceberg_rest_*` below drive
+that triple (authenticated/unauthenticated/cross-tenant) against the real compiled
+server binary over a local RSA keypair + JWKS HTTP server standing in for Keycloak (so
+the REAL Rust JWKS/RSA verification path is exercised without a live network
+dependency). Same open question as before for `obs`/`federation-search` and SPARQL's own
+read (SELECT/CONSTRUCT) leg — unaffected by this fix. The read-parity tests above
+deliberately do NOT read table bytes back over `--iceberg-addr` HTTP — they drive
+`eg-lake`'s real write path directly instead, which exercises 100% of the same
+materialize/render code the live listener's `LakeManager` calls, only skipping the HTTP
+hop (now gated by a real carrier check rather than a stub).
 """
 
 from __future__ import annotations
@@ -282,8 +284,112 @@ def _free_tcp_port() -> int:
         return s.getsockname()[1]
 
 
+# --------------------------------------------------------------------------------- #
+# BUG-222: a local RSA keypair + JWKS HTTP server standing in for Keycloak, so the
+# REAL Rust `oidc::JwtValidator` RSA/JWKS/issuer/audience/expiry verification path
+# (`EPISTEMIC_GRAPH_ICEBERG_JWT_*`) is exercised end-to-end without depending on
+# network reachability to the live homelab Keycloak from wherever this suite runs.
+# The issuer/audience strings below are arbitrary (never resolved over the network —
+# only string-compared against the signed token's `iss`/`aud`), independent of the
+# `EPISTEMIC_GRAPH_AUDIENCE`/`EPISTEMIC_GRAPH_TENANT` pair the PRIMARY `eg2.` protocol
+# uses below (a separate, independently-configured credential namespace).
+# --------------------------------------------------------------------------------- #
+ICEBERG_OAUTH_ISSUER = "https://iceberg-test-issuer.invalid/realms/test"
+ICEBERG_OAUTH_AUDIENCE = "epistemic-graph-iceberg-test"
+ICEBERG_TENANT = "tenant:test"  # matches EPISTEMIC_GRAPH_TENANT in iceberg_server's env
+ICEBERG_OTHER_TENANT = "tenant:intruder"
+
+try:
+    import jwt as _pyjwt
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    _OAUTH_DEPS_AVAILABLE = True
+except ImportError:
+    _OAUTH_DEPS_AVAILABLE = False
+
+_SKIP_OAUTH_DEPS = pytest.mark.skipif(
+    not _OAUTH_DEPS_AVAILABLE,
+    reason="pyjwt/cryptography are not installed (see tests/lake-parity-requirements.txt)",
+)
+
+
 @pytest.fixture(scope="module")
-def iceberg_server(tmp_path_factory):
+def iceberg_oauth_fixture():
+    """Start the local JWKS HTTP server + generate the RSA keypair once per module."""
+    if not _OAUTH_DEPS_AVAILABLE:
+        pytest.skip(
+            "pyjwt/cryptography are not installed (see tests/lake-parity-requirements.txt)"
+        )
+    import http.server
+    import threading
+
+    from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+    from jwt.algorithms import RSAAlgorithm
+
+    key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    kid = "iceberg-oauth-test-kid"
+    jwk = json.loads(RSAAlgorithm.to_jwk(key.public_key()))
+    jwk["kid"] = kid
+    jwk["use"] = "sig"
+    jwk["alg"] = "RS256"
+    jwks_body = json.dumps({"keys": [jwk]}).encode("utf-8")
+
+    class _JwksHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - stdlib override
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(jwks_body)))
+            self.end_headers()
+            self.wfile.write(jwks_body)
+
+        def log_message(self, *_args):  # silence stdlib request logging
+            pass
+
+    httpd = http.server.HTTPServer(("127.0.0.1", 0), _JwksHandler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    private_pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    try:
+        yield {
+            "jwks_url": f"http://127.0.0.1:{httpd.server_address[1]}/jwks",
+            "kid": kid,
+            "private_pem": private_pem,
+        }
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=5)
+
+
+def _sign_iceberg_bearer(
+    fixture: dict, *, subject: str, tenant: str | None, expires_in: int = 300
+) -> str:
+    """Mint a real RS256 bearer over `fixture`'s key — the exact shape a
+    Keycloak-issued Iceberg-REST OAuth2 token takes (`sub`/`iss`/`aud`/`exp` +
+    a `tenant_id` claim, the first of the claim names
+    `oidc::JwtValidator::validate_claims` checks)."""
+    payload = {
+        "sub": subject,
+        "iss": ICEBERG_OAUTH_ISSUER,
+        "aud": ICEBERG_OAUTH_AUDIENCE,
+        "exp": int(time.time()) + expires_in,
+    }
+    if tenant is not None:
+        payload["tenant_id"] = tenant
+    return _pyjwt.encode(
+        payload,
+        fixture["private_pem"],
+        algorithm="RS256",
+        headers={"kid": fixture["kid"]},
+    )
+
+
+@pytest.fixture(scope="module")
+def iceberg_server(tmp_path_factory, iceberg_oauth_fixture):
     persist_dir = tmp_path_factory.mktemp("lake-iceberg-persist")
     socket_path = str(tmp_path_factory.mktemp("lake-iceberg-sock") / "engine.sock")
     state_dir = str(tmp_path_factory.mktemp("lake-iceberg-security"))
@@ -294,7 +400,7 @@ def iceberg_server(tmp_path_factory):
         "GRAPH_SERVICE_AUTH_SECRET": auth_secret,
         "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
         "EPISTEMIC_GRAPH_AUDIENCE": "epistemic-graph-test",
-        "EPISTEMIC_GRAPH_TENANT": "tenant:test",
+        "EPISTEMIC_GRAPH_TENANT": ICEBERG_TENANT,
         "EPISTEMIC_GRAPH_POLICY_VERSION": "policy:test",
         "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": state_dir,
         "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
@@ -302,6 +408,13 @@ def iceberg_server(tmp_path_factory):
         ),
         "GRAPH_SERVICE_PERSIST_DIR": str(persist_dir),
         "EPISTEMIC_GRAPH_ICEBERG_ADDR": f"127.0.0.1:{iceberg_port}",
+        # BUG-222: the Iceberg-REST surface's OWN, independently-configured
+        # OAuth2 bearer verifier — points at the local JWKS server above
+        # rather than the live Keycloak so this suite has no network
+        # dependency.
+        "EPISTEMIC_GRAPH_ICEBERG_JWT_ISSUER": ICEBERG_OAUTH_ISSUER,
+        "EPISTEMIC_GRAPH_ICEBERG_JWT_AUDIENCE": ICEBERG_OAUTH_AUDIENCE,
+        "EPISTEMIC_GRAPH_ICEBERG_JWKS_URL": iceberg_oauth_fixture["jwks_url"],
     }
     # Prefer the shared `EPISTEMIC_GRAPH_TEST_BINARY` (see conftest.py's
     # `_prebuilt_test_binary()`) so this module never pays for its own `cargo
@@ -361,13 +474,13 @@ def iceberg_server(tmp_path_factory):
             proc.wait()
 
 
-def _http_get(addr: str, path: str) -> tuple[int, str]:
+def _http_get(addr: str, path: str, headers: dict | None = None) -> tuple[int, str]:
     import http.client
 
     host, port = addr.split(":")
     conn = http.client.HTTPConnection(host, int(port), timeout=10)
     try:
-        conn.request("GET", path)
+        conn.request("GET", path, headers=headers or {})
         resp = conn.getresponse()
         return resp.status, resp.read().decode("utf-8", errors="replace")
     finally:
@@ -377,25 +490,74 @@ def _http_get(addr: str, path: str) -> tuple[int, str]:
 def test_iceberg_rest_listener_responds_when_configured(iceberg_server):
     """The real server binary, built with `full` (which folds `lake`+`lake-rest` in as
     of W4.8), opens a live HTTP listener on `--iceberg-addr` and speaks the
-    Iceberg-REST envelope shape.
-
-    A18 (see the module docstring + reports/issue-register.md): the OLD
-    cross-cutting `server::unauthenticated_carrier_denied` stub that used to deny
-    EVERY `serve_with_security`-wired auxiliary surface unconditionally is fixed.
-    This surface still returns 403 for this plain, unauthenticated request, but
-    now for a real, deliberate reason: the Iceberg-REST catalog protocol carries
-    no credential this engine can verify yet (no `eg2.` envelope, bearer/OAuth2
-    token, or other proof), so no `CarrierAuthority` can be minted here — a
-    genuine open scheme decision (see `reports/issue-register.md`, A18), not a
-    stub. This assertion pins that CURRENT, documented, correctly-fail-closed
-    behavior; if/when a carrier scheme is decided and implemented for THIS
-    surface specifically, this test's status-code assertion should be updated
-    (and the JSON body asserted for an authenticated request) as a deliberate,
-    reviewed change rather than an unnoticed regression in either direction.
+    Iceberg-REST envelope shape — proven here without any dependency on the
+    pyjwt/cryptography test-only deps the three `test_iceberg_rest_*` auth-outcome
+    tests below (BUG-222) need. An unauthenticated request is denied (403), exactly
+    like `test_iceberg_rest_unauthenticated_request_is_denied` proves again below.
     """
     status, body = _http_get(iceberg_server, "/v1/config")
+    assert status == 403, f"expected the fail-closed carrier gate (403), got {status}: {body}"
+    payload = json.loads(body)
+    assert payload["error"]["type"] == "ForbiddenException"
+
+
+# --------------------------------------------------------------------------------- #
+# BUG-222 acceptance triple: authenticated (200) / unauthenticated (403) /
+# cross-tenant (403). `server::unauthenticated_carrier_denied` (the shared
+# fail-closed predicate — untouched by this fix) is exercised here through the
+# Iceberg-REST surface's OWN OAuth2 bearer proof (`server::lake::rest::verify_bearer`
+# + `server::auth::mint_iceberg_carrier`), driven end-to-end against the real
+# compiled server binary rather than a unit-level stand-in.
+# --------------------------------------------------------------------------------- #
+@_SKIP_OAUTH_DEPS
+def test_iceberg_rest_authenticated_bearer_is_allowed(iceberg_server, iceberg_oauth_fixture):
+    """A bearer that RSA/JWKS/issuer/audience/expiry-verifies AND asserts this
+    deployment's own tenant (`EPISTEMIC_GRAPH_TENANT`) mints a real `CarrierAuthority`
+    — the Iceberg-REST catalog surface serves the request instead of denying it."""
+    token = _sign_iceberg_bearer(
+        iceberg_oauth_fixture, subject="agent:reader", tenant=ICEBERG_TENANT
+    )
+    status, body = _http_get(
+        iceberg_server, "/v1/config", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert status == 200, (
+        f"expected an authenticated, correctly-tenanted bearer to be ALLOWED, "
+        f"got {status}: {body}"
+    )
+    payload = json.loads(body)
+    assert "defaults" in payload and "overrides" in payload
+
+
+@_SKIP_OAUTH_DEPS
+def test_iceberg_rest_unauthenticated_request_is_denied(iceberg_server):
+    """The fail-closed direction still holds after BUG-222: no bearer at all is
+    denied exactly as before this fix — `server::access::unauthenticated_carrier_denied`
+    itself was never relaxed, only the caller (`carrier_denied` in
+    `server::lake::rest`) that used to hand it a hardcoded `None`."""
+    status, body = _http_get(iceberg_server, "/v1/config")
     assert status == 403, (
-        f"expected the current fail-closed carrier gate (403), got {status}: {body}"
+        f"expected the fail-closed carrier gate (403) for no bearer at all, "
+        f"got {status}: {body}"
+    )
+    payload = json.loads(body)
+    assert payload["error"]["type"] == "ForbiddenException"
+
+
+@_SKIP_OAUTH_DEPS
+def test_iceberg_rest_cross_tenant_bearer_is_denied(iceberg_server, iceberg_oauth_fixture):
+    """A validly-signed, unexpired, correctly-issued/audienced bearer for a
+    DIFFERENT tenant must still be denied — proves the tenant-match check itself,
+    not merely 'is there any Authorization header' (a known-bad input: everything
+    about this token verifies except which tenant it asserts)."""
+    token = _sign_iceberg_bearer(
+        iceberg_oauth_fixture, subject="agent:intruder", tenant=ICEBERG_OTHER_TENANT
+    )
+    status, body = _http_get(
+        iceberg_server, "/v1/config", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert status == 403, (
+        f"expected a bearer verified for a DIFFERENT tenant to be DENIED, "
+        f"got {status}: {body}"
     )
     payload = json.loads(body)
     assert payload["error"]["type"] == "ForbiddenException"
