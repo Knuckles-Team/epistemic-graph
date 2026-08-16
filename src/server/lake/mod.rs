@@ -57,7 +57,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use parking_lot::Mutex;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use eg_lake::catalog::IcebergRestCatalog;
 use eg_lake::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
@@ -564,6 +564,34 @@ impl LakeManager {
         self.catalog.lock().load_table(namespace, table)
     }
 
+    /// Time-travel `LoadTable`: resolve a query-time as-of request — already reduced
+    /// to a concrete engine `lsn` by the caller — and render the table's Iceberg
+    /// metadata for the file set that was actually live AT THAT POINT (BUG-224, the
+    /// `Op::AsOf` → `Lsn` seam `crates/eg-lake`'s docs flag as the server tier's to
+    /// own: `eg_lake::snapshot::SnapshotLog::files_as_of` existed, but nothing on this
+    /// server tier ever called it with anything but "now" — [`Self::load_table`]
+    /// only ever serves the catalog's cached CURRENT snapshot). Unlike `load_table`,
+    /// this reads the live [`LakeTable`] directly (the catalog only caches the latest
+    /// metadata.json, not history), so a `lsn` from before a later
+    /// compact/delete_where/drain_series still resolves to the file set live at that
+    /// lsn, not today's. Returns the same `{"metadata-location", "metadata",
+    /// "config"}` shape [`Self::load_table`] returns. `None` only for an unknown
+    /// `(namespace, table)`; an `lsn` of `0` or beyond `current_lsn()` are both valid
+    /// (empty-as-of-nothing-committed, and everything-live-now, respectively —
+    /// [`eg_lake::snapshot::FileEntry::visible_at`]'s own clamping).
+    pub fn load_table_as_of(&self, namespace: &str, table: &str, lsn: u64) -> Option<Value> {
+        let tables = self.tables.lock();
+        let entry = tables.get(&(namespace.to_string(), table.to_string()))?;
+        let ts_ms = lineage::now_ms();
+        let ib = entry.table.iceberg_as_of(Lsn(lsn), ts_ms as i64);
+        let metadata: Value = serde_json::from_str(&ib.metadata_json).unwrap_or(Value::Null);
+        Some(json!({
+            "metadata-location": ib.metadata_location,
+            "metadata": metadata,
+            "config": {},
+        }))
+    }
+
     pub fn namespace_exists(&self, namespace: &str) -> bool {
         let cat = self.catalog.lock();
         cat.list_namespaces()["namespaces"]
@@ -731,6 +759,69 @@ mod tests {
             loaded_after["metadata"]["snapshots"][0]["summary"]["total-data-files"], "1",
             "compaction merges to ONE live file"
         );
+    }
+
+    /// BUG-224: `Op::AsOf` has no caller that converts a query-time as-of request into
+    /// an `Lsn` and reads the lake projection at it — `LakeManager` only ever drove
+    /// drain_series/compact/delete_where/evolve_add_column, none of which take an
+    /// as-of argument, so an as-of read of OUR OWN lake tables (as opposed to an
+    /// external engine time-traveling our emitted Iceberg snapshot ids) was
+    /// impossible. This is the failing-then-passing reproduction: after a second
+    /// drain (2 live files) and a SUBSEQUENT compaction (rewrites to 1 live file at a
+    /// NEWER lsn), an as-of read pinned to the lsn recorded right after the second
+    /// drain must still see the OLD 2-file historical state, even though "now"
+    /// (`load_table`) sees the compacted 1-file state.
+    #[test]
+    fn load_table_as_of_returns_historical_state_after_a_later_compaction() {
+        let s = store();
+        let tsdb = SeriesStore::open_in_dir(
+            &std::env::temp_dir().join(format!("eg-lake-test-asof-{}", std::process::id())),
+        )
+        .unwrap();
+        append(&tsdb, "s5", &points(0, 3));
+        let mgr = LakeManager::new();
+        mgr.drain_series(&s, &tsdb, "s5").unwrap();
+        append(&tsdb, "s5", &points(3, 3));
+        let r2 = mgr.drain_series(&s, &tsdb, "s5").unwrap().unwrap();
+        let historical_lsn = r2.lsn;
+
+        let table = sanitize_table_name("s5");
+
+        // Compact AFTER recording the as-of point: current state moves to 1 file at a
+        // strictly newer lsn than `historical_lsn`.
+        let report = mgr
+            .compact(&s, DEFAULT_NAMESPACE, &table)
+            .unwrap()
+            .expect("compaction produced a rewrite");
+        assert!(report.lsn > historical_lsn);
+
+        let now = mgr.load_table(DEFAULT_NAMESPACE, &table).unwrap();
+        assert_eq!(
+            now["metadata"]["snapshots"][0]["summary"]["total-data-files"], "1",
+            "the CURRENT view is post-compaction: one live file"
+        );
+
+        let historical = mgr
+            .load_table_as_of(DEFAULT_NAMESPACE, &table, historical_lsn)
+            .expect("table known, as-of lsn resolves to a historical snapshot");
+        assert_eq!(
+            historical["metadata"]["snapshots"][0]["summary"]["total-data-files"], "2",
+            "as-of the pre-compaction lsn, BOTH original files are still visible \
+             — a real historical read, not the current projection"
+        );
+        assert_eq!(
+            historical["metadata"]["snapshots"][0]["summary"]["epistemic-graph-lsn"],
+            historical_lsn.to_string(),
+        );
+        assert_eq!(
+            historical["metadata"]["current-snapshot-id"],
+            historical_lsn as i64
+        );
+
+        // Unknown table ⇒ None, not an error.
+        assert!(mgr
+            .load_table_as_of(DEFAULT_NAMESPACE, "nope", historical_lsn)
+            .is_none());
     }
 
     #[test]
