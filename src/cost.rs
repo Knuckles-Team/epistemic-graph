@@ -1017,10 +1017,18 @@ mod tests {
                 .expect("acme tenant present");
             assert!(acme_before.memory_bytes > 0);
 
-            // A budget far below the tenant's footprint forces reclamation.
+            // A budget below the tenant's TOTAL footprint (both graphs, ~3.2KB each at
+            // today's `NODE_OVERHEAD` calibration) forces reclamation, but above ONE
+            // graph's individual footprint so coldest-first eviction stops after
+            // reclaiming exactly one graph, leaving the other resident — matching the
+            // "reclamation is coldest-graph-granular" comment below. A budget under one
+            // graph's footprint (the previous 2048/4096 constants) evicts BOTH graphs to
+            // catalog-only, emptying the tenant from `collect_resource_stats` entirely
+            // and failing the `acme` lookup below — not a BUG-192/193 regression, a
+            // pre-existing miscalibration against the real per-node accounting.
             let cfg = CostConfig {
-                global_ceiling_bytes: 4096,
-                per_tenant_budget_bytes: 2048,
+                global_ceiling_bytes: 9000,
+                per_tenant_budget_bytes: 4500,
                 interval_secs: 1,
             };
             assert!(acme_before.memory_bytes > cfg.per_tenant_budget_bytes);
@@ -1090,10 +1098,8 @@ mod tests {
 
             const NODE_COUNT: usize = 20;
             create(&state, 1, "acme:solo").await;
-            let mut id = 100u64;
-            for i in 0..NODE_COUNT {
+            for (id, i) in (100u64..).zip(0..NODE_COUNT) {
                 add(&state, id, "acme:solo", &format!("n{i}")).await;
-                id += 1;
             }
 
             // `acme:solo` is the ONLY graph for tenant `acme`, so a budget far below

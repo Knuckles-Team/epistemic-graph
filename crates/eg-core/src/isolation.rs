@@ -218,24 +218,66 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
             // path this crate itself ever exercises.
             // `_visibility='private'` is always honored outright — fewer
             // false grants is the safe direction and needs no override.
+            //
+            // BUG-193 follow-up (found during review, before landing —
+            // `bug193_stamped_visibility_interaction` pins it): the
+            // `unwrap_or` default below only fires when `_shared_scope` is
+            // ABSENT (`shared_scope_public == None`) despite `au_tagged`
+            // being true via `_owner_id` alone. Before BUG-193, that
+            // combination could not occur in production: the only known
+            // `_owner_id` writer (`tenant_sharing.stamp_ownership`) ALWAYS
+            // sets `_shared_scope` in the same write (§7 of
+            // `decisions/GOC-61-ownership-property-convention.md` measures
+            // this as a live invariant — 24,414/24,414). `unwrap_or(false)`
+            // was therefore a defensive default for a combination that
+            // "shouldn't happen" for that population, not a load-bearing
+            // decision. BUG-193's own write-side stamp
+            // (`stamp_owner_id_if_absent`) breaks that invariant on
+            // purpose: it stamps `_owner_id` from the caller's identity but
+            // deliberately never invents a `_shared_scope` (visibility
+            // breadth is caller-supplied content, not an identity fact the
+            // stamp has authority to invent — see that fn's doc). So a
+            // native caller who explicitly writes `_visibility: "public"`
+            // with no ownership key of their own now ALSO ends up
+            // `au_tagged` (via the stamp) with `_shared_scope` still
+            // absent — and `unwrap_or(false)` would silently downgrade
+            // their explicit "public" declaration to visible-to-owner-only
+            // for every other caller, a real regression this exact edit
+            // closes. `unwrap_or(native_public)` instead: when there is no
+            // au `_shared_scope` to contradict it, trust the row's own
+            // explicit native `_visibility` value — exactly the same
+            // "trust the caller's stated visibility absent a corroborating,
+            // more-authoritative signal" posture the `None` arm below
+            // already takes for a row with no `_visibility` key at all.
+            // Does NOT reopen BUG-064: every BUG-064 incident row has
+            // `_owner_id IS NULL` (confirmed live, `decisions/
+            // GOC-61-ownership-property-convention.md` §7 and
+            // `BUG-LEDGER.md#BUG-064`), so `au_tagged` is `false` for that
+            // population — it never reaches this branch at all and keeps
+            // hitting the `owner.is_none()` branch below unchanged
+            // (`unowned_bare_visibility_tag_alone_is_no_longer_trusted`
+            // pins that). And whenever `_shared_scope` IS present (the
+            // ordinary au-mediated-write shape), `shared_scope_public` is
+            // `Some(..)` and this default is never consulted — the
+            // `au_shared_scope_private_still_overrides_a_conflicting_
+            // native_public_tag` test pins that a real, explicit
+            // `_shared_scope: private` still wins over a conflicting native
+            // tag, unaffected by this change.
             if native_public && au_tagged {
-                shared_scope_public.unwrap_or(false)
+                shared_scope_public.unwrap_or(native_public)
             } else if native_public && owner.is_none() && !map.contains_key(RLS_GRANTS_KEY) {
                 false
             } else {
                 native_public
             }
         }
-        None => match shared_scope_public {
-            // `tenant_sharing.SCOPE_ORG`/`SCOPE_COMMONS` — visible beyond the
-            // owner (tenant/graph-level isolation already happened upstream of
-            // this row, at graph selection, so "org" here correctly maps to
-            // "public within this graph" exactly as `visibility_predicate`
-            // treats it). `SCOPE_PRIVATE` ⇒ false. Absent ⇒ the pre-existing
-            // bare-absent default (true).
-            Some(v) => v,
-            None => true,
-        },
+        // `tenant_sharing.SCOPE_ORG`/`SCOPE_COMMONS` — visible beyond the
+        // owner (tenant/graph-level isolation already happened upstream of
+        // this row, at graph selection, so "org" here correctly maps to
+        // "public within this graph" exactly as `visibility_predicate`
+        // treats it). `SCOPE_PRIVATE` ⇒ false. Absent ⇒ the pre-existing
+        // bare-absent default (true).
+        None => shared_scope_public.unwrap_or(true),
     };
     let grants = map
         .get(RLS_GRANTS_KEY)
@@ -279,6 +321,60 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
         tagged,
         schema,
     }
+}
+
+/// Stamp the BUG-052/GOC-61 canonical ownership key (`_owner_id`) onto a
+/// freshly-written node's property blob when the writer did not already
+/// supply an ownership key of EITHER convention — BUG-193's write-side
+/// counterpart to [`row_visibility`]'s read-side fallback.
+///
+/// Returns `Some(new_blob)` only when a stamp was actually added; `None`
+/// means "use the original blob unchanged", covering every case that must
+/// NOT be touched:
+/// * the blob already carries `_owner` or `_owner_id` (an explicit
+///   caller-supplied owner, including an `agent-utilities`-style write, is
+///   NEVER overridden — this is additive-only, exactly like the read-side
+///   fallback);
+/// * the blob does not decode as a string-keyed map (an undecodable blob is
+///   already denied by [`row_visibility`]; stamping it would not help and
+///   risks masking the real encoding error);
+/// * `caller_agent_id` is empty (nothing to stamp).
+///
+/// Deliberately does NOT set `_visibility`/`_shared_scope` — visibility
+/// breadth is caller-supplied content, not an identity fact this function
+/// has any authority to invent; an absent scope keeps the pre-existing
+/// bare-absent-default (`row_visibility`'s `None => shared_scope_public.
+/// unwrap_or(true)`), so a stamped-but-scope-silent row stays visible to its
+/// writer AND, by the same pre-existing default, to any other caller who
+/// would already have seen an equivalent unstamped-but-tagged row.
+///
+/// Callers are expected to skip this entirely for a `System`-authority
+/// caller ([`IsolationLayer::is_system`]) — System writes (bootstrap,
+/// migration, internal maintenance) are not a real per-agent owner and must
+/// not be stamped as one.
+#[cfg(feature = "security")]
+pub fn stamp_owner_id_if_absent(blob: &[u8], caller_agent_id: &str) -> Option<Vec<u8>> {
+    if caller_agent_id.is_empty() {
+        return None;
+    }
+    let mut map: std::collections::BTreeMap<String, serde_json::Value> =
+        eg_types::msgpack::decode_bounded(
+            blob,
+            eg_types::msgpack::MsgpackLimits::new(
+                eg_types::msgpack::MAX_PROPERTY_BYTES,
+                eg_types::msgpack::MAX_PROPERTY_ITEMS,
+                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            ),
+        )
+        .ok()?;
+    if map.contains_key(RLS_OWNER_KEY) || map.contains_key(RLS_OWNER_ID_KEY) {
+        return None;
+    }
+    map.insert(
+        RLS_OWNER_ID_KEY.to_string(),
+        serde_json::Value::String(caller_agent_id.to_string()),
+    );
+    rmp_serde::to_vec_named(&map).ok()
 }
 
 #[cfg(feature = "security")]
@@ -703,6 +799,18 @@ impl IsolationLayer {
             }
         }
         false
+    }
+
+    /// Is `agent_id` registered with [`AgentRole::System`] — the same bypass
+    /// [`can_see_row`](Self::can_see_row) checks first, exposed standalone for
+    /// write-side callers (BUG-193) that need to know whether to exempt a
+    /// caller from owner-stamping without duplicating the private `agents`
+    /// lookup. An unregistered `agent_id` is never `System`.
+    #[cfg(feature = "security")]
+    pub fn is_system(&self, agent_id: &str) -> bool {
+        self.agents
+            .get(agent_id)
+            .is_some_and(|identity| identity.role == AgentRole::System)
     }
 
     /// Per-agent Row-Level Security (CONCEPT:EG-KG.sharding.row-level-security): may `agent_id` SEE one
@@ -1482,6 +1590,87 @@ mod tests {
 
             fn props_bytes(pairs: &[(&str, &str)]) -> Vec<u8> {
                 (*props(pairs)).clone()
+            }
+        }
+
+        // ── BUG-193 follow-up: owner-stamping interacting with an explicit
+        // native `_visibility` tag must not silently downgrade a caller's
+        // stated "public" intent to owner-only ─────────────────────────────
+        mod bug193_stamped_visibility_interaction {
+            use super::*;
+
+            fn props_bytes(pairs: &[(&str, &str)]) -> Vec<u8> {
+                (*props(pairs)).clone()
+            }
+
+            /// A native caller writes `{_visibility: "public"}` with no
+            /// ownership key; the BUG-193 write chokepoint
+            /// (`stamp_owner_id_if_absent`) stamps `_owner_id` from the
+            /// writer's identity, producing exactly this shape (no
+            /// `_shared_scope` — the stamp never invents one). Before the
+            /// companion fix in `row_visibility`, this made `au_tagged` true
+            /// and the `au_tagged` branch fell back to
+            /// `shared_scope_public.unwrap_or(false)` — silently downgrading
+            /// the writer's explicit "public" declaration to
+            /// visible-to-owner-only for every OTHER caller, even though no
+            /// `_shared_scope` was ever set by anyone (a real bug found and
+            /// fixed before landing, not a hypothetical). Pins the fixed
+            /// behavior: an explicit native `_visibility: "public"` is
+            /// trusted as corroboration when `_shared_scope` is absent, so
+            /// the row stays visible to a NON-owning peer, exactly as its
+            /// author intended.
+            #[test]
+            fn stamped_owner_with_explicit_native_public_visibility_is_visible_to_a_peer() {
+                let layer = setup();
+                let blob = props_bytes(&[("_visibility", "public"), ("_owner_id", "worker1")]);
+                let vis = row_visibility(&blob);
+                assert_eq!(vis.owner.as_deref(), Some("worker1"));
+                assert!(
+                    vis.public,
+                    "an explicit `_visibility: public` with no `_shared_scope` to \
+                     contradict it must still resolve `public`, even once `_owner_id` \
+                     is present"
+                );
+                assert!(
+                    layer.can_see_row("worker2", &vis),
+                    "a peer (not the owner) must still see a row its writer explicitly \
+                     marked public, even after BUG-193 stamps the writer's `_owner_id`"
+                );
+                assert!(
+                    layer.can_see_row("worker1", &vis),
+                    "the owner itself must obviously still see its own row"
+                );
+            }
+
+            /// The contrasting, still-correctly-protected case: `_shared_scope`
+            /// IS present (a genuine au-mediated write) and says `private` —
+            /// that must still win over a conflicting native `_visibility`,
+            /// unaffected by the fix above. This is the exact scenario the
+            /// `au_tagged` branch exists to protect (BUG-064: the incident's
+            /// blanket mis-stamp set `_visibility=public` even on
+            /// `_shared_scope=private` au-owned rows), so it must still deny.
+            #[test]
+            fn au_shared_scope_private_still_overrides_a_conflicting_native_public_tag() {
+                let layer = setup();
+                let blob = props_bytes(&[
+                    ("_visibility", "public"),
+                    ("_owner_id", "worker1"),
+                    ("_shared_scope", "private"),
+                ]);
+                let vis = row_visibility(&blob);
+                assert!(
+                    !vis.public,
+                    "an explicit au `_shared_scope: private` must still override a \
+                     conflicting native `_visibility: public` tag"
+                );
+                assert!(
+                    !layer.can_see_row("worker2", &vis),
+                    "a peer must not see a row whose au-authoritative scope is private"
+                );
+                assert!(
+                    layer.can_see_row("worker1", &vis),
+                    "the owner itself must still see its own private row"
+                );
             }
         }
     }
