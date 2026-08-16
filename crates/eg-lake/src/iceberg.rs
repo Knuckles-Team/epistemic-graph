@@ -97,7 +97,36 @@ pub fn build_iceberg(
     location: &str,
     timestamp_ms: i64,
 ) -> IcebergTable {
-    let lsn: Lsn = snapshot.current_lsn();
+    build_iceberg_as_of(
+        schema_versions,
+        current_schema_id,
+        snapshot,
+        snapshot.current_lsn(),
+        table_uuid,
+        location,
+        timestamp_ms,
+    )
+}
+
+/// Build the Iceberg `metadata.json` (+ manifest JSON stub) for the file set live as
+/// of an EXPLICIT `lsn` — the time-travel / `Op::AsOf` seam (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns): the
+/// engine-side caller resolves a query-time as-of request (a timestamp or an explicit
+/// snapshot/LSN) down to this `Lsn` and gets back the metadata a consistent historical
+/// reader needs, exactly the shape [`build_iceberg`] returns for "now" (`lsn ==
+/// snapshot.current_lsn()` reproduces [`build_iceberg`] byte-for-byte, since that is
+/// this function with `lsn` defaulted to current). `lsn` need not be `<=
+/// snapshot.current_lsn()` — a value beyond current simply includes every file live at
+/// "now" (the same clamping [`crate::snapshot::FileEntry::visible_at`] already gives a
+/// forward LSN).
+pub fn build_iceberg_as_of(
+    schema_versions: &[(i32, LakeSchema)],
+    current_schema_id: i32,
+    snapshot: &SnapshotLog,
+    lsn: Lsn,
+    table_uuid: &str,
+    location: &str,
+    timestamp_ms: i64,
+) -> IcebergTable {
     let snapshot_id: i64 = lsn.value() as i64;
     let current_schema = schema_versions
         .iter()
@@ -109,9 +138,9 @@ pub fn build_iceberg(
     let manifest_list = manifest_list_path(location, snapshot_id);
     let metadata_location = format!("{location}/metadata/v{snapshot_id}.metadata.json");
 
-    // Data-file entries live as of the current LSN — the manifest content (stubbed to
-    // JSON; real Iceberg is Avro).
-    let live = snapshot.live_files();
+    // Data-file entries live as of the REQUESTED lsn (not necessarily current) — the
+    // manifest content (stubbed to JSON; real Iceberg is Avro).
+    let live = snapshot.files_as_of(lsn);
     let total_rows: u64 = live.iter().map(|f| f.num_rows).sum();
     let total_size: u64 = live.iter().map(|f| f.size_bytes).sum();
 
