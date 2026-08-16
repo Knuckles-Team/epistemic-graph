@@ -214,6 +214,23 @@ impl LakeTable {
         )
     }
 
+    /// Render the Iceberg `metadata.json` (+ manifest stub) for the file set live as of
+    /// an EXPLICIT `lsn` — the query-time `Op::AsOf` → `Lsn` time-travel seam
+    /// (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns): the engine-side caller resolves an as-of request down to a
+    /// concrete [`Lsn`] and gets back a reproducible historical snapshot, the same
+    /// shape [`Self::iceberg`] returns for "now".
+    pub fn iceberg_as_of(&self, lsn: Lsn, timestamp_ms: i64) -> IcebergTable {
+        iceberg::build_iceberg_as_of(
+            &self.schema_versions,
+            self.schema_id,
+            &self.snapshot,
+            lsn,
+            &self.table_id,
+            &self.location,
+            timestamp_ms,
+        )
+    }
+
     /// Materialize the real Iceberg **Avro** manifest + manifest-list for the current
     /// snapshot (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest/EG-334). The returned byte blobs land at the exact
     /// object-store paths [`Self::iceberg`]'s `metadata.json` references, so a committed
