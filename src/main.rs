@@ -915,6 +915,52 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
                     obs_addr
                 );
                 let obs_state = std::sync::Arc::new(obs_state);
+
+                // ── Trace durable-tier sweep (BUG-016, CONCEPT:EG-OS.observability.trace-assembly) ─────
+                // Periodically snapshot the native span store to durable storage
+                // (`ObsState::persist_traces`) so a restart does not silently drop
+                // every span the in-memory hot tier holds -- the in-RAM store stays
+                // the search/assembly path unchanged; this is the WAL-checkpoint-
+                // shaped durable cold tier BUG-016's frozen design calls for.
+                // Reuses the SAME interval-task cadence shape the provenance-
+                // anchoring sweep above establishes -- NO new scheduler. OFF by
+                // default: arm with `EPISTEMIC_GRAPH_OBS_TRACES_PERSIST_SECS=N`.
+                #[cfg(feature = "traces")]
+                {
+                    let interval_secs = std::env::var("EPISTEMIC_GRAPH_OBS_TRACES_PERSIST_SECS")
+                        .ok()
+                        .and_then(|s| s.trim().parse::<u64>().ok())
+                        .unwrap_or(0);
+                    if interval_secs > 0 {
+                        let traces_obs_state = obs_state.clone();
+                        info!(
+                            "Observability: durably snapshotting native trace spans every {}s \
+                             (BUG-016, CONCEPT:EG-OS.observability.trace-assembly)",
+                            interval_secs
+                        );
+                        tokio::spawn(async move {
+                            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
+                                interval_secs,
+                            ));
+                            ticker.tick().await; // consume the immediate first tick
+                            loop {
+                                ticker.tick().await;
+                                let __loop_tick_started = std::time::Instant::now();
+                                if let Err(error) = traces_obs_state.persist_traces() {
+                                    tracing::warn!(
+                                        %error,
+                                        "trace snapshot sweep: persist_traces failed, will retry next tick"
+                                    );
+                                }
+                                epistemic_graph::metrics::loop_tick(
+                                    "obs_traces_persist",
+                                    __loop_tick_started.elapsed().as_secs_f64(),
+                                );
+                            }
+                        });
+                    }
+                }
+
                 let obs_security_state = state.clone();
                 tokio::spawn(async move {
                     epistemic_graph::server::obs::serve_with_security(

@@ -47,6 +47,7 @@ pub mod otel_export;
 pub mod remote_write;
 
 use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -138,6 +139,132 @@ fn sanitize(stream: &str) -> String {
         .collect()
 }
 
+/// BUG-016 durable path: `{persist_dir}/obs/traces.msgpack`.
+#[cfg(feature = "traces")]
+fn traces_snapshot_path(obs_base: &Path) -> PathBuf {
+    obs_base.join("traces.msgpack")
+}
+
+/// BUG-210 durable path for one stream's segment manifest list:
+/// `{persist_dir}/obs/segments/<sanitized-stream>.msgpack`.
+fn segment_manifest_path(obs_base: &Path, stream: &str) -> PathBuf {
+    obs_base
+        .join("segments")
+        .join(format!("{}.msgpack", sanitize(stream)))
+}
+
+/// Write `bytes` to `path` via a `.msgpack.tmp` sibling + `fsync` + atomic rename +
+/// best-effort parent-directory fsync -- the one tmp-file-durability convention
+/// this module's persistence helpers (`persist_traces`, `persist_stream_segments`)
+/// share, mirroring `src/server/persistence/backup.rs`'s manifest-write shape and
+/// `src/server/reasoning_projection.rs`'s snapshot-write shape.
+fn write_snapshot_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "snapshot path has no parent".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let temporary = path.with_extension("msgpack.tmp");
+    // Clear a stale temp file left by a prior crashed attempt so `create_new`
+    // below does not spuriously fail.
+    let _ = std::fs::remove_file(&temporary);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = std::io::Write::write_all(&mut file, bytes).and_then(|()| file.sync_all()) {
+        drop(file);
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    drop(file);
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    #[cfg(unix)]
+    {
+        let _ = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
+    }
+    Ok(())
+}
+
+/// BUG-016 durable-tier recovery: load the last snapshot written by
+/// `ObsState::persist_traces`, if any. `Ok(None)` when no snapshot file exists yet
+/// (a fresh persist dir, or a restart before the first sweep tick ever ran --
+/// spans since the last tick are RAM-only by design, see `persist_traces`'s doc
+/// comment). Bytes recovered from durable storage go through the SAME bounded
+/// structural preflight (`eg_types::msgpack::validate_single_value`) every other
+/// durable snapshot reader in this engine uses before deserializing -- `eg-tsdb`'s
+/// `traces` feature deliberately carries no dependency on `eg-types` (its own
+/// "Pi contract" doc comment), so `SpanStore::recover` itself does only the
+/// structural `rmp_serde` decode; this caller supplies the bound.
+#[cfg(feature = "traces")]
+fn load_traces_snapshot(obs_base: &Path) -> Result<Option<eg_tsdb::traces::SpanStore>, String> {
+    let path = traces_snapshot_path(obs_base);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("trace snapshot is unavailable: {error}")),
+    };
+    eg_types::msgpack::validate_single_value(
+        &bytes,
+        eg_types::msgpack::MsgpackLimits::new(
+            eg_types::msgpack::MAX_PROPERTY_BYTES,
+            eg_types::msgpack::MAX_PROPERTY_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .map_err(|_| "trace snapshot is invalid or exceeds its bounds".to_string())?;
+    eg_tsdb::traces::SpanStore::recover(&bytes)
+        .map(Some)
+        .map_err(|error| format!("trace snapshot is corrupt: {error}"))
+}
+
+/// BUG-210 durable-tier recovery: rebuild the segment-manifest prune index
+/// (`ObsState::segments`) from every `{persist_dir}/obs/segments/*.msgpack` side
+/// file written by `persist_stream_segments`. `Ok(Vec::new())` when the directory
+/// does not exist yet (a fresh persist dir, or a persist dir from before this fix
+/// landed -- an old deployment simply starts with an empty prune index for
+/// pre-existing segments exactly as before, and gains durability for every
+/// segment flushed from here on). Each file's bytes go through the same bounded
+/// structural preflight `load_traces_snapshot` uses.
+fn load_segment_manifests(obs_base: &Path) -> Result<Vec<SegmentManifest>, String> {
+    let dir = obs_base.join("segments");
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(format!(
+                "segment manifest directory is unavailable: {error}"
+            ))
+        }
+    };
+    let limits = eg_types::msgpack::MsgpackLimits::new(
+        eg_types::msgpack::MAX_PROPERTY_BYTES,
+        eg_types::msgpack::MAX_PROPERTY_ITEMS,
+        eg_types::msgpack::DEFAULT_MAX_DEPTH,
+    );
+    let mut manifests = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("msgpack") {
+            continue;
+        }
+        let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
+        let stream_manifests: Vec<SegmentManifest> =
+            eg_types::msgpack::decode_bounded(&bytes, limits).map_err(|_| {
+                format!(
+                    "segment manifest {} is invalid or exceeds its bounds",
+                    path.display()
+                )
+            })?;
+        manifests.extend(stream_manifests);
+    }
+    Ok(manifests)
+}
+
 /// The self-contained ingest state: a tsdb series store + per-stream text indices +
 /// the blob CAS for Parquet segments + per-stream flush buffers + the recorded
 /// segment manifests. NOT tied to the graph `ServerState` — it is the observability
@@ -155,6 +282,12 @@ pub struct ObsState {
     segments: Mutex<Vec<SegmentManifest>>,
     /// Base dir for persistent text indices; `None` ⇒ in-memory indices (tests).
     text_dir: Option<std::path::PathBuf>,
+    /// `{persist_dir}/obs` -- the base this module's own durable side-files
+    /// (`traces.msgpack` for BUG-016, `segments/<stream>.msgpack` for BUG-210)
+    /// live under. `None` ⇒ ephemeral/test instance (mirrors `text_dir`'s "None ⇒
+    /// in-memory" contract): nothing beyond the tsdb series + blob CAS the
+    /// `None`-branch of `open()` already gives a temp dir is durable in that mode.
+    obs_base: Option<PathBuf>,
     /// Roll a segment once a stream buffers this many records.
     flush_threshold: usize,
     /// Monotonic doc-id sequence for text-index document ids.
@@ -170,12 +303,12 @@ impl ObsState {
     /// on-disk text indices under `{persist_dir}/obs/…`). With `persist_dir = None`
     /// everything is in a temp dir / in-memory (tests / ephemeral).
     pub fn open(persist_dir: Option<&str>, flush_threshold: usize) -> Result<Self, String> {
-        let (series, blob, text_dir) = match persist_dir {
+        let (series, blob, text_dir, obs_base) = match persist_dir {
             Some(dir) => {
                 let base = std::path::Path::new(dir).join("obs");
                 let series = SeriesStore::open_in_dir(&base).map_err(|e| e.to_string())?;
                 let blob = RedbChunkStore::open(&base.join("blob").to_string_lossy())?;
-                (series, blob, Some(base.join("text")))
+                (series, blob, Some(base.join("text")), Some(base))
             }
             None => {
                 let base = std::env::temp_dir().join(format!(
@@ -185,20 +318,40 @@ impl ObsState {
                 ));
                 let series = SeriesStore::open_in_dir(&base).map_err(|e| e.to_string())?;
                 let blob = RedbChunkStore::open(&base.join("blob").to_string_lossy())?;
-                (series, blob, None)
+                (series, blob, None, None)
             }
+        };
+        // BUG-210: rebuild the segment-manifest prune index from durable side-files
+        // before serving -- without this, `segments` silently starts empty on every
+        // restart even though the Parquet bytes themselves are still in the blob
+        // CAS (see `load_segment_manifests`'s doc comment).
+        let segments = match obs_base.as_deref() {
+            Some(base) => load_segment_manifests(base)?,
+            None => Vec::new(),
+        };
+        // BUG-016: recover the native span store from its last durable snapshot
+        // before serving, so a restart does not silently drop every span held by
+        // the in-memory hot tier (see `load_traces_snapshot`'s doc comment). Spans
+        // ingested since the last periodic sweep tick are RAM-only and are lost,
+        // exactly like any WAL-checkpoint interval -- that is the documented,
+        // bounded staleness window, not a bug.
+        #[cfg(feature = "traces")]
+        let traces = match obs_base.as_deref() {
+            Some(base) => load_traces_snapshot(base)?.unwrap_or_default(),
+            None => eg_tsdb::traces::SpanStore::new(),
         };
         Ok(Self {
             series: Arc::new(series),
             blob: Arc::new(blob),
             indices: Mutex::new(HashMap::new()),
             buffers: Mutex::new(HashMap::new()),
-            segments: Mutex::new(Vec::new()),
+            segments: Mutex::new(segments),
             text_dir,
+            obs_base,
             flush_threshold: flush_threshold.max(1),
             next_doc: AtomicU64::new(1),
             #[cfg(feature = "traces")]
-            traces: Arc::new(eg_tsdb::traces::SpanStore::new()),
+            traces: Arc::new(traces),
         })
     }
 
@@ -207,6 +360,24 @@ impl ObsState {
     #[cfg(feature = "traces")]
     pub fn trace_store(&self) -> Arc<eg_tsdb::traces::SpanStore> {
         self.traces.clone()
+    }
+
+    /// BUG-016 durable tier: snapshot the in-memory span store to
+    /// `{persist_dir}/obs/traces.msgpack` (tmp-file + atomic rename). Intended to
+    /// be called from a periodic sweep task (mirroring
+    /// `server::persistence::provenance_anchor`'s cadence, armed by
+    /// `EPISTEMIC_GRAPH_OBS_TRACES_PERSIST_SECS`), NOT from the per-request ingest
+    /// path -- that would reintroduce BUG-017's write-amplification defect class.
+    /// A no-op (`Ok(())`) when this instance has no configured durable persist dir
+    /// (ephemeral/test instances), mirroring `provenance_anchor::sweep`'s
+    /// no-op-when-unconfigured contract.
+    #[cfg(feature = "traces")]
+    pub fn persist_traces(&self) -> Result<(), String> {
+        let Some(base) = self.obs_base.as_deref() else {
+            return Ok(());
+        };
+        let bytes = self.traces.snapshot();
+        write_snapshot_atomically(&traces_snapshot_path(base), &bytes)
     }
 
     /// In-memory ingest state (temp series/blob, RAM text indices) — for tests.
@@ -277,6 +448,10 @@ impl ObsState {
                     segment::flush_records_to_segment(self.blob.as_ref(), &stream, &batch)?
                 {
                     self.segments.lock().push(manifest);
+                    // BUG-210: durably index this stream's manifest list at the SAME
+                    // cadence as the flush itself (bounded: one small rewrite per
+                    // `flush_threshold`-many records, not per request).
+                    self.persist_stream_segments(&stream)?;
                     segments_flushed += 1;
                 }
             }
@@ -301,8 +476,25 @@ impl ObsState {
         let manifest = segment::flush_records_to_segment(self.blob.as_ref(), stream, &batch)?;
         if let Some(m) = &manifest {
             self.segments.lock().push(m.clone());
+            // BUG-210: see the matching comment in `ingest`.
+            self.persist_stream_segments(stream)?;
         }
         Ok(manifest)
+    }
+
+    /// BUG-210 durable tier: durably persist ONE stream's segment manifest list to
+    /// `{persist_dir}/obs/segments/<sanitized-stream>.msgpack` (tmp-file + atomic
+    /// rename, the SAME convention `persist_traces` uses). A no-op (`Ok(())`) when
+    /// this instance has no configured durable persist dir (ephemeral/test
+    /// instances) -- the manifest already lives only in RAM in that mode, mirroring
+    /// `text_dir`'s existing "`None` ⇒ in-memory" contract.
+    fn persist_stream_segments(&self, stream: &str) -> Result<(), String> {
+        let Some(base) = self.obs_base.as_deref() else {
+            return Ok(());
+        };
+        let list = self.segments_for(stream);
+        let bytes = rmp_serde::to_vec_named(&list).map_err(|error| error.to_string())?;
+        write_snapshot_atomically(&segment_manifest_path(base, stream), &bytes)
     }
 
     /// BM25 search a stream's text index — returns `(doc_id, score)` hits. The
@@ -1529,6 +1721,124 @@ mod tests {
             obs.flush_stream("tiny").unwrap().is_none(),
             "buffer drained"
         );
+    }
+
+    /// BUG-016 -- end-to-end restart proof against a REAL `ObsState` bound to a
+    /// real persist dir. Proves BOTH halves: (1) a restart with NO explicit
+    /// `persist_traces()` call correctly starts empty -- persistence is never
+    /// implicit on the hot ingest path (that would reintroduce BUG-017's
+    /// per-request write-amplification defect class); (2) a restart AFTER
+    /// `persist_traces()` recovers the exact trace, byte-identically re-derivable.
+    #[cfg(feature = "traces")]
+    #[test]
+    fn bug_016_traces_survive_an_obsstate_restart_only_after_persist_traces() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let persist_dir = dir.path().to_str().expect("utf8 temp path");
+
+        let span = eg_tsdb::traces::Span {
+            trace_id: "t1".into(),
+            span_id: "root".into(),
+            parent_span_id: String::new(),
+            service: "checkout".into(),
+            operation: "POST /order".into(),
+            start_time: 100,
+            duration: 50,
+            status: "OK".into(),
+            attributes: BTreeMap::new(),
+            events: Vec::new(),
+        };
+
+        // (1) Ingest a span but never call `persist_traces` -- a restart at this
+        // point must see NOTHING durable yet (the bounded-staleness window).
+        {
+            let obs = ObsState::open(Some(persist_dir), 1024).expect("open");
+            obs.trace_store().add_span(span.clone());
+            assert_eq!(obs.trace_store().trace_count(), 1, "ingested in RAM");
+        }
+        {
+            let reopened = ObsState::open(Some(persist_dir), 1024).expect("reopen");
+            assert_eq!(
+                reopened.trace_store().trace_count(),
+                0,
+                "no persist_traces() call ever ran, so restart must start empty"
+            );
+        }
+
+        // (2) Ingest again and THIS time call `persist_traces` before "restarting".
+        {
+            let obs = ObsState::open(Some(persist_dir), 1024).expect("open");
+            obs.trace_store().add_span(span.clone());
+            obs.persist_traces().expect("persist_traces");
+        }
+        {
+            let reopened = ObsState::open(Some(persist_dir), 1024).expect("reopen");
+            assert_eq!(
+                reopened.trace_store().trace_count(),
+                1,
+                "persist_traces() ran, so the restart must recover the trace"
+            );
+            let recovered = reopened.trace_store().assemble("t1").expect("trace t1");
+            assert_eq!(recovered.span_count, 1);
+            assert_eq!(recovered.services, vec!["checkout".to_string()]);
+        }
+    }
+
+    /// BUG-210 -- end-to-end restart proof for the segment-manifest prune index.
+    /// Ingest past `flush_threshold` (forcing a real segment flush) against a real
+    /// persist dir, confirm `segments_for` is non-empty, "restart" (drop + reopen
+    /// on the SAME persist dir), and assert the manifest -- and the segment's rows
+    /// via `read_segment` -- are STILL reachable. Pre-fix this assertion fails (0
+    /// segments after reopen, per the ledger's root-cause finding); post-fix it
+    /// must pass.
+    #[test]
+    fn bug_210_segment_manifests_survive_an_obsstate_restart() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let persist_dir = dir.path().to_str().expect("utf8 temp path");
+
+        {
+            let obs = ObsState::open(Some(persist_dir), 2).expect("open");
+            let recs = vec![
+                LogRecord {
+                    ts: 10,
+                    stream: "s".into(),
+                    severity: "INFO".into(),
+                    body: "one".into(),
+                    attrs: BTreeMap::new(),
+                },
+                LogRecord {
+                    ts: 20,
+                    stream: "s".into(),
+                    severity: "WARN".into(),
+                    body: "two".into(),
+                    attrs: BTreeMap::new(),
+                },
+            ];
+            let out = obs.ingest(recs).expect("ingest");
+            assert_eq!(out.segments_flushed, 1, "threshold=2 rolls one segment");
+            assert_eq!(
+                obs.segments_for("s").len(),
+                1,
+                "durably indexed before restart"
+            );
+        }
+
+        let reopened = ObsState::open(Some(persist_dir), 2).expect("reopen");
+        let segs = reopened.segments_for("s");
+        assert_eq!(
+            segs.len(),
+            1,
+            "the segment manifest must survive a restart, not silently vanish"
+        );
+        assert_eq!(segs[0].row_count, 2);
+        assert_eq!(segs[0].min_ts, 10);
+        assert_eq!(segs[0].max_ts, 20);
+
+        // The bytes themselves were always durable in the blob CAS; the fix is
+        // that the manifest recovered above makes them REACHABLE again.
+        let rows = reopened.read_segment(&segs[0]).expect("read_segment");
+        assert_eq!(rows.len(), 2);
+        let bodies: Vec<&str> = rows.iter().map(|r| r.body.as_str()).collect();
+        assert!(bodies.contains(&"one") && bodies.contains(&"two"));
     }
 
     #[tokio::test]
