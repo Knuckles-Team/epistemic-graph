@@ -25,7 +25,7 @@ import struct
 import threading
 import time
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, Literal, NamedTuple, TypedDict, cast
 
 import msgpack
 
@@ -8014,6 +8014,10 @@ _CONNECT_TIMEOUT = float(os.environ.get("GRAPH_SERVICE_CONNECT_TIMEOUT", "10") o
 #: that backs up means the engine has stopped reading (wedged) — detect that in
 #: seconds even for a "heavy" method whose *response* may legitimately take long.
 _WRITE_TIMEOUT = float(os.environ.get("GRAPH_SERVICE_WRITE_TIMEOUT", "30") or 30)
+#: GOC-81 W02: shutdown waits inside `close()` (joining the cancelled reader
+#: task, awaiting `writer.wait_closed()`) must also be bounded — a wedged
+#: transport must never make `close()` itself hang forever.
+_CLOSE_TIMEOUT = float(os.environ.get("GRAPH_SERVICE_CLOSE_TIMEOUT", "5") or 5)
 #: Methods whose work is O(graph) / batch-sized and may legitimately run long.
 _HEAVY_RPC_METHODS = frozenset(
     {
@@ -11150,6 +11154,26 @@ class AdminClient:
         )
 
 
+class _TlsDecision(NamedTuple):
+    """A typed, explicit transport-encryption decision (GOC-81 W01).
+
+    Transport encryption is an explicit property of the endpoint/profile,
+    decided by precedence (explicit client argument > named graph-service
+    endpoint profile > product default) alone. Ambient CA variables
+    belonging to unrelated HTTP libraries (``SSL_CERT_FILE``,
+    ``REQUESTS_CA_BUNDLE``) may only ever supply TRUST MATERIAL for a
+    connection whose mode this decision already selected -- they are never
+    consulted to pick the mode itself. ``profile`` and ``trust_source`` are
+    sanitized diagnostic tags only; neither this type nor any diagnostic
+    built from it ever carries certificate/key material.
+    """
+
+    enabled: bool
+    profile: str
+    server_name: str | None
+    trust_source: str
+
+
 class EpistemicGraphClient:
     """CONCEPT:EG-KG.query.wire-protocol — Epistemic Graph Core Client
 
@@ -11228,7 +11252,22 @@ class EpistemicGraphClient:
         # semantics the mechanism is meant to provide (a single connection's
         # ids are still monotonically increasing and never reused).
         self._request_id = secrets.randbits(48)
+        # ── GOC-81 W02 — close-lifecycle state (deliberately split in two) ──
+        # ``_closed`` is ADMISSION state: True means "the next call must
+        # reconnect before sending" (flipped by a dead reader, a timeout, or
+        # an explicit close). ``_closing`` is OWNERSHIP
+        # state: True only once :meth:`close` itself has run the transport
+        # teardown to completion. Conflating the two was the leak this split
+        # closes -- a reader-EOF flipping ``_closed`` must never, by itself,
+        # cause `close()` to skip `writer.wait_closed()`.
         self._closed = False
+        self._closing = False
+        self._terminal_error: BaseException | None = None
+        # Bumped on every successful (re)connect. A background reader task
+        # captures the generation it was started for; its own EOF/error
+        # handling is a no-op once superseded, so a stale reader callback can
+        # never mark a NEWER connection dead (lane invariant 5).
+        self._generation = 0
         # ── CONCEPT:EG-KG.backend.framed-response — single-connection request PIPELINING (demux) ──
         # The engine (src/server/transport.rs) processes many requests on ONE
         # connection concurrently and writes responses back OUT OF ORDER, each
@@ -11300,48 +11339,145 @@ class EpistemicGraphClient:
         self.quantum = QuantumClient(self)
 
     @staticmethod
-    def _resolve_tls(
+    def _resolve_tls_decision(
         tls: bool | ssl.SSLContext | None,
         *,
         client_cert: str | None,
         client_key: str | None,
-    ) -> ssl.SSLContext | None:
-        if isinstance(tls, ssl.SSLContext):
-            if client_cert or client_key:
-                raise ValueError(
-                    "client certificate paths cannot be combined with an injected TLS context"
-                )
-            return tls
-        configured = str(os.environ.get("GRAPH_SERVICE_TLS", "")).strip().lower()
+        server_hostname: str | None,
+    ) -> _TlsDecision:
+        """Decide transport-encryption MODE by explicit precedence alone (GOC-81 W01).
+
+        Precedence: explicit client argument (the ``tls`` parameter, or an
+        explicit ``client_cert``/``client_key`` call argument) > named
+        graph-service endpoint profile (``GRAPH_SERVICE_TLS``,
+        ``GRAPH_SERVICE_TLS_CA``, ``GRAPH_SERVICE_TLS_CLIENT_CERT/_KEY``) >
+        product default (plaintext). Ambient CA variables belonging to
+        unrelated HTTP libraries (``SSL_CERT_FILE``, ``REQUESTS_CA_BUNDLE``)
+        never appear in this decision -- their bare presence must never flip
+        the protocol mode. Contradictory inputs (TLS explicitly disabled
+        while a client certificate is supplied) are rejected here, not
+        silently resolved.
+        """
         env_client_cert = str(
             os.environ.get("GRAPH_SERVICE_TLS_CLIENT_CERT", "") or ""
         ).strip()
         env_client_key = str(
             os.environ.get("GRAPH_SERVICE_TLS_CLIENT_KEY", "") or ""
         ).strip()
-        enabled = tls is True or (
-            tls is None
-            and (
-                configured in {"1", "true", "yes", "on"}
-                or any(
-                    os.environ.get(name)
-                    for name in (
-                        "GRAPH_SERVICE_TLS_CA",
-                        "SSL_CERT_FILE",
-                        "REQUESTS_CA_BUNDLE",
-                    )
-                )
-                or bool(client_cert or client_key or env_client_cert or env_client_key)
-            )
+        has_cert_arg = bool(str(client_cert or "").strip())
+        has_key_arg = bool(str(client_key or "").strip())
+
+        configured = str(os.environ.get("GRAPH_SERVICE_TLS", "")).strip().lower()
+        profile_ca = str(os.environ.get("GRAPH_SERVICE_TLS_CA", "") or "").strip()
+        profile_selects_tls = bool(
+            profile_ca
+            or env_client_cert
+            or env_client_key
+            or configured in {"1", "true", "yes", "on"}
         )
-        if not enabled:
+        profile_disables_tls = configured in {"0", "false", "no", "off"}
+
+        if tls is True:
+            enabled, profile = True, "explicit-arg"
+        elif tls is False:
+            enabled, profile = False, "explicit-arg"
+        elif has_cert_arg or has_key_arg:
+            # An explicit mTLS credential passed as a CALL argument is itself
+            # an explicit selection (tier 1), distinct from the named-profile
+            # tier below.
+            enabled, profile = True, "explicit-arg"
+        elif profile_disables_tls:
+            enabled, profile = False, "named-profile"
+        elif profile_selects_tls:
+            enabled, profile = True, "named-profile"
+        else:
+            enabled, profile = False, "default"
+
+        if not enabled and (
+            has_cert_arg or has_key_arg or env_client_cert or env_client_key
+        ):
+            raise ValueError(
+                "a client certificate was supplied but TLS is explicitly disabled "
+                "for this connection"
+            )
+
+        trust_source = "none"
+        if enabled:
+            if profile_ca:
+                trust_source = "ca_bundle"
+            elif os.environ.get("SSL_CERT_FILE") or os.environ.get(
+                "REQUESTS_CA_BUNDLE"
+            ):
+                trust_source = "ca_bundle"
+            elif os.environ.get("GRAPH_SERVICE_TLS_CA_DIRECTORY") or os.environ.get(
+                "SSL_CERT_DIR"
+            ):
+                trust_source = "ca_directory"
+            else:
+                trust_source = "system_default"
+
+        return _TlsDecision(enabled, profile, server_hostname, trust_source)
+
+    @classmethod
+    def _resolve_tls(
+        cls,
+        tls: bool | ssl.SSLContext | None,
+        *,
+        client_cert: str | None,
+        client_key: str | None,
+        server_hostname: str | None = None,
+    ) -> ssl.SSLContext | None:
+        """Build the TLS context for a connection, if any (GOC-81 W01).
+
+        The protocol MODE is decided exclusively by :meth:`_resolve_tls_decision`.
+        Ambient CA variables belonging to unrelated HTTP libraries
+        (``SSL_CERT_FILE``, ``REQUESTS_CA_BUNDLE``) are consulted only below,
+        to supply TRUST MATERIAL for a connection whose mode is already
+        final -- never to select the mode itself.
+        """
+        if isinstance(tls, ssl.SSLContext):
+            if client_cert or client_key:
+                raise ValueError(
+                    "client certificate paths cannot be combined with an injected TLS context"
+                )
+            return tls
+
+        decision = cls._resolve_tls_decision(
+            tls,
+            client_cert=client_cert,
+            client_key=client_key,
+            server_hostname=server_hostname,
+        )
+        if not decision.enabled:
             return None
-        ca_bundle = str(
-            os.environ.get("GRAPH_SERVICE_TLS_CA")
-            or os.environ.get("SSL_CERT_FILE")
-            or os.environ.get("REQUESTS_CA_BUNDLE")
-            or ""
+
+        allowed = str(
+            os.environ.get("GRAPH_SERVICE_TLS_ALLOWED_SERVER_NAMES", "") or ""
         ).strip()
+        if allowed and decision.server_name:
+            allowed_names = {n.strip() for n in allowed.split(",") if n.strip()}
+            if decision.server_name not in allowed_names:
+                raise ValueError(
+                    "TLS server name is outside the configured endpoint allowlist"
+                )
+
+        env_client_cert = str(
+            os.environ.get("GRAPH_SERVICE_TLS_CLIENT_CERT", "") or ""
+        ).strip()
+        env_client_key = str(
+            os.environ.get("GRAPH_SERVICE_TLS_CLIENT_KEY", "") or ""
+        ).strip()
+        profile_ca = str(os.environ.get("GRAPH_SERVICE_TLS_CA", "") or "").strip()
+        # Trust material: the named profile's OWN CA source first; a generic,
+        # unrelated-library CA variable is consulted only as a FALLBACK once
+        # TLS is already selected -- the mode decision above is already final
+        # and this can never reopen it.
+        ca_bundle = (
+            profile_ca
+            or str(os.environ.get("SSL_CERT_FILE") or "").strip()
+            or str(os.environ.get("REQUESTS_CA_BUNDLE") or "").strip()
+        )
         ca_directory = str(
             os.environ.get("GRAPH_SERVICE_TLS_CA_DIRECTORY")
             or os.environ.get("SSL_CERT_DIR")
@@ -11373,6 +11509,14 @@ class EpistemicGraphClient:
                 raise ValueError(
                     "native TCP mTLS identity is unavailable or invalid"
                 ) from None
+        # Sanitized diagnostics only -- mode/profile/trust-source TAGS, never
+        # certificate/key paths or contents (GOC-81 W01 invariant 3).
+        logger.debug(
+            "epistemic-graph TLS mode selected: enabled=%s profile=%s trust_source=%s",
+            decision.enabled,
+            decision.profile,
+            decision.trust_source,
+        )
         return context
 
     @staticmethod
@@ -11462,11 +11606,6 @@ class EpistemicGraphClient:
         if not _secret:
             raise ValueError("a non-empty authentication secret is required")
         context = validate_request_context(verified_context)
-        tls_context = cls._resolve_tls(
-            tls,
-            client_cert=tls_client_cert,
-            client_key=tls_client_key,
-        )
         resolved_tls_server_hostname = (
             str(
                 tls_server_hostname
@@ -11474,6 +11613,12 @@ class EpistemicGraphClient:
                 or ""
             ).strip()
             or None
+        )
+        tls_context = cls._resolve_tls(
+            tls,
+            client_cert=tls_client_cert,
+            client_key=tls_client_key,
+            server_hostname=resolved_tls_server_hostname,
         )
 
         reader, writer, resolved_socket = await cls._open_streams(
@@ -11510,11 +11655,28 @@ class EpistemicGraphClient:
         (see ``_send``). Without recovery the client is permanently broken and
         the engine circuit breaker latches OPEN forever. Callers hold no
         reference to the underlying reader/writer, so dialing a fresh stream and
-        swapping them in is transparent. Must be called with ``self._lock`` held.
+        swapping them in is transparent. Must be called with ``self._lock`` held
+        (``close()`` also takes ``self._lock`` for its whole teardown, so a
+        concurrent ``close()`` and a reconnect-in-progress can never interleave
+        — GOC-81 W02's "close during connect" case).
         """
         # Tear down the old demux reader and fail any calls still bound to the
         # dead connection (CONCEPT:EG-KG.backend.framed-response) before swapping in the fresh stream.
+        # Capture the task BEFORE `_mark_dead` (which requests cancellation and
+        # clears `self._reader_task`) so it can be awaited below.
+        old_task = self._reader_task
         self._mark_dead(ConnectionError("connection reset; reconnecting"))
+        if old_task is not None and not old_task.done():
+            # Await the old reader's actual cancellation instead of merely
+            # requesting it (GOC-81 W02 invariant 5): without this, the old
+            # task's except-clause could still be mid-flight when the fresh
+            # reader/writer are swapped in below and (pre-fix) could flip
+            # `_closed` back on for a connection it never belonged to. The
+            # generation guard in `_read_loop` makes this belt-and-suspenders,
+            # not the only line of defense. Bounded: a wedged old task must
+            # never make reconnection itself hang forever.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await asyncio.wait_for(old_task, _CLOSE_TIMEOUT)
         with contextlib.suppress(Exception):  # discard the poisoned stream
             self._writer.close()
         self._reader, self._writer, _ = await self._open_streams(
@@ -11524,6 +11686,10 @@ class EpistemicGraphClient:
             self._tls_context,
             self._tls_server_hostname,
         )
+        # New lifecycle generation: a reader task bound to the OLD generation
+        # (already awaited above, but kept as a hard guard) can never mark
+        # THIS connection dead.
+        self._generation += 1
         self._closed = False
         # Re-negotiate capabilities against the fresh connection.
         self._server_ops = None
@@ -11844,14 +12010,29 @@ class EpistemicGraphClient:
                 fut.set_exception(exc)
                 fut.add_done_callback(self._retrieve_exc)
 
+    def _set_terminal_error(self, exc: BaseException) -> None:
+        """Preserve the FIRST terminal error across repeated dead/close events
+        (GOC-81 W02 invariant 6) — a later, possibly less informative error
+        (e.g. "client closed" racing a real connection error) never overwrites
+        the original cause.
+        """
+        if self._terminal_error is None:
+            self._terminal_error = exc
+
     def _mark_dead(self, exc: BaseException) -> None:
         """Tear the connection down: stop the reader, fail all in-flight calls.
 
-        Idempotent. Called on any connection-fatal event (EOF, transport error,
-        a bounded-timeout, explicit close, reconnect). Marks ``_closed`` so the
-        next call self-heals via :meth:`_reconnect`.
+        Idempotent. Called on any connection-fatal event detected from a
+        *live* calling context (a timed-out/failed ``_send``, or the start of
+        ``_reconnect``/``close``) — never from the background reader task
+        itself, which uses :meth:`_on_reader_terminated` instead so a stale
+        callback from a superseded connection cannot reach here. Marks
+        ``_closed`` (ADMISSION state) so the next call self-heals via
+        :meth:`_reconnect`; this alone never tears down the writer's final
+        state — that is ``close()``'s job (GOC-81 W02).
         """
         self._closed = True
+        self._set_terminal_error(exc)
         task = self._reader_task
         self._reader_task = None
         if task is not None and not task.done():
@@ -11860,14 +12041,34 @@ class EpistemicGraphClient:
             self._writer.close()
         self._fail_pending(exc)
 
-    async def _read_loop(self, reader: asyncio.StreamReader) -> None:
+    def _on_reader_terminated(self, generation: int, exc: BaseException) -> None:
+        """Handle the background reader's own EOF/decode-error termination.
+
+        Only mutates shared state if ``generation`` still matches the LIVE
+        connection (GOC-81 W02 invariant 5): a reader task bound to a
+        connection already superseded by :meth:`_reconnect` must never be
+        able to mark the CURRENT connection dead. This — not
+        ``_mark_dead`` — is what a reader's own except-clauses call, so this
+        generation check is the only path by which the reader can affect
+        client state.
+        """
+        if generation != self._generation:
+            return  # stale callback from a superseded connection generation
+        self._closed = True
+        self._set_terminal_error(exc)
+        self._fail_pending(exc)
+
+    async def _read_loop(self, reader: asyncio.StreamReader, generation: int) -> None:
         """Background demultiplexer: read frames, resolve futures by ``id``.
 
-        One task per live connection. Responses arrive in ANY order (the engine
-        pipelines, CONCEPT:EG-KG.backend.framed-response); each is routed to its caller by the
-        ``Response.id`` correlation id the protocol already carries. On EOF /
-        transport error every in-flight call is failed so no caller hangs and the
-        next call reconnects.
+        One task per live connection, bound to the lifecycle ``generation``
+        that was current when it started (GOC-81 W02). Responses arrive in
+        ANY order (the engine pipelines, CONCEPT:EG-KG.backend.framed-response); each is
+        routed to its caller by the ``Response.id`` correlation id the
+        protocol already carries. On EOF / transport error every in-flight
+        call is failed so no caller hangs and the next call reconnects —
+        unless this task's generation has already been superseded, in which
+        case its termination is a no-op (see :meth:`_on_reader_terminated`).
         """
         try:
             while True:
@@ -11893,24 +12094,31 @@ class EpistemicGraphClient:
         except asyncio.CancelledError:
             raise
         except (asyncio.IncompleteReadError, OSError):
-            self._closed = True
-            self._fail_pending(ConnectionError("Connection closed by server"))
+            self._on_reader_terminated(
+                generation, ConnectionError("Connection closed by server")
+            )
         except Exception as e:  # noqa: BLE001 — surface any decode error to callers
-            self._closed = True
-            self._fail_pending(
-                ConnectionError(f"epistemic-graph response failed ({type(e).__name__})")
+            self._on_reader_terminated(
+                generation,
+                ConnectionError(
+                    f"epistemic-graph response failed ({type(e).__name__})"
+                ),
             )
 
     async def _ensure_connection(self) -> None:
         """Ensure a live stream + a running reader task (lifecycle lock held)."""
         async with self._lock:
+            if self._closing:
+                raise ConnectionError("client is closed")
             if self._closed:
                 # A prior call closed a poisoned/dead stream. Re-dial in place so
                 # this call succeeds instead of reusing a dead writer — otherwise
                 # the engine circuit breaker latches OPEN permanently.
                 await self._reconnect()
             if self._reader_task is None or self._reader_task.done():
-                self._reader_task = asyncio.ensure_future(self._read_loop(self._reader))
+                self._reader_task = asyncio.ensure_future(
+                    self._read_loop(self._reader, self._generation)
+                )
 
     async def _send(
         self,
@@ -12065,13 +12273,42 @@ class EpistemicGraphClient:
     # ── Connection Management ─────────────────────────────────────────────
 
     async def close(self) -> None:
-        if not self._closed:
-            # Stop the demux reader and fail any straggler in-flight calls
-            # (CONCEPT:EG-KG.backend.framed-response) before tearing the transport down.
-            self._mark_dead(ConnectionError("client closed"))
+        """Idempotent shutdown (GOC-81 W02).
+
+        Safe under repeated calls, concurrent calls, peer EOF before close,
+        close during an in-flight reconnect, and close during an in-flight
+        request. A client that owns a transport closes it EXACTLY ONCE and
+        always awaits final writer shutdown — regardless of reader-EOF
+        ordering. The gate is ``self._closing`` (ownership state), never
+        ``self._closed`` (admission state, which the background reader also
+        flips on EOF/error): the old code's early return on ``self._closed``
+        was exactly the bug — a reader that already observed EOF made every
+        subsequent ``close()`` a silent no-op that never reached
+        ``writer.close()``/``writer.wait_closed()``, leaking the transport.
+
+        ``self._lock`` is the SAME lock ``_reconnect`` holds for its entire
+        dial, so a close racing an in-flight reconnect simply waits for that
+        dial to finish (bounded by the connect timeout) rather than needing
+        separate close/reconnect coordination.
+        """
+        async with self._lock:
+            if self._closing:
+                return
+            self._closing = True
+            self._closed = True  # stop admitting new requests immediately
+            exc = ConnectionError("client closed")
+            self._set_terminal_error(exc)
+            task = self._reader_task
+            self._reader_task = None
+            if task is not None and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await asyncio.wait_for(task, _CLOSE_TIMEOUT)
+            self._fail_pending(self._terminal_error or exc)
             with contextlib.suppress(Exception):
-                await self._writer.wait_closed()
-            self._closed = True
+                self._writer.close()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(self._writer.wait_closed(), _CLOSE_TIMEOUT)
 
     async def __aenter__(self) -> EpistemicGraphClient:
         return self
