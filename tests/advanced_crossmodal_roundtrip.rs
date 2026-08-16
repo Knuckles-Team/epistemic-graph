@@ -305,7 +305,9 @@ async fn stage_rls_overlay(state: &Arc<RwLock<ServerState>>, first_id: u64, agen
             // for who legitimately published it) -- an explicit `_grants` list
             // is the row-visibility escape hatch for a genuinely public,
             // deliberately unowned row (see `row_visibility`'s doc comment).
-            properties_msgpack: pack(json!({ "type": "Robot", "_visibility": "public", "_grants": "agent_a,agent_b" })),
+            properties_msgpack: pack(
+                json!({ "type": "Robot", "_visibility": "public", "_grants": "agent_a,agent_b" }),
+            ),
             graph: None,
         },
     )
@@ -832,7 +834,9 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
             // Default-deny RLS hides an untagged row from a non-`System` actor --
             // an EXPLICIT `_visibility: "public"` tag is required for an unowned
             // row to be visible at all (see the `stg_pub` note above).
-            properties_msgpack: pack(json!({ "type": "Robot", "_visibility": "public", "_grants": "agent_a,agent_b" })),
+            properties_msgpack: pack(
+                json!({ "type": "Robot", "_visibility": "public", "_grants": "agent_a,agent_b" }),
+            ),
         },
     )
     .await;
@@ -1137,7 +1141,9 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
         99,
         Method::AddNode {
             node_id: "seed0".into(),
-            properties_msgpack: pack(json!({ "type": "Seed", "_visibility": "public", "_owner": "tester" })),
+            properties_msgpack: pack(
+                json!({ "type": "Seed", "_visibility": "public", "_owner": "tester" }),
+            ),
         },
     )
     .await;
@@ -1192,7 +1198,9 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
         Method::TxnAddNode {
             txn_id: txn.clone(),
             node_id: "<http://ex/machine>".into(),
-            properties_msgpack: pack(json!({ "type": "Machine", "_visibility": "public", "_owner": "tester" })),
+            properties_msgpack: pack(
+                json!({ "type": "Machine", "_visibility": "public", "_owner": "tester" }),
+            ),
             graph: None,
         },
     )
