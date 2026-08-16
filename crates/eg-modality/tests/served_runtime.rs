@@ -390,3 +390,151 @@ fn selective_native_query_remains_bounded_at_scale() {
     let (_, recovered_stats) = recovered.query_native(&query).unwrap();
     assert_eq!(recovered_stats, stats);
 }
+
+/// BUG-017 (P0): `store_runtime` (`src/server/handlers/modality.rs`) durably persists
+/// the served-modality state by calling `ServedModalityRuntime::snapshot()` — which
+/// `serde_json::to_vec(self)`-serializes the ENTIRE `records: BTreeMap<OccurrenceId,
+/// ServedRecord<T>>` plus the full `events`/`idempotency` history — after EVERY single
+/// ingest/delete/move-to-cold/restore of ONE occurrence. That single node's mutation
+/// therefore costs bytes proportional to the WHOLE partition's corpus, not to the one
+/// record that changed.
+///
+/// This test is the "measure first" deliverable BUG-017's ledger row calls for: it
+/// benchmarks the real `snapshot()` output at growing corpus sizes ("BEFORE" — today's
+/// shipped, unmodified behavior) against what a delta-scoped row/chunk write would cost
+/// ("AFTER" — the frozen target format, BD-017 addendum: per-occurrence record rows,
+/// append-only event/idempotency rows, and incremental index deltas, instead of one
+/// whole-partition blob). The AFTER number is derived from the SAME real snapshot bytes
+/// (parsed as JSON) by keeping only what a single ingest actually CHANGED — one record,
+/// one new event, one new idempotency entry, and the small index-membership delta — not
+/// a separate reimplementation, so it is a faithful lower bound on the frozen format's
+/// per-write cost.
+///
+/// First cut of this test only stripped `records` and kept `events`/`idempotency`/the
+/// two index `BTreeSet`s whole; that AFTER number ALSO grew ~240x with corpus (35,182 B
+/// -> 8,438,174 B at these same checkpoints), which is itself a finding recorded in
+/// BD-017's addendum: `events` (one entry appended per historical op, never pruned) and
+/// `idempotency` (one entry kept forever per historical `idempotency_ref`) are EQUALLY
+/// corpus-sized, not merely `records` — so the frozen format's "append-only
+/// event/idempotency rows" clause is load-bearing, not optional. This version of the
+/// test strips all four instead.
+#[test]
+fn bug_017_write_bytes_scale_with_corpus_not_delta() {
+    const CHECKPOINTS: [u64; 4] = [64, 512, 4_096, 16_384];
+
+    let mut runtime = ServedModalityRuntime::<TestDocument>::new();
+    let mut ingested: u64 = 0;
+    let mut before_full_bytes = Vec::new();
+    let mut after_delta_bytes = Vec::new();
+
+    for &target in &CHECKPOINTS {
+        runtime
+            .ingest_stream((ingested..target).map(scale_ingest))
+            .unwrap();
+        ingested = target;
+
+        // BEFORE: exactly what `store_runtime` writes today for ONE more mutation —
+        // the complete partition snapshot.
+        let full_snapshot = runtime.snapshot().unwrap();
+        before_full_bytes.push(full_snapshot.len());
+
+        // AFTER: what the frozen row/chunk format would write for that SAME one-record
+        // mutation. Every field of `ServedModalityRuntime` that today holds ALL history
+        // (`records`, `events`, `idempotency`, `modality_index`, `segment_index`) is
+        // replaced by only the slice ONE more ingest actually touches: the new record,
+        // the one new event it appended, the one new idempotency entry it appended, and
+        // the index-membership delta (the occurrence id is added to exactly the index
+        // buckets its modality/segment kinds hash to — approximated here as the
+        // occurrence id appearing in the two index kinds it is filed under, which is
+        // what an incremental index update would durably record instead of rewriting
+        // the whole `BTreeSet`). `next_sequence` (one integer) is cheap and kept as-is.
+        let parsed: serde_json::Value = serde_json::from_slice(&full_snapshot).unwrap();
+        let obj = parsed.as_object().unwrap();
+
+        let records = obj["records"].as_object().unwrap();
+        let (last_occurrence_id, one_record) = records.iter().next_back().unwrap();
+        let one_record_bytes = serde_json::to_vec(one_record).unwrap().len();
+
+        let events = obj["events"].as_array().unwrap();
+        let one_event = events.last().expect("at least one event by now");
+        let one_event_bytes = serde_json::to_vec(one_event).unwrap().len();
+
+        let idempotency = obj["idempotency"].as_object().unwrap();
+        let one_idempotency_entry = idempotency.values().next_back().unwrap();
+        let one_idempotency_bytes = serde_json::to_vec(one_idempotency_entry).unwrap().len();
+
+        // Index delta: this one occurrence id's membership entry (id + which
+        // modality/segment index bucket it was filed under), not the whole postings set.
+        let index_delta_bytes = serde_json::to_vec(&serde_json::json!({
+            "modality_bucket_member": last_occurrence_id,
+            "segment_bucket_member": last_occurrence_id,
+        }))
+        .unwrap()
+        .len();
+
+        let next_sequence_bytes = serde_json::to_vec(&obj["next_sequence"]).unwrap().len();
+
+        after_delta_bytes.push(
+            one_record_bytes
+                + one_event_bytes
+                + one_idempotency_bytes
+                + index_delta_bytes
+                + next_sequence_bytes,
+        );
+    }
+
+    eprintln!("BUG-017 write-bytes-vs-corpus-size measurement (eg-modality/tests/served_runtime.rs):");
+    for (i, &target) in CHECKPOINTS.iter().enumerate() {
+        eprintln!(
+            "  corpus={target:>6}  BEFORE(full snapshot)={:>9} bytes   AFTER(record+event+idempotency+index-delta)={:>6} bytes",
+            before_full_bytes[i], after_delta_bytes[i]
+        );
+    }
+
+    // BEFORE must grow with corpus size: today's write cost is NOT bounded. Compare the
+    // smallest and largest checkpoints (256x more records) and require the byte count to
+    // have grown by at least two orders of magnitude less than perfectly linear would
+    // predict would still be wrong — assert it tracks corpus growth, not a small
+    // constant factor.
+    let smallest_before = before_full_bytes[0] as f64;
+    let largest_before = *before_full_bytes.last().unwrap() as f64;
+    let corpus_growth = CHECKPOINTS[CHECKPOINTS.len() - 1] as f64 / CHECKPOINTS[0] as f64;
+    let before_growth = largest_before / smallest_before;
+    assert!(
+        before_growth > corpus_growth * 0.5,
+        "BEFORE bytes must scale with corpus size (BUG-017's defect): corpus grew \
+         {corpus_growth:.0}x but the full-snapshot write only grew {before_growth:.1}x \
+         ({smallest_before} -> {largest_before} bytes) — if this shrinks, someone already \
+         fixed the write path and this test's premise (and BUG-017's ledger row) is stale"
+    );
+
+    // AFTER (the frozen delta-scoped format) must stay essentially flat as corpus grows:
+    // one record + one event + one idempotency row + an index-membership delta does not
+    // carry the other 16,383 occurrences' history.
+    let smallest_after = after_delta_bytes[0] as f64;
+    let largest_after = *after_delta_bytes.last().unwrap() as f64;
+    let after_growth = largest_after / smallest_after;
+    assert!(
+        after_growth < 3.0,
+        "AFTER (one record + one event + one idempotency row + index delta) must stay \
+         roughly flat as corpus grows 256x — got {after_growth:.2}x growth ({smallest_after} \
+         -> {largest_after} bytes), which means the frozen row/chunk format still leaks \
+         corpus-sized state and needs to shrink further before it can be trusted"
+    );
+
+    // The headline write-amplification ratio at the largest checkpoint: how many times
+    // more bytes today's write costs versus the frozen format's delta-scoped write, for
+    // the identical one-occurrence mutation.
+    let amplification = largest_before / largest_after;
+    eprintln!(
+        "BUG-017 write amplification at corpus={}: {amplification:.1}x ({largest_before} \
+         BEFORE bytes vs {largest_after} AFTER bytes for one occurrence's mutation)",
+        CHECKPOINTS.last().unwrap()
+    );
+    assert!(
+        amplification > 50.0,
+        "expected at least a 50x write-amplification gap between whole-partition and \
+         delta-scoped writes at corpus=16384; got {amplification:.1}x — re-check the \
+         measurement methodology before trusting BD-017's frozen format numbers"
+    );
+}
