@@ -29,6 +29,13 @@ pub mod jobs;
 // the wire, and `protocol` is bottom-of-DAG. Pure serde — no dep.
 #[cfg(feature = "knowledge-batch")]
 pub mod knowledge_stream;
+// GOC-10 — canonical SQL table / lake catalog authority wire types
+// (`CatalogEntryV1`/`TableSchemaVersionV1`/`PartitionManifestV1`/`LakeSnapshotV1`/
+// `QualityReportRef`/`TableChangeV1`). Pure serde, no dep — unconditional like
+// `acl`/`mutation_batch`, since it adds no `protocol::Method` variant (the durable
+// store + REST projection that would carry these records over the wire is
+// GOC-10-W03/W05, not yet implemented).
+pub mod lake_catalog;
 #[cfg(feature = "modality-serving")]
 pub mod modality;
 pub mod msgpack;
