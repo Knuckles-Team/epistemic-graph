@@ -39,6 +39,16 @@
 //! ONNX Runtime, codec, model-loader, or model weight, and no
 //! `epistemic-graph-voice-worker` process exists yet — see the module doc
 //! for the exact authority boundary and what is (and is not) proven there.
+//!
+//! ## `tts` (GOC-34, OPT-IN, default OFF)
+//!
+//! `src/tts.rs`, behind `tts` (which requires `ingress`), is the versioned
+//! native-TTS wire contract (`tts.*`) plus pure request/chunk validation and
+//! a structural carrier-authorization gate, mirroring `asr`'s design. It
+//! links no `ort`, ONNX Runtime, eSpeak-ng, Piper fork/vendor mirror, or
+//! voice model weight, and no `epistemic-graph-voice-worker` process exists
+//! yet — see the module doc for the exact authority boundary and what is
+//! (and is not) proven there. No voice model was vendored or downloaded.
 
 mod audio;
 mod header;
@@ -58,6 +68,10 @@ pub mod ingress;
 // Native ASR contract (GOC-33).
 #[cfg(feature = "asr")]
 pub mod asr;
+
+// Native TTS contract (GOC-34).
+#[cfg(feature = "tts")]
+pub mod tts;
 
 pub use audio::{AudioData, AudioFeatureWindow, AudioSegment};
 
@@ -99,6 +113,19 @@ mod default_build_guardrail_asr {
         assert!(
             !cfg!(feature = "asr"),
             "the `asr` feature must stay opt-in, never part of `default`"
+        );
+    }
+}
+
+// The native TTS contract stays opt-in until GOC-34-W03..W07 wire a real
+// worker/Piper provider around it — see crates/eg-audio/src/tts.rs.
+#[cfg(all(test, not(feature = "tts")))]
+mod default_build_guardrail_tts {
+    #[test]
+    fn default_build_has_no_tts() {
+        assert!(
+            !cfg!(feature = "tts"),
+            "the `tts` feature must stay opt-in, never part of `default`"
         );
     }
 }
