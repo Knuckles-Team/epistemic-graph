@@ -10,6 +10,14 @@
 
 pub mod acl;
 pub mod change_envelope;
+// GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
+// graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
+// terminal-analytics-outcome participants. Deliberately a NEW module (not folded
+// into `mutation_batch`): `MutationBatch`/`MutationProjectionCursor` remain the
+// per-surface request/outbox envelope; `CommitDescriptorV1` is the one commit
+// identity every domain's participant registers against. See
+// `plans/graph-os-completion-program/lanes/GOC-03-cross-domain-commit-currency.md`.
+pub mod commit_descriptor;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
