@@ -197,3 +197,76 @@ in the `eg-jobs` store/claim modules, association-mining cancellation tests, and
 `eg-epistemic::incremental` tests. Suggested targeted commands are documented in
 the implementation report; do not run multiple Rust builds concurrently on a
 resource-constrained host.
+
+## GOC-11 baseline (analytics/mining/job-plane lane) — what already exists vs. what is open
+
+A 2026-08-16 re-verification against `main@02594f7` for the Graph-OS Completion
+Program's GOC-11 lane found this document's own subject — the durable
+`AnalyticsJob` plane — already satisfies the large majority of that lane's stated
+scope. Recorded here so a future pass does not re-derive it, and does not invent a
+second `AnalyticalJob`/`AnalyticalResult`/`DatasetSnapshot` vocabulary alongside the
+one below (`grep -rn "AnalyticalJob\|AnalyticalResult\|DatasetSnapshot"` across this
+repo and `agent-utilities` is empty — those exact names were never coined here;
+`AnalyticsJob`/`TypedJobResult`/`InputSnapshotHandle` already fill those roles).
+
+**Already durable and tested, matching the lane's invariants 1–4/6 and acceptance
+gates 2/4/6:**
+
+- Full state machine with checkpoint/lease/fence/retry/idempotent
+  `result_ref` (`crates/eg-jobs/src/model.rs`, `store.rs`), including
+  `resume_from_checkpoint_after_simulated_crash` and
+  `job_store_survives_a_restart` tests (`store.rs`).
+- `TypedJobResult` (`crates/eg-jobs/src/result.rs`) already carries schema,
+  per-row confidence, evidence/source/proof/contradiction refs, uncertainty,
+  calibration, and a `ReproducibilityManifest` (input dataset/content
+  digest/version, algorithm ref, params digest, implementation/environment
+  version, policy fingerprint) — this is the lane doc's `AnalyticalResultV1`.
+- Cross-group publication saga, per-tenant active/CPU quotas, deadline/CPU-budget
+  enforcement, cooperative cancellation checked inside kernel recursion, and an
+  exact closed result schema for the shipped `mining.association` kernel are all
+  documented above and covered by the association-mining cancellation tests.
+- `crates/eg-jobs/src/claim.rs` commits an `unvalidated` `:Claim`/`:Evidence`/
+  `:Activity` writeback, idempotent on `result_ref` (`duplicate_result_commit_is_a_no_op`).
+- AU-side consumers already match the lane's design section verbatim:
+  `agent_utilities/knowledge_graph/research/trace_pattern_miner.py` mines via a
+  durable `event_sequence` cursor, caps at 200 traces
+  (`_TRACE_SCAN_LIMIT`), and degrades to an explicit empty/error result on any
+  query or engine failure, never a silent write. `agent_utilities/orchestration/
+  artifact_promotion.py`'s `promote()` is the single policy boundary and fails
+  closed (`deny`) on a policy-consult error. `agent_utilities/knowledge_graph/
+  research/claim_flywheel.py` already implements a governed
+  `proposed → validated → accepted → deprecated → retracted` lifecycle with an
+  explicit `retract()`, and never re-proposes a retracted claim (its `is_retracted`
+  guard). `agent_utilities/knowledge_graph/retrieval/analytics_job_registry.py`
+  (CONCEPT:INT-P2-1b) is the AU-side feature/model/experiment registry that
+  `eg-jobs`' own module docs named as the deliberate follow-up — it indexes
+  committed claims by `AlgoVersion` lineage, read-only, never a second
+  persistence layer.
+
+**Genuinely open, and blocked on other lanes landing on `main` — do not
+work around the block by inventing a parallel shape:**
+
+- **GOC-03 tie-in.** `AnalyticsJob`/`TypedJobResult` register no
+  `CommitDescriptorV1` participant under `CommitParticipantDomain::AnalyticsOutcome`
+  (`crates/eg-types/src/commit_descriptor.rs`, branch `goc/goc-03-commit-currency`,
+  not on `main`, unverified to compile). Wiring this needs GOC-03's descriptor type
+  merged first; `AnalyticsJob` has no `commit_seq`/`fencing_token`/
+  `participant_digests` fields today.
+- **GOC-10 tie-in.** `InputSnapshotHandle` (`model.rs`) pins a single
+  `(graph, version)` plus an opaque `dataset_ref`/`content_digest` — it has no
+  shape for pinning a GOC-10 `LakeSnapshotV1` (`crates/eg-types/src/lake_catalog.rs`,
+  branch `goc/goc-10-lake-authority`, not on `main`) or multiple simultaneous
+  cross-domain snapshots (lake/table, trace/series, vector-index namespace) for a
+  job that reads across domains. Blocked the same way.
+- **`promotion_state` is a design split, not a missing field.** The lane doc asks
+  for write-back to be gated `Proposal -> Approved | Rejected | Retracted` inside
+  the job/result record. What exists instead: `eg-jobs::claim` writes an
+  `unvalidated` Claim/Evidence pair (the KG-native "proposal" artifact) on every
+  succeeded job, and AU's `claim_flywheel.py` + `artifact_promotion.py` own the
+  actual proposed/validated/accepted/deprecated/retracted governance over that
+  Claim from the AU side — the same authority split `eg-jobs::claim`'s own module
+  docs describe for `eg-epistemic` ("no new persistence... it writes the SAME
+  convention"). Adding a redundant `promotion_state` enum inside `eg-jobs` would
+  duplicate that AU-side state machine rather than close a real gap; if a future
+  lane needs the promotion decision itself to be queryable FROM the job record,
+  it should reference the AU claim id/state, not re-host the state machine.
