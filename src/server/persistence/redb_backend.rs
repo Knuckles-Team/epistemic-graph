@@ -107,6 +107,78 @@ fn decode_durable_semantic(
 // stays here with the Raft helpers rather than in the shared graph store.
 pub(crate) const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinition::new("raft_meta");
 
+/// Encryption-at-rest key-mismatch canary (GOC-16 / BUG-248). A single
+/// fixed-key row whose value is the CURRENT cipher's sealed encoding of a
+/// well-known plaintext. `Shard::open` writes it the first time a shard opens
+/// with a configured `EPISTEMIC_GRAPH_ENCRYPTION_KEY`, and verifies (never
+/// rewrites) it on every later open — see [`verify_or_establish_encryption_canary`].
+/// This closes ONLY the "process starts with the wrong key" gap: it does not
+/// pin a key ID/version, does not support rotation, and — because backup/
+/// restore (`persistence::backup`) and shard-migration
+/// (`persistence::shard_migrate`) do not copy this table — a restored or
+/// migrated store re-establishes the canary against whatever key is present
+/// at that time rather than verifying it against the original. Those remain
+/// the still-open parts of BUG-248's key-governance-lifecycle finding.
+#[cfg(feature = "security")]
+pub(crate) const ENCRYPTION_CANARY: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("encryption_canary");
+
+#[cfg(feature = "security")]
+const ENCRYPTION_CANARY_KEY: &str = "v1";
+#[cfg(feature = "security")]
+const ENCRYPTION_CANARY_PLAINTEXT: &[u8] = b"epistemic-graph-encryption-canary";
+
+/// Verify (or, on first use, establish) that `cipher` is the SAME key that
+/// sealed this shard's previous data, called from `Shard::open` before any
+/// writer thread spawns or any listener binds. `Ok(())` covers both "first
+/// time a key was configured for this store" (the canary row is written) and
+/// "the configured key still matches" (the stored canary decrypts cleanly).
+/// `Err` is a genuine key mismatch — fails closed with a bounded diagnostic
+/// that never includes key material, rather than letting the engine open
+/// successfully and only fail later on whichever value a caller happens to
+/// read first.
+#[cfg(feature = "security")]
+fn verify_or_establish_encryption_canary(
+    db: &Database,
+    cipher: &crate::crypto::ValueCipher,
+) -> Result<(), String> {
+    let existing = {
+        let rtx = db.begin_read().map_err(|e| e.to_string())?;
+        let table = rtx
+            .open_table(ENCRYPTION_CANARY)
+            .map_err(|e| e.to_string())?;
+        table
+            .get(ENCRYPTION_CANARY_KEY)
+            .map_err(|e| e.to_string())?
+            .map(|v| v.value().to_vec())
+    };
+    match existing {
+        Some(sealed) => cipher.unseal(&sealed).map(|_| ()).map_err(|_| {
+            format!(
+                "refusing to open the durable graph store: {} does not match the key \
+                 that previously encrypted this store (canary decryption failed) — \
+                 configure the correct key, or run the documented re-encryption/rotation \
+                 procedure before changing it",
+                crate::crypto::ENCRYPTION_KEY_ENV,
+            )
+        }),
+        None => {
+            let sealed = cipher.seal(ENCRYPTION_CANARY_PLAINTEXT);
+            let wtx = db.begin_write().map_err(|e| e.to_string())?;
+            {
+                let mut table = wtx
+                    .open_table(ENCRYPTION_CANARY)
+                    .map_err(|e| e.to_string())?;
+                table
+                    .insert(ENCRYPTION_CANARY_KEY, sealed.as_slice())
+                    .map_err(|e| e.to_string())?;
+            }
+            wtx.commit().map_err(|e| e.to_string())?;
+            Ok(())
+        }
+    }
+}
+
 // Time-series tables (CONCEPT:AU-KG.retrieval.god-nodes-communities). The CANONICAL `(series_id, bucket_start)`
 // chunk schema is declared once in the eg-tsdb crate (where the store/query logic
 // lives) and re-exported here so it sits WITH the durable tier's other table
@@ -863,6 +935,9 @@ impl Shard {
             let wtx = db.begin_write().map_err(|e| e.to_string())?;
             crate::redb_store::initialize_canonical_tables(&wtx)?;
             wtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
+            #[cfg(feature = "security")]
+            wtx.open_table(ENCRYPTION_CANARY)
+                .map_err(|e| e.to_string())?;
             wtx.commit().map_err(|e| e.to_string())?;
         }
         let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
@@ -887,10 +962,16 @@ impl Shard {
         // propagates it to `main.rs`'s existing `eprintln!` + `exit(1)` refusal).
         #[cfg(feature = "security")]
         match &cipher {
-            Some(_) => {
+            Some(c) => {
                 tracing::info!(
                     "redb encryption-at-rest ENABLED (value blobs sealed with ChaCha20-Poly1305)"
                 );
+                // GOC-16 / BUG-248: fail closed BEFORE the writer thread spawns or any
+                // listener binds if the configured key does not match the key that
+                // sealed this store's existing data — see
+                // `verify_or_establish_encryption_canary`'s doc for exactly what this
+                // does and does not cover.
+                verify_or_establish_encryption_canary(&db, c)?;
             }
             None => match crate::crypto::encryption_required_mode() {
                 crate::crypto::EncryptionRequiredMode::Off => {}
@@ -4865,6 +4946,86 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// GOC-16 / BUG-248 known-bad proof: reopening an ALREADY-ENCRYPTED store with a
+    /// DIFFERENT `EPISTEMIC_GRAPH_ENCRYPTION_KEY` than the one that sealed it must
+    /// fail closed at open time — before any writer thread spawns or any listener
+    /// binds — instead of opening successfully and only surfacing the mismatch later
+    /// as a decrypt failure on whichever value a caller happens to read first.
+    #[cfg(feature = "security")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn encryption_key_mismatch_refuses_to_reopen() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+
+        let dir = std::env::temp_dir().join(format!("eg-redb-enc-mismatch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        {
+            let _guard = EncryptionRequiredEnvGuard::set(Some("original-key-material"), "warn");
+            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+                .expect("first open with a fresh key must establish the canary and succeed");
+            backend.shutdown();
+        }
+
+        let result = {
+            let _guard =
+                EncryptionRequiredEnvGuard::set(Some("a-completely-different-key"), "warn");
+            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+        };
+        let message = match result {
+            Ok(_) => panic!("reopening with the WRONG key must fail closed, not open silently"),
+            Err(message) => message,
+        };
+        assert!(
+            message.contains(crate::crypto::ENCRYPTION_KEY_ENV)
+                && message.contains("does not match"),
+            "diagnostic must be bounded and name the mismatch, got: {message}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// GOC-16 / BUG-248: the mirror of the above — reopening with the SAME key
+    /// verifies cleanly every time (the canary is checked, never rewritten, on a
+    /// key that still matches).
+    #[cfg(feature = "security")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn encryption_key_same_key_reopens_cleanly_across_multiple_opens() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _guard = EncryptionRequiredEnvGuard::set(Some("stable-key-material"), "warn");
+
+        let dir = std::env::temp_dir().join(format!("eg-redb-enc-stable-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        for _ in 0..3 {
+            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+                .expect("reopening with the SAME key must keep succeeding");
+            backend.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// GOC-16 / BUG-248: a store that has NEVER had a key configured (encryption
+    /// stays off) opens exactly as before — no canary table write, no mismatch
+    /// check, byte-for-byte the pre-existing plaintext behavior.
+    #[cfg(feature = "security")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn encryption_never_configured_skips_the_canary_check_entirely() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _guard = EncryptionRequiredEnvGuard::set(None, "off");
+
+        let dir = std::env::temp_dir().join(format!("eg-redb-enc-none-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        for _ in 0..2 {
+            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+                .expect("no key configured must keep opening exactly as before");
+            backend.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// GOC-16: `off` and unset (`warn`, the shipped default) must NOT change
     /// today's behavior — a missing key still opens successfully, only the log
     /// output differs (proven at the unit level in `crypto.rs`, not observable
@@ -4876,8 +5037,10 @@ mod tests {
 
         for mode in ["off", "warn"] {
             let _guard = EncryptionRequiredEnvGuard::set(None, mode);
-            let dir = std::env::temp_dir()
-                .join(format!("eg-redb-enc-required-{mode}-{}", std::process::id()));
+            let dir = std::env::temp_dir().join(format!(
+                "eg-redb-enc-required-{mode}-{}",
+                std::process::id()
+            ));
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
 
