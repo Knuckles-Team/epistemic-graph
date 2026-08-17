@@ -68,6 +68,13 @@ jobs = ["eg-types/jobs"]
 # lockstep contract as `jobs`): this feature enables `eg-types/statechart` AND cfg-gates
 # `policy()`'s one `Method::Statechart` arm together, so the two can never drift.
 statechart = ["eg-types/statechart"]
+# GOC-34 (`OWNER-VOICE-TTS`) -- see the module doc above. Mirrors `eg-types/tts-piper`
+# 1:1 (same lockstep contract as `jobs`/`statechart`/`viz`): this feature enables
+# `eg-types/tts-piper` AND cfg-gates `policy()`'s one `Method::TtsSynthesize` arm
+# together, so the two can never drift. The root `epistemic-graph` package's
+# `tts-piper` facade feature enables `eg-capabilities?/tts-piper` (weak-dep syntax) in
+# lockstep -- see root Cargo.toml.
+tts-piper = ["eg-types/tts-piper"]
 # Mirrors the facade/eg-types native governed KnowledgeBatch wire contract.
 knowledge-batch = ["eg-types/knowledge-batch"]
 # Mirrors the facade/eg-types governed modality feature so the exhaustive policy

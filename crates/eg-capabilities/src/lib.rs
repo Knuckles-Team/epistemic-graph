@@ -1501,6 +1501,25 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::None,
         },
+        // GOC-34 (`OWNER-VOICE-TTS`) -- native TTS synthesis is stateless compute:
+        // it validates+authorizes the carrier, runs bounded ONNX inference, and
+        // returns audio inline. It writes no durable graph state (no CAS/rendition
+        // publication exists yet -- see the handler's own doc for that honest gap),
+        // so `mutates: false` is the exact answer, matching Finance/DataScience's
+        // pure-compute posture above, not Viz's render-a-fresh-ColumnStore shape.
+        // `idempotent: false` because repeated synthesis of the SAME phonemes is
+        // NOT guaranteed byte-identical (`DeterminismClaim::Unverified` — piper-rs's
+        // inference path carries no explicit random seed, see `eg_audio::tts`'s doc).
+        #[cfg(feature = "tts-piper")]
+        Method::TtsSynthesize { .. } => MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::None,
+            authz_action: "tts:synthesize",
+            idempotent: false,
+            audited: true,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::None,
+        },
         Method::Sql { .. } => MethodPolicy {
             mutates: true,
             durability_domain: DurabilityDomain::GraphRedb,
@@ -2588,6 +2607,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("Quantum", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "quantum:run", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "self-routes before dispatch_graph_op like AnalyticsJob/Statechart, never reaches the graph tamper-evident audit chain; R5 override audit instead rides the response's PlannerDecision.audit trail into the agent-utilities :ToolCall/:QuantumJob provenance"),
         #[cfg(feature = "viz")]
         ("Viz", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "viz:render", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "pure compute: resolves a fresh per-request ColumnStore and returns rendered bytes, no durable write (D-VZ-1 lanes V4/V6)"),
+        #[cfg(feature = "tts-piper")]
+        ("TtsSynthesize", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "tts:synthesize", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::None }, "pure compute: native Piper-ONNX synthesis runs inline and returns audio, no durable graph write (GOC-34, no CAS/rendition publication exists yet)"),
         ("Sql", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:sql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"),
         ("CypherQuery", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:cypher", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; writes execute against a staged graph and publish only after durable MutationBatch commit"),
         ("GraphQl", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:graphql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox"),
