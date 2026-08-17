@@ -53,6 +53,53 @@
 [build]
 target-dir = "target-isolated"
 
+# GOC-33 (`eg-asr-whisper`, OWNER-VOICE-ASR): CPU-portability build contract for the
+# vendored whisper.cpp/ggml C++ library `whisper-rs-sys` compiles from source via
+# `cmake`. `whisper-rs-sys`'s build.rs forwards ANY `GGML_*`/`WHISPER_*`/`CMAKE_*`
+# env var straight through as a cmake `-D` define (verified against its source,
+# codeberg.org/tazz4843/whisper-rs).
+#
+# rw710 lacks x86-64-v3 (no AVX2). ggml's CMake default is `GGML_NATIVE=ON`, which
+# bakes the BUILD HOST's CPU features (`-march=native`) into the binary — built on
+# an AVX2 host, it SIGILLs on rw710. `GGML_NATIVE=OFF` is mandatory.
+#
+# `GGML_CPU_ALL_VARIANTS=ON` (ggml's genuine runtime CPU dispatch — the C-side
+# equivalent of `is_x86_feature_detected!`) was evaluated and empirically tested
+# (`cargo check -p eg-asr-whisper`, GOC-33) but REJECTED for this change: ggml's
+# CMake hard-requires it to be paired with `GGML_BACKEND_DL=ON` ("GGML_CPU_ALL_
+# VARIANTS requires GGML_BACKEND_DL", ggml/src/CMakeLists.txt), which turns the
+# CPU backend into a runtime-`dlopen`ed `.so` selected from a search path at
+# process start rather than something statically linked into the engine binary —
+# a packaging/deployment change (shipping backend `.so` files alongside the
+# binary in every deploy image) outside this lane's scope, and exactly the class
+# of configuration the known upstream defect ggml-org/whisper.cpp#2963 ("GGML_CPU_
+# ALL_VARIANTS causes a silent exception") was filed against. Revisit as
+# documented future work once a deploy-image change to ship the `.so` variants
+# is separately owned and qualified.
+#
+# The fallback below is used instead: a FIXED, portable SSE2-only baseline.
+# Always safe (never SIGILLs on any x86_64 host in the fleet, including rw710),
+# ships as one static binary with no new runtime search-path/loading behavior,
+# at the cost of leaving AVX2/AVX512 throughput on the table on capable hosts —
+# an explicit, documented trade-off, not an oversight.
+[env]
+GGML_NATIVE = "OFF"
+GGML_AVX = "OFF"
+GGML_AVX2 = "OFF"
+GGML_FMA = "OFF"
+GGML_F16C = "OFF"
+GGML_AVX512 = "OFF"
+# Empirically required (GOC-33): ggml's `GGML_BMI2` CMake option defaults ON
+# via its own `INS_ENB` var REGARDLESS of `GGML_NATIVE=OFF` (only
+# AVX/AVX2/FMA/F16C/AVX512 are gated by `GGML_NATIVE` in
+# `ggml/CMakeLists.txt`). BMI2 is part of the x86-64-v3 microarchitecture
+# level (same tier as AVX2), so `GGML_NATIVE=OFF` alone was NOT sufficient —
+# the first attempt SIGILLed on `shlx` (a BMI2 instruction) inside
+# `ggml_graph_plan` even with every AVX* flag off. Caught by actually running
+# the real-fixture test in `crates/eg-asr-whisper/tests/real_transcription.rs`
+# under gdb — see the GOC-33 report for the exact backtrace/fix.
+GGML_BMI2 = "OFF"
+
 # mold (D-PERF-1): linking 65 crates x 25 integration-test binaries is
 # link-bound, not compile-bound, and mold is materially faster than the
 # default bfd/gold linker on a many-core host (parallel section resolution).
