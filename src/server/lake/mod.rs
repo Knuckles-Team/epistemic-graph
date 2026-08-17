@@ -152,7 +152,7 @@ struct TableEntry {
 /// `server::access::GraphReadAuthority` already row-filters graph reads by
 /// ownership rather than by the shared deployment tenant.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum LakeVisibility {
+pub enum LakeVisibility {
     /// The non-security `serve()` path (no live carrier at all) — unfiltered,
     /// byte-for-byte this tier's behavior before W04.
     Unfiltered,
