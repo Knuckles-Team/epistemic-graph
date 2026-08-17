@@ -183,10 +183,17 @@ fn bitemporal_reason_vector_traverse_asof_eg384() {
 
 /// Spawn a one-shot HTTP/JSON server on an ephemeral loopback port returning `body` — the
 /// stand-in for a foreign SQL / SPARQL-`SERVICE` endpoint (the SAME mock the federation
-/// proofs use). Host-level SSRF vetting (loopback/internal-range refusal unless
-/// allowlisted) is enforced and tested at the SERVER surface — `src/server/federation/
-/// mod.rs` (`eg243_ssrf_allowlist_*`) and `src/server/sparql_http.rs` — NOT at this
-/// dep-free plan seam, which only resolves a name → source.
+/// proofs use).
+///
+/// Regression note (GOC-40): the doc comment here used to claim host-level SSRF vetting
+/// was enforced only at the server surface, "NOT at this dep-free plan seam, which only
+/// resolves a name -> source" — stale as of `federation.rs`'s
+/// `validate_http_json_target`/`HTTP_JSON_FEDERATION_ALLOW_ENV` (this SAME crate, called
+/// from this SAME `HttpJsonSource` execution path), which unconditionally rejects an
+/// unallowlisted loopback/private destination. The caller below now opts its own mock
+/// server's exact origin in via `federation_tests::MockHttpAllowGuard`, the same
+/// production allowlist mechanism (not a bypass), matching what every OTHER mock-HTTP
+/// federation test in this crate (`federation_tests.rs`) already does.
 #[cfg(feature = "federation")]
 fn spawn_mock_json(body: &'static str) -> String {
     use std::io::{Read, Write};
@@ -224,6 +231,9 @@ fn federation_sparql_local_vector_foreign_sql_one_plan_eg385() {
 
     // The foreign source returns {d2, d4} — the "SPARQL SERVICE / foreign SQL" result set.
     let addr = spawn_mock_json(r#"[{"k":"d2"},{"k":"d4"}]"#);
+    // Opt this test's own loopback mock server into the production SSRF allowlist —
+    // see the `spawn_mock_json` doc comment above for why this is required now.
+    let _allow = crate::federation_tests::MockHttpAllowGuard::new(&addr);
     let foreign = ForeignSourceSpec::HttpJson {
         url: addr,
         json_path: "".into(),
