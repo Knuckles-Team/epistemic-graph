@@ -31,10 +31,22 @@ default = []
 # Turning one of these on changes what the VENDORED whisper.cpp build links; it does
 # NOT make GPU use automatic — the provider still probes hardware at runtime and
 # falls back to CPU when the requested accelerator is unavailable.
-cuda = ["whisper-rs/cuda"]
-vulkan = ["whisper-rs/vulkan"]
-metal = ["whisper-rs/metal"]
-coreml = ["whisper-rs/coreml"]
-hipblas = ["whisper-rs/hipblas"]
+# NOTE on `--all-features`: a Cargo feature cannot be target-gated, so anything
+# listed here WILL be enabled by `cargo --all-features` on every target. The
+# Apple-only providers (`metal`, `coreml`) are therefore NOT exposed: whisper-rs-sys
+# emits `cargo:rustc-link-lib=static=whisper.coreml` whenever its `coreml` feature is
+# on, and that library cannot exist on Linux, so exposing it broke every
+# `--all-features` build of the whole workspace. There is no Apple hardware in this
+# fleet, so the features could never have been valid here. To use one, enable
+# `whisper-rs/metal` or `whisper-rs/coreml` directly on an Apple target.
+# (Intentionally none.) See the note above: `cargo --all-features` enables every
+# feature listed here on every target, and each of these makes the vendored
+# whisper.cpp build link an accelerator runtime that is not present on this fleet --
+# `cuda` alone emits `-l cudart -l cuda` and reads CUDA_PATH. None of them was
+# hardware-qualified (the lane's own note: "GPU features wired but
+# hardware-unqualified", CPU is the only qualified baseline), so per this repo's rule
+# against speculative configurability they are not shipped. Adding one back is a
+# deliberate change that must come WITH hardware qualification -- enable the
+# corresponding `whisper-rs/<provider>` feature from the facade at that point.
 
 [dev-dependencies]
