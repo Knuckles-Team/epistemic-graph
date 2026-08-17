@@ -12275,7 +12275,13 @@ mod mutation_batch_tests {
             now_ms: 1_000,
         };
         let mut terminal = batch("work:disallowed-batch", "work-idem:disallowed-key");
-        terminal.expected_graph_version = None;
+        // A disallowed accompanying method makes `native_terminal_work_item_cas`
+        // false (it re-validates every operation, not just `len()`), so this
+        // batch is no longer exempt from graph-wide OCC -- supply the real
+        // current version (seed 3->4, claim 4->5) so the batch reaches the
+        // per-operation shape guard this test targets, instead of failing
+        // earlier on a mismatched/missing `expected_graph_version`.
+        terminal.expected_graph_version = Some(5);
         terminal.operations = vec![
             MutationOperation {
                 ordinal: 0,
@@ -12335,11 +12341,13 @@ mod mutation_batch_tests {
             },
         ];
         commit_at(&db, &seed, None).unwrap();
+        // Seed is ONE batch creating two ready WorkItems (3->4); each claim is
+        // its own batch and bumps the version once more (4->5, then 5->6).
         let claimed_1 = commit_native_claim(
             &db,
             "work-item-double-claim-1",
             "work-item-double-claim-1-key",
-            5,
+            4,
             Some("work-double-1"),
             "worker-a",
             0,
@@ -12351,7 +12359,7 @@ mod mutation_batch_tests {
             &db,
             "work-item-double-claim-2",
             "work-item-double-claim-2-key",
-            6,
+            5,
             Some("work-double-2"),
             "worker-b",
             0,
@@ -12361,7 +12369,12 @@ mod mutation_batch_tests {
         assert!(claimed_2.claimed);
 
         let mut terminal = batch("work:double-batch", "work-idem:double-key");
-        terminal.expected_graph_version = None;
+        // Two CommitWorkItemResult operations also make
+        // `native_terminal_work_item_cas` false (not all-AddNode after the
+        // first), so -- same reasoning as the disallowed-method test above --
+        // supply the real current version (6) to reach the per-operation shape
+        // guard rather than failing earlier on OCC.
+        terminal.expected_graph_version = Some(6);
         terminal.operations = vec![
             MutationOperation {
                 ordinal: 0,
