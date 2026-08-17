@@ -47,6 +47,16 @@ ingress = []
 # ONNX Runtime, codec, or model-loader dependency. See `src/asr.rs` for the
 # full contract and what is/is not proven by this crate alone.
 asr = ["ingress"]
+# Native TTS contract (GOC-34, `OWNER-VOICE-TTS`): versioned tts.request/
+# chunk/result/error DTOs plus pure request/chunk validation and a
+# structural carrier-authorization gate, mirroring `asr`'s design. Consumes
+# `ingress`'s BoundedId/CarrierRef/IdempotencyKey directly rather than
+# redefining them, so it depends on that feature. Adds NO new dependency
+# beyond what `ingress` already adds (serde + sha2 only) — no `ort`, ONNX
+# Runtime, eSpeak-ng, Piper fork/vendor mirror, or model-loader dependency,
+# and no voice model is vendored or downloaded. See `src/tts.rs` for the
+# full contract and what is/is not proven by this crate alone.
+tts = ["ingress"]
 
 [dev-dependencies]
 serde_json = "1.0"
