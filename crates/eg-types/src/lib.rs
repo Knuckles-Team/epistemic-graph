@@ -48,6 +48,14 @@ pub mod lake_catalog;
 pub mod modality;
 pub mod msgpack;
 pub mod mutation_batch;
+// GOC-20 — the atomic WorkItem outcome/provenance bundle and durable run-event
+// wire contract (BUG-015). Deliberately a NEW module (not folded into
+// `mutation_batch`), same rationale as `commit_descriptor` above: the native
+// fusion of this bundle into `Method::CommitWorkItemResult`'s transaction is
+// `mutation_batch.rs` work, currently blocked on the FO-001 five-lane
+// (GOC-03/04/19/20/35) file-ownership collision. See
+// `plans/graph-os-completion-program/decisions/GOC-20-atomic-outcome-provenance.md`.
+pub mod outcome_bundle;
 pub mod protocol;
 // CONCEPT:EG-KG.compute.quantum-agent-api — the agent-facing quantum control-plane
 // wire op (`QuantumOp`), gated `quantum`. Lives here (not in `eg-quantum-core`,
