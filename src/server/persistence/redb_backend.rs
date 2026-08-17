@@ -877,11 +877,41 @@ impl Shard {
         // OFF ⇒ the durable format + write/read paths are byte-for-byte unchanged.
         #[cfg(feature = "security")]
         let cipher = crate::crypto::ValueCipher::from_env();
+        // GOC-16: encryption-at-rest readiness posture (EPISTEMIC_GRAPH_ENCRYPTION_
+        // REQUIRED). Previously the `None` branch here logged NOTHING at all — a
+        // production deployment could run fully unencrypted with zero signal to the
+        // operator. `Warn` (the shipped default) fixes the silence without changing
+        // startup behavior; `On` fails closed BEFORE the writer thread spawns or any
+        // listener binds, by returning the same `Result<Self, String>` every other
+        // fallible step in this function already uses (`RedbBackend::open`
+        // propagates it to `main.rs`'s existing `eprintln!` + `exit(1)` refusal).
         #[cfg(feature = "security")]
-        if cipher.is_some() {
-            tracing::info!(
-                "redb encryption-at-rest ENABLED (value blobs sealed with ChaCha20-Poly1305)"
-            );
+        match &cipher {
+            Some(_) => {
+                tracing::info!(
+                    "redb encryption-at-rest ENABLED (value blobs sealed with ChaCha20-Poly1305)"
+                );
+            }
+            None => match crate::crypto::encryption_required_mode() {
+                crate::crypto::EncryptionRequiredMode::Off => {}
+                crate::crypto::EncryptionRequiredMode::Warn => {
+                    tracing::warn!(
+                        "redb encryption-at-rest is OFF ({} is not set) — value blobs are \
+                         stored in PLAINTEXT. Set {}=on to refuse to start instead of \
+                         warning.",
+                        crate::crypto::ENCRYPTION_KEY_ENV,
+                        crate::crypto::ENCRYPTION_REQUIRED_ENV,
+                    );
+                }
+                crate::crypto::EncryptionRequiredMode::On => {
+                    return Err(format!(
+                        "refusing to open the durable graph store: at-rest encryption is \
+                         REQUIRED ({}=on) but {} is not set",
+                        crate::crypto::ENCRYPTION_REQUIRED_ENV,
+                        crate::crypto::ENCRYPTION_KEY_ENV,
+                    ));
+                }
+            },
         }
         // Keep a clone of the cipher for the snapshot-read path (CONCEPT:EG-KG.storage.snapshot-read-off-writer); the
         // writer thread takes ownership of the original below.
@@ -4735,6 +4765,125 @@ mod tests {
         assert_eq!(core2.get_edges().len(), 1);
         backend2.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// GOC-16: save/restore-on-drop for the two GOC-16 env vars, held under the SAME
+    /// crate-wide [`crate::crypto::acquire_test_env_lock`] every other encryption-key
+    /// test in this file and in `crypto.rs` contends on. Unlike
+    /// `txn_commit_persists_to_redb`'s `std::sync::Once` (which only ever SETS
+    /// `ENCRYPTION_KEY_ENV`, never unsets it — safe because no other test depends on
+    /// it being absent), these tests specifically need the key ABSENT at least once,
+    /// so a one-directional Once cannot be reused here; this restores the exact prior
+    /// value (present or absent) on drop instead.
+    #[cfg(feature = "security")]
+    struct EncryptionRequiredEnvGuard {
+        prev_key: Option<String>,
+        prev_required: Option<String>,
+    }
+
+    #[cfg(feature = "security")]
+    impl EncryptionRequiredEnvGuard {
+        fn set(key: Option<&str>, required_mode: &str) -> Self {
+            let prev_key = std::env::var(crate::crypto::ENCRYPTION_KEY_ENV).ok();
+            let prev_required = std::env::var(crate::crypto::ENCRYPTION_REQUIRED_ENV).ok();
+            match key {
+                Some(k) => std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, k),
+                None => std::env::remove_var(crate::crypto::ENCRYPTION_KEY_ENV),
+            }
+            std::env::set_var(crate::crypto::ENCRYPTION_REQUIRED_ENV, required_mode);
+            Self {
+                prev_key,
+                prev_required,
+            }
+        }
+    }
+
+    #[cfg(feature = "security")]
+    impl Drop for EncryptionRequiredEnvGuard {
+        fn drop(&mut self) {
+            match self.prev_key.take() {
+                Some(v) => std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, v),
+                None => std::env::remove_var(crate::crypto::ENCRYPTION_KEY_ENV),
+            }
+            match self.prev_required.take() {
+                Some(v) => std::env::set_var(crate::crypto::ENCRYPTION_REQUIRED_ENV, v),
+                None => std::env::remove_var(crate::crypto::ENCRYPTION_REQUIRED_ENV),
+            }
+        }
+    }
+
+    /// GOC-16 known-bad proof: `EPISTEMIC_GRAPH_ENCRYPTION_REQUIRED=on` with no
+    /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` configured must refuse to open the durable
+    /// store — before any writer thread spawns, before any listener binds — with a
+    /// bounded, actionable diagnostic naming both env vars, never a silent open.
+    #[cfg(feature = "security")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn encryption_required_on_refuses_to_open_without_a_key() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _guard = EncryptionRequiredEnvGuard::set(None, "on");
+
+        let dir = std::env::temp_dir().join(format!("eg-redb-enc-required-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        let result = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64);
+
+        // `unwrap_err()` would require `RedbBackend: Debug` (it formats the Ok
+        // side on failure); the backend deliberately does not derive it, since
+        // it owns live handles. Destructure instead of widening a public trait
+        // bound just to satisfy a test.
+        let message = match result {
+            Ok(_) => panic!("opening with ENCRYPTION_REQUIRED=on and no key must fail closed"),
+            Err(message) => message,
+        };
+        assert!(
+            message.contains("REQUIRED") && message.contains("EPISTEMIC_GRAPH_ENCRYPTION_KEY"),
+            "diagnostic must be bounded and name the missing key, got: {message}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// GOC-16: the mirror of the above — `ENCRYPTION_REQUIRED=on` with a key
+    /// configured opens normally (a present key satisfies every mode identically).
+    #[cfg(feature = "security")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn encryption_required_on_succeeds_when_a_key_is_set() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _guard =
+            EncryptionRequiredEnvGuard::set(Some("redb-encryption-required-test-key"), "on");
+
+        let dir =
+            std::env::temp_dir().join(format!("eg-redb-enc-required-ok-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            .expect("a configured key must open cleanly under ENCRYPTION_REQUIRED=on");
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// GOC-16: `off` and unset (`warn`, the shipped default) must NOT change
+    /// today's behavior — a missing key still opens successfully, only the log
+    /// output differs (proven at the unit level in `crypto.rs`, not observable
+    /// through this `Result`).
+    #[cfg(feature = "security")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn encryption_required_off_and_warn_still_open_without_a_key() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+
+        for mode in ["off", "warn"] {
+            let _guard = EncryptionRequiredEnvGuard::set(None, mode);
+            let dir = std::env::temp_dir()
+                .join(format!("eg-redb-enc-required-{mode}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let dir_s = dir.to_string_lossy().to_string();
+
+            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+                .unwrap_or_else(|e| panic!("mode {mode:?} must still open without a key: {e}"));
+            backend.shutdown();
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     /// CONCEPT:EG-KG.storage.occ-durable-commit — a committed OCC transaction is durable through the redb

@@ -68,6 +68,7 @@
 pub mod artifact;
 mod capability;
 mod contract;
+pub mod delta_store;
 mod native;
 mod provenance;
 mod registry;
@@ -85,6 +86,7 @@ pub use artifact::{
 };
 pub use capability::{IngestReport, ModalitySelfTest, NativeProductionProbe, StorageStats};
 pub use contract::{ConformanceTestable, GovernedModality, ModalityContract};
+pub use delta_store::{export_all, verify_round_trip, ExportedRows, IndexMembership, MutationDelta};
 pub use native::{
     signature_bands, spatial_cells, temporal_buckets, NativeIndexKey, NativePredicate,
     NativePredicateError, NativeQueryStats, MAX_PERCEPTUAL_HASH_DISTANCE,
@@ -101,9 +103,9 @@ pub use rows::{
 };
 pub use rowset::RowSetShape;
 pub use served::{
-    ApplyDisposition, ApplyOutcome, LifecycleState, ServedDelete, ServedError, ServedEvent,
-    ServedEventKind, ServedIngest, ServedModalityRuntime, ServedNativeQuery, ServedPage,
-    ServedPolicyScope, ServedQuery, ServedRecord, ServedRuntimeStats,
+    ApplyDisposition, ApplyOutcome, IdempotencyEntry, LifecycleState, ServedDelete, ServedError,
+    ServedEvent, ServedEventKind, ServedIngest, ServedModalityRuntime, ServedNativeQuery,
+    ServedPage, ServedPolicyScope, ServedQuery, ServedRecord, ServedRuntimeStats,
 };
 pub use tck::{render_fleet_table, tck_report, TckPoint, TckPointResult, TckReport, TckStatus};
 pub use txn::{decode_staged, encode_staged, StagedWrite, WriteKind};

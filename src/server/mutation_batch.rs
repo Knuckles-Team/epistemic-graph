@@ -1564,6 +1564,8 @@ mod tests {
                 sanitizer_version: "sanitizer-v1".into(),
                 sanitized_payload_digest: "b".repeat(64),
             },
+            commit_seq: None,
+            commit_descriptor_ref: None,
         };
 
         assert!(publish_change_envelope_projection(&core, &envelope).is_err());

@@ -10,6 +10,14 @@
 
 pub mod acl;
 pub mod change_envelope;
+// GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
+// graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
+// terminal-analytics-outcome participants. Deliberately a NEW module (not folded
+// into `mutation_batch`): `MutationBatch`/`MutationProjectionCursor` remain the
+// per-surface request/outbox envelope; `CommitDescriptorV1` is the one commit
+// identity every domain's participant registers against. See
+// `plans/graph-os-completion-program/lanes/GOC-03-cross-domain-commit-currency.md`.
+pub mod commit_descriptor;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
@@ -29,6 +37,13 @@ pub mod jobs;
 // the wire, and `protocol` is bottom-of-DAG. Pure serde — no dep.
 #[cfg(feature = "knowledge-batch")]
 pub mod knowledge_stream;
+// GOC-10 — canonical SQL table / lake catalog authority wire types
+// (`CatalogEntryV1`/`TableSchemaVersionV1`/`PartitionManifestV1`/`LakeSnapshotV1`/
+// `QualityReportRef`/`TableChangeV1`). Pure serde, no dep — unconditional like
+// `acl`/`mutation_batch`, since it adds no `protocol::Method` variant (the durable
+// store + REST projection that would carry these records over the wire is
+// GOC-10-W03/W05, not yet implemented).
+pub mod lake_catalog;
 #[cfg(feature = "modality-serving")]
 pub mod modality;
 pub mod msgpack;
