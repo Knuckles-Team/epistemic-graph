@@ -158,20 +158,36 @@ impl std::fmt::Debug for LoadedVoice {
 }
 
 /// Build an ONNX `Session` over `model_path` with graph optimization DISABLED and a
-/// single intra-op thread — the most PORTABLE CPU execution-provider path. `ort`'s
-/// only x86_64 prebuilt CPU binary (`ort-sys`'s `download-binaries`) assumes a modern
-/// AVX2 baseline in its optimized/fused kernels; part of this workspace's fleet
-/// predates AVX2 (documented at `src/lib.rs`'s crate doc). Disabling graph fusion asks
-/// the runtime for its most conservative kernel path rather than an optimized one —
-/// "CPU is the required baseline... acceleration is opt-in and auto-detected, never
-/// required" applies here too: this is the SAFE default, never a claim of the fastest
-/// path. `piper_rs::Piper::new` builds an unconfigured `Session::builder()`
-/// internally (`src/lib.rs:52-63`), so this crate builds the session itself and hands
-/// it to `Piper::from_session` instead.
+/// single intra-op AND inter-op thread — the most PORTABLE CPU execution-provider
+/// path. `ort`'s only x86_64 prebuilt CPU binary (`ort-sys`'s `download-binaries`)
+/// assumes a modern AVX2 baseline in its optimized/fused kernels; part of this
+/// workspace's fleet predates AVX2 (documented at `src/lib.rs`'s crate doc). Disabling
+/// graph fusion asks the runtime for its most conservative kernel path rather than an
+/// optimized one — "CPU is the required baseline... acceleration is opt-in and
+/// auto-detected, never required" applies here too: this is the SAFE default, never a
+/// claim of the fastest path. `piper_rs::Piper::new` builds an unconfigured
+/// `Session::builder()` internally (`src/lib.rs:52-63`), so this crate builds the
+/// session itself and hands it to `Piper::from_session` instead.
+///
+/// BUG-283 note (this fleet's containerd does not virtualize `/proc`, so a pod sees
+/// the HOST's CPU count, not its cgroup limit): unlike the sibling `eg-asr-whisper`
+/// crate, which reads the real cgroup budget (`cpu_budget.rs`) because whisper.cpp's
+/// thread count is otherwise sized from `available_parallelism()`, this crate never
+/// calls `available_parallelism()`/`num_cpus`/`nproc` anywhere. The intra-op thread
+/// count is hardcoded to `1` here (not computed from any CPU-count heuristic), the
+/// inter-op count is ALSO hardcoded to `1` (ORT's execution mode is sequential by
+/// default — `with_parallel_execution` is never called — so no inter-op thread pool
+/// is dispatched to, but pinning the count explicitly removes any doubt rather than
+/// relying on that default), and `streaming.rs`'s single producer thread per
+/// synthesis call is a fixed constant, not CPU-derived. So a cgroup-aware budget
+/// seam analogous to `cpu_budget.rs` is not needed here: this crate cannot
+/// oversubscribe a constrained cgroup because it never sizes a thread pool from the
+/// (BUG-283-blind) host CPU count in the first place.
 fn build_portable_onnx_session(model_path: &Path) -> ort::Result<ort::session::Session> {
     let mut builder = ort::session::Session::builder()?
         .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Disable)?
-        .with_intra_threads(1)?;
+        .with_intra_threads(1)?
+        .with_inter_threads(1)?;
     builder.commit_from_file(model_path)
 }
 
