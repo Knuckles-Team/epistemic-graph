@@ -72,6 +72,13 @@ pub mod row_predicate;
 #[cfg(feature = "statechart")]
 pub mod statechart;
 pub mod types;
+// GOC-19 — the WorkItem submission command-log admission core (tenant-scoped
+// idempotency replay + per-authority fencing), built on GOC-03's
+// `commit_descriptor::CommitDescriptorV1` currency. Unconditional, pure
+// data/logic, NO `protocol::Method` variant yet — mirrors `lake_catalog`'s
+// precedent of shipping ahead of its wire-protocol wiring. See
+// `plans/graph-os-completion-program/lanes/GOC-19-atomic-workitem-command-log.md`.
+pub mod work_item_command_log;
 // D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native
 // visualization engine's wire op (`VizOp`), gated `viz`. Lives here (not in
 // `eg-viz-core`, which sits in a separate small leaf DAG, not below eg-types) for

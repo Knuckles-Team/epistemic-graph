@@ -1456,20 +1456,45 @@ fn apply_mutation_batch_in_wtx(
     // reconstruct the exact same batch and return its stored result. Keep this
     // exemption structurally narrow so every other non-lifecycle mutation still
     // requires an authoritative graph version.
+    //
+    // GOC-19/GOC-20 (BUG-015 "B9"): `CommitWorkItemResult` is the ONE terminal
+    // method allowed to co-commit additional operations in the SAME batch (the
+    // shape -- at most one `CommitWorkItemResult` plus only `AddNode` alongside
+    // it -- is separately enforced, before any row is touched, in
+    // `apply_mutation_batch_in_wtx`). Every other terminal method here keeps the
+    // original strict `operations.len() == 1` requirement; widening THIS
+    // predicate's `len() == 1` to `len() >= 1` unconditionally would have
+    // silently let a graph-wide, non-fenced method ride the no-OCC exemption
+    // behind a `CancelWorkItem`/`DeferWorkItem`/resource-reservation batch, so
+    // the CommitWorkItemResult case is split out and re-validates every
+    // remaining operation itself rather than trusting `len()` alone.
     let native_terminal_work_item_cas = batch.authoritative_state.is_none()
-        && batch.operations.len() == 1
-        && batch.operations[0].domain == MutationDomain::ControlPlane
-        && batch.operations[0].surface == MutationSurface::Job
-        && matches!(
-            &batch.operations[0].method,
-            Method::CommitWorkItemResult { .. }
-                | Method::CancelWorkItem { .. }
-                | Method::DeferWorkItem { .. }
-                | Method::ReserveWorkItemResources { .. }
-                | Method::ReleaseWorkItemResources { .. }
-                | Method::ReclaimWorkItemResources { .. }
-                | Method::UpdateResourceHost { .. }
-        );
+        && match batch.operations.first() {
+            Some(first)
+                if first.domain == MutationDomain::ControlPlane
+                    && first.surface == MutationSurface::Job
+                    && matches!(&first.method, Method::CommitWorkItemResult { .. }) =>
+            {
+                batch.operations[1..]
+                    .iter()
+                    .all(|op| matches!(&op.method, Method::AddNode { .. }))
+            }
+            Some(first) => {
+                batch.operations.len() == 1
+                    && first.domain == MutationDomain::ControlPlane
+                    && first.surface == MutationSurface::Job
+                    && matches!(
+                        &first.method,
+                        Method::CancelWorkItem { .. }
+                            | Method::DeferWorkItem { .. }
+                            | Method::ReserveWorkItemResources { .. }
+                            | Method::ReleaseWorkItemResources { .. }
+                            | Method::ReclaimWorkItemResources { .. }
+                            | Method::UpdateResourceHost { .. }
+                    )
+            }
+            None => false,
+        };
     let staged_state = match (&batch.authoritative_state, authoritative_state_msgpack) {
         (Some(descriptor), Some(bytes)) => {
             use sha2::{Digest, Sha256};
@@ -2067,6 +2092,43 @@ fn apply_mutation_batch_in_wtx(
             .map_err(|e| e.to_string())?;
         #[cfg(feature = "security")]
         let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
+        // GOC-19/GOC-20 (BUG-015 "B9"): a `CommitWorkItemResult` batch may
+        // additionally carry co-committed `AddNode` provenance operations
+        // (RunTrace/ToolCall/OutcomeEvaluation) so a WorkItem's terminal status
+        // and its provenance land in the SAME redb write transaction -- never
+        // one durable without the other. Validated ONCE, before any row is
+        // touched below, so a disallowed shape is refused without partially
+        // applying anything in this transaction. Every other WorkItem method
+        // (Claim/Renew/Cancel/Defer/CasMetadata) keeps the original strict
+        // single-operation rule enforced further down -- this relaxation is
+        // deliberately narrow to `CommitWorkItemResult` alone, which is the one
+        // terminal transition `crates/eg-types/src/outcome_bundle.rs`'s
+        // `CommitOutcomeBundle` (GOC-20) is designed to accompany.
+        let work_item_result_ops = batch
+            .operations
+            .iter()
+            .filter(|op| matches!(&op.method, Method::CommitWorkItemResult { .. }))
+            .count();
+        if work_item_result_ops > 1 {
+            return Err(
+                "a MutationBatch may contain at most one CommitWorkItemResult operation"
+                    .to_string(),
+            );
+        }
+        if work_item_result_ops == 1
+            && batch.operations.iter().any(|op| {
+                !matches!(
+                    &op.method,
+                    Method::CommitWorkItemResult { .. } | Method::AddNode { .. }
+                )
+            })
+        {
+            return Err(
+                "a CommitWorkItemResult MutationBatch may only carry additional AddNode \
+                 (provenance) operations"
+                    .to_string(),
+            );
+        }
         for operation in &batch.operations {
             match &operation.method {
                 Method::CreateGraph { .. } => {}
@@ -2137,7 +2199,6 @@ fn apply_mutation_batch_in_wtx(
                 }
                 method @ (Method::ClaimWorkItem { .. }
                 | Method::RenewWorkItemLease { .. }
-                | Method::CommitWorkItemResult { .. }
                 | Method::CancelWorkItem { .. }
                 | Method::DeferWorkItem { .. }
                 | Method::CasWorkItemMetadata { .. }) => {
@@ -2155,6 +2216,36 @@ fn apply_mutation_batch_in_wtx(
                     )?
                     .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
                     if generated_result.is_some() || batch.operations.len() != 1 {
+                        return Err(
+                            "WorkItem MutationBatch must contain exactly one result-producing operation"
+                                .to_string(),
+                        );
+                    }
+                    generated_result =
+                        Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
+                }
+                // GOC-19/GOC-20 (BUG-015 "B9"): split out from the shared arm
+                // above -- this is the ONE WorkItem terminal transition allowed
+                // to co-commit additional `AddNode` provenance operations in the
+                // same batch (validated once, before this loop, above). The
+                // `batch.operations.len() != 1` sub-check is deliberately
+                // dropped here; `generated_result.is_some()` alone still
+                // guarantees at most one result-producing operation applies.
+                method @ Method::CommitWorkItemResult { .. } => {
+                    let result = apply_work_item_rows(
+                        graph_fname,
+                        method,
+                        &mut nodes,
+                        &mut lane_holds,
+                        &lane_work_item_index,
+                        &mut lane_counters,
+                        &mut lane_pressure_index,
+                        &lane_policies,
+                        &mut native_work_items,
+                        crypto,
+                    )?
+                    .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
+                    if generated_result.is_some() {
                         return Err(
                             "WorkItem MutationBatch must contain exactly one result-producing operation"
                                 .to_string(),
@@ -12040,6 +12131,304 @@ mod mutation_batch_tests {
         let stored: serde_json::Value = decode_durable(&stored).unwrap();
         assert_eq!(stored["status"], "succeeded");
         assert_eq!(stored["result_ref"], "result:sha256:one");
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    // GOC-19/GOC-20 (BUG-015 "B9"): a `CommitWorkItemResult` batch may
+    // co-commit provenance `AddNode` operations (RunTrace/ToolCall/
+    // OutcomeEvaluation) in the SAME redb write transaction as the WorkItem's
+    // terminal status -- proven here against a real redb-backed database, not
+    // just the pure-Rust admission logic in `eg-types::work_item_command_log`.
+    #[test]
+    fn commit_work_item_result_co_commits_provenance_add_node_operations() {
+        let path = temp_path("work-item-outcome-bundle-fusion");
+        let db = open(&path);
+
+        let mut seed = batch("work-item-bundle-seed", "work-item-bundle-seed-key");
+        seed.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: ready_work_item_method("work-bundle-1", 3),
+        }];
+        commit_at(&db, &seed, None).unwrap();
+        let claimed = commit_native_claim(
+            &db,
+            "work-item-bundle-claim",
+            "work-item-bundle-claim-key",
+            4,
+            Some("work-bundle-1"),
+            "worker-a",
+            0,
+            60_000,
+            64,
+        );
+        assert!(claimed.claimed);
+
+        let terminal_method = Method::CommitWorkItemResult {
+            tenant: "tenant-a".into(),
+            work_item_id: "work-bundle-1".into(),
+            worker_id: "worker-a".into(),
+            lease_epoch: claimed.lease_epoch.unwrap(),
+            fencing_token: claimed.fencing_token.unwrap(),
+            idempotency_key: "bundle-terminal-key".into(),
+            outcome: "succeeded".into(),
+            result_ref: Some("result:sha256:bundled".into()),
+            error_ref: None,
+            retryable: false,
+            now_ms: 1_000,
+        };
+        let mut terminal = batch("work:bundle-batch", "work-idem:bundle-key");
+        terminal.expected_graph_version = None;
+        terminal.operations = vec![
+            MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Job,
+                domain: MutationDomain::ControlPlane,
+                method: terminal_method,
+            },
+            MutationOperation {
+                ordinal: 1,
+                surface: MutationSurface::Job,
+                domain: MutationDomain::GraphSnapshot,
+                method: node("trace:bundle-1", 11),
+            },
+            MutationOperation {
+                ordinal: 2,
+                surface: MutationSurface::Job,
+                domain: MutationDomain::GraphSnapshot,
+                method: node("outcome:bundle-1", 22),
+            },
+        ];
+        terminal.outbox[0].key = terminal.batch_id.clone();
+
+        commit_at(&db, &terminal, None).unwrap();
+
+        let work_item = read_one_node(&db, "graph-a", "work-bundle-1", DurableCrypto::none())
+            .unwrap()
+            .unwrap();
+        let work_item: serde_json::Value = decode_durable(&work_item).unwrap();
+        assert_eq!(work_item["status"], "succeeded");
+        assert_eq!(work_item["result_ref"], "result:sha256:bundled");
+
+        // The KNOWN-BAD half of this proof lives in the two tests below: this
+        // establishes the PASS-on-good baseline -- both provenance nodes are
+        // durable, in the SAME commit that landed the terminal status.
+        let trace = read_one_node(&db, "graph-a", "trace:bundle-1", DurableCrypto::none())
+            .unwrap()
+            .unwrap();
+        let trace: serde_json::Value = decode_durable(&trace).unwrap();
+        assert_eq!(trace["value"], 11);
+
+        let outcome = read_one_node(&db, "graph-a", "outcome:bundle-1", DurableCrypto::none())
+            .unwrap()
+            .unwrap();
+        let outcome: serde_json::Value = decode_durable(&outcome).unwrap();
+        assert_eq!(outcome["value"], 22);
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    // KNOWN-BAD: a CommitWorkItemResult batch may NOT carry an arbitrary
+    // accompanying method (only AddNode provenance operations are allowed) --
+    // and rejecting it must leave NEITHER the WorkItem status NOR the
+    // disallowed operation's row durable (no partial commit).
+    #[test]
+    fn commit_work_item_result_batch_rejects_a_disallowed_accompanying_method() {
+        let path = temp_path("work-item-outcome-bundle-disallowed");
+        let db = open(&path);
+
+        let mut seed = batch("work-item-disallowed-seed", "work-item-disallowed-seed-key");
+        seed.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: ready_work_item_method("work-disallowed-1", 3),
+        }];
+        commit_at(&db, &seed, None).unwrap();
+        let claimed = commit_native_claim(
+            &db,
+            "work-item-disallowed-claim",
+            "work-item-disallowed-claim-key",
+            4,
+            Some("work-disallowed-1"),
+            "worker-a",
+            0,
+            60_000,
+            64,
+        );
+        assert!(claimed.claimed);
+
+        let terminal_method = Method::CommitWorkItemResult {
+            tenant: "tenant-a".into(),
+            work_item_id: "work-disallowed-1".into(),
+            worker_id: "worker-a".into(),
+            lease_epoch: claimed.lease_epoch.unwrap(),
+            fencing_token: claimed.fencing_token.unwrap(),
+            idempotency_key: "disallowed-terminal-key".into(),
+            outcome: "succeeded".into(),
+            result_ref: Some("result:sha256:disallowed".into()),
+            error_ref: None,
+            retryable: false,
+            now_ms: 1_000,
+        };
+        let mut terminal = batch("work:disallowed-batch", "work-idem:disallowed-key");
+        // A disallowed accompanying method makes `native_terminal_work_item_cas`
+        // false (it re-validates every operation, not just `len()`), so this
+        // batch is no longer exempt from graph-wide OCC -- supply the real
+        // current version (seed 3->4, claim 4->5) so the batch reaches the
+        // per-operation shape guard this test targets, instead of failing
+        // earlier on a mismatched/missing `expected_graph_version`.
+        terminal.expected_graph_version = Some(5);
+        terminal.operations = vec![
+            MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Job,
+                domain: MutationDomain::ControlPlane,
+                method: terminal_method,
+            },
+            // Disallowed: only AddNode may ride alongside CommitWorkItemResult.
+            MutationOperation {
+                ordinal: 1,
+                surface: MutationSurface::Job,
+                domain: MutationDomain::GraphSnapshot,
+                method: Method::RemoveNode {
+                    node_id: "work-disallowed-1".into(),
+                },
+            },
+        ];
+        terminal.outbox[0].key = terminal.batch_id.clone();
+
+        let error = commit_at(&db, &terminal, None).unwrap_err();
+        assert!(
+            error.contains("may only carry additional AddNode"),
+            "got: {error}"
+        );
+
+        // No partial effect: the WorkItem is still `leased`, not `succeeded`.
+        let work_item = read_one_node(&db, "graph-a", "work-disallowed-1", DurableCrypto::none())
+            .unwrap()
+            .unwrap();
+        let work_item: serde_json::Value = decode_durable(&work_item).unwrap();
+        assert_ne!(work_item["status"], "succeeded");
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    // KNOWN-BAD: a batch carrying TWO CommitWorkItemResult operations must be
+    // rejected outright, never applying either.
+    #[test]
+    fn commit_work_item_result_batch_rejects_more_than_one_terminal_operation() {
+        let path = temp_path("work-item-outcome-bundle-double-terminal");
+        let db = open(&path);
+
+        let mut seed = batch("work-item-double-seed", "work-item-double-seed-key");
+        seed.operations = vec![
+            MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: ready_work_item_method("work-double-1", 3),
+            },
+            MutationOperation {
+                ordinal: 1,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: ready_work_item_method("work-double-2", 3),
+            },
+        ];
+        commit_at(&db, &seed, None).unwrap();
+        // Seed is ONE batch creating two ready WorkItems (3->4); each claim is
+        // its own batch and bumps the version once more (4->5, then 5->6).
+        let claimed_1 = commit_native_claim(
+            &db,
+            "work-item-double-claim-1",
+            "work-item-double-claim-1-key",
+            4,
+            Some("work-double-1"),
+            "worker-a",
+            0,
+            60_000,
+            64,
+        );
+        assert!(claimed_1.claimed);
+        let claimed_2 = commit_native_claim(
+            &db,
+            "work-item-double-claim-2",
+            "work-item-double-claim-2-key",
+            5,
+            Some("work-double-2"),
+            "worker-b",
+            0,
+            60_000,
+            64,
+        );
+        assert!(claimed_2.claimed);
+
+        let mut terminal = batch("work:double-batch", "work-idem:double-key");
+        // Two CommitWorkItemResult operations also make
+        // `native_terminal_work_item_cas` false (not all-AddNode after the
+        // first), so -- same reasoning as the disallowed-method test above --
+        // supply the real current version (6) to reach the per-operation shape
+        // guard rather than failing earlier on OCC.
+        terminal.expected_graph_version = Some(6);
+        terminal.operations = vec![
+            MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Job,
+                domain: MutationDomain::ControlPlane,
+                method: Method::CommitWorkItemResult {
+                    tenant: "tenant-a".into(),
+                    work_item_id: "work-double-1".into(),
+                    worker_id: "worker-a".into(),
+                    lease_epoch: claimed_1.lease_epoch.unwrap(),
+                    fencing_token: claimed_1.fencing_token.unwrap(),
+                    idempotency_key: "double-terminal-key-1".into(),
+                    outcome: "succeeded".into(),
+                    result_ref: Some("result:sha256:double-one".into()),
+                    error_ref: None,
+                    retryable: false,
+                    now_ms: 1_000,
+                },
+            },
+            MutationOperation {
+                ordinal: 1,
+                surface: MutationSurface::Job,
+                domain: MutationDomain::ControlPlane,
+                method: Method::CommitWorkItemResult {
+                    tenant: "tenant-a".into(),
+                    work_item_id: "work-double-2".into(),
+                    worker_id: "worker-b".into(),
+                    lease_epoch: claimed_2.lease_epoch.unwrap(),
+                    fencing_token: claimed_2.fencing_token.unwrap(),
+                    idempotency_key: "double-terminal-key-2".into(),
+                    outcome: "succeeded".into(),
+                    result_ref: Some("result:sha256:double-two".into()),
+                    error_ref: None,
+                    retryable: false,
+                    now_ms: 1_000,
+                },
+            },
+        ];
+        terminal.outbox[0].key = terminal.batch_id.clone();
+
+        let error = commit_at(&db, &terminal, None).unwrap_err();
+        assert!(
+            error.contains("at most one CommitWorkItemResult"),
+            "got: {error}"
+        );
+
+        for work_item_id in ["work-double-1", "work-double-2"] {
+            let work_item = read_one_node(&db, "graph-a", work_item_id, DurableCrypto::none())
+                .unwrap()
+                .unwrap();
+            let work_item: serde_json::Value = decode_durable(&work_item).unwrap();
+            assert_ne!(work_item["status"], "succeeded");
+        }
+
         drop(db);
         let _ = std::fs::remove_file(path);
     }
