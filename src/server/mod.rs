@@ -284,8 +284,31 @@ pub mod cold_tier_impl;
 // warm mechanism itself requires; a non-`ann` build compiles none of it.
 #[cfg(feature = "ann")]
 pub mod ann_warm;
+// Native visualization engine-side state (D-VZ-1 lane V4, "engine integration"):
+// a persistent (process-lifetime, not fresh-per-request) ColumnStore plus a
+// content-addressed render cache and durable render provenance. Gated the SAME
+// as `handlers::viz` (`viz-static-export`) -- this state exists only where that
+// handler exists to use it. `viz_provenance` is a separate module (not under
+// `persistence/`, which is themed around the authoritative GRAPH store this is
+// NOT -- a render is explicitly not graph-scoped) so it can compile durability
+// support conditionally on `redb` internally while `viz_engine` itself never
+// requires `redb` (matches `viz-static-export` not implying `redb`).
+// `pub` (not `pub(crate)`): `main.rs` (a separate crate from this facade lib)
+// constructs `viz_engine::VizEngineState` directly to eagerly share it between
+// the RPC render path and the V3b interactive listener — see that struct's
+// own doc.
+#[cfg(feature = "viz-static-export")]
+pub mod viz_engine;
+#[cfg(feature = "viz-static-export")]
+pub(crate) mod viz_provenance;
+// D-VZ-1 lane V3b: the interactive HTTP listener (WebGPU/WebGL2 reference
+// client + binary viewport-tile protocol). `pub` (not `pub(crate)`) so
+// `main.rs` can call `serve` directly, mirroring `obs`/`lake::rest`'s own
+// top-level HTTP-surface modules.
 mod compute;
 mod dispatch;
+#[cfg(feature = "viz-interactive")]
+pub mod viz_interactive;
 // Fleet server registry stale-lease reaper (CONCEPT:EG-KG.sharding.server-registry, W2.5): periodic
 // sweep that expires a `:Server` node whose `Method::RegisterServer`-issued
 // lease has lapsed. Always declared (mirrors `ann_warm` above) — the sweep is a
@@ -636,6 +659,8 @@ mod tests {
             registry: GraphRegistry::new(),
             isolation,
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: SECRET.to_string(),
             #[cfg(feature = "query")]
             persist_dir: Some(
@@ -2384,6 +2409,8 @@ mod tests {
             registry: GraphRegistry::new(),
             isolation,
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: SECRET.to_string(),
             persist_dir: None,
             // AddNode is a durable, `GraphRedb`-domain GATEWAY_ROUTED method

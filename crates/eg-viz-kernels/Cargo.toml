@@ -1,0 +1,36 @@
+[package]
+name = "eg-viz-kernels"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Native visualization LOD/decimation kernels (D-VZ-1 lane V2): M4 (four-point-per-pixel-column: first/min/max/last) and LTTB (Largest Triangle Three Buckets) shape-preserving decimation over raw f64 slices, with a runtime-detected AVX2 fast path (never a compile-time target-feature assumption) and a scalar fallback that is byte-identical in its shape-preservation invariants. Reimplements the ARCHITECTURE of open-source-libraries/xy's LOD ladder in-tree; no dependency on the xy PyPI package."
+license = "MIT"
+
+[lib]
+name = "eg_viz_kernels"
+
+# V2 sits directly right of V0 in the DAG (`eg-viz-core -> eg-viz-kernels`), same
+# posture as `eg-viz-columnstore`: a pure numeric kernel crate operating on raw
+# `&[f64]` slices (bridged from a `ColumnStore::materialize_f64` output or any other
+# caller-owned buffer), so it does NOT depend on eg-viz-columnstore itself -- the
+# kernels are useful to any caller holding two same-length f64 slices, not only a
+# ColumnStore-backed one (mirrors how `eg-viz-export::reduce`'s existing
+# `decimate_minmax`/`density_grid` already take plain `&[f64]`, not a store).
+[dependencies]
+eg-viz-core = { path = "../eg-viz-core" }
+
+[dev-dependencies]
+proptest = "1"
+criterion = { version = "0.5", default-features = false }
+
+[features]
+default = []
+# No-op marker mirroring the sibling viz crates' own `viz` feature -- the facade's
+# `viz-kernels` feature is the actual on/off switch for whether this crate links
+# into a given epistemic-graph build.
+viz = []
+
+[[bench]]
+name = "kernels_bench"
+path = "benches/kernels_bench.rs"
+harness = false

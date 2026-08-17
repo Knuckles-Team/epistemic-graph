@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads"]
+members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads"]
 # D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
 # governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
 # QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
@@ -401,14 +401,12 @@ program-optimization = ["jobs", "dep:eg-program", "eg-types/program-optimization
 # `Method` match in lockstep whenever both happen to be active together. `cargo
 # build`'s DEFAULT feature set still gains no `eg-viz-core` dependency at all --
 # `viz` (and everything below it) remains deliberately EXCLUDED from `full`,
-# confirmed by `cargo tree` (no `--features viz`). `viz-interactive` is a reserved
-# name for V3b to attach its binary-tile-protocol/WebGPU client behind once that
-# lane lands; `viz-gpu-export` is reserved for a future GPU-accelerated static
-# export variant (V3a's CPU static export landed below as `viz-static-export`,
-# lane V1's ColumnStore as `viz-columnstore` -- both still gate real,
-# dependency-free/minimal-dependency work, not placeholders).
+# confirmed by `cargo tree` (no `--features viz`). `viz-gpu-export` is reserved
+# for a future GPU-accelerated static export variant (V3a's CPU static export
+# landed below as `viz-static-export`, lane V1's ColumnStore as
+# `viz-columnstore` -- both still gate real, dependency-free/minimal-dependency
+# work, not placeholders).
 viz = ["dep:eg-viz-core", "eg-types/viz", "eg-capabilities?/viz"]
-viz-interactive = ["viz"]
 viz-gpu-export = ["viz"]
 # D-VZ-1 lane V1: the ColumnStore (canonical columns, zone maps, content-addressed
 # chunks, validity bitmaps, dictionary categoricals) implementing `eg-viz-core`'s
@@ -434,6 +432,18 @@ viz-columnstore = ["viz", "dep:eg-viz-columnstore"]
 # relying on it merely being present in `full`) means `--features viz-static-export`
 # alone (no `--no-default-features`) is enough for `Method::Viz` to be reachable.
 viz-static-export = ["viz-columnstore", "dep:eg-viz-export", "server"]
+# D-VZ-1 lane V3b: the interactive rendering surface -- a loopback-only,
+# dependency-free HTTP/1.1 listener (`src/server/viz_interactive.rs`, the SAME
+# hand-rolled idiom `--metrics-addr`/`--obs-addr`/`lake/rest.rs` already use;
+# no axum/hyper/websocket dependency added) serving a reference WebGPU/WebGL2
+# client (`GET /`, honest degradation -- see that module's doc) and a binary
+# viewport-tile protocol (`GET /tile`) built on `eg_viz_kernels::lttb_reduce`
+# over the SAME persistent `VizEngineState` (lane V4) the RPC render path
+# uses. Implies `viz-static-export` (needs the persistent ColumnStore/render
+# cache) and pulls `eg-viz-kernels` directly (this crate calls `lttb_reduce`
+# itself; `viz-static-export`/`eg-viz-export` alone would only bring it in
+# transitively, not name it for THIS crate's own `use`).
+viz-interactive = ["viz-static-export", "dep:eg-viz-kernels"]
 # D-DE-0 (lane w6-de0-contracts, `plans/au-eg-program/program/durable-execution-native.md`)
 # -- the durable-execution ROUTING contract. `durable` links `eg-durable` alone (the
 # CallShape/WorkShape/DurableBackendKind routing table + the DurableExecutionUnitMirror
@@ -1380,6 +1390,11 @@ eg-statechart = { path = "crates/eg-statechart", optional = true }
 eg-viz-core = { path = "crates/eg-viz-core", optional = true }
 eg-viz-columnstore = { path = "crates/eg-viz-columnstore", optional = true }
 eg-viz-export = { path = "crates/eg-viz-export", optional = true }
+# D-VZ-1 lane V2 -- M4/LTTB decimation kernels, runtime-detected AVX2. Named
+# directly here (not just pulled in transitively via `eg-viz-export`) because
+# `src/server/viz_interactive.rs` (feature `viz-interactive`) calls
+# `eg_viz_kernels::lttb_reduce` itself for the interactive tile protocol.
+eg-viz-kernels = { path = "crates/eg-viz-kernels", optional = true }
 # D-DE-0 (feature `durable`, see that feature's own comment above): the
 # durable-execution routing contract -- CallShape/WorkShape/DurableBackendKind + the
 # DurableExecutionUnitMirror DTO. Pure serde (already resolved workspace-wide); no
