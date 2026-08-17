@@ -30,6 +30,15 @@
 //! rather than unbounded growth. It adds no codec, transport, device, or CAS
 //! dependency — see the module doc for the exact authority boundary and what is
 //! (and is not) proven there.
+//!
+//! ## `asr` (GOC-33, OPT-IN, default OFF)
+//!
+//! `src/asr.rs`, behind `asr` (which requires `ingress`), is the versioned
+//! native-ASR wire contract (`asr.*`) plus pure request/segment validation
+//! and a structural carrier-authorization gate. It links no whisper-rs,
+//! ONNX Runtime, codec, model-loader, or model weight, and no
+//! `epistemic-graph-voice-worker` process exists yet — see the module doc
+//! for the exact authority boundary and what is (and is not) proven there.
 
 mod audio;
 mod header;
@@ -45,6 +54,10 @@ pub mod runtime;
 // Realtime audio-ingress contract + bounded in-process runtime (GOC-32).
 #[cfg(feature = "ingress")]
 pub mod ingress;
+
+// Native ASR contract (GOC-33).
+#[cfg(feature = "asr")]
+pub mod asr;
 
 pub use audio::{AudioData, AudioFeatureWindow, AudioSegment};
 
@@ -73,6 +86,19 @@ mod default_build_guardrail_ingress {
         assert!(
             !cfg!(feature = "ingress"),
             "the `ingress` feature must stay opt-in, never part of `default`"
+        );
+    }
+}
+
+// The native ASR contract stays opt-in until GOC-33-W03..W07 wire a real
+// worker/provider around it — see crates/eg-audio/src/asr.rs.
+#[cfg(all(test, not(feature = "asr")))]
+mod default_build_guardrail_asr {
+    #[test]
+    fn default_build_has_no_asr() {
+        assert!(
+            !cfg!(feature = "asr"),
+            "the `asr` feature must stay opt-in, never part of `default`"
         );
     }
 }
