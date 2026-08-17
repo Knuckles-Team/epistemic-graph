@@ -322,14 +322,35 @@ pub(crate) async fn try_handle(
                     #[cfg(feature = "security")]
                     rls,
                 );
-                let (mut snap, version) = core.analysis_snapshot_versioned();
-                let cached = match &dep {
+                // BUG-267: probe the cache BEFORE paying for the O(V+E)
+                // `analysis_snapshot_versioned()` clone. `version()` is a bare
+                // atomic load and `dep_clock()` a cheap ref, so a HIT never
+                // materializes the graph at all. This is the ONLY counted
+                // cache lookup on this request's path (BUG-267 follow-up: an
+                // earlier version of this fix re-checked the cache a SECOND
+                // time after the snapshot, on the theory that a concurrent
+                // request might have populated it in between -- but
+                // `ResultCache::get`/`get_dep` bump the hit/miss counters on
+                // EVERY call, so that second check double-counted every miss
+                // and broke `result_cache_dispatch_tests::
+                // hit_on_unchanged_then_write_invalidates` +
+                // `rls_aware_cache_no_cross_agent_leak::
+                // agent_a_cached_result_is_not_served_to_agent_b`, both of
+                // which assert an EXACT miss delta of 1 per served request.
+                // A miss here just proceeds to compute+cache below; the rare
+                // concurrent-populate race is a redundant recompute, not a
+                // correctness issue -- `put`/`put_dep` after the compute
+                // still stores under the FRESH version/deps this call's own
+                // snapshot reflects, so a stale or cross-actor entry can
+                // never result).
+                let probe = match &dep {
                     Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
-                    None => core.result_cache().get(hash, version),
+                    None => core.result_cache().get(hash, core.version()),
                 };
-                if let Some(bytes) = cached {
+                if let Some(bytes) = probe {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
+                let (mut snap, version) = core.analysis_snapshot_versioned();
                 #[cfg(feature = "security")]
                 rls.filter_view(caller, &mut snap);
                 (snap, version, hash)
@@ -457,14 +478,19 @@ pub(crate) async fn try_handle(
                     #[cfg(feature = "security")]
                     rls,
                 );
-                let (mut snap, version) = core.analysis_snapshot_versioned();
-                let cached = match &dep {
+                // BUG-267: same cheap-probe-before-snapshot ordering as the
+                // `UnifiedQuery` arm above — see its comment for the invariant
+                // AND for why there is only ONE counted cache lookup here (a
+                // second post-snapshot check double-counts misses against
+                // `ResultCache`'s hit/miss stats).
+                let probe = match &dep {
                     Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
-                    None => core.result_cache().get(hash, version),
+                    None => core.result_cache().get(hash, core.version()),
                 };
-                if let Some(bytes) = cached {
+                if let Some(bytes) = probe {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
+                let (mut snap, version) = core.analysis_snapshot_versioned();
                 #[cfg(feature = "security")]
                 rls.filter_view(caller, &mut snap);
                 (snap, version, hash)
@@ -1442,10 +1468,34 @@ pub(crate) async fn try_handle(
                     #[cfg(feature = "security")]
                     rls,
                 );
-                let (mut snap, version) = core.analysis_snapshot_versioned();
-                if let Some(bytes) = core.result_cache().get(hash, version) {
+                // BUG-267: `analysis_snapshot()` was materialized unconditionally
+                // BEFORE this cache lookup — an O(V+E) clone of the entire
+                // node_map/node_properties/edge_properties paid on every call
+                // regardless of cache hit or miss, defeating the cache that
+                // follows it (measured p99 2.49s on plain cached reads). Probe
+                // with the cheap `core.version()` atomic load first; only a MISS
+                // pays for `analysis_snapshot_versioned()`. The fresh `version`
+                // it returns (not the one used for this probe) is what `put`
+                // stores under below, so an entry can never claim a version
+                // newer than the data it reflects.
+                //
+                // BUG-267 follow-up (regression caught by
+                // `result_cache_dispatch_tests::hit_on_unchanged_then_write_invalidates`
+                // and `rls_aware_cache_no_cross_agent_leak::
+                // agent_a_cached_result_is_not_served_to_agent_b`, both of which assert
+                // an EXACT miss delta of 1 per served request): an earlier version of
+                // this fix re-checked the cache a SECOND time after the snapshot too, to
+                // guard a concurrent-populate race. `ResultCache::get` bumps the
+                // hit/miss counters on EVERY call — including a probe that finds
+                // nothing — so that second check silently double-counted every miss.
+                // There is only ONE counted lookup on this path now; a rare concurrent
+                // populate between the probe and the snapshot just costs a redundant
+                // recompute (the `put` below still lands under this call's own fresh
+                // `version`, so nothing stale or cross-actor is ever served).
+                if let Some(bytes) = core.result_cache().get(hash, core.version()) {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
+                let (mut snap, version) = core.analysis_snapshot_versioned();
                 #[cfg(feature = "security")]
                 rls.filter_view(caller, &mut snap);
                 (snap, version, hash)
