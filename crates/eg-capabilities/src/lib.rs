@@ -966,10 +966,35 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Saga,
         },
+        // GOC-15/BUG-030 (re-rated -> closed): `PlacementRoute` used to share
+        // `CatalogList`/`RebalancePlan`'s `admin:cluster-read` action, but unlike
+        // those genuinely rare cluster-admin ops it is on the hot path of EVERY
+        // graph-routed request (`epistemic_graph.client`/AU's
+        // `placement_catalog.py::resolve_placement` calls it before each Cypher/
+        // traversal op once route config is present). Gating it `admin:` meant
+        // `IsolationLayer::has_admin_capability` (System role or a durable
+        // `RbacAction::Admin` grant -- see `crates/eg-core/src/isolation.rs`) was
+        // required just to learn ROUTING METADATA for one's OWN tenant, so only the
+        // bootstrap `System` identity could route at all -- proven live by GOC-61.
+        // Mirrors the SAME precedent `ClusterMembers` already set for exactly this
+        // reason ("cluster:topology-read", deliberately NOT admin:cluster-read --
+        // ordinary service roles need it to re-resolve after a failover"):
+        // `cluster:placement-read` is a genuinely narrower action, satisfied by an
+        // ordinary `kg:read`/`kg:write` scope (it does not start with `admin:`/
+        // `security:` or end with `:admin`/`:control`, so
+        // `auth::coarse_kg_admin_only` no longer forces `kg:admin`, and
+        // `access::is_admin_authz_action` no longer routes it through
+        // `require_admin_capability` at all). The route answer is cluster
+        // placement metadata (group/epoch/endpoints), never row data, so this does
+        // NOT widen any actor's access to graph content -- `handlers::placement::
+        // handle_route` additionally requires the request's own tenant to match
+        // the caller's verified tenant unless the caller holds `kg:admin`, so this
+        // change narrows to "read your own tenant's routing metadata" rather than
+        // widening to "cluster admin".
         Method::PlacementRoute { .. } => MethodPolicy {
             mutates: false,
             durability_domain: DurabilityDomain::None,
-            authz_action: "admin:cluster-read",
+            authz_action: "cluster:placement-read",
             idempotent: true,
             audited: false,
             emits_cdc: false,
@@ -1493,6 +1518,25 @@ pub fn policy(m: &Method) -> MethodPolicy {
             authz_action: "viz:render",
             idempotent: true,
             audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::None,
+        },
+        // GOC-34 (`OWNER-VOICE-TTS`) -- native TTS synthesis is stateless compute:
+        // it validates+authorizes the carrier, runs bounded ONNX inference, and
+        // returns audio inline. It writes no durable graph state (no CAS/rendition
+        // publication exists yet -- see the handler's own doc for that honest gap),
+        // so `mutates: false` is the exact answer, matching Finance/DataScience's
+        // pure-compute posture above, not Viz's render-a-fresh-ColumnStore shape.
+        // `idempotent: false` because repeated synthesis of the SAME phonemes is
+        // NOT guaranteed byte-identical (`DeterminismClaim::Unverified` — piper-rs's
+        // inference path carries no explicit random seed, see `eg_audio::tts`'s doc).
+        #[cfg(feature = "tts-piper")]
+        Method::TtsSynthesize { .. } => MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::None,
+            authz_action: "tts:synthesize",
+            idempotent: false,
+            audited: true,
             emits_cdc: false,
             txn_participation: TxnParticipation::None,
         },
@@ -2456,7 +2500,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("CatalogList", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RebalancePlan", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RebalanceExecute", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "prepared/committed admin MutationBatch saga"),
-        ("PlacementRoute", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader"),
+        ("PlacementRoute", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "cluster:placement-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader; GOC-15/BUG-030 narrowed off admin:cluster-read (2026-08-17) -- ordinary kg:read/kg:write routes their OWN tenant, handlers::placement::handle_route requires kg:admin for any other tenant's route"),
         ("RaftAddLearner", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "leader-only openraft add_learner; attaches a non-voting replica without changing the voter set"),
         ("RaftChangeMembership", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "leader-only openraft change_membership; sets the group's exact voter set (the usual way to promote a learner added via RaftAddLearner)"),
         ("ClusterMembers", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "cluster:topology-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "ADR-1/W1.1 engine-authoritative client topology; deliberately NOT admin:cluster-read -- ordinary service roles need it to re-resolve after a failover; answered from any node, not just the leader"),
@@ -2585,6 +2629,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("Asr", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "asr:transcribe", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "self-routes before dispatch_graph_op like Quantum/Viz; direct non-durable whisper-rs transcription, commits no asr.result.v1 (that governed commit is future worker/AU-orchestration work, W03/W06)"),
         #[cfg(feature = "viz")]
         ("Viz", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "viz:render", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "pure compute: resolves a fresh per-request ColumnStore and returns rendered bytes, no durable write (D-VZ-1 lanes V4/V6)"),
+        #[cfg(feature = "tts-piper")]
+        ("TtsSynthesize", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "tts:synthesize", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::None }, "pure compute: native Piper-ONNX synthesis runs inline and returns audio, no durable graph write (GOC-34, no CAS/rendition publication exists yet)"),
         ("Sql", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:sql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"),
         ("CypherQuery", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:cypher", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; writes execute against a staged graph and publish only after durable MutationBatch commit"),
         ("GraphQl", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:graphql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox"),

@@ -1067,6 +1067,8 @@ mod tests {
             registry: GraphRegistry::new(),
             isolation,
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: "test".to_string(),
             persist_dir,
             persistence,

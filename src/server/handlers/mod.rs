@@ -12,6 +12,13 @@ pub(crate) mod datascience;
 #[cfg(feature = "finance")]
 pub(crate) mod finance;
 pub(crate) mod graph_ops;
+// Native Piper-ONNX text-to-speech synthesis (GOC-34, `OWNER-VOICE-TTS`, feature
+// `tts-piper`). Stateless — no graph core, runs inline, mirroring finance's
+// pure-compute shape. A build without `tts-piper` omits the module and
+// `Method::TtsSynthesize` itself does not exist in that build's enum (see
+// `eg-types/src/protocol.rs`'s `#[cfg(feature = "tts-piper")]` on the variant).
+#[cfg(feature = "tts-piper")]
+pub(crate) mod tts;
 // Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining, feature `mining`).
 // Association-rule mining. GRAPH-SCOPED (unlike finance/datascience): the
 // graph-derived source + write-back need the live graph core, so the handler takes

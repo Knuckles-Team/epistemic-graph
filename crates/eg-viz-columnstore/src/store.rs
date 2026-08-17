@@ -18,6 +18,8 @@
 
 use std::collections::HashMap;
 
+use sha2::{Digest, Sha256};
+
 use eg_viz_core::{ColumnDescriptor, ColumnStoreIngest, ColumnType};
 
 use crate::chunk::{self, Chunk, CHUNK_ROWS};
@@ -260,6 +262,44 @@ impl ColumnStore {
         self.dataset(dataset_ref).and_then(|d| d.column(name))
     }
 
+    /// A content-addressed fingerprint of `dataset_ref`'s CURRENT chunk set
+    /// (D-VZ-1 lane V4) — what a caller feeds as
+    /// [`eg_viz_core::job::query_hash`]'s `snapshot_version` argument to key a
+    /// render cache on **this dataset's actual bytes**, not a whole-graph or
+    /// whole-engine version counter that any unrelated write would bump.
+    ///
+    /// Computed from chunk [`chunk::Chunk::content_id`]s already produced at
+    /// ingest time (`sha256` over each chunk's encoded bytes) — **no data
+    /// rescan**, just a hash of already-computed hashes, sorted by column
+    /// name for determinism regardless of ingest order. Two datasets with
+    /// byte-identical chunk content (including two SEPARATE ingests of the
+    /// same bytes under the same `dataset_ref` — re-ingest replaces the
+    /// dataset, but the new chunks re-hash to the SAME `content_id`s)
+    /// fingerprint identically; changing even one row's value in one column
+    /// changes that column's chunk `content_id` and therefore this
+    /// fingerprint. `None` when `dataset_ref` is not ingested.
+    pub fn content_fingerprint(&self, dataset_ref: &str) -> Option<u64> {
+        let dataset = self.dataset(dataset_ref)?;
+        let mut columns: Vec<&Column> = dataset.columns.iter().collect();
+        columns.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let mut hasher = Sha256::new();
+        hasher.update(b"eg-viz-columnstore.content_fingerprint.v1\0");
+        for column in columns {
+            hasher.update(column.name.as_bytes());
+            hasher.update([0u8]);
+            for chunk in &column.chunks {
+                hasher.update(chunk.content_id.as_bytes());
+                hasher.update([0u8]);
+            }
+            hasher.update([0xff]); // column separator, distinct from the 0u8 field separator
+        }
+        let digest = hasher.finalize();
+        Some(u64::from_le_bytes(
+            digest[..8].try_into().expect("sha256 digest is >= 8 bytes"),
+        ))
+    }
+
     fn chunk_bytes(&self, content_id: &str) -> Result<&[u8], ColumnStoreError> {
         self.chunk_bytes
             .get(content_id)
@@ -454,6 +494,79 @@ mod tests {
         assert_eq!(
             store.materialize_f64("ds:1", "x").unwrap(),
             vec![1.0, 2.0, 3.0]
+        );
+    }
+
+    #[test]
+    fn content_fingerprint_is_none_for_an_unknown_dataset() {
+        let store = ColumnStore::new();
+        assert!(store.content_fingerprint("ds:missing").is_none());
+    }
+
+    #[test]
+    fn content_fingerprint_is_deterministic_and_content_sensitive() {
+        let mut store = ColumnStore::new();
+        store
+            .ingest_columns(
+                "ds:1",
+                vec![ColumnInput::new("x", ColumnData::F64(vec![1.0, 2.0, 3.0]))],
+            )
+            .unwrap();
+        let fp1 = store.content_fingerprint("ds:1").unwrap();
+        let fp1_again = store.content_fingerprint("ds:1").unwrap();
+        assert_eq!(fp1, fp1_again, "fingerprint must be deterministic");
+
+        // Re-ingesting BYTE-IDENTICAL data must fingerprint the SAME -- the
+        // property a monotonic version counter could never give (a version
+        // bump on every write would treat this as a fresh, uncacheable
+        // dataset even though nothing actually changed).
+        store
+            .ingest_columns(
+                "ds:1",
+                vec![ColumnInput::new("x", ColumnData::F64(vec![1.0, 2.0, 3.0]))],
+            )
+            .unwrap();
+        let fp1_reingested = store.content_fingerprint("ds:1").unwrap();
+        assert_eq!(
+            fp1, fp1_reingested,
+            "re-ingesting identical bytes must fingerprint identically"
+        );
+
+        // Genuinely different content must fingerprint differently.
+        store
+            .ingest_columns(
+                "ds:1",
+                vec![ColumnInput::new("x", ColumnData::F64(vec![1.0, 2.0, 4.0]))],
+            )
+            .unwrap();
+        let fp2 = store.content_fingerprint("ds:1").unwrap();
+        assert_ne!(fp1, fp2, "changed content must fingerprint differently");
+    }
+
+    #[test]
+    fn content_fingerprint_is_scoped_to_its_own_dataset_not_the_whole_store() {
+        // The property that distinguishes this from a whole-engine/whole-graph
+        // version: writing an UNRELATED dataset must not change THIS dataset's
+        // fingerprint (a global-version key would invalidate both).
+        let mut store = ColumnStore::new();
+        store
+            .ingest_columns(
+                "ds:a",
+                vec![ColumnInput::new("x", ColumnData::F64(vec![1.0, 2.0]))],
+            )
+            .unwrap();
+        let fp_a_before = store.content_fingerprint("ds:a").unwrap();
+
+        store
+            .ingest_columns(
+                "ds:b",
+                vec![ColumnInput::new("x", ColumnData::F64(vec![9.0, 9.0, 9.0]))],
+            )
+            .unwrap();
+        let fp_a_after = store.content_fingerprint("ds:a").unwrap();
+        assert_eq!(
+            fp_a_before, fp_a_after,
+            "an unrelated dataset's ingest must not change this dataset's fingerprint"
         );
     }
 

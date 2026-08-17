@@ -143,6 +143,17 @@ struct Args {
     #[arg(long, env = "EPISTEMIC_GRAPH_OBS_ADDR")]
     obs_addr: Option<String>,
 
+    /// Interactive native-visualization HTTP listener address (e.g.
+    /// 127.0.0.1:5090), feature `viz-interactive` (D-VZ-1 lane V3b). Disabled
+    /// when unset. Serves the reference WebGPU/WebGL2 client (`GET /`) and the
+    /// binary viewport-tile protocol (`GET /tile`) a browser cannot reach over
+    /// the length-prefixed MessagePack RPC transports — separate from those and
+    /// from every other auxiliary HTTP surface. Loopback-only, like every
+    /// auxiliary listener; a remote client goes through a same-host reverse
+    /// proxy (this fleet's `edge-ingress`), never a direct non-loopback bind.
+    #[arg(long, env = "EPISTEMIC_GRAPH_VIZ_INTERACTIVE_ADDR")]
+    viz_interactive_addr: Option<String>,
+
     /// Iceberg-REST catalog HTTP listener address (e.g. 127.0.0.1:8181), feature
     /// `lake-rest` (INT-P2-3, `iceberg.apache.org/rest-catalog-spec`). Disabled when
     /// unset. Serves list/load (+ a compaction-bridged commit) over the tables the
@@ -700,6 +711,8 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         registry: GraphRegistry::new(),
         isolation,
         channels: ChannelManager::new(),
+        #[cfg(feature = "viz-static-export")]
+        viz_engine: None,
         auth_secret: args.auth_secret,
         persist_dir: args.persist_dir,
         persistence,
@@ -981,6 +994,49 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "obs"))]
     if obs_addr.is_some() {
         tracing::warn!("--obs-addr ignored: binary built without the `obs` feature");
+    }
+
+    // ── Interactive native-visualization surface (D-VZ-1 lane V3b) ─────────
+    // Opt-in AND feature-gated: the listener starts ONLY when built `--features
+    // viz-interactive` AND --viz-interactive-addr /
+    // EPISTEMIC_GRAPH_VIZ_INTERACTIVE_ADDR is set. Eagerly constructs the
+    // shared `VizEngineState` (rather than leaving it to lazy-init on the
+    // first `Method::Viz` RPC call, `handlers::viz::engine_state`) and installs
+    // it on `ServerState` BEFORE spawning the listener, so the RPC render path
+    // and this HTTP path always share the SAME persistent ColumnStore/render
+    // cache/provenance -- never two independent engines silently diverging.
+    let viz_interactive_addr =
+        resolve_listener_addr(args.viz_interactive_addr.as_deref(), "127.0.0.1:5090");
+    #[cfg(feature = "viz-interactive")]
+    if let Some(ref viz_interactive_addr) = viz_interactive_addr {
+        let viz_persist_dir = state.read().await.persist_dir.clone();
+        let engine = std::sync::Arc::new(epistemic_graph::server::viz_engine::VizEngineState::new(
+            viz_persist_dir.as_deref(),
+        ));
+        state.write().await.viz_engine = Some(engine.clone());
+        match tokio::net::TcpListener::bind(viz_interactive_addr).await {
+            Ok(listener) => {
+                info!(
+                    "Native visualization: serving the interactive WebGPU/WebGL2 client + \
+                     viewport-tile protocol on http://{}",
+                    viz_interactive_addr
+                );
+                tokio::spawn(async move {
+                    epistemic_graph::server::viz_interactive::serve(listener, engine).await;
+                });
+            }
+            Err(e) => tracing::error!(
+                "--viz-interactive-addr {}: failed to bind listener: {}",
+                viz_interactive_addr,
+                e
+            ),
+        }
+    }
+    #[cfg(not(feature = "viz-interactive"))]
+    if viz_interactive_addr.is_some() {
+        tracing::warn!(
+            "--viz-interactive-addr ignored: binary built without the `viz-interactive` feature"
+        );
     }
 
     // ── Iceberg-REST catalog (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, INT-P2-3) ────────────────────────────

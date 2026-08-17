@@ -100,6 +100,7 @@ nav:
       - Governed ChangeEnvelope: architecture/change_envelope.md
       - Governed Modality Serving: architecture/modality_serving.md
       - Native ASR Provider (GOC-33): architecture/native_asr.md
+      - Native Piper TTS (GOC-34): architecture/native_tts_piper.md
       - Canonical Structural Properties: architecture/canonical-property-schema.md
       - Subsystems (C4 Containers): architecture/subsystems.md
       - Unified Planner & UQL: uql.md
@@ -136,6 +137,7 @@ nav:
       - Numeric Kernel (EG-321): architecture/numeric_kernel.md
       - Lakehouse LTAP Interop (EG-317): architecture/lakehouse_ltap.md
       - Distribution / Robotics / GPU (EG-3.x): architecture/distribution_robotics_gpu.md
+      - Native Visualization (D-VZ-1): architecture/native_visualization.md
   - Distribution & Scaling:
       - Engine Scaling Program (M1/M2/M3): architecture/scaling_program.md
       - Multi-Raft Cluster Status (M2): architecture/m2_raft_status.md
