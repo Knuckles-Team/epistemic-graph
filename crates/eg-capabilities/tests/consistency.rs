@@ -949,6 +949,11 @@ fn all_methods_table_has_the_expected_variant_count() {
     // `asr-native`, mirrors `quantum`/`viz`'s lockstep contract -- see this
     // crate's Cargo.toml and `lib.rs`'s sibling constant): +1 when `asr-native`
     // is enabled.
+    // Plus GOC-34 `TtsSynthesize { .. }` (native Piper-ONNX TTS surface,
+    // feature-gated `tts-piper`, same lockstep contract as `asr-native`/
+    // `quantum`/`viz`): +1 when `tts-piper` is enabled. Landed on `main`
+    // (a1f4025) WITHOUT this formula being updated -- the exact silent-
+    // auto-merge trap this comment now closes; see the GOC-33 merge report.
     let expected = 386
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
@@ -956,7 +961,8 @@ fn all_methods_table_has_the_expected_variant_count() {
         + usize::from(cfg!(feature = "knowledge-batch"))
         + usize::from(cfg!(feature = "quantum"))
         + usize::from(cfg!(feature = "viz"))
-        + usize::from(cfg!(feature = "asr-native"));
+        + usize::from(cfg!(feature = "asr-native"))
+        + usize::from(cfg!(feature = "tts-piper"));
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 

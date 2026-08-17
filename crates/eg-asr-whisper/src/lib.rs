@@ -149,6 +149,16 @@
 //! newer/emulated CPU that would have masked the gap. See the GOC-33 report
 //! for the exact commands and full transcript output.
 //!
+//! ## Resource limits (BUG-283)
+//!
+//! This fleet's containerd does not virtualize `/proc`: a CPU-limited pod
+//! still reports the host's full core count. `whisper.cpp`'s thread pool is
+//! therefore sized by [`cpu_budget::effective_thread_budget`], which reads
+//! the REAL cgroup v2/v1 CPU quota (falling back to the OS-visible count
+//! only when no finite quota is set), not `std::thread::available_
+//! parallelism()` directly — see that module's doc for the full contract
+//! and an `EG_ASR_MAX_THREADS` operator override.
+//!
 //! ## GPU
 //!
 //! GPU execution providers are opt-in Cargo features (`cuda`/`vulkan`/
@@ -182,6 +192,7 @@
 //! policy-authorized `asr.result.v1` commit is future worker/AU-orchestration
 //! work (W03/W06 in the lane doc), explicitly out of scope here.
 
+mod cpu_budget;
 mod model;
 mod wav;
 
@@ -364,9 +375,12 @@ impl WhisperAsrProvider {
         let mut next_sequence: u64 = 0;
         let mut detected_language: Option<String> = None;
         let mut all_timed = true;
-        let n_threads = std::thread::available_parallelism()
-            .map(|n| (n.get() as i32).min(4))
-            .unwrap_or(1);
+        // BUG-283: this fleet's containerd does not virtualize /proc, so
+        // `available_parallelism()`/`nproc` alone report the HOST's CPU
+        // count even inside a CPU-limited pod — see `cpu_budget`'s module
+        // doc. Use the real cgroup-aware budget instead of trusting the OS
+        // view directly.
+        let n_threads = cpu_budget::effective_thread_budget();
 
         if cancel.is_cancelled() {
             return Err(AsrError::Cancelled);
