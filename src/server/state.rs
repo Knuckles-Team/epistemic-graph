@@ -118,6 +118,15 @@ pub struct ServerState {
     /// map upsert off the hot path; an empty tracker is a no-op.
     #[cfg(feature = "redb")]
     pub cold_tracker: Arc<crate::server::persistence::cold_offload::ColdTenantTracker>,
+    /// Persistent native-visualization engine state (D-VZ-1 lane V4: persistent
+    /// ColumnStore + content-addressed render cache + durable provenance),
+    /// feature `viz-static-export`. `None` until the first `Method::Viz`
+    /// request lazily initializes it (`handlers::viz::engine_state`) — almost
+    /// every `ServerState` construction site (every test not exercising viz)
+    /// never needs a real one, mirroring `blob`/`raft`/`tsdb_store`'s own
+    /// `Option<..> = None`-almost-everywhere shape on this same struct.
+    #[cfg(feature = "viz-static-export")]
+    pub viz_engine: Option<Arc<crate::server::viz_engine::VizEngineState>>,
     /// Global backpressure: caps concurrent in-flight requests across all
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).

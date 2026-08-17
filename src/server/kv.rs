@@ -881,6 +881,8 @@ mod dispatch_tests {
             registry: GraphRegistry::new(),
             isolation: current_isolation(),
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir.to_string()),
             persistence: None,

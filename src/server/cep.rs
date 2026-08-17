@@ -690,6 +690,8 @@ mod tests {
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: "test".to_string(),
             persist_dir: None,
             persistence: None,
