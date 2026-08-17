@@ -13135,6 +13135,176 @@ mod mutation_batch_tests {
         let _ = std::fs::remove_file(path);
     }
 
+    /// GOC-19/BUG-111: the SAME no-silent-overwrite property proven
+    /// deterministically above, but under REAL concurrency -- two genuine OS
+    /// threads, synchronized to start racing at the same instant via a
+    /// `Barrier` (GOC-70 rule 3: construct the pile-up deterministically
+    /// through a barrier, never a sleep-based hope), both submitting a
+    /// `CasWorkItemMetadata` commit derived from the identical pre-race
+    /// state, exactly like `mutation_batch_same_attempt_race_has_one_
+    /// durable_winner_and_replay` in `resource_reservation_tests.rs`. This
+    /// exercises the ACTUAL storage-layer mutual exclusion -- redb's
+    /// exclusive write transaction plus the in-transaction
+    /// `expected_graph_version`/lease/status checks -- rather than a
+    /// hand-simulated interleaving, proving the guard is atomic at the
+    /// storage layer and not a read-then-write race.
+    #[test]
+    fn cas_work_item_metadata_real_concurrent_race_has_exactly_one_winner() {
+        use crate::epistemic_operations_ext::{
+            CasWorkItemMetadataLeaseFence, CasWorkItemMetadataOutcome, CasWorkItemMetadataRequest,
+            CasWorkItemMetadataRequestSchemaVersion, CasWorkItemMetadataResult,
+        };
+
+        let path = temp_path("cas-metadata-concurrent");
+        let db = std::sync::Arc::new(open(&path));
+
+        let mut seed = batch(
+            "cas-metadata-concurrent-seed",
+            "cas-metadata-concurrent-seed-key",
+        );
+        seed.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: ready_work_item_method("cas-race", 3),
+        }];
+        commit_at(&db, &seed, None).unwrap();
+
+        let claim = commit_native_claim(
+            &db,
+            "cas-metadata-concurrent-claim",
+            "cas-metadata-concurrent-claim-key",
+            4,
+            Some("cas-race"),
+            "worker-race",
+            0,
+            60_000,
+            64,
+        );
+        assert!(claim.claimed, "setup: claim must win to reach the claimed state");
+        let lease = CasWorkItemMetadataLeaseFence {
+            worker_ref: claim.lease_holder_ref.clone().unwrap(),
+            lease_epoch: claim.lease_epoch.unwrap(),
+            fencing_token: claim.fencing_token.unwrap(),
+        };
+
+        let make_request = |label: &str, set_checkpoint_id: &str| {
+            let mut op = batch(
+                &format!("cas-metadata-concurrent-{label}"),
+                &format!("cas-metadata-concurrent-{label}-key"),
+            );
+            // Both racers derive from the SAME pre-race graph version (5,
+            // the version immediately after the claim above) -- exactly
+            // what two real callers who both read state before either wrote
+            // would carry. Only the transaction that actually lands first
+            // can have this match; the other's `expected_graph_version`
+            // is stale by construction, not by chance.
+            op.expected_graph_version = Some(5);
+            op.operations = vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::CasWorkItemMetadata {
+                    request: CasWorkItemMetadataRequest {
+                        schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
+                        tenant_ref: "tenant-a".into(),
+                        work_item_id: "cas-race".into(),
+                        expected_lease: Some(lease.clone()),
+                        expected_status: vec!["leased".into(), "running".into()],
+                        expected_checkpoint_id: None,
+                        set_checkpoint_id: Some(set_checkpoint_id.to_string()),
+                        expected_metadata_msgpack: None,
+                        set_metadata_msgpack: None,
+                        expected_prio_bucket: None,
+                        set_prio_bucket: None,
+                        now_ms: 1_000,
+                    },
+                },
+            }];
+            op
+        };
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let mut handles = Vec::new();
+        for (label, checkpoint) in [("a", "race:A"), ("b", "race:B")] {
+            let db = db.clone();
+            let barrier = barrier.clone();
+            let request = make_request(label, checkpoint);
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                commit_at(&db, &request, None)
+            }));
+        }
+        let results: Vec<Result<MutationBatchCommit, String>> = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("concurrent CAS worker"))
+            .collect();
+
+        let decode_result = |committed: &MutationBatchCommit| -> CasWorkItemMetadataResult {
+            let payload: crate::protocol::ResultPayload = decode_durable(
+                committed
+                    .record
+                    .result_msgpack
+                    .as_deref()
+                    .expect("cas result"),
+            )
+            .unwrap();
+            let bytes = match payload {
+                crate::protocol::ResultPayload::Raw(inner)
+                | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+                other => {
+                    panic!("CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}")
+                }
+            };
+            decode_durable(&bytes).unwrap()
+        };
+
+        let applied_count = results
+            .iter()
+            .filter(|result| {
+                result
+                    .as_ref()
+                    .map(|committed| {
+                        decode_result(committed).outcome == CasWorkItemMetadataOutcome::Applied
+                    })
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(
+            applied_count, 1,
+            "exactly one racing thread's CAS must apply under real concurrency, never zero \
+             (lost write) and never two (silent double-apply): {results:?}"
+        );
+
+        let loser_explicitly_rejected = results.iter().any(|result| match result {
+            Err(message) => message.contains("STALE_VERSION"),
+            Ok(committed) => {
+                decode_result(committed).outcome == CasWorkItemMetadataOutcome::Conflict
+            }
+        });
+        assert!(
+            loser_explicitly_rejected,
+            "the losing thread must receive an explicit, distinct rejection (STALE_VERSION at \
+             the batch envelope or Conflict from the CAS handler itself) -- never silently \
+             dropped, never silently merged with the winner: {results:?}"
+        );
+
+        // The durable row reflects EXACTLY the winner's write -- never both,
+        // never neither, never a corrupted mix of the two.
+        let stored = read_one_node(&db, "graph-a", "cas-race", DurableCrypto::none())
+            .unwrap()
+            .expect("cas-race remains durable");
+        let stored: serde_json::Value = decode_durable(&stored).unwrap();
+        let checkpoint = stored["checkpoint_id"].as_str().unwrap();
+        assert!(
+            checkpoint == "race:A" || checkpoint == "race:B",
+            "stored checkpoint must be exactly one racer's value, got {checkpoint:?}"
+        );
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
     /// BUG-111: a WorkItem row that does not exist is `not_found`, a THIRD
     /// distinct outcome from `applied`/`conflict` -- never collapsed into
     /// either.
