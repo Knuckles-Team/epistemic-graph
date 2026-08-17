@@ -120,22 +120,27 @@ const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "KvDelete",
     "KvPut",
     "Maintain",
+    "MiningPipelineServe",
     "PruneByLifecycle",
     "Publish",
     "PublishEx",
+    "ReclaimWorkItemResources",
     "Reconcile",
     "Reinforce",
+    "ReleaseWorkItemResources",
     "RemoveEdge",
     "RemoveNode",
     "RemoveTriples",
     "Reparent",
     "RenewWorkItemLease",
+    "ReserveWorkItemResources",
     "RunDatalogReasoning",
     "Rollback",
     "SetPose",
     "StartTrajectory",
     "SupersedeEdge",
     "SweepExpired",
+    "UpdateResourceHost",
     "TouchNodes",
     "UnbindQueue",
 ];
@@ -168,6 +173,8 @@ const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     "MineSequence",
     "MineSubgraph",
     "MineText",
+    "MiningPipelineTrain",
+    "MiningPipelinePredict",
     "Sql",
     #[cfg(feature = "modality-serving")]
     "ServedModality",
@@ -389,6 +396,9 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "MineSequence",
     "MineSubgraph",
     "MineText",
+    "MiningPipelinePredict",
+    "MiningPipelineServe",
+    "MiningPipelineTrain",
     "Publish",
     "PublishConfirmed",
     "PublishEx",
@@ -612,6 +622,15 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("CatalogReassign", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CatalogRemove", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CepSubscribe", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
+    // RMDD-27/-28: the whole DevelopmentLane family (Reserve/Renew/Observe/Finish/
+    // Cleanup/UpdateQuota) self-routes through dispatch.rs's dedicated
+    // `is_development_lane_method` block straight to PersistenceBackend's native
+    // development_lane_* redb tables, gated by the current raft placement leader --
+    // like DevelopmentLaneStatus/QueryDevelopmentLane (see access.rs's own
+    // REASON_NATIVE_DEVELOPMENT_LANE_READ comment), it never reaches
+    // dispatch_graph_op/requires_write at all, so this is the same self-routing
+    // shape as RaftAddLearner/PlacementAdmin below, not an oversight.
+    ("CleanupDevelopmentLane", "UNASSIGNED", "self-routes via dispatch.rs's is_development_lane_method block to the native development_lane_* redb tables under the raft placement-leader gate; never reaches dispatch_graph_op"),
     ("CepUnsubscribe", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CloseChannel", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("Commit", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
@@ -620,10 +639,12 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("CreateMatView", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("DropContinuousQuery", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("DropTrigger", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
+    ("FinishDevelopmentLane", "UNASSIGNED", "self-routes via dispatch.rs's is_development_lane_method block to the native development_lane_* redb tables under the raft placement-leader gate; never reaches dispatch_graph_op"),
     ("JoinChannel", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("LeaveChannel", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("MultiGraphBatchUpdate", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("NodeInfoUpsert", "UNASSIGNED", "self-contained ClusterAdmin-domain write (ADR-1/W1.1, like CatalogAssign above); mutates per policy/semantics, but absent from access.rs::requires_write entirely -- it is not graph-scoped and never reaches dispatch_graph_op"),
+    ("ObserveDevelopmentLane", "UNASSIGNED", "self-routes via dispatch.rs's is_development_lane_method block to the native development_lane_* redb tables under the raft placement-leader gate; never reaches dispatch_graph_op"),
     ("PlanMatViewDefine", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("PlanMatViewDrop", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("PlanMatViewRefresh", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
@@ -631,6 +652,8 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("PublishConfirmed", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("PublishIdempotent", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RaftAddLearner", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely (self-routes in dispatch.rs before dispatch_graph_op, like Reshard/CatalogAssign)"),
+    ("RenewDevelopmentLane", "UNASSIGNED", "self-routes via dispatch.rs's is_development_lane_method block to the native development_lane_* redb tables under the raft placement-leader gate; never reaches dispatch_graph_op"),
+    ("ReserveDevelopmentLane", "UNASSIGNED", "self-routes via dispatch.rs's is_development_lane_method block to the native development_lane_* redb tables under the raft placement-leader gate; never reaches dispatch_graph_op"),
     ("RaftChangeMembership", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely (self-routes in dispatch.rs before dispatch_graph_op, like Reshard/CatalogAssign)"),
     ("RbacAdmin", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RebalanceExecute", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
@@ -668,6 +691,7 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("TxnPlanWriteback", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("TxnRemoveEdge", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("TxnRemoveNode", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
+    ("UpdateDevelopmentLaneQuota", "UNASSIGNED", "self-routes via dispatch.rs's is_development_lane_method block to the native development_lane_* redb tables under the raft placement-leader gate; never reaches dispatch_graph_op"),
 ];
 
 fn all_known_divergence_names() -> std::collections::HashSet<&'static str> {
