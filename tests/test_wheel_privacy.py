@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import zipfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
@@ -109,10 +110,18 @@ def test_encoded_flags_convert_plain_flags_without_losing_quoted_values():
 
 def test_native_flags_preserve_existing_values_and_remap_build_sources():
     checkout = PurePosixPath("/", "srv", "fixture-source")
+    # `CC=sys.executable` makes compiler *resolution* deterministic (a Python
+    # interpreter is always on PATH/absolute-resolvable in a pytest run,
+    # unlike a system `cc`) without depending on this host actually having a
+    # gcc/clang installed. `probe=lambda *_: True` stubs the *feature-detect*
+    # step so this test asserts the flag-preservation/remap contract only --
+    # the probe's real accept/reject behavior against a real compiler is
+    # covered separately below.
     flags = native_prefix_flags(
         "CFLAGS",
-        {"CFLAGS": "-O2 -fno-omit-frame-pointer"},
+        {"CFLAGS": "-O2 -fno-omit-frame-pointer", "CC": sys.executable},
         checkout=checkout,
+        probe=lambda *_args, **_kwargs: True,
     )
 
     assert flags.startswith("-O2 -fno-omit-frame-pointer ")
@@ -123,6 +132,126 @@ def test_native_flags_preserve_existing_values_and_remap_build_sources():
     # --remap-path-prefix gets.
     assert "-ffile-prefix-map=/root=/build/home" in flags
     assert "-ffile-prefix-map=/github/home=/build/home" in flags
+
+
+def test_native_flags_fall_back_when_compiler_rejects_ffile_prefix_map(tmp_path):
+    """Direct regression test for the aarch64 release-leg failure this module
+    exists to prevent: `aarch64-unknown-linux-gnu-gcc: error: unrecognized
+    command line option '-ffile-prefix-map=...'`.
+
+    Builds a real (fake) compiler executable that mimics an old/cross gcc --
+    accepts -fdebug-prefix-map, rejects -ffile-prefix-map exactly the way the
+    manylinux aarch64 cross toolchain did -- and drives it through the actual
+    subprocess-probing code path (no probe stub), proving the negative path
+    concretely rather than merely asserting it in prose.
+    """
+
+    old_cross_gcc = tmp_path / "aarch64-unknown-linux-gnu-gcc"
+    old_cross_gcc.write_text(
+        "#!/bin/sh\n"
+        "for arg in \"$@\"; do\n"
+        "  case \"$arg\" in\n"
+        "    -ffile-prefix-map=*)\n"
+        "      echo \"$0: error: unrecognized command line option '$arg'\" >&2\n"
+        "      exit 1\n"
+        "      ;;\n"
+        "  esac\n"
+        "done\n"
+        "exit 0\n"
+    )
+    old_cross_gcc.chmod(0o755)
+
+    checkout = PurePosixPath("/", "srv", "fixture-source")
+    flags = native_prefix_flags(
+        "CFLAGS_aarch64_unknown_linux_gnu",
+        {"CC_aarch64_unknown_linux_gnu": str(old_cross_gcc)},
+        checkout=checkout,
+        target="aarch64-unknown-linux-gnu",
+    )
+
+    # The flag this compiler proved it rejects must NEVER appear.
+    assert "-ffile-prefix-map=" not in flags
+    # The weaker but universally-supported fallback takes its place.
+    assert f"-fdebug-prefix-map={checkout}=/build/source" in flags
+    assert "-fdebug-prefix-map=/root=/build/home" in flags
+
+
+def test_native_flags_keep_ffile_prefix_map_when_compiler_accepts_it(tmp_path):
+    """Positive counterpart: a compiler that DOES accept -ffile-prefix-map
+    (e.g. any GCC 8+/modern Clang, matching the linux-x86_64 leg that already
+    passes) keeps the full macro+debug remap, unweakened."""
+
+    modern_gcc = tmp_path / "x86_64-unknown-linux-gnu-gcc"
+    modern_gcc.write_text("#!/bin/sh\nexit 0\n")
+    modern_gcc.chmod(0o755)
+
+    checkout = PurePosixPath("/", "srv", "fixture-source")
+    flags = native_prefix_flags(
+        "CFLAGS_x86_64_unknown_linux_gnu",
+        {"CC_x86_64_unknown_linux_gnu": str(modern_gcc)},
+        checkout=checkout,
+        target="x86_64-unknown-linux-gnu",
+    )
+
+    assert f"-ffile-prefix-map={checkout}=/build/source" in flags
+    assert "-fdebug-prefix-map=" not in flags
+
+
+def test_native_flags_omit_when_compiler_accepts_neither_prefix_map_flag(tmp_path):
+    """A compiler that rejects both macros gets neither flag -- the script
+    must fail safe (log and omit) rather than fail the whole build."""
+
+    ancient_cc = tmp_path / "ancient-target-gcc"
+    ancient_cc.write_text(
+        "#!/bin/sh\n"
+        "echo \"$0: error: unrecognized command line option\" >&2\n"
+        "exit 1\n"
+    )
+    ancient_cc.chmod(0o755)
+
+    checkout = PurePosixPath("/", "srv", "fixture-source")
+    flags = native_prefix_flags(
+        "CFLAGS_ancient_target",
+        {"CC_ancient_target": str(ancient_cc)},
+        checkout=checkout,
+        target="ancient-target",
+    )
+
+    assert "-ffile-prefix-map=" not in flags
+    assert "-fdebug-prefix-map=" not in flags
+
+
+def test_native_flags_never_borrow_host_compiler_for_an_unresolvable_target():
+    """Regression guard for the mechanism that caused the original bug: a
+    generic `CFLAGS`/`cc` on the outer runner must never stand in for an
+    unresolvable CROSS target's compiler -- that is precisely how an
+    unverified flag reached the wrong toolchain in the first place. When a
+    target is given and no compiler for it can be resolved, the conservative
+    -fdebug-prefix-map fallback is used, not a probe of some unrelated `cc`.
+    """
+
+    checkout = PurePosixPath("/", "srv", "fixture-source")
+    # No CC_<target> override, and `improbable-target-triple-gcc` will not
+    # exist on PATH -- deliberately unresolvable.
+    flags = native_prefix_flags(
+        "CFLAGS_improbable_target_triple",
+        {"CFLAGS": "should-not-be-read"},
+        checkout=checkout,
+        target="improbable-target-triple",
+    )
+
+    assert "-ffile-prefix-map=" not in flags
+    assert "-fdebug-prefix-map=" in flags
+
+
+def test_scoped_flags_variable_naming():
+    from scripts.configure_rust_path_remap import _scoped_flags_variable
+
+    assert _scoped_flags_variable("CFLAGS", None) == "CFLAGS"
+    assert (
+        _scoped_flags_variable("CFLAGS", "aarch64-unknown-linux-gnu")
+        == "CFLAGS_aarch64_unknown_linux_gnu"
+    )
 
 
 def test_cargo_target_dir_is_remapped_and_denied_at_runtime():

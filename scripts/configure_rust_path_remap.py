@@ -6,8 +6,23 @@ information is stripped.  This helper converts any existing ``RUSTFLAGS`` to
 Cargo's unambiguous unit-separator representation, preserves an existing
 ``CARGO_ENCODED_RUSTFLAGS`` verbatim, and appends deterministic
 ``--remap-path-prefix`` flags for the checkout and build-user directories. It
-also appends the equivalent ``-ffile-prefix-map`` option to existing C/C++ flags
+also appends an equivalent C/C++ prefix-map option to existing CFLAGS/CXXFLAGS
 for native dependencies compiled by Cargo build scripts.
+
+``rustc``'s ``--remap-path-prefix`` is always accepted; the C/C++ side is not.
+``-ffile-prefix-map`` (remaps both debug info and ``__FILE__``/macro text) is a
+GCC 8+ / recent-Clang option -- older or cross toolchains (notably the
+manylinux aarch64 cross-gcc used by the release wheel matrix) reject it
+outright with "unrecognized command line option", which fails the whole
+build rather than merely leaving a path unmapped. This module therefore
+feature-detects the target compiler before emitting the flag: it probes for
+``-ffile-prefix-map`` support, falls back to the far-older ``-fdebug-prefix-map``
+(supported since GCC 4.4; remaps debug info only, NOT ``__FILE__``/macro
+text -- a strictly weaker privacy guarantee), and omits the flag entirely
+(logging why) if neither is accepted or the target compiler cannot be
+located at all. Flags are emitted into a per-target ``CFLAGS_<target>``
+variable when a target is known, rather than the generic ``CFLAGS``, so one
+toolchain's probe result can never leak into another's build.
 
 The generated values belong in an ephemeral build environment.  The helper
 never prints the concrete source prefixes it discovers.
@@ -18,6 +33,9 @@ from __future__ import annotations
 import argparse
 import os
 import shlex
+import shutil
+import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePath
 
@@ -61,8 +79,11 @@ ENVIRONMENT_ROOTS: tuple[tuple[str, str], ...] = (
 # A dependency crate fetched fresh into that container's registry cache embeds
 # `/root/.cargo/registry/src/<index>/<crate>-<version>/src/....rs` into
 # `file!()`/`#[track_caller]`/panic-location strings at compile time. Because
-# no `--remap-path-prefix`/`-ffile-prefix-map` flag this script emits ever
-# targets `/root`, that literal survives untouched into the compiled
+# no `--remap-path-prefix`/`-ffile-prefix-map`/`-fdebug-prefix-map` flag this
+# script emits ever targets `/root` -- ``path_remaps()`` is the single source
+# of (source, replacement) pairs and every prefix-map emitter below draws from
+# it unconditionally, regardless of which native macro flag was selected --
+# that literal survives untouched into the compiled
 # `epistemic-graph-server` / kernel-tool binaries and the `numeric` cdylib --
 # confirmed against a real release wheel's `linux-x86_64` leg, where every one
 # of the five compiled/linked members (the four `.data/scripts/*` binaries and
@@ -166,21 +187,191 @@ def encoded_rustflags(
     return UNIT_SEPARATOR.join([*existing, *remaps]), len(existing), len(remaps)
 
 
+# Compiler-invocation env var that governs each *FLAGS variable, mirroring the
+# `cc` crate's own CC/CXX split (it never looks at a "CFLAGS compiler").
+_COMPILER_ENV_VARS: dict[str, str] = {"CFLAGS": "CC", "CXXFLAGS": "CXX"}
+
+# Native prefix-map macros to try, most-capable first. `-ffile-prefix-map`
+# (GCC 8+, recent Clang) remaps both debug info AND `__FILE__`/macro text.
+# `-fdebug-prefix-map` (GCC 4.4+, all Clang) remaps debug info only.
+_PREFIX_MAP_FLAG_NAMES: tuple[str, ...] = ("file-prefix-map", "debug-prefix-map")
+
+
+def _resolve_probe_compiler(
+    variable: str, target: str | None, environ: Mapping[str, str]
+) -> str | None:
+    """Best-effort emulation of the `cc` crate's own compiler resolution.
+
+    Used ONLY to decide which prefix-map flag (if any) is safe to emit --
+    never to invoke a real build. Returns ``None`` when no candidate binary
+    can be located on this host's ``PATH``, which callers MUST treat as
+    "unverifiable", not as "supported". That happens routinely for the
+    manylinux release legs: this script runs on the outer GitHub runner
+    *before* `PyO3/maturin-action` spins up the container that owns the real
+    target compiler, so a cross-target binary frequently does not exist yet
+    at probe time -- see `native_prefix_flags`'s handling of that case.
+    """
+
+    # `variable` may be the bare "CFLAGS"/"CXXFLAGS" or a target-scoped
+    # "CFLAGS_<target>" (see `_scoped_flags_variable`) -- match by prefix so
+    # both resolve to the same compiler-env-var family.
+    compiler_var = next(
+        (cc for flags, cc in _COMPILER_ENV_VARS.items() if variable.startswith(flags)),
+        None,
+    )
+    if compiler_var is None:
+        return None
+
+    candidates: list[str] = []
+    if target:
+        candidates.append(f"{compiler_var}_{target}")
+        candidates.append(f"{compiler_var}_{target.replace('-', '_')}")
+        candidates.append("TARGET_" + compiler_var)
+    candidates.append(compiler_var)
+
+    for name in candidates:
+        value = environ.get(name)
+        if not value:
+            continue
+        parts = shlex.split(value, posix=os.name != "nt")
+        if parts and shutil.which(parts[0]):
+            return parts[0]
+
+    # No override configured -- fall back to the `cc` crate's own default
+    # cross-compiler naming convention (a target-triple-prefixed binary).
+    # Deliberately NOT falling back further to a bare "cc"/"gcc" here when a
+    # target was requested: that generic binary is the HOST's own compiler,
+    # unrelated to the cross toolchain that will actually build this target,
+    # and trusting it is exactly the class of bug this function exists to
+    # prevent (a probe result from the wrong compiler leaking into a
+    # different toolchain's build). Falling through to `return None` instead
+    # correctly marks the target compiler as unverifiable.
+    if target:
+        if compiler_var == "CC" and shutil.which(f"{target}-gcc"):
+            return f"{target}-gcc"
+        if compiler_var == "CXX" and shutil.which(f"{target}-g++"):
+            return f"{target}-g++"
+        return None
+
+    # No target given at all -- this is a host-native (non-cross) build, so
+    # the platform-generic compiler on PATH genuinely IS the one that will
+    # run.
+    for generic in (("cc", "gcc") if compiler_var == "CC" else ("c++", "g++")):
+        if shutil.which(generic):
+            return generic
+    return None
+
+
+def _probe_prefix_map_flag(compiler: str, flag_name: str) -> bool:
+    """Return whether ``compiler`` accepts ``-f{flag_name}=a=b``.
+
+    Never raises: a missing binary, a timeout, or any invocation error is
+    treated as unsupported (fail closed -- we only emit a flag we have
+    positive evidence for).
+    """
+
+    probe_flag = f"-f{flag_name}=/probe/a=/probe/b"
+    try:
+        result = subprocess.run(
+            [compiler, probe_flag, "-E", "-x", "c", os.devnull],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    stderr = result.stderr.decode("utf-8", "replace").lower()
+    # Belt-and-suspenders: some drivers (notably older MSVC-style front ends)
+    # exit 0 while still printing an "unknown option ignored" warning.
+    return not any(marker in stderr for marker in ("unrecognized", "unknown option", "ignoring"))
+
+
+def _select_prefix_map_flag(
+    compiler: str | None, *, probe: object = _probe_prefix_map_flag
+) -> tuple[str | None, str | None]:
+    """Pick the best prefix-map macro this compiler has proven it accepts.
+
+    Returns ``(flag_name, note)``. ``flag_name`` is one of
+    ``_PREFIX_MAP_FLAG_NAMES`` or ``None`` (omit the flag entirely); ``note``
+    is a human-readable explanation to log whenever the strongest option
+    wasn't used, or ``None`` when ``-ffile-prefix-map`` was confirmed.
+    """
+
+    if compiler is None:
+        # Can't probe what doesn't exist on this host yet (see
+        # `_resolve_probe_compiler`'s docstring). Rather than gamble on the
+        # newer flag against an unverified toolchain, use the one with the
+        # longest support history -- but say so, since this is a judgment
+        # call, not a confirmed fact.
+        return "debug-prefix-map", (
+            "no target compiler could be located to probe (likely a "
+            "container-based cross build whose compiler is created by a "
+            "later step); conservatively using -fdebug-prefix-map (GCC 4.4+) "
+            "instead of the unverified -ffile-prefix-map (GCC 8+) -- this "
+            "remaps debug info only, not __FILE__/macro text"
+        )
+    if probe(compiler, "file-prefix-map"):
+        return "file-prefix-map", None
+    if probe(compiler, "debug-prefix-map"):
+        return "debug-prefix-map", (
+            f"target compiler ({compiler!r}) rejects -ffile-prefix-map; "
+            "falling back to -fdebug-prefix-map, which remaps debug info "
+            "only, not __FILE__/macro text"
+        )
+    return None, (
+        f"target compiler ({compiler!r}) accepts neither -ffile-prefix-map "
+        "nor -fdebug-prefix-map; omitting the native prefix-map flag for "
+        "this build (rustc's --remap-path-prefix still applies to Rust code)"
+    )
+
+
 def native_prefix_flags(
     variable: str,
     environ: Mapping[str, str] | None = None,
     *,
     checkout: str | PurePath | None = None,
+    target: str | None = None,
+    probe: object = _probe_prefix_map_flag,
 ) -> str:
-    """Preserve native compiler flags and append source-prefix remapping."""
+    """Preserve native compiler flags and append source-prefix remapping.
+
+    The prefix-map macro itself is feature-detected against the resolved
+    target compiler (see `_select_prefix_map_flag`) so this function can
+    never emit a flag known to be rejected by the compiler that will
+    actually process it.
+    """
 
     env = os.environ if environ is None else environ
     existing = shlex.split(env.get(variable, ""), posix=os.name != "nt")
-    for source, replacement in path_remaps(env, checkout=checkout):
-        flag = f"-ffile-prefix-map={source}={replacement}"
-        if flag not in existing:
-            existing.append(flag)
+    compiler = _resolve_probe_compiler(variable, target, env)
+    flag_name, note = _select_prefix_map_flag(compiler, probe=probe)
+    if note:
+        print(f"NOTE: {variable}: {note}", file=sys.stderr)
+    if flag_name is not None:
+        for source, replacement in path_remaps(env, checkout=checkout):
+            flag = f"-f{flag_name}={source}={replacement}"
+            if flag not in existing:
+                existing.append(flag)
     return shlex.join(existing)
+
+
+def _scoped_flags_variable(base: str, target: str | None) -> str:
+    """``CFLAGS`` when no target is known, else the `cc`-crate-style
+    ``CFLAGS_<target_with_underscores>`` scoped variable.
+
+    Scoping per target keeps one leg's probe result (e.g. an aarch64 cross
+    toolchain that only accepts -fdebug-prefix-map) from ever reaching a
+    different toolchain in the same job via a shared generic ``CFLAGS`` --
+    which is exactly how the aarch64 leg's rejected -ffile-prefix-map flag
+    was observed reaching a toolchain it was never probed against.
+    """
+
+    if not target:
+        return base
+    return f"{base}_{target.replace('-', '_')}"
 
 
 def write_github_environment(
@@ -188,20 +379,23 @@ def write_github_environment(
     environ: Mapping[str, str] | None = None,
     *,
     checkout: str | PurePath | None = None,
+    target: str | None = None,
 ) -> tuple[int, int]:
     """Append the encoded flags to GitHub Actions' per-step environment file."""
 
     encoded, preserved, remaps = encoded_rustflags(environ, checkout=checkout)
     env = os.environ if environ is None else environ
-    cflags = native_prefix_flags("CFLAGS", env, checkout=checkout)
-    cxxflags = native_prefix_flags("CXXFLAGS", env, checkout=checkout)
+    cflags_var = _scoped_flags_variable("CFLAGS", target)
+    cxxflags_var = _scoped_flags_variable("CXXFLAGS", target)
+    cflags = native_prefix_flags(cflags_var, env, checkout=checkout, target=target)
+    cxxflags = native_prefix_flags(cxxflags_var, env, checkout=checkout, target=target)
     with destination.open("a", encoding="utf-8", newline="\n") as stream:
         stream.write(f"CARGO_ENCODED_RUSTFLAGS={encoded}\n")
         # Cargo gives the encoded variable precedence.  Clearing the plain form
         # makes that behavior explicit after its values have been preserved above.
         stream.write("RUSTFLAGS=\n")
-        stream.write(f"CFLAGS={cflags}\n")
-        stream.write(f"CXXFLAGS={cxxflags}\n")
+        stream.write(f"{cflags_var}={cflags}\n")
+        stream.write(f"{cxxflags_var}={cxxflags}\n")
     return preserved, remaps
 
 
@@ -213,10 +407,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         required=True,
         help="ephemeral GitHub Actions environment file",
     )
+    parser.add_argument(
+        "--target",
+        default=None,
+        help=(
+            "Rust target triple this leg is building (e.g. "
+            "aarch64-unknown-linux-gnu). When given, native prefix-map flags "
+            "are written to a CFLAGS_<target>/CXXFLAGS_<target> scoped "
+            "variable instead of the generic CFLAGS/CXXFLAGS, and the C/C++ "
+            "prefix-map macro is feature-detected against that target's "
+            "compiler rather than assumed. Omit for host-native (non-cross) "
+            "builds."
+        ),
+    )
     args = parser.parse_args(argv)
     preserved, remaps = write_github_environment(
         args.github_env,
         checkout=Path.cwd(),
+        target=args.target,
     )
     print(
         "OK: configured identity-neutral Rust paths "
