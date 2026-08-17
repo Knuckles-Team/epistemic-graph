@@ -160,10 +160,21 @@ pub fn resolve(
             ReductionKind::None,
             reduce::direct(mark.kind, &xs, &ys, x_map, y_map, width_px, color)?,
         ),
-        LodTier::Decimate => (
-            ReductionKind::Decimate,
-            reduce::decimate_minmax(&xs, &ys, x_map, y_map, width_px, color),
-        ),
+        LodTier::Decimate => {
+            // M4 is the DEFAULT decimation kernel for Line/Area (see
+            // `reduce::decimate_m4`'s doc: it preserves temporal
+            // first/last endpoints a plain min-max reduction loses, "the
+            // standard for visually-lossless time-series downsampling").
+            // Bar has no natural M4/temporal-endpoint shape -- its
+            // decimated form stays the plain vertical-range reduction.
+            let ops = match mark.kind {
+                MarkKind::Line | MarkKind::Area => {
+                    reduce::decimate_m4(&xs, &ys, x_map, y_map, width_px, color)
+                }
+                _ => reduce::decimate_minmax(&xs, &ys, x_map, y_map, width_px, color),
+            };
+            (ReductionKind::Decimate, ops)
+        }
         LodTier::Density => (
             ReductionKind::Density,
             reduce::density_grid(

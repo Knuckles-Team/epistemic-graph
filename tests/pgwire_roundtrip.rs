@@ -111,6 +111,8 @@ fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> Arc<RwLock<Se
         registry,
         isolation,
         channels: ChannelManager::new(),
+        #[cfg(feature = "viz-static-export")]
+        viz_engine: None,
         auth_secret: "test".to_string(),
         #[cfg(feature = "kv")]
         kv: None,
@@ -973,6 +975,8 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         registry,
         isolation,
         channels: ChannelManager::new(),
+        #[cfg(feature = "viz-static-export")]
+        viz_engine: None,
         auth_secret: secret.to_string(),
         #[cfg(feature = "kv")]
         kv: None,

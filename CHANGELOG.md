@@ -45,6 +45,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   to a durable CAS/rendition (GOC-05/eg-jobs territory); there is no durable
   WorkItem/job/lease plane yet (GOC-19/20) — this is one synchronous request/response,
   not an async submit/status/cancel job.
+- **Native visualization: M4/LTTB decimation, interactive rendering, engine
+  integration (D-VZ-1 lanes V2/V3b/V4)** — the two genuinely-missing pieces of
+  the native viz stack (`docs/architecture/native_visualization.md`), plus a
+  real V4:
+  - New `eg-viz-kernels` crate: M4 (four-point-per-pixel-column: first/min/
+    max/last, `O(n)`) and LTTB (Largest Triangle Three Buckets, real sampled
+    points) decimation, with runtime-detected (never compile-time-assumed)
+    AVX2 acceleration and proptest-proved shape-preservation invariants. M4
+    is now the default Decimate-tier kernel for Line/Area in
+    `eg-viz-export` (superseding the plain min-max stand-in), replacing a
+    documented V3a gap.
+  - `Method::Viz` is no longer fresh-per-request: `server::viz_engine`
+    holds a persistent `ColumnStore` (a caller may omit `dataset` on a later
+    request against an already-ingested `dataset_ref`) plus a
+    content-addressed render cache keyed on
+    `ColumnStore::content_fingerprint` (new — chunk-content-hash-based,
+    deliberately NOT a version counter any unrelated write would invalidate)
+    and `server::viz_provenance` durable render provenance, queryable via
+    the new `VizOp::RenderProvenance`.
+  - New loopback-only `viz-interactive` HTTP listener
+    (`EPISTEMIC_GRAPH_VIZ_INTERACTIVE_ADDR`): a reference WebGPU client with
+    an honest WebGL2 fallback, and a binary viewport-tile protocol
+    (`GET /tile`) that reuses `select_tier`/LTTB and re-requests the
+    appropriate LOD tier on pan/zoom rather than re-sending the full series.
 - **`CasWorkItemMetadata` native RPC (BUG-111)** — atomic compare-and-set on a
   WorkItem's non-authority SCHEDULING METADATA (`checkpoint_id` / `metadata` /
   `prio_bucket`), closing the capability gap left by

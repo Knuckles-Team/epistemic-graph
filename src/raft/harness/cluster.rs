@@ -85,6 +85,8 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
+        #[cfg(feature = "viz-static-export")]
+        viz_engine: None,
         auth_secret: "harness".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend.clone()),
