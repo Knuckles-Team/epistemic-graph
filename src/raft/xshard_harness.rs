@@ -209,6 +209,8 @@ fn two_shard_txn(txn_id: &str, a_node: &str, b_node: &str) -> CrossShardTxn {
             node_id: node.to_string(),
             properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": node})).unwrap(),
         }],
+        placement_epoch: 0,
+        fencing_token: None,
     };
     CrossShardTxn {
         txn_id: txn_id.to_string(),
@@ -227,12 +229,16 @@ fn writer_plus_readonly_txn(txn_id: &str, a_node: &str) -> CrossShardTxn {
             node_id: a_node.to_string(),
             properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": a_node})).unwrap(),
         }],
+        placement_epoch: 0,
+        fencing_token: None,
     };
     let read_only = GraphSlice {
         graph_name: GRAPH_B.to_string(),
         graph_fname: crate::persist::sanitize(GRAPH_B),
         graph_type: GraphType::Global,
         methods: vec![], // EMPTY write-set → read-only participant.
+        placement_epoch: 0,
+        fencing_token: None,
     };
     CrossShardTxn {
         txn_id: txn_id.to_string(),
@@ -800,6 +806,8 @@ fn three_writer_txn(txn_id: &str, a: &str, b: &str, c: &str) -> CrossShardTxn {
             node_id: node.to_string(),
             properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": node})).unwrap(),
         }],
+        placement_epoch: 0,
+        fencing_token: None,
     };
     CrossShardTxn {
         txn_id: txn_id.to_string(),
