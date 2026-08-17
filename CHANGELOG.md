@@ -32,7 +32,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   `Unavailable` — never Meetily's text-length heuristic serialized as a
   probability. CPU-portability build contract: `.cargo/config.toml` pins
   `GGML_NATIVE=OFF`/`GGML_AVX*=OFF`/`GGML_BMI2=OFF` (a fixed SSE2-only
-  baseline) so the binary never SIGILLs on rw710 (no `x86-64-v3`/AVX2) —
+  baseline) so the binary never SIGILLs on a pre-AVX2 Westmere-era host (no
+  `x86-64-v3`/AVX2) —
   `GGML_BMI2=OFF` was found empirically necessary via a real-fixture crash
   under `gdb` (ggml defaults `GGML_BMI2` ON independent of `GGML_NATIVE`).
   No Parakeet/ONNX provider, isolated worker process, or durable

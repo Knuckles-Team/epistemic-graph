@@ -91,29 +91,29 @@ sequenceDiagram
 The GOC-34 lane's 13/13 test pass was a **correctness proof under `qemu-x86_64 -cpu
 max` emulation only** — `ort`'s sole x86_64 CPU prebuilt (`ort-sys`'s
 `download-binaries`) statically links a binary whose optimized/fused kernels assume
-an AVX2 baseline, and until GR1080 joined the cluster no reachable host actually had
-AVX2. Two complementary paths close that gap, pursued together rather than as
-alternatives:
+an AVX2 baseline, and until an AVX2-capable node joined the cluster no reachable
+host actually had AVX2. Two complementary paths close that gap, pursued together
+rather than as alternatives:
 
-### Path 1 — schedule onto an AVX2-capable node (GR1080)
+### Path 1 — schedule onto an AVX2-capable node
 
-GR1080 (Intel i7-6700 Skylake — `avx2`/`fma`/`f16c`/`bmi2`) is a full RKE2 worker
-labelled `cpu-features=avx2`. A workload that lands there via
+The AVX2-capable node (Intel i7-6700 Skylake — `avx2`/`fma`/`f16c`/`bmi2`) is a
+full RKE2 worker labelled `cpu-features=avx2`. A workload that lands there via
 `nodeSelector: {cpu-features: avx2}` runs the default `download-binaries` AVX2
 prebuilt **natively** — no code change, no custom build, just correct scheduling.
 This is the fast win: the moment a real AVX2 node exists, the crate's existing
 default build is already hardware-qualified there.
 
-**Evidence:** `cargo test -p eg-tts-piper --release` run directly on GR1080
-(`10.0.0.16`, bare-metal `x86_64`, `uname -a` confirms no emulation) — 13/13 tests
-pass, including `full_contract_round_trip_produces_real_audio`, which asserts real
-audio properties (not just "bytes returned"): PCM16LE sample count against the
+**Evidence:** `cargo test -p eg-tts-piper --release` run directly on the
+AVX2-capable node (bare-metal `x86_64`, `uname -a` confirms no emulation) — 13/13
+tests pass, including `full_contract_round_trip_produces_real_audio`, which asserts
+real audio properties (not just "bytes returned"): PCM16LE sample count against the
 fixture's declared duration bound, non-silence (`samples.iter().any(|&s| s != 0)`),
 and peak amplitude within tolerance of the fixture's declared template amplitude.
-The build cache at `~/.cache/ort.pyke.io/dfbin` on GR1080 confirms `ort-sys`
+The build cache at `~/.cache/ort.pyke.io/dfbin` on that node confirms `ort-sys`
 downloaded and statically linked the real AVX2 prebuilt, not a stub. The same suite
 also runs as a containerized k8s `Job` (`nodeSelector: {cpu-features: avx2}`,
-explicit `resources.limits` sized for GR1080's real 8-core/22 GiB footprint — see
+explicit `resources.limits` sized for that node's real 8-core/22 GiB footprint — see
 BUG-283 note below) so the "real workload lands on real hardware via the scheduler"
 path is proven, not just a bare-SSH build.
 
@@ -132,9 +132,9 @@ therefore a real capacity bound on the node, not a workaround for a thread-sizin
 
 ### Path 2 — build onnxruntime from source with every AVX2/FMA/BMI2 code path disabled
 
-For the Westmere (`rw710`/`r710`, no AVX at all) and Sandy Bridge-EP (`r820`, AVX but
-no AVX2) majority of the fleet, Path 1 doesn't apply — there is no AVX2 node for them
-to be scheduled onto. The durable fix is a **second onnxruntime build**, native to
+For the Westmere (the dev host and one build host, no AVX at all) and Sandy
+Bridge-EP (the other build host, AVX but no AVX2) majority of the fleet, Path 1
+doesn't apply — there is no AVX2 node for them to be scheduled onto. The durable fix is a **second onnxruntime build**, native to
 those hosts' real ISA floor, that `ort` loads via its documented runtime
 dynamic-linking mechanism instead of the download-binaries static link.
 
@@ -163,12 +163,12 @@ release flipping a default is exactly the failure mode that bit the ASR lane).
 **Build:** `onnxruntime` `v1.24.4` from source (`gcc-14`/`g++-14`, Ninja,
 `--build_shared_lib`, `--skip_tests`, `--cmake_extra_defines
 onnxruntime_BUILD_FOR_NATIVE_MACHINE=OFF onnxruntime_USE_AVX=OFF
-onnxruntime_USE_AVX2=OFF onnxruntime_USE_AVX512=OFF`) on `r710`
+onnxruntime_USE_AVX2=OFF onnxruntime_USE_AVX512=OFF`) on the Westmere build host
 (`/mnt/data/onnxruntime-build`, isolated from `/home`'s 3.7 T-vs-tight-root split
 per the workspace's disk-budget convention). **Verified by actually running it**
-natively on r710 (Westmere, no AVX at all — the strictest host in the fleet; a
-binary that doesn't SIGILL there is safe on r820's AVX-but-no-AVX2 floor too),
-never under qemu.
+natively on the Westmere build host (no AVX at all — the strictest host in the
+fleet; a binary that doesn't SIGILL there is safe on the Sandy Bridge build
+host's AVX-but-no-AVX2 floor too), never under qemu.
 
 **Wiring `ort` to the custom build — `ort-load-dynamic` (new Cargo feature,
 opt-in).** `ort/load-dynamic` implies `ort-sys/disable-linking`
@@ -191,9 +191,9 @@ caller's compiled-in expectation. Building the matching 1.24.4 release from sour
 avoids that defect by construction (no version mismatch), rather than working
 around it.
 
-**Evidence:** `ORT_DYLIB_PATH=<r710 build output>/libonnxruntime.so cargo test -p
-eg-tts-piper --release --features ort-load-dynamic` run natively on r710
-(`10.0.0.11`, Westmere Xeon X5650, no AVX at all — confirmed via `/proc/cpuinfo`) —
+**Evidence:** `ORT_DYLIB_PATH=<Westmere build host output>/libonnxruntime.so cargo test -p
+eg-tts-piper --release --features ort-load-dynamic` run natively on the Westmere
+build host (Xeon X5650, no AVX at all — confirmed via `/proc/cpuinfo`) —
 13/13 tests pass, same real-audio-property assertions as Path 1, no qemu.
 
 ## Honest gaps (not silently papered over)

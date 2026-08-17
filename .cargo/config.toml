@@ -59,9 +59,10 @@ target-dir = "target-isolated"
 # env var straight through as a cmake `-D` define (verified against its source,
 # codeberg.org/tazz4843/whisper-rs).
 #
-# rw710 lacks x86-64-v3 (no AVX2). ggml's CMake default is `GGML_NATIVE=ON`, which
-# bakes the BUILD HOST's CPU features (`-march=native`) into the binary — built on
-# an AVX2 host, it SIGILLs on rw710. `GGML_NATIVE=OFF` is mandatory.
+# The fleet's interactive dev host lacks x86-64-v3 (no AVX2). ggml's CMake default
+# is `GGML_NATIVE=ON`, which bakes the BUILD HOST's CPU features (`-march=native`)
+# into the binary — built on an AVX2 host, it SIGILLs on that non-AVX2 host.
+# `GGML_NATIVE=OFF` is mandatory.
 #
 # `GGML_CPU_ALL_VARIANTS=ON` (ggml's genuine runtime CPU dispatch — the C-side
 # equivalent of `is_x86_feature_detected!`) was evaluated and empirically tested
@@ -78,8 +79,9 @@ target-dir = "target-isolated"
 # is separately owned and qualified.
 #
 # The fallback below is used instead: a FIXED, portable SSE2-only baseline.
-# Always safe (never SIGILLs on any x86_64 host in the fleet, including rw710),
-# ships as one static binary with no new runtime search-path/loading behavior,
+# Always safe (never SIGILLs on any x86_64 host in the fleet, including the
+# pre-AVX2 Westmere-era hosts), ships as one static binary with no new runtime
+# search-path/loading behavior,
 # at the cost of leaving AVX2/AVX512 throughput on the table on capable hosts —
 # an explicit, documented trade-off, not an oversight.
 [env]
