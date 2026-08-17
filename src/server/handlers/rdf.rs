@@ -1277,6 +1277,8 @@ mod run_rules_dispatch_tests {
             registry: GraphRegistry::new(),
             isolation: current_isolation(),
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: SECRET.to_string(),
             persist_dir: Some(
                 crate::server::sql_tables::test_persist_dir()

@@ -119,6 +119,8 @@ async fn state() -> Arc<RwLock<ServerState>> {
         registry: GraphRegistry::new(),
         isolation: commons_isolation(),
         channels: ChannelManager::new(),
+        #[cfg(feature = "viz-static-export")]
+        viz_engine: None,
         auth_secret: SECRET.to_string(),
         persist_dir,
         persistence,
