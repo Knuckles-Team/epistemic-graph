@@ -4828,11 +4828,14 @@ mod tests {
 
         let result = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64);
 
-        assert!(
-            result.is_err(),
-            "opening with ENCRYPTION_REQUIRED=on and no key must fail closed"
-        );
-        let message = result.unwrap_err();
+        // `unwrap_err()` would require `RedbBackend: Debug` (it formats the Ok
+        // side on failure); the backend deliberately does not derive it, since
+        // it owns live handles. Destructure instead of widening a public trait
+        // bound just to satisfy a test.
+        let message = match result {
+            Ok(_) => panic!("opening with ENCRYPTION_REQUIRED=on and no key must fail closed"),
+            Err(message) => message,
+        };
         assert!(
             message.contains("REQUIRED") && message.contains("EPISTEMIC_GRAPH_ENCRYPTION_KEY"),
             "diagnostic must be bounded and name the missing key, got: {message}"

@@ -212,7 +212,7 @@ fn paginate<T: Clone>(
 /// string error so the REST layer can pick the spec-conformant status/type
 /// (`409 AlreadyExistsException` vs `400 BadRequestException`).
 #[derive(Debug)]
-pub(crate) enum CreateTableError {
+pub enum CreateTableError {
     AlreadyExists,
     Other(String),
 }
@@ -222,7 +222,7 @@ pub(crate) enum CreateTableError {
 /// caller who cannot see a table gets the SAME 404 an actually-missing table
 /// gets, never a distinguishing 403 (W04's "no leak via error messages" bar).
 #[derive(Debug)]
-pub(crate) enum RenameTableError {
+pub enum RenameTableError {
     SourceNotFound,
     DestinationExists,
 }
