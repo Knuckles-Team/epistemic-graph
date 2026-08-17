@@ -74,4 +74,12 @@ untagged rows are invisible unless policy grants ownership/access or the row is
 explicitly public. There is no runtime switch to make served reads permissive.
 
 The companion Graph-OS contract is documented as **Graph Authority
-Convergence** in agent-utilities.
+Convergence** in agent-utilities, and the exact claim-key-level contract
+(required/optional field table, per-surface carrier status including this
+file's own `authenticated_iceberg_bearer` tenant-match boundary, and the
+consumer handoff for lanes minting caller identity) is frozen as
+**Verified Identity Carrier Contract (GOC-15)**, also in agent-utilities
+(`docs/architecture/verified-identity-carrier-contract.md`). Both should be
+read before adding a new auxiliary surface's identity binding (SPARQL,
+federation, observability) — the Iceberg-bearer tenant-match pattern above is
+the template such a surface should follow, not a new mechanism.
