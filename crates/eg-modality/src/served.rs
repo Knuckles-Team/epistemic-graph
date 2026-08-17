@@ -126,10 +126,12 @@ pub struct ApplyOutcome {
     pub event_sequence: u64,
 }
 
+/// Public so a delta-scoped persistence adapter (`delta_store`) can read/write
+/// exactly one idempotency row instead of the whole `idempotency` map (BUG-017).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct IdempotencyEntry {
-    fingerprint: [u8; 32],
-    outcome: ApplyOutcome,
+pub struct IdempotencyEntry {
+    pub fingerprint: [u8; 32],
+    pub outcome: ApplyOutcome,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -679,31 +681,117 @@ where
     pub fn recover(snapshot: &[u8]) -> Result<Self, ServedError> {
         let mut runtime: Self = serde_json::from_slice(snapshot).map_err(|_| ServedError::Codec)?;
         runtime.rebuild_indexes()?;
-        let contiguous = runtime
+        runtime.validate_recovered()?;
+        Ok(runtime)
+    }
+
+    /// Assemble a runtime directly from durably-stored, individually-addressable
+    /// rows (BUG-017 frozen format — `delta_store`) instead of one whole-blob
+    /// snapshot. Runs the exact same contiguity/idempotency/index validation
+    /// [`recover`] does, so a row-backed reconstruction is held to the identical
+    /// correctness bar as the legacy whole-snapshot reader.
+    pub fn from_rows(
+        records: BTreeMap<OccurrenceId, ServedRecord<T>>,
+        events: Vec<ServedEvent>,
+        next_sequence: u64,
+        idempotency: BTreeMap<OpaqueRef, IdempotencyEntry>,
+    ) -> Result<Self, ServedError> {
+        let mut runtime = Self {
+            records,
+            modality_index: BTreeMap::new(),
+            segment_index: BTreeMap::new(),
+            native_index: BTreeMap::new(),
+            events,
+            next_sequence,
+            idempotency,
+            active_count: None,
+        };
+        runtime.rebuild_indexes()?;
+        runtime.validate_recovered()?;
+        Ok(runtime)
+    }
+
+    fn validate_recovered(&self) -> Result<(), ServedError> {
+        let contiguous = self
             .events
             .iter()
             .enumerate()
             .all(|(index, event)| event.sequence == index as u64 + 1);
-        let expected_next = runtime
+        let expected_next = self
             .events
             .last()
             .map_or(1, |event| event.sequence.saturating_add(1));
-        let idempotency_valid = runtime.idempotency.values().all(|entry| {
+        let idempotency_valid = self.idempotency.values().all(|entry| {
             entry
                 .outcome
                 .event_sequence
                 .checked_sub(1)
                 .and_then(|index| usize::try_from(index).ok())
-                .and_then(|index| runtime.events.get(index))
+                .and_then(|index| self.events.get(index))
                 .is_some_and(|event| {
                     event.sequence == entry.outcome.event_sequence
                         && event.observation_version == entry.outcome.observation_version
                 })
         });
-        if !contiguous || !idempotency_valid || runtime.next_sequence != expected_next {
+        if !contiguous || !idempotency_valid || self.next_sequence != expected_next {
             return Err(ServedError::CorruptSnapshot);
         }
-        Ok(runtime)
+        Ok(())
+    }
+
+    /// One record, by occurrence id — the delta-scoped read a row-based adapter
+    /// needs instead of the whole `records` map (BUG-017).
+    pub fn record(&self, occurrence_id: &OccurrenceId) -> Option<&ServedRecord<T>> {
+        self.records.get(occurrence_id)
+    }
+
+    /// All records, for a caller that must export the full corpus once (e.g. the
+    /// snapshot-to-rows migration backfill). NOT for the per-mutation hot path.
+    pub fn records(&self) -> &BTreeMap<OccurrenceId, ServedRecord<T>> {
+        &self.records
+    }
+
+    /// All events, for migration export. NOT for the per-mutation hot path.
+    pub fn all_events(&self) -> &[ServedEvent] {
+        &self.events
+    }
+
+    /// All idempotency entries, for migration export. NOT for the per-mutation
+    /// hot path.
+    pub fn idempotency_entries(&self) -> &BTreeMap<OpaqueRef, IdempotencyEntry> {
+        &self.idempotency
+    }
+
+    /// The event most recently appended by the mutation that just ran (`ingest`/
+    /// `delete`/lifecycle transition), i.e. the ONE new event a delta write must
+    /// persist.
+    pub fn last_event(&self) -> Option<&ServedEvent> {
+        self.events.last()
+    }
+
+    /// One idempotency entry, by key — the delta-scoped read/write a row-based
+    /// adapter needs instead of the whole `idempotency` map (BUG-017).
+    pub fn idempotency_entry(&self, key: &OpaqueRef) -> Option<&IdempotencyEntry> {
+        self.idempotency.get(key)
+    }
+
+    pub fn next_sequence_value(&self) -> u64 {
+        self.next_sequence
+    }
+
+    /// The modality/segment/native-index buckets exactly one occurrence belongs
+    /// to right now — bounded by that occurrence's own artifact/rendition/
+    /// segment/feature count, never by corpus size. A delta write persists index
+    /// membership as edges/postings derived from this, never the whole
+    /// `BTreeSet` bucket.
+    pub fn index_memberships(
+        &self,
+        occurrence_id: &OccurrenceId,
+    ) -> (BTreeSet<ModalityKind>, BTreeSet<SegmentKind>, Vec<NativeIndexKey>) {
+        match self.records.get(occurrence_id) {
+            Some(record) => record_index_memberships(record),
+            None => (BTreeSet::new(), BTreeSet::new(), Vec::new()),
+        }
     }
 
     /// Rebuild all native indexes from the authoritative records and validate every
@@ -949,6 +1037,29 @@ struct IngestUndo<T> {
     events_len: usize,
     next_sequence: u64,
     active_count: Option<usize>,
+}
+
+/// The modality/segment/native-index buckets a standalone record clone belongs
+/// to (a `Tombstoned`/valueless record belongs to none). Used both by
+/// [`ServedModalityRuntime::index_memberships`] (looked up live) and by
+/// `delta_store` when it must diff a "before" record clone taken prior to a
+/// mutation against the "after" state (BUG-017 delta-scoped index writes).
+pub fn record_index_memberships<T>(
+    record: &ServedRecord<T>,
+) -> (BTreeSet<ModalityKind>, BTreeSet<SegmentKind>, Vec<NativeIndexKey>)
+where
+    T: GovernedModality,
+{
+    if record.lifecycle == LifecycleState::Tombstoned || record.value.is_none() {
+        return (BTreeSet::new(), BTreeSet::new(), Vec::new());
+    }
+    let (modalities, segment_kinds) = index_keys(record);
+    let native_keys = record
+        .value
+        .as_ref()
+        .map(GovernedModality::native_index_keys)
+        .unwrap_or_default();
+    (modalities, segment_kinds, native_keys)
 }
 
 fn index_keys<T>(record: &ServedRecord<T>) -> (BTreeSet<ModalityKind>, BTreeSet<SegmentKind>) {
