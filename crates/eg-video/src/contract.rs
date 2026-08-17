@@ -256,7 +256,7 @@ impl ConformanceTestable for VideoData {
     fn conformance_sample() -> Self {
         VideoData::new(
             10_000,
-            "deadbeefcafefeed00000000000000000deadbeefcafefeed00000000000000000",
+            "deadbeefcafefeed00000000000000000deadbeefcafefeed000000000000000",
         )
         .with_frame_rate(30.0)
         .with_native_index(
