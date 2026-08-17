@@ -68,6 +68,15 @@ impl IcebergRestCatalog {
         );
     }
 
+    /// Remove a registered table's catalog entry (W03, GOC-75) — the DropTable /
+    /// RenameTable counterpart to [`Self::register`]. `true` if an entry was
+    /// removed, `false` if it was already absent.
+    pub fn remove(&mut self, namespace: &str, name: &str) -> bool {
+        self.tables
+            .remove(&(namespace.to_string(), name.to_string()))
+            .is_some()
+    }
+
     /// Number of registered tables.
     pub fn len(&self) -> usize {
         self.tables.len()
