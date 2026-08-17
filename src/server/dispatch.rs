@@ -3093,6 +3093,32 @@ async fn dispatch_inner(
             {
                 Ok(()) => {
                     crate::metrics::set_graph_size(&graph_name, 0, 0);
+                    // Close the CreateGraph RBAC-provisioning gap (P0 tenant-graph
+                    // fix): a tenant graph's `owner` field is otherwise dead under
+                    // the mandatory `security` build (`check_access` ignores
+                    // `graph_owner`), so nothing has ever made a freshly-created
+                    // tenant graph durably readable/writable by an ordinary
+                    // registered principal. Idempotent; a failure here must never
+                    // fail graph creation itself (the graph is already durably
+                    // committed) — it is logged and self-heals on the next
+                    // `CreateGraph` for a sibling graph of the same tenant, or the
+                    // deployment-time remediation pass. Security-only (mirrors the
+                    // `Method::RbacAdmin` precedent above): a non-`security` build
+                    // decides graph access via `check_access`'s owner-based ACL
+                    // branch directly, so there is no RBAC store here to provision.
+                    #[cfg(feature = "security")]
+                    if let Err(error) = s
+                        .isolation
+                        .provision_tenant_graph_access(&graph_name, req.agent_id.as_deref())
+                    {
+                        tracing::warn!(
+                            graph = %graph_name,
+                            %error,
+                            "tenant graph RBAC auto-provisioning failed after graph creation \
+                             committed; the graph exists but may still be unreadable for \
+                             non-System principals until this is retried"
+                        );
+                    }
                     Response::ok(req.id, created_result)
                 }
                 Err(e) => Response::err(req.id, e),
