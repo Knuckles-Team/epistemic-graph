@@ -193,7 +193,12 @@ impl LeaseState {
 
 /// One tenant's durable claim on a `CapacityCell`. Field set matches the lane
 /// doc's frozen schema.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+// `Eq` is restored here because `cost_budget_micros` is now an exact integer —
+// see its field doc. `Hash` is deliberately NOT derived: nothing keys a map or
+// set by a whole lease, and adding it would force `Hash` onto
+// `CapacityResourceClass` and `LeasePriority` purely to satisfy a capability no
+// caller has asked for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapacityLease {
     pub schema_version: u16,
