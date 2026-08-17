@@ -150,21 +150,39 @@ mod tests {
 
     /// alice/bob/carol People + a Doc; alice-KNOWS->bob, bob-KNOWS->carol. The SAME
     /// shape eg-query/cypher's fixture uses, so the equivalence comparison is honest.
+    ///
+    /// Regression note: this MUST key the label on `node_type`, not the legacy
+    /// `type` field. `eg_query::cypher`'s label matcher (`build_cypher_label_index`/
+    /// `node_has_label`, see `exec.rs`) deliberately treats Cypher's `(n:Label)`
+    /// contract as narrower than `GraphCore`'s general label index -- "a legacy
+    /// payload `type`/`label` must never satisfy a Cypher node label" (see
+    /// `apply_merge`'s comment in that file) -- while GraphQL's own
+    /// `Schema::from_view`/`node_labels` is intentionally lenient across
+    /// `type`/`node_type`/`label`. A `type`-keyed fixture therefore made this
+    /// comparison dishonest in exactly the direction its own doc comment claims to
+    /// guard against: GraphQL would see the Person nodes and Cypher would see none,
+    /// not because of a real GraphQL/Cypher divergence but because the fixture used
+    /// a key Cypher is documented to ignore. `eg-query/cypher`'s own fixtures already
+    /// use `node_type` (see `exec.rs`'s `MATCH`/`MERGE` test fixtures) -- matching
+    /// that here is what makes "the SAME shape" claim above actually true.
     fn fixture() -> eg_core::graph::GraphView {
         let core = GraphCore::new();
         core.add_node(
             "alice".into(),
-            pbytes(json!({"type":"Person","name":"Alice","age":30})),
+            pbytes(json!({"node_type":"Person","name":"Alice","age":30})),
         );
         core.add_node(
             "bob".into(),
-            pbytes(json!({"type":"Person","name":"Bob","age":25})),
+            pbytes(json!({"node_type":"Person","name":"Bob","age":25})),
         );
         core.add_node(
             "carol".into(),
-            pbytes(json!({"type":"Person","name":"Carol","age":40})),
+            pbytes(json!({"node_type":"Person","name":"Carol","age":40})),
         );
-        core.add_node("d1".into(), pbytes(json!({"type":"Doc","title":"Graphs"})));
+        core.add_node(
+            "d1".into(),
+            pbytes(json!({"node_type":"Doc","title":"Graphs"})),
+        );
         core.add_edge(
             "alice".into(),
             "bob".into(),
