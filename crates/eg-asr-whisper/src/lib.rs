@@ -302,9 +302,11 @@ fn bounded(value: &str) -> Result<AsrBoundedId, AsrError> {
 }
 
 impl WhisperAsrProvider {
-    /// Load a verified model file. `request_gpu` only takes effect when this
-    /// crate was compiled with a matching GPU feature (`cuda`/`vulkan`/
-    /// `metal`/`coreml`/`hipblas`) — see the crate doc's "GPU" section.
+    /// Load a verified model file. `request_gpu` is accepted and recorded but
+    /// cannot currently take effect: no accelerator feature is shipped, because
+    /// none was hardware-qualified and each broke `--all-features` builds. The
+    /// parameter is retained so a caller's intent survives until a qualified
+    /// provider lands — see `GPU_PROVIDERS_SHIPPED` below and Cargo.toml.
     /// `manifest_id` becomes this provider's [`ModelManifestRef::manifest_id`]
     /// on every produced segment.
     pub fn load(
@@ -313,14 +315,16 @@ impl WhisperAsrProvider {
         request_gpu: bool,
     ) -> Result<Self, AsrError> {
         let manifest = model.manifest_ref(manifest_id)?;
-        let use_gpu = request_gpu
-            && cfg!(any(
-                feature = "cuda",
-                feature = "vulkan",
-                feature = "metal",
-                feature = "coreml",
-                feature = "hipblas"
-            ));
+        // No accelerator feature is currently exposed by this crate -- see the
+        // `[features]` note in Cargo.toml. Each one made the vendored whisper.cpp
+        // build link a runtime absent from this fleet (`coreml`/`metal` are
+        // Apple-only and cannot exist here at all; `cuda` emits `-l cudart -l cuda`),
+        // and because a Cargo feature cannot be target-gated, `--all-features`
+        // enabled them everywhere and broke every such build of the whole workspace.
+        // Named constant rather than an inline `false` so that restoring a
+        // hardware-QUALIFIED provider is a one-line change with an obvious home.
+        const GPU_PROVIDERS_SHIPPED: bool = false;
+        let use_gpu = request_gpu && GPU_PROVIDERS_SHIPPED;
         let mut params = WhisperContextParameters::new();
         params.use_gpu(use_gpu);
         let ctx = WhisperContext::new_with_params(model.path(), params).map_err(|_| {
