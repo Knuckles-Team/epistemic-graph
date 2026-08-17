@@ -8827,3 +8827,279 @@ mod blob_dispatch_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+// ── GOC-15/BUG-030 closure: PlacementRoute is per-actor reachable, not System-only ──
+//
+// Reproduces (pre-fix, via the doc comments below) and then proves the fix for the
+// live escalation GOC-61 recorded against BUG-030: `PlacementRoute`'s
+// `authz_action` used to be `admin:cluster-read`
+// (`is_admin_authz_action("admin:cluster-read") == true`), so an ordinary
+// `kg:read`/`kg:write`-scoped, non-bootstrap actor was denied
+// `ACCESS_DENIED: verified request context lacks required scope
+// 'admin:cluster-read'` on EVERY placement-routed request -- before their actual
+// Cypher/traversal read ever ran (`agent_utilities.knowledge_graph.core.
+// placement_catalog.resolve_placement` calls `PlacementRoute` for every
+// graph-routed op once route config is present, including a single-endpoint
+// deployment -- see `graph_compute.py`'s `transport_client._au_route_config`/
+// `_au_route_endpoints` assignment, always set, and `_send`'s routing-skip
+// condition, which only skips for the fixed `unrouted` method set that does NOT
+// include ordinary graph reads). Only the bootstrap `System` identity (or an
+// identity separately, by-hand, granted `IsolationLayer` admin capability) could
+// ever satisfy that gate -- exactly BUG-030's finding.
+//
+// The fix (this change) narrows `PlacementRoute`'s `authz_action` to
+// `cluster:placement-read` (`crates/eg-capabilities/src/lib.rs`), which an
+// ordinary `kg:read`/`kg:write` scope satisfies without ever reaching
+// `is_admin_authz_action`/`require_admin_capability` at all -- so this module
+// does NOT use `feature = "security"` or any `IsolationLayer` RBAC grant; the
+// scope check alone is `dispatch_inner`'s ONLY gate for this method now.
+//
+// No per-request tenant-ownership check is layered on top (see
+// `handlers::placement::try_handle`'s doc comment): `PlacementRouteRequest.
+// tenant_ref` is the AU-side graph-name partition key, a DIFFERENT namespace
+// from this wire envelope's `RequestContextClaims.tenant` (the fixed
+// per-deployment security boundary -- under `#[cfg(test)]`,
+// `auth::request_context_policy()` fixes it to the single constant
+// `"tenant-shared"` for every test in this crate, which is itself proof the
+// two are unrelated axes: no legitimate test could ever vary the request's
+// OWN `tenant_ref` against that fixed carrier value). Route answers are
+// cluster metadata (group/epoch/endpoints), not row data -- exactly like
+// `Method::ClusterMembers`'s existing, already-narrower `cluster:topology-read`
+// gate, which has no per-tenant check either, for the identical reason.
+#[cfg(test)]
+mod placement_route_carrier_tests {
+    use super::*;
+    use crate::acl::RequestContextClaims;
+    use crate::channels::ChannelManager;
+    use crate::isolation::IsolationLayer;
+    use crate::protocol::{Method, Request};
+    use crate::registry::GraphRegistry;
+    use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+    use dashmap::DashMap;
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tokio::sync::Semaphore;
+
+    const SECRET: &str = "placement-route-carrier-test-secret";
+    static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+    fn dispatch_on_heap<'a>(
+        state: &'a Arc<RwLock<ServerState>>,
+        request: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+        Box::pin(dispatch(state, request))
+    }
+
+    /// Deliberately NO registered identities: proves the fixed gate is carrier
+    /// (JWT scope)-only for this method, never `IsolationLayer`-registration-only
+    /// (the OLD, System-only gate this closes).
+    fn state_min() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: None,
+            persistence: None,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            read_admission: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(
+                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+            ),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
+        }))
+    }
+
+    /// Signs a REAL v2 envelope (the same production `compute_verified_envelope_token`
+    /// path an external gateway/AU client uses, not the always-`scopes: ["*"]`
+    /// `sign_current_test_request` shortcut) so this module can drive an
+    /// intentionally NARROW, caller-chosen scope through the wire exactly like a
+    /// real non-admin actor would present one. `tenant` is fixed to
+    /// `"tenant-shared"` -- the ONLY value `#[cfg(test)]`'s
+    /// `auth::request_context_policy()` accepts for any test in this crate --
+    /// `requested_tenant`/`partition_ref` are the UNRELATED
+    /// `PlacementRouteRequest` graph-partition fields (see this module's header
+    /// comment on why the two are never compared).
+    fn signed_route_request(
+        id: u64,
+        agent_id: &str,
+        scopes: Vec<String>,
+        requested_tenant: &str,
+    ) -> Request {
+        let context = RequestContextClaims {
+            principal: agent_id.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: agent_id.to_string(),
+            roles: Vec::new(),
+            scopes,
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+            node: None,
+            priority: None,
+        };
+        let mut request = Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: String::new(),
+            agent_id: Some(agent_id.to_string()),
+            method: Method::PlacementRoute {
+                request: crate::epistemic_operations::PlacementRouteRequest {
+                    schema_version:
+                        crate::epistemic_operations::PlacementRouteRequestSchemaVersion::V1,
+                    tenant_ref: requested_tenant.to_string(),
+                    partition_ref: "workspace".to_string(),
+                    client_epoch: 0,
+                },
+            },
+        };
+        let sequence = NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let issued_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the system clock is after the Unix epoch");
+        let nonce = format!(
+            "placement-route-carrier-{}-{id}-{sequence}-{}",
+            std::process::id(),
+            issued_at.as_nanos()
+        );
+        let idempotency_key = format!("placement-route-carrier-request-{id}-{sequence}");
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: issued_at.as_secs(),
+                nonce: &nonce,
+                idempotency_key: &idempotency_key,
+            },
+        );
+        request
+    }
+
+    /// Ledger-level regression proof, independent of the dispatch round-trip
+    /// below: `PlacementRoute`'s `authz_action` must never again be an
+    /// `admin:`/`security:`-shaped string. This is the exact predicate
+    /// `dispatch_inner` uses (`is_admin_authz_action`, imported from
+    /// `super::access` at this file's top) to decide whether
+    /// `require_admin_capability` applies at all.
+    #[test]
+    fn placement_route_authz_action_is_no_longer_admin_gated() {
+        let policy = eg_capabilities::policy(&Method::PlacementRoute {
+            request: crate::epistemic_operations::PlacementRouteRequest {
+                schema_version:
+                    crate::epistemic_operations::PlacementRouteRequestSchemaVersion::V1,
+                tenant_ref: "probe".to_string(),
+                partition_ref: "probe".to_string(),
+                client_epoch: 0,
+            },
+        });
+        assert_eq!(policy.authz_action, "cluster:placement-read");
+        assert!(
+            !is_admin_authz_action(policy.authz_action),
+            "PlacementRoute must no longer route through require_admin_capability \
+             -- that was BUG-030's exact mechanism"
+        );
+    }
+
+    /// UNAUTHORIZED direction: a caller with NO `kg:*` scope at all is still
+    /// denied -- the fix narrows the gate, it must never remove it entirely.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn placement_route_denied_for_a_caller_with_no_graph_scope() {
+        let state = state_min();
+        let req = signed_route_request(
+            1,
+            "no-scope-actor",
+            vec!["messaging:send".to_string()],
+            "acme",
+        );
+        let resp = dispatch_on_heap(&state, req).await;
+        assert!(
+            resp.error
+                .as_deref()
+                .is_some_and(|e| e.contains("ACCESS_DENIED") && e.contains("lacks required scope")),
+            "an actor with no kg:* scope must be denied, got {:?}",
+            resp.error
+        );
+    }
+
+    /// AUTHORIZED direction (THE FIX): an ordinary, non-bootstrap, `kg:read`-
+    /// scoped actor -- registered NOWHERE in `IsolationLayer` (`state_min()`
+    /// registers no identities at all), proving this is a pure carrier-scope
+    /// decision, never System-identity-gated -- can resolve a placement route.
+    /// Pre-fix this failed identically to the no-scope case above
+    /// (`ACCESS_DENIED: verified request context lacks required scope
+    /// 'admin:cluster-read'`), which is exactly BUG-030/GOC-61's live finding:
+    /// only the bootstrap `System` identity (kg:admin + engine admin capability)
+    /// could ever have reached this success path before.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn placement_route_succeeds_for_ordinary_kg_read_actor() {
+        let state = state_min();
+        let req = signed_route_request(2, "ordinary-kg-read-actor", vec!["kg:read".to_string()], "acme");
+        let resp = dispatch_on_heap(&state, req).await;
+        assert!(
+            resp.error.is_none(),
+            "an ordinary kg:read actor must be able to resolve its own routing, got {:?}",
+            resp.error
+        );
+        assert!(resp.result.is_some());
+    }
+
+    /// Same for `kg:write` (a writer must be able to route its own write, too).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn placement_route_succeeds_for_ordinary_kg_write_actor() {
+        let state = state_min();
+        let req = signed_route_request(
+            3,
+            "ordinary-kg-write-actor",
+            vec!["kg:write".to_string()],
+            "acme",
+        );
+        let resp = dispatch_on_heap(&state, req).await;
+        assert!(resp.error.is_none(), "got {:?}", resp.error);
+    }
+
+    /// `kg:admin` (the OLD, pre-fix, only-working caller shape) still succeeds
+    /// -- the fix is additive, it never regresses the admin path.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn placement_route_still_succeeds_for_kg_admin_actor() {
+        let state = state_min();
+        let req = signed_route_request(4, "admin-actor", vec!["kg:admin".to_string()], "acme");
+        let resp = dispatch_on_heap(&state, req).await;
+        assert!(resp.error.is_none(), "got {:?}", resp.error);
+    }
+}

@@ -26,6 +26,31 @@ use crate::epistemic_operations::PlacementRouteSchemaVersion;
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::state::ServerState;
 
+// GOC-15/BUG-030: `PlacementRoute`'s `authz_action` was narrowed from
+// `admin:cluster-read` to `cluster:placement-read` (`eg_capabilities::policy`)
+// so an ordinary `kg:read`/`kg:write` caller can resolve routing for its own
+// requests without needing engine-side admin capability -- see that
+// constant's doc comment for the full rationale (GOC-61 proved live that only
+// the bootstrap `System` identity could ever satisfy the old `admin:`-gated
+// check, so essentially every per-actor Cypher/traversal read failed before
+// it even ran, since AU's `placement_catalog.py::resolve_placement` calls
+// `PlacementRoute` on the same path).
+//
+// Deliberately NO additional per-tenant ownership check is added here, for
+// the same reason `Method::ClusterMembers` (`cluster:topology-read`, this
+// crate's existing precedent for exactly this shape of narrowing) has none:
+// `PlacementRouteRequest.tenant_ref`/`partition_ref` are the AU-side
+// application partition key derived from a GRAPH NAME
+// (`placement_catalog.split_tenant_key`), a DIFFERENT namespace from this
+// wire envelope's own `RequestContextClaims.tenant` (the fixed
+// per-deployment/cluster security boundary compared against
+// `EPISTEMIC_GRAPH_TENANT` in `auth.rs`) -- the two are not the same
+// identifier space and must never be compared as if they were. The route
+// answer is cluster placement METADATA (group/epoch/endpoints), never row
+// data, exactly like `ClusterMembers`'s full topology answer; the actual
+// graph read that follows a resolved route is independently authorized by
+// the ordinary per-graph ACL/RLS path, unaffected by this change.
+
 /// The actual `Method::PlacementRoute` WIRE response (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 —
 /// `PlacementRoute.endpoints`, `reports/wave1/ADR-scale-trio.md` §ADR-1 decision 2).
 ///
@@ -373,15 +398,15 @@ pub(crate) async fn try_handle(
 ) -> Result<Response, Method> {
     match method {
         Method::PlacementRoute { request } => Ok(route_response(
-            req_id,
-            0,
-            0,
-            false,
-            request.client_epoch,
-            request.tenant_ref,
-            request.partition_ref,
-            Vec::new(),
-        )),
+                req_id,
+                0,
+                0,
+                false,
+                request.client_epoch,
+                request.tenant_ref,
+                request.partition_ref,
+                Vec::new(),
+            )),
         Method::PlacementAdmin { .. } => Ok(Response::err(
             req_id,
             "CLUSTER_CONFIGURATION_INVALID: placement admin mutations require a `raft`-feature \
