@@ -193,13 +193,7 @@ impl LeaseState {
 
 /// One tenant's durable claim on a `CapacityCell`. Field set matches the lane
 /// doc's frozen schema.
-///
-/// `Eq` is deliberately NOT derived: `cost_budget` is an `Option<f64>`, and
-/// `f64` has no total equality (NaN != NaN), so an `Eq` bound here is unsound
-/// rather than merely inconvenient. `PartialEq` is the correct relation for a
-/// type carrying a float, and callers must not treat lease equality as a total
-/// order or use it as a `HashMap`/`BTreeSet` key.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapacityLease {
     pub schema_version: u16,
@@ -225,8 +219,29 @@ pub struct CapacityLease {
     pub issued_at_ms: u64,
     pub expires_at_ms: u64,
     pub renewed_count: u32,
+    /// Spend ceiling in **micro-units (1e-6) of the deployment's accounting
+    /// currency** — exact integer, never a float.
+    ///
+    /// This was `Option<f64>` and that was wrong three ways, not just
+    /// inconvenient for the `Eq` derive:
+    ///
+    /// 1. **`NaN`/`±Inf`/negative were representable and unvalidated.**
+    ///    `validate()` checks neither budget field, so a `NaN` ceiling passed
+    ///    silently. A budget is a *control*; a control that admits a value
+    ///    which compares false against everything fails open.
+    /// 2. **Float accumulation is inexact and non-associative.** A distributed
+    ///    cost ledger summing leases must reach the same total on every node
+    ///    regardless of summation order. `f64` does not guarantee that.
+    /// 3. **`NaN` is not JSON-representable.** It serializes to a bare `NaN`
+    ///    token that strict parsers reject, so a non-finite ceiling is an
+    ///    interop hazard at the AU boundary, not merely an odd number.
+    ///
+    /// An unsigned integer makes all three unrepresentable rather than
+    /// validated-against, and matches `token_budget` — the sibling ceiling in
+    /// this same struct, which was already exact. `None` means unbounded;
+    /// `Some(0)` means "may spend nothing", a genuinely different state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cost_budget: Option<f64>,
+    pub cost_budget_micros: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_budget: Option<u64>,
     pub idempotency_key: String,
@@ -400,7 +415,7 @@ impl CapacityLedger {
             issued_at_ms: now_ms,
             expires_at_ms: now_ms + ttl_ms,
             renewed_count: 0,
-            cost_budget: None,
+            cost_budget_micros: None,
             token_budget: None,
             idempotency_key: idempotency_key.to_string(),
             state: LeaseState::Active,
