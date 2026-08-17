@@ -322,6 +322,21 @@ pub(crate) async fn try_handle(
                     #[cfg(feature = "security")]
                     rls,
                 );
+                // BUG-267: probe the cache BEFORE paying for the O(V+E)
+                // `analysis_snapshot_versioned()` clone. `version()` is a bare
+                // atomic load and `dep_clock()` a cheap ref, so a HIT never
+                // materializes the graph at all. Only a MISS pays for the
+                // snapshot; the fresh `version` it returns (not the one used
+                // for this probe) is what a later `put`/`put_dep` stores under,
+                // so a cache entry can never claim a version newer than the
+                // data it actually reflects.
+                let probe = match &dep {
+                    Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
+                    None => core.result_cache().get(hash, core.version()),
+                };
+                if let Some(bytes) = probe {
+                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+                }
                 let (mut snap, version) = core.analysis_snapshot_versioned();
                 let cached = match &dep {
                     Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
@@ -457,6 +472,15 @@ pub(crate) async fn try_handle(
                     #[cfg(feature = "security")]
                     rls,
                 );
+                // BUG-267: same cheap-probe-before-snapshot ordering as the
+                // `UnifiedQuery` arm above — see its comment for the invariant.
+                let probe = match &dep {
+                    Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
+                    None => core.result_cache().get(hash, core.version()),
+                };
+                if let Some(bytes) = probe {
+                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+                }
                 let (mut snap, version) = core.analysis_snapshot_versioned();
                 let cached = match &dep {
                     Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
@@ -1442,6 +1466,19 @@ pub(crate) async fn try_handle(
                     #[cfg(feature = "security")]
                     rls,
                 );
+                // BUG-267: `analysis_snapshot()` was materialized unconditionally
+                // BEFORE this cache lookup — an O(V+E) clone of the entire
+                // node_map/node_properties/edge_properties paid on every call
+                // regardless of cache hit or miss, defeating the cache that
+                // follows it (measured p99 2.49s on plain cached reads). Probe
+                // with the cheap `core.version()` atomic load first; only a MISS
+                // pays for `analysis_snapshot_versioned()`. The fresh `version`
+                // it returns (not the one used for this probe) is what `put`
+                // stores under below, so an entry can never claim a version
+                // newer than the data it reflects.
+                if let Some(bytes) = core.result_cache().get(hash, core.version()) {
+                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+                }
                 let (mut snap, version) = core.analysis_snapshot_versioned();
                 if let Some(bytes) = core.result_cache().get(hash, version) {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
