@@ -85,7 +85,13 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ingress::{BoundedId, CarrierRef, IdempotencyKey};
+use crate::ingress::{CarrierRef, IdempotencyKey};
+// `BoundedId` itself is only referenced by name inside this module's own
+// `#[cfg(test)]` fixtures (a downstream crate reaches it via the `TtsBoundedId`
+// re-export below) — a plain unconditional import warns `unused_imports` in a
+// non-test build.
+#[cfg(test)]
+use crate::ingress::BoundedId;
 
 /// Current wire/behavioral version of the `tts.*` contract family.
 pub const TTS_PROTOCOL_VERSION: u16 = 1;
