@@ -11,10 +11,15 @@
 //! offered for a given mark+surface) and the UI (which controls to show/grey out)
 //! — both read the SAME [`CapabilityMatrix`] rather than maintaining their own copy.
 //!
-//! V0 ships no renderer, so every entry here is [`Status::Planned`] naming the wave
-//! that lands it (`plans/au-eg-program/PROGRAM.md` lane table) — never a claim of
-//! present capability. A later lane flips an entry to [`Status::Shipped`] in the
-//! SAME change that lands the backend, so this file never drifts ahead of reality.
+//! V0 shipped no renderer, so every entry originally read [`Status::Planned`]
+//! naming the wave that lands it (`plans/au-eg-program/PROGRAM.md` lane
+//! table) — never a claim of present capability. A later lane flips an entry
+//! to [`Status::Shipped`] **in the SAME change that lands the backend**, so
+//! this file never drifts ahead of reality; see [`CapabilityMatrix::default_matrix`]'s
+//! own doc for the current shipped/planned split (V3a static export and V4
+//! server-side integration are shipped for every non-graph mark; V3b
+//! interactive ships for the point-pair marks its tile protocol serves;
+//! `Graph` has V6-lite static/server-side support but not interactive V6 yet).
 
 use serde::{Deserialize, Serialize};
 
@@ -92,18 +97,50 @@ pub struct CapabilityMatrix {
 }
 
 impl CapabilityMatrix {
-    /// The seed matrix for V0: every mark × surface pair, all `Status::Planned`,
-    /// naming the lane that will ship it per the program charter's lane table.
+    /// The matrix: every mark × surface pair, one entry each, `status` and
+    /// `target_wave` kept honest against what has actually landed — a later
+    /// lane flips `Status::Planned` to `Status::Shipped` in the SAME change
+    /// that lands the backend (per this module's own doc), which is exactly
+    /// what V2 (LOD kernels)/V3b (interactive)/V4 (engine integration, incl.
+    /// `Graph`'s existing static-export/server-side support — V6-lite) did
+    /// here.
     pub fn default_matrix() -> Self {
         use MarkKind::{Area, Bar, Graph, Heatmap, Line, Scatter};
         use Surface::{Interactive, ServerSide, StaticExport};
 
         // Fully qualified throughout (never `use SupportLevel::*`): `SupportLevel`
-        // shares the name `None` with `Option::None`, and this closure's `notes`
-        // parameter genuinely needs `Option::None` — glob-importing the enum would
-        // silently shadow the prelude and break every "no notes" call below.
-        let mut entries = Vec::new();
-        let mut push = |mark, surface, level, target_wave: &str, notes: Option<&str>| {
+        // shares the name `None` with `Option::None`, and `push_shipped`/
+        // `push_planned`'s `notes` parameter genuinely needs `Option::None` —
+        // glob-importing the enum would silently shadow the prelude and break
+        // every "no notes" call below. Plain functions (not closures) taking
+        // `entries` explicitly: two closures both capturing `entries` mutably
+        // cannot coexist (each borrows it for its own lifetime), and a single
+        // closure juggling a `shipped: bool` flag reads worse at every call
+        // site than two clearly-named functions.
+        fn push_shipped(
+            entries: &mut Vec<CapabilityEntry>,
+            mark: MarkKind,
+            surface: Surface,
+            level: SupportLevel,
+            notes: Option<&str>,
+        ) {
+            entries.push(CapabilityEntry {
+                mark,
+                surface,
+                level,
+                status: Status::Shipped,
+                target_wave: None,
+                notes: notes.map(str::to_string),
+            });
+        }
+        fn push_planned(
+            entries: &mut Vec<CapabilityEntry>,
+            mark: MarkKind,
+            surface: Surface,
+            level: SupportLevel,
+            target_wave: &str,
+            notes: Option<&str>,
+        ) {
             entries.push(CapabilityEntry {
                 mark,
                 surface,
@@ -112,31 +149,69 @@ impl CapabilityMatrix {
                 target_wave: Some(target_wave.to_string()),
                 notes: notes.map(str::to_string),
             });
-        };
-
-        for mark in [Line, Scatter, Bar, Area, Heatmap] {
-            push(mark, StaticExport, SupportLevel::Full, "V3a", None);
-            push(mark, ServerSide, SupportLevel::Full, "V4", None);
-        }
-        // Interactive client lands after the LOD kernels (V2) and the binary tile
-        // protocol (V3b); every non-graph mark reaches full interactive support
-        // there.
-        for mark in [Line, Scatter, Bar, Area, Heatmap] {
-            push(mark, Interactive, SupportLevel::Full, "V3b", None);
         }
 
-        // Graph (force-directed node-link) needs the graph-native mark work (V6)
-        // before ANY surface can draw it — it has no representation on the
-        // general-purpose LOD ladder V3a targets.
-        for surface in [StaticExport, Interactive, ServerSide] {
-            push(
-                Graph,
-                surface,
-                SupportLevel::None,
-                "V6",
-                Some("force-directed layout ships with the graph-native marks lane"),
+        let mut entries = Vec::new();
+
+        // Static export (V3a, `eg-viz-export`) and server-side engine
+        // integration (V4, `server::viz_engine` — the persistent ColumnStore +
+        // content-addressed render cache + durable provenance, mark-agnostic)
+        // are both shipped for every non-graph mark.
+        for mark in [Line, Scatter, Bar, Area, Heatmap] {
+            push_shipped(&mut entries, mark, StaticExport, SupportLevel::Full, None);
+            push_shipped(&mut entries, mark, ServerSide, SupportLevel::Full, None);
+        }
+
+        // Interactive (V3b, `server::viz_interactive`) ships for the
+        // point-pair marks the binary tile protocol's `eg_viz_kernels::lttb_reduce`
+        // path actually serves (Line/Scatter/Area). Bar (a discrete-category
+        // rect mark) and Heatmap (a z-matrix mark) have no representation on
+        // that protocol yet — a documented gap, not a silent claim of support.
+        for mark in [Line, Scatter, Area] {
+            push_shipped(
+                &mut entries,
+                mark,
+                Interactive,
+                SupportLevel::Full,
+                Some("binary viewport-tile protocol, eg_viz_kernels::lttb_reduce"),
             );
         }
+        for mark in [Bar, Heatmap] {
+            push_planned(
+                &mut entries,
+                mark,
+                Interactive,
+                SupportLevel::None,
+                "V3b+",
+                Some("the tile protocol serves point-pair (x,y) marks only today"),
+            );
+        }
+
+        // Graph (force-directed node-link) has static-export + server-side
+        // support today (V6-lite, `eg_viz_export::graph_layout` +
+        // `resolve_graph`) but no interactive pan/zoom/picking yet (full V6).
+        push_shipped(
+            &mut entries,
+            Graph,
+            StaticExport,
+            SupportLevel::Full,
+            Some("V6-lite: force-directed layout, static PNG/SVG/PDF export only"),
+        );
+        push_shipped(
+            &mut entries,
+            Graph,
+            ServerSide,
+            SupportLevel::Full,
+            Some("V6-lite: persistent ColumnStore + render cache, static export only"),
+        );
+        push_planned(
+            &mut entries,
+            Graph,
+            Interactive,
+            SupportLevel::None,
+            "V6",
+            Some("WebGPU pan/zoom/picking over a force-directed layout is full V6, not V3b"),
+        );
 
         let matrix = Self { entries };
         debug_assert_eq!(
@@ -191,13 +266,33 @@ mod tests {
     }
 
     #[test]
-    fn no_entry_is_shipped_yet_v0_ships_no_renderer() {
+    fn a_shipped_entry_never_carries_a_target_wave_and_a_planned_entry_always_does() {
+        // The matrix's own governance invariant: `target_wave` names WHEN an
+        // unshipped entry lands; a shipped entry has already landed, so it
+        // must not claim a future wave (that would be a stale/contradictory
+        // claim the matrix exists specifically to prevent).
         let matrix = CapabilityMatrix::default_matrix();
-        assert!(matrix.entries().iter().all(|e| e.status == Status::Planned));
+        for entry in matrix.entries() {
+            match entry.status {
+                Status::Shipped => assert!(
+                    entry.target_wave.is_none(),
+                    "{:?}/{:?} is Shipped but still carries target_wave={:?}",
+                    entry.mark,
+                    entry.surface,
+                    entry.target_wave
+                ),
+                Status::Planned => assert!(
+                    entry.target_wave.is_some(),
+                    "{:?}/{:?} is Planned but has no target_wave",
+                    entry.mark,
+                    entry.surface
+                ),
+            }
+        }
     }
 
     #[test]
-    fn scatter_static_export_is_planned_full_for_v3a() {
+    fn scatter_static_export_is_shipped_full_v3a() {
         let matrix = CapabilityMatrix::default_matrix();
         let entry = matrix
             .entries()
@@ -205,19 +300,41 @@ mod tests {
             .find(|e| e.mark == MarkKind::Scatter && e.surface == Surface::StaticExport)
             .unwrap();
         assert_eq!(entry.level, SupportLevel::Full);
-        assert_eq!(entry.target_wave.as_deref(), Some("V3a"));
+        assert_eq!(entry.status, Status::Shipped);
     }
 
     #[test]
-    fn graph_mark_is_unsupported_on_every_surface_until_v6() {
+    fn point_pair_marks_are_shipped_full_on_the_interactive_surface_v3b() {
         let matrix = CapabilityMatrix::default_matrix();
-        for surface in Surface::ALL {
-            assert!(!matrix.supports(MarkKind::Graph, surface));
-            assert_eq!(
-                matrix.level(MarkKind::Graph, surface),
-                Some(SupportLevel::None)
-            );
+        for mark in [MarkKind::Line, MarkKind::Scatter, MarkKind::Area] {
+            let entry = matrix
+                .entries()
+                .iter()
+                .find(|e| e.mark == mark && e.surface == Surface::Interactive)
+                .unwrap();
+            assert_eq!(entry.level, SupportLevel::Full, "{mark:?}");
+            assert_eq!(entry.status, Status::Shipped, "{mark:?}");
         }
+    }
+
+    #[test]
+    fn bar_and_heatmap_remain_planned_on_the_interactive_surface() {
+        let matrix = CapabilityMatrix::default_matrix();
+        for mark in [MarkKind::Bar, MarkKind::Heatmap] {
+            assert!(!matrix.supports(mark, Surface::Interactive), "{mark:?}");
+        }
+    }
+
+    #[test]
+    fn graph_mark_has_static_and_server_side_support_but_not_interactive_yet() {
+        let matrix = CapabilityMatrix::default_matrix();
+        assert!(matrix.supports(MarkKind::Graph, Surface::StaticExport));
+        assert!(matrix.supports(MarkKind::Graph, Surface::ServerSide));
+        assert!(!matrix.supports(MarkKind::Graph, Surface::Interactive));
+        assert_eq!(
+            matrix.level(MarkKind::Graph, Surface::Interactive),
+            Some(SupportLevel::None)
+        );
     }
 
     #[test]

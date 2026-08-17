@@ -7660,6 +7660,8 @@ mod eg318_dispatch_tests {
             registry: GraphRegistry::new(),
             isolation,
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir_string),
             persistence: Some(persistence),
@@ -8154,6 +8156,8 @@ mod admin_scope_tests {
             registry: GraphRegistry::new(),
             isolation,
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: SECRET.to_string(),
             persist_dir: None,
             persistence: None,
@@ -8448,6 +8452,8 @@ mod blob_dispatch_tests {
             registry: GraphRegistry::new(),
             isolation,
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir.to_string()),
             // `BlobRef` creates a durable :Media graph node -- a GATEWAY_ROUTED
