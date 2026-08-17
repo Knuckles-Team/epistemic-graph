@@ -1,5 +1,1 @@
-# Concept-ID reservation ledger — GENERATED, do not edit by hand.
-# Truth is docs/concept_reservations.d/<lane>.yaml — one append-only fragment
-# per writing lane. Regenerated on reserve/release/reconcile; rebuild with
-# `agent-utilities concept reconcile`. See docs/concept_coordination.md.
 - {id: EG-KG.compute.native-asr-whisper-provider, slug: EG, pillar: KG, domain: compute, session_ref: pref_concept_session_a1a80071cac4c479b7d1607f51a1f8468fc788c72ec65162a9ad8f98715aee1e, reserved_at: '2026-08-17T15:35:21.259997+00:00', expires_at: '2026-08-18T15:35:21.259997+00:00', status: reserved, design_ref: pref_design_doc_d879399097587a78d12c25bb567b27c6166c6d4bd437fd9e9d661b987d237a92}

@@ -1,0 +1,40 @@
+[package]
+name = "eg-asr-whisper"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Native Rust ASR provider (GOC-33, OWNER-VOICE-ASR) implementing eg-audio's frozen asr.* contract over whisper-rs/whisper.cpp."
+license = "MIT"
+
+# HEAVY LEAF (GOC-33): this crate — and only this crate — links whisper-rs (which
+# vendors and compiles whisper.cpp/ggml C++ from source via `cmake`). It is a
+# workspace member so `cargo build/test -p eg-asr-whisper` works standalone, but the
+# facade links it ONLY behind the optional, default-off `asr-whisper` feature (see
+# the root Cargo.toml). A default/`full` facade build links none of it — see this
+# crate's `src/lib.rs` doc for the CPU-portability build contract (why GGML_NATIVE
+# must stay OFF) and `docs/provenance/eg-asr-whisper.md` for the license/provenance
+# record of what was assimilated from `open-source-libraries/meetily`.
+[lib]
+name = "eg_asr_whisper"
+
+[dependencies]
+eg-audio = { path = "../eg-audio", features = ["asr"] }
+whisper-rs = { version = "0.16", default-features = false }
+sha2 = "0.10"
+
+[features]
+default = []
+# Optional GPU execution providers, mirroring whisper-rs's own feature names
+# (meetily precedent: open-source-libraries/meetily/frontend/src-tauri/Cargo.toml).
+# ALL off by default — CPU is the only qualified baseline in this change (GOC-33
+# lane doc "ORT execution providers are capability manifests, not assumptions").
+# Turning one of these on changes what the VENDORED whisper.cpp build links; it does
+# NOT make GPU use automatic — the provider still probes hardware at runtime and
+# falls back to CPU when the requested accelerator is unavailable.
+cuda = ["whisper-rs/cuda"]
+vulkan = ["whisper-rs/vulkan"]
+metal = ["whisper-rs/metal"]
+coreml = ["whisper-rs/coreml"]
+hipblas = ["whisper-rs/hipblas"]
+
+[dev-dependencies]

@@ -1449,6 +1449,26 @@ pub fn policy(m: &Method) -> MethodPolicy {
         // bit-exactly (the program doc's own planner acceptance criterion).
         // `txn_participation: None` -- pure compute, no graph interaction, exactly
         // the case that variant documents.
+        // CONCEPT:EG-KG.compute.native-asr-whisper-provider (GOC-33, `OWNER-VOICE-ASR`) -- the native ASR
+        // provider surface. `mutates: false`/`durability_domain: None`/`audited: false`
+        // for the SAME reasons `Quantum` above documents: `Method::Asr` self-routes
+        // before `dispatch_graph_op` (`src/server/handlers/asr.rs`), reads no
+        // persisted graph state, and commits no durable `asr.result.v1` here (that
+        // governed, `CarrierRef`-bound commit is future worker/AU-orchestration work
+        // -- W03/W06 in the GOC-33 lane doc; see `crates/eg-audio/src/asr.rs`'s
+        // module doc). `idempotent: false`: unlike `Quantum`'s bit-exact simulator
+        // replay, whisper.cpp's multi-threaded reduction order is not guaranteed
+        // bit-identical run to run, so this surface makes no idempotent-replay claim.
+        #[cfg(feature = "asr-native")]
+        Method::Asr { .. } => MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::None,
+            authz_action: "asr:transcribe",
+            idempotent: false,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::None,
+        },
         #[cfg(feature = "quantum")]
         Method::Quantum { .. } => MethodPolicy {
             mutates: false,
@@ -2561,6 +2581,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("Statechart", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::StatechartRedb, authz_action: "statechart:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional: GetState/List are reads; Define/Instantiate/SendEvent commit to the native statecharts.redb store (CONCEPT:INT-P2-2)"),
         #[cfg(feature = "quantum")]
         ("Quantum", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "quantum:run", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "self-routes before dispatch_graph_op like AnalyticsJob/Statechart, never reaches the graph tamper-evident audit chain; R5 override audit instead rides the response's PlannerDecision.audit trail into the agent-utilities :ToolCall/:QuantumJob provenance"),
+        #[cfg(feature = "asr-native")]
+        ("Asr", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "asr:transcribe", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "self-routes before dispatch_graph_op like Quantum/Viz; direct non-durable whisper-rs transcription, commits no asr.result.v1 (that governed commit is future worker/AU-orchestration work, W03/W06)"),
         #[cfg(feature = "viz")]
         ("Viz", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "viz:render", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "pure compute: resolves a fresh per-request ColumnStore and returns rendered bytes, no durable write (D-VZ-1 lanes V4/V6)"),
         ("Sql", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:sql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"),
@@ -2813,13 +2835,17 @@ mod smoke_tests {
         // added its own term, so the merged expression carries both, over 385.
         // Plus BUG-111 `CasWorkItemMetadata` (native scheduling-metadata CAS,
         // unconditional): 385 + 1 = 386.
+        // Plus GOC-33 `Asr { op }` (native ASR provider surface, feature-gated
+        // `asr-native`, mirrors `quantum`/`viz`'s lockstep contract -- see this
+        // crate's Cargo.toml): +1 when `asr-native` is enabled.
         let expected = 386
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
             + usize::from(cfg!(feature = "knowledge-batch"))
             + usize::from(cfg!(feature = "quantum"))
-            + usize::from(cfg!(feature = "viz"));
+            + usize::from(cfg!(feature = "viz"))
+            + usize::from(cfg!(feature = "asr-native"));
         assert_eq!(
             seen.len(),
             expected,

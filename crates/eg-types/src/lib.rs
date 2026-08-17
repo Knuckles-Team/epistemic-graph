@@ -9,6 +9,14 @@
 //! the data lives at the bottom of the DAG, the logic stays where it belongs.
 
 pub mod acl;
+// CONCEPT:EG-KG.compute.native-asr-whisper-provider — the native-ASR agent-facing wire op
+// (`AsrOp`), gated `asr-native`. Lives here (not in `eg-asr-whisper`), for the
+// SAME reason `quantum.rs` lives here rather than in `eg-quantum-core`: `eg-types`
+// is the bottom-of-DAG crate every wire consumer already depends on, while the
+// heavy provider crate sits above the facade. Pure serde — no dep on `eg-audio`/
+// `eg-asr-whisper`.
+#[cfg(feature = "asr-native")]
+pub mod asr_wire;
 // CONCEPT:AU-ORCH.scheduling — GOC-21 distributed CapacityCell/CapacityLease
 // wire contract + pure fencing/admission algorithm (cross-host capacity
 // authority for the AU fair scheduler). Unconditional, like `acl`/`jobs`.

@@ -2278,6 +2278,23 @@ pub enum Method {
         op: crate::quantum::QuantumOp,
     },
 
+    /// Native ASR provider surface (GOC-33, `OWNER-VOICE-ASR`): a direct,
+    /// non-durable batch-file transcription call over the whisper-rs/
+    /// whisper.cpp provider in `eg-asr-whisper` — the wire surface
+    /// `audio-transcriber`'s pluggable `TranscriptionProvider` seam reaches
+    /// over the existing `epistemic_graph.client` transport (no second
+    /// transport). ONE variant wrapping an internal op enum, mirroring
+    /// `Quantum { op }`/`Statechart { op }` above. Gated `asr-native`; the
+    /// handler (`src/server/handlers/asr.rs`) self-routes in `dispatch.rs`
+    /// before the per-graph chain (a transcription reads no persisted graph
+    /// state and commits no durable `asr.result.v1` — see
+    /// `crates/eg-audio/src/asr.rs`'s module doc for that authority
+    /// boundary, owned by future worker/AU-orchestration work).
+    #[cfg(feature = "asr-native")]
+    Asr {
+        op: crate::asr_wire::AsrOp,
+    },
+
     /// Native visualization render surface (D-VZ-1 lanes V4 "engine integration" /
     /// V6 "graph-native marks"): resolve a caller-provided `eg_viz_core::ViewSpec`
     /// against a dataset (caller-supplied inline columns, or deterministic
