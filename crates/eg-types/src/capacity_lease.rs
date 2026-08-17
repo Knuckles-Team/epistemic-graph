@@ -620,10 +620,19 @@ mod tests {
         let mut ledger = CapacityLedger::new();
         let c = cell(1);
         // Fill the cell to capacity (10) with one greedy, never-releasing lease.
+        //
+        // The hog must be a priority that MAY spend the reserved floor. This
+        // cell is capacity 10 / reserved_floor 2, and `BackgroundIngestion` is
+        // the single priority barred from the floor (`may_spend_reserved_floor`),
+        // so it can never hold more than 8 — it structurally cannot fill the
+        // cell, and asking it for 10 is `Exhausted { available: 8 }`. Using it
+        // here would also break this test's second step: with only 8 held, an
+        // `Interactive` request for 1 would still find 2 free and be ADMITTED,
+        // so the "second acquire is exhausted" assertion would be vacuous.
         ledger
             .try_acquire(
                 &c, "hog".into(), "wi-hog", "tenant-hog", "actor-hog",
-                CapacityResourceClass::LlmGenerator, 10, LeasePriority::BackgroundIngestion,
+                CapacityResourceClass::LlmGenerator, 10, LeasePriority::Interactive,
                 "idem-hog", 0, 1_000,
             )
             .expect("fills the cell");

@@ -578,7 +578,26 @@ mod tests {
             blobs: Vec::new(),
             features: Vec::new(),
             evidence: Vec::new(),
-            policies: Vec::new(),
+            // `validate()` ALWAYS seeds `required_governance` with
+            // `content_version.object_id`, and `governed` is filled only from
+            // `policies` — so an envelope with no policy record can never
+            // validate, regardless of how minimal it is otherwise. An empty
+            // `policies` here made this fixture unconstructible-as-valid and
+            // every test calling `.validate()` on it failed with
+            // "no policy proof for material object 'object-1'". "Minimal" must
+            // mean minimal-and-valid, or it proves nothing about the field
+            // under test.
+            policies: vec![PolicyRecord {
+                policy_id: "policy-1".into(),
+                operation: MaterialOperation::Upsert,
+                object_id: "object-1".into(),
+                tenant: "tenant-a".into(),
+                classification: "internal".into(),
+                policy_version: "policy-v1".into(),
+                subject_set_digest: "c".repeat(64),
+                retention_policy: "default".into(),
+                legal_hold: false,
+            }],
             lineage: Vec::new(),
             privacy: PrivacyAttestation {
                 policy_version: "privacy-v1".into(),
