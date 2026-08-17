@@ -40,7 +40,7 @@ fn main() {
     let core = build_concept_graph(universe_n, edge_prob, 7);
 
     for &n in &sizes {
-        let uql = format!("MATCH (:Concept) LIMIT {n}");
+        let uql = format!("MATCH (:Concept) |> LIMIT {n}");
         let subgraph = match pull_candidate_subgraph(&core, &uql, 24) {
             Ok(s) => s,
             Err(e) => {
