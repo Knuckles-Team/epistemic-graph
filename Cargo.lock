@@ -2969,6 +2969,16 @@ version = "0.1.0"
 dependencies = [
  "eg-viz-columnstore",
  "eg-viz-core",
+ "eg-viz-kernels",
+]
+
+[[package]]
+name = "eg-viz-kernels"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "eg-viz-core",
+ "proptest",
 ]
 
 [[package]]
