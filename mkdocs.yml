@@ -99,6 +99,7 @@ nav:
       - Authoritative MutationBatch: architecture/mutation_batch.md
       - Governed ChangeEnvelope: architecture/change_envelope.md
       - Governed Modality Serving: architecture/modality_serving.md
+      - Native ASR Provider (GOC-33): architecture/native_asr.md
       - Native Piper TTS (GOC-34): architecture/native_tts_piper.md
       - Canonical Structural Properties: architecture/canonical-property-schema.md
       - Subsystems (C4 Containers): architecture/subsystems.md

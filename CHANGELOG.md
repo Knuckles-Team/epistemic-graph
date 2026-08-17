@@ -11,6 +11,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 > **Documentation clarification (2026-07-23):** The `epistemic-tms` (paraconsistent truth-maintenance + Dung argumentation) and `epistemic-causal` (Pearl do-calculus) features are **included in the default `full` build as of 2.23.1** (EG-P0-6). Both features are unconditionally present in any served deployment; there is no configuration or flag to disable them.
 
 ### Added
+- **Native ASR provider — `Method::Asr` (GOC-33, `OWNER-VOICE-ASR`)** — a
+  first-party Rust speech-to-text provider (`crates/eg-asr-whisper`, feature
+  `asr-whisper`, off by default/not in `full`) implementing
+  `eg_audio::asr`'s frozen contract over `whisper-rs`/whisper.cpp
+  (crates.io, retained/pinned, no vendor fork; `whisper-rs`/`whisper-rs-sys`
+  are Unlicense, the vendored whisper.cpp/ggml C/C++ sources are MIT). A
+  direct, non-durable batch-transcribe RPC (`client.asr.transcribe_file`) —
+  the wire surface `audio-transcriber`'s pluggable `TranscriptionProvider`
+  seam reaches over the existing MessagePack/UDS transport
+  (`epistemic_graph/asr_provider.py`'s `build_provider`, registered under the
+  `audio_transcriber.asr_providers` entry-point group). Streaming-capable
+  internally: `WhisperAsrProvider::transcribe_streaming` processes bounded
+  audio windows, invokes an `on_partial` callback per window, and honors
+  cancellation between AND during a window via whisper.cpp's own abort
+  callback. Model acquisition/verification stays out of scope (GOC-36):
+  `verify_model` fails closed on a missing file or a caller-declared-digest
+  mismatch and never downloads. Quality is real (`avg_logprob` = mean
+  `ln(token_probability)`, `no_speech_prob` from whisper.cpp) or explicitly
+  `Unavailable` — never Meetily's text-length heuristic serialized as a
+  probability. CPU-portability build contract: `.cargo/config.toml` pins
+  `GGML_NATIVE=OFF`/`GGML_AVX*=OFF`/`GGML_BMI2=OFF` (a fixed SSE2-only
+  baseline) so the binary never SIGILLs on rw710 (no `x86-64-v3`/AVX2) —
+  `GGML_BMI2=OFF` was found empirically necessary via a real-fixture crash
+  under `gdb` (ggml defaults `GGML_BMI2` ON independent of `GGML_NATIVE`).
+  No Parakeet/ONNX provider, isolated worker process, or durable
+  `asr.result.v1` publication in this change — see
+  `docs/architecture/native_asr.md` for the full design, binding-choice ADR,
+  and residual-gap record.
 - **Native Piper-ONNX text-to-speech provider (GOC-34, `OWNER-VOICE-TTS`)** — a real,
   streaming, cancellable synthesis engine behind the frozen `eg-audio::tts` wire
   contract (`crates/eg-audio/src/tts.rs`, itself validation-only since GOC-34's W01/

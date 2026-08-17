@@ -88,6 +88,13 @@ modality-serving = ["eg-types/modality-serving"]
 # root `epistemic-graph` package's `quantum-agent-api` facade feature enables BOTH
 # `eg-types/quantum` and `eg-capabilities/quantum` in lockstep.
 quantum = ["eg-types/quantum"]
+# GOC-33 (`OWNER-VOICE-ASR`) -- see the module doc above. Mirrors `eg-types/asr-native`
+# 1:1 (same lockstep contract as `jobs`/`quantum`): this feature enables
+# `eg-types/asr-native` AND cfg-gates `policy()`'s one `Method::Asr` arm together, so
+# the two can never drift. The root `epistemic-graph` package's `asr-whisper` facade
+# feature enables both `eg-types/asr-native` and `eg-capabilities/asr-native` in
+# lockstep.
+asr-native = ["eg-types/asr-native"]
 # D-VZ-1 (lanes V4/V6) -- see the module doc above. Mirrors `eg-types/viz` 1:1 (same
 # lockstep contract as `jobs`/`statechart`): `viz` is deliberately EXCLUDED from
 # `full` (unlike most eg-types features this crate force-enables above), so this

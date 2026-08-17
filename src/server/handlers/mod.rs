@@ -142,6 +142,14 @@ pub(crate) mod statechart;
 // all (no persistence of its own).
 #[cfg(feature = "quantum-agent-api")]
 pub(crate) mod quantum;
+// Native ASR provider surface (GOC-33, `OWNER-VOICE-ASR`, feature `asr-whisper`).
+// `Method::Asr { op }` over the whisper-rs/whisper.cpp provider in `eg-asr-whisper`
+// — a direct, non-durable batch-file transcription call. NOT graph-scoped (reads
+// no persisted graph state, commits no durable asr.result.v1) — self-routes in
+// `dispatch.rs` before the per-graph chain, exactly like `quantum`/`viz`. Needs no
+// `state` at all (no persistence of its own).
+#[cfg(feature = "asr-whisper")]
+pub(crate) mod asr;
 // Native visualization render surface (D-VZ-1 lanes V4 "engine integration" / V6
 // "graph-native marks", feature `viz-static-export`). `Method::Viz { op }` —
 // resolve a caller-provided `eg_viz_core::ViewSpec` against a dataset (inline

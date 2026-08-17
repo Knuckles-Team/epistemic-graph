@@ -2979,6 +2979,62 @@ class VizClient:
         )
 
 
+class AsrClient:
+    """GOC-33 (`OWNER-VOICE-ASR`) — the native ASR provider surface:
+    ``Method::Asr { op }`` over the whisper-rs/whisper.cpp provider in
+    ``eg-asr-whisper``. A direct, non-durable batch-file transcription call —
+    this is the wire surface ``audio-transcriber``'s pluggable
+    ``TranscriptionProvider`` seam reaches over this SAME transport (no second
+    transport). Reads no persisted graph state and commits no durable
+    ``asr.result.v1`` (that governed commit is future worker/AU-orchestration
+    work — see ``crates/eg-audio/src/asr.rs``'s module doc).
+
+    Model acquisition/verification governance is explicitly NOT this surface's
+    job (GOC-36): ``model_path``/``model_sha256`` must already name a
+    caller-resolved, digest-declared model file — this call never downloads
+    anything and fails closed (a distinct ``model_unavailable`` error) if the
+    file is absent or the digest does not match.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def transcribe_file(
+        self,
+        audio_wav: bytes,
+        *,
+        model_path: str,
+        model_sha256: str,
+        language: str | None = None,
+        translate: bool = False,
+        word_timing: bool = False,
+        window_ms: int = 0,
+    ) -> dict[str, Any]:
+        """Transcribe a 16kHz mono 16-bit PCM WAV byte buffer.
+
+        Returns ``{"text": str, "language": str, "segments": [{"start",
+        "end", "text", "avg_logprob", "no_speech_prob"}], "timing_available":
+        bool}`` — the same shape ``audio_transcriber.asr_providers``'s
+        ``TranscriptionProvider.transcribe`` Protocol expects.
+        """
+        return await self._client._send(
+            "Asr",
+            {
+                "op": {
+                    "TranscribeFile": {
+                        "model_path": model_path,
+                        "model_sha256": model_sha256,
+                        "audio_wav": audio_wav,
+                        "language": language,
+                        "translate": translate,
+                        "word_timing": word_timing,
+                        "window_ms": window_ms,
+                    }
+                }
+            },
+        )
+
+
 class QuantumClient:
     """Q8 (CONCEPT:EG-KG.compute.quantum-agent-api) — the agent-facing quantum
     control plane: ``Method::Quantum { op }`` over a registered
@@ -11337,6 +11393,7 @@ class EpistemicGraphClient:
         self.statechart = StatechartClient(self)
         self.viz = VizClient(self)
         self.quantum = QuantumClient(self)
+        self.asr = AsrClient(self)
 
     @staticmethod
     def _resolve_tls_decision(
@@ -12449,6 +12506,7 @@ class SyncEpistemicGraphClient:
         self.statechart = self._SyncWrapper(self._client.statechart, self._loop)
         self.viz = self._SyncWrapper(self._client.viz, self._loop)
         self.quantum = self._SyncWrapper(self._client.quantum, self._loop)
+        self.asr = self._SyncWrapper(self._client.asr, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""

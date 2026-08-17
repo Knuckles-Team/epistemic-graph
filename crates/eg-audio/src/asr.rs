@@ -10,11 +10,33 @@
 //! shape is GOC-32's to make, not this module's.
 //!
 //! No `whisper-rs`, whisper.cpp, ONNX Runtime, codec, model loader, or model
-//! weight is linked by this module or this feature. There is no
-//! `epistemic-graph-voice-worker` process yet — verified against `main` before
-//! writing this module, nothing under any repository in this workspace defines
-//! one. This module is the **frozen type-level `asr.*` contract** a future
-//! worker embeds; it performs no I/O, no inference, and fetches no model.
+//! weight is linked by this module or this feature — still true after the
+//! provider below landed, since that dependency lives entirely in the
+//! separate `crates/eg-asr-whisper` crate (workspace member, facade-optional
+//! behind `asr-whisper`, never part of `full`/`default`). There is no
+//! `epistemic-graph-voice-worker` **process** yet — the isolated worker
+//! (GOC-33-W03), full GOC-32-governed streaming ingress binding, and durable
+//! `asr.result.v1` publication via `finalize_result`/`authorize_carrier`
+//! remain future work; verified against `main` before writing this note,
+//! nothing under any repository in this workspace defines that process. This
+//! module is the **frozen type-level `asr.*` contract** a future worker
+//! embeds; it performs no I/O, no inference, and fetches no model.
+//!
+//! ## Provider (GOC-33-W04, landed)
+//!
+//! `crates/eg-asr-whisper` implements a real, streaming-capable native ASR
+//! provider (whisper-rs/whisper.cpp) against this contract: it constructs
+//! [`AsrSegment`] values from actual whisper.cpp inference and validates every
+//! one through this module's own [`AsrSegment::validate`] before accepting
+//! it. It is reachable over the engine's wire protocol as `Method::Asr { op:
+//! AsrOp::TranscribeFile }` (facade feature `asr-whisper`, off by default) —
+//! see that crate's module doc for the binding-choice justification,
+//! licensing/provenance record, and the CPU-portability build contract
+//! (rw710 has no `x86-64-v3`/AVX2). That RPC surface constructs `AsrSegment`
+//! values but does not call `finalize_result`/`authorize_carrier` — no
+//! governed `CarrierRef`/`AudioSourceRef` exists at a simple file-transcribe
+//! RPC boundary yet, so a durable, policy-authorized `asr.result.v1` commit
+//! remains explicit future worker/AU-orchestration work (W03/W06).
 //!
 //! ## Authority boundary
 //!
@@ -55,15 +77,18 @@
 //!
 //! ## What is explicitly NOT proven or claimed here
 //!
-//! No `whisper-rs`/whisper.cpp or Parakeet/ONNX Runtime provider exists in
-//! this module (GOC-33-W04/W05, deferred — no model is vendored or downloaded
-//! per the lane's standing rule). No worker process, model pool, CAS
-//! resolver, AU orchestration adapter, or `audio-transcriber` compatibility
-//! path exists here (W03 process skeleton, W06 AU/compat adapter — deferred).
-//! No WER/RTF/latency/resource evidence is claimed (W07 — deferred). No
-//! docs/handoff artifact exists yet (W08 — deferred). Downstream work should
-//! treat this module as the frozen **type-level** ASR contract only, exactly
-//! as `crate::ingress` documents itself for GOC-32.
+//! No Parakeet/ONNX Runtime provider exists anywhere in this workspace
+//! (GOC-33-W05, deferred — the ADR in `eg-asr-whisper`'s module doc records
+//! why). No model is vendored or downloaded by this module or by the
+//! whisper-rs provider (GOC-36 owns acquisition). No isolated worker
+//! *process*, model pool, CAS resolver, AU orchestration adapter, or
+//! `audio-transcriber` compatibility path exists here (W03 process skeleton,
+//! W06 AU/compat adapter — deferred); the `Method::Asr` RPC surface the
+//! provider is reachable through is a direct, non-durable, non-GOC-32-bound
+//! request/response call, not that worker. No WER/RTF/latency/resource
+//! evidence is claimed (W07 — deferred). Downstream work should treat this
+//! module as the frozen **type-level** ASR contract only, exactly as
+//! `crate::ingress` documents itself for GOC-32.
 
 use serde::{Deserialize, Serialize};
 

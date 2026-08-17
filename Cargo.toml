@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads", "crates/eg-tts-piper"]
+members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-asr-whisper", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads", "crates/eg-tts-piper"]
 # D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
 # governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
 # QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
@@ -488,6 +488,16 @@ modality-serving = [
     "dep:eg-video", "eg-video/runtime",
     "eg-types/modality-serving", "eg-capabilities/modality-serving",
 ]
+# Native ASR provider surface (GOC-33, `OWNER-VOICE-ASR`): `Method::Asr { op }` over
+# the heavy `eg-asr-whisper` (whisper-rs/whisper.cpp) crate. Deliberately EXCLUDED
+# from `full`/`default` — the ENTIRE point (lane doc: "heavy ML/native deps do not
+# enter the lean serving plane... keep it behind a Cargo feature so a build that
+# does not want ASR does not pay for it"). `cargo build`'s default feature set links
+# no whisper.cpp/ggml at all — confirmed by `cargo tree` (no hit without
+# `--features asr-whisper`). NOT graph-scoped (a transcription reads no persisted
+# graph state) — self-routes in `dispatch.rs`, ahead of the per-graph
+# `dispatch_graph_op` chain, exactly like `quantum-agent-api`/`viz-static-export`.
+asr-whisper = ["server", "dep:eg-asr-whisper", "eg-audio/asr", "eg-types/asr-native", "eg-capabilities/asr-native"]
 # Read-only SQL query surface (CONCEPT:KG-2.178). Pulls eg-query + DataFusion/Arrow
 # and is included in the one main build.
 query = ["dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query", "eg-tsdb?/arrow-seg"]
@@ -1368,6 +1378,11 @@ eg-document = { path = "crates/eg-document", optional = true }
 eg-image = { path = "crates/eg-image", optional = true }
 eg-audio = { path = "crates/eg-audio", optional = true }
 eg-video = { path = "crates/eg-video", optional = true }
+# Native ASR provider (GOC-33, `OWNER-VOICE-ASR`): whisper-rs/whisper.cpp behind
+# `eg_audio::asr`'s frozen contract. The ONLY crate in this workspace that links
+# whisper-rs/whisper.cpp — optional, and NOT part of `full`/`default` (see the
+# `asr-whisper` feature below), so a default build pays zero cost for it.
+eg-asr-whisper = { path = "crates/eg-asr-whisper", optional = true }
 # GOC-34 native Piper-ONNX TTS provider (feature `tts-piper`, deliberately excluded
 # from `full` — see that feature's own comment). Heavy (real `ort` ONNX Runtime +
 # espeak-ng C build) only when explicitly requested.
