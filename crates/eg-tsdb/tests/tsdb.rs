@@ -182,6 +182,69 @@ fn store_evict_before_trims_straddling_bucket() {
 }
 
 #[test]
+fn store_legal_hold_survives_retention_sweep_that_deletes_a_comparable_unheld_series() {
+    // Known-bad proof (CONCEPT:EG-KG.storage.series-legal-hold, GOC-09): two BYTE-IDENTICAL
+    // series (same points, same cutoff) diverge ONLY on legal_hold. The held one must survive
+    // the exact sweep that empties the un-held one.
+    let (_d, store) = open();
+    let pts: Vec<Point> = (0..100).map(|i| Point::single(i * NS, i as f64)).collect();
+    store
+        .append_batch("held", 1, 10 * NS as u64, &["v".into()], &pts)
+        .unwrap();
+    store
+        .append_batch("unheld", 1, 10 * NS as u64, &["v".into()], &pts)
+        .unwrap();
+
+    store.set_legal_hold("held", true).unwrap();
+    assert!(store.meta("held").unwrap().unwrap().legal_hold);
+    assert!(!store.meta("unheld").unwrap().unwrap().legal_hold);
+
+    // Sweep both with the SAME cutoff that would otherwise drop every point < 100s.
+    let dropped_held = store.evict_before("held", 100 * NS).unwrap();
+    let dropped_unheld = store.evict_before("unheld", 100 * NS).unwrap();
+
+    assert_eq!(dropped_held, 0, "a held series is never trimmed by retention");
+    assert_eq!(
+        dropped_unheld, 10,
+        "the comparable un-held series is trimmed exactly as before"
+    );
+    assert_eq!(
+        store.meta("held").unwrap().unwrap().count,
+        100,
+        "every held point survives the sweep"
+    );
+    assert_eq!(
+        store.meta("unheld").unwrap().unwrap().count,
+        0,
+        "the un-held series is fully evicted by the same cutoff"
+    );
+
+    // The hold also blocks the more destructive whole-series delete, not just the trim.
+    let deleted_held = store.delete_series("held").unwrap();
+    assert_eq!(deleted_held, 0, "a held series also survives delete_series");
+    assert!(
+        store.meta("held").unwrap().is_some(),
+        "held series meta is untouched by the refused delete"
+    );
+
+    // Clearing the hold restores normal deletability.
+    store.set_legal_hold("held", false).unwrap();
+    let deleted_after_clear = store.delete_series("held").unwrap();
+    assert!(
+        deleted_after_clear > 0,
+        "once the hold is cleared, the series can be deleted normally"
+    );
+}
+
+#[test]
+fn store_set_legal_hold_on_unknown_series_is_rejected() {
+    // A hold is a deliberate admin action against a real series, not a best-effort no-op.
+    let (_d, store) = open();
+    let err = store.set_legal_hold("does-not-exist", true);
+    assert!(err.is_err());
+}
+
+#[test]
 fn time_bucket_avg() {
     let pts: Vec<Point> = (0..20).map(|i| Point::single(i * NS, i as f64)).collect();
     let buckets = time_bucket(&pts, 10 * NS, Agg::Mean);

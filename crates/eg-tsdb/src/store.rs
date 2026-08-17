@@ -180,6 +180,14 @@ pub struct SeriesMeta {
     pub count: u64,
     pub min_ts: Ts,
     pub max_ts: Ts,
+    /// Retention/legal-hold exemption (CONCEPT:EG-KG.storage.series-legal-hold, GOC-09).
+    /// When `true`, this series is a correctness boundary: [`SeriesStore::evict_before`]
+    /// and [`SeriesStore::delete_series`] refuse to remove ANY of its data, no matter how
+    /// old, until the hold is explicitly cleared via [`SeriesStore::set_legal_hold`].
+    /// `#[serde(default)]` so a series meta blob written before this field existed
+    /// decodes as `false` (not-held) rather than failing to decode.
+    #[serde(default)]
+    pub legal_hold: bool,
 }
 
 /// Canonical identity for a served time series. A raw `series_id` is never sufficient
@@ -709,6 +717,13 @@ impl SeriesStore {
             Some(m) => m,
             None => return Ok(0),
         };
+        // Legal hold is a correctness boundary, not a policy nicety (CONCEPT:EG-KG.storage.series-legal-hold,
+        // GOC-09): a held series must be un-deletable by the retention sweep, provably — so
+        // this check runs BEFORE any bucket is classified for removal, never as a filter
+        // applied after victims are already chosen.
+        if meta.legal_hold {
+            return Ok(0);
+        }
         let wtx = self.db.begin_write().map_err(redb_err)?;
         let mut dropped = 0usize;
         {
@@ -824,6 +839,13 @@ impl SeriesStore {
     /// series). Unlike [`evict_before`], this removes the meta row too, so a
     /// subsequently re-appended series starts fresh (no stale count/span).
     pub fn delete_series(&self, series_id: &str) -> Result<usize> {
+        // Same legal-hold correctness boundary as `evict_before`: a held series survives
+        // a whole-series delete too, not just the point-level retention trim.
+        if let Some(meta) = self.meta(series_id)? {
+            if meta.legal_hold {
+                return Ok(0);
+            }
+        }
         let wtx = self.db.begin_write().map_err(redb_err)?;
         let mut dropped = 0usize;
         {
@@ -857,6 +879,38 @@ impl SeriesStore {
     }
     pub fn delete_scoped(&self, key: &SeriesKey) -> Result<usize> {
         self.delete_series(&key.encode())
+    }
+
+    /// Set (or clear) the durable legal-hold flag on an EXISTING series
+    /// (CONCEPT:EG-KG.storage.series-legal-hold, GOC-09). Once `hold=true`, neither
+    /// [`SeriesStore::evict_before`] nor [`SeriesStore::delete_series`] will remove any of
+    /// this series' data until a caller explicitly clears the hold (`hold=false`). Errors
+    /// (rather than silently no-opping) when the series does not exist yet — marking a hold
+    /// is a deliberate admin action, not a best-effort default like `evict_before`'s "unknown
+    /// series → 0 dropped".
+    pub fn set_legal_hold(&self, series_id: &str, hold: bool) -> Result<()> {
+        let wtx = self.db.begin_write().map_err(redb_err)?;
+        {
+            let mut meta_tab = wtx.open_table(SERIES_META).map_err(redb_err)?;
+            let mut meta = match meta_tab.get(series_id).map_err(redb_err)? {
+                Some(g) => decode_meta(g.value())?,
+                None => {
+                    return Err(codec_err(format!(
+                        "cannot set legal_hold on unknown series {series_id:?}"
+                    )));
+                }
+            };
+            meta.legal_hold = hold;
+            let blob = rmp_serde::to_vec(&meta).map_err(codec_err)?;
+            meta_tab.insert(series_id, blob.as_slice()).map_err(redb_err)?;
+        }
+        wtx.commit().map_err(redb_err)?;
+        Ok(())
+    }
+
+    /// Tenant/graph/series-scoped twin of [`SeriesStore::set_legal_hold`].
+    pub fn set_legal_hold_scoped(&self, key: &SeriesKey, hold: bool) -> Result<()> {
+        self.set_legal_hold(&key.encode(), hold)
     }
 }
 
@@ -952,6 +1006,7 @@ pub fn append_batch_in_wtx(
             count: 0,
             min_ts: Ts::MAX,
             max_ts: Ts::MIN,
+            legal_hold: false,
         },
     };
     if meta.n_fields != n_fields {
