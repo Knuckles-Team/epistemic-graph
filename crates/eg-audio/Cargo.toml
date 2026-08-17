@@ -38,6 +38,15 @@ runtime = ["serving"]
 # process links none of this. See `src/ingress.rs` for the full contract and
 # what is/is not proven by this crate alone.
 ingress = []
+# Native ASR contract (GOC-33, `OWNER-VOICE-ASR`): versioned asr.request/
+# partial/segment/result/model-manifest/error DTOs plus pure request/segment
+# validation and a structural carrier-authorization gate. Consumes `ingress`'s
+# StreamId/StreamGeneration/CarrierRef/BoundedId directly rather than
+# redefining them, so it depends on that feature. Adds NO new dependency
+# beyond what `ingress` already adds (serde + sha2 only) — no whisper-rs,
+# ONNX Runtime, codec, or model-loader dependency. See `src/asr.rs` for the
+# full contract and what is/is not proven by this crate alone.
+asr = ["ingress"]
 
 [dev-dependencies]
 serde_json = "1.0"
