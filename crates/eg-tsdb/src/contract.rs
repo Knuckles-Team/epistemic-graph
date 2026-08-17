@@ -159,6 +159,7 @@ impl ConformanceTestable for SeriesMeta {
             count: 42,
             min_ts: 1_700_000_000_000_000_000,
             max_ts: 1_700_000_600_000_000_000,
+            legal_hold: false,
         }
     }
 }
