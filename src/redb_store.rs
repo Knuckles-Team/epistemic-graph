@@ -13821,6 +13821,8 @@ mod mutation_batch_tests {
                 sanitizer_version: "sanitizer-v1".to_string(),
                 sanitized_payload_digest: "d".repeat(64),
             },
+            commit_seq: None,
+            commit_descriptor_ref: None,
         }
     }
 
@@ -13960,6 +13962,8 @@ mod mutation_batch_tests {
                 sanitizer_version: "sanitizer-v1".to_string(),
                 sanitized_payload_digest: "d".repeat(64),
             },
+            commit_seq: None,
+            commit_descriptor_ref: None,
         }
     }
 
