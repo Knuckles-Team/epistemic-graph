@@ -48,6 +48,8 @@ fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> Arc<RwLock<S
         registry: GraphRegistry::new(),
         isolation: common::current_isolation(),
         channels: ChannelManager::new(),
+        #[cfg(feature = "viz-static-export")]
+        viz_engine: None,
         auth_secret: SECRET.to_string(),
         persist_dir: Some(dir),
         persistence: Some(backend),

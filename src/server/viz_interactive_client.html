@@ -1,0 +1,434 @@
+<!-- eg-viz interactive reference client (D-VZ-1 lane V3b).
+
+     Served verbatim by `crate::server::viz_interactive::serve` at `GET /` --
+     a single self-contained file (no bundler, no CDN script, no external
+     font/stylesheet): the engine's loopback-only auxiliary listeners never
+     depend on third-party host availability. Talks to the SAME listener's
+     `GET /tile` endpoint (see that module's doc for the binary wire format).
+
+     Capability detection + HONEST degradation (never a silently blank
+     canvas):
+       1. `navigator.gpu` present and an adapter/device request succeeds ->
+          WebGPU (a `line-strip` pipeline, WGSL).
+       2. Else a WebGL2 context is obtainable -> WebGL2 (an analogous
+          LINE_STRIP program, GLSL ES 3.00).
+       3. Else: a visible message explaining neither is available, and the
+          script stops -- no draw calls are attempted.
+
+     Pan/zoom: dragging pans, the wheel zooms, both update the GPU uniforms
+     immediately (the already-fetched vertex buffer is reused, so this is
+     instant) and schedule a DEBOUNCED re-fetch of `/tile` for the new
+     viewport -- never a full-series re-download; only the current viewport's
+     reduced geometry is ever requested. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>eg-viz interactive</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d12; color: #d8dee8; font: 13px/1.4 system-ui, sans-serif; }
+  #hud { position: fixed; top: 8px; left: 8px; right: 8px; display: flex; gap: 12px; align-items: center; z-index: 2; }
+  #hud input { background: #171a21; color: #d8dee8; border: 1px solid #333; border-radius: 4px; padding: 4px 6px; }
+  #status { opacity: 0.85; }
+  #message { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+             text-align: center; padding: 24px; z-index: 3; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <label>dataset_ref <input id="datasetRef" value="" placeholder="e.g. ds:1"></label>
+  <label>x <input id="xCol" value="x" size="4"></label>
+  <label>y <input id="yCol" value="y" size="4"></label>
+  <button id="load">Load</button>
+  <span id="status"></span>
+</div>
+<canvas id="gl"></canvas>
+<div id="message" hidden></div>
+
+<script>
+"use strict";
+
+const canvas = document.getElementById("gl");
+const statusEl = document.getElementById("status");
+const messageEl = document.getElementById("message");
+const datasetRefInput = document.getElementById("datasetRef");
+const xColInput = document.getElementById("xCol");
+const yColInput = document.getElementById("yCol");
+
+function showMessage(text) {
+  messageEl.textContent = text;
+  messageEl.hidden = false;
+}
+function hideMessage() {
+  messageEl.hidden = true;
+}
+function setStatus(text) {
+  statusEl.textContent = text;
+}
+
+// ── Tile decode (mirrors `viz_interactive::encode_tile`'s exact layout) ──
+// offset 0  u8  protocol_version
+// offset 1  u8  status (0=Ok, 1=Unavailable)
+// offset 2  u8  tier   (0=Direct,1=Decimate,2=Density,3=Tiled)
+// offset 3  u8  exact  (0/1)
+// offset 4  u8  mark
+// offset 5..8   padding
+// offset 8  u32 point_count (LE)
+// offset 12..16 padding
+// offset 16 f64 x_min
+// offset 24 f64 x_max
+// offset 32 f64 y_min
+// offset 40 f64 y_max
+// offset 48.. interleaved f32 (x,y) pairs, point_count * 8 bytes
+function decodeTile(buffer) {
+  const dv = new DataView(buffer);
+  const status = dv.getUint8(1);
+  const tier = dv.getUint8(2);
+  const exact = dv.getUint8(3) !== 0;
+  const count = dv.getUint32(8, true);
+  const xMin = dv.getFloat64(16, true);
+  const xMax = dv.getFloat64(24, true);
+  const yMin = dv.getFloat64(32, true);
+  const yMax = dv.getFloat64(40, true);
+  const points = new Float32Array(buffer, 48, count * 2);
+  return { status, tier, exact, count, xMin, xMax, yMin, yMax, points };
+}
+
+const TIER_NAMES = ["direct", "decimate", "density", "tiled"];
+
+// ── Renderer abstraction: either backend exposes the same tiny surface ──
+// setGeometry(points: Float32Array) -- uploads a NEW vertex buffer (only on
+//   a fresh tile fetch); setDomain(xMin,xMax,yMin,yMax,viewX0,viewX1) --
+//   updates the (cheap, geometry-untouched) uniforms for pan/zoom; draw().
+let renderer = null;
+
+async function makeWebGpuRenderer() {
+  if (!("gpu" in navigator)) return null;
+  let adapter, device;
+  try {
+    adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return null;
+    device = await adapter.requestDevice();
+  } catch (e) {
+    return null;
+  }
+  const context = canvas.getContext("webgpu");
+  if (!context) return null;
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({ device, format, alphaMode: "opaque" });
+
+  const shader = device.createShaderModule({ code: `
+    struct Domain { xMin: f32, xMax: f32, yMin: f32, yMax: f32,
+                     viewX0: f32, viewX1: f32, pad0: f32, pad1: f32 };
+    @group(0) @binding(0) var<uniform> d: Domain;
+    struct VOut { @builtin(position) pos: vec4<f32> };
+    @vertex
+    fn vs(@location(0) xy: vec2<f32>) -> VOut {
+      let spanX = max(d.viewX1 - d.viewX0, 1e-9);
+      let spanY = max(d.yMax - d.yMin, 1e-9);
+      let ndcX = ((xy.x - d.viewX0) / spanX) * 2.0 - 1.0;
+      let ndcY = ((xy.y - d.yMin) / spanY) * 2.0 - 1.0;
+      var out: VOut;
+      out.pos = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
+      return out;
+    }
+    @fragment
+    fn fs() -> @location(0) vec4<f32> {
+      return vec4<f32>(0.35, 0.75, 1.0, 1.0);
+    }
+  `});
+
+  const uniformBuffer = device.createBuffer({
+    size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  const bindGroupLayout = device.createBindGroupLayout({
+    entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: {} }],
+  });
+  const bindGroup = device.createBindGroup({
+    layout: bindGroupLayout,
+    entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
+  });
+  const pipeline = device.createRenderPipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+    vertex: {
+      module: shader, entryPoint: "vs",
+      buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }],
+    },
+    fragment: { module: shader, entryPoint: "fs", targets: [{ format }] },
+    primitive: { topology: "line-strip" },
+  });
+
+  let vertexBuffer = null;
+  let vertexCount = 0;
+
+  return {
+    kind: "webgpu",
+    setGeometry(points) {
+      vertexCount = points.length / 2;
+      if (vertexBuffer) vertexBuffer.destroy();
+      if (vertexCount === 0) { vertexBuffer = null; return; }
+      vertexBuffer = device.createBuffer({
+        size: points.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        mappedAtCreation: true,
+      });
+      new Float32Array(vertexBuffer.getMappedRange()).set(points);
+      vertexBuffer.unmap();
+    },
+    setDomain(xMin, xMax, yMin, yMax, viewX0, viewX1) {
+      device.queue.writeBuffer(uniformBuffer, 0, new Float32Array([xMin, xMax, yMin, yMax, viewX0, viewX1, 0, 0]));
+    },
+    draw() {
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: context.getCurrentTexture().createView(),
+          clearValue: { r: 0.043, g: 0.051, b: 0.07, a: 1 },
+          loadOp: "clear", storeOp: "store",
+        }],
+      });
+      if (vertexBuffer && vertexCount > 1) {
+        pass.setPipeline(pipeline);
+        pass.setBindGroup(0, bindGroup);
+        pass.setVertexBuffer(0, vertexBuffer);
+        pass.draw(vertexCount);
+      }
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+    },
+  };
+}
+
+function makeWebGl2Renderer() {
+  const gl = canvas.getContext("webgl2");
+  if (!gl) return null;
+
+  const vsSrc = `#version 300 es
+    layout(location=0) in vec2 xy;
+    uniform vec4 domainXY;   // xMin, yMin, viewX0, ySpanInv-not-used
+    uniform vec4 viewSpan;   // viewX0, viewX1, yMin, yMax
+    void main() {
+      float spanX = max(viewSpan.y - viewSpan.x, 1e-9);
+      float spanY = max(viewSpan.w - viewSpan.z, 1e-9);
+      float ndcX = ((xy.x - viewSpan.x) / spanX) * 2.0 - 1.0;
+      float ndcY = ((xy.y - viewSpan.z) / spanY) * 2.0 - 1.0;
+      gl_Position = vec4(ndcX, ndcY, 0.0, 1.0);
+    }`;
+  const fsSrc = `#version 300 es
+    precision mediump float;
+    out vec4 outColor;
+    void main() { outColor = vec4(0.35, 0.75, 1.0, 1.0); }`;
+
+  function compile(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      throw new Error("shader compile failed: " + gl.getShaderInfoLog(sh));
+    }
+    return sh;
+  }
+  const program = gl.createProgram();
+  gl.attachShader(program, compile(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    throw new Error("program link failed: " + gl.getProgramInfoLog(program));
+  }
+  const viewSpanLoc = gl.getUniformLocation(program, "viewSpan");
+  const vbo = gl.createBuffer();
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0);
+  gl.bindVertexArray(null);
+
+  let vertexCount = 0;
+  let viewSpan = [0, 1, 0, 1];
+
+  return {
+    kind: "webgl2",
+    setGeometry(points) {
+      vertexCount = points.length / 2;
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, points, gl.DYNAMIC_DRAW);
+    },
+    setDomain(xMin, xMax, yMin, yMax, viewX0, viewX1) {
+      viewSpan = [viewX0, viewX1, yMin, yMax];
+    },
+    draw() {
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.clearColor(0.043, 0.051, 0.07, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      if (vertexCount > 1) {
+        gl.useProgram(program);
+        gl.uniform4fv(viewSpanLoc, viewSpan);
+        gl.bindVertexArray(vao);
+        gl.drawArrays(gl.LINE_STRIP, 0, vertexCount);
+      }
+    },
+  };
+}
+
+async function initRenderer() {
+  renderer = await makeWebGpuRenderer();
+  if (renderer) { setStatus("backend: webgpu"); return true; }
+  try {
+    renderer = makeWebGl2Renderer();
+  } catch (e) {
+    renderer = null;
+  }
+  if (renderer) { setStatus("backend: webgl2 (webgpu unavailable)"); return true; }
+  showMessage(
+    "This browser supports neither WebGPU nor WebGL2 — the interactive " +
+    "renderer cannot accelerate this view. Use the static PNG/SVG/PDF " +
+    "export (Method::Viz VizOp::Render) instead."
+  );
+  setStatus("no accelerated backend available");
+  return false;
+}
+
+function resizeCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr));
+  canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+// ── Viewport / fetch state ──
+let state = {
+  datasetRef: "",
+  xCol: "x",
+  yCol: "y",
+  xMin: 0, xMax: 1, yMin: 0, yMax: 1, // full data-space domain of the LAST fetched tile
+  viewX0: 0, viewX1: 1,               // current visible x-range (may be a sub-range, pan/zoom)
+  hasData: false,
+};
+
+let fetchTimer = null;
+function scheduleFetch(delayMs) {
+  if (fetchTimer) clearTimeout(fetchTimer);
+  fetchTimer = setTimeout(fetchTile, delayMs);
+}
+
+async function fetchTile() {
+  if (!state.datasetRef) return;
+  const widthPx = Math.max(16, Math.round(canvas.clientWidth));
+  const params = new URLSearchParams({
+    dataset_ref: state.datasetRef,
+    x: state.xCol,
+    y: state.yCol,
+    width_px: String(widthPx),
+  });
+  if (state.hasData) {
+    params.set("x0", String(state.viewX0));
+    params.set("x1", String(state.viewX1));
+  }
+  setStatus("loading…");
+  let resp;
+  try {
+    resp = await fetch("/tile?" + params.toString());
+  } catch (e) {
+    setStatus("fetch failed: " + e);
+    return;
+  }
+  if (!resp.ok) {
+    const body = await resp.text();
+    setStatus("error: " + body);
+    return;
+  }
+  const buffer = await resp.arrayBuffer();
+  const tile = decodeTile(buffer);
+  if (tile.status !== 0) {
+    showMessage("No data available for this dataset/viewport.");
+    setStatus("unavailable");
+    if (renderer) renderer.setGeometry(new Float32Array(0));
+    return;
+  }
+  hideMessage();
+  state.xMin = tile.xMin; state.xMax = tile.xMax;
+  state.yMin = tile.yMin; state.yMax = tile.yMax;
+  if (!state.hasData) {
+    state.viewX0 = tile.xMin;
+    state.viewX1 = tile.xMax;
+  }
+  state.hasData = true;
+  setStatus(`tier=${TIER_NAMES[tile.tier] || tile.tier} exact=${tile.exact} points=${tile.count}`);
+  if (renderer) {
+    renderer.setGeometry(tile.points);
+    renderer.setDomain(state.xMin, state.xMax, state.yMin, state.yMax, state.viewX0, state.viewX1);
+  }
+}
+
+function renderFrame() {
+  if (renderer) renderer.draw();
+  requestAnimationFrame(renderFrame);
+}
+
+// ── Pan (drag) / zoom (wheel) — update uniforms INSTANTLY, re-fetch DEBOUNCED ──
+let dragging = false, dragStartX = 0, dragStartView = [0, 1];
+canvas.addEventListener("pointerdown", (e) => {
+  if (!state.hasData) return;
+  dragging = true;
+  canvas.classList.add("dragging");
+  dragStartX = e.clientX;
+  dragStartView = [state.viewX0, state.viewX1];
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  const dxPx = e.clientX - dragStartX;
+  const span = dragStartView[1] - dragStartView[0];
+  const dxData = -(dxPx / Math.max(1, canvas.clientWidth)) * span;
+  state.viewX0 = dragStartView[0] + dxData;
+  state.viewX1 = dragStartView[1] + dxData;
+  if (renderer) renderer.setDomain(state.xMin, state.xMax, state.yMin, state.yMax, state.viewX0, state.viewX1);
+  scheduleFetch(150);
+});
+canvas.addEventListener("pointerup", (e) => {
+  dragging = false;
+  canvas.classList.remove("dragging");
+  canvas.releasePointerCapture(e.pointerId);
+});
+canvas.addEventListener("wheel", (e) => {
+  if (!state.hasData) return;
+  e.preventDefault();
+  const span = state.viewX1 - state.viewX0;
+  const factor = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+  const mid = (state.viewX0 + state.viewX1) / 2;
+  const newSpan = span * factor;
+  state.viewX0 = mid - newSpan / 2;
+  state.viewX1 = mid + newSpan / 2;
+  if (renderer) renderer.setDomain(state.xMin, state.xMax, state.yMin, state.yMax, state.viewX0, state.viewX1);
+  scheduleFetch(150);
+}, { passive: false });
+
+document.getElementById("load").addEventListener("click", () => {
+  state.datasetRef = datasetRefInput.value.trim();
+  state.xCol = xColInput.value.trim() || "x";
+  state.yCol = yColInput.value.trim() || "y";
+  state.hasData = false;
+  fetchTile();
+});
+
+(async function main() {
+  const ok = await initRenderer();
+  const params = new URLSearchParams(window.location.search);
+  const initialDataset = params.get("dataset_ref");
+  if (initialDataset) {
+    datasetRefInput.value = initialDataset;
+    state.datasetRef = initialDataset;
+    state.xCol = params.get("x") || "x";
+    state.yCol = params.get("y") || "y";
+  }
+  if (ok) {
+    requestAnimationFrame(renderFrame);
+    if (state.datasetRef) fetchTile();
+  }
+})();
+</script>
+</body>
+</html>

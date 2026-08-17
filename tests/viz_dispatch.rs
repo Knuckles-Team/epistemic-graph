@@ -51,6 +51,8 @@ fn state() -> Arc<RwLock<ServerState>> {
         registry: GraphRegistry::new(),
         isolation: common::current_isolation(),
         channels: ChannelManager::new(),
+        #[cfg(feature = "viz-static-export")]
+        viz_engine: None,
         auth_secret: SECRET.to_string(),
         persist_dir,
         persistence,
@@ -111,6 +113,8 @@ struct DecodedVizRenderResponse {
     #[allow(dead_code)]
     format: String,
     content_type: String,
+    result_ref: String,
+    cached: bool,
     #[serde(with = "serde_bytes")]
     bytes: Vec<u8>,
 }
@@ -165,7 +169,7 @@ async fn inline_columns_scatter_resolves_at_direct_tier() {
 
     let render = VizRenderRequest {
         spec_json: scatter_spec("ds:inline"),
-        dataset: VizDatasetSource::InlineColumns { columns },
+        dataset: Some(VizDatasetSource::InlineColumns { columns }),
         width_px: 400,
         height_px: 300,
         format: VizFormat::Png,
@@ -198,11 +202,11 @@ async fn synthetic_scatter_clusters_at_high_row_count_resolves_at_density_tier()
 
     let render = VizRenderRequest {
         spec_json: scatter_spec("ds:synthetic-scatter"),
-        dataset: VizDatasetSource::SyntheticScatterClusters {
+        dataset: Some(VizDatasetSource::SyntheticScatterClusters {
             row_count: 5_000_000,
             clusters: 5,
             seed: 42,
-        },
+        }),
         width_px: 800,
         height_px: 600,
         format: VizFormat::Png,
@@ -237,11 +241,11 @@ async fn synthetic_graph_small_resolves_at_direct_tier() {
 
     let render = VizRenderRequest {
         spec_json: graph_spec("ds:synthetic-graph-small"),
-        dataset: VizDatasetSource::SyntheticGraph {
+        dataset: Some(VizDatasetSource::SyntheticGraph {
             node_count: 40,
             edge_count: 80,
             seed: 1,
-        },
+        }),
         width_px: 400,
         height_px: 300,
         format: VizFormat::Png,
@@ -283,11 +287,11 @@ async fn synthetic_graph_large_resolves_at_density_tier() {
 
     let render = VizRenderRequest {
         spec_json: graph_spec("ds:synthetic-graph-large"),
-        dataset: VizDatasetSource::SyntheticGraph {
+        dataset: Some(VizDatasetSource::SyntheticGraph {
             node_count: 300_000,
             edge_count: 600_000,
             seed: 2,
-        },
+        }),
         width_px: 800,
         height_px: 600,
         format: VizFormat::Png,
@@ -354,11 +358,11 @@ async fn invalid_spec_json_is_a_typed_error_not_a_panic() {
     let state = state();
     let render = VizRenderRequest {
         spec_json: serde_json::json!({"not": "a valid ViewSpec"}),
-        dataset: VizDatasetSource::SyntheticScatterClusters {
+        dataset: Some(VizDatasetSource::SyntheticScatterClusters {
             row_count: 10,
             clusters: 1,
             seed: 0,
-        },
+        }),
         width_px: 100,
         height_px: 100,
         format: VizFormat::Png,
@@ -380,4 +384,246 @@ async fn invalid_spec_json_is_a_typed_error_not_a_panic() {
         resp.error.is_some(),
         "an invalid spec_json must be a typed error"
     );
+}
+
+// ── Lane V4: persistent ColumnStore, content-addressed render cache,
+// durable provenance — end to end through the SAME served RPC surface. ──
+
+#[tokio::test]
+async fn omitting_dataset_against_an_unknown_dataset_ref_is_an_explicit_unavailable_error() {
+    let state = state();
+    let render = VizRenderRequest {
+        spec_json: scatter_spec("ds:never-ingested"),
+        dataset: None,
+        width_px: 200,
+        height_px: 150,
+        format: VizFormat::Png,
+        max_primitives: 200_000,
+        max_bytes: 50_000_000,
+        dataset_ref: "ds:never-ingested".to_string(),
+    };
+    let resp = Box::pin(dispatch(
+        &state,
+        req(
+            7,
+            Method::Viz {
+                op: VizOp::Render(render),
+            },
+        ),
+    ))
+    .await;
+    assert!(
+        resp.error.is_some(),
+        "an unknown dataset_ref with no data supplied must be a clear \
+         'unavailable' error, never a fabricated empty render"
+    );
+    let message = resp.error.unwrap();
+    assert!(
+        message.contains("unavailable"),
+        "error message should explain the data is unavailable, got: {message}"
+    );
+}
+
+#[tokio::test]
+async fn a_second_request_omitting_dataset_reuses_the_persistently_ingested_data() {
+    let state = state();
+
+    let mut columns = std::collections::BTreeMap::new();
+    let xs: Vec<f64> = (0..30).map(|i| i as f64).collect();
+    let ys: Vec<f64> = (0..30).map(|i| (i * 3) as f64).collect();
+    columns.insert("x".to_string(), VizColumnValues::F64(xs));
+    columns.insert("y".to_string(), VizColumnValues::F64(ys));
+
+    let first = VizRenderRequest {
+        spec_json: scatter_spec("ds:persist"),
+        dataset: Some(VizDatasetSource::InlineColumns { columns }),
+        width_px: 400,
+        height_px: 300,
+        format: VizFormat::Png,
+        max_primitives: 200_000,
+        max_bytes: 50_000_000,
+        dataset_ref: "ds:persist".to_string(),
+    };
+    let resp1 = Box::pin(dispatch(
+        &state,
+        req(
+            8,
+            Method::Viz {
+                op: VizOp::Render(first),
+            },
+        ),
+    ))
+    .await;
+    let payload1 = raw_result(&resp1);
+    assert_valid_png(&payload1.bytes);
+
+    // Second request: SAME dataset_ref, dataset OMITTED, and a DIFFERENT
+    // format (SVG) -- proves this is a real second resolve against the
+    // persistent store (not merely a cache hit of the first response), and
+    // that omitting `dataset` genuinely resolves against already-ingested
+    // data rather than erroring.
+    let second = VizRenderRequest {
+        spec_json: scatter_spec("ds:persist"),
+        dataset: None,
+        width_px: 400,
+        height_px: 300,
+        format: VizFormat::Svg,
+        max_primitives: 200_000,
+        max_bytes: 50_000_000,
+        dataset_ref: "ds:persist".to_string(),
+    };
+    let resp2 = Box::pin(dispatch(
+        &state,
+        req(
+            9,
+            Method::Viz {
+                op: VizOp::Render(second),
+            },
+        ),
+    ))
+    .await;
+    let payload2 = raw_result(&resp2);
+    assert_eq!(payload2.content_type, "image/svg+xml");
+    assert!(String::from_utf8(payload2.bytes)
+        .unwrap()
+        .starts_with("<svg"));
+    assert_eq!(payload2.view_result["row_count"], serde_json::json!(30));
+}
+
+#[tokio::test]
+async fn an_identical_repeat_render_request_is_served_from_the_cache() {
+    let state = state();
+
+    let mut columns = std::collections::BTreeMap::new();
+    columns.insert("x".to_string(), VizColumnValues::F64(vec![1.0, 2.0, 3.0]));
+    columns.insert("y".to_string(), VizColumnValues::F64(vec![1.0, 4.0, 9.0]));
+
+    let make_request = |dataset: Option<VizDatasetSource>| VizRenderRequest {
+        spec_json: scatter_spec("ds:cache"),
+        dataset,
+        width_px: 300,
+        height_px: 200,
+        format: VizFormat::Png,
+        max_primitives: 200_000,
+        max_bytes: 50_000_000,
+        dataset_ref: "ds:cache".to_string(),
+    };
+
+    let resp1 = Box::pin(dispatch(
+        &state,
+        req(
+            10,
+            Method::Viz {
+                op: VizOp::Render(make_request(Some(VizDatasetSource::InlineColumns {
+                    columns,
+                }))),
+            },
+        ),
+    ))
+    .await;
+    let payload1 = raw_result(&resp1);
+    assert!(
+        !payload1.cached,
+        "the FIRST render must be a genuine cache miss"
+    );
+
+    let resp2 = Box::pin(dispatch(
+        &state,
+        req(
+            11,
+            Method::Viz {
+                op: VizOp::Render(make_request(None)),
+            },
+        ),
+    ))
+    .await;
+    let payload2 = raw_result(&resp2);
+    assert!(
+        payload2.cached,
+        "an IDENTICAL repeat request (same spec/dataset/canvas/format) must hit \
+         the V4 render cache"
+    );
+    assert_eq!(
+        payload1.result_ref, payload2.result_ref,
+        "identical renders must share the SAME content-addressed provenance identity"
+    );
+    assert_eq!(payload1.bytes, payload2.bytes);
+}
+
+#[tokio::test]
+async fn render_provenance_is_queryable_after_a_render_and_absent_before() {
+    let state = state();
+
+    let before = Box::pin(dispatch(
+        &state,
+        req(
+            12,
+            Method::Viz {
+                op: VizOp::RenderProvenance {
+                    result_ref: "eg:viz_result:nonexistent".to_string(),
+                },
+            },
+        ),
+    ))
+    .await;
+    assert!(before.error.is_none());
+    match &before.result {
+        Some(ResultPayload::Raw(bytes)) => {
+            let value: Option<serde_json::Value> = rmp_serde::from_slice(bytes).unwrap();
+            assert!(
+                value.is_none(),
+                "an unknown result_ref must answer None, not an error"
+            );
+        }
+        other => panic!("expected Raw result, got {other:?}"),
+    }
+
+    let mut columns = std::collections::BTreeMap::new();
+    columns.insert("x".to_string(), VizColumnValues::F64(vec![1.0, 2.0]));
+    columns.insert("y".to_string(), VizColumnValues::F64(vec![1.0, 2.0]));
+    let render = VizRenderRequest {
+        spec_json: scatter_spec("ds:provenance"),
+        dataset: Some(VizDatasetSource::InlineColumns { columns }),
+        width_px: 200,
+        height_px: 150,
+        format: VizFormat::Png,
+        max_primitives: 200_000,
+        max_bytes: 50_000_000,
+        dataset_ref: "ds:provenance".to_string(),
+    };
+    let render_resp = Box::pin(dispatch(
+        &state,
+        req(
+            13,
+            Method::Viz {
+                op: VizOp::Render(render),
+            },
+        ),
+    ))
+    .await;
+    let payload = raw_result(&render_resp);
+
+    let after = Box::pin(dispatch(
+        &state,
+        req(
+            14,
+            Method::Viz {
+                op: VizOp::RenderProvenance {
+                    result_ref: payload.result_ref.clone(),
+                },
+            },
+        ),
+    ))
+    .await;
+    assert!(after.error.is_none());
+    match &after.result {
+        Some(ResultPayload::Raw(bytes)) => {
+            let value: Option<serde_json::Value> = rmp_serde::from_slice(bytes).unwrap();
+            let record = value.expect("provenance record must exist after a real render");
+            assert_eq!(record["dataset_ref"], serde_json::json!("ds:provenance"));
+            assert_eq!(record["row_count"], serde_json::json!(2));
+            assert_eq!(record["exact"], serde_json::json!(true));
+        }
+        other => panic!("expected Raw result, got {other:?}"),
+    }
 }
