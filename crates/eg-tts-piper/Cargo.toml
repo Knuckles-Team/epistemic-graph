@@ -50,6 +50,34 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 
+[features]
+# BUG-276 / GOC-34-W07 Path 2 (durable, no-AVX2-dependent qualification): opt-in
+# runtime dlopen of a caller-provided onnxruntime shared library, instead of the
+# default `download-binaries` build-time static link against pyke's AVX2-only
+# prebuilt. `ort/load-dynamic` implies `ort-sys/disable-linking`
+# (pykeio/ort `Cargo.toml`), so this feature is safe to combine with `--all-features`
+# on ANY platform — unlike the removed accelerator features (`cuda`/`vulkan`/etc,
+# see `src/lib.rs`), `disable-linking` skips ort-sys's build script's static-link/
+# download step entirely rather than requiring a target-specific toolchain, so it
+# always COMPILES; only loading a library at RUNTIME needs the operator to point
+# `ORT_DYLIB_PATH` (an `ort`-native env var, read in `ort`'s `Environment::new`,
+# no code change needed in this crate) at a real `libonnxruntime.so`. This is how a
+# Westmere/Sandy-Bridge host (no AVX2) runs real inference: build onnxruntime from
+# source with every ISA-gated option that would embed an unconditional AVX2/FMA/
+# BMI2 baseline turned off (`onnxruntime_BUILD_FOR_NATIVE_MACHINE`/`onnxruntime_
+# USE_AVX`/`onnxruntime_USE_AVX2`/`onnxruntime_USE_AVX512` all `OFF` — see
+# `docs/architecture/native_tts_piper.md`'s "Path 2" section for the exact CMake
+# flags and why the naive "just turn off USE_AVX2" reading is insufficient), then
+# set `ORT_DYLIB_PATH` to the resulting `libonnxruntime.so`. The custom build MUST
+# be the SAME ONNX Runtime release ort-sys pins (1.24.x, matching `api-24` — see
+# the `ort-sys` version-family comment above): an API-version MISMATCH (e.g. the
+# `libonnxruntime1.23` Debian package against this crate's rc.12/api-24 pin) hits a
+# known upstream `ort` 2.0.0-rc.12 defect — a reentrant lock in its own error-
+# reporting path when the loaded library's API version doesn't match — so the
+# earlier system-package fallback attempt was rejected for the wrong reason (a
+# version mismatch), not because `load-dynamic` itself is unsound.
+ort-load-dynamic = ["ort/load-dynamic"]
+
 [dev-dependencies]
 # Test-only: hand-rolled minimal ONNX ModelProto protobuf encoder lives in
 # tests/fixture.rs (no `onnx`/tooling dependency, no committed binary fixture,
