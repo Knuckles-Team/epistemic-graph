@@ -229,10 +229,16 @@ jobs:
 
       # Release binaries must not retain checkout, build-user, Cargo, or toolchain
       # roots. The helper preserves existing flags using Cargo's encoded form and
-      # reports counts only (never the concrete prefixes).
+      # reports counts only (never the concrete prefixes). `--target` is required
+      # here (unlike the single-target `gates` job above): this job cross-builds
+      # multiple targets, and the C/C++ prefix-map flag is feature-detected
+      # per target compiler -- the manylinux aarch64 cross-gcc rejects
+      # -ffile-prefix-map (GCC 8+ only) and falls back to -fdebug-prefix-map,
+      # written to a CFLAGS_<target> variable scoped to this leg alone so it
+      # can never reach a different leg's toolchain.
       - name: Configure identity-neutral Rust source paths
         shell: bash
-        run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV"
+        run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "${{ matrix.target }}"
 
       # Two independent native builds prove the complete folded wheel is byte-for-byte
       # reproducible. Each pass starts from empty Cargo state at the same neutral path
