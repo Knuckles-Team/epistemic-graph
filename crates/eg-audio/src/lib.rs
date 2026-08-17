@@ -20,6 +20,16 @@
 //! `src/runtime.rs`, behind `runtime`, provides the native codec, temporal posting
 //! index, and exact time/RMS predicates. Governed persistence is exposed through
 //! [`AudioServingRuntime`].
+//!
+//! ## `ingress` (GOC-32, OPT-IN, default OFF)
+//!
+//! `src/ingress.rs`, behind `ingress`, is the versioned realtime audio-ingress
+//! wire contract (`audio.ingress.*`) plus a pure, dependency-light in-process
+//! runtime: frame shape/integrity validation, sequence/watermark tracking with a
+//! bounded reorder window, and a bounded admission queue that proves backpressure
+//! rather than unbounded growth. It adds no codec, transport, device, or CAS
+//! dependency — see the module doc for the exact authority boundary and what is
+//! (and is not) proven there.
 
 mod audio;
 mod header;
@@ -31,6 +41,10 @@ mod contract;
 // Pure-Rust native runtime.
 #[cfg(feature = "runtime")]
 pub mod runtime;
+
+// Realtime audio-ingress contract + bounded in-process runtime (GOC-32).
+#[cfg(feature = "ingress")]
+pub mod ingress;
 
 pub use audio::{AudioData, AudioFeatureWindow, AudioSegment};
 
@@ -46,6 +60,19 @@ mod default_build_guardrail {
         assert!(
             !cfg!(feature = "runtime"),
             "the `runtime` feature must stay opt-in, never part of `default`"
+        );
+    }
+}
+
+// The realtime ingress contract stays opt-in until GOC-32-W03..W07 wire a real
+// worker/transport around it — see crates/eg-audio/src/ingress.rs.
+#[cfg(all(test, not(feature = "ingress")))]
+mod default_build_guardrail_ingress {
+    #[test]
+    fn default_build_has_no_ingress() {
+        assert!(
+            !cfg!(feature = "ingress"),
+            "the `ingress` feature must stay opt-in, never part of `default`"
         );
     }
 }
