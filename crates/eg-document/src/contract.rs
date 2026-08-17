@@ -260,7 +260,7 @@ impl GovernedModality for DocumentData {
 
 impl ConformanceTestable for DocumentData {
     fn conformance_sample() -> Self {
-        DocumentData::new("deadbeefcafefeed00000000000000000deadbeefcafefeed00000000000000000")
+        DocumentData::new("deadbeefcafefeed00000000000000000deadbeefcafefeed000000000000000")
             .with_language("en")
             .with_pages(vec![Page::new(
                 1,

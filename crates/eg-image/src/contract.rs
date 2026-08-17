@@ -222,7 +222,7 @@ impl ConformanceTestable for ImageData {
         ImageData::new(
             640,
             480,
-            "deadbeefcafefeed00000000000000000deadbeefcafefeed00000000000000000",
+            "deadbeefcafefeed00000000000000000deadbeefcafefeed000000000000000",
         )
         .with_format(ImageFormat::Png)
         .with_native_features(ImageColorSpace::Rgba, 8, 0x0123_4567_89ab_cdef)
