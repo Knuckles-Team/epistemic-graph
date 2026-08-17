@@ -546,3 +546,20 @@ repos:
     language: python
     pass_filenames: false
     always_run: true
+- repo: local
+  hooks:
+  - id: guardrail-tracked-privacy
+    name: Guardrail — tracked public artifacts contain no host-specific data or local identities
+    entry: python3 scripts/check_tracked_privacy.py
+    language: system
+    # NOT scoped, despite being expensive: a privacy leak (hostname, local
+    # path, identity) can land in ANY tracked file type (docs, config,
+    # fixtures, Rust source), not just one directory, so no `files:` regex
+    # narrower than "everything tracked" can be proven not to miss one.
+    # Ported from agent-utilities' identically-named/identically-behaved
+    # gate (`scripts/check_tracked_privacy.py`'s own module docstring notes
+    # the one intentional adaptation: this repo's own top-level source
+    # trees, not agent-utilities'). This repo publishes to a public GitHub
+    # org, same as agent-utilities.
+    pass_filenames: false
+    always_run: true
