@@ -966,10 +966,35 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Saga,
         },
+        // GOC-15/BUG-030 (re-rated -> closed): `PlacementRoute` used to share
+        // `CatalogList`/`RebalancePlan`'s `admin:cluster-read` action, but unlike
+        // those genuinely rare cluster-admin ops it is on the hot path of EVERY
+        // graph-routed request (`epistemic_graph.client`/AU's
+        // `placement_catalog.py::resolve_placement` calls it before each Cypher/
+        // traversal op once route config is present). Gating it `admin:` meant
+        // `IsolationLayer::has_admin_capability` (System role or a durable
+        // `RbacAction::Admin` grant -- see `crates/eg-core/src/isolation.rs`) was
+        // required just to learn ROUTING METADATA for one's OWN tenant, so only the
+        // bootstrap `System` identity could route at all -- proven live by GOC-61.
+        // Mirrors the SAME precedent `ClusterMembers` already set for exactly this
+        // reason ("cluster:topology-read", deliberately NOT admin:cluster-read --
+        // ordinary service roles need it to re-resolve after a failover"):
+        // `cluster:placement-read` is a genuinely narrower action, satisfied by an
+        // ordinary `kg:read`/`kg:write` scope (it does not start with `admin:`/
+        // `security:` or end with `:admin`/`:control`, so
+        // `auth::coarse_kg_admin_only` no longer forces `kg:admin`, and
+        // `access::is_admin_authz_action` no longer routes it through
+        // `require_admin_capability` at all). The route answer is cluster
+        // placement metadata (group/epoch/endpoints), never row data, so this does
+        // NOT widen any actor's access to graph content -- `handlers::placement::
+        // handle_route` additionally requires the request's own tenant to match
+        // the caller's verified tenant unless the caller holds `kg:admin`, so this
+        // change narrows to "read your own tenant's routing metadata" rather than
+        // widening to "cluster admin".
         Method::PlacementRoute { .. } => MethodPolicy {
             mutates: false,
             durability_domain: DurabilityDomain::None,
-            authz_action: "admin:cluster-read",
+            authz_action: "cluster:placement-read",
             idempotent: true,
             audited: false,
             emits_cdc: false,
@@ -2455,7 +2480,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("CatalogList", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RebalancePlan", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RebalanceExecute", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "prepared/committed admin MutationBatch saga"),
-        ("PlacementRoute", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader"),
+        ("PlacementRoute", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "cluster:placement-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader; GOC-15/BUG-030 narrowed off admin:cluster-read (2026-08-17) -- ordinary kg:read/kg:write routes their OWN tenant, handlers::placement::handle_route requires kg:admin for any other tenant's route"),
         ("RaftAddLearner", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "leader-only openraft add_learner; attaches a non-voting replica without changing the voter set"),
         ("RaftChangeMembership", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "leader-only openraft change_membership; sets the group's exact voter set (the usual way to promote a learner added via RaftAddLearner)"),
         ("ClusterMembers", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "cluster:topology-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "ADR-1/W1.1 engine-authoritative client topology; deliberately NOT admin:cluster-read -- ordinary service roles need it to re-resolve after a failover; answered from any node, not just the leader"),

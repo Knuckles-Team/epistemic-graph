@@ -9,9 +9,9 @@
 //! 1. [`backend::ColumnStoreExportBackend::resolve`] calls
 //!    [`eg_viz_core::select_tier`] over the dataset's REAL row count and builds a
 //!    [`plan::RenderPlan`] bounded by whatever tier was selected — [`reduce::direct`]
-//!    for `Direct`, [`reduce::decimate_minmax`] for `Decimate`,
-//!    [`reduce::density_grid`] for `Density` (`Tiled` is out of this lane's scope
-//!    — see [`error::ExportError::TieredNotSupportedByStaticExport`]).
+//!    for `Direct`, [`reduce::decimate_m4`] (Line/Area) or [`reduce::decimate_minmax`]
+//!    (Bar) for `Decimate`, [`reduce::density_grid`] for `Density` (`Tiled` is out
+//!    of this lane's scope — see [`error::ExportError::TieredNotSupportedByStaticExport`]).
 //! 2. [`eg_viz_core::StaticExportBackend::export`] renders the cached plan to
 //!    `Png`/`Svg`/`Pdf` bytes via [`raster`]+[`png_encoder`], [`svg_writer`], or
 //!    [`pdf_writer`] respectively — three hand-rolled, dependency-free encoders

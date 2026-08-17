@@ -4619,6 +4619,8 @@ mod result_cache_dispatch_tests {
             registry: GraphRegistry::new(),
             isolation: current_isolation(),
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir),
             persistence: Some(backend),
@@ -5007,6 +5009,8 @@ mod rls_aware_cache_no_cross_agent_leak {
             registry: GraphRegistry::new(),
             isolation,
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir),
             persistence: Some(backend),
@@ -5376,6 +5380,8 @@ mod dispatch_write_tests {
             registry: GraphRegistry::new(),
             isolation: current_isolation(),
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir),
             persistence: Some(backend),
@@ -5772,6 +5778,8 @@ mod txn_ryow_dispatch_tests {
             registry: GraphRegistry::new(),
             isolation: current_isolation(),
             channels: ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir),
             persistence: Some(backend),

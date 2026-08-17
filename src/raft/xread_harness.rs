@@ -54,6 +54,8 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
+        #[cfg(feature = "viz-static-export")]
+        viz_engine: None,
         auth_secret: "xread-test".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend),

@@ -156,6 +156,8 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         registry,
         isolation,
         channels: ChannelManager::new(),
+        #[cfg(feature = "viz-static-export")]
+        viz_engine: None,
         auth_secret: "test".to_string(),
         #[cfg(feature = "kv")]
         kv: None,

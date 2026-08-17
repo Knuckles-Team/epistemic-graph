@@ -1,23 +1,28 @@
-//! Minimal per-tier reduction kernels (D-VZ-1 lane V3a's own scope, NOT lane V2).
+//! Per-tier reduction kernels (D-VZ-1 lanes V2 + V3a).
 //!
-//! **Scope note, read before extending this file.** The program charter names
-//! V2 ("LOD/decimation kernels: M4, LTTB, min-max, density grids, SIMD-friendly,
-//! tier selection rules") as its own lane, depending on V1 and blocking V3b. This
-//! lane (V1 + V3a) does not implement V2 — but V3a cannot honestly demonstrate
-//! "the exporter honors the tier decision" with NO reduction at all, so this
-//! module ships the smallest real reduction that makes the tier boundary
-//! observable end-to-end:
+//! **Scope note.** V3a originally shipped only a plain min-max stand-in here
+//! (see [`decimate_minmax`]'s own doc) because lane V2 ("LOD/decimation
+//! kernels: M4, LTTB, min-max, density grids, SIMD-friendly") had not landed
+//! yet. V2 has since landed as `eg-viz-kernels`; this module now delegates
+//! Decimate-tier `Line`/`Area` marks to its real, SIMD-accelerated
+//! [`eg_viz_kernels::m4_reduce`] via [`decimate_m4`] — see that function's doc
+//! for why M4 (not LTTB) is this crate's default for the static-export shape
+//! (`crate::render::resolve` picks the kernel per mark kind; `eg-viz-kernels`'s
+//! LTTB is used by the interactive tile path instead, where selecting real
+//! points rather than synthesized aggregates matters more than a smooth
+//! overview shape).
 //!
-//! - [`decimate_minmax`] — one of the three named Tier-1 algorithms (min-max;
-//!   M4/LTTB are NOT implemented here), vertical-range-per-pixel-column.
+//! - [`decimate_m4`] — M4 (`eg-viz-kernels`), the default for `Line`/`Area`.
+//! - [`decimate_minmax`] — the original plain min-max reduction, kept for
+//!   `Bar` (which has no natural M4/temporal-endpoint shape — a bar's decimated
+//!   form is still a vertical range per column, not a polyline).
 //! - [`density_grid`] — a screen-bounded count grid (the Tier-2 shape the
 //!   charter names), log-scaled to alpha.
 //!
-//! Neither is SIMD-optimized, and neither is the full algorithm family V2
-//! promises. What both genuinely prove: **output size is a function of the
-//! pixel budget (`width_px` / `grid_cols * grid_rows`), never the row count** —
-//! the exact property `select_tier` exists to protect. `direct()` is Tier 0 —
-//! full fidelity, one draw op per row, only ever reached when
+//! What all three genuinely prove: **output size is a function of the pixel
+//! budget (`width_px` / `grid_cols * grid_rows`), never the row count** — the
+//! exact property `select_tier` exists to protect. `direct()` is Tier 0 — full
+//! fidelity, one draw op per row, only ever reached when
 //! [`eg_viz_core::select_tier`] already confirmed that many primitives fit the
 //! caller's [`eg_viz_core::FrameBudget`].
 
@@ -131,6 +136,43 @@ pub fn decimate_minmax(
             x1: col as f32 + 0.5,
             y1: y_map.map(hi),
             color,
+        })
+        .collect()
+}
+
+/// Tier 1 — M4 aggregation (`eg-viz-kernels::m4_reduce`), the DEFAULT
+/// Decimate-tier kernel for `Line`/`Area` marks (see `crate::render::resolve`'s
+/// dispatch). Unlike [`decimate_minmax`] (vertical range only), M4 also
+/// preserves each column's temporal endpoints (first/last), so the resulting
+/// polyline reconstructs entry/exit shape a min-max-only reduction loses —
+/// "the standard for visually-lossless time-series downsampling" per the
+/// program's own framing. **Output size is `<= 4 * width_px - 1` segments**
+/// (at most 4 points per column, connected pairwise), independent of
+/// `xs.len()` — property-tested at `eg-viz-kernels`'s own layer
+/// (`m4_output_bounded_by_four_times_width`); this function only maps the
+/// already-bounded point sequence into screen-space `DrawOp::Segment`s.
+pub fn decimate_m4(
+    xs: &[f64],
+    ys: &[f64],
+    x_map: LinearMap,
+    y_map: LinearMap,
+    width_px: u32,
+    color: [u8; 4],
+) -> Vec<DrawOp> {
+    let domain = (x_map.domain_min, x_map.domain_max);
+    let points = eg_viz_kernels::m4_reduce(xs, ys, domain, width_px);
+    points
+        .windows(2)
+        .map(|pair| {
+            let (x0, y0) = pair[0];
+            let (x1, y1) = pair[1];
+            DrawOp::Segment {
+                x0: x_map.map(x0),
+                y0: y_map.map(y0),
+                x1: x_map.map(x1),
+                y1: y_map.map(y1),
+                color,
+            }
         })
         .collect()
 }
@@ -263,6 +305,63 @@ mod tests {
             ops.len()
         );
         assert!(!ops.is_empty());
+    }
+
+    #[test]
+    fn decimate_m4_output_size_is_bounded_by_width_not_row_count() {
+        let n = 5_000_000;
+        let xs: Vec<f64> = (0..n).map(|i| (i % 800) as f64).collect();
+        let ys: Vec<f64> = (0..n).map(|i| (i % 97) as f64).collect();
+        let ops = decimate_m4(
+            &xs,
+            &ys,
+            identity_map(800.0),
+            identity_map(600.0),
+            800,
+            [0, 0, 0, 255],
+        );
+        assert!(
+            ops.len() <= 4 * 800,
+            "M4 decimate output must be <= 4*width_px segments, got {}",
+            ops.len()
+        );
+        assert!(!ops.is_empty());
+    }
+
+    #[test]
+    fn decimate_m4_preserves_more_shape_than_plain_minmax() {
+        // A single pixel column containing a spike plus distinct entry/exit
+        // values -- M4 must report a start (x0=0.0-ish) segment endpoint the
+        // pure min-max reduction (vertical range only) cannot, since minmax
+        // only ever emits ONE segment per column (lo -> hi), never a
+        // temporal-endpoint-aware shape.
+        let xs = vec![0.0, 2.0, 5.0, 8.0, 10.0];
+        let ys = vec![50.0, 50.0, 100.0, 50.0, 50.0];
+        let minmax_ops = decimate_minmax(
+            &xs,
+            &ys,
+            identity_map(10.0),
+            identity_map(100.0),
+            1,
+            [0, 0, 0, 255],
+        );
+        let m4_ops = decimate_m4(
+            &xs,
+            &ys,
+            identity_map(10.0),
+            identity_map(100.0),
+            1,
+            [0, 0, 0, 255],
+        );
+        assert_eq!(
+            minmax_ops.len(),
+            1,
+            "minmax always emits exactly one vertical-range segment per hit column"
+        );
+        assert!(
+            m4_ops.len() >= minmax_ops.len(),
+            "M4 must never carry LESS shape information than plain min-max"
+        );
     }
 
     #[test]
