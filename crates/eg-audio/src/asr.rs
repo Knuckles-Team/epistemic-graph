@@ -32,7 +32,7 @@
 //! AsrOp::TranscribeFile }` (facade feature `asr-whisper`, off by default) —
 //! see that crate's module doc for the binding-choice justification,
 //! licensing/provenance record, and the CPU-portability build contract
-//! (rw710 has no `x86-64-v3`/AVX2). That RPC surface constructs `AsrSegment`
+//! (the fleet's interactive dev host has no `x86-64-v3`/AVX2). That RPC surface constructs `AsrSegment`
 //! values but does not call `finalize_result`/`authorize_carrier` — no
 //! governed `CarrierRef`/`AudioSourceRef` exists at a simple file-transcribe
 //! RPC boundary yet, so a durable, policy-authorized `asr.result.v1` commit
