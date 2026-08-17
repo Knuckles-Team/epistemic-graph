@@ -9,6 +9,10 @@
 //! the data lives at the bottom of the DAG, the logic stays where it belongs.
 
 pub mod acl;
+// CONCEPT:AU-ORCH.scheduling — GOC-21 distributed CapacityCell/CapacityLease
+// wire contract + pure fencing/admission algorithm (cross-host capacity
+// authority for the AU fair scheduler). Unconditional, like `acl`/`jobs`.
+pub mod capacity_lease;
 pub mod change_envelope;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
