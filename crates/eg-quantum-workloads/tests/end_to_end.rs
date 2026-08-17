@@ -55,7 +55,7 @@ fn full_pipeline_end_to_end_writes_a_typed_proposal_and_never_touches_the_source
     // 2. Pull a NISQ-sized candidate set via UQL and materialize the induced
     //    subgraph -- StateVectorSimulator's max_qubits_statevector is 24; this pulls
     //    12, squarely in the "start 8-16 nodes" NISQ-sized range the charter names.
-    let subgraph = pull_candidate_subgraph(&core, "MATCH (:Concept) LIMIT 12", 24).unwrap();
+    let subgraph = pull_candidate_subgraph(&core, "MATCH (:Concept) |> LIMIT 12", 24).unwrap();
     assert_eq!(subgraph.node_ids.len(), 12);
 
     // Snapshot the ORIGINAL subgraph's node + edge properties BEFORE running/

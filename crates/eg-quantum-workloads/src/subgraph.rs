@@ -3,7 +3,7 @@
 //!
 //! This is deliberately a THIN wrapper over the engine's EXISTING query surface
 //! (`eg_plan::uql::parse` + `eg_plan::execute`) — no new query language, no new
-//! executor. A caller hands a UQL string (e.g. `"MATCH (:Concept) LIMIT 12"`); this
+//! executor. A caller hands a UQL string (e.g. `"MATCH (:Concept) |> LIMIT 12"`); this
 //! module runs it against one `GraphCore::analysis_snapshot()` (an OCC-consistent
 //! point-in-time view, per `eg-plan`'s own snapshot-isolation guarantee) and reads
 //! back which of the SAME snapshot's edges connect two selected nodes.
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn pulls_candidate_set_and_induces_subgraph() {
         let core = build_triangle();
-        let sub = pull_candidate_subgraph(&core, "MATCH (:Concept) LIMIT 10", 24).unwrap();
+        let sub = pull_candidate_subgraph(&core, "MATCH (:Concept) |> LIMIT 10", 24).unwrap();
         assert_eq!(sub.node_ids.len(), 4);
         // Triangle a-b-c has 3 edges; "d" is isolated, contributes none.
         assert_eq!(sub.edges.len(), 3);
@@ -174,14 +174,14 @@ mod tests {
     #[test]
     fn too_many_qubits_is_a_typed_error() {
         let core = build_triangle();
-        let err = pull_candidate_subgraph(&core, "MATCH (:Concept) LIMIT 10", 2).unwrap_err();
+        let err = pull_candidate_subgraph(&core, "MATCH (:Concept) |> LIMIT 10", 2).unwrap_err();
         assert!(matches!(err, SubgraphError::TooManyQubits { n: 4, max: 2 }));
     }
 
     #[test]
     fn empty_selection_is_a_typed_error() {
         let core = build_triangle();
-        let err = pull_candidate_subgraph(&core, "MATCH (:NoSuchLabel) LIMIT 10", 24).unwrap_err();
+        let err = pull_candidate_subgraph(&core, "MATCH (:NoSuchLabel) |> LIMIT 10", 24).unwrap_err();
         assert!(matches!(err, SubgraphError::Empty { .. }));
     }
 }

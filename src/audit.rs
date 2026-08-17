@@ -377,6 +377,17 @@ pub fn audit_line(method: &Method) -> Option<String> {
         Method::GraphLearnFit { .. } => "GRAPH_LEARN_FIT".to_string(),
         #[cfg(feature = "graphlearn")]
         Method::GraphLearnPredict { .. } => "GRAPH_LEARN_PREDICT".to_string(),
+        // ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): same durable-writeback shape as
+        // the Mine*/GraphLearn* family above (`access.rs::requires_write` only reaches the
+        // durable-commit path when it actually mutates), so it gets the same audit
+        // coverage every sibling in this family already has (GOC-40, eg-capabilities'
+        // `audited_matches_audit_rs_exactly` cross-check caught the omission).
+        #[cfg(feature = "ml-pipeline")]
+        Method::MiningPipelineTrain { .. } => "MINING_PIPELINE_TRAIN".to_string(),
+        #[cfg(feature = "ml-pipeline")]
+        Method::MiningPipelineServe { .. } => "MINING_PIPELINE_SERVE".to_string(),
+        #[cfg(feature = "ml-pipeline")]
+        Method::MiningPipelinePredict { .. } => "MINING_PIPELINE_PREDICT".to_string(),
 
         // ── Message-broker / stream mutations, Outbox domain (CONCEPT:EG-KG.compute.message-broker-exchanges /
         // replayable-append-log / publisher-confirms-consumer-qos) ──────────────────────
