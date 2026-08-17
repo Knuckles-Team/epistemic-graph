@@ -1920,8 +1920,18 @@ fn explain_snapshot(
 }
 
 /// `EXPLAIN PLAN` — serialize `plan` as a `PlanDag` before/after the DAG-aware cost
-/// optimizer (`eg_plan::optimize_dag`), plus the active rule set
-/// (`eg_plan::cost_opt_rule_names()`). Pure diagnostics — no execution.
+/// optimizer (`eg_plan::optimize_dag`), annotated per-node with the SAME plan-time
+/// cost/cardinality estimate (`eg_plan::ModalityCardinality`) the optimizer reordered on,
+/// plus the active rule set (`eg_plan::cost_opt_rule_names()`). Pure diagnostics — no
+/// execution, and no result rows are ever computed (GOC-12 acceptance gate 4: an
+/// unbounded/uncosted EXPLAIN would tell an operator *that* a rewrite happened without
+/// proving *why* it is cheaper).
+///
+/// `view`/`semantic` are the SAME RLS-filtered snapshot [`explain_snapshot`] built for the
+/// caller, so every estimate here (candidate counts, selectivity, CPU/IO) is scoped to
+/// what that agent may see — never the full unfiltered store — exactly mirroring the
+/// authorize-before-rank invariant `run_unified`'s executor already enforces on actual
+/// result rows (see `rank_op`'s candidate-allowlist doc in `eg-plan/src/exec.rs`).
 #[cfg(feature = "query")]
 fn explain_plan(
     plan: eg_plan::Plan,
@@ -1929,26 +1939,58 @@ fn explain_plan(
     semantic: &eg_core::compute::semantic::SemanticStore,
 ) -> Result<crate::protocol::ExplainPlanResult, String> {
     use crate::protocol::{ExplainNodeWire, ExplainPlanResult};
-    use eg_plan::PlanCtx;
+    use eg_plan::{Cardinality, ModalityCardinality, PlanCtx, PlanStats};
 
-    fn to_wire(dag: &eg_plan::PlanDag) -> Vec<ExplainNodeWire> {
-        dag.nodes
-            .iter()
-            .enumerate()
-            .map(|(id, node)| ExplainNodeWire {
+    /// Annotate every node of `dag` with its plan-time cost/cardinality estimate, walked
+    /// in topological order so a node's `estimated_rows_in` is always derived from its
+    /// already-visited inputs' `estimated_rows_out` (never guessed out of order). A
+    /// malformed dag (`topo_order` errors — dangling input / cycle) falls back to
+    /// left-to-right node order with every node treated as its own source; this is a
+    /// diagnostics-only surface, so a best-effort annotation beats refusing to EXPLAIN at
+    /// all over a shape the optimizer itself already tolerates the same way elsewhere.
+    fn to_wire(
+        dag: &eg_plan::PlanDag,
+        card: &ModalityCardinality,
+        ctx: &PlanCtx,
+    ) -> Vec<ExplainNodeWire> {
+        let order = dag
+            .topo_order()
+            .unwrap_or_else(|_| (0..dag.nodes.len()).collect());
+        let mut rows_out = vec![0.0f64; dag.nodes.len()];
+        let mut wire: Vec<Option<ExplainNodeWire>> = vec![None; dag.nodes.len()];
+        for id in order {
+            let node = &dag.nodes[id];
+            // A source has no inputs (`0.0` in); a single-input node inherits its one
+            // predecessor's output; a multi-input fan-in/join sums its inputs' outputs —
+            // a documented, safe over-estimate (never used to size an actual allocation).
+            let in_card: f64 = node.inputs.iter().map(|&i| rows_out[i]).sum();
+            let out_card = card.rows_out(&node.op, in_card, ctx);
+            let selectivity = card.selectivity(&node.op, in_card, ctx);
+            let cost = card.cost_of(&node.op, in_card, ctx);
+            rows_out[id] = out_card;
+            wire[id] = Some(ExplainNodeWire {
                 id,
                 op: format!("{:?}", node.op),
                 inputs: node.inputs.clone(),
-            })
+                estimated_rows_in: in_card,
+                estimated_rows_out: out_card,
+                estimated_selectivity: selectivity,
+                estimated_cost_cpu: cost.cpu,
+                estimated_cost_io: cost.io,
+            });
+        }
+        wire.into_iter()
+            .map(|w| w.expect("topo_order (or its fallback) visits every node exactly once"))
             .collect()
     }
 
     let ctx = PlanCtx::new(view, semantic);
+    let card = ModalityCardinality::new(PlanStats::collect(&ctx));
     let before = eg_plan::PlanDag::from(plan);
     let after = eg_plan::optimize_dag(&before, &ctx);
     Ok(ExplainPlanResult {
-        before: to_wire(&before),
-        after: to_wire(&after),
+        before: to_wire(&before, &card, &ctx),
+        after: to_wire(&after, &card, &ctx),
         applied_rules: eg_plan::cost_opt_rule_names()
             .into_iter()
             .map(str::to_string)
