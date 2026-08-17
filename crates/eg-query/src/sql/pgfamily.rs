@@ -758,6 +758,15 @@ fn vector_order_key(expr: &Expr) -> Option<(String, VectorMetric, String)> {
         return None;
     };
     let metric = match op {
+        // GOC-40: sqlparser 0.62.0 promoted `<->` from a generic
+        // `Custom("<->")` token to the dedicated `TwoWayArrow`/`LtDashGt`
+        // token+operator pair (`PostgreSqlDialect::supports_geometric_types`),
+        // so the `Custom` arm below stopped matching it — confirmed by
+        // parsing this exact query and inspecting the AST: `op: LtDashGt`.
+        // `<#>` (inner-product) has no dedicated variant in this sqlparser
+        // version, so it still tokenizes as `Custom("<#>")` and that arm is
+        // unaffected; kept for when it too eventually gets its own token.
+        BinaryOperator::LtDashGt => VectorMetric::L2,
         BinaryOperator::Custom(s) if s == "<->" => VectorMetric::L2,
         BinaryOperator::Custom(s) if s == "<#>" => VectorMetric::InnerProduct,
         BinaryOperator::Spaceship => VectorMetric::Cosine, // `<=>`
