@@ -358,18 +358,18 @@ pub(crate) enum Cmd {
     /// private capability ledger operation in one writer-owned transaction.
     MintWorkItemClaimCapability {
         graph: String,
-        request: crate::epistemic_operations::WorkItemClaimCapabilityMintRequest,
+        request: crate::epistemic_operations_ext::WorkItemClaimCapabilityMintRequest,
         authority: crate::redb_store::work_item_capability::AuthenticatedAuthority,
         done: oneshot::Sender<
-            Result<crate::epistemic_operations::WorkItemClaimCapabilityResult, String>,
+            Result<crate::epistemic_operations_ext::WorkItemClaimCapabilityResult, String>,
         >,
     },
     VerifyWorkItemClaimCapability {
         graph: String,
-        request: crate::epistemic_operations::WorkItemClaimCapabilityVerifyRequest,
+        request: crate::epistemic_operations_ext::WorkItemClaimCapabilityVerifyRequest,
         authority: crate::redb_store::work_item_capability::AuthenticatedAuthority,
         done: oneshot::Sender<
-            Result<crate::epistemic_operations::WorkItemClaimCapabilityResult, String>,
+            Result<crate::epistemic_operations_ext::WorkItemClaimCapabilityResult, String>,
         >,
     },
     /// Native development-lane hold/quota mutation (RMDD-28: Reserve/Renew/
@@ -2514,9 +2514,9 @@ impl PersistenceBackend for RedbBackend {
     async fn mint_work_item_claim_capability(
         &self,
         graph_fname: &str,
-        request: crate::epistemic_operations::WorkItemClaimCapabilityMintRequest,
+        request: crate::epistemic_operations_ext::WorkItemClaimCapabilityMintRequest,
         authority: crate::redb_store::work_item_capability::AuthenticatedAuthority,
-    ) -> Result<crate::epistemic_operations::WorkItemClaimCapabilityResult, String> {
+    ) -> Result<crate::epistemic_operations_ext::WorkItemClaimCapabilityResult, String> {
         let (done, rx) = oneshot::channel();
         let cmd = Cmd::MintWorkItemClaimCapability {
             graph: graph_fname.to_string(),
@@ -2548,9 +2548,9 @@ impl PersistenceBackend for RedbBackend {
     async fn verify_work_item_claim_capability(
         &self,
         graph_fname: &str,
-        request: crate::epistemic_operations::WorkItemClaimCapabilityVerifyRequest,
+        request: crate::epistemic_operations_ext::WorkItemClaimCapabilityVerifyRequest,
         authority: crate::redb_store::work_item_capability::AuthenticatedAuthority,
-    ) -> Result<crate::epistemic_operations::WorkItemClaimCapabilityResult, String> {
+    ) -> Result<crate::epistemic_operations_ext::WorkItemClaimCapabilityResult, String> {
         let (done, rx) = oneshot::channel();
         let cmd = Cmd::VerifyWorkItemClaimCapability {
             graph: graph_fname.to_string(),

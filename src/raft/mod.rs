@@ -1593,11 +1593,13 @@ mod raft_authority_contract_tests {
 
     fn work_item_mutations() -> Vec<Method> {
         use crate::epistemic_operations::{
-            CasWorkItemMetadataRequest, CasWorkItemMetadataRequestSchemaVersion,
             ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion, ResourceCapacity,
             ResourceHostUpdateRequest, ResourceHostUpdateRequestSchemaVersion,
             ResourceHostUpdateRequestTargetKind, ResourceRequirement, ResourceReservationRequest,
             ResourceReservationRequestSchemaVersion, ResourceReservationRequestTargetKind,
+        };
+        use crate::epistemic_operations_ext::{
+            CasWorkItemMetadataRequest, CasWorkItemMetadataRequestSchemaVersion,
             WorkItemClaimCapabilityMintRequest, WorkItemClaimCapabilityRequestSchemaVersion,
         };
 
