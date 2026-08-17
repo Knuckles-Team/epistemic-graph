@@ -179,11 +179,29 @@ fn temp_store_path(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("eg_plan_{tag}_{}_{nanos}.redb", std::process::id()))
 }
 
-/// Build a one-field series with points at 1s/2s/3s carrying values 10/20/30.
+/// The tenant/graph scope `build_series` writes under and every test in this module
+/// must pass to `PlanCtx::with_tsdb_scope` to read it back. `tsdb_scan_op`'s committed
+/// leg (see `exec.rs`) only ever calls `SeriesStore::range_scoped` -- "tenant ownership
+/// is never inferred from a caller-controlled graph string" -- so a committed read with
+/// no scope attached always resolves `(None, None)` and degrades to zero rows (`_ =>
+/// Ok(Vec::new())`), regardless of what an unscoped write wrote. Regression note: this
+/// module used the unscoped `append_batch` + scope-less `PlanCtx` for years; it built
+/// and its assertions read correctly, but every one of them was reading the fail-closed
+/// empty default, not `build_series`'s data -- `--lib` was never part of any CI job for
+/// this crate (only `--test fuzz_pipelines` is), so nothing observed it (GOC-40).
+#[cfg(feature = "timeseries")]
+const TEST_TENANT: &str = "test-tenant";
+#[cfg(feature = "timeseries")]
+const TEST_GRAPH: &str = "test-graph";
+
+/// Build a one-field series with points at 1s/2s/3s carrying values 10/20/30, under
+/// `(TEST_TENANT, TEST_GRAPH)`. Every caller MUST also attach
+/// `.with_tsdb_scope(TEST_TENANT, TEST_GRAPH)` to its `PlanCtx` (see the module doc
+/// above `TEST_TENANT` for why an unscoped `PlanCtx` reads back nothing at all).
 #[cfg(feature = "timeseries")]
 fn build_series(path: &std::path::Path) -> eg_tsdb::store::SeriesStore {
     use eg_tsdb::point::Point;
-    use eg_tsdb::store::SeriesStore;
+    use eg_tsdb::store::{SeriesKey, SeriesStore};
 
     let store = SeriesStore::open(path).unwrap();
     let one_s: i64 = 1_000_000_000;
@@ -193,7 +211,13 @@ fn build_series(path: &std::path::Path) -> eg_tsdb::store::SeriesStore {
         Point::single(3 * one_s, 30.0),
     ];
     store
-        .append_batch("temp", 1, one_s as u64, &["v".to_string()], &points)
+        .append_scoped(
+            &SeriesKey::new(TEST_TENANT, TEST_GRAPH, "temp"),
+            1,
+            one_s as u64,
+            &["v".to_string()],
+            &points,
+        )
         .unwrap();
     store
 }
@@ -235,7 +259,9 @@ fn tsdb_in_plan_fusion() {
         from: 0.0,
         to: 10.0,
     }]);
-    let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+    let ctx = PlanCtx::new(&view, &semantic)
+        .with_tsdb(&store)
+        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
     let sourced = execute(&src_plan, &ctx).unwrap();
     assert_eq!(
         sourced.len(),
@@ -318,7 +344,9 @@ fn tsdb_in_txn_ryow_staged_overlay() {
 
     // OFF-TXN (committed only): 3 rows, committed values, no staged point/series.
     let off = {
-        let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+        let ctx = PlanCtx::new(&view, &semantic)
+            .with_tsdb(&store)
+            .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
         by_id(execute(&scan("temp"), &ctx).unwrap())
     };
     assert_eq!(off.len(), 3, "off-txn sees the 3 committed points only");
@@ -332,6 +360,7 @@ fn tsdb_in_txn_ryow_staged_overlay() {
     // committed one at the same ts (RYOW precedence).
     let ctx = PlanCtx::new(&view, &semantic)
         .with_tsdb(&store)
+        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH)
         .with_staged_series(&staged);
     let in_txn = by_id(execute(&scan("temp"), &ctx).unwrap());
     assert_eq!(
@@ -356,7 +385,9 @@ fn tsdb_in_txn_ryow_staged_overlay() {
     );
     // … but is empty off-txn (isolated until commit).
     let off_only = {
-        let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+        let ctx = PlanCtx::new(&view, &semantic)
+            .with_tsdb(&store)
+            .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
         execute(&scan("temp2"), &ctx).unwrap()
     };
     assert!(
@@ -387,7 +418,9 @@ fn tsscan_window_mean_consumes_and_composes() {
     let semantic = SemanticStore::new();
     let core = GraphCore::new();
     let view = core.analysis_snapshot();
-    let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+    let ctx = PlanCtx::new(&view, &semantic)
+        .with_tsdb(&store)
+        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
 
     // TsScan → Window(60s): one bucket (start 0), mean = 20.
     let win = Plan::new(vec![
@@ -460,7 +493,9 @@ fn window_agg_selects_the_aggregate() {
     let semantic = SemanticStore::new();
     let core = GraphCore::new();
     let view = core.analysis_snapshot();
-    let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+    let ctx = PlanCtx::new(&view, &semantic)
+        .with_tsdb(&store)
+        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
 
     let agg_value = |agg: &str| -> f32 {
         let plan = Plan::new(vec![
