@@ -7,6 +7,15 @@
 //! document decoders can implement [`DocumentDecoder`] and must emit the same
 //! governed, source-free [`DocumentData`] contract.
 //!
+//! HTML source is additionally detected (`html` module, GOC-06) and reduced to
+//! plain text ahead of the same page/block/span/lexeme extraction, so an HTML
+//! conformance-corpus input decodes as readable structure rather than raw
+//! markup. This is bounded, dependency-free tag stripping, not a spec-compliant
+//! HTML parser or layout-faithful renderer — see the `html` module doc for the
+//! documented fidelity limitation. PDF/office/container decoding and native
+//! `LayoutExtractor`/`OcrExtractor` providers remain unimplemented; see the
+//! GOC-06 lane doc's work breakdown.
+//!
 //! ## `ModalityContract` (CONCEPT:EG-P1-3)
 //!
 //! Behind the crate's `contract` feature, `DocumentData::evidence_address()` returns a real,
@@ -23,6 +32,7 @@
 mod decoder;
 mod document;
 mod header;
+mod html;
 
 // ModalityContract implementation, behind the crate's opt-in contract feature.
 #[cfg(feature = "contract")]
