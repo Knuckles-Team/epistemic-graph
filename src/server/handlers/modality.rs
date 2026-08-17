@@ -357,12 +357,19 @@ where
         delta_row_node_id(&partition, "event", &delta.event.sequence.to_string()),
         authority.cipher.seal(&event_bytes),
     );
-    let idempotency_bytes =
-        serde_json::to_vec(&delta.idempotency_entry).map_err(|_| "modality row codec failure".to_string())?;
-    core.add_node(
-        delta_row_node_id(&partition, "idem", delta.idempotency_key.as_str()),
-        authority.cipher.seal(&idempotency_bytes),
-    );
+    // `None` for a `move_to_cold`/`restore` lifecycle transition
+    // (`MutationDelta::capture_lifecycle`) — those carry no idempotency_ref
+    // on the wire, so there is no entry row to write. See
+    // `delta_store::MutationDelta::idempotency`'s doc for why this is a
+    // strict subset of the ingest/delete row shape, not a format change.
+    if let Some((idempotency_key, idempotency_entry)) = &delta.idempotency {
+        let idempotency_bytes =
+            serde_json::to_vec(idempotency_entry).map_err(|_| "modality row codec failure".to_string())?;
+        core.add_node(
+            delta_row_node_id(&partition, "idem", idempotency_key.as_str()),
+            authority.cipher.seal(&idempotency_bytes),
+        );
+    }
     let manifest_bytes = serde_json::to_vec(&DeltaManifest {
         next_sequence: delta.next_sequence,
     })
@@ -1039,6 +1046,7 @@ where
 {
     let mut runtime: ServedModalityRuntime<T> = load_runtime(core, authority, modality)?;
     let id = occurrence(occurrence_id)?;
+    let before = runtime.record(&id).cloned();
     let outcome = if restore {
         runtime.restore(&authority.scope, &id)
     } else {
@@ -1046,6 +1054,12 @@ where
     }
     .map_err(|error| error.to_string())?;
     store_runtime(core, authority, modality, &runtime)?;
+    // BUG-017 shadow-row coverage (see `MutationDelta::capture_lifecycle`'s
+    // doc): `move_to_cold`/`restore` carry no idempotency_ref, so `capture`
+    // cannot be reused here.
+    if let Some(delta) = MutationDelta::capture_lifecycle(&runtime, before.as_ref(), &id) {
+        store_delta(core, authority, modality, &delta)?;
+    }
     Ok(ResultPayload::raw(&outcome))
 }
 
@@ -1757,5 +1771,59 @@ mod tests {
 
         migrate_partition_to_rows::<DocumentData>(&core, &authority, modality)
             .expect("migration round-trips real existing data byte-for-byte");
+    }
+
+    /// BUG-017 coverage gap found revalidating GOC-45: `move_to_cold`/
+    /// `restore` (`ServedModalityOp::MoveToCold`/`Restore`) never called
+    /// `shadow_write_deltas`/`store_delta` at all prior to this pass — only
+    /// `store_runtime` (the legacy whole-snapshot writer). The row shadow
+    /// store therefore silently diverged from production truth on every
+    /// lifecycle transition, which would have failed a future digest-compare
+    /// cutover check the first time a partition saw one. Proves
+    /// `MutationDelta::capture_lifecycle` + `store_delta` now persist a
+    /// record row reflecting the POST-transition lifecycle state, with no
+    /// idempotency row (lifecycle transitions carry no `idempotency_ref` on
+    /// the wire).
+    #[test]
+    fn bug_017_lifecycle_transition_now_produces_a_shadow_row() {
+        use eg_modality::LifecycleState;
+
+        let core = GraphCore::new();
+        let authority = test_authority();
+        let modality = ServedModalityKind::Document;
+        let partition = authority.node_id(modality);
+        let mut runtime: ServedModalityRuntime<DocumentData> = ServedModalityRuntime::new();
+
+        let command = document_ingest(&authority, 0);
+        let occurrence_id = command.target_occurrence_id.clone();
+        runtime.ingest(command).expect("fresh ingest applies");
+
+        // Before this fix: nothing below this line ever ran for a lifecycle
+        // transition; only `store_runtime` (whole snapshot) did.
+        let before = runtime.record(&occurrence_id).cloned();
+        assert_eq!(before.as_ref().unwrap().lifecycle, LifecycleState::Active);
+        runtime
+            .move_to_cold(&authority.scope, &occurrence_id)
+            .expect("move_to_cold applies");
+        let delta = MutationDelta::capture_lifecycle(&runtime, before.as_ref(), &occurrence_id)
+            .expect("a lifecycle transition on a live occurrence always produces a delta");
+        assert!(
+            delta.idempotency.is_none(),
+            "a lifecycle transition carries no idempotency_ref; the delta must not invent one"
+        );
+        store_delta(&core, &authority, modality, &delta).expect("store lifecycle delta");
+
+        let record_id = delta_row_node_id(&partition, "record", occurrence_id.as_ref().as_str());
+        let sealed = core
+            .get_node_properties(&record_id)
+            .expect("lifecycle transition wrote a record row");
+        let bytes = authority.cipher.unseal(&sealed).expect("row decrypts");
+        let stored: ServedRecord<DocumentData> =
+            serde_json::from_slice(&bytes).expect("row decodes");
+        assert_eq!(
+            stored.lifecycle,
+            LifecycleState::Cold,
+            "the shadow row must reflect the POST-transition state, not the stale ingest-time state"
+        );
     }
 }
