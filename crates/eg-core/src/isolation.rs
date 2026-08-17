@@ -417,6 +417,36 @@ pub struct IsolationLayer {
     persist: Option<std::sync::Arc<dyn crate::rbac_persist::RbacPolicyStore>>,
 }
 
+/// Extract the tenant slug from a graph name built by `agent-utilities`'
+/// `tenant_graph_name`/`tenant__<slug>__<base>` naming convention
+/// (`knowledge_graph/core/shard_topology.py`). The engine has no reachable
+/// `AgentConfig` to learn a deployment's configured default graph name from, so
+/// this mirrors `graph_ownership.py::_parse_tenant_graph`'s own known-bases
+/// fallback exactly: the two bases that convention is actually called with in
+/// the real corpus — the packaged default (`__commons__`) and the literal
+/// `"default"` (see that module's docstring: both
+/// `tenant__homelab____commons__` and `tenant__homelab__default` exist for the
+/// SAME tenant). Deliberately conservative (the same "do not guess grants"
+/// invariant): a name that doesn't end in one of these two known suffixes
+/// returns `None` rather than guessing a slug boundary that could span the
+/// wrong substring — never used, this constant would just be dead ontology
+/// preference, not a name this function should ever manufacture.
+#[cfg(feature = "security")]
+fn tenant_slug_from_graph_name(name: &str) -> Option<String> {
+    const PREFIX: &str = "tenant__";
+    const KNOWN_BASES: [&str; 2] = ["__commons__", "default"];
+    let rest = name.strip_prefix(PREFIX)?;
+    for base in KNOWN_BASES {
+        let suffix = format!("__{base}");
+        if let Some(slug) = rest.strip_suffix(suffix.as_str()) {
+            if !slug.is_empty() {
+                return Some(slug.to_string());
+            }
+        }
+    }
+    None
+}
+
 impl Default for IsolationLayer {
     fn default() -> Self {
         Self::new()
@@ -548,6 +578,98 @@ impl IsolationLayer {
             self.rbac = previous;
             self.identity_bootstrap = previous_bootstrap;
             return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Idempotently provision Read+Write RBAC access to a tenant's own graph
+    /// namespace at the moment a tenant graph is created (closes the
+    /// `Method::CreateGraph` RBAC-provisioning gap: creating a graph previously
+    /// left it durably unreadable/unwritable by anyone but a `System` identity,
+    /// because the `owner` field `create_graph_with_incarnation` records is
+    /// ignored for access decisions under the mandatory `security` build —
+    /// `check_access` explicitly discards `(graph_type, graph_owner)` and
+    /// evaluates RBAC only. Confirmed live: `tenant__homelab____commons__` was
+    /// only ever readable by the one-off `System`-role identity that created it
+    /// by hand; every ordinary registered principal was denied
+    /// `ACCESS_DENIED: verified principal lacks {Read,Write} access to graph
+    /// '...'` with no grant ever having existed for anyone else).
+    ///
+    /// A no-op for a non-tenant graph name (returns `Ok(())` immediately) — this
+    /// intentionally does NOT guess at ownership for `Agent`/`Team`/arbitrary
+    /// graph names (the "do not guess grants" invariant this codebase already
+    /// applies to the ownership-report tooling); it acts only on the one naming
+    /// convention that is unambiguous: `agent-utilities`'
+    /// `tenant_graph_name`/`tenant__<slug>__<base>` convention
+    /// (`knowledge_graph/core/shard_topology.py`), mirrored here by
+    /// [`tenant_slug_from_graph_name`].
+    ///
+    /// Provisions, atomically as part of the SAME `CreateGraph` server call (see
+    /// `src/server/dispatch.rs`'s `Method::CreateGraph` handler):
+    /// 1. A durable role `tenant:<slug>` (idempotent `add_role`) — ONE role per
+    ///    tenant, reused across every graph that tenant owns, not one role per
+    ///    graph.
+    /// 2. Read+Write `Allow` grants for that role on `Pattern("tenant__<slug>__*")`
+    ///    — a tenant-wide pattern (not just the one graph just created) so a
+    ///    tenant's *other* graphs (e.g. both `tenant__homelab____commons__` and
+    ///    `tenant__homelab__default`) are covered by the SAME grant the first
+    ///    creation provisions, and multiple principals sharing one tenant need
+    ///    only carry the same role — this does not, by itself, enroll any
+    ///    particular principal in that role (see point 3).
+    /// 3. If `creator_agent_id` names an ALREADY-registered durable identity
+    ///    (`Method::RegisterIdentity` ran for it previously), that identity's
+    ///    `roles` gains `tenant:<slug>` if not already present. An unregistered
+    ///    creator is left exactly as unregistered as before — this method never
+    ///    synthesizes an `AgentIdentity` (that stays `RegisterIdentity`'s job
+    ///    alone; a caller who could satisfy CreateGraph's `graph:admin` request
+    ///    scope without ever registering a durable identity still cannot pass
+    ///    `check_access` afterward, exactly like before this change).
+    ///
+    /// Every step is independently idempotent (`RbacPolicy::add_role`/
+    /// `add_grant` de-duplicate; the identity role list is checked with
+    /// `contains` before pushing) so calling this twice for the same graph, or
+    /// once per graph for N graphs of the same tenant, never duplicates a role,
+    /// a grant, or a role membership entry. A failure midway (e.g. a durable
+    /// persist error) surfaces as `Err` from `try_add_role`/`try_add_grant`/
+    /// `try_register_agent` — the caller (`CreateGraph`'s dispatch handler)
+    /// already returns the graph as created even if this step errors, since the
+    /// graph itself is durably committed first; a partial-provisioning failure
+    /// here is logged and left for the SAME idempotent path to complete on any
+    /// later call (another `CreateGraph` for a sibling graph of the same
+    /// tenant, or the deployment-time remediation pass), never silently
+    /// swallowed.
+    #[cfg(feature = "security")]
+    pub fn provision_tenant_graph_access(
+        &mut self,
+        graph_name: &str,
+        creator_agent_id: Option<&str>,
+    ) -> Result<(), String> {
+        let Some(tenant_slug) = tenant_slug_from_graph_name(graph_name) else {
+            return Ok(());
+        };
+        let role_name = format!("tenant:{tenant_slug}");
+        let pattern = format!("tenant__{tenant_slug}__*");
+        self.try_add_role(crate::acl::Role::new(role_name.clone()))?;
+        self.try_add_grant(crate::acl::Grant {
+            role: role_name.clone(),
+            resource: crate::acl::ResourceSelector::Pattern(pattern.clone()),
+            action: crate::acl::RbacAction::Read,
+            effect: crate::acl::GrantEffect::Allow,
+        })?;
+        self.try_add_grant(crate::acl::Grant {
+            role: role_name.clone(),
+            resource: crate::acl::ResourceSelector::Pattern(pattern),
+            action: crate::acl::RbacAction::Write,
+            effect: crate::acl::GrantEffect::Allow,
+        })?;
+        if let Some(creator) = creator_agent_id {
+            if let Some(identity) = self.agents.get(creator) {
+                if !identity.roles.contains(&role_name) {
+                    let mut updated = identity.clone();
+                    updated.roles.push(role_name);
+                    self.try_register_agent(updated)?;
+                }
+            }
         }
         Ok(())
     }
@@ -1809,6 +1931,224 @@ mod tests {
                 Some("someone"),
                 AccessLevel::Write
             ));
+        }
+    }
+
+    // ── Tenant-graph creation RBAC auto-provisioning ─────────────────────────
+    // (closes the P0 gap: CreateGraph never granted anyone Read/Write on the
+    // graph it just created — `tenant__homelab____commons__` was reachable
+    // only by the one-off `System` identity that created it by hand).
+    #[cfg(feature = "security")]
+    mod tenant_graph_auto_grant {
+        use super::*;
+        use crate::acl::RbacAction;
+
+        /// Register an agent holding `roles` (mirrors `rbac_access::with_roles` —
+        /// duplicated rather than shared since sibling test modules cannot see
+        /// each other's private helpers).
+        fn with_roles(layer: &mut IsolationLayer, id: &str, roles: Vec<String>) {
+            layer.register_agent(AgentIdentity {
+                agent_id: id.to_string(),
+                role: AgentRole::Agent,
+                teams: vec![],
+                roles,
+            });
+        }
+
+        #[test]
+        fn tenant_slug_parses_both_known_base_conventions() {
+            assert_eq!(
+                tenant_slug_from_graph_name("tenant__homelab____commons__"),
+                Some("homelab".to_string())
+            );
+            assert_eq!(
+                tenant_slug_from_graph_name("tenant__homelab__default"),
+                Some("homelab".to_string())
+            );
+        }
+
+        #[test]
+        fn tenant_slug_is_none_for_non_tenant_or_unrecognized_base_names() {
+            assert_eq!(tenant_slug_from_graph_name("__commons__"), None);
+            assert_eq!(tenant_slug_from_graph_name("agent:worker1"), None);
+            assert_eq!(tenant_slug_from_graph_name("code_agent-utilities"), None);
+            // A `tenant__` name whose base this engine cannot recognize must not
+            // guess a slug boundary — degrades to "no auto-grant", never a wrong one.
+            assert_eq!(
+                tenant_slug_from_graph_name("tenant__homelab__custom-base"),
+                None
+            );
+            // Empty slug (bare base) must not parse either.
+            assert_eq!(tenant_slug_from_graph_name("tenant____commons__"), None);
+        }
+
+        #[test]
+        fn provisioning_a_tenant_graph_grants_its_own_tenant_pattern() {
+            let mut layer = IsolationLayer::new();
+            layer
+                .provision_tenant_graph_access("tenant__homelab____commons__", None)
+                .unwrap();
+
+            with_roles(&mut layer, "webui-user-1", vec!["tenant:homelab".into()]);
+            assert!(
+                layer.check_access(
+                    "webui-user-1",
+                    "tenant__homelab____commons__",
+                    GraphType::Agent,
+                    None,
+                    AccessLevel::Read
+                ),
+                "a principal carrying the auto-provisioned tenant role must read the graph"
+            );
+            assert!(
+                layer.check_access(
+                    "webui-user-1",
+                    "tenant__homelab____commons__",
+                    GraphType::Agent,
+                    None,
+                    AccessLevel::Write
+                ),
+                "a principal carrying the auto-provisioned tenant role must write the graph"
+            );
+        }
+
+        #[test]
+        fn one_tenant_graphs_grant_also_covers_a_sibling_tenant_graph() {
+            // The Pattern grant is tenant-wide, not per-graph: provisioning
+            // `tenant__homelab____commons__` must already cover
+            // `tenant__homelab__default` even before THAT graph is ever created.
+            let mut layer = IsolationLayer::new();
+            layer
+                .provision_tenant_graph_access("tenant__homelab____commons__", None)
+                .unwrap();
+            with_roles(&mut layer, "webui-user-1", vec!["tenant:homelab".into()]);
+            assert!(layer.check_access(
+                "webui-user-1",
+                "tenant__homelab__default",
+                GraphType::Agent,
+                None,
+                AccessLevel::Read
+            ));
+        }
+
+        #[test]
+        fn a_different_tenants_principal_is_still_denied() {
+            let mut layer = IsolationLayer::new();
+            layer
+                .provision_tenant_graph_access("tenant__homelab____commons__", None)
+                .unwrap();
+            with_roles(&mut layer, "other-tenant-user", vec!["tenant:acme".into()]);
+            assert!(!layer.check_access(
+                "other-tenant-user",
+                "tenant__homelab____commons__",
+                GraphType::Agent,
+                None,
+                AccessLevel::Read
+            ));
+        }
+
+        #[test]
+        fn non_tenant_graph_creation_is_a_no_op() {
+            let mut layer = IsolationLayer::new();
+            layer
+                .provision_tenant_graph_access("agent:worker1", None)
+                .unwrap();
+            assert!(layer.rbac().grants().is_empty());
+            assert!(layer.rbac().roles().next().is_none());
+        }
+
+        #[test]
+        fn already_registered_creator_gains_the_tenant_role_automatically() {
+            let mut layer = IsolationLayer::new();
+            with_roles(&mut layer, "creator", vec![]);
+            layer
+                .provision_tenant_graph_access("tenant__homelab____commons__", Some("creator"))
+                .unwrap();
+            assert!(layer.check_access(
+                "creator",
+                "tenant__homelab____commons__",
+                GraphType::Agent,
+                None,
+                AccessLevel::Write
+            ));
+        }
+
+        #[test]
+        fn unregistered_creator_is_not_silently_enrolled() {
+            // A creator that was never `RegisterIdentity`'d stays unable to pass
+            // check_access even after this call — this method must never
+            // synthesize an AgentIdentity.
+            let mut layer = IsolationLayer::new();
+            layer
+                .provision_tenant_graph_access(
+                    "tenant__homelab____commons__",
+                    Some("never-registered"),
+                )
+                .unwrap();
+            assert!(!layer.check_access(
+                "never-registered",
+                "tenant__homelab____commons__",
+                GraphType::Agent,
+                None,
+                AccessLevel::Read
+            ));
+            // But the tenant-wide grant itself still exists for whoever DOES carry
+            // the role.
+            assert_eq!(
+                layer
+                    .rbac()
+                    .grants()
+                    .iter()
+                    .filter(|g| g.role == "tenant:homelab" && g.action == RbacAction::Read)
+                    .count(),
+                1
+            );
+        }
+
+        #[test]
+        fn calling_it_twice_for_the_same_graph_is_idempotent() {
+            let mut layer = IsolationLayer::new();
+            with_roles(&mut layer, "creator", vec![]);
+            layer
+                .provision_tenant_graph_access("tenant__homelab____commons__", Some("creator"))
+                .unwrap();
+            layer
+                .provision_tenant_graph_access("tenant__homelab____commons__", Some("creator"))
+                .unwrap();
+            assert_eq!(
+                layer.rbac().grants().len(),
+                2,
+                "Read + Write, never duplicated"
+            );
+            assert_eq!(layer.rbac().roles().count(), 1);
+            let identity = layer.agents.get("creator").unwrap();
+            assert_eq!(
+                identity
+                    .roles
+                    .iter()
+                    .filter(|r| *r == "tenant:homelab")
+                    .count(),
+                1,
+                "the creator's role list must not accumulate duplicate entries"
+            );
+        }
+
+        #[test]
+        fn a_second_graph_for_the_same_tenant_reuses_the_one_role() {
+            let mut layer = IsolationLayer::new();
+            with_roles(&mut layer, "creator", vec![]);
+            layer
+                .provision_tenant_graph_access("tenant__homelab____commons__", Some("creator"))
+                .unwrap();
+            layer
+                .provision_tenant_graph_access("tenant__homelab__default", Some("creator"))
+                .unwrap();
+            assert_eq!(
+                layer.rbac().roles().count(),
+                1,
+                "one role per tenant, reused across every graph that tenant owns"
+            );
+            assert_eq!(layer.rbac().grants().len(), 2);
         }
     }
 

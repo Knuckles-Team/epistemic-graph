@@ -2764,6 +2764,129 @@ mod tests {
         assert_denied(&resp);
     }
 
+    #[cfg(all(feature = "redb", feature = "security"))]
+    #[tokio::test]
+    async fn test_create_graph_auto_provisions_tenant_rbac_for_a_different_principal() {
+        // P0 root-cause regression test: `tenant__homelab____commons__` was
+        // durably unreadable/unwritable by every ordinary principal because
+        // CreateGraph never provisioned an RBAC grant for anyone
+        // (`plans/au-eg-program/HANDOFF-2026-07-22.md` §7-8). This proves the
+        // fix end-to-end through the REAL dispatch entrypoint (not just the
+        // isolation.rs unit tests): creating a tenant graph must make it
+        // reachable for a SEPARATE registered principal that merely carries
+        // the tenant's role — the exact "N webui end-users share one tenant"
+        // shape the live incident hit — with no manual grant ever issued.
+        let state = multi_tenant_state().await;
+
+        // A distinct principal, registered ahead of time (mirrors Tier-1
+        // Keycloak provisioning already having run for this end-user), that
+        // carries ONLY the tenant role — never the graph's creator, and never
+        // System.
+        {
+            let mut s = state.write().await;
+            s.isolation.register_agent(AgentIdentity {
+                agent_id: "webui-end-user".to_string(),
+                role: AgentRole::Agent,
+                teams: vec![],
+                roles: vec!["tenant:acme".to_string()],
+            });
+        }
+
+        // A DIFFERENT identity (the tenant's provisioning/bootstrap actor)
+        // creates the tenant's graph.
+        let resp = dispatch_on_heap(
+            &state,
+            request(
+                1,
+                "__commons__",
+                Some("worker1"),
+                Method::CreateGraph {
+                    graph_name: "tenant__acme____commons__".to_string(),
+                    graph_type: GraphType::Agent,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+
+        // The end-user who never created anything, and was never individually
+        // granted anything, can now read AND write it — purely because it
+        // carries the auto-provisioned `tenant:acme` role.
+        let resp = dispatch_on_heap(
+            &state,
+            request(
+                2,
+                "tenant__acme____commons__",
+                Some("webui-end-user"),
+                Method::GetNodes,
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        let resp = dispatch_on_heap(
+            &state,
+            request(
+                3,
+                "tenant__acme____commons__",
+                Some("webui-end-user"),
+                add_node("n1"),
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+
+        // A SIBLING graph of the SAME tenant, created afterward by yet a THIRD
+        // identity, is covered by the SAME tenant-wide grant the FIRST
+        // CreateGraph provisioned -- no second manual grant needed.
+        let resp = dispatch_on_heap(
+            &state,
+            request(
+                4,
+                "__commons__",
+                Some("worker2"),
+                Method::CreateGraph {
+                    graph_name: "tenant__acme__default".to_string(),
+                    graph_type: GraphType::Agent,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        let resp = dispatch_on_heap(
+            &state,
+            request(
+                5,
+                "tenant__acme__default",
+                Some("webui-end-user"),
+                Method::GetNodes,
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+
+        // A principal from a DIFFERENT tenant is still denied.
+        {
+            let mut s = state.write().await;
+            s.isolation.register_agent(AgentIdentity {
+                agent_id: "other-tenant-user".to_string(),
+                role: AgentRole::Agent,
+                teams: vec![],
+                roles: vec!["tenant:other".to_string()],
+            });
+        }
+        let resp = dispatch_on_heap(
+            &state,
+            request(
+                6,
+                "tenant__acme____commons__",
+                Some("other-tenant-user"),
+                Method::GetNodes,
+            ),
+        )
+        .await;
+        assert_denied(&resp);
+    }
+
     #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_delete_graph_requires_write_access() {
