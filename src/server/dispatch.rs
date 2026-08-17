@@ -3807,6 +3807,14 @@ async fn dispatch_inner(
         // and no KG concept mapping" — the wire protocol Method half ends here).
         #[cfg(feature = "quantum-agent-api")]
         Method::Quantum { op } => handlers::quantum::handle(req.id, op).await,
+        // ── Native ASR provider surface (GOC-33, `OWNER-VOICE-ASR`, feature
+        // `asr-whisper`) ─────────────────────────────────────────────────
+        // NOT graph-scoped (a transcription reads no persisted graph state and
+        // commits no durable asr.result.v1 here) — self-routes here, BEFORE the
+        // per-graph `dispatch_graph_op` chain, exactly like `Quantum`/`Viz` above.
+        // See `handlers::asr`'s module doc for the authority boundary.
+        #[cfg(feature = "asr-whisper")]
+        Method::Asr { op } => handlers::asr::handle(req.id, op).await,
         // ── Native visualization render surface (D-VZ-1 lanes V4/V6, feature
         // `viz-static-export`) ──────────────────────────────────────────────
         // NOT graph-scoped (a render builds a FRESH ephemeral per-request

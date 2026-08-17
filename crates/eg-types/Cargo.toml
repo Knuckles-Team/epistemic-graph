@@ -215,6 +215,13 @@ modality-serving = []
 # mirrored `quantum` feature turned on in lockstep by the root package's
 # `quantum-agent-api` facade feature.
 quantum = []
+# CONCEPT:EG-KG.compute.native-asr-whisper-provider (GOC-33, `OWNER-VOICE-ASR`): gates the
+# `Method::Asr` variant + its `AsrOp` wire enum (`asr_wire.rs`). PURE serde -- no
+# heavy dep here (whisper-rs/whisper.cpp live in the separate `eg-asr-whisper`
+# crate, linked only by the facade's own `asr-whisper` feature); a build without
+# this feature drops the variant (-> the dispatch "not available in this build"
+# catch-all), exactly like `quantum`.
+asr-native = []
 # D-VZ-1 (lanes V4/V6): the native-visualization engine's wire op (`VizOp`) +
 # `Method::Viz`, gated `viz`. Pure serde/enum-variant gate, same shape as
 # `jobs`/`statechart`; the real ColumnStore/LOD/render engine (`eg-viz-core`/

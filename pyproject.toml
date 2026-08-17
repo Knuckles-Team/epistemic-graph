@@ -117,6 +117,16 @@ all = []
 [project.entry-points."agent_utilities.skill_providers"]
 epistemic-graph = "epistemic_graph.skills"
 
+# GOC-33 (`OWNER-VOICE-ASR`): registers this package's native whisper-rs-backed
+# ASR provider (`epistemic_graph/asr_provider.py`) under the pluggable
+# transcription-backend seam `agent-packages/agents/audio-transcriber` owns
+# (`audio_transcriber/asr_providers.py`'s `TranscriptionProvider` Protocol).
+# Discovery is by entry point ONLY, guarded try/except on the consumer side —
+# this package never imports `audio_transcriber`, so listing this metadata
+# imposes no runtime dependency here.
+[project.entry-points."audio_transcriber.asr_providers"]
+epistemic-graph = "epistemic_graph.asr_provider:build_provider"
+
 [tool.ruff]
 line-length = 88
 target-version = "py310"
