@@ -2314,6 +2314,28 @@ pub enum Method {
         op: crate::viz::VizOp,
     },
 
+    // ── Native TTS synthesis (GOC-34, `OWNER-VOICE-TTS`) ───────────────
+    /// Native Piper-ONNX text-to-speech synthesis. `request_msgpack` is a governed
+    /// `tts.request.v1` (`eg_audio::tts::TtsRequest`, MessagePack-encoded), validated
+    /// via `eg_audio::tts::validate_request` before any model/audio byte is touched;
+    /// `input_bytes` is the raw UTF-8 text/phoneme payload the request's
+    /// `SensitiveInput.input_digest` describes — the handler independently re-hashes
+    /// it and refuses a mismatch. Wire DTOs live in `eg-types` per the "wire DTOs
+    /// live in eg-types, behavior lives upstream" workspace convention, but the rich
+    /// `tts.*` DTO family is deliberately owned ONLY by `eg-audio::tts` (this crate
+    /// stays at the bottom of the DAG and links no `eg-audio`), so this variant
+    /// carries opaque bytes rather than a duplicated typed field — the facade
+    /// handler (which DOES depend on `eg-audio`) decodes them. `input_bytes` is an
+    /// explicit interim carrier for the sensitive text/phoneme bytes: GOC-05's real
+    /// CAS-backed `SensitiveInputRef` resolution is a follow-up, not yet built.
+    #[cfg(feature = "tts-piper")]
+    TtsSynthesize {
+        #[serde(with = "serde_bytes")]
+        request_msgpack: Vec<u8>,
+        #[serde(with = "serde_bytes")]
+        input_bytes: Vec<u8>,
+    },
+
     // ── Query (SQL + Cypher) ──────────────────────────────────────────
     // Read-only relational query surface (CONCEPT:EG-KG.query.read-only-sql-query). `SELECT … FROM
     // nodes …` over ONE graph via DataFusion, gated behind the facade `query`

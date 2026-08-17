@@ -57,6 +57,8 @@ async fn make_state_with_backend(
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
+        #[cfg(feature = "viz-static-export")]
+        viz_engine: None,
         auth_secret: "raft-test".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend),

@@ -2076,6 +2076,8 @@ mod tests {
             registry: crate::registry::GraphRegistry::new(),
             isolation,
             channels: crate::channels::ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
             auth_secret: "goc62-bug037-test-secret".to_string(), // nosec B105 - test only  // sanitizer:ignore — synthetic in-process test fixture, never a live credential
             persist_dir: None,
             persistence: None,

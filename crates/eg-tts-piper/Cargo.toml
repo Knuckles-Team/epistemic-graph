@@ -1,0 +1,57 @@
+[package]
+name = "eg-tts-piper"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Native Piper-ONNX text-to-speech synthesis provider for epistemic-graph's tts.* contract (GOC-34)."
+license = "MIT"
+
+[lib]
+name = "eg_tts_piper"
+
+# A leaf crate, sibling to eg-image/eg-video/eg-document, consuming ONLY eg-audio's
+# frozen `tts` contract (crates/eg-audio/src/tts.rs) for its DTOs/validation — it does
+# not sit on the eg-types -> eg-core -> eg-compute -> epistemic-graph DAG spine at all.
+# `piper-rs`/`espeak-rs` are pinned, exact-version crates.io registry dependencies (see
+# `src/lib.rs` module doc for the "depend, don't vendor" rationale + upstream commit
+# provenance) — no `git =` source, per the workspace's crates.io-only Rust dependency
+# edict. `espeak-rs-sys` (a transitive dep of `espeak-rs`) vendors and CMake-builds the
+# espeak-ng C sources INSIDE its published crate tarball — the same "C sources ship in
+# the crate, built by cc/cmake, no network at build time" shape the workspace already
+# accepts for the `ros2-rmw` cyclonedds leg (see root Cargo.toml's `full-extras` docs).
+[dependencies]
+eg-audio = { path = "../eg-audio", features = ["tts"] }
+# `default-features = false` on BOTH `piper-rs` and `espeak-rs` below: piper-rs 0.2.0
+# re-exposes `compile-espeak-intonations` as its OWN default feature (mapping to
+# `espeak-rs/compile-espeak-intonations`) on top of espeak-rs's own — Cargo feature
+# unification means EITHER edge left at its default would turn it on for the whole
+# build. That feature needs a `phsource/intonation` data file the published
+# `espeak-rs-sys` 0.2.0 tarball does not actually ship (upstream packaging gap; not
+# present anywhere in the crate tarball), breaking the CMake build. Disabling it on
+# both edges (piper-rs's OWN internal `espeak-rs` dependency already does this)
+# avoids the gap entirely rather than working around a missing file — the crate's
+# default (non-`compile-espeak-intonations`) prosody/intonation behavior is used
+# instead, which is espeak-ng's normal runtime prosody model, not a degraded mode.
+piper-rs = { version = "=0.2.0", default-features = false }
+espeak-rs = { version = "=0.2.0", default-features = false }
+# Same exact version piper-rs itself pins (`=2.0.0-rc.12`) — referenced directly so
+# this crate can build the ONNX `Session` explicitly (portable CPU execution
+# provider path; see `src/voice.rs`) rather than through piper-rs's unconfigured
+# `Piper::new`. Uses `ort-sys`'s default `download-binaries` strategy (a hash-
+# verified build-time fetch of pyke's prebuilt x86_64 binary — the standard,
+# documented `ort` deployment path). See `src/lib.rs`'s crate doc and
+# `docs/architecture/native_tts_piper.md` for the fleet-hardware finding this
+# surfaced: that prebuilt binary assumes an AVX2 baseline several of this
+# workspace's reachable build/dev hosts predate (a `load-dynamic` fallback against
+# an older/mismatched system `onnxruntime` was also tried and rejected — see the
+# same doc for why).
+ort = "=2.0.0-rc.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+
+[dev-dependencies]
+# Test-only: hand-rolled minimal ONNX ModelProto protobuf encoder lives in
+# tests/fixture.rs (no `onnx`/tooling dependency, no committed binary fixture,
+# mirroring eg-audio's own `wav_fixture()` precedent of building file bytes
+# programmatically in Rust).

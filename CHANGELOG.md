@@ -39,6 +39,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   `asr.result.v1` publication in this change — see
   `docs/architecture/native_asr.md` for the full design, binding-choice ADR,
   and residual-gap record.
+- **Native Piper-ONNX text-to-speech provider (GOC-34, `OWNER-VOICE-TTS`)** — a real,
+  streaming, cancellable synthesis engine behind the frozen `eg-audio::tts` wire
+  contract (`crates/eg-audio/src/tts.rs`, itself validation-only since GOC-34's W01/
+  W02 stage). New leaf crate `eg-tts-piper` depends on **pinned, exact-version
+  crates.io registry dependencies** `piper-rs = "=0.2.0"` and `espeak-rs = "=0.2.0"`
+  (both genuinely published, matching the revision audited at
+  `open-source-libraries/piper-rs` — see the crate's `src/lib.rs` doc for the full
+  "depend, don't vendor" rationale and provenance; no `git =` source, per the
+  workspace's crates.io-only Rust dependency edict). Closes two gaps the GOC-34 audit
+  found in piper-rs itself: an unknown phoneme character is now a typed
+  `MalformedRequest` instead of being silently dropped, and a speaker id is checked
+  against the ACTUALLY loaded voice's speaker map, not just a declared bound.
+  Synthesis streams bounded, ordered `TtsChunk`s over a channel from a producer
+  thread — audio starts before the whole response is buffered — and is cancellable at
+  every phrase and audio-chunk boundary (an in-flight ONNX forward pass itself cannot
+  be interrupted; cancellation granularity is per-phrase/per-chunk, matching the lane
+  design). Voice model/config pairs are digest-verified against the request's declared
+  SHA-256 before any byte is read, resolved from an operator-configured directory
+  (`EPISTEMIC_GRAPH_VOICE_MODEL_DIR`, an explicit interim seam pending GOC-36's real
+  governed artifact resolver) — absent or mismatched artifacts fail closed
+  (`ModelUnavailable`), never a silent download. Wired reachably behind a new,
+  deliberately-`full`-excluded facade feature `tts-piper` (mirroring `viz`/`durable`/
+  `quantum`'s posture — the default listener links no ORT/eSpeak-ng): a new
+  `Method::TtsSynthesize` (`eg-types/src/protocol.rs`), handler
+  (`src/server/handlers/tts.rs`), one-line dispatch arm, and `eg-capabilities` policy
+  ledger entry. DEF-017 scope guard: this is a Piper-specific ONNX/JSON runtime, never
+  a generic HuggingFace/Transformers loader. DEF-018 scope guard: no speaker
+  diarization or voice-biometric identity extraction exists. Honest gaps recorded in
+  the handler's own doc: authorization maps "reached this handler through the
+  authenticated eg2 transport" to `Authorized` (no GOC-15/16 consent/classification
+  decision is integrated yet); raw PCM bytes are returned inline rather than published
+  to a durable CAS/rendition (GOC-05/eg-jobs territory); there is no durable
+  WorkItem/job/lease plane yet (GOC-19/20) — this is one synchronous request/response,
+  not an async submit/status/cancel job.
+- **Native visualization: M4/LTTB decimation, interactive rendering, engine
+  integration (D-VZ-1 lanes V2/V3b/V4)** — the two genuinely-missing pieces of
+  the native viz stack (`docs/architecture/native_visualization.md`), plus a
+  real V4:
+  - New `eg-viz-kernels` crate: M4 (four-point-per-pixel-column: first/min/
+    max/last, `O(n)`) and LTTB (Largest Triangle Three Buckets, real sampled
+    points) decimation, with runtime-detected (never compile-time-assumed)
+    AVX2 acceleration and proptest-proved shape-preservation invariants. M4
+    is now the default Decimate-tier kernel for Line/Area in
+    `eg-viz-export` (superseding the plain min-max stand-in), replacing a
+    documented V3a gap.
+  - `Method::Viz` is no longer fresh-per-request: `server::viz_engine`
+    holds a persistent `ColumnStore` (a caller may omit `dataset` on a later
+    request against an already-ingested `dataset_ref`) plus a
+    content-addressed render cache keyed on
+    `ColumnStore::content_fingerprint` (new — chunk-content-hash-based,
+    deliberately NOT a version counter any unrelated write would invalidate)
+    and `server::viz_provenance` durable render provenance, queryable via
+    the new `VizOp::RenderProvenance`.
+  - New loopback-only `viz-interactive` HTTP listener
+    (`EPISTEMIC_GRAPH_VIZ_INTERACTIVE_ADDR`): a reference WebGPU client with
+    an honest WebGL2 fallback, and a binary viewport-tile protocol
+    (`GET /tile`) that reuses `select_tier`/LTTB and re-requests the
+    appropriate LOD tier on pan/zoom rather than re-sending the full series.
 - **`CasWorkItemMetadata` native RPC (BUG-111)** — atomic compare-and-set on a
   WorkItem's non-authority SCHEDULING METADATA (`checkpoint_id` / `metadata` /
   `prio_bucket`), closing the capability gap left by

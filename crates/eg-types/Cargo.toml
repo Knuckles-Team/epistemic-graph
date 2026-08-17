@@ -230,6 +230,12 @@ asr-native = []
 # features, deliberately EXCLUDED from `full` (see root `Cargo.toml`) since it is
 # not yet an operator-facing default.
 viz = []
+# GOC-34 (`OWNER-VOICE-TTS`): gates `Method::TtsSynthesize` alone. Pure serde/
+# enum-variant gate, same shape as `viz`/`jobs`/`statechart` — the real Piper/ONNX
+# inference engine (`eg-tts-piper`, a separate leaf crate) is wired by the facade
+# through its own `tts-piper` feature, deliberately EXCLUDED from `full` (see root
+# `Cargo.toml`) so the default listener links no ORT/eSpeak-ng.
+tts-piper = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }

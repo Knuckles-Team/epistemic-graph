@@ -13,20 +13,19 @@
 //! `StatechartOp::Define`'s `def_msgpack` uses for `eg_statechart::StatechartDef`
 //! — keeping `eg-types` the bottom of the crate DAG.
 //!
-//! **Scope note — this is V4-LITE, not full V4.** The handler
-//! (`src/server/handlers/viz.rs`, facade feature `viz-static-export`) resolves
-//! `VizOp::Render` against a FRESH per-request `eg_viz_columnstore::ColumnStore`
-//! built from [`VizRenderRequest::dataset`] (caller-supplied inline columns, or
-//! deterministic engine-side synthetic data) — never a tile cache, never
-//! provenance inherited from a durable `eg-jobs` job, never a view over a live
-//! query against a resident `GraphCore`. Full V4 (those three properties) remains
-//! a later lane.
+//! **Scope — full V4.** The handler (`src/server/handlers/viz.rs`, facade
+//! feature `viz-static-export`) resolves `VizOp::Render` against a PERSISTENT
+//! `eg_viz_columnstore::ColumnStore` (not fresh-per-request), honors a
+//! content-addressed render cache, and records durable provenance for every
+//! produced render, queryable via [`VizOp::RenderProvenance`]. Still never a
+//! view over a live query against a resident `GraphCore` — viz remains
+//! explicitly NOT graph-scoped (see that handler's module doc).
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// The native-visualization render control-plane operation (D-VZ-1 V4-lite/V6-lite).
+/// The native-visualization render control-plane operation (D-VZ-1, full V4).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VizOp {
     /// Resolve a `ViewSpec` against a dataset and render it to static image bytes.
@@ -35,6 +34,10 @@ pub enum VizOp {
     /// (`eg_viz_core::CapabilityMatrix::default_matrix`) — what a planner/UI reads
     /// to know which (mark, surface) pairs are real today.
     CapabilityMatrix,
+    /// Look up a previously-produced render's durable provenance (lane V4) by
+    /// the `result_ref` a `VizOp::Render` response returned. Answers `None`
+    /// (not an error) for an unknown/never-produced `result_ref`.
+    RenderProvenance { result_ref: String },
 }
 
 /// One `VizOp::Render` request: an opaque `eg_viz_core::ViewSpec` (as JSON — the
@@ -48,7 +51,15 @@ pub struct VizRenderRequest {
     /// `serde_json::from_value`s and `ViewSpec::validate()`s it at the verified
     /// boundary, exactly as documented as unsupported here for silent misparse.
     pub spec_json: serde_json::Value,
-    pub dataset: VizDatasetSource,
+    /// `None` ⇒ resolve against a `dataset_ref` this engine already has
+    /// resident from an earlier request (lane V4's persistent ColumnStore —
+    /// see `src/server/handlers/viz.rs`'s module doc); an unknown
+    /// `dataset_ref` with no data supplied is a clear, typed "unavailable"
+    /// error, never a fabricated empty render. `Some` ingests (or
+    /// re-ingests — content-addressed, so byte-identical data is a cheap
+    /// no-op for the render cache) the given data under `dataset_ref` first.
+    #[serde(default)]
+    pub dataset: Option<VizDatasetSource>,
     pub width_px: u32,
     pub height_px: u32,
     pub format: VizFormat,
@@ -118,7 +129,7 @@ mod tests {
         columns.insert("x".to_string(), VizColumnValues::F64(vec![1.0, 2.0, 3.0]));
         let op = VizOp::Render(VizRenderRequest {
             spec_json: serde_json::json!({"version": 1, "marks": []}),
-            dataset: VizDatasetSource::InlineColumns { columns },
+            dataset: Some(VizDatasetSource::InlineColumns { columns }),
             width_px: 800,
             height_px: 600,
             format: VizFormat::Png,
@@ -130,8 +141,51 @@ mod tests {
         let restored: VizOp = serde_json::from_str(&json).unwrap();
         match restored {
             VizOp::Render(req) => assert_eq!(req.dataset_ref, "ds:1"),
-            VizOp::CapabilityMatrix => panic!("expected Render"),
+            other => panic!("expected Render, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn viz_op_render_with_omitted_dataset_round_trips_through_json() {
+        // Lane V4: a caller may omit `dataset` to resolve against an
+        // already-ingested `dataset_ref` on the engine's persistent
+        // ColumnStore, without resending data over the wire.
+        let op = VizOp::Render(VizRenderRequest {
+            spec_json: serde_json::json!({"version": 1, "marks": []}),
+            dataset: None,
+            width_px: 800,
+            height_px: 600,
+            format: VizFormat::Png,
+            max_primitives: 200_000,
+            max_bytes: 50_000_000,
+            dataset_ref: "ds:1".to_string(),
+        });
+        let json = serde_json::to_string(&op).unwrap();
+        let restored: VizOp = serde_json::from_str(&json).unwrap();
+        match restored {
+            VizOp::Render(req) => assert!(req.dataset.is_none()),
+            other => panic!("expected Render, got {other:?}"),
+        }
+    }
+
+    /// A request missing the `dataset` field entirely (an older client, or a
+    /// hand-built request) must still deserialize -- `#[serde(default)]`
+    /// makes an absent field the SAME as an explicit `null`, not a decode
+    /// error.
+    #[test]
+    fn viz_render_request_without_a_dataset_field_at_all_still_deserializes() {
+        let json = serde_json::json!({
+            "spec_json": {"version": 1, "marks": []},
+            "width_px": 800,
+            "height_px": 600,
+            "format": "png",
+            "max_primitives": 200_000,
+            "max_bytes": 50_000_000,
+            "dataset_ref": "ds:1"
+        })
+        .to_string();
+        let req: VizRenderRequest = serde_json::from_str(&json).unwrap();
+        assert!(req.dataset.is_none());
     }
 
     #[test]
@@ -140,6 +194,21 @@ mod tests {
         let json = serde_json::to_string(&op).unwrap();
         let restored: VizOp = serde_json::from_str(&json).unwrap();
         assert!(matches!(restored, VizOp::CapabilityMatrix));
+    }
+
+    #[test]
+    fn viz_op_render_provenance_round_trips_through_json() {
+        let op = VizOp::RenderProvenance {
+            result_ref: "eg:viz_result:abc123".to_string(),
+        };
+        let json = serde_json::to_string(&op).unwrap();
+        let restored: VizOp = serde_json::from_str(&json).unwrap();
+        match restored {
+            VizOp::RenderProvenance { result_ref } => {
+                assert_eq!(result_ref, "eg:viz_result:abc123")
+            }
+            other => panic!("expected RenderProvenance, got {other:?}"),
+        }
     }
 
     #[test]
