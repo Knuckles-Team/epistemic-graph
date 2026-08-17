@@ -122,10 +122,109 @@ pub struct MaterializeReport {
 
 /// Per-table durable state the manager owns: the `eg_lake::LakeTable` orchestration
 /// handle plus the source series id it was drained from (empty for a table only ever
-/// written via `compact`/`delete_where`/the REST commit bridge).
+/// written via `compact`/`delete_where`/the REST commit bridge), plus the REST-facing
+/// ownership tag (W04, GOC-75-W04) used for catalog row-level visibility.
 struct TableEntry {
     table: LakeTable,
     source_series: Option<String>,
+    /// `None` = engine-internal/system table (e.g. drained straight from a tsdb
+    /// series by the materialization sweep) — visible to every authenticated
+    /// caller, matching this tier's behavior before W04. `Some(owner_scope)` = a
+    /// table created through the authenticated Iceberg-REST `CreateTable` path,
+    /// tagged with its creating carrier's `CarrierAuthority::owner_scope()` (the
+    /// SAME per-agent ownership key `GraphReadAuthority`'s row-level security
+    /// already uses elsewhere in this engine — see [`LakeVisibility`]).
+    owner_tenant: Option<String>,
+}
+
+/// Row-level catalog visibility for one Iceberg-REST request (W04, GOC-75-W04).
+///
+/// This deliberately keys on the engine's existing per-AGENT RLS ownership
+/// primitive (`CarrierAuthority::owner_scope()`, combining tenant+actor), not on
+/// `EPISTEMIC_GRAPH_TENANT` alone: that single deployment-wide tenant value is
+/// already enforced at carrier-MINTING time by BUG-222's W01/W02 fix
+/// (`server::auth::authenticated_iceberg_bearer` rejects a bearer for any other
+/// tenant before a `CarrierAuthority` is ever produced), so within one running
+/// deployment every successfully-authenticated caller necessarily shares the
+/// same `tenant_scope` — a raw tenant-scope filter here would be a no-op. Two
+/// callers ("two tenants" in the lane's acceptance language) are made to see
+/// disjoint catalogs by their distinct `owner_scope` instead, mirroring how
+/// `server::access::GraphReadAuthority` already row-filters graph reads by
+/// ownership rather than by the shared deployment tenant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LakeVisibility {
+    /// The non-security `serve()` path (no live carrier at all) — unfiltered,
+    /// byte-for-byte this tier's behavior before W04.
+    Unfiltered,
+    /// A verified, non-admin caller: sees engine-internal tables (`owner_tenant
+    /// == None`) plus only the tables owned by this exact scope.
+    Owner(String),
+}
+
+impl LakeVisibility {
+    fn allows(&self, owner_tenant: Option<&str>) -> bool {
+        match self {
+            LakeVisibility::Unfiltered => true,
+            LakeVisibility::Owner(scope) => match owner_tenant {
+                None => true,
+                Some(t) => t == scope,
+            },
+        }
+    }
+}
+
+/// Split a catalog namespace back into its Iceberg-REST levels (W03, GOC-75-W03):
+/// multi-level identifiers are decoded off the wire into ONE internal string
+/// joined by the spec's own `\x1f` unit-separator (see `rest.rs`'s path decoding),
+/// so rendering a response's `"namespace": [...]` array is just splitting on that
+/// same byte back apart — no change to `eg-lake`'s underlying flat-string model.
+pub(crate) fn namespace_levels(ns: &str) -> Vec<String> {
+    ns.split('\u{1f}').map(str::to_string).collect()
+}
+
+/// Slice `items` (already sorted) by an opaque `page-token` (a plain decimal
+/// offset) and an optional `page-size`, per the Iceberg-REST pagination
+/// convention (W03, GOC-75-W03). `page_size: None` returns every remaining item
+/// (server support for paging is opt-in per the spec; a caller that never asks
+/// for a page gets today's "everything" behavior). Returns the page plus the
+/// `next-page-token` to hand back (`None` on the final page).
+fn paginate<T: Clone>(
+    items: &[T],
+    page_token: Option<&str>,
+    page_size: Option<usize>,
+) -> (Vec<T>, Option<String>) {
+    let start = page_token
+        .and_then(|t| t.parse::<usize>().ok())
+        .unwrap_or(0)
+        .min(items.len());
+    let size = page_size.unwrap_or(items.len().saturating_sub(start).max(1));
+    let end = start.saturating_add(size).min(items.len());
+    let page = items[start..end].to_vec();
+    let next = if end < items.len() {
+        Some(end.to_string())
+    } else {
+        None
+    };
+    (page, next)
+}
+
+/// `CreateTable` failure modes (W03, GOC-75-W03) — kept distinct from a generic
+/// string error so the REST layer can pick the spec-conformant status/type
+/// (`409 AlreadyExistsException` vs `400 BadRequestException`).
+#[derive(Debug)]
+pub(crate) enum CreateTableError {
+    AlreadyExists,
+    Other(String),
+}
+
+/// `RenameTable` failure modes (W03, GOC-75-W03). A visibility failure on the
+/// source is folded into `SourceNotFound` — same as `load_table_visible`, a
+/// caller who cannot see a table gets the SAME 404 an actually-missing table
+/// gets, never a distinguishing 403 (W04's "no leak via error messages" bar).
+#[derive(Debug)]
+pub(crate) enum RenameTableError {
+    SourceNotFound,
+    DestinationExists,
 }
 
 /// Owns every materialized lake table, the aggregate Iceberg-REST catalog, the
@@ -146,8 +245,18 @@ pub struct LakeManager {
     /// `drain_series` only picks up NEW rows each sweep (a WAL-drain, not a rescan).
     drain_cursor: Mutex<HashMap<String, i64>>,
     lineage: Mutex<VecDeque<Value>>,
+    /// Bounded audit trail of catalog denials + mutations (W05, GOC-75-W05) —
+    /// the SAME bounded-ring shape as `lineage` above. Every entry is ALSO
+    /// emitted as a structured `tracing` line (target
+    /// `epistemic_graph::lake::audit`) for real log aggregation; this ring is
+    /// the in-process inspection surface (`recent_audit`) tests and callers use
+    /// to prove an event landed, mirroring `recent_lineage`.
+    audit: Mutex<VecDeque<Value>>,
     next_lsn: AtomicU64,
 }
+
+/// Bound on the in-memory audit-event ring (oldest events drop first).
+pub const AUDIT_RING_CAP: usize = 500;
 
 impl Default for LakeManager {
     fn default() -> Self {
@@ -163,6 +272,7 @@ impl LakeManager {
             paths: Mutex::new(HashMap::new()),
             drain_cursor: Mutex::new(HashMap::new()),
             lineage: Mutex::new(VecDeque::new()),
+            audit: Mutex::new(VecDeque::new()),
             // Starts at 1 — `Lsn::ZERO`/0 is reserved by eg-lake for "nothing committed
             // yet" (an as-of-0 read is always empty).
             next_lsn: AtomicU64::new(1),
@@ -274,12 +384,14 @@ impl LakeManager {
 
     /// Get-or-create the `(namespace, table)` entry, seeding its schema on first
     /// creation. Returns whether the table is brand-new (CREATE) this call.
+    #[allow(clippy::too_many_arguments)]
     fn get_or_create<'a>(
         tables: &'a mut HashMap<(String, String), TableEntry>,
         namespace: &str,
         table: &str,
         schema: &LakeSchema,
         source_series: Option<&str>,
+        owner_tenant: Option<&str>,
     ) -> (&'a mut TableEntry, bool) {
         let key = (namespace.to_string(), table.to_string());
         let is_new = !tables.contains_key(&key);
@@ -291,6 +403,7 @@ impl LakeManager {
                 Self::location_for(namespace, table),
             ),
             source_series: source_series.map(str::to_string),
+            owner_tenant: owner_tenant.map(str::to_string),
         });
         (entry, is_new)
     }
@@ -311,12 +424,19 @@ impl LakeManager {
         source_series: Option<&str>,
         op_hint: LakeOp,
         input_dataset: Option<(&str, &str)>,
+        owner_tenant: Option<&str>,
     ) -> Result<MaterializeReport, String> {
         let lsn = self.alloc_lsn();
         let ts_ms = lineage::now_ms();
         let mut tables = self.tables.lock();
-        let (entry, is_new) =
-            Self::get_or_create(&mut tables, namespace, table, schema, source_series);
+        let (entry, is_new) = Self::get_or_create(
+            &mut tables,
+            namespace,
+            table,
+            schema,
+            source_series,
+            owner_tenant,
+        );
         let location = entry.table.location.clone();
 
         let (rel_path, bytes) = entry.table.materialize(batch, lsn)?;
@@ -411,6 +531,7 @@ impl LakeManager {
             Some(series_id),
             LakeOp::Append,
             Some(("epistemic-graph.tsdb", series_id)),
+            None,
         )?;
         self.drain_cursor
             .lock()
@@ -512,6 +633,7 @@ impl LakeManager {
             &new_batch,
             source_series.as_deref(),
             op,
+            None,
             None,
         )
         .map(Some)
@@ -617,6 +739,209 @@ impl LakeManager {
             .ok_or_else(|| format!("no such table: {namespace}.{table}"))
     }
 
+    // ── Iceberg-REST catalog reads, visibility-projected (W04, GOC-75-W04) ─────────
+    //
+    // These are ADDITIVE siblings of the plain `list_namespaces`/`list_tables`/
+    // `load_table`/`namespace_exists` above (kept byte-for-byte unchanged for their
+    // existing internal callers — the drain sweep, this module's own tests). The
+    // REST surface (`rest.rs`) calls these instead once a request's
+    // `LakeVisibility` is known, so an owner-scoped table never appears in another
+    // owner's listing, existence check, or load — the SAME 404 an actually-missing
+    // table gets, never a distinguishing 403 (closes the existence/count/error-
+    // message side channels the lane's security section calls out).
+
+    fn namespace_visible(&self, namespace: &str, visibility: &LakeVisibility) -> bool {
+        let tables = self.tables.lock();
+        tables
+            .iter()
+            .any(|((ns, _), entry)| ns == namespace && visibility.allows(entry.owner_tenant.as_deref()))
+    }
+
+    pub(crate) fn list_namespaces_visible(
+        &self,
+        visibility: &LakeVisibility,
+        page_token: Option<&str>,
+        page_size: Option<usize>,
+    ) -> Value {
+        let mut namespaces: Vec<String> = {
+            let tables = self.tables.lock();
+            tables
+                .iter()
+                .filter(|(_, entry)| visibility.allows(entry.owner_tenant.as_deref()))
+                .map(|((ns, _), _)| ns.clone())
+                .collect()
+        };
+        namespaces.sort();
+        namespaces.dedup();
+        let (page, next) = paginate(&namespaces, page_token, page_size);
+        let namespaces_json: Vec<Value> = page.iter().map(|ns| json!(namespace_levels(ns))).collect();
+        let mut out = json!({ "namespaces": namespaces_json });
+        if let Some(t) = next {
+            out["next-page-token"] = json!(t);
+        }
+        out
+    }
+
+    pub(crate) fn namespace_exists_visible(&self, namespace: &str, visibility: &LakeVisibility) -> bool {
+        self.namespace_visible(namespace, visibility)
+    }
+
+    pub(crate) fn list_tables_visible(
+        &self,
+        namespace: &str,
+        visibility: &LakeVisibility,
+        page_token: Option<&str>,
+        page_size: Option<usize>,
+    ) -> Value {
+        let mut names: Vec<String> = {
+            let tables = self.tables.lock();
+            tables
+                .iter()
+                .filter(|((ns, _), entry)| {
+                    ns == namespace && visibility.allows(entry.owner_tenant.as_deref())
+                })
+                .map(|((_, name), _)| name.clone())
+                .collect()
+        };
+        names.sort();
+        let (page, next) = paginate(&names, page_token, page_size);
+        let levels = namespace_levels(namespace);
+        let identifiers: Vec<Value> = page
+            .iter()
+            .map(|name| json!({ "namespace": levels, "name": name }))
+            .collect();
+        let mut out = json!({ "identifiers": identifiers });
+        if let Some(t) = next {
+            out["next-page-token"] = json!(t);
+        }
+        out
+    }
+
+    pub(crate) fn load_table_visible(
+        &self,
+        namespace: &str,
+        table: &str,
+        visibility: &LakeVisibility,
+    ) -> Option<Value> {
+        {
+            let tables = self.tables.lock();
+            let entry = tables.get(&(namespace.to_string(), table.to_string()))?;
+            if !visibility.allows(entry.owner_tenant.as_deref()) {
+                return None;
+            }
+        }
+        self.load_table(namespace, table)
+    }
+
+    // ── Iceberg-REST catalog writes: CreateTable / DropTable / RenameTable ─────────
+    // (W03, GOC-75-W03 — the REST surface's remaining verbs named in the lane's
+    // "Still open" list; each still routes through THIS manager's one table store,
+    // never a second catalog.)
+
+    /// `CreateTable`: register a brand-new, empty `(namespace, table)` under
+    /// `schema`, tagged with `owner_tenant` (W04's ownership tag — `None` from the
+    /// non-security `serve()` path, `Some(carrier.owner_scope())` from an
+    /// authenticated REST request). Materializes one (zero-row) Parquet/Delta/
+    /// Iceberg-Avro commit via the SAME [`Self::materialize_batch`] pipeline every
+    /// other write uses, so a freshly created table is immediately a real,
+    /// loadable Iceberg table (`LoadTable` right after `CreateTable` needs no
+    /// special-casing).
+    pub fn create_table(
+        &self,
+        store: &dyn ChunkStore,
+        namespace: &str,
+        table: &str,
+        schema: LakeSchema,
+        owner_tenant: Option<&str>,
+    ) -> Result<Value, CreateTableError> {
+        {
+            let tables = self.tables.lock();
+            if tables.contains_key(&(namespace.to_string(), table.to_string())) {
+                return Err(CreateTableError::AlreadyExists);
+            }
+        }
+        let batch = LakeBatch::new(schema.clone(), Vec::new()).map_err(CreateTableError::Other)?;
+        self.materialize_batch(
+            store,
+            namespace,
+            table,
+            &schema,
+            &batch,
+            None,
+            LakeOp::Create,
+            None,
+            owner_tenant,
+        )
+        .map_err(CreateTableError::Other)?;
+        self.load_table(namespace, table)
+            .ok_or_else(|| CreateTableError::Other(format!("table {namespace}.{table} vanished immediately after create")))
+    }
+
+    /// `DropTable`: remove `(namespace, table)` from both this manager's table
+    /// store and the Iceberg-REST catalog index. `false` if the table does not
+    /// exist OR is not visible to `visibility` — a caller cannot distinguish
+    /// "doesn't exist" from "exists but isn't yours" (W04's error-message bar).
+    /// The blob-CAS bytes under the table's location are released from the path
+    /// index (a real Iceberg catalog similarly only ever unregisters the
+    /// pointer; VACUUM/GC of orphaned files is a separate, out-of-band concern
+    /// this tier does not model).
+    pub fn drop_table(&self, namespace: &str, table: &str, visibility: &LakeVisibility) -> bool {
+        let key = (namespace.to_string(), table.to_string());
+        let removed = {
+            let mut tables = self.tables.lock();
+            match tables.get(&key) {
+                Some(entry) if visibility.allows(entry.owner_tenant.as_deref()) => {
+                    tables.remove(&key);
+                    true
+                }
+                _ => false,
+            }
+        };
+        if removed {
+            self.catalog.lock().remove(namespace, table);
+            let prefix = format!("{}/", Self::location_for(namespace, table));
+            self.paths.lock().retain(|path, _| !path.starts_with(&prefix));
+        }
+        removed
+    }
+
+    /// `RenameTable` (`POST /v1/tables/rename`): re-key `(from_ns, from_table)` to
+    /// `(to_ns, to_table)` in both this manager's table store and the catalog. No
+    /// data files move — Iceberg's `location` is independent of the catalog
+    /// identifier, so only the catalog pointer changes, matching real Iceberg
+    /// rename semantics. `visibility` gates the SOURCE the same way `load_table_
+    /// visible`/`drop_table` do (folded into `SourceNotFound`, never a 403).
+    pub fn rename_table(
+        &self,
+        from_ns: &str,
+        from_table: &str,
+        to_ns: &str,
+        to_table: &str,
+        visibility: &LakeVisibility,
+    ) -> Result<(), RenameTableError> {
+        let from_key = (from_ns.to_string(), from_table.to_string());
+        let to_key = (to_ns.to_string(), to_table.to_string());
+        let mut tables = self.tables.lock();
+        match tables.get(&from_key) {
+            Some(entry) if visibility.allows(entry.owner_tenant.as_deref()) => {}
+            _ => return Err(RenameTableError::SourceNotFound),
+        }
+        if from_key != to_key && tables.contains_key(&to_key) {
+            return Err(RenameTableError::DestinationExists);
+        }
+        let mut entry = tables.remove(&from_key).expect("checked above");
+        entry.table.namespace = to_ns.to_string();
+        entry.table.name = to_table.to_string();
+        let ts_ms = lineage::now_ms();
+        {
+            let mut cat = self.catalog.lock();
+            cat.remove(from_ns, from_table);
+            entry.table.register_in(&mut cat, ts_ms as i64);
+        }
+        tables.insert(to_key, entry);
+        Ok(())
+    }
+
     // ── OpenLineage ─────────────────────────────────────────────────────────────
 
     fn push_lineage(&self, event: Value) {
@@ -634,6 +959,28 @@ impl LakeManager {
     /// The `n` most recent OpenLineage events (newest last) — inspection/tests.
     pub fn recent_lineage(&self, n: usize) -> Vec<Value> {
         let ring = self.lineage.lock();
+        ring.iter().rev().take(n).rev().cloned().collect()
+    }
+
+    // ── Audit trail (W05, GOC-75-W05) ───────────────────────────────────────────
+
+    /// Record one Iceberg-REST catalog audit event (a denial or a mutation),
+    /// mirroring [`Self::push_lineage`]'s pattern: a structured `tracing` line for
+    /// real log aggregation, plus a bounded in-process ring so a test — or a
+    /// future admin surface — can prove an event actually landed rather than
+    /// trusting that a log line was emitted somewhere.
+    pub(crate) fn record_audit(&self, event: Value) {
+        tracing::info!(target: "epistemic_graph::lake::audit", event = %event, "iceberg-rest catalog audit event");
+        let mut ring = self.audit.lock();
+        ring.push_back(event);
+        while ring.len() > AUDIT_RING_CAP {
+            ring.pop_front();
+        }
+    }
+
+    /// The `n` most recent audit events (newest last) — inspection/tests.
+    pub fn recent_audit(&self, n: usize) -> Vec<Value> {
+        let ring = self.audit.lock();
         ring.iter().rev().take(n).rev().cloned().collect()
     }
 }
