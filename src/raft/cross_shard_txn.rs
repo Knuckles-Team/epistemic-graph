@@ -91,8 +91,39 @@
 //! restarted coordinator resolves every in-doubt txn deterministically from disk. A
 //! non-blocking commit (3PC / Paxos-Commit, or replicating the decision record itself
 //! through Raft so a surviving node can resolve) plus Calvin-style deterministic
-//! ordering remain a separate follow-up track (CONCEPT:EG-KG.txn.harness-crash); so is a cross-NODE
-//! participant path and a larger >2-group scale test.
+//! ordering remain a separate follow-up track (CONCEPT:EG-KG.txn.harness-crash); so is a
+//! larger >2-group scale test.
+//!
+//! **Cross-NODE participants (GOC-13) — honest status.** [`prepare_participant`]
+//! still resolves a participant through `self.multi.group(gid)`, i.e. this
+//! coordinator's OWN in-process [`super::multi::MultiRaft`] must carry a LOCAL
+//! replica of every participant group — a participant group whose ENTIRE
+//! membership lives on a different physical host, with no local replica here at
+//! all, is not yet reachable from this module. What GOC-13 DID close: every
+//! [`GraphSlice`] now carries the placement `(group, epoch, fencing_token)` it was
+//! built against, and [`CrossShardCoordinator::prepare_participant`]/
+//! [`CrossShardCoordinator::validate_read_only_participant`] reject (vote NO,
+//! never durably prepare) a participant whose captured fencing no longer matches
+//! `gid`'s CURRENT [`super::placement::PlacementRoute`] — the "stale/fenced
+//! participant is rejected" invariant, proved by `slice_fence_is_current`'s unit
+//! tests and (against a live cluster) `xshard_modality_harness`'s
+//! `stale_fenced_participant_is_rejected_current_epoch_accepted` scenario. The
+//! remaining transport gap has
+//! an established template already live elsewhere in this engine:
+//! [`crate::server::handlers::txn::execute_consensus_transaction`] (the separate
+//! "consensus transaction" path `Method::Commit` uses when it stages through
+//! `NativeMutationCommand::Transaction`) issues each participant's prepare/commit
+//! through `MultiRaft::client_write_group(participant.group_id, ...)`, which
+//! transparently forwards to that group's CURRENT leader wherever it runs — so it
+//! is ALREADY cross-node capable, and carries the identical
+//! `(group_id, placement_epoch, fencing_token)` fencing shape this module now also
+//! carries (see `validate_consensus_participant_placement`). Routing THIS
+//! coordinator's phase-1/phase-2 `RaftRequest`s through `client_write_group`
+//! instead of a purely-local `client_write` on an already-resolved local group
+//! handle is therefore the concrete next step for real cross-host participants —
+//! not a new transport, reusing the one that already exists. Left undone here
+//! because it changes this module's hot commit path and needs live multi-host
+//! verification this session cannot run (see the lane handoff).
 //!
 //! ## Non-blocking commit — Raft-replicated decision (CONCEPT:EG-KG.txn.harness-crash)
 //!
@@ -189,6 +220,39 @@ fn prepared_slices_exceed_limits(slices: &[GraphSlice]) -> bool {
             .is_none()
 }
 
+/// GOC-13 fencing (CONCEPT:EG-KG.txn.harness-crash): does a [`GraphSlice`]'s CAPTURED
+/// placement fencing still match `gid`'s CURRENT placement route? A pure function
+/// (no cluster/IO) so it is unit-testable in isolation — the same shape
+/// [`crate::server::handlers::txn::validate_consensus_participant_placement`]
+/// checks for the separate consensus-transaction path, reused here rather than a
+/// second fencing vocabulary.
+///
+/// `slice_epoch == 0` is the sentinel "no placement authority was consulted when
+/// this slice was built" ([`super::placement::PlacementRoute::unplaced`] also
+/// answers epoch `0`, and a pre-fencing durable prepare record from an older
+/// binary decodes with `#[serde(default)]` `0`) — the check is a no-op in that
+/// case, byte-for-byte the pre-fencing behavior for an unplaced graph or an
+/// in-process harness that never routed through [`super::multi::MultiRaft::
+/// route_graph`].
+///
+/// Once `slice_epoch > 0`, EVERY field must match: the group the slice targets,
+/// the epoch, and the fencing token — a mismatch on any one means this participant
+/// prepared against a placement that has since moved (a split/merge/move cutover
+/// bumped the epoch, or re-routed the graph to a different group) and MUST be
+/// rejected, never silently accepted against stale routing.
+fn slice_fence_is_current(
+    gid: GroupId,
+    slice_epoch: u64,
+    slice_fence: Option<GroupId>,
+    current: super::placement::PlacementRoute,
+) -> bool {
+    if slice_epoch == 0 {
+        return true;
+    }
+    let current_fence = current.placed.then_some(current.fencing_token());
+    current.group == gid && current.epoch == slice_epoch && current_fence == slice_fence
+}
+
 fn decode_prepared_slices(blob: &[u8]) -> Result<Vec<GraphSlice>, String> {
     let slices: Vec<GraphSlice> = eg_types::msgpack::decode_bounded(
         blob,
@@ -218,6 +282,25 @@ pub struct GraphSlice {
     pub graph_type: GraphType,
     /// Staged durable mutations for this graph, applied in order at COMMIT.
     pub methods: Vec<Method>,
+    /// The [`super::placement::PlacementRoute`] epoch captured for this graph WHEN
+    /// the slice was built (GOC-13 fencing — mirrors the same `(group, epoch,
+    /// fencing_token)` triple [`crate::server::handlers::txn::
+    /// validate_consensus_participant_placement`] already checks for the separate
+    /// consensus-transaction path, reused here rather than inventing a second
+    /// fencing vocabulary). `0` is the sentinel "no placement authority was
+    /// consulted" (the same 0-means-absent convention `CommitDescriptorV1::
+    /// source_graph_version` uses) — a caller that never routed through
+    /// [`super::multi::MultiRaft::route_graph`] (an in-process/non-clustered
+    /// harness, or a pre-fencing durable prepare record from an older binary)
+    /// leaves this `0` and [`CrossShardCoordinator::prepare_participant`] skips
+    /// the fence check entirely, byte-for-byte the pre-fencing behavior.
+    #[serde(default)]
+    pub placement_epoch: u64,
+    /// The route's `fencing_token()` (today numerically the same as [`GroupId`] —
+    /// see [`super::placement::PlacementRoute::fencing_token`]) captured alongside
+    /// `placement_epoch`. `None` when `placement_epoch == 0`.
+    #[serde(default)]
+    pub fencing_token: Option<GroupId>,
 }
 
 impl GraphSlice {
@@ -545,7 +628,29 @@ impl CrossShardCoordinator {
         if self.multi.group(gid).await.is_none() {
             return Ok(false);
         }
+        if !self.slices_fence_is_current(gid, slices).await {
+            return Ok(false);
+        }
         Ok(self.validate_slices(slices).await)
+    }
+
+    /// GOC-13 fencing gate shared by [`prepare_participant`](Self::prepare_participant)
+    /// and [`validate_read_only_participant`](Self::validate_read_only_participant):
+    /// every slice this participant `gid` owns must still match `gid`'s CURRENT
+    /// placement route (see [`slice_fence_is_current`]). A participant living on a
+    /// placement that moved out from under it since the slice was built is REJECTED
+    /// — never silently prepared/applied against stale routing.
+    async fn slices_fence_is_current(&self, gid: GroupId, slices: &[GraphSlice]) -> bool {
+        for slice in slices {
+            if slice.placement_epoch == 0 {
+                continue;
+            }
+            let route = self.multi.route_graph(&slice.graph_name).await;
+            if !slice_fence_is_current(gid, slice.placement_epoch, slice.fencing_token, route) {
+                return false;
+            }
+        }
+        true
     }
 
     /// PHASE 1 for one participant: validate its OCC read-set against the live group
@@ -560,9 +665,16 @@ impl CrossShardCoordinator {
         slices: &[GraphSlice],
     ) -> Result<bool, String> {
         // The group must be running on this node to validate/apply (the coordinator
-        // routes to local group state; cross-NODE participants are a follow-up — see
-        // the failure model). A missing group is a NO vote (cannot prepare).
+        // routes to LOCAL group state today — see the module-level "cross-node
+        // participant transport" note). A missing group is a NO vote (cannot prepare).
         if self.multi.group(gid).await.is_none() {
+            return Ok(false);
+        }
+        // GOC-13 fencing: reject a participant whose captured placement epoch/fence
+        // no longer matches `gid`'s current route (stale/fenced — see
+        // `slice_fence_is_current`'s doc). Checked BEFORE any durable prepare write,
+        // so a fenced participant never persists a prepare record at all.
+        if !self.slices_fence_is_current(gid, slices).await {
             return Ok(false);
         }
         // OCC validation against the live GraphCore of each graph in the slice. We
@@ -2245,6 +2357,8 @@ mod calvin_tests {
                     node_id: "two".to_string(),
                 },
             ],
+            placement_epoch: 0,
+            fencing_token: None,
         };
         let first = slice.to_requests("opaque-transaction", "test-key").unwrap();
         let retry = slice.to_requests("opaque-transaction", "test-key").unwrap();
@@ -2495,5 +2609,76 @@ mod calvin_tests {
             attempt2_seq > attempt1_seq,
             "the restarted attempt's epoch-packed seq must sort strictly after the stale one"
         );
+    }
+
+    // ── GOC-13: `slice_fence_is_current` — pure fencing-gate proofs, no cluster ──
+
+    use super::super::placement::PlacementRoute;
+
+    /// PASS-on-good: a slice's captured fencing exactly matches the group's current
+    /// route ⇒ current, not stale.
+    #[test]
+    fn goc13_fence_matches_current_route_is_accepted() {
+        let route = PlacementRoute::catalog(7, 3);
+        assert!(slice_fence_is_current(7, 3, Some(7), route));
+    }
+
+    /// FAIL-on-bad: the slice's captured epoch is BEHIND the route's current epoch
+    /// (a placement move/cutover bumped it since the slice was built) ⇒ rejected.
+    #[test]
+    fn goc13_fence_rejects_stale_epoch() {
+        let current = PlacementRoute::catalog(7, 5); // moved on to epoch 5
+        assert!(
+            !slice_fence_is_current(7, 3, Some(7), current),
+            "a slice captured at epoch 3 must be rejected once the route is at epoch 5"
+        );
+    }
+
+    /// FAIL-on-bad: the group itself changed (a split/move re-routed the graph to a
+    /// different group) even though the presented epoch number happens to match ⇒
+    /// still rejected — group identity is part of the fence, not just the epoch.
+    #[test]
+    fn goc13_fence_rejects_group_mismatch() {
+        let moved_to_group_9 = PlacementRoute::catalog(9, 3);
+        assert!(
+            !slice_fence_is_current(7, 3, Some(7), moved_to_group_9),
+            "a slice prepared against group 7 must be rejected once the route points at group 9"
+        );
+    }
+
+    /// FAIL-on-bad: a REPLAYED/forged slice presents the current epoch NUMBER but a
+    /// stale/wrong fencing token ⇒ rejected — the fencing token, not just the epoch,
+    /// must independently match.
+    #[test]
+    fn goc13_fence_rejects_fencing_token_mismatch() {
+        let route = PlacementRoute::catalog(7, 3);
+        assert!(
+            !slice_fence_is_current(7, 3, Some(99), route),
+            "a slice whose fencing token disagrees with the route's must be rejected \
+             even when group and epoch both match"
+        );
+    }
+
+    /// PASS-on-good: `placement_epoch == 0` (the sentinel for "no placement
+    /// authority was consulted" — an unplaced graph, an in-process harness, or a
+    /// pre-fencing durable prepare record) is a no-op check regardless of the
+    /// current route, preserving pre-GOC-13 behavior exactly.
+    #[test]
+    fn goc13_fence_sentinel_zero_epoch_always_passes() {
+        let moved = PlacementRoute::catalog(123, 999);
+        assert!(
+            slice_fence_is_current(7, 0, None, moved),
+            "epoch 0 is the explicit opt-out sentinel, not an accidental stale value"
+        );
+    }
+
+    /// FAIL-on-bad: an UNPLACED current route (`placed == false`, epoch 0) can never
+    /// satisfy a slice that WAS captured with a non-zero epoch — a placement cannot
+    /// un-happen; a slice claiming a real epoch against a now-unplaced graph is
+    /// stale by construction.
+    #[test]
+    fn goc13_fence_rejects_when_route_became_unplaced() {
+        let unplaced = PlacementRoute::unplaced(7);
+        assert!(!slice_fence_is_current(7, 3, Some(7), unplaced));
     }
 }

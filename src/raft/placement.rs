@@ -78,12 +78,50 @@
 //!
 //! ## What this increment does NOT do (documented follow-ups)
 //!
-//! * **Concurrent admin ops on a live multi-writer cluster.** `next_epoch` reads the
-//!   catalog then writes the incremented value under a LOCAL (this-node) lock; two
-//!   placement admin calls issued concurrently on the SAME node serialize correctly,
-//!   but Raft's single-leader-writer property is what actually prevents two DIFFERENT
-//!   nodes computing the same next epoch — fine for the low-frequency admin path this
-//!   targets, but a documented limitation vs. a CAS-style engine-level guard.
+//! * **Concurrent admin ops on a live multi-writer cluster (GOC-13, open).**
+//!   `next_epoch` reads the catalog then writes the incremented value under a LOCAL
+//!   (this-node) lock; two placement admin calls issued concurrently on the SAME
+//!   node serialize correctly, but the actual safety against two DIFFERENT nodes (or
+//!   two leadership epochs straddling a view change) allocating the SAME next epoch
+//!   rests on Raft's single-leader-writer property holding at the exact instant
+//!   BOTH read `max_epoch` and BOTH propose — true for the common case, but not a
+//!   linearizable CAS: a deposed leader that read `max_epoch` before losing
+//!   leadership, and the newly-elected leader that also read it before the old
+//!   leader's write is known to have failed, can each independently compute and
+//!   commit an `AddNode` carrying the SAME epoch for two DIFFERENT partitions (they
+//!   are ordinary, non-conflicting Raft log entries — nothing at APPLY time checks
+//!   epoch uniqueness). GOC-13 verified this gap is real and scoped a fix but did
+//!   NOT implement it (touches every `plan_*` call site's write contract and needs
+//!   a live multi-node CAS-race drill to prove, both too large for that lane's
+//!   session budget) — concrete plan for the next session:
+//!   1. A durable epoch-counter control-graph node (`__epoch_counter__`,
+//!      `{"epoch": N}`) seeded once via `Method::CreateNodeIfAbsent` (idempotent —
+//!      safe under a race).
+//!   2. Epoch allocation becomes `Method::CompareAndSetNodeFields` on that node
+//!      (`conditions={"epoch": current}`, `updates={"epoch": current+1}`) — this
+//!      primitive ALREADY EXISTS and is ALREADY Raft-applied deterministically
+//!      (`crate::mutation_apply::apply`'s `Method::CompareAndSetNodeFields` arm;
+//!      see `crates/eg-core/src/graph.rs`'s `compare_and_set_fields`), so this is
+//!      reuse, not new consensus machinery. Two racing proposals for the same
+//!      starting `current` value can both be REPLICATED, but only the FIRST to
+//!      apply (in the log's total order) sees the matching condition — the second
+//!      deterministically observes the already-updated node and gets `false` back,
+//!      which is exactly the linearizable CAS the lane doc's "Design" section
+//!      calls for.
+//!   3. A `false` result means "lost the race" — re-read the counter's current
+//!      value and retry with the new expected value (bounded retry, same shape as
+//!      any optimistic CAS loop) BEFORE building/committing the final
+//!      `PlacementEntry` write(s); a `true` result means this call exclusively
+//!      owns that epoch number and may proceed exactly as today.
+//!   4. `PendingWrite`'s contract changes from "the caller pre-holds a computed
+//!      epoch" to "the caller drives an allocate-then-write two-step" — touches
+//!      `plan_assign`/`plan_split`/`plan_start_move`/`plan_fence_cutover` and
+//!      `MultiRaft::commit_placement`'s per-method loop (which would need to
+//!      surface the CAS's `ResultPayload::Bool` instead of discarding it).
+//!   5. Proof: a 9-node stress test that fires N concurrent `placement_assign`/
+//!      `placement_split` calls with an OVERLAPPING starting epoch and asserts
+//!      every committed `PlacementEntry` has a UNIQUE epoch — the exit evidence
+//!      the lane doc's "CAS contention benchmark" row calls for.
 //! External clients consume this authority through `PlacementRoute`. An absent
 //! catalog row returns the engine-owned unplaced policy; it never delegates a
 //! placement decision to the caller.
