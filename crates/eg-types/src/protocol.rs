@@ -3364,6 +3364,18 @@ pub enum Method {
         /// inferred members) — the materialize-one-class shape. Empty ⇒ all classes.
         #[serde(default)]
         target_class: String,
+        /// The absolute namespace a bare string node `type` (e.g. `"Agent"`) is
+        /// bridged into before classification (`eg_rdf::owl::bridge_type_to_class`) —
+        /// independent of `target_class`, which ONLY controls filtering (BUG-281: the
+        /// two used to be conflated, so an empty `target_class` — its own documented
+        /// "all classes" case — could never supply a namespace, and a caller wanting
+        /// "reason over everything" always hit `OwlReason requires an absolute target
+        /// class`). Empty ⇒ fall back to `target_class`'s own namespace when
+        /// `target_class` is absolute (the pre-existing convenience for a caller that
+        /// only ever set one field); a class bridge for a bare string `type` is only
+        /// possible once SOME absolute namespace is available from either field.
+        #[serde(default)]
+        class_base: String,
         /// Confidence threshold τ in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13). The result carries a
         /// per-entailment confidence (axioms/facts may be uncertain; the closure
         /// propagates it — `eg:confidence` annotations × the per-node confidence ×
@@ -3388,6 +3400,9 @@ pub enum Method {
         /// Restrict instance memberships to this class (empty ⇒ all classes).
         #[serde(default)]
         target_class: String,
+        /// See `OwlReason::class_base` (BUG-281) — independent of `target_class`.
+        #[serde(default)]
+        class_base: String,
         /// Confidence threshold τ in `[0,1]` (see `OwlReason::min_confidence`).
         #[serde(default)]
         min_confidence: f64,

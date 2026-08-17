@@ -5063,6 +5063,7 @@ ex:myHeart a ex:HumanHeart .
                 Method::OwlReason {
                     ontology: String::new(),
                     target_class: "http://example.org/HumanComponent".into(),
+                    class_base: String::new(),
                     min_confidence: 0.0,
                 },
             ),
@@ -5087,6 +5088,115 @@ ex:myHeart a ex:HumanHeart .
             "<http://example.org/myHeart>".into(),
             "<http://example.org/HumanComponent>".into()
         )));
+    }
+
+    /// BUG-281 regression: `Method::OwlReason` with an EMPTY `target_class` (its own
+    /// documented "all classes" contract) over bare-string-typed nodes (`AddNode`'s
+    /// `type` property, the property-graph's normal convention — no `AddTriples`/RDF
+    /// TBox at all) must NOT error, and must classify every asserted type once an
+    /// explicit `class_base` is supplied. Before the fix this always raised "OwlReason
+    /// requires an absolute target class with a current class namespace", because
+    /// `class_base` was derived ONLY from `target_class` — so a caller with no filter
+    /// had no way to also supply a bridging namespace.
+    #[cfg(feature = "owl")]
+    #[tokio::test]
+    async fn test_owl_reason_empty_target_class_uses_explicit_class_base() {
+        let state = test_state();
+        #[cfg(feature = "shacl")]
+        configure_icv_enforce(&state, 0, "__commons__").await;
+        for (id, name) in [("alice", "Alice"), ("bob", "Bob")] {
+            assert_ok(
+                &dispatch_on_heap(
+                    &state,
+                    request(
+                        1,
+                        "__commons__",
+                        None,
+                        Method::AddNode {
+                            node_id: id.into(),
+                            properties_msgpack: rmp_serde::to_vec(&serde_json::json!({
+                                "type": "Agent",
+                                "name": name,
+                            }))
+                            .unwrap(),
+                        },
+                    ),
+                )
+                .await,
+            );
+        }
+        let r = dispatch_on_heap(
+            &state,
+            request(
+                2,
+                "__commons__",
+                None,
+                Method::OwlReason {
+                    ontology: String::new(),
+                    target_class: String::new(),
+                    class_base: "http://example.org/ns#".into(),
+                    min_confidence: 0.0,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r);
+        let res: crate::protocol::OwlReasonResult = match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(OwlReasonResult), got {other:?}"),
+        };
+        assert!(
+            res.consistent,
+            "no ontology declared -> trivially consistent"
+        );
+        // `class_base` bridges the CLASS (the bare `type` value `"Agent"` ->
+        // `<http://example.org/ns#Agent>`); the INSTANCE stays the graph's own node id
+        // (`alice`), which is not part of the class vocabulary and is never rewritten.
+        assert!(
+            res.instances
+                .contains(&("alice".into(), "<http://example.org/ns#Agent>".into())),
+            "alice must be classified via the explicit class_base with an empty \
+             target_class; instances={:?}",
+            res.instances
+        );
+        assert!(
+            res.instances
+                .contains(&("bob".into(), "<http://example.org/ns#Agent>".into())),
+            "bob must be classified via the explicit class_base with an empty \
+             target_class; instances={:?}",
+            res.instances
+        );
+
+        // BUG-281, the other half: BOTH fields empty is also legitimate ("reason over
+        // everything using my graph's own local vocabulary"). The bare `type` then
+        // classifies under its own bare label — identity mode, mirroring
+        // `sparql::Projection::raw()` — rather than erroring or fabricating a namespace.
+        let r2 = dispatch_on_heap(
+            &state,
+            request(
+                3,
+                "__commons__",
+                None,
+                Method::OwlReason {
+                    ontology: String::new(),
+                    target_class: String::new(),
+                    class_base: String::new(),
+                    min_confidence: 0.0,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r2);
+        let res2: crate::protocol::OwlReasonResult = match r2.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(OwlReasonResult), got {other:?}"),
+        };
+        assert!(
+            res2.instances.contains(&("alice".into(), "Agent".into())),
+            "with NO class_base the bare type stays bare (identity mode); \
+             instances={:?}",
+            res2.instances
+        );
     }
 
     /// OwlExplain Method round-trips through dispatch (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation): the
@@ -5381,6 +5491,7 @@ ex:p1 a ex:Paper .
                     graphs: vec!["__commons__".into(), "shard:b".into()],
                     ontology: String::new(),
                     target_class: "http://example.org/ScholarlyWork".into(),
+                    class_base: String::new(),
                     min_confidence: 0.0,
                 },
             ),

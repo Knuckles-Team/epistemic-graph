@@ -157,12 +157,21 @@ pub(crate) async fn try_handle(
         Method::OwlReason {
             ontology,
             target_class,
+            class_base,
             min_confidence,
         } => {
             let authority =
                 read_authority.expect("OwlReason must carry the universal served-read authority");
             let core = authority.project_core(&core);
-            Ok(handle_owl_reason(req_id, &core, ontology, target_class, min_confidence).await)
+            Ok(handle_owl_reason(
+                req_id,
+                &core,
+                ontology,
+                target_class,
+                class_base,
+                min_confidence,
+            )
+            .await)
         }
         #[cfg(feature = "owl")]
         Method::OwlExplain { ontology, sub, sup } => {
@@ -414,6 +423,7 @@ pub(crate) async fn try_handle_distributed(
             graphs,
             ontology,
             target_class,
+            class_base,
             min_confidence,
         } => Ok(handle_owl_reason_distributed(
             state,
@@ -422,6 +432,7 @@ pub(crate) async fn try_handle_distributed(
             graphs,
             ontology,
             target_class,
+            class_base,
             min_confidence,
         )
         .await),
@@ -461,13 +472,22 @@ async fn handle_owl_reason(
     core: &Arc<GraphCore>,
     ontology: String,
     target_class: String,
+    class_base: String,
     min_confidence: f64,
 ) -> Response {
     let snap = core.analysis_snapshot();
     let now = now_secs();
     let hl = decay_half_life_secs();
     let resp = match compute_off_lock(req_id, move || {
-        owl_reason(&[&snap], &ontology, &target_class, now, hl, min_confidence)
+        owl_reason(
+            &[&snap],
+            &ontology,
+            &target_class,
+            &class_base,
+            now,
+            hl,
+            min_confidence,
+        )
     })
     .await
     {
@@ -489,6 +509,7 @@ async fn handle_owl_reason_distributed(
     graphs: Vec<String>,
     ontology: String,
     target_class: String,
+    class_base: String,
     min_confidence: f64,
 ) -> Response {
     // Resolve and ACL-check every shard under the registry lock, then project each
@@ -522,7 +543,15 @@ async fn handle_owl_reason_distributed(
     let hl = decay_half_life_secs();
     let resp = match compute_off_lock(req_id, move || {
         let views: Vec<&crate::graph::GraphView> = snaps.iter().collect();
-        owl_reason(&views, &ontology, &target_class, now, hl, min_confidence)
+        owl_reason(
+            &views,
+            &ontology,
+            &target_class,
+            &class_base,
+            now,
+            hl,
+            min_confidence,
+        )
     })
     .await
     {
@@ -541,6 +570,7 @@ fn owl_reason(
     views: &[&crate::graph::GraphView],
     ontology: &str,
     target_class: &str,
+    class_base: &str,
     now: u64,
     half_life: f64,
     min_confidence: f64,
@@ -550,9 +580,29 @@ fn owl_reason(
     } else {
         eg_rdf::mapping::parse_turtle(ontology)?
     };
-    let class_base = eg_rdf::owl::class_namespace(target_class).ok_or_else(|| {
-        "OwlReason requires an absolute target class with a current class namespace".to_string()
-    })?;
+    // BUG-281: `class_base` (the namespace a bare string node `type` bridges into) is
+    // independent of `target_class` (which ONLY filters `instances`, and is legitimately
+    // empty per its own documented "all classes" contract). Prefer an explicit
+    // `class_base`; fall back to deriving one from an absolute `target_class` for a
+    // caller that only ever set that field (the pre-existing convenience).
+    let base_source = if !class_base.trim().is_empty() {
+        class_base
+    } else {
+        target_class
+    };
+    // Both empty: no restriction AND no namespace requested at all -- a legitimate
+    // "reason over everything, using my graph's own local vocabulary" call, not an
+    // error. `bridge_type_identity_or_class` (eg-rdf) then keeps a bare `type` bare
+    // instead of fabricating or rejecting a namespace for it. A NON-empty but
+    // unparseable `base_source` (a caller who DID try to supply one) still errors --
+    // that stays a caller mistake, not silently degraded to identity mode.
+    let class_base = if base_source.trim().is_empty() {
+        String::new()
+    } else {
+        eg_rdf::owl::class_namespace(base_source).ok_or_else(|| {
+            "OwlReason requires an absolute class_base (or target_class) with a current class namespace".to_string()
+        })?
+    };
     let res = eg_rdf::owl::reason_distributed_weighted(
         views,
         &extra,

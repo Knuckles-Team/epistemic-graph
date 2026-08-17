@@ -9342,6 +9342,7 @@ class RdfClient:
         self,
         ontology: str | None = None,
         target_class: str | None = None,
+        class_base: str | None = None,
         min_confidence: float = 0.0,
     ) -> dict[str, Any]:
         """Run the native OWL 2 (EL⁺ + RL) reasoner over the connection's graph and
@@ -9366,13 +9367,20 @@ class RdfClient:
         them — a derived entailment's confidence is ``axiom_conf x product(premise_conf)``
         (max over alternative derivations). ``min_confidence`` (tau) drops entailments
         below the threshold. ``target_class`` restricts ``instances`` to that class's
-        inferred members. OWL is included in the mandatory main build. Read-only.
+        inferred members and is EMPTY-OK ("all classes") by design. ``class_base`` is
+        the absolute namespace a bare string node ``type`` (e.g. ``"Agent"``) is bridged
+        into before classification — independent of ``target_class`` (BUG-281: the two
+        used to be conflated server-side, so an empty ``target_class`` could never
+        supply a namespace and "reason over everything" always errored). Empty
+        ``class_base`` falls back to deriving one from an absolute ``target_class``.
+        OWL is included in the mandatory main build. Read-only.
         """
         return await self._client._send(
             "OwlReason",
             {
                 "ontology": ontology or "",
                 "target_class": target_class or "",
+                "class_base": class_base or "",
                 "min_confidence": float(min_confidence),
             },
         )
@@ -9382,6 +9390,7 @@ class RdfClient:
         graphs: list[str],
         ontology: str | None = None,
         target_class: str | None = None,
+        class_base: str | None = None,
         min_confidence: float = 0.0,
     ) -> dict[str, Any]:
         """Distributed (cross-shard) confidence-weighted OWL reasoning over the UNION of
@@ -9398,6 +9407,7 @@ class RdfClient:
                 "graphs": list(graphs),
                 "ontology": ontology or "",
                 "target_class": target_class or "",
+                "class_base": class_base or "",
                 "min_confidence": float(min_confidence),
             },
         )

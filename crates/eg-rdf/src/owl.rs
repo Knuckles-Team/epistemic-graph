@@ -1718,6 +1718,37 @@ pub fn bridge_type_to_class(t: &str, class_base: &str) -> Result<String, String>
     }
 }
 
+/// BUG-281: [`bridge_type_to_class`] with an IDENTITY fallback when no `class_base` is
+/// configured — mirrors `sparql::Projection::raw()`'s existing "no `base_iri` configured
+/// ⇒ identity, keys emitted verbatim" convention (`class_base` here is the OWL-reasoning
+/// analog of that projection's `base_iri`). An empty `class_base` is a legitimate,
+/// deliberately-supported caller state (`OwlReason.target_class` is documented "Empty ⇒
+/// all classes" — there is no single target class to derive a namespace FROM), so it must
+/// not be treated as a caller error: [`bridge_type_to_class`] itself keeps its own
+/// mandatory-namespace contract unchanged (existing callers that always have a concrete
+/// `class_base`, e.g. `Op::Reason`'s single-target-class source, are untouched). Only the
+/// two asserted-fact readers below call this identity-aware wrapper.
+fn bridge_type_identity_or_class(t: &str, class_base: &str) -> Result<String, String> {
+    if !class_base.trim().is_empty() {
+        return bridge_type_to_class(t, class_base);
+    }
+    let t = t.trim();
+    if t.is_empty() {
+        return Err("OWL class bridge received an empty type".to_string());
+    }
+    if t.starts_with('<') != t.ends_with('>') {
+        return Err("OWL class bridge received a malformed bracketed IRI".to_string());
+    }
+    let bare = t.trim_start_matches('<').trim_end_matches('>');
+    Ok(if oxrdf::NamedNode::new(bare).is_ok() {
+        iri(bare)
+    } else {
+        // No namespace configured: keep the bare local label as the class key
+        // VERBATIM rather than fabricating or rejecting one — identity mode.
+        t.to_string()
+    })
+}
+
 /// The NAMESPACE of a class IRI (CONCEPT:EG-KG.ontology.string-type-iri-class) — everything up to and INCLUDING the
 /// last `/`, `#`, or `:`, the base the string-type↔IRI-class bridge maps a bare local name
 /// into. `<http://ex/Device>` → `http://ex/`; `<http://ex#Device>` → `http://ex#`.
@@ -1747,7 +1778,7 @@ pub fn asserted_types_from_view(
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
                 // A folded `type` may be a bare IRI string, a bare local label (bridged
                 // to `class_base` when supplied), or already canonical `<iri>`.
-                let class = bridge_type_to_class(t, class_base)?;
+                let class = bridge_type_identity_or_class(t, class_base)?;
                 out.entry(id.clone()).or_default().insert(class);
             }
         }
@@ -1807,7 +1838,7 @@ pub fn asserted_types_with_confidence_from_view(
         if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
                 // Bridge a bare string type into `class_base` (CONCEPT:EG-KG.ontology.string-type-iri-class) when given.
-                let class = bridge_type_to_class(t, class_base)?;
+                let class = bridge_type_identity_or_class(t, class_base)?;
                 let c = fact_conf_of(&v, now, default_half_life);
                 out.entry(id.clone()).or_default().push((class, c));
             }
