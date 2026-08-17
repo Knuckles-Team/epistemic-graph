@@ -441,11 +441,19 @@ mod tests {
         ihdr.extend_from_slice(&9u32.to_be_bytes());
         ihdr.extend_from_slice(&8u32.to_be_bytes());
         ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+        // A monotonically-increasing-in-x red channel would make EVERY
+        // `left > right` comparison in `difference_hash` false by construction
+        // (luminance strictly increases left-to-right for a non-decreasing
+        // gradient), degenerating to an all-zero hash regardless of whether the
+        // hash computation is correct — not a meaningful "does this differentiate
+        // content" fixture. Alternate the red channel by column parity instead so
+        // adjacent-column luminance genuinely flips direction across the row.
         let mut scanlines = Vec::new();
         for y in 0..8u8 {
             scanlines.push(0);
             for x in 0..9u8 {
-                scanlines.extend_from_slice(&[x.saturating_mul(24), y.saturating_mul(24), 0, 255]);
+                let red = if x % 2 == 0 { 220 } else { 20 };
+                scanlines.extend_from_slice(&[red, y.saturating_mul(24), 0, 255]);
             }
         }
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());

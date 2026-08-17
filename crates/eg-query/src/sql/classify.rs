@@ -1026,6 +1026,14 @@ fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
                 }
             }
             let fname = match op {
+                // GOC-40: sqlparser 0.62.0 promoted `<->` to the dedicated
+                // `LtDashGt` operator (`PostgreSqlDialect::
+                // supports_geometric_types`) instead of tokenizing it as
+                // `Custom("<->")` — see the matching fix + comment in
+                // `sql/pgfamily.rs::vector_order_key`, the ANN-pushdown half
+                // of this same desugar/pushdown pair. `<#>` has no dedicated
+                // operator in this sqlparser version yet, so it is unaffected.
+                BinaryOperator::LtDashGt => Some("vector_l2"),
                 BinaryOperator::Custom(s) if s == "<->" => Some("vector_l2"),
                 BinaryOperator::Custom(s) if s == "<#>" => Some("vector_ip"),
                 // `<=>` parses as `Spaceship`; in a pgvector context it is cosine distance.

@@ -26,13 +26,17 @@ static FEDERATION_ALLOW_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 /// Serialize the process-global test override and restore the caller's environment.
 /// The value is the exact origin, so this does not weaken the production SSRF default.
-struct MockHttpAllowGuard {
+///
+/// `pub(crate)`: also used by `advanced_crossmodal_tests`'s `federation_sparql_local_
+/// vector_foreign_sql_one_plan_eg385`, the other test-only mock-HTTP federation source
+/// in this crate, for the identical reason.
+pub(crate) struct MockHttpAllowGuard {
     _lock: MutexGuard<'static, ()>,
     previous: Option<OsString>,
 }
 
 impl MockHttpAllowGuard {
-    fn new(url: &str) -> Self {
+    pub(crate) fn new(url: &str) -> Self {
         let lock = FEDERATION_ALLOW_ENV_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());

@@ -460,7 +460,23 @@ mod tests {
     /// `fixture_b`) — proves genuinely DISTRIBUTED execution: neither branch's data
     /// lives on the coordinator's own (empty) local graph, so a correct non-empty
     /// merged result can ONLY come from both remote round-trips actually running.
-    #[tokio::test]
+    ///
+    /// GOC-40: `multi_thread` (not the bare `#[tokio::test]` default of
+    /// `current_thread`) is required here. `execute_dag_distributed` ->
+    /// `call_remote_branch` is deliberately SYNCHRONOUS/blocking (its own doc:
+    /// "call it from the executor's blocking pool exactly like a federation
+    /// ForeignSource::fetch") and this test calls it directly on the runtime
+    /// thread rather than through `spawn_blocking`. On a single-threaded runtime
+    /// that blocking `std::net::TcpStream::read` call starves the SAME thread the
+    /// `tokio::spawn`ed `spawn_responder` accept/serve loop needs to run on --
+    /// confirmed live via `gdb -p <pid> -batch -ex 'thread apply all bt'` on a
+    /// hung run: the test thread sits in `TcpStream::read` inside
+    /// `call_remote_branch` while the `tokio::runtime::scheduler::current_thread`
+    /// backtrace frames show there is no second thread free to service the
+    /// listener. A second worker thread breaks the deadlock without touching the
+    /// (intentionally synchronous) production calling convention this test is
+    /// otherwise faithfully exercising.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn multi_branch_plan_executes_each_branch_on_its_owning_group_and_merges() {
         let (core_a, sem_a) = fixture_a();
         let (core_b, sem_b) = fixture_b();
@@ -508,7 +524,12 @@ mod tests {
     /// ANN `merge_topk_stable` discipline for a ranked shard-merge; here it is the
     /// `RowSet::intersect_keep_order` chain's own order-preservation, unmodified by
     /// distribution).
-    #[tokio::test]
+    ///
+    /// GOC-40: `multi_thread` required — see the sibling
+    /// `multi_branch_plan_executes_each_branch_on_its_owning_group_and_merges`'s
+    /// doc comment for the deadlock this avoids (a blocking client call and its
+    /// own `tokio::spawn`ed responder starving each other on one thread).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn distributed_execution_is_deterministic_across_repeated_runs() {
         let (core_a, sem_a) = fixture_a();
         let addr_a = spawn_responder("shardA", &core_a, sem_a).await;

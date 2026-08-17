@@ -203,7 +203,16 @@ mod tests {
 
     #[test]
     fn native_decoder_extracts_pages_layout_tables_and_private_postings() {
-        let source = b"# Heading\nalpha beta\nleft | right\x0csecond page";
+        // Regression note: the heading text is deliberately NOT the literal word
+        // "Heading" — `BlockKind::Heading` is a `#[derive(Serialize)]`d structural
+        // classification tag ("Purely descriptive -- never gates behavior", see
+        // `document.rs`) that legitimately appears verbatim in `encoded` for ANY
+        // heading block, on purpose, regardless of the block's actual prose. Using
+        // that exact word as the fixture's raw source text made the no-raw-text-leak
+        // check below indistinguishable from (and unsatisfiable alongside) the
+        // structural-kind assertion on the next line; "Title" carries the same
+        // raw-text-leak proof without colliding with any `BlockKind` variant name.
+        let source = b"# Title\nalpha beta\nleft | right\x0csecond page";
         let doc = NativeTextDecoder.decode(source, &lexeme).unwrap();
         assert_eq!(doc.pages.len(), 2);
         assert_eq!(doc.pages[0].blocks[0].kind, BlockKind::Heading);
@@ -212,7 +221,7 @@ mod tests {
         assert_eq!(doc.pages[0].blocks[2].spans.len(), 1);
         assert!(doc.lexical_postings.len() >= 7);
         let encoded = serde_json::to_string(&doc).unwrap();
-        assert!(!encoded.contains("Heading"));
+        assert!(!encoded.contains("Title"));
         assert!(!encoded.contains("alpha"));
         assert!(doc.lexical_postings.iter().any(|posting| posting.page == 2));
     }
