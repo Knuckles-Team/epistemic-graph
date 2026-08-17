@@ -193,7 +193,13 @@ impl LeaseState {
 
 /// One tenant's durable claim on a `CapacityCell`. Field set matches the lane
 /// doc's frozen schema.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Eq` is deliberately NOT derived: `cost_budget` is an `Option<f64>`, and
+/// `f64` has no total equality (NaN != NaN), so an `Eq` bound here is unsound
+/// rather than merely inconvenient. `PartialEq` is the correct relation for a
+/// type carrying a float, and callers must not treat lease equality as a total
+/// order or use it as a `HashMap`/`BTreeSet` key.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapacityLease {
     pub schema_version: u16,
