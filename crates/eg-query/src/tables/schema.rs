@@ -13,6 +13,7 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 /// The set of column types a user table column may declare (CONCEPT:EG-KG.query.register-user-tables-alongside). Chosen
 /// to cover the connector / ETL / time-series workloads the engine ingests —
@@ -268,6 +269,23 @@ impl TableSchema {
             .and_then(|offset| self.columns.get(offset))
     }
 
+    /// SHA-256 hex digest over the canonical `(name, columns)` shape (GOC-10:
+    /// `eg_types::lake_catalog::TableSchemaVersionV1::schema_digest`). Two schemas
+    /// that would `assert_eq!` via [`PartialEq`] always produce the SAME digest;
+    /// any observable difference (a renamed/reordered/retyped/reconstrained
+    /// column, or a renamed table) always produces a DIFFERENT one. Digests over
+    /// deterministic MessagePack (`rmp_serde::to_vec_named`, the SAME encoding the
+    /// durable store already persists a schema as) rather than `{:?}`, whose
+    /// formatting is not a stability contract.
+    pub fn schema_digest(&self) -> Result<String, String> {
+        let encoded = rmp_serde::to_vec_named(&(&self.name, &self.columns))
+            .map_err(|error| format!("could not encode schema for digest: {error}"))?;
+        let mut hasher = Sha256::new();
+        hasher.update(b"epistemic-graph/table-schema-digest\0");
+        hasher.update(&encoded);
+        Ok(hex::encode(hasher.finalize()))
+    }
+
     fn column_offsets(&self) -> Result<&HashMap<String, usize>, &String> {
         self.column_offsets
             .get_or_init(|| {
@@ -336,6 +354,49 @@ mod table_schema_tests {
         assert_eq!(cloned, schema);
         assert!(cloned.column_offsets.get().is_none());
         assert_eq!(cloned.column_index("payload"), Some(1));
+    }
+
+    // ── GOC-10: schema_digest ────────────────────────────────────────────
+
+    #[test]
+    fn schema_digest_is_deterministic_and_well_formed() {
+        let schema = TableSchema::new("events", vec![column("id"), column("payload")]);
+        let first = schema.schema_digest().unwrap();
+        let second = schema.schema_digest().unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 64);
+        assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn schema_digest_changes_with_any_observable_difference() {
+        let base = TableSchema::new("events", vec![column("id"), column("payload")]);
+        let base_digest = base.schema_digest().unwrap();
+
+        // Known-bad-if-unchanged inputs: each of these must NOT collide with the
+        // base digest, or two distinguishable schemas would be indistinguishable
+        // to a `TableSchemaVersionV1` consumer.
+        let renamed_table = TableSchema::new("other_events", vec![column("id"), column("payload")]);
+        assert_ne!(renamed_table.schema_digest().unwrap(), base_digest);
+
+        let dropped_column = TableSchema::new("events", vec![column("id")]);
+        assert_ne!(dropped_column.schema_digest().unwrap(), base_digest);
+
+        let reordered = TableSchema::new("events", vec![column("payload"), column("id")]);
+        assert_ne!(reordered.schema_digest().unwrap(), base_digest);
+
+        let mut retyped_columns = vec![column("id"), column("payload")];
+        retyped_columns[1].ty = ColumnType::Int;
+        let retyped = TableSchema::new("events", retyped_columns);
+        assert_ne!(retyped.schema_digest().unwrap(), base_digest);
+    }
+
+    #[test]
+    fn schema_digest_matches_for_equal_schemas() {
+        let a = TableSchema::new("events", vec![column("id"), column("payload")]);
+        let b = TableSchema::new("events", vec![column("id"), column("payload")]);
+        assert_eq!(a, b);
+        assert_eq!(a.schema_digest().unwrap(), b.schema_digest().unwrap());
     }
 
     #[test]
