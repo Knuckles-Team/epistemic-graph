@@ -54,6 +54,61 @@ pub const ENCRYPTION_KEY_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_KEY";
 /// [`resolve_txn_recovery_key`], so this is additive, not a breaking change.
 pub const TXN_RECOVERY_KEY_ENV: &str = "EPISTEMIC_GRAPH_TXN_RECOVERY_KEY";
 
+/// Env var controlling whether the redb backend REFUSES to open without at-rest
+/// encryption configured (GOC-16). Tri-state rollout posture, the same shape as
+/// `EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING` in `server::auth`: `off` keeps today's
+/// fully-silent opt-in behavior; `warn` (the shipped default) logs once that
+/// at-rest encryption is OFF, without refusing to start, so an operator sees it
+/// before a genuine production deployment goes live unencrypted; `on` fails
+/// closed. See [`EncryptionRequiredMode`].
+pub const ENCRYPTION_REQUIRED_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_REQUIRED";
+
+/// Rollout posture for [`ENCRYPTION_REQUIRED_ENV`]. A PRESENT
+/// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` always installs a cipher in every mode — only
+/// an ABSENT key's handling varies by mode (mirrors
+/// `server::auth::NodeBindingMode`'s own doc comment on this exact point).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncryptionRequiredMode {
+    /// Missing key accepted silently — today's shipped behavior, byte-for-byte
+    /// unchanged.
+    Off,
+    /// Missing key accepted, but logged once at open (`tracing::warn!`) so an
+    /// operator preparing a production deployment sees the gap before data
+    /// ships unencrypted. The shipped default.
+    Warn,
+    /// Missing key REFUSED — `Shard::open` returns `Err` before any writer
+    /// thread spawns or listener binds. `RedbBackend::open` propagates the
+    /// error to its existing caller in `main.rs`, which already turns an
+    /// `open()` failure into `eprintln!("error: ...")` + `std::process::exit(1)`
+    /// — no new refusal idiom is introduced.
+    On,
+}
+
+/// Parse [`ENCRYPTION_REQUIRED_ENV`] (`off`/`warn`/`on`, case-insensitive,
+/// trimmed). Unset or unrecognized ⇒ [`EncryptionRequiredMode::Warn`] — the same
+/// "visible but non-breaking" default shape
+/// `server::auth::require_node_binding_mode` ships, chosen for the identical
+/// reason: an existing unencrypted deployment keeps working on upgrade, but the
+/// gap stops being silent (`redb_backend.rs`'s `Shard::open` previously logged
+/// NOTHING at all when the cipher resolved to `None`).
+///
+/// Deliberately reads the env fresh on every call (no `OnceLock` cache, unlike
+/// `server::auth`'s production path) — checked once per `Shard::open`, never a
+/// hot path, and this keeps it testable exactly like this module's own
+/// `resolve_key`/`resolve_txn_recovery_key` without a `#[cfg(test)]` split.
+pub fn encryption_required_mode() -> EncryptionRequiredMode {
+    std::env::var(ENCRYPTION_REQUIRED_ENV)
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .and_then(|v| match v.as_str() {
+            "off" => Some(EncryptionRequiredMode::Off),
+            "warn" => Some(EncryptionRequiredMode::Warn),
+            "on" => Some(EncryptionRequiredMode::On),
+            _ => None,
+        })
+        .unwrap_or(EncryptionRequiredMode::Warn)
+}
+
 /// First byte of an encrypted value blob.
 const MAGIC: u8 = 0xE6;
 const NONCE_LEN: usize = 12;
@@ -317,6 +372,7 @@ mod tests {
     struct EnvGuard {
         prev_data_key: Option<String>,
         prev_recovery_key: Option<String>,
+        prev_required_mode: Option<String>,
         _lock: tokio::sync::MutexGuard<'static, ()>,
     }
 
@@ -329,11 +385,14 @@ mod tests {
             let lock = super::acquire_test_env_lock_blocking();
             let prev_data_key = std::env::var(ENCRYPTION_KEY_ENV).ok();
             let prev_recovery_key = std::env::var(TXN_RECOVERY_KEY_ENV).ok();
+            let prev_required_mode = std::env::var(ENCRYPTION_REQUIRED_ENV).ok();
             std::env::remove_var(ENCRYPTION_KEY_ENV);
             std::env::remove_var(TXN_RECOVERY_KEY_ENV);
+            std::env::remove_var(ENCRYPTION_REQUIRED_ENV);
             EnvGuard {
                 prev_data_key,
                 prev_recovery_key,
+                prev_required_mode,
                 _lock: lock,
             }
         }
@@ -348,6 +407,10 @@ mod tests {
             match self.prev_recovery_key.take() {
                 Some(v) => std::env::set_var(TXN_RECOVERY_KEY_ENV, v),
                 None => std::env::remove_var(TXN_RECOVERY_KEY_ENV),
+            }
+            match self.prev_required_mode.take() {
+                Some(v) => std::env::set_var(ENCRYPTION_REQUIRED_ENV, v),
+                None => std::env::remove_var(ENCRYPTION_REQUIRED_ENV),
             }
         }
     }
@@ -427,5 +490,41 @@ mod tests {
             data_cipher.unseal(&sealed_by_recovery).is_err(),
             "the two ciphers must use different key material when both env vars differ"
         );
+    }
+
+    /// GOC-16: unset ⇒ `Warn`, the shipped default — matches
+    /// `server::auth::require_node_binding_mode`'s own documented default shape.
+    #[test]
+    fn encryption_required_mode_defaults_to_warn_when_unset() {
+        let _guard = EnvGuard::acquire();
+        assert_eq!(encryption_required_mode(), EncryptionRequiredMode::Warn);
+    }
+
+    #[test]
+    fn encryption_required_mode_parses_all_three_values_case_insensitively() {
+        let _guard = EnvGuard::acquire();
+        for (raw, expected) in [
+            ("off", EncryptionRequiredMode::Off),
+            ("OFF", EncryptionRequiredMode::Off),
+            ("warn", EncryptionRequiredMode::Warn),
+            ("Warn", EncryptionRequiredMode::Warn),
+            ("on", EncryptionRequiredMode::On),
+            ("ON", EncryptionRequiredMode::On),
+            ("  on  ", EncryptionRequiredMode::On),
+        ] {
+            std::env::set_var(ENCRYPTION_REQUIRED_ENV, raw);
+            assert_eq!(
+                encryption_required_mode(),
+                expected,
+                "raw value {raw:?} parsed incorrectly"
+            );
+        }
+    }
+
+    #[test]
+    fn encryption_required_mode_unrecognized_value_falls_back_to_warn() {
+        let _guard = EnvGuard::acquire();
+        std::env::set_var(ENCRYPTION_REQUIRED_ENV, "enforce-please");
+        assert_eq!(encryption_required_mode(), EncryptionRequiredMode::Warn);
     }
 }

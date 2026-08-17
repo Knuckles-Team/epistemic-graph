@@ -23,10 +23,10 @@ use eg_document::DocumentData;
 use eg_image::runtime::NativeImageRuntime;
 use eg_image::{ImageData, ImageRegion, ImageServingRuntime};
 use eg_modality::{
-    tck_report, ApplyOutcome, ArtifactBundle, Classification, ConformanceTestable, EvidenceAddress,
-    GovernedModality, ModalityKind, NativePredicate, OccurrenceId, OpaqueRef, SegmentKind,
-    ServedDelete, ServedIngest, ServedModalityRuntime, ServedNativeQuery, ServedPolicyScope,
-    ServedQuery,
+    tck_report, ApplyDisposition, ApplyOutcome, ArtifactBundle, Classification,
+    ConformanceTestable, EvidenceAddress, GovernedModality, ModalityKind, MutationDelta,
+    NativePredicate, OccurrenceId, OpaqueRef, SegmentKind, ServedDelete, ServedIngest,
+    ServedModalityRuntime, ServedNativeQuery, ServedPolicyScope, ServedQuery, ServedRecord,
 };
 use eg_types::acl::RequestContextClaims;
 use eg_types::{
@@ -330,6 +330,224 @@ where
     Ok(())
 }
 
+/// One durable row/event/idempotency-entry/manifest write from a single
+/// occurrence mutation (BUG-017 frozen format, `eg_modality::delta_store`) —
+/// bounded by that ONE occurrence, never by partition corpus. This is a
+/// SHADOW write: called alongside (not instead of) `store_runtime`/
+/// `store_runtime_excluding_sources` above, which remain the sole read
+/// authority (`load_runtime`) this pass. See `capture_deltas`'s doc for why
+/// the read-side cutover is out of scope here.
+fn store_delta<T>(
+    core: &GraphCore,
+    authority: &ModalityAuthority,
+    modality: ServedModalityKind,
+    delta: &MutationDelta<T>,
+) -> Result<(), String>
+where
+    T: GovernedModality + Clone + PartialEq + fmt::Debug + Serialize + DeserializeOwned,
+{
+    let partition = authority.node_id(modality);
+    let record_bytes = serde_json::to_vec(&delta.record).map_err(|_| "modality row codec failure".to_string())?;
+    core.add_node(
+        delta_row_node_id(&partition, "record", delta.occurrence_id.as_ref().as_str()),
+        authority.cipher.seal(&record_bytes),
+    );
+    let event_bytes = serde_json::to_vec(&delta.event).map_err(|_| "modality row codec failure".to_string())?;
+    core.add_node(
+        delta_row_node_id(&partition, "event", &delta.event.sequence.to_string()),
+        authority.cipher.seal(&event_bytes),
+    );
+    let idempotency_bytes =
+        serde_json::to_vec(&delta.idempotency_entry).map_err(|_| "modality row codec failure".to_string())?;
+    core.add_node(
+        delta_row_node_id(&partition, "idem", delta.idempotency_key.as_str()),
+        authority.cipher.seal(&idempotency_bytes),
+    );
+    let manifest_bytes = serde_json::to_vec(&DeltaManifest {
+        next_sequence: delta.next_sequence,
+    })
+    .map_err(|_| "modality row codec failure".to_string())?;
+    core.add_node(
+        delta_row_node_id(&partition, "manifest", ""),
+        authority.cipher.seal(&manifest_bytes),
+    );
+    Ok(())
+}
+
+fn delta_row_node_id(partition: &str, kind: &str, key: &str) -> String {
+    format!("{partition}_row_{kind}_{key}")
+}
+
+/// The tiny (O(1)) per-partition counter a delta write persists alongside the
+/// row, so a row-backed reconstruction knows the next event sequence to
+/// allocate without scanning every event row. NOT GOC-03's commit sequence —
+/// see `served.rs`/`delta_store.rs` module docs.
+#[derive(Serialize, serde::Deserialize)]
+struct DeltaManifest {
+    next_sequence: u64,
+}
+
+/// Snapshot each command's PRE-mutation record (`None` for a fresh occurrence)
+/// so `capture_deltas` can diff index membership after the batch applies —
+/// `ServedModalityRuntime::ingest`'s `remove_from_indexes`/`add_to_indexes`
+/// mutate the live index `BTreeSet`s in place and leave no trace of what was
+/// removed.
+fn capture_befores<T>(
+    runtime: &ServedModalityRuntime<T>,
+    commands: &[ServedIngest<T>],
+) -> Vec<(OccurrenceId, OpaqueRef, Option<ServedRecord<T>>)>
+where
+    T: GovernedModality + Clone + PartialEq + fmt::Debug + Serialize + DeserializeOwned,
+{
+    commands
+        .iter()
+        .map(|command| {
+            (
+                command.target_occurrence_id.clone(),
+                command.idempotency_ref.clone(),
+                runtime.record(&command.target_occurrence_id).cloned(),
+            )
+        })
+        .collect()
+}
+
+/// Shadow-write the delta for every command in a just-applied batch. Skips a
+/// command whose disposition was `IdempotentReplay` — a replay durably
+/// changed nothing new (`MutationDelta::capture` returns `None` for it).
+fn shadow_write_deltas<T>(
+    core: &GraphCore,
+    authority: &ModalityAuthority,
+    modality: ServedModalityKind,
+    runtime: &ServedModalityRuntime<T>,
+    befores: &[(OccurrenceId, OpaqueRef, Option<ServedRecord<T>>)],
+    outcomes: &[ApplyOutcome],
+) -> Result<(), String>
+where
+    T: GovernedModality + Clone + PartialEq + fmt::Debug + Serialize + DeserializeOwned,
+{
+    for ((occurrence_id, idempotency_key, before), outcome) in befores.iter().zip(outcomes.iter()) {
+        let is_replay = outcome.disposition == ApplyDisposition::IdempotentReplay;
+        if let Some(delta) = MutationDelta::capture(runtime, before.as_ref(), occurrence_id, idempotency_key, is_replay)
+        {
+            store_delta(core, authority, modality, &delta)?;
+        }
+    }
+    Ok(())
+}
+
+/// BUG-017 one-time snapshot-to-rows migration backfill (the addendum's
+/// "Migration" design: shadow-write, digest-compare, atomic per-partition
+/// cutover). Reads the CURRENT legacy whole-snapshot node, exports every row
+/// it implies, durably writes each row (the exact same shape `store_delta`
+/// writes per mutation), reads every row BACK from `core` — a genuine round
+/// trip through durable storage, not a reconstruction from the in-memory
+/// export — and reconstructs a runtime from those rows. Returns `Ok(())` only
+/// if the row-backed reconstruction is byte-for-byte identical
+/// (`eg_modality::verify_round_trip`) to the runtime `recover()`ed from the
+/// legacy snapshot.
+///
+/// Not yet wired to a dispatch method (no `Method::ModalityMigrateToRows`
+/// exists) — exercised directly by `tests::bug_017_migration_round_trips_real_existing_data`
+/// this pass. Wiring an operator-facing endpoint is follow-on work alongside
+/// the read-side cutover (`shadow_write_deltas`'s doc comment).
+#[allow(dead_code)]
+fn migrate_partition_to_rows<T>(
+    core: &GraphCore,
+    authority: &ModalityAuthority,
+    modality: ServedModalityKind,
+) -> Result<(), String>
+where
+    T: GovernedModality + Clone + PartialEq + fmt::Debug + Serialize + DeserializeOwned,
+{
+    let original: ServedModalityRuntime<T> = load_runtime(core, authority, modality)?;
+    let exported = eg_modality::export_all(&original);
+    let partition = authority.node_id(modality);
+
+    for (occurrence_id, record) in &exported.records {
+        let bytes = serde_json::to_vec(record).map_err(|_| "modality row codec failure".to_string())?;
+        core.add_node(
+            delta_row_node_id(&partition, "record", occurrence_id.as_ref().as_str()),
+            authority.cipher.seal(&bytes),
+        );
+    }
+    for event in &exported.events {
+        let bytes = serde_json::to_vec(event).map_err(|_| "modality row codec failure".to_string())?;
+        core.add_node(
+            delta_row_node_id(&partition, "event", &event.sequence.to_string()),
+            authority.cipher.seal(&bytes),
+        );
+    }
+    for (key, entry) in &exported.idempotency {
+        let bytes = serde_json::to_vec(entry).map_err(|_| "modality row codec failure".to_string())?;
+        core.add_node(
+            delta_row_node_id(&partition, "idem", key.as_str()),
+            authority.cipher.seal(&bytes),
+        );
+    }
+    let manifest_bytes = serde_json::to_vec(&DeltaManifest {
+        next_sequence: exported.next_sequence,
+    })
+    .map_err(|_| "modality row codec failure".to_string())?;
+    core.add_node(
+        delta_row_node_id(&partition, "manifest", ""),
+        authority.cipher.seal(&manifest_bytes),
+    );
+
+    // Round trip: read EVERY row back from `core`, not from `exported`.
+    let mut read_records: BTreeMap<OccurrenceId, ServedRecord<T>> = BTreeMap::new();
+    for occurrence_id in exported.records.keys() {
+        let node_id = delta_row_node_id(&partition, "record", occurrence_id.as_ref().as_str());
+        let sealed = core
+            .get_node_properties(&node_id)
+            .ok_or_else(|| "missing record row after migration write".to_string())?;
+        let bytes = authority.cipher.unseal(&sealed)?;
+        let record: ServedRecord<T> =
+            serde_json::from_slice(&bytes).map_err(|_| "corrupt migrated record row".to_string())?;
+        read_records.insert(occurrence_id.clone(), record);
+    }
+    let mut read_events = Vec::with_capacity(exported.events.len());
+    for event in &exported.events {
+        let node_id = delta_row_node_id(&partition, "event", &event.sequence.to_string());
+        let sealed = core
+            .get_node_properties(&node_id)
+            .ok_or_else(|| "missing event row after migration write".to_string())?;
+        let bytes = authority.cipher.unseal(&sealed)?;
+        read_events
+            .push(serde_json::from_slice(&bytes).map_err(|_| "corrupt migrated event row".to_string())?);
+    }
+    let mut read_idempotency = BTreeMap::new();
+    for key in exported.idempotency.keys() {
+        let node_id = delta_row_node_id(&partition, "idem", key.as_str());
+        let sealed = core
+            .get_node_properties(&node_id)
+            .ok_or_else(|| "missing idempotency row after migration write".to_string())?;
+        let bytes = authority.cipher.unseal(&sealed)?;
+        read_idempotency.insert(
+            key.clone(),
+            serde_json::from_slice(&bytes).map_err(|_| "corrupt migrated idempotency row".to_string())?,
+        );
+    }
+    let manifest_node_id = delta_row_node_id(&partition, "manifest", "");
+    let manifest_sealed = core
+        .get_node_properties(&manifest_node_id)
+        .ok_or_else(|| "missing manifest row after migration write".to_string())?;
+    let manifest_bytes = authority.cipher.unseal(&manifest_sealed)?;
+    let manifest: DeltaManifest =
+        serde_json::from_slice(&manifest_bytes).map_err(|_| "corrupt migrated manifest row".to_string())?;
+
+    eg_modality::verify_round_trip(
+        &original,
+        eg_modality::ExportedRows {
+            records: read_records,
+            events: read_events,
+            next_sequence: manifest.next_sequence,
+            idempotency: read_idempotency,
+        },
+    )
+    .map(|_| ())
+    .map_err(|error| error.to_string())
+}
+
 fn validate_content_binding(
     bundle: &ArtifactBundle,
     target: &OccurrenceId,
@@ -512,10 +730,12 @@ fn ingest_stream(
                 .collect::<Result<Vec<_>, String>>()?;
             let mut runtime: ServedModalityRuntime<DocumentData> =
                 load_runtime(core, authority, modality)?;
+            let befores = capture_befores(&runtime, &commands);
             let outcomes = runtime
                 .ingest_stream(commands)
                 .map_err(|error| error.to_string())?;
             store_runtime_excluding_sources(core, authority, modality, &runtime, &sources)?;
+            shadow_write_deltas(core, authority, modality, &runtime, &befores, &outcomes)?;
             Ok(outcomes)
         }
         ServedModalityKind::Image => {
@@ -551,10 +771,12 @@ fn ingest_stream(
                 })
                 .collect::<Result<Vec<_>, String>>()?;
             let mut runtime: ImageServingRuntime = load_runtime(core, authority, modality)?;
+            let befores = capture_befores(&runtime, &commands);
             let outcomes = runtime
                 .ingest_stream(commands)
                 .map_err(|error| error.to_string())?;
             store_runtime_excluding_sources(core, authority, modality, &runtime, &sources)?;
+            shadow_write_deltas(core, authority, modality, &runtime, &befores, &outcomes)?;
             Ok(outcomes)
         }
         ServedModalityKind::Audio => {
@@ -591,10 +813,12 @@ fn ingest_stream(
                 })
                 .collect::<Result<Vec<_>, String>>()?;
             let mut runtime: AudioServingRuntime = load_runtime(core, authority, modality)?;
+            let befores = capture_befores(&runtime, &commands);
             let outcomes = runtime
                 .ingest_stream(commands)
                 .map_err(|error| error.to_string())?;
             store_runtime_excluding_sources(core, authority, modality, &runtime, &sources)?;
+            shadow_write_deltas(core, authority, modality, &runtime, &befores, &outcomes)?;
             Ok(outcomes)
         }
         ServedModalityKind::Video => {
@@ -627,10 +851,12 @@ fn ingest_stream(
                 })
                 .collect::<Result<Vec<_>, String>>()?;
             let mut runtime: VideoServingRuntime = load_runtime(core, authority, modality)?;
+            let befores = capture_befores(&runtime, &commands);
             let outcomes = runtime
                 .ingest_stream(commands)
                 .map_err(|error| error.to_string())?;
             store_runtime_excluding_sources(core, authority, modality, &runtime, &sources)?;
+            shadow_write_deltas(core, authority, modality, &runtime, &befores, &outcomes)?;
             Ok(outcomes)
         }
     }
@@ -775,17 +1001,29 @@ where
     T: GovernedModality + Clone + PartialEq + fmt::Debug + Serialize + DeserializeOwned,
 {
     let mut runtime: ServedModalityRuntime<T> = load_runtime(core, authority, modality)?;
+    let idempotency_key = opaque(idempotency_ref)?;
+    let occurrence_id = occurrence(occurrence_id)?;
+    let before = runtime.record(&occurrence_id).cloned();
     let outcome = runtime
         .delete(
             &authority.scope,
             ServedDelete {
-                idempotency_ref: opaque(idempotency_ref)?,
-                occurrence_id: occurrence(occurrence_id)?,
+                idempotency_ref: idempotency_key.clone(),
+                occurrence_id: occurrence_id.clone(),
                 expected_version,
             },
         )
         .map_err(|error| error.to_string())?;
     store_runtime(core, authority, modality, &runtime)?;
+    if let Some(delta) = MutationDelta::capture(
+        &runtime,
+        before.as_ref(),
+        &occurrence_id,
+        &idempotency_key,
+        outcome.disposition == ApplyDisposition::IdempotentReplay,
+    ) {
+        store_delta(core, authority, modality, &delta)?;
+    }
     Ok(ResultPayload::raw(&outcome))
 }
 
@@ -1282,5 +1520,242 @@ mod tests {
         let mp4 = mp4_fixture();
         assert!(NativeVideoRuntime::decode_isobmff(&mp4).is_some());
         assert!(png.len() + wav.len() + mp4.len() < 1024);
+    }
+
+    // ── BUG-017 frozen-format delta write + migration round trip ──────────
+    //
+    // These exercise the ACTUAL production functions this pass added
+    // (`store_delta`, `capture_befores`, `migrate_partition_to_rows`) against
+    // a real `GraphCore`, not a hand-computed byte estimate — the "measure
+    // against real code" bar the existing `served_runtime.rs` benchmark
+    // (which computes AFTER from JSON field extraction, by its own
+    // documented design) does not itself meet.
+
+    use eg_modality::{
+        Artifact, ArtifactId, Derivation, DerivationId, EvidenceLocus, EvidenceLocusId, Feature,
+        FeatureId, FeatureKind, Occurrence, PolicyEnvelope, PrivacyAttestation, Rendition,
+        RenditionId, ResourceId, Segment, SegmentId, ARTIFACT_PROTOCOL_VERSION,
+    };
+
+    fn test_authority() -> ModalityAuthority {
+        let claims = RequestContextClaims {
+            tenant: "bug-017-tenant".to_string(),
+            policy_version: "v1".to_string(),
+            ..Default::default()
+        };
+        ModalityAuthority::from_verified("bug-017-test-secret", &claims).expect("valid authority")
+    }
+
+    fn document_value(authority: &ModalityAuthority) -> DocumentData {
+        let lexemes = |term: &str| authority.lexeme_ref(term).ok().map(|reference| reference.to_string());
+        NativeDocumentRuntime::decode_text(b"bug-017 fixture text content", &lexemes)
+            .expect("fixture text decodes")
+    }
+
+    /// One occurrence's worth of a certified `ArtifactBundle` (renditions,
+    /// segments, features, and evidence loci non-empty, per
+    /// `ArtifactBundle::validate_certified`), scoped to `authority`'s own
+    /// tenant/policy/purpose so `ServedPolicyScope::authorizes_occurrence`
+    /// accepts it. Mirrors `crates/eg-modality/tests/served_runtime.rs`'s
+    /// `scale_ingest` fixture shape (a different crate, so not directly
+    /// reusable), scaled by `index` so every occurrence is distinct.
+    fn document_ingest(authority: &ModalityAuthority, index: u64) -> ServedIngest<DocumentData> {
+        let token = |offset: u64| format!("{:016x}", index * 32 + offset);
+        let opaque = |namespace: &str, offset: u64| OpaqueRef::scoped(namespace, &token(offset)).unwrap();
+        let artifact_id = ArtifactId::from_token(&token(1)).unwrap();
+        let occurrence_id = OccurrenceId::from_token(&token(2)).unwrap();
+        let rendition_id = RenditionId::from_token(&token(3)).unwrap();
+        let segment_id = SegmentId::from_token(&token(4)).unwrap();
+        let derivation_id = DerivationId::from_token(&token(5)).unwrap();
+
+        let derivation = Derivation {
+            id: derivation_id.clone(),
+            transform_ref: opaque("transform", 6),
+            implementation_ref: opaque("implementation", 7),
+            version_ref: opaque("version", 8),
+            model_ref: None,
+            inputs: vec![ResourceId::Occurrence(occurrence_id.clone())],
+        };
+        let bundle = ArtifactBundle {
+            protocol_version: ARTIFACT_PROTOCOL_VERSION,
+            privacy: PrivacyAttestation {
+                scanner_ref: opaque("scanner", 9),
+                policy_version_ref: opaque("policyversion", 10),
+                raw_pii_persisted: false,
+                local_identifiers_persisted: false,
+            },
+            artifacts: vec![Artifact {
+                id: artifact_id.clone(),
+                content_ref: opaque("content", 11),
+                modality: ModalityKind::Document,
+                schema_ref: opaque("schema", 12),
+                content_version: 1,
+            }],
+            occurrences: vec![Occurrence {
+                id: occurrence_id.clone(),
+                artifact_id: artifact_id.clone(),
+                source_ref: opaque("source", 13),
+                observation_version: 1,
+                policy: PolicyEnvelope {
+                    tenant_ref: authority.scope.tenant_ref.clone(),
+                    access_policy_ref: authority.scope.access_policy_ref.clone(),
+                    classification: Classification::Internal,
+                    retention_policy_ref: opaque("retention", 14),
+                    deletion_policy_ref: opaque("deletion", 15),
+                    legal_hold_ref: None,
+                    purpose_refs: vec![authority.scope.purpose_ref.clone()],
+                },
+            }],
+            renditions: vec![Rendition {
+                id: rendition_id.clone(),
+                occurrence_id: occurrence_id.clone(),
+                content_ref: opaque("content", 16),
+                modality: ModalityKind::Document,
+                schema_ref: opaque("schema", 17),
+                derivation: derivation.clone(),
+            }],
+            segments: vec![Segment {
+                id: segment_id.clone(),
+                rendition_id,
+                parent_segment_id: None,
+                kind: SegmentKind::Page,
+                ordinal: 0,
+                schema_ref: opaque("schema", 18),
+            }],
+            features: vec![Feature {
+                id: FeatureId::from_token(&token(19)).unwrap(),
+                subject: ResourceId::Segment(segment_id.clone()),
+                kind: FeatureKind::Statistic,
+                value_ref: opaque("value", 20),
+                schema_ref: opaque("schema", 21),
+                derivation: derivation.clone(),
+            }],
+            evidence_loci: vec![EvidenceLocus {
+                id: EvidenceLocusId::from_token(&token(22)).unwrap(),
+                subject: ResourceId::Segment(segment_id),
+                address: EvidenceAddress::CharacterRange { start: 0, end: 4 },
+                policy_ref: authority.scope.access_policy_ref.clone(),
+                derivation_ref: derivation_id,
+            }],
+        };
+        ServedIngest {
+            idempotency_ref: opaque("idempotency", 23),
+            target_occurrence_id: occurrence_id,
+            expected_version: None,
+            bundle,
+            value: document_value(authority),
+        }
+    }
+
+    /// The real BUG-017 acceptance evidence: bytes `store_delta` (the
+    /// function every ingest handler now calls) actually writes to a real
+    /// `GraphCore` for ONE more occurrence's mutation, measured at increasing
+    /// corpus — not a JSON field-extraction estimate.
+    #[test]
+    fn bug_017_delta_write_bytes_stay_flat_with_corpus() {
+        const CHECKPOINTS: [u64; 4] = [64, 512, 4_096, 16_384];
+        let core = GraphCore::new();
+        let authority = test_authority();
+        let modality = ServedModalityKind::Document;
+        let partition = authority.node_id(modality);
+        let mut runtime: ServedModalityRuntime<DocumentData> = ServedModalityRuntime::new();
+        let mut ingested = 0u64;
+        let mut real_delta_bytes = Vec::new();
+
+        for &target in &CHECKPOINTS {
+            let mut last_bytes = 0usize;
+            for index in ingested..target {
+                let command = document_ingest(&authority, index);
+                let occurrence_id = command.target_occurrence_id.clone();
+                let idempotency_key = command.idempotency_ref.clone();
+                let before = runtime.record(&occurrence_id).cloned();
+                let outcome = runtime.ingest(command).expect("fresh ingest applies");
+                let delta = MutationDelta::capture(
+                    &runtime,
+                    before.as_ref(),
+                    &occurrence_id,
+                    &idempotency_key,
+                    outcome.disposition == ApplyDisposition::IdempotentReplay,
+                )
+                .expect("a fresh Applied ingest always produces a delta");
+                store_delta(&core, &authority, modality, &delta).expect("store delta");
+
+                let record_id = delta_row_node_id(&partition, "record", occurrence_id.as_ref().as_str());
+                let event_id = delta_row_node_id(&partition, "event", &delta.event.sequence.to_string());
+                let idem_id = delta_row_node_id(&partition, "idem", idempotency_key.as_str());
+                let manifest_id = delta_row_node_id(&partition, "manifest", "");
+                last_bytes = core.get_node_properties(&record_id).unwrap().len()
+                    + core.get_node_properties(&event_id).unwrap().len()
+                    + core.get_node_properties(&idem_id).unwrap().len()
+                    + core.get_node_properties(&manifest_id).unwrap().len();
+            }
+            ingested = target;
+            real_delta_bytes.push(last_bytes);
+        }
+
+        eprintln!("BUG-017 REAL delta-write bytes vs corpus (src/server/handlers/modality.rs, store_delta against a real GraphCore):");
+        for (i, &target) in CHECKPOINTS.iter().enumerate() {
+            eprintln!("  corpus={target:>6}  real store_delta bytes for ONE more mutation={:>6}", real_delta_bytes[i]);
+        }
+
+        let smallest = real_delta_bytes[0] as f64;
+        let largest = *real_delta_bytes.last().unwrap() as f64;
+        let growth = largest / smallest;
+        assert!(
+            growth < 3.0,
+            "real store_delta bytes must stay roughly flat as corpus grows 256x — got \
+             {growth:.2}x growth ({smallest} -> {largest} bytes); the delta write is leaking \
+             corpus-sized state"
+        );
+    }
+
+    /// Prove the shadow-write migration tool round-trips REAL existing data:
+    /// build up runtime state exactly as production does (`ServedModalityRuntime::
+    /// ingest`), persist it through the LEGACY whole-snapshot writer
+    /// (`store_runtime` — simulating an existing production partition that
+    /// predates this change), then run `migrate_partition_to_rows` and assert
+    /// it succeeds (it internally asserts row-reconstructed state is
+    /// byte-for-byte identical to the snapshot-recovered original via
+    /// `eg_modality::verify_round_trip`, reading every row back from the
+    /// same real `GraphCore` the rows were written to).
+    #[test]
+    fn bug_017_migration_round_trips_real_existing_data() {
+        let core = GraphCore::new();
+        let authority = test_authority();
+        let modality = ServedModalityKind::Document;
+        let mut runtime: ServedModalityRuntime<DocumentData> = ServedModalityRuntime::new();
+
+        for index in 0..40 {
+            runtime
+                .ingest(document_ingest(&authority, index))
+                .expect("fixture ingest applies");
+        }
+        // A delete and a cold/restore cycle so the migrated corpus includes a
+        // tombstone and a lifecycle-transitioned record, not only fresh
+        // ingests.
+        let deleted = document_ingest(&authority, 0).target_occurrence_id;
+        runtime
+            .delete(
+                &authority.scope,
+                ServedDelete {
+                    idempotency_ref: OpaqueRef::scoped("idempotency", &format!("{:016x}", 999_998u64))
+                        .unwrap(),
+                    occurrence_id: deleted,
+                    expected_version: 1,
+                },
+            )
+            .expect("delete applies");
+        let cold = document_ingest(&authority, 1).target_occurrence_id;
+        runtime
+            .move_to_cold(&authority.scope, &cold)
+            .expect("move_to_cold applies");
+        runtime
+            .restore(&authority.scope, &cold)
+            .expect("restore applies");
+
+        store_runtime(&core, &authority, modality, &runtime).expect("legacy snapshot write");
+
+        migrate_partition_to_rows::<DocumentData>(&core, &authority, modality)
+            .expect("migration round-trips real existing data byte-for-byte");
     }
 }
