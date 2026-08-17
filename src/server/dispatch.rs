@@ -893,7 +893,7 @@ mod consensus_admin_route_tests {
 
     #[test]
     fn capability_consensus_paths_refuse_without_the_original_auth_envelope() {
-        use crate::epistemic_operations::{
+        use crate::epistemic_operations_ext::{
             WorkItemClaimCapabilityMintRequest, WorkItemClaimCapabilityRequestSchemaVersion,
             WorkItemClaimCapabilityVerifyRequest,
         };

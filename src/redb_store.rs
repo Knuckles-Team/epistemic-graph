@@ -6088,7 +6088,7 @@ fn apply_work_item_rows(
         // above; cannot touch `status`/`lease_owner`/`lease_epoch`/
         // `fencing_token`/`tenant` — no field on the request names them.
         Method::CasWorkItemMetadata { request } => {
-            use crate::epistemic_operations::{
+            use crate::epistemic_operations_ext::{
                 CasWorkItemMetadataOutcome, CasWorkItemMetadataResult,
                 CasWorkItemMetadataResultSchemaVersion,
             };
@@ -13023,7 +13023,7 @@ mod mutation_batch_tests {
     /// it is the exact same interleaving on every run.
     #[test]
     fn cas_work_item_metadata_deterministic_conflict_never_silently_overwrites() {
-        use crate::epistemic_operations::{
+        use crate::epistemic_operations_ext::{
             CasWorkItemMetadataLeaseFence, CasWorkItemMetadataOutcome, CasWorkItemMetadataRequest,
             CasWorkItemMetadataRequestSchemaVersion, CasWorkItemMetadataResult,
         };
@@ -13140,7 +13140,7 @@ mod mutation_batch_tests {
     /// either.
     #[test]
     fn cas_work_item_metadata_missing_row_is_not_found() {
-        use crate::epistemic_operations::{
+        use crate::epistemic_operations_ext::{
             CasWorkItemMetadataOutcome, CasWorkItemMetadataRequest,
             CasWorkItemMetadataRequestSchemaVersion, CasWorkItemMetadataResult,
         };
@@ -13203,7 +13203,7 @@ mod mutation_batch_tests {
     /// transaction, this is where it would show up as a lost write.
     #[test]
     fn cas_work_item_metadata_applied_write_survives_restart() {
-        use crate::epistemic_operations::{
+        use crate::epistemic_operations_ext::{
             CasWorkItemMetadataLeaseFence, CasWorkItemMetadataRequest,
             CasWorkItemMetadataRequestSchemaVersion,
         };

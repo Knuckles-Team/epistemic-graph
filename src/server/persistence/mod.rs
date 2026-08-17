@@ -15,8 +15,11 @@ use crate::change_envelope::{
 use crate::epistemic_operations::{
     DevelopmentLaneQueryRequest, DevelopmentLaneQueryResult, DevelopmentLaneStatusRequest,
     DevelopmentLaneStatusResult, ResourceReservationResult, ResourceReservationStatusRequest,
-    ResourceReservationStatusResult, WorkItemClaimCapabilityMintRequest,
-    WorkItemClaimCapabilityResult, WorkItemClaimCapabilityVerifyRequest,
+    ResourceReservationStatusResult,
+};
+use crate::epistemic_operations_ext::{
+    WorkItemClaimCapabilityMintRequest, WorkItemClaimCapabilityResult,
+    WorkItemClaimCapabilityVerifyRequest,
 };
 use crate::mutation_batch::{
     MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationOutboxLease,
