@@ -1739,6 +1739,167 @@ async fn explain_plan_surfaces_the_optimizer_rewrite() {
         "the selective filter must be pushed ahead of Rank, got {:?}",
         result.after
     );
+
+    // GOC-12 (CONCEPT:GOC-12): EXPLAIN must prove the pushdown is *cheaper*, not just
+    // reordered — the per-node cost/cardinality annotation is the machine-checkable
+    // evidence acceptance gate 4 asks for ("bounded candidate/rerank/decode work").
+    // The vector `Rank` node's estimated INPUT cardinality (the candidate set it must
+    // brute-force score) must shrink once the selective `year > 2045` filter runs first.
+    let before_rank = result
+        .before
+        .iter()
+        .find(|n| n.op.contains("Rank"))
+        .expect("before dag has a Rank node");
+    let after_rank = result
+        .after
+        .iter()
+        .find(|n| n.op.contains("Rank"))
+        .expect("after dag has a Rank node");
+    assert!(
+        after_rank.estimated_rows_in < before_rank.estimated_rows_in,
+        "pushing the selective filter ahead of Rank must shrink Rank's estimated candidate \
+         set: before={} after={}",
+        before_rank.estimated_rows_in,
+        after_rank.estimated_rows_in
+    );
+    assert!(
+        after_rank.estimated_cost_cpu < before_rank.estimated_cost_cpu,
+        "a smaller candidate set must cost less CPU to brute-force rank: before={} after={}",
+        before_rank.estimated_cost_cpu,
+        after_rank.estimated_cost_cpu
+    );
+    // Every annotated node carries a real (non-negative, finite) estimate — a wire field
+    // that always reads `0.0` would be indistinguishable from "not implemented".
+    for node in result.before.iter().chain(result.after.iter()) {
+        assert!(
+            node.estimated_rows_out.is_finite() && node.estimated_rows_out >= 0.0,
+            "node {node:?} must carry a finite, non-negative estimate"
+        );
+        assert!(
+            (0.0..=1.0).contains(&node.estimated_selectivity),
+            "node {node:?} selectivity must be clamped to [0,1]"
+        );
+    }
+}
+
+/// GOC-12 (CONCEPT:GOC-12, leak proof): `EXPLAIN PLAN`'s cost/cardinality annotation must
+/// be scoped to the CALLER's RLS-authorized view — never the full unfiltered store —
+/// mirroring the invariant `rls_per_agent_fused_reason_rank_overlay_eg391` proves for
+/// actual result ROWS. Without this, a denied agent could infer the existence/count of
+/// hidden rows purely from a diagnostics-only surface that never returns any row at all
+/// (a side channel `ExplainPlan`'s "pure diagnostics, no execution" doc comment must not
+/// open).
+///
+/// Fixture: 10 committed `Robot` rows — 6 unowned/public, 4 owned by `agent_a` and marked
+/// `private` — each carrying an embedding so the `Rank` node has real coverage. `agent_b`
+/// (a peer with no access to `agent_a`'s private rows) and `agent_a` (the owner) both run
+/// `EXPLAIN PLAN` over the IDENTICAL `[Scan, Rank]` plan. `agent_b`'s Scan-node estimate
+/// must reflect only the 6 public rows it can see; `agent_a`'s must reflect all 10.
+#[cfg(feature = "security")]
+#[tokio::test]
+async fn explain_plan_cost_estimate_respects_rls_eg_goc12() {
+    use epistemic_graph::isolation::AgentRole;
+
+    let state = state().await;
+
+    for i in 0..10u32 {
+        let node_id = format!("r{i}");
+        let is_private = i >= 6;
+        let props = if is_private {
+            json!({ "type": "Robot", "_owner": "agent_a", "_visibility": "private" })
+        } else {
+            json!({ "type": "Robot", "_visibility": "public", "_grants": "agent_a,agent_b" })
+        };
+        ok(
+            &state,
+            (i * 2 + 1) as u64,
+            Method::AddNode {
+                node_id: node_id.clone(),
+                properties_msgpack: pack(props),
+            },
+        )
+        .await;
+        ok(
+            &state,
+            (i * 2 + 2) as u64,
+            Method::AddEmbedding {
+                node_id,
+                embedding: vec![1.0, 0.0],
+            },
+        )
+        .await;
+    }
+
+    let r = Box::pin(dispatch(
+        &state,
+        register_identity_req(999_000, common::TEST_AGENT, "root", AgentRole::System),
+    ))
+    .await;
+    assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
+    for (i, agent) in [(1_000u64, "agent_a"), (1_001, "agent_b")] {
+        let r = Box::pin(dispatch(
+            &state,
+            register_identity_req(i, "root", agent, AgentRole::Agent),
+        ))
+        .await;
+        assert!(
+            r.error.is_none(),
+            "RegisterIdentity {agent} failed: {:?}",
+            r.error
+        );
+    }
+
+    let plan = || {
+        eg_plan::Plan::new(vec![
+            eg_plan::Op::Scan {
+                label: "Robot".into(),
+            },
+            eg_plan::Op::Rank {
+                query: vec![1.0, 0.0],
+            },
+        ])
+    };
+    let explain_as = |id: u64, agent: &'static str| {
+        let state = state.clone();
+        let plan = plan();
+        async move {
+            let r = Box::pin(dispatch(
+                &state,
+                req_as(id, agent, Method::ExplainPlan { plan }),
+            ))
+            .await;
+            assert!(
+                r.error.is_none(),
+                "ExplainPlan error for {agent}: {:?}",
+                r.error
+            );
+            let bytes = match &r.result {
+                Some(ResultPayload::Raw(b)) => b.clone(),
+                other => panic!("expected Raw result for {agent}, got {other:?}"),
+            };
+            let result: epistemic_graph::protocol::ExplainPlanResult =
+                rmp_serde::from_slice(&bytes).expect("ExplainPlanResult decodes");
+            result
+                .before
+                .into_iter()
+                .find(|n| n.op.contains("Scan"))
+                .expect("dag has a Scan node")
+        }
+    };
+
+    let scan_b = explain_as(2_000, "agent_b").await;
+    let scan_a = explain_as(2_001, "agent_a").await;
+
+    // `Scan` is a SOURCE: `estimated_rows_out ≈ node_count * LABEL_SEL`, so it is a direct,
+    // monotonic proxy for how many `Robot` rows this agent's RLS-filtered view contains —
+    // the known-bad-input proof: a denied agent's estimate must never reach the owner's.
+    assert!(
+        scan_b.estimated_rows_out < scan_a.estimated_rows_out,
+        "agent_b (denied 4 of 10 private rows) must get a STRICTLY SMALLER Scan estimate \
+         than agent_a (the owner, sees all 10): agent_b={} agent_a={}",
+        scan_b.estimated_rows_out,
+        scan_a.estimated_rows_out
+    );
 }
 
 /// `EXPLAIN BELIEF` returns the FULL E1 justification tree (not the flattened

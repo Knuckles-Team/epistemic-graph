@@ -5481,7 +5481,15 @@ pub struct OwlExplainResult {
 // other consumer; the facade, which depends on `eg_plan`, builds these strings, so
 // `eg_types` itself stays free of an `eg_plan`/`eg_epistemic` dependency, matching Rule R1).
 
-/// One node of an `EXPLAIN PLAN` dump — the wire projection of an `eg_plan::dag::PlanNode`.
+/// One node of an `EXPLAIN PLAN` dump — the wire projection of an `eg_plan::dag::PlanNode`,
+/// annotated with the SAME plan-time cost/cardinality estimate
+/// (`eg_plan::ModalityCardinality`) the cost optimizer itself reorders on — so `EXPLAIN
+/// PLAN` proves *why* a rewrite happened (bounded candidate/rerank/decode work, not just
+/// *that* the op order changed). All estimate fields are plan-time abstract-unit numbers
+/// over the SAME RLS-filtered snapshot the plan would execute against (CONCEPT:GOC-12,
+/// cross-modal query intelligence) — never derived from an unfiltered store, so a denied
+/// row can never inflate another agent's estimated candidate/cost numbers either (see
+/// `eg-types` Rule R1: cost metadata lives on this wire projection, never on `Op` itself).
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainNodeWire {
@@ -5489,6 +5497,22 @@ pub struct ExplainNodeWire {
     /// `Debug`-rendered `eg_plan::Op`.
     pub op: String,
     pub inputs: Vec<usize>,
+    /// Estimated rows flowing INTO this node — `0.0` for a source (no inputs), the prior
+    /// node's `estimated_rows_out` for a single-input node, and the SUM of every input's
+    /// `estimated_rows_out` for a multi-input (fan-in/join) node — a documented, safe
+    /// over-estimate for the rare branch case; execution semantics are unaffected either
+    /// way since EXPLAIN never executes an op.
+    pub estimated_rows_in: f64,
+    /// Estimated rows this node emits (`eg_plan::Cardinality::rows_out`).
+    pub estimated_rows_out: f64,
+    /// Estimated output selectivity — `rows_out / rows_in`, clamped `[0, 1]`
+    /// (`eg_plan::ModalityCardinality::selectivity`); `1.0` for a source.
+    pub estimated_selectivity: f64,
+    /// Estimated CPU work in abstract units (`eg_plan::CostEstimate::cpu`).
+    pub estimated_cost_cpu: f64,
+    /// Estimated I/O work in abstract units — index probes / blob reads
+    /// (`eg_plan::CostEstimate::io`).
+    pub estimated_cost_io: f64,
 }
 
 /// Materialized result of a `Method::ExplainPlan` run. Returned via `ResultPayload::raw`.
