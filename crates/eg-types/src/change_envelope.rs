@@ -195,6 +195,20 @@ pub struct ChangeEnvelope {
     #[serde(default)]
     pub lineage: Vec<LineageRecord>,
     pub privacy: PrivacyAttestation,
+    /// GOC-03 — the [`crate::commit_descriptor::CommitDescriptorV1::commit_seq`]
+    /// this envelope's mutation was published under, once the durable
+    /// commit-descriptor index is wired into the commit path (GOC-03-W03/W05).
+    /// Additive and optional so an envelope predating that wiring, or one whose
+    /// surface does not yet register a commit-descriptor participant, remains
+    /// valid; a populated value MUST be paired with `commit_descriptor_ref`
+    /// (see `validate`) and must match a real descriptor recorded by the commit
+    /// index — this module does not itself construct or verify that pairing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_seq: Option<u64>,
+    /// Opaque `CommitDescriptorV1::commit_id` this envelope's mutation was
+    /// published under. See `commit_seq`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_descriptor_ref: Option<String>,
 }
 
 impl ChangeEnvelope {
@@ -264,6 +278,21 @@ impl ChangeEnvelope {
             return Err("privacy policy and sanitizer versions are required".to_string());
         }
         validate_digest("sha256", &self.privacy.sanitized_payload_digest)?;
+        match (self.commit_seq, &self.commit_descriptor_ref) {
+            (Some(_), None) | (None, Some(_)) => {
+                return Err(
+                    "commit_seq and commit_descriptor_ref must be set together or both absent"
+                        .to_string(),
+                );
+            }
+            (Some(0), Some(_)) => {
+                return Err("commit_seq must be non-zero when present".to_string());
+            }
+            (Some(_), Some(commit_descriptor_ref)) => {
+                validate_safe_text(commit_descriptor_ref)?;
+            }
+            (None, None) => {}
+        }
         if let Some(cursor) = &self.cursor {
             if cursor.source.trim().is_empty() {
                 return Err("cursor source must not be empty".to_string());
@@ -501,5 +530,109 @@ mod tests {
     #[test]
     fn privacy_scan_rejects_declared_messagepack_allocation_bombs() {
         assert!(validate_msgpack_privacy(&[0xdd, 0xff, 0xff, 0xff, 0xff]).is_err());
+    }
+
+    fn minimal_envelope() -> ChangeEnvelope {
+        let mutation = crate::mutation_batch::MutationBatch {
+            schema_version: crate::mutation_batch::MUTATION_BATCH_VERSION,
+            batch_id: "batch-1".into(),
+            context: crate::mutation_batch::MutationRequestContext {
+                request_id: 1,
+                principal: format!("principal:sha256:{}", "a".repeat(64)),
+                purpose: None,
+                policy_fingerprint: None,
+                trace_id: None,
+            },
+            tenant: "tenant-a".into(),
+            graph: "graph-a".into(),
+            placement_epoch: 0,
+            idempotency_key: "idem-1".into(),
+            expected_graph_version: None,
+            fencing_token: None,
+            authoritative_state: None,
+            operations: vec![crate::mutation_batch::MutationOperation {
+                ordinal: 0,
+                surface: crate::mutation_batch::MutationSurface::Graph,
+                domain: crate::mutation_batch::MutationDomain::GraphRows,
+                method: crate::protocol::Method::AddNode {
+                    node_id: "n1".into(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"value": 1}))
+                        .unwrap(),
+                },
+            }],
+            outbox: Vec::new(),
+            created_at_ms: 0,
+        };
+        ChangeEnvelope {
+            schema_version: CHANGE_ENVELOPE_VERSION,
+            envelope_id: "envelope-1".into(),
+            mutation,
+            content_version: ContentVersion {
+                object_id: "object-1".into(),
+                digest_algorithm: "sha256".into(),
+                digest: "a".repeat(64),
+                previous_digest: None,
+                source_version: ContentVersionPosition::Sequence(1),
+            },
+            cursor: None,
+            blobs: Vec::new(),
+            features: Vec::new(),
+            evidence: Vec::new(),
+            policies: Vec::new(),
+            lineage: Vec::new(),
+            privacy: PrivacyAttestation {
+                policy_version: "privacy-v1".into(),
+                sanitizer_version: "sanitizer-v1".into(),
+                sanitized_payload_digest: "b".repeat(64),
+            },
+            commit_seq: None,
+            commit_descriptor_ref: None,
+        }
+    }
+
+    #[test]
+    fn commit_seq_defaults_absent_and_is_valid() {
+        let envelope = minimal_envelope();
+        envelope.validate().unwrap();
+        assert!(envelope.commit_seq.is_none());
+        assert!(envelope.commit_descriptor_ref.is_none());
+        // Additive field: an encoding predating GOC-03 (no key present at all)
+        // still decodes because of `#[serde(default)]`.
+        let mut json = serde_json::to_value(&envelope).unwrap();
+        let obj = json.as_object_mut().unwrap();
+        assert!(
+            !obj.contains_key("commit_seq"),
+            "an absent commit_seq must not be serialized (skip_serializing_if)"
+        );
+        obj.remove("commit_seq");
+        obj.remove("commit_descriptor_ref");
+        let decoded: ChangeEnvelope = serde_json::from_value(json).unwrap();
+        assert_eq!(decoded.commit_seq, None);
+    }
+
+    #[test]
+    fn commit_seq_and_descriptor_ref_must_be_set_together() {
+        let mut only_seq = minimal_envelope();
+        only_seq.commit_seq = Some(5);
+        only_seq.commit_descriptor_ref = None;
+        assert!(only_seq
+            .validate()
+            .unwrap_err()
+            .contains("set together"));
+
+        let mut only_ref = minimal_envelope();
+        only_ref.commit_seq = None;
+        only_ref.commit_descriptor_ref = Some("commit-1".into());
+        assert!(only_ref.validate().unwrap_err().contains("set together"));
+
+        let mut zero_seq = minimal_envelope();
+        zero_seq.commit_seq = Some(0);
+        zero_seq.commit_descriptor_ref = Some("commit-1".into());
+        assert!(zero_seq.validate().unwrap_err().contains("non-zero"));
+
+        let mut both = minimal_envelope();
+        both.commit_seq = Some(5);
+        both.commit_descriptor_ref = Some("commit-1".into());
+        both.validate().unwrap();
     }
 }
