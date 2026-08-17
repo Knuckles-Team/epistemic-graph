@@ -6963,6 +6963,15 @@ async fn dispatch_graph_op_inner(
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
+        // Native TTS synthesis (GOC-34, `OWNER-VOICE-TTS`): stateless, like finance
+        // above. `caller` is already the verified eg2-authenticated principal in
+        // scope at this point — see `handlers::tts`'s own doc for exactly how (and
+        // how far) that maps to the frozen contract's `PolicyDecision`.
+        #[cfg(feature = "tts-piper")]
+        let method = match handlers::tts::try_handle(req_id, caller, method) {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
         #[cfg(feature = "datascience")]
         let method = match handlers::datascience::try_handle(req_id, method) {
             Ok(r) => break 'dispatch r,

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads"]
+members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads", "crates/eg-tts-piper"]
 # D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
 # governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
 # QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
@@ -408,6 +408,27 @@ program-optimization = ["jobs", "dep:eg-program", "eg-types/program-optimization
 # work, not placeholders).
 viz = ["dep:eg-viz-core", "eg-types/viz", "eg-capabilities?/viz"]
 viz-gpu-export = ["viz"]
+# GOC-34 (`OWNER-VOICE-TTS`) -- native Piper-ONNX text-to-speech PROVIDER behind the
+# frozen `eg-audio::tts` wire contract (crates/eg-audio/src/tts.rs, itself validation-
+# only: "no I/O, no inference"). `dep:eg-tts-piper` links a pinned crates.io `piper-rs`
+# 0.2.0 + `espeak-rs` 0.2.0 (NOT a `git =` source -- both are genuinely published, see
+# `crates/eg-tts-piper/src/lib.rs`'s doc for the full provenance/rationale) plus a real
+# ONNX Runtime (`ort`) and an espeak-ng C build (cmake/cc/libclang at build time, no
+# network) -- heavy native inference deps that must NOT reach the default listener
+# (acceptance gate: "the default EG listener builds and starts without ORT, eSpeak,
+# decoder, or other heavy native worker dependencies"). So, like `viz`/`durable`/
+# `quantum` above, `tts-piper` is deliberately EXCLUDED from `full` -- confirmed by
+# `cargo tree` (no ort/espeak-rs-sys hit without `--features tts-piper`). Unlike bare
+# `viz` (contracts only, no handler yet), this DOES wire a real `Method::TtsSynthesize`
+# handler (`src/server/handlers/tts.rs`), so it pulls `server` directly rather than
+# needing a separate `-static-export`-style second tier. `eg-capabilities?/tts-piper`
+# is the same WEAK-dep lockstep edge `viz` uses (Cargo `pkg?/feature` syntax), keeping
+# `policy()`'s exhaustive `Method` match in sync whenever both happen to be linked.
+tts-piper = [
+    "server",
+    "dep:eg-tts-piper", "dep:eg-audio", "eg-audio/tts",
+    "eg-types/tts-piper", "eg-capabilities?/tts-piper",
+]
 # D-VZ-1 lane V1: the ColumnStore (canonical columns, zone maps, content-addressed
 # chunks, validity bitmaps, dictionary categoricals) implementing `eg-viz-core`'s
 # `ColumnStoreIngest` trait. Pure Rust; adds zero new external crates.io
@@ -1347,6 +1368,10 @@ eg-document = { path = "crates/eg-document", optional = true }
 eg-image = { path = "crates/eg-image", optional = true }
 eg-audio = { path = "crates/eg-audio", optional = true }
 eg-video = { path = "crates/eg-video", optional = true }
+# GOC-34 native Piper-ONNX TTS provider (feature `tts-piper`, deliberately excluded
+# from `full` — see that feature's own comment). Heavy (real `ort` ONNX Runtime +
+# espeak-ng C build) only when explicitly requested.
+eg-tts-piper = { path = "crates/eg-tts-piper", optional = true }
 # The shared alignment graph + `EvidenceResolver` trait (feature `alignment`, L21,
 # CONCEPT:EG-P1-3 follow-up). `src/server/blob/cas_resolver.rs` implements that trait
 # with a real CAS-backed resolver — see the `alignment` feature's own comment above
