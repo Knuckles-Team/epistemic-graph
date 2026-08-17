@@ -809,18 +809,6 @@
     {
       "fields": [
         "schema_version",
-        "hold_id",
-        "lane_id",
-        "expected_hold_revision"
-      ],
-      "pointer": "#/$defs/development_lane_cleanup_intent",
-      "python_model": "DevelopmentLaneCleanupIntent",
-      "rust_type": "DevelopmentLaneCleanupIntent",
-      "schema": "development_lane"
-    },
-    {
-      "fields": [
-        "schema_version",
         "tenant_ref",
         "work_item_id",
         "owner_id",
@@ -858,6 +846,18 @@
       "pointer": "#/$defs/development_lane_cleanup_complete_result",
       "python_model": "DevelopmentLaneCleanupCompleteResult",
       "rust_type": "DevelopmentLaneCleanupCompleteResult",
+      "schema": "development_lane"
+    },
+    {
+      "fields": [
+        "schema_version",
+        "hold_id",
+        "lane_id",
+        "expected_hold_revision"
+      ],
+      "pointer": "#/$defs/development_lane_cleanup_intent",
+      "python_model": "DevelopmentLaneCleanupIntent",
+      "rust_type": "DevelopmentLaneCleanupIntent",
       "schema": "development_lane"
     },
     {
@@ -1227,7 +1227,7 @@
       "schema": "development_lane"
     }
   ],
-  "catalog_sha256": "a5146d24f93bcb2e20bc7f1c2a5377467e895d48c3cc609bea5afe4c4b36892d",
+  "catalog_sha256": "bd6b8e3152be72cd5a0adb04bd0d2b0b4991bc610ee72d971b9813c9a7a2a6f0",
   "compatibility_policy": "current-only",
   "privacy_contract": {
     "content": "content-addressed-reference",
@@ -1266,7 +1266,7 @@
       "file": "work-item.schema.json",
       "id": "urn:epistemic-operations:v1:work-item",
       "name": "work_item",
-      "sha256": "65e91ec79e7476e09a64978f39f24496b0eac57596cfc55066ac702f0303c730",
+      "sha256": "b664fd408c035faefb6602c380a9f56e4e49baa76d1cc2accb763353761e2ffa",
       "title": "WorkItem",
       "version": "1"
     },
@@ -1362,7 +1362,7 @@
       "file": "development-lane.schema.json",
       "id": "urn:epistemic-operations:v1:development-lane",
       "name": "development_lane",
-      "sha256": "a6a59f28452bf7a30e0d91a5dc4cb99582a75c1a155624d18939e6ef00a23137",
+      "sha256": "03db303400bfbae51eb45eea0f4fb9491baecc4a44d8cceb065405011c25b30d",
       "title": "DevelopmentLaneIntent",
       "version": "1"
     }

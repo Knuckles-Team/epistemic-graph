@@ -9,7 +9,7 @@
 //! live lease.
 
 use super::{decode_durable, property_f64, property_string, property_u64, DurableCrypto, NODES};
-use crate::epistemic_operations::{
+use crate::epistemic_operations_ext::{
     WorkItemClaimCapabilityDecision, WorkItemClaimCapabilityMintRequest,
     WorkItemClaimCapabilityRequestSchemaVersion, WorkItemClaimCapabilityResult,
     WorkItemClaimCapabilityResultSchemaVersion, WorkItemClaimCapabilityVerifyRequest,

@@ -28,6 +28,11 @@ pub mod distribution;
 // CONCEPT:EG-KG.compute.epistemic-operations-protocol — strict shared DTOs for
 // RequestContext, mutation/ingestion, work, artifact, query, job, and trace outcomes.
 pub mod epistemic_operations;
+// GOC-46 — hand-written wire DTOs (WorkItemClaimCapability*, CasWorkItemMetadata*)
+// that the AU protocol catalog does not yet declare (needs generator support for a
+// binary payload type). Kept OUT of `epistemic_operations` so that module can stay
+// exactly generator-clean; see the module doc comment for the full finding.
+pub mod epistemic_operations_ext;
 pub mod epistemic_operations_manifest;
 // CONCEPT:INT-P2-1 — the durable analytics-job plane's wire op (`JobOp`), gated
 // `jobs`. Lives here (not in `eg-jobs`, which sits ABOVE eg-core in the DAG) for the
