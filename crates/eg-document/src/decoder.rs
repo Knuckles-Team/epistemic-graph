@@ -44,7 +44,18 @@ impl DocumentDecoder for NativeTextDecoder {
         if bytes.is_empty() || bytes.len() > MAX_SOURCE_BYTES {
             return None;
         }
-        let text = std::str::from_utf8(bytes).ok()?;
+        // HTML source is valid UTF-8, so without this it would decode as raw
+        // markup (every tag treated as document text). Stripped text still
+        // flows through the exact same page/block/table/lexeme extraction
+        // below — content_hash(bytes) at the end still hashes the ORIGINAL
+        // source bytes, not the stripped text, preserving source identity.
+        let stripped_html;
+        let text: &str = if crate::html::looks_like_html(bytes) {
+            stripped_html = crate::html::strip_to_text(bytes)?;
+            &stripped_html
+        } else {
+            std::str::from_utf8(bytes).ok()?
+        };
         let mut pages = Vec::new();
         let mut postings = Vec::new();
         let mut total_blocks = 0usize;
@@ -204,6 +215,41 @@ mod tests {
         assert!(!encoded.contains("Heading"));
         assert!(!encoded.contains("alpha"));
         assert!(doc.lexical_postings.iter().any(|posting| posting.page == 2));
+    }
+
+    #[test]
+    fn html_source_decodes_as_readable_pages_not_raw_markup() {
+        let html = b"<!DOCTYPE html><html><head><style>body{color:red}</style>\
+<script>alert(1)</script></head><body><h1>Heading</h1><p>alpha beta</p>\
+</body></html>";
+        let doc = NativeTextDecoder.decode(html, &lexeme).unwrap();
+        assert_eq!(doc.pages.len(), 1);
+        assert_eq!(doc.pages[0].blocks[0].kind, BlockKind::Heading);
+        // The stripped text is what gets classified/tokenized, not raw markup.
+        assert!(doc
+            .lexical_postings
+            .iter()
+            .any(|posting| posting.token_ref == lexeme("alpha").unwrap()));
+        // Script/style bodies never became lexical postings.
+        assert!(!doc
+            .lexical_postings
+            .iter()
+            .any(|posting| posting.token_ref == lexeme("red").unwrap()));
+        // Source identity is still bound to the ORIGINAL bytes, not the
+        // stripped text — content_hash(bytes) must match what the runtime's
+        // certified-artifact binding check (`modality.rs::validate_content_binding`)
+        // computes over the same original source.
+        assert_eq!(doc.blob_ref, crate::content_hash(html));
+    }
+
+    #[test]
+    fn non_html_text_containing_angle_brackets_is_unaffected() {
+        let source = "a < b and c > d, just prose";
+        let doc = NativeTextDecoder
+            .decode(source.as_bytes(), &lexeme)
+            .unwrap();
+        let span = &doc.pages[0].blocks[0].spans[0];
+        assert_eq!(span.end - span.start, source.chars().count());
     }
 
     #[test]

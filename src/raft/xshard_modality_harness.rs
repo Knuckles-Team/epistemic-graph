@@ -242,6 +242,8 @@ fn modality_spanning_txn(txn_id: &str, node: &str) -> CrossShardTxn {
             node_id: node.to_string(),
             properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": node})).unwrap(),
         }],
+        placement_epoch: 0,
+        fencing_token: None,
     };
     let rdf_slice = GraphSlice {
         graph_name: GRAPH_B.to_string(),
@@ -251,6 +253,8 @@ fn modality_spanning_txn(txn_id: &str, node: &str) -> CrossShardTxn {
             turtle: MODAL_B_TURTLE.to_string(),
             ntriples: String::new(),
         }],
+        placement_epoch: 0,
+        fencing_token: None,
     };
     CrossShardTxn {
         txn_id: txn_id.to_string(),
@@ -517,6 +521,148 @@ async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
         && prepares_cleared)
 }
 
+/// GOC-13 — a participant whose GraphSlice carries a STALE placement fencing
+/// (captured before a placement cutover bumped the epoch) is REJECTED, never
+/// durably prepared or applied. Distinct from `scenario_participant_kill` (an
+/// unreachable group): here the group is perfectly healthy and reachable, but the
+/// PLACEMENT it was resolved against has moved on — the exact race the crash-vs-
+/// prepare window can produce (a slice built against route epoch E, but by the time
+/// its prepare actually lands the catalog has cut over to E+1).
+///
+/// Modeled directly against [`CrossShardCoordinator`] (bypassing
+/// `handlers::txn::commit_cross_shard`, which always re-reads the CURRENT route at
+/// build time and therefore cannot itself construct a stale slice) so the race
+/// window can be deterministically reproduced without needing to win an actual
+/// timing race.
+async fn scenario_stale_fenced_participant_rejected() -> Result<bool, String> {
+    let dir = fresh_dir("stalefence");
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
+    );
+    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+
+    // Placement admin (`placement_assign`) commits through the DEFAULT group
+    // (auto-created by `ensure_group` on first use), which — like GROUP_A/GROUP_B
+    // in `bring_up` — needs its own election tick before `client_write_group` can
+    // find a leader. Wait for it explicitly, the same way `bring_up` does for A/B.
+    multi.ensure_group(super::DEFAULT_GROUP).await?;
+    let default_group = multi
+        .group(super::DEFAULT_GROUP)
+        .await
+        .ok_or("default placement group missing after ensure_group")?;
+    wait_until(Duration::from_secs(15), || {
+        let g = default_group.clone();
+        async move { g.current_leader().await == Some(1u64) }
+    })
+    .await
+    .map_err(|_| "default placement group must elect a leader".to_string())?;
+
+    // Real placement catalog entry for modalA → group A. `route1` is what a
+    // coordinator would have captured when it first built this txn's slice.
+    let epoch1 = multi.placement_assign(GRAPH_A, GROUP_A).await?;
+    let route1 = multi.route_graph(GRAPH_A).await;
+    if !route1.placed || route1.epoch != epoch1 {
+        return Err("unexpected initial placement route in stale-fence setup".into());
+    }
+    let stale_fence = route1.placed.then_some(route1.fencing_token());
+
+    // A cutover happens (re-assign the SAME group — `plan_assign` always allocates
+    // a fresh epoch even when the group is unchanged, exactly like a real
+    // move/split/merge would): the catalog is now at a STRICTLY NEWER epoch than
+    // what `route1` captured.
+    let epoch2 = multi.placement_assign(GRAPH_A, GROUP_A).await?;
+    if epoch2 <= epoch1 {
+        return Err("placement re-assignment did not bump the epoch".into());
+    }
+
+    // Build the txn with GRAPH_A's slice carrying the NOW-STALE epoch1/fence.
+    let stale_txn = CrossShardTxn {
+        txn_id: "t-modal-stale-fence".to_string(),
+        slices: vec![
+            GraphSlice {
+                graph_name: GRAPH_A.to_string(),
+                graph_fname: crate::persist::sanitize(GRAPH_A),
+                graph_type: GraphType::Global,
+                methods: vec![Method::AddNode {
+                    node_id: "n-stale".to_string(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": "n-stale"}))
+                        .unwrap(),
+                }],
+                placement_epoch: epoch1,
+                fencing_token: stale_fence,
+            },
+            GraphSlice {
+                graph_name: GRAPH_B.to_string(),
+                graph_fname: crate::persist::sanitize(GRAPH_B),
+                graph_type: GraphType::Global,
+                methods: vec![Method::AddTriples {
+                    turtle: MODAL_B_TURTLE.to_string(),
+                    ntriples: String::new(),
+                }],
+                placement_epoch: 0, // GRAPH_B never went through the placement catalog here.
+                fencing_token: None,
+            },
+        ],
+    };
+    let outcome = coord.commit_cross_shard(&stale_txn).await?;
+    let modal_after_stale = ModalityState::read(&state).await;
+    let redb = backend.as_redb().ok_or("redb")?;
+    let no_leaked_prepares_after_stale = redb
+        .xshard_scan_prepares()
+        .map_err(|e| e.to_string())?
+        .is_empty();
+
+    let stale_rejected = outcome == TxnOutcome::Aborted
+        && modal_after_stale.is_atomic()
+        && !modal_after_stale.a_present
+        && !modal_after_stale.b_present
+        && no_leaked_prepares_after_stale;
+
+    // Contrast (PASS-on-good): the SAME shape of txn, but carrying the CURRENT
+    // epoch2/fence, commits normally — proving the rejection above is specifically
+    // about staleness, not a general break in participant A.
+    let route2 = multi.route_graph(GRAPH_A).await;
+    let current_fence = route2.placed.then_some(route2.fencing_token());
+    let fresh_txn = CrossShardTxn {
+        txn_id: "t-modal-fresh-fence".to_string(),
+        slices: vec![
+            GraphSlice {
+                graph_name: GRAPH_A.to_string(),
+                graph_fname: crate::persist::sanitize(GRAPH_A),
+                graph_type: GraphType::Global,
+                methods: vec![Method::AddNode {
+                    node_id: "n-fresh".to_string(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": "n-fresh"}))
+                        .unwrap(),
+                }],
+                placement_epoch: epoch2,
+                fencing_token: current_fence,
+            },
+            GraphSlice {
+                graph_name: GRAPH_B.to_string(),
+                graph_fname: crate::persist::sanitize(GRAPH_B),
+                graph_type: GraphType::Global,
+                methods: vec![Method::AddTriples {
+                    turtle: MODAL_B_TURTLE.to_string(),
+                    ntriples: String::new(),
+                }],
+                placement_epoch: 0,
+                fencing_token: None,
+            },
+        ],
+    };
+    let fresh_outcome = coord.commit_cross_shard(&fresh_txn).await?;
+    let modal_after_fresh = ModalityState::read(&state).await;
+    let fresh_accepted =
+        fresh_outcome == TxnOutcome::Committed && modal_after_fresh.a_present && modal_after_fresh.b_present;
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    Ok(stale_rejected && fresh_accepted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -579,5 +725,15 @@ mod tests {
         assert!(scenario_coord_kill_pre_decision()
             .await
             .expect("recover-abort scenario"));
+    }
+
+    /// GOC-13 — a participant presenting a STALE placement epoch/fence is rejected
+    /// (no partial commit, no leaked prepare), while the identical txn shape at the
+    /// CURRENT epoch commits normally.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stale_fenced_participant_is_rejected_current_epoch_accepted() {
+        assert!(scenario_stale_fenced_participant_rejected()
+            .await
+            .expect("stale-fence rejection scenario"));
     }
 }

@@ -3287,15 +3287,25 @@ async fn commit_cross_shard(
     let Some(backend) = backend else {
         return Response::err(req_id, "cross-shard txn requires a persistence backend");
     };
-    let x_slices: Vec<GraphSlice> = slices
-        .into_iter()
-        .map(|s| GraphSlice {
+    // GOC-13 fencing: capture each participant's CURRENT placement route (the same
+    // `(group, epoch, fencing_token)` triple `execute_consensus_transaction`'s
+    // `build_consensus_transaction_fanout` already captures for its own participant
+    // fanout) alongside the slice, so `CrossShardCoordinator::prepare_participant`
+    // can reject a participant whose placement moved between when this slice was
+    // built and when it durably prepares (CONCEPT:EG-KG.txn.harness-crash "stale/
+    // fenced participant" gap).
+    let mut x_slices: Vec<GraphSlice> = Vec::with_capacity(slices.len());
+    for s in slices {
+        let route = multi.route_graph(&s.graph_name).await;
+        x_slices.push(GraphSlice {
             graph_name: s.graph_name,
             graph_fname: s.graph_fname,
             graph_type: s.graph_type,
             methods: s.methods,
-        })
-        .collect();
+            placement_epoch: route.epoch,
+            fencing_token: route.placed.then_some(route.fencing_token()),
+        });
+    }
     let coord = CrossShardCoordinator::new(multi, backend.clone());
     let xtxn = CrossShardTxn {
         txn_id: cross_shard_transaction_id(coordinator_id),
