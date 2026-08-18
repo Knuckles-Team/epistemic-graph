@@ -633,7 +633,7 @@ fn parse_as_of_lsn(target: &str) -> Result<Option<u64>, ()> {
     let mut as_of = None;
     for pair in query.split('&') {
         let mut it = pair.splitn(2, '=');
-        let key = it.next().unwrap_or("");
+        let key = percent_decode(&it.next().unwrap_or("").replace('+', " "));
         if key != "as_of" {
             continue;
         }
@@ -1323,6 +1323,31 @@ mod tests {
         assert_eq!(hidden_current.0, "404 Not Found");
         assert_eq!(hidden_invalid, hidden_current);
         assert_eq!(hidden_overflow, hidden_current);
+    }
+
+    #[test]
+    fn as_of_parser_rejects_ambiguous_or_malformed_values() {
+        assert_eq!(parse_as_of_lsn("/table"), Ok(None));
+        assert_eq!(parse_as_of_lsn("/table?other=1"), Ok(None));
+        assert_eq!(parse_as_of_lsn("/table?as_of=0"), Ok(Some(0)));
+        assert_eq!(parse_as_of_lsn("/table?as_of=1%32"), Ok(Some(12)));
+        assert_eq!(parse_as_of_lsn("/table?as%5Fof=12"), Ok(Some(12)));
+
+        for target in [
+            "/table?as_of",
+            "/table?as_of=",
+            "/table?as_of=-1",
+            "/table?as_of=1.0",
+            "/table?as_of=%2D1",
+            "/table?as_of=1&as_of=2",
+            "/table?as_of=18446744073709551616",
+        ] {
+            assert_eq!(
+                parse_as_of_lsn(target),
+                Err(()),
+                "ambiguous or malformed target must fail closed: {target}"
+            );
+        }
     }
 
     #[test]
