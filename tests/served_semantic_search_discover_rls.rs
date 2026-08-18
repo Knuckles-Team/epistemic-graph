@@ -57,8 +57,8 @@ use dashmap::DashMap;
 use serde_json::json;
 use tokio::sync::{RwLock, Semaphore};
 
-use epistemic_graph::isolation::AgentRole;
 use epistemic_graph::channels::ChannelManager;
+use epistemic_graph::isolation::AgentRole;
 use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::{dispatch, ServerState};
@@ -144,6 +144,19 @@ fn commons_isolation() -> epistemic_graph::isolation::IsolationLayer {
     };
     isolation.add_grant(grant(RbacAction::Read));
     isolation.add_grant(grant(RbacAction::Write));
+
+    // NE-065 migration: `root` is registered `AgentRole::Agent` (not `System`, see
+    // `register_root_req`), so it needs an explicit grant of `RbacAction::Admin` on
+    // the `"__admin__"` resource context `IsolationLayer::has_admin_capability`
+    // checks -- exactly the capability `Method::RegisterIdentity` requires of its
+    // actor, and nothing more.
+    isolation.add_role(Role::new(common::ROOT_ADMIN_ROLE));
+    isolation.add_grant(Grant {
+        role: common::ROOT_ADMIN_ROLE.to_string(),
+        resource: ResourceSelector::Graph("__admin__".to_string()),
+        action: RbacAction::Admin,
+        effect: GrantEffect::Allow,
+    });
     isolation
 }
 
@@ -174,6 +187,28 @@ fn register_identity_req(id: u64, actor: &str, agent_id: &str, role: AgentRole) 
         role,
         teams: Vec::new(),
         roles: vec![COMMONS_USER_ROLE.to_string()],
+    })
+}
+
+/// Registers `"root"` as an ordinary `AgentRole::Agent` identity carrying
+/// [`common::ROOT_ADMIN_ROLE`] -- NOT `AgentRole::System` -- so it holds just enough
+/// authority (`RbacAction::Admin` on `"__admin__"`, granted by [`commons_isolation`])
+/// to go on and call `RegisterIdentity` itself for `alice`/`bob` below. See
+/// `advanced_crossmodal_roundtrip.rs`'s identical helper for the full NE-065
+/// rationale (a signer scoped to bootstrap itself must not also mint an independent
+/// `System` identity for a third party, and self-registering `root` as `System`
+/// cannot work either since `RegisterIdentity`'s actor must already hold admin
+/// capability).
+fn register_root_req(id: u64, actor: &str) -> Request {
+    common::signed_register_identity_request(common::SignedRegisterIdentity {
+        secret: SECRET,
+        id,
+        graph: "__commons__",
+        actor,
+        registered_agent: "root",
+        role: AgentRole::Agent,
+        teams: Vec::new(),
+        roles: vec![common::ROOT_ADMIN_ROLE.to_string()],
     })
 }
 
@@ -245,6 +280,16 @@ async fn seed(state: &Arc<RwLock<ServerState>>) {
             properties_msgpack: pack(json!({
                 "type": "Robot",
                 "_visibility": "public",
+                // BUG-064: a bare `_visibility: "public"` with no owner is
+                // deliberately UNCORROBORATED and treated as non-public
+                // (`row_visibility`, crates/eg-core/src/isolation.rs) --
+                // stamp_owner_id_if_absent doesn't run for this seed either,
+                // since it is written by the System-role test identity, which
+                // is explicitly exempt (not a real per-agent owner). An
+                // explicit `_grants` list is the same corroboration
+                // `advanced_crossmodal_roundtrip.rs`'s identical `"pub_r"`
+                // fixture uses for an unowned public row.
+                "_grants": "alice,bob",
                 "name": "shared rollout plan",
                 "description": "public rollout notes",
             })),
@@ -263,11 +308,7 @@ async fn seed(state: &Arc<RwLock<ServerState>>) {
 
     // Register the two peer identities -- the SAME two-step (System actor registers
     // `root`, `root` registers the peers) `advanced_crossmodal_roundtrip.rs` uses.
-    let r = Box::pin(dispatch(
-        state,
-        register_identity_req(900, common::TEST_AGENT, "root", AgentRole::System),
-    ))
-    .await;
+    let r = Box::pin(dispatch(state, register_root_req(900, common::TEST_AGENT))).await;
     assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
     for (i, agent) in [(901u64, "alice"), (902, "bob")] {
         let r = Box::pin(dispatch(
