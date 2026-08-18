@@ -123,7 +123,7 @@ fn arb_mutation() -> impl Strategy<Value = Mutation> {
 /// are only in scope under `timeseries` (without it the circuit falls WindowAgg back to
 /// recompute, so `Circuit::compile` would reject them — see the circuit's cost contract).
 fn arb_supported_plan() -> impl Strategy<Value = Plan> {
-    let mut shapes: Vec<Vec<Op>> = vec![
+    let shapes: Vec<Vec<Op>> = vec![
         // Scan
         vec![Op::Scan {
             label: "Doc".into(),
@@ -174,39 +174,43 @@ fn arb_supported_plan() -> impl Strategy<Value = Plan> {
     // WindowAgg is restricted to `Scan → WindowAgg [→ Limit]` (a pre-WindowAgg Filter/AsOf
     // falls back — see the circuit's window restriction).
     #[cfg(feature = "timeseries")]
-    shapes.extend([
-        // Scan + WindowAgg(sum)
-        vec![
-            Op::Scan {
-                label: "Doc".into(),
-            },
-            Op::WindowAgg {
-                secs: 10.0,
-                agg: "sum".into(),
-            },
-        ],
-        // Scan + WindowAgg(count) + Limit
-        vec![
-            Op::Scan {
-                label: "Doc".into(),
-            },
-            Op::WindowAgg {
-                secs: 15.0,
-                agg: "count".into(),
-            },
-            Op::Limit { k: 2 },
-        ],
-        // Scan + WindowAgg(mean)
-        vec![
-            Op::Scan {
-                label: "Doc".into(),
-            },
-            Op::WindowAgg {
-                secs: 8.0,
-                agg: "mean".into(),
-            },
-        ],
-    ]);
+    let shapes = {
+        let mut shapes = shapes;
+        shapes.extend([
+            // Scan + WindowAgg(sum)
+            vec![
+                Op::Scan {
+                    label: "Doc".into(),
+                },
+                Op::WindowAgg {
+                    secs: 10.0,
+                    agg: "sum".into(),
+                },
+            ],
+            // Scan + WindowAgg(count) + Limit
+            vec![
+                Op::Scan {
+                    label: "Doc".into(),
+                },
+                Op::WindowAgg {
+                    secs: 15.0,
+                    agg: "count".into(),
+                },
+                Op::Limit { k: 2 },
+            ],
+            // Scan + WindowAgg(mean)
+            vec![
+                Op::Scan {
+                    label: "Doc".into(),
+                },
+                Op::WindowAgg {
+                    secs: 8.0,
+                    agg: "mean".into(),
+                },
+            ],
+        ]);
+        shapes
+    };
     prop::sample::select(shapes).prop_map(Plan::new)
 }
 

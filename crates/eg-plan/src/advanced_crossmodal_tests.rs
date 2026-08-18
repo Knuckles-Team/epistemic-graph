@@ -32,15 +32,53 @@
 //!    RankMmr` reranks an OWL-reasoned, vector-filtered set by a closed-form probabilistic
 //!    score, then diversifies with Maximal Marginal Relevance.
 
-#![allow(unused_imports)]
-
+#[cfg(any(
+    feature = "owl",
+    feature = "geo",
+    feature = "tensor",
+    all(feature = "stream", feature = "timeseries"),
+))]
 use eg_core::compute::semantic::SemanticStore;
+#[cfg(any(
+    feature = "owl",
+    feature = "geo",
+    feature = "tensor",
+    all(feature = "stream", feature = "timeseries"),
+))]
 use eg_core::graph::{GraphCore, GraphView};
+#[cfg(any(
+    feature = "owl",
+    feature = "geo",
+    feature = "tensor",
+    all(feature = "stream", feature = "timeseries"),
+))]
 use serde_json::json;
 
-use crate::algebra::{Op, Plan, Pred};
-use crate::exec::{execute, PlanCtx, PlanExt};
+#[cfg(any(feature = "federation", feature = "geo"))]
+use crate::algebra::Pred;
+#[cfg(any(
+    feature = "owl",
+    feature = "federation",
+    feature = "geo",
+    feature = "tensor",
+    all(feature = "stream", feature = "timeseries"),
+))]
+use crate::algebra::{Op, Plan};
+#[cfg(any(
+    feature = "owl",
+    feature = "federation",
+    feature = "geo",
+    feature = "tensor",
+    all(feature = "stream", feature = "timeseries"),
+))]
+use crate::exec::{execute, PlanCtx};
 
+#[cfg(any(
+    feature = "owl",
+    feature = "geo",
+    feature = "tensor",
+    all(feature = "stream", feature = "timeseries"),
+))]
 fn blob(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()
 }
