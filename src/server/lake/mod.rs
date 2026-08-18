@@ -173,6 +173,62 @@ impl LakeVisibility {
     }
 }
 
+/// Failure returned when an as-of request names an LSN that was never
+/// committed by this manager.  `Ok(None)` remains the result for an unknown or
+/// unauthorized table, so callers cannot use an invalid LSN to probe catalog
+/// visibility.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LoadTableAsOfError {
+    /// The requested LSN is not a representable, committed point in the
+    /// manager's history.  LSN 0 is reserved for the valid empty history.
+    LsnUnavailable { requested: u64, current_lsn: u64 },
+}
+
+/// Committed LSNs as sorted, coalesced ranges rather than one heap entry per
+/// write.  Normal append traffic stays one range; only failed or concurrently
+/// reordered reservations leave additional ranges, so the as-of validity index
+/// remains bounded by the number of holes instead of table history length.
+#[derive(Default)]
+struct CommittedLsnLedger {
+    ranges: Vec<(u64, u64)>,
+}
+
+impl CommittedLsnLedger {
+    fn insert(&mut self, lsn: u64) {
+        let mut start = lsn;
+        let mut end = lsn;
+        let mut index = 0;
+        while index < self.ranges.len() {
+            let (range_start, range_end) = self.ranges[index];
+            if range_end.saturating_add(1) < start {
+                index += 1;
+                continue;
+            }
+            if end.saturating_add(1) < range_start {
+                break;
+            }
+            start = start.min(range_start);
+            end = end.max(range_end);
+            self.ranges.remove(index);
+        }
+        self.ranges.insert(index, (start, end));
+    }
+
+    fn contains(&self, lsn: u64) -> bool {
+        self.ranges
+            .binary_search_by(|(start, end)| {
+                if lsn < *start {
+                    std::cmp::Ordering::Greater
+                } else if lsn > *end {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .is_ok()
+    }
+}
+
 /// Split a catalog namespace back into its Iceberg-REST levels (W03, GOC-75-W03):
 /// multi-level identifiers are decoded off the wire into ONE internal string
 /// joined by the spec's own `\x1f` unit-separator (see `rest.rs`'s path decoding),
@@ -252,6 +308,12 @@ pub struct LakeManager {
     /// the in-process inspection surface (`recent_audit`) tests and callers use
     /// to prove an event landed, mirroring `recent_lineage`.
     audit: Mutex<VecDeque<Value>>,
+    /// Coalesced ranges of every successfully persisted write LSN.  This is
+    /// deliberately separate from each table's snapshot log: a committed
+    /// global LSN before a table was created is a valid empty history for that
+    /// table, while a reserved LSN from a failed write must never be accepted
+    /// as an as-of boundary.
+    committed_lsns: Mutex<CommittedLsnLedger>,
     next_lsn: AtomicU64,
 }
 
@@ -273,6 +335,7 @@ impl LakeManager {
             drain_cursor: Mutex::new(HashMap::new()),
             lineage: Mutex::new(VecDeque::new()),
             audit: Mutex::new(VecDeque::new()),
+            committed_lsns: Mutex::new(CommittedLsnLedger::default()),
             // Starts at 1 — `Lsn::ZERO`/0 is reserved by eg-lake for "nothing committed
             // yet" (an as-of-0 read is always empty).
             next_lsn: AtomicU64::new(1),
@@ -281,6 +344,14 @@ impl LakeManager {
 
     fn alloc_lsn(&self) -> Lsn {
         Lsn(self.next_lsn.fetch_add(1, Ordering::Relaxed))
+    }
+
+    fn record_committed_lsn(&self, lsn: Lsn) {
+        self.committed_lsns.lock().insert(lsn.value());
+    }
+
+    fn is_committed_lsn(&self, lsn: u64) -> bool {
+        lsn == 0 || self.committed_lsns.lock().contains(lsn)
     }
 
     /// The virtual object-store location a `(namespace, table)` pair materializes
@@ -468,6 +539,7 @@ impl LakeManager {
         let mut cat = self.catalog.lock();
         entry.table.register_in(&mut cat, ts_ms as i64);
         let metadata_location = ib.metadata_location.clone();
+        self.record_committed_lsn(lsn);
         drop(cat);
         drop(tables);
 
@@ -604,9 +676,10 @@ impl LakeManager {
         let had_rows = !kept_rows.is_empty();
         let new_batch = LakeBatch::new(schema.clone(), kept_rows)?;
 
-        // Tombstone the old files at the SAME new LSN the rewrite commits under, so the
-        // Delta log emits one contiguous "remove old + add new" version (a real
-        // OVERWRITE commit), then materialize the rewritten batch.
+        // Tombstone the old files at a reserved rewrite LSN, then materialize
+        // the replacement batch at the next LSN.  The ledger records both
+        // successful boundaries, preserving the valid intermediate empty
+        // projection as well as the final overwrite.
         let lsn = self.alloc_lsn();
         {
             let mut tables = self.tables.lock();
@@ -625,7 +698,7 @@ impl LakeManager {
         } else {
             LakeOp::Truncate
         };
-        self.materialize_batch(
+        let report = self.materialize_batch(
             store,
             namespace,
             table,
@@ -635,8 +708,13 @@ impl LakeManager {
             op,
             None,
             None,
-        )
-        .map(Some)
+        )?;
+        // The rewrite's tombstone and replacement file have distinct LSNs in
+        // the current implementation.  Both are committed boundaries: callers
+        // may legitimately ask for the point between them and observe the
+        // transiently empty file set.
+        self.record_committed_lsn(lsn);
+        Ok(Some(report))
     }
 
     /// Compaction: rewrite every live file into one, keeping every row. A thin wrapper
@@ -697,21 +775,43 @@ impl LakeManager {
     /// metadata.json, not history), so a `lsn` from before a later
     /// compact/delete_where/drain_series still resolves to the file set live at that
     /// lsn, not today's. Returns the same `{"metadata-location", "metadata",
-    /// "config"}` shape [`Self::load_table`] returns. `None` only for an unknown
-    /// `(namespace, table)`; an `lsn` of `0` or beyond `current_lsn()` are both valid
-    /// (empty-as-of-nothing-committed, and everything-live-now, respectively —
-    /// [`eg_lake::snapshot::FileEntry::visible_at`]'s own clamping).
-    pub fn load_table_as_of(&self, namespace: &str, table: &str, lsn: u64) -> Option<Value> {
+    /// "config"}` shape [`Self::load_table`] returns. `Ok(None)` means the table
+    /// is unknown or hidden by `visibility`, matching [`Self::load_table_visible`]
+    /// and preventing existence/error side channels. `Err` means the table is
+    /// visible but `lsn` is not a committed point in this manager's global
+    /// history. LSN `0` is always valid and represents the empty history; a
+    /// committed LSN from before this table was created is also valid and
+    /// returns an empty projection. Values above `i64::MAX` are rejected because
+    /// Iceberg snapshot ids are signed 64-bit values.
+    pub fn load_table_as_of(
+        &self,
+        namespace: &str,
+        table: &str,
+        lsn: u64,
+        visibility: &LakeVisibility,
+    ) -> Result<Option<Value>, LoadTableAsOfError> {
         let tables = self.tables.lock();
-        let entry = tables.get(&(namespace.to_string(), table.to_string()))?;
+        let Some(entry) = tables.get(&(namespace.to_string(), table.to_string())) else {
+            return Ok(None);
+        };
+        if !visibility.allows(entry.owner_tenant.as_deref()) {
+            return Ok(None);
+        }
+        let current_lsn = entry.table.current_lsn().value();
+        if lsn > i64::MAX as u64 || !self.is_committed_lsn(lsn) {
+            return Err(LoadTableAsOfError::LsnUnavailable {
+                requested: lsn,
+                current_lsn,
+            });
+        }
         let ts_ms = lineage::now_ms();
         let ib = entry.table.iceberg_as_of(Lsn(lsn), ts_ms as i64);
         let metadata: Value = serde_json::from_str(&ib.metadata_json).unwrap_or(Value::Null);
-        Some(json!({
+        Ok(Some(json!({
             "metadata-location": ib.metadata_location,
             "metadata": metadata,
             "config": {},
-        }))
+        })))
     }
 
     pub fn namespace_exists(&self, namespace: &str) -> bool {
@@ -1030,6 +1130,24 @@ mod tests {
     }
 
     #[test]
+    fn committed_lsn_ledger_coalesces_successes_without_accepting_holes() {
+        let mut ledger = CommittedLsnLedger::default();
+        ledger.insert(1);
+        ledger.insert(3);
+        ledger.insert(2);
+        ledger.insert(5);
+
+        assert!(ledger.contains(1));
+        assert!(ledger.contains(2));
+        assert!(ledger.contains(3));
+        assert!(
+            !ledger.contains(4),
+            "an uncommitted reservation stays a hole"
+        );
+        assert!(ledger.contains(5));
+    }
+
+    #[test]
     fn drain_series_materializes_only_new_points_each_call() {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
@@ -1108,16 +1226,12 @@ mod tests {
         );
     }
 
-    /// BUG-224: `Op::AsOf` has no caller that converts a query-time as-of request into
-    /// an `Lsn` and reads the lake projection at it — `LakeManager` only ever drove
-    /// drain_series/compact/delete_where/evolve_add_column, none of which take an
-    /// as-of argument, so an as-of read of OUR OWN lake tables (as opposed to an
-    /// external engine time-traveling our emitted Iceberg snapshot ids) was
-    /// impossible. This is the failing-then-passing reproduction: after a second
-    /// drain (2 live files) and a SUBSEQUENT compaction (rewrites to 1 live file at a
-    /// NEWER lsn), an as-of read pinned to the lsn recorded right after the second
-    /// drain must still see the OLD 2-file historical state, even though "now"
-    /// (`load_table`) sees the compacted 1-file state.
+    /// NE-033/NE-049: after a second drain (2 live files) and a SUBSEQUENT
+    /// compaction (rewrites to 1 live file at a NEWER LSN), a scoped as-of read
+    /// pinned to the LSN recorded right after the second drain must still see
+    /// the OLD 2-file historical state, even though `load_table` sees the
+    /// compacted 1-file state.  The Iceberg REST adapter intentionally has no
+    /// as-of field today; this manager test owns the available protocol seam.
     #[test]
     fn load_table_as_of_returns_historical_state_after_a_later_compaction() {
         let s = store();
@@ -1149,8 +1263,14 @@ mod tests {
         );
 
         let historical = mgr
-            .load_table_as_of(DEFAULT_NAMESPACE, &table, historical_lsn)
-            .expect("table known, as-of lsn resolves to a historical snapshot");
+            .load_table_as_of(
+                DEFAULT_NAMESPACE,
+                &table,
+                historical_lsn,
+                &LakeVisibility::Unfiltered,
+            )
+            .expect("historical lsn was committed")
+            .expect("table known and visible, as-of resolves to a snapshot");
         assert_eq!(
             historical["metadata"]["snapshots"][0]["summary"]["total-data-files"], "2",
             "as-of the pre-compaction lsn, BOTH original files are still visible \
@@ -1167,7 +1287,13 @@ mod tests {
 
         // Unknown table ⇒ None, not an error.
         assert!(mgr
-            .load_table_as_of(DEFAULT_NAMESPACE, "nope", historical_lsn)
+            .load_table_as_of(
+                DEFAULT_NAMESPACE,
+                "nope",
+                historical_lsn,
+                &LakeVisibility::Unfiltered,
+            )
+            .expect("unknown tables are not an as-of error")
             .is_none());
     }
 
