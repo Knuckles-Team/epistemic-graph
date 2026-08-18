@@ -546,6 +546,9 @@ mod transport;
 // Server-staged OCC ACID transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid). `txn` holds the staged
 // transaction state + id source; `handlers::txn` owns the Txn* methods.
 pub mod txn;
+// Durable cross-store commit-intent log for a mixed graph+user-table SQL
+// transaction (CONCEPT:EG-TXN.mixed-commit-intent, NE-004) — see its module doc.
+pub(crate) mod txn_intent;
 
 // External path surface — `server::ServerState`, `server::MAX_BATCH_IDS`,
 // `server::dispatch`, and
