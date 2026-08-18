@@ -14,6 +14,14 @@ pytestmark = pytest.mark.no_engine
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
+NUMERIC_CONTRACT_DOCS = (
+    REPO / "AGENTS.md",
+    REPO / "README.md",
+    REPO / "docs" / "architecture" / "numeric_kernel.md",
+    REPO / "docs" / "architecture" / "analytics_program.md",
+    REPO / "docs" / "capabilities.md",
+    REPO / "docs" / "concepts.md",
+)
 
 
 def _build_job_source(raw: str) -> str:
@@ -56,6 +64,30 @@ def test_maturin_default_and_python_extra_are_full() -> None:
     ).read_text(encoding="utf-8")
     assert "pyiceberg[pyarrow]>=0.7.0" in lake_requirements
     assert "deltalake>=0.18.0" in lake_requirements
+
+
+def test_current_numeric_docs_match_the_builtin_boundary_contract() -> None:
+    """Current docs must not revive removed NumPy/native-ABI promises."""
+
+    docs = {
+        path: path.read_text(encoding="utf-8") for path in NUMERIC_CONTRACT_DOCS
+    }
+    numeric = docs[REPO / "docs" / "architecture" / "numeric_kernel.md"]
+    assert "bounded built-in" in numeric
+    assert "scalar↔nested-list PyO3 contract" in numeric
+    assert "isolated NumPy parity oracle" in numeric
+    assert "Arrow `KnowledgeBatch` currency" in numeric
+    forbidden_current_claims = (
+        "rust-numpy",
+        "numpy-shim",
+        "kernel-owned numpy tail",
+        "numeric interoperability dependencies",
+        "zero-copy + allow_threads",
+    )
+    for path, text in docs.items():
+        lowered = text.lower()
+        for claim in forbidden_current_claims:
+            assert claim not in lowered, f"stale numeric claim in {path}: {claim}"
 
 
 def test_agent_skills_have_one_canonical_owner() -> None:

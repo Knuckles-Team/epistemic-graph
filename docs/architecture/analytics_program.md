@@ -2,14 +2,14 @@
 
 > The program that turns epistemic-graph into an **analytical system embedded in the data**:
 > a slim, BLAS/LAPACK-free Rust numeric kernel (`crates/eg-numeric`) that serves **both**
-> Python-side array math (replacing direct numpy/scipy use in agent-utilities) **and**
+> Python-side array math without a Python numeric runtime dependency **and**
 > in-database analytics over engine-resident data. This page is the map; the kernel
 > is documented in full at **[numeric-kernel](numeric_kernel.md)**.
 
 ## Thesis
 
 epistemic-graph already does **compute-near-data** for vectors (`semantic_search` and
-`batch_l2_normalize` run server-side in Rust, zero numpy). The Analytics Program generalizes that
+`batch_l2_normalize` run server-side in Rust, without a Python numeric runtime). The Analytics Program generalizes that
 proven pattern into **one numeric kernel exposed on two surfaces**:
 
 - **Surface A — in-process Python.** `epistemic_graph.numeric` (a pyo3 extension) + the
@@ -26,24 +26,31 @@ in Python → Surface A. Never round-trip transient data into the DB just to com
 
 | Surface | Scope |
 |---------|-------|
-| Rust kernel | `eg-numeric` reductions, statistics, element-wise operations, faer linear algebra, seedable random operations, and 847 `np.allclose` parity checks (`CONCEPT:AU-KG.compute.numeric-kernel`) |
-| Python | `epistemic_graph.numeric` plus `from agent_utilities.numeric import xp as np`; the compiled kernel is required |
+| Rust kernel | `eg-numeric` reductions, statistics, element-wise operations, faer linear algebra, seedable random operations, and 847 parity checks against an isolated NumPy reference (`CONCEPT:AU-KG.compute.numeric-kernel`) |
+| Python | `epistemic_graph.numeric` plus `from agent_utilities.numeric import xp as np`; the compiled kernel is required. Surface A accepts bounded built-in scalars/rectangular sequences and returns scalars/nested lists |
 | SQL analytics | DataFusion `cosine_sim`, `l2_normalize`, `zscore`, `covariance`, `svd`, `pca`, and `kmeans` operators over resident data |
 | Native method | `BatchL2Normalize` through the engine client |
 | Cross-modal analytics | Graph ⋈ vector ⋈ time-series joins followed by PCA, clustering, or covariance in the shared query path (`CONCEPT:EG-KG.query.eg-3`) |
-| Agent Utilities dependency | `epistemic-graph[full]`; Python `[full]` includes numeric interoperability dependencies, while the `xp` surface retains a kernel-owned numpy tail for unsupported shapes |
+| Agent Utilities dependency | `epistemic-graph[full]`; `[full]` is a compatibility alias with no numeric runtime dependency. The `xp` surface is kernel-live over the bounded built-in scalar/sequence contract; unsupported shapes fail explicitly |
 
 > **Release policy.** Agent Utilities installs the approved
 > `epistemic-graph[full]` artifact. Importing its numeric compatibility
 > surface without the compiled kernel fails immediately; there is no package-level
 > fallback or partial engine profile.
 
+The native Python boundary owns bounded conversion from Python scalars or rectangular
+built-in sequences to the Rust kernel and returns Python scalars or nested lists. It
+rejects text/bytes/mappings, ragged input, rank above 8, and more than 1,000,000 input
+or output elements before allocation. NumPy is not a runtime dependency of the base
+package or any extra; Arrow is the cross-component interchange format for bounded
+engine result batches.
+
 ## Rust/Python feature boundary
 
 Cargo `full` includes the `numeric` Rust feature, so the main engine links the pure
-faer/ndarray kernel. The Python `[full]` extra applies only at installation time
-and includes `[numeric]`; it does not select Rust features. pyo3 sits behind the
-kernel crate's `python` feature and remains off in the server binary
+faer/ndarray kernel. The Python `[full]` and `[numeric]` extras are compatibility
+aliases with no additional Python numeric dependency and do not select Rust features.
+pyo3 sits behind the kernel crate's `python` feature and remains off in the server binary
 (`cargo tree | grep -ci pyo3` = 0).
 
 ## Synergies
