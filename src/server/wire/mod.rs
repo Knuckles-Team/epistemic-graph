@@ -88,6 +88,7 @@ pub type WireResult<T> = Result<T, WireError>;
 /// The wire-NEUTRAL outcome of executing one statement (CONCEPT:EG-KG.compute.subsystems-reference). Each wire
 /// encodes this into its own protocol bytes; the core never constructs
 /// protocol-specific responses.
+#[derive(Debug)]
 pub enum WireOutcome {
     /// A result set (a read, or a `RETURNING` write). The wire encodes the typed
     /// rows in its own row format.
@@ -600,14 +601,18 @@ pub struct WireSession {
     /// transaction (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005, matching Postgres: it applies to the
     /// NEXT transaction only). Consumed (and cleared) by the next `BEGIN`.
     pending_isolation: parking_lot::Mutex<Option<crate::server::txn::IsolationLevel>>,
-    /// Labels this OPEN transaction's own reads scanned (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005
-    /// auto predicate tracking), captured only while `txn_isolation` is
-    /// `Serializable`. Fed into [`crate::server::txn::GraphTxnState::add_predicate_read`]
-    /// at commit so a SQL `SERIALIZABLE` transaction gets GENUINE phantom
-    /// protection for the read shape the engine's predicate machinery can
-    /// express, instead of silently behaving like `Snapshot`. Reset by
-    /// `begin_txn()`.
-    serializable_labels: parking_lot::Mutex<std::collections::HashSet<String>>,
+    /// Predicate reads this OPEN transaction's own reads performed (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005
+    /// auto predicate tracking), fingerprinted AT READ TIME (never deferred to
+    /// commit — see [`crate::server::txn::GraphTxnState::add_predicate_read`]'s
+    /// doc for why the timing matters) and captured only while `txn_isolation`
+    /// is `Serializable`. Merged directly into the freshly-built
+    /// `GraphTxnState.predicate_reads` at commit (the wire session has no live
+    /// `GraphTxnState` before then — its transaction is buffered, not staged)
+    /// so a SQL `SERIALIZABLE` transaction gets GENUINE phantom protection for
+    /// the read shape the engine's predicate machinery can express, instead of
+    /// silently behaving like `Snapshot`. Reset by `begin_txn()`.
+    serializable_predicate_reads:
+        parking_lot::Mutex<Vec<(crate::server::txn::PredicateRead, u64)>>,
     /// The OPEN transaction's table-store statement replay log (CONCEPT:EG-TXN.mixed-commit-intent — NE-004):
     /// one entry per buffered table DML/DDL statement (or decoded `COPY`
     /// batch), in order. Used ONLY when a transaction mixes graph-node ops
@@ -643,7 +648,7 @@ impl WireSession {
             txn_isolation: parking_lot::Mutex::new(crate::server::txn::IsolationLevel::Snapshot),
             session_isolation_default: parking_lot::Mutex::new(None),
             pending_isolation: parking_lot::Mutex::new(None),
-            serializable_labels: parking_lot::Mutex::new(std::collections::HashSet::new()),
+            serializable_predicate_reads: parking_lot::Mutex::new(Vec::new()),
             txn_replay_log: parking_lot::Mutex::new(Vec::new()),
             recovered_intents: std::sync::atomic::AtomicBool::new(false),
         }
@@ -877,7 +882,7 @@ impl WireSession {
         // immediately overwrites this with the resolved level (inline clause,
         // else `pending_isolation`, else the session default, else Snapshot).
         *self.txn_isolation.lock() = crate::server::txn::IsolationLevel::Snapshot;
-        self.serializable_labels.lock().clear();
+        self.serializable_predicate_reads.lock().clear();
         self.txn_replay_log.lock().clear();
     }
 
@@ -2852,9 +2857,10 @@ impl WireSession {
     /// second call is a no-op replay of the first, never a double-apply.
     ///
     /// `isolation` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005): when `Serializable`, this drains and
-    /// attaches this connection's [`WireSession::serializable_labels`] so the
-    /// commit gets genuine phantom protection for the reads this txn actually
-    /// performed, instead of silently behaving like `Snapshot`.
+    /// attaches this connection's [`WireSession::serializable_predicate_reads`]
+    /// (each already fingerprinted AT READ TIME — see `execute()`'s read
+    /// hook) so the commit gets genuine phantom protection for the reads this
+    /// txn actually performed, instead of silently behaving like `Snapshot`.
     async fn commit_graph_methods_with_op(
         &self,
         graph: &str,
@@ -2893,11 +2899,12 @@ impl WireSession {
             },
         );
         if isolation == crate::server::txn::IsolationLevel::Serializable {
-            let labels: Vec<String> =
-                std::mem::take(&mut *self.serializable_labels.lock()).into_iter().collect();
-            for label in labels {
-                txn.add_predicate_read(&core, crate::server::txn::PredicateRead::Label(label));
-            }
+            // Already fingerprinted at read time (`execute()`'s read hook) —
+            // extend directly, never recompute (recomputing here, right
+            // before `validate()` re-checks it, would compare a baseline
+            // against itself and protect nothing).
+            let captured = std::mem::take(&mut *self.serializable_predicate_reads.lock());
+            txn.predicate_reads.extend(captured);
         }
         for method in methods {
             txn.stage(&core, method, crate::server::txn::now_ms());
@@ -3395,7 +3402,6 @@ impl WireSession {
 
     /// Build a fresh single-statement [`crate::server::txn::GraphTxnState`] pinned to
     /// `graph` for an off-txn cross-modal auto-commit (CONCEPT:EG-KG.txn.isolation-ryow-begin-set).
-    #[cfg(feature = "query")]
     ///
     /// `isolation` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005): the OPEN wire transaction's resolved
     /// level for the has-xmodal `COMMIT` path, or `Snapshot` for an off-txn
@@ -3403,9 +3409,11 @@ impl WireSession {
     /// protected by the per-node OCC check regardless of declared level —
     /// there is no cross-statement anomaly window to widen). When
     /// `Serializable`, this drains and attaches this connection's
-    /// [`WireSession::serializable_labels`] (CONCEPT:EG-KG.txn.serializable-zero-cost auto predicate tracking) so a
-    /// SQL `SERIALIZABLE` transaction gets genuine phantom protection instead
-    /// of silently behaving like `Snapshot`.
+    /// [`WireSession::serializable_predicate_reads`] (each already
+    /// fingerprinted AT READ TIME) so a SQL `SERIALIZABLE` transaction gets
+    /// genuine phantom protection instead of silently behaving like
+    /// `Snapshot`.
+    #[cfg(feature = "query")]
     async fn new_txn_state(
         &self,
         graph: &str,
@@ -3426,11 +3434,8 @@ impl WireSession {
             },
         );
         if isolation == crate::server::txn::IsolationLevel::Serializable {
-            let labels: Vec<String> =
-                std::mem::take(&mut *self.serializable_labels.lock()).into_iter().collect();
-            for label in labels {
-                ts.add_predicate_read(&core, crate::server::txn::PredicateRead::Label(label));
-            }
+            let captured = std::mem::take(&mut *self.serializable_predicate_reads.lock());
+            ts.predicate_reads.extend(captured);
         }
         Ok(ts)
     }
@@ -3775,7 +3780,7 @@ impl WireProtocol for WireSession {
                 self.take_txn();
                 #[cfg(feature = "query")]
                 let _ = self.take_xmodal();
-                self.serializable_labels.lock().clear();
+                self.serializable_predicate_reads.lock().clear();
                 self.txn_replay_log.lock().clear();
                 return Ok(WireOutcome::TxnEnd { tag: "ROLLBACK" });
             }
@@ -3809,13 +3814,26 @@ impl WireProtocol for WireSession {
         // NE-005 auto predicate tracking: a `Serializable` transaction's OWN
         // reads seed the predicate read-set the commit-time check protects —
         // see `extract_label_predicates`'s doc for exactly what shape this
-        // captures (and does not).
+        // captures (and does not). Fingerprinted RIGHT NOW, before the read
+        // itself runs — the "captured at begin" baseline `validate()`
+        // re-checks at commit MUST be from read time, never recomputed later
+        // (a baseline captured seconds — or even microseconds — before
+        // `validate()` re-checks it protects nothing; see
+        // `GraphTxnState::add_predicate_read`'s doc).
         if in_txn
             && matches!(kind, StatementKind::Read)
             && *self.txn_isolation.lock() == crate::server::txn::IsolationLevel::Serializable
         {
-            for label in extract_label_predicates(sql) {
-                self.serializable_labels.lock().insert(label);
+            let labels = extract_label_predicates(sql);
+            if !labels.is_empty() {
+                if let Ok(core) = self.graph_core(&graph).await {
+                    let mut captured = self.serializable_predicate_reads.lock();
+                    for label in labels {
+                        let predicate = crate::server::txn::PredicateRead::Label(label);
+                        let fp = predicate.fingerprint(&core);
+                        captured.push((predicate, fp));
+                    }
+                }
             }
         }
 
@@ -4077,8 +4095,8 @@ mod ne_004_ne_005_tests {
         }
     }
 
-    async fn table_row_count(session: &WireSession, sql: &str) -> usize {
-        match session.run_read("", sql.to_string()).await {
+    async fn table_row_count(session: &WireSession, graph: &str, sql: &str) -> usize {
+        match session.run_read(graph, sql.to_string()).await {
             Ok(result) => result.rows.len(),
             Err(_) => 0,
         }
@@ -4110,7 +4128,7 @@ mod ne_004_ne_005_tests {
 
         assert_eq!(node_count(&session, graph, "atomic-node").await, 1);
         assert_eq!(
-            table_row_count(&session, "SELECT id FROM ledger WHERE id = 1").await,
+            table_row_count(&session, graph, "SELECT id FROM ledger WHERE id = 1").await,
             1
         );
     }
@@ -4234,7 +4252,7 @@ mod ne_004_ne_005_tests {
         let probe = new_session(state.clone(), graph).await;
         assert_eq!(node_count(&probe, graph, "crash-node").await, 1);
         assert_eq!(
-            table_row_count(&probe, "SELECT id FROM audit WHERE id = 7").await,
+            table_row_count(&probe, graph, "SELECT id FROM audit WHERE id = 7").await,
             0,
             "the table side must NOT be applied yet — this is the torn state"
         );
@@ -4257,7 +4275,7 @@ mod ne_004_ne_005_tests {
             "the graph write must remain applied EXACTLY once (idempotent replay, no duplication)"
         );
         assert_eq!(
-            table_row_count(&fresh, "SELECT id FROM audit WHERE id = 7").await,
+            table_row_count(&fresh, graph, "SELECT id FROM audit WHERE id = 7").await,
             1,
             "recovery must complete the table side — no torn state survives"
         );
@@ -4294,7 +4312,7 @@ mod ne_004_ne_005_tests {
 
         assert_eq!(node_count(&session, graph, "rolled-back-node").await, 0);
         assert_eq!(
-            table_row_count(&session, "SELECT id FROM ledger WHERE id = 1").await,
+            table_row_count(&session, graph, "SELECT id FROM ledger WHERE id = 1").await,
             0
         );
     }
