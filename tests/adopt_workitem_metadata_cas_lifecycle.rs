@@ -60,12 +60,11 @@ use epistemic_graph::channels::ChannelManager;
 use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::epistemic_operations::{
     ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion, ClaimWorkItemResult,
-    ClaimWorkItemResultReason, ClaimWorkItemResultSchemaVersion,
+    ClaimWorkItemResultReason,
 };
 use epistemic_graph::epistemic_operations_ext::{
     CasWorkItemMetadataLeaseFence, CasWorkItemMetadataOutcome, CasWorkItemMetadataRequest,
     CasWorkItemMetadataRequestSchemaVersion, CasWorkItemMetadataResult,
-    CasWorkItemMetadataResultSchemaVersion,
 };
 use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
 use epistemic_graph::registry::GraphRegistry;
