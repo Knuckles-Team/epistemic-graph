@@ -298,7 +298,16 @@ impl PredicateRead {
     /// each matching `(node_id, property-blob)` pair. A phantom inserted/removed
     /// changes the id membership; a matching node's property change alters its blob —
     /// either flips the fingerprint, which is exactly the serializable anomaly set.
-    fn fingerprint(&self, core: &GraphCore) -> u64 {
+    /// `pub(crate)` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005) so a caller with a real in-txn read op — the SQL
+    /// wire's own buffered-transaction reads, which have no live `GraphTxnState`
+    /// to stage into until `COMMIT` — can fingerprint a predicate AT THE MOMENT
+    /// the read actually happens (the correct "captured at begin" baseline) and
+    /// carry the `(predicate, fingerprint)` pair itself until a `GraphTxnState`
+    /// exists to receive it. Calling this LATER, at commit time, against a
+    /// baseline fingerprinted mere microseconds before `validate()` re-checks
+    /// it would defeat the whole point — see `WireSession::execute`'s read hook
+    /// for the correct (at-read-time) call site.
+    pub(crate) fn fingerprint(&self, core: &GraphCore) -> u64 {
         match self {
             PredicateRead::Label(label) => {
                 // `0` = uncapped: serializability needs the FULL matched set, not a page.
@@ -597,15 +606,21 @@ impl GraphTxnState {
     }
 
     /// Register an ADDITIONAL predicate/range read this txn relied on,
-    /// fingerprinted NOW (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005). Unlike the `BeginTxn`
-    /// RPC hint (which has no in-txn read op and so must declare its predicate
-    /// up front, see the module doc), a caller with a real in-txn read op — the
-    /// SQL wire's own buffered-transaction reads — can grow the serializable
-    /// read-set incrementally as each read happens, seeding genuine phantom
-    /// protection for exactly the read shape [`PredicateRead`] can express. A
-    /// no-op under `Snapshot` (there is no predicate read-set to protect at
-    /// that level, so this never silently weakens anything — it can only ADD
-    /// protection a caller explicitly captured).
+    /// fingerprinted NOW against `core` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005) — i.e. `core` MUST be
+    /// the snapshot as of the moment the read actually happened, not a later
+    /// one (a fingerprint captured at commit time, instants before
+    /// `validate()` re-checks it, protects nothing). Unlike the `BeginTxn` RPC
+    /// hint (which has no in-txn read op and so must declare its predicate up
+    /// front, see the module doc), a caller with a real in-txn read op AND a
+    /// live `GraphTxnState` already in hand at read time can grow the
+    /// serializable read-set incrementally this way. The SQL wire has no live
+    /// `GraphTxnState` until `COMMIT` (its transaction is buffered, not
+    /// staged), so it fingerprints via [`PredicateRead::fingerprint`]
+    /// directly at read time and carries the pairs itself until commit — see
+    /// `WireSession::execute`'s read hook. A no-op under `Snapshot` (there is
+    /// no predicate read-set to protect at that level, so this never silently
+    /// weakens anything — it can only ADD protection a caller explicitly
+    /// captured).
     pub(crate) fn add_predicate_read(&mut self, core: &GraphCore, predicate: PredicateRead) {
         if self.isolation != IsolationLevel::Serializable {
             return;
