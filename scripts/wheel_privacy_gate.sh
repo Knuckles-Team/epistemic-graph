@@ -13,7 +13,7 @@
 # DEBUG builds (no --release), same rationale as wheel-smoke's existing
 # comment: the release fat-LTO link is ~25 min, far too slow for any local
 # stage; every failure mode this script guards against (retained build path,
-# missing/incomplete numeric kernel fold, RECORD corruption, ungated numpy
+# missing/incomplete numeric kernel fold, RECORD corruption, or forbidden NumPy
 # dependency) reproduces identically in a debug build, the lightest faithful
 # check. CI still does the full --release manylinux build and the real audit
 # a second time as an independent backstop.

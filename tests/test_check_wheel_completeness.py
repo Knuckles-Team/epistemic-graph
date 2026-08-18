@@ -36,14 +36,21 @@ METADATA_COMPLETE = f"""Metadata-Version: 2.3
 Name: epistemic-graph
 Version: {VERSION}
 Requires-Dist: msgpack>=1.2.1
-Requires-Dist: numpy>=1.22.0
 Requires-Dist: pyoxigraph>=0.3.22 ; extra == 'owl'
 Provides-Extra: owl
 Requires-Python: >=3.10
 """
 
-# The shape every published wheel through 2.23.0 had: numpy reachable only via an
-# extra, so the bundled kernel is unimportable on a bare install.
+# NumPy is forbidden in both forms: base metadata and compatibility extras must
+# not reintroduce the retired interpreter-side runtime.
+METADATA_NUMPY_BASE = f"""Metadata-Version: 2.3
+Name: epistemic-graph
+Version: {VERSION}
+Requires-Dist: msgpack>=1.0.0
+Requires-Dist: numpy>=1.22.0
+Requires-Python: >=3.10
+"""
+
 METADATA_NUMPY_BEHIND_EXTRA = f"""Metadata-Version: 2.3
 Name: epistemic-graph
 Version: {VERSION}
@@ -149,15 +156,26 @@ def test_a_non_executable_server_binary_is_rejected(tmp_path: Path) -> None:
     assert any("is not executable" in failure for failure in failures)
 
 
+def test_numpy_base_dependency_is_rejected(tmp_path: Path) -> None:
+    """The native wheel must not resolve NumPy on a clean install."""
+    wheel = _build_wheel(
+        tmp_path / "numpy-base.whl",
+        members=_complete_members(METADATA_NUMPY_BASE),
+        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+    )
+    failures = check_wheel(wheel)
+    assert any("forbidden wheel dependency" in failure for failure in failures)
+
+
 def test_numpy_behind_an_extra_is_rejected(tmp_path: Path) -> None:
-    """Kernel present but unimportable on a bare install — the same bug, restated."""
+    """Extras must not smuggle the retired NumPy runtime back into the wheel."""
     wheel = _build_wheel(
         tmp_path / "numpy-extra.whl",
         members=_complete_members(METADATA_NUMPY_BEHIND_EXTRA),
         executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
     )
     failures = check_wheel(wheel)
-    assert any("'numpy' is not an unconditional" in failure for failure in failures)
+    assert any("forbidden wheel dependency" in failure for failure in failures)
 
 
 def test_missing_package_data_is_rejected(tmp_path: Path) -> None:

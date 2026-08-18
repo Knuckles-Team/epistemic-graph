@@ -36,12 +36,11 @@ The invariants, each one a regression that actually shipped:
 4. **RECORD is internally consistent** — every member is listed with a matching
    sha256 and size. The inject/normalize steps rewrite ``RECORD`` by hand; a
    mismatch there yields an installable-but-corrupt distribution.
-5. **The kernel's interop boundary is an UNCONDITIONAL dependency** — ``numpy``
-   appears in ``METADATA`` as a base ``Requires-Dist`` with no ``extra ==``
-   marker. Shipping the ``.so`` while gating ``numpy`` behind an extra is the
-   same bug in a second form: the module is present and still unimportable on a
-   bare ``pip install epistemic-graph``. Every published wheel through 2.23.0
-   declared ``numpy`` only under ``extra == 'numeric'``/``'quant'``.
+5. **The native kernel is dependency-free at the Python package boundary** — no
+   ``Requires-Dist`` entry may name ``numpy`` (base or extra). The compiled
+   ``.so`` is intentionally self-contained; retaining NumPy in wheel metadata
+   would make a clean install resolve the retired interpreter-side runtime and
+   conceal a regression in the native boundary.
 
 Usage::
 
@@ -69,7 +68,9 @@ KERNEL_SUFFIXES = (".so", ".pyd")
 SERVER_BINARY = "epistemic-graph-server"
 REQUIRED_SUBPACKAGES = ("kvcache", "skills")
 # PEP 503 normalized names that must be unconditional runtime requirements.
-REQUIRED_BASE_DEPENDENCIES = ("msgpack", "numpy")
+REQUIRED_BASE_DEPENDENCIES = ("msgpack",)
+# NumPy is a developer-only parity reference, never a shipped runtime or extra.
+FORBIDDEN_DEPENDENCIES = ("numpy",)
 # ``<name>-<version>.data/scripts/<binary>`` — maturin's console-binary location.
 _SCRIPTS_RE = re.compile(r"^[^/]+\.data/scripts/(?P<name>[^/]+)$")
 
@@ -98,25 +99,31 @@ def _server_entries(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
     return entries
 
 
-def _base_requirements(archive: zipfile.ZipFile) -> set[str]:
-    """Return the distribution names required unconditionally (no ``extra ==``)."""
+def _metadata_requirements(archive: zipfile.ZipFile) -> list[tuple[str, bool]]:
+    """Return normalized ``Requires-Dist`` names and extra-gating status."""
     metadata_names = [
         name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
     ]
     if len(metadata_names) != 1:
-        return set()
-    names: set[str] = set()
+        return []
+    requirements: list[tuple[str, bool]] = []
     for line in archive.read(metadata_names[0]).decode().splitlines():
         if not line.startswith("Requires-Dist:"):
             continue
         requirement = line.split(":", 1)[1].strip()
         marker = requirement.split(";", 1)[1] if ";" in requirement else ""
-        if "extra" in marker:
-            continue
         # "numpy>=1.22.0" / "numpy [x] >= 1" -> "numpy"; PEP 503 normalized.
         raw = re.split(r"[\s<>=!~\[(;]", requirement, maxsplit=1)[0]
-        names.add(re.sub(r"[-_.]+", "-", raw).lower())
-    return names
+        name = re.sub(r"[-_.]+", "-", raw).lower()
+        requirements.append((name, "extra" in marker))
+    return requirements
+
+
+def _base_requirements(archive: zipfile.ZipFile) -> set[str]:
+    """Return the distribution names required unconditionally (no ``extra ==``)."""
+    return {
+        name for name, extra_gated in _metadata_requirements(archive) if not extra_gated
+    }
 
 
 def _record_failures(archive: zipfile.ZipFile) -> list[str]:
@@ -197,6 +204,16 @@ def check_wheel(path: Path) -> list[str]:
                     f"{requirement!r} is not an unconditional Requires-Dist — the "
                     "bundled kernel needs it on a bare `pip install epistemic-graph`, "
                     "so it must not sit behind an extra"
+                )
+
+        declared_requirements = {
+            name for name, _extra_gated in _metadata_requirements(archive)
+        }
+        for forbidden in FORBIDDEN_DEPENDENCIES:
+            if forbidden in declared_requirements:
+                failures.append(
+                    f"{forbidden!r} is a forbidden wheel dependency — native numeric "
+                    "runtime must not resolve the retired interpreter package"
                 )
 
         failures.extend(_record_failures(archive))

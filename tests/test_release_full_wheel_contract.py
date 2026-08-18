@@ -35,12 +35,22 @@ def test_maturin_default_and_python_extra_are_full() -> None:
     project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     assert project["tool"]["maturin"]["features"] == ["full", "ast-extended"]
     dependencies = project["project"]["dependencies"]
-    assert "numpy>=1.22.0" in dependencies
+    assert not any(
+        re.split(r"[\[<>=!~;]", dependency, maxsplit=1)[0].lower() == "numpy"
+        for dependency in dependencies
+    )
     assert "pyoxigraph>=0.3.22" in dependencies
     assert "httpx>=0.24.0" in dependencies
-    assert project["project"]["optional-dependencies"]["full"] == []
-    assert project["project"]["optional-dependencies"]["all"] == []
-    assert project["project"]["optional-dependencies"]["lake-parity"] == []
+    optional = project["project"]["optional-dependencies"]
+    assert "quant" not in optional
+    assert all(
+        "numpy" not in requirement.lower()
+        for requirements in optional.values()
+        for requirement in requirements
+    )
+    assert optional["full"] == []
+    assert optional["all"] == []
+    assert optional["lake-parity"] == []
     lake_requirements = (
         REPO / "tests" / "lake-parity-requirements.txt"
     ).read_text(encoding="utf-8")
@@ -101,6 +111,10 @@ def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
     assert "scripts/inject_numeric_kernel.py" in raw
     assert "scripts/normalize_wheel_build_paths.py" in raw
     assert "import epistemic_graph.numeric" in raw
+    # The release smoke test must exercise the native module without importing
+    # or installing NumPy; parity keeps its reference dependency isolated in the
+    # separate gates job.
+    assert "import numpy" not in _build_job_source(raw)
 
 
 def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
