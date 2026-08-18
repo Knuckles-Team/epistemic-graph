@@ -11,15 +11,22 @@ import base64
 import csv
 import hashlib
 import io
+import os
 import sys
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from check_wheel_completeness import check_wheel, main  # noqa: E402
+
+# This module exercises only the static wheel checker against in-memory fixtures.
+# Keep the session-scoped native-engine fixture out of the complete wheel suite,
+# matching the adjacent release-artifact test modules.
+pytestmark = pytest.mark.no_engine
 
 VERSION = "9.9.9"
 DIST_INFO = f"epistemic_graph-{VERSION}.dist-info"
@@ -193,3 +200,107 @@ def test_main_reports_every_incomplete_wheel(tmp_path: Path, capsys) -> None:
     out = capsys.readouterr().out
     assert "OK: good.whl" in out
     assert "FAIL: bad.whl" in out
+
+
+def test_static_wheel_suite_selection_does_not_start_engine(
+    request, start_epistemic_graph_server
+) -> None:
+    """The complete static module is selected as no-engine by the real fixture."""
+
+    module_path = Path(__file__).resolve()
+    selected = [
+        item
+        for item in request.session.items
+        if Path(str(item.fspath)).resolve() == module_path
+    ]
+    assert selected
+    assert all(item.get_closest_marker("no_engine") is not None for item in selected)
+    assert start_epistemic_graph_server is None
+
+
+def test_engine_selected_control_still_enters_startup(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The no-engine marker must not weaken the real-engine selection branch."""
+
+    import conftest
+
+    events: list[str] = []
+
+    class _Item:
+        def get_closest_marker(self, name: str) -> object | None:
+            return object() if name == "engine" else None
+
+    class _Request:
+        session = SimpleNamespace(items=[_Item()])
+
+    class _TmpPathFactory:
+        def mktemp(self, name: str) -> Path:
+            path = tmp_path / name
+            path.mkdir()
+            return path
+
+    class _Process:
+        def terminate(self) -> None:
+            events.append("terminate")
+
+        def wait(self) -> None:
+            events.append("wait")
+
+    class _Bootstrap:
+        consensus = None
+
+        def __init__(self) -> None:
+            self.consensus = self
+
+        def bootstrap_system_identity(self, **_kwargs: object) -> None:
+            events.append("bootstrap")
+
+        def close(self) -> None:
+            events.append("close")
+
+    class _Client:
+        @staticmethod
+        def connect(**_kwargs: object) -> _Bootstrap:
+            events.append("connect")
+            return _Bootstrap()
+
+    process = _Process()
+
+    def _run(*_args: object, **_kwargs: object) -> None:
+        events.append("build")
+
+    def _popen(*_args: object, **_kwargs: object) -> _Process:
+        events.append("start")
+        return process
+
+    monkeypatch.setattr(conftest, "SyncEpistemicGraphClient", _Client)
+    monkeypatch.setattr(conftest, "_prebuilt_test_binary", lambda: None)
+    monkeypatch.setattr(
+        conftest,
+        "subprocess",
+        SimpleNamespace(PIPE=object(), run=_run, Popen=_popen),
+    )
+    monkeypatch.setattr(conftest.os.path, "exists", lambda _path: True)
+    monkeypatch.setattr(conftest.os, "remove", lambda _path: None)
+
+    previous_environment = dict(os.environ)
+    try:
+        fixture = conftest.start_epistemic_graph_server.__wrapped__
+        generator = fixture(_Request(), _TmpPathFactory())
+        assert next(generator) is process
+        assert events == ["build", "start", "connect", "bootstrap", "close"]
+        with pytest.raises(StopIteration):
+            next(generator)
+        assert events == [
+            "build",
+            "start",
+            "connect",
+            "bootstrap",
+            "close",
+            "terminate",
+            "wait",
+        ]
+    finally:
+        os.environ.clear()
+        os.environ.update(previous_environment)
