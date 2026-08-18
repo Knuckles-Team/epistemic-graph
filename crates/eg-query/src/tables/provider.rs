@@ -37,9 +37,19 @@ use crate::sql::providers::NodesTableProvider;
 /// lossy-dropped over the wire.
 pub fn arrow_type(ty: ColumnType) -> DataType {
     match ty {
-        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => DataType::Int64,
+        // CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — `TimestampTz` shares `Timestamp`'s i64-micros Arrow
+        // shape (the calendar/zone semantics are enforced only on the write path, in
+        // `Cell::coerce`); `Numeric`/`Uuid`/`Array` share `Text`/`Json`'s Utf8 shape
+        // (each stores its canonical text/JSON form losslessly — see their doc
+        // comments on `ColumnType`), so `materialize`'s existing Utf8 fallback arm
+        // (matching `Cell::Text`/`Cell::Json` verbatim) needs no change of its own.
+        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp | ColumnType::TimestampTz => {
+            DataType::Int64
+        }
         ColumnType::Float | ColumnType::Double => DataType::Float64,
-        ColumnType::Text | ColumnType::Json => DataType::Utf8,
+        ColumnType::Text | ColumnType::Json | ColumnType::Uuid | ColumnType::Numeric(_) | ColumnType::Array(_) => {
+            DataType::Utf8
+        }
         ColumnType::Bool => DataType::Boolean,
         ColumnType::Bytes => DataType::Binary,
         // CONCEPT:EG-KG.query.pgvector-binary-wire — a pgvector column materializes as `List<Float32>`; the exec
