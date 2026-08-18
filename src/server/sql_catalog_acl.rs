@@ -713,6 +713,32 @@ pub(crate) struct AuthorizedTable {
     rls_column: Option<String>,
 }
 
+/// Manual, REDACTED `Debug` — deliberately not `#[derive(Debug)]`. A derived
+/// impl would put `principal` (a caller identity) into any panic message, log
+/// line, or error chain this type ever reaches, including every
+/// `.unwrap()`/`.unwrap_err()` call site in this module's own tests — exactly
+/// the "tenant, principal, graph, and filesystem details never appear in
+/// filenames or errors" convention `sql_tables.rs` documents. This emits the
+/// table name (safe — callers already know it) and whether RLS is active
+/// (safe — a boolean), and a stable, NON-REVERSIBLE digest of the principal
+/// instead of the principal itself. See
+/// `authorized_table_debug_redacts_principal` for the regression test that
+/// catches a future `#[derive(Debug)]` silently reintroducing the leak.
+impl std::fmt::Debug for AuthorizedTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut digest = Sha256::new();
+        digest.update(b"epistemic-graph/sql-catalog-debug-principal\0");
+        digest.update(self.principal.as_bytes());
+        let full_digest = hex::encode(digest.finalize());
+        let principal_digest = &full_digest[..12];
+        f.debug_struct("AuthorizedTable")
+            .field("table", &self.table)
+            .field("rls_active", &self.rls_column.is_some())
+            .field("principal_digest", &principal_digest)
+            .finish()
+    }
+}
+
 /// Resolve, authorize, and open one table for one privilege (items 2 + 3 combined
 /// entry point). Runs migration first so a legacy actor's very first tenant-scoped
 /// call already sees their own migrated tables.
@@ -1371,5 +1397,36 @@ mod tests {
             notices.iter().any(|notice| notice.contains("hypertable")),
             "a not-carried-over hypertable must leave a durable notice, not silence; notices: {notices:?}"
         );
+    }
+
+    // ── AuthorizedTable's Debug must never leak the principal ──────────────
+
+    #[test]
+    fn authorized_table_debug_redacts_principal() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-debug-redact");
+        create_owned_table(&alice, &dir, &schema("orders", vec![text_col("id")]), false).unwrap();
+        let table = open_authorized_table(&alice, &dir, "orders", SqlPrivilege::Select).unwrap();
+
+        let debug_output = format!("{table:?}");
+        assert!(
+            !debug_output.contains("alice"),
+            "AuthorizedTable's Debug must never leak the raw principal — a future #[derive(Debug)] would silently reintroduce this; got: {debug_output}"
+        );
+        assert!(
+            debug_output.contains("orders"),
+            "the table name is safe to surface in Debug; got: {debug_output}"
+        );
+        assert!(
+            debug_output.contains("rls_active"),
+            "whether RLS is active is safe to surface in Debug; got: {debug_output}"
+        );
+
+        // Also prove unwrap_err() itself works now (the compile error this test
+        // exists alongside): a denied open still formats without panicking or
+        // leaking, even though this specific call succeeds above.
+        let bob = authority("bob", "tenant-debug-redact");
+        let denied = open_authorized_table(&bob, &dir, "orders", SqlPrivilege::Select).unwrap_err();
+        assert_eq!(denied, ACCESS_DENIED);
     }
 }
