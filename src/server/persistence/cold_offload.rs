@@ -471,15 +471,51 @@ mod admission_tests {
         isolation
     }
 
-    async fn redb_state(dir_s: &str) -> Arc<RwLock<ServerState>> {
-        let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, 64).expect("open"),
-        );
+    #[cfg(feature = "security")]
+    fn rls_isolation() -> IsolationLayer {
+        use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: TEST_AGENT.to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        isolation.register_agent(AgentIdentity {
+            agent_id: "alice".to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: vec!["commons-rw".to_string()],
+        });
+        isolation.register_agent(AgentIdentity {
+            agent_id: "bob".to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: vec!["commons-rw".to_string()],
+        });
+        isolation.add_role(Role::new("commons-rw"));
+        for action in [RbacAction::Read, RbacAction::Write] {
+            isolation.add_grant(Grant {
+                role: "commons-rw".to_string(),
+                resource: ResourceSelector::Graph("__commons__".to_string()),
+                action,
+                effect: GrantEffect::Allow,
+            });
+        }
+        isolation
+    }
+
+    async fn state_with_backend(
+        dir_s: &str,
+        backend: Arc<dyn PersistenceBackend>,
+        isolation: IsolationLayer,
+    ) -> Arc<RwLock<ServerState>> {
         let state = Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: Arc::new(ColdTenantTracker::new()),
             registry: GraphRegistry::new(),
-            isolation: current_isolation(),
+            isolation,
             channels: ChannelManager::new(),
             #[cfg(feature = "viz-static-export")]
             viz_engine: None,
@@ -536,7 +572,24 @@ mod admission_tests {
         state
     }
 
+    async fn redb_state(dir_s: &str) -> Arc<RwLock<ServerState>> {
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, 64).expect("open"),
+        );
+        state_with_backend(dir_s, backend, current_isolation()).await
+    }
+
     fn req(id: u64, graph: &str, method: Method) -> Request {
+        req_as_tenant(id, graph, TEST_AGENT, "tenant-shared", method)
+    }
+
+    fn req_as_tenant(
+        id: u64,
+        graph: &str,
+        agent_id: &str,
+        tenant: &str,
+        method: Method,
+    ) -> Request {
         // See `cost.rs`'s `req()` for why this is `Once`-guarded: process-global
         // `set_var`, called from every request built by every test in this module.
         static TEST_AUTH_ENV: std::sync::Once = std::sync::Once::new();
@@ -551,10 +604,10 @@ mod admission_tests {
             );
         });
         let context = RequestContextClaims {
-            principal: TEST_AGENT.to_string(),
-            tenant: "tenant-shared".to_string(),
+            principal: agent_id.to_string(),
+            tenant: tenant.to_string(),
             audience: "epistemic-graph-test".to_string(),
-            agent_id: TEST_AGENT.to_string(),
+            agent_id: agent_id.to_string(),
             roles: Vec::new(),
             scopes: vec!["*".to_string()],
             policy_version: "policy-test".to_string(),
@@ -566,7 +619,7 @@ mod admission_tests {
             id,
             graph: graph.to_string(),
             auth_token: String::new(),
-            agent_id: Some(TEST_AGENT.to_string()),
+            agent_id: Some(agent_id.to_string()),
             method,
         };
         let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -574,7 +627,7 @@ mod admission_tests {
             .duration_since(UNIX_EPOCH)
             .expect("the system clock is after the Unix epoch");
         let nonce = format!(
-            "cold-offload-{}-{id}-{sequence}-{}",
+            "cold-offload-{}-{id}-{sequence}-{}-{agent_id}",
             std::process::id(),
             issued_at.as_nanos()
         );
@@ -622,6 +675,63 @@ mod admission_tests {
         )
         .await;
         assert!(r.error.is_none(), "add {node}: {:?}", r.error);
+    }
+
+    #[cfg(feature = "security")]
+    async fn add_rls_node(
+        state: &Arc<RwLock<ServerState>>,
+        id: u64,
+        node: &str,
+        properties: serde_json::Value,
+    ) {
+        let r = dispatch_on_heap(
+            state,
+            req_as_tenant(
+                id,
+                "__commons__",
+                TEST_AGENT,
+                "tenant-shared",
+                Method::AddNode {
+                    node_id: node.to_string(),
+                    properties_msgpack: props(properties),
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "add {node}: {:?}", r.error);
+    }
+
+    #[cfg(feature = "security")]
+    async fn add_rls_edge(state: &Arc<RwLock<ServerState>>, id: u64, source: &str, target: &str) {
+        let r = dispatch_on_heap(
+            state,
+            req_as_tenant(
+                id,
+                "__commons__",
+                TEST_AGENT,
+                "tenant-shared",
+                Method::AddEdge {
+                    source_id: source.to_string(),
+                    target_id: target.to_string(),
+                    properties_msgpack: props(serde_json::json!({"relationship": "RELATED_TO"})),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            r.error.is_none(),
+            "add edge {source}->{target}: {:?}",
+            r.error
+        );
+    }
+
+    #[cfg(feature = "security")]
+    fn raw_result(response: &crate::protocol::Response) -> Vec<u8> {
+        match &response.result {
+            Some(crate::protocol::ResultPayload::Raw(bytes))
+            | Some(crate::protocol::ResultPayload::PropertiesMsgpack(bytes)) => bytes.clone(),
+            other => panic!("expected a raw result, got {other:?}"),
+        }
     }
 
     /// N graphs are registered (catalog rows) but only M<N are ever accessed —
@@ -1016,6 +1126,263 @@ mod admission_tests {
         assert!(!state2.read().await.registry.is_resident("boot:4"));
 
         backend2.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// NE-105 regression: a durable commons graph must not remain the empty
+    /// bootstrap resident after restart. Point reads use the durable read-through
+    /// seam on a RAM miss, while Cypher/RLS executes against the resident snapshot;
+    /// catalog recovery therefore has to demote the synthetic placeholder so both
+    /// surfaces hydrate the same committed graph before authorization filtering.
+    #[cfg(all(feature = "security", feature = "cypher"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn restart_rehydrates_commons_before_point_and_cypher_rls_reads() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let dir = std::env::temp_dir().join(format!(
+            "eg-ne105-restart-{}-{}",
+            std::process::id(),
+            NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().into_owned();
+
+        let backend1: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("open write side"),
+        );
+        let state1 = state_with_backend(&dir_s, backend1.clone(), rls_isolation()).await;
+
+        let public_id = "ne105-public";
+        let shared_id = "ne105-shared";
+        let private_id = "ne105-private";
+        add_rls_node(
+            &state1,
+            1,
+            public_id,
+            serde_json::json!({
+                "node_type": "Doc",
+                "tenant_id": "tenant-shared",
+                "name": "public",
+                "_shared_scope": "org"
+            }),
+        )
+        .await;
+        add_rls_node(
+            &state1,
+            2,
+            shared_id,
+            serde_json::json!({
+                "node_type": "Doc",
+                "tenant_id": "tenant-shared",
+                "name": "shared",
+                "_owner_id": "alice",
+                "_shared_scope": "org"
+            }),
+        )
+        .await;
+        add_rls_node(
+            &state1,
+            3,
+            private_id,
+            serde_json::json!({
+                "node_type": "Doc",
+                "tenant_id": "tenant-shared",
+                "name": "private",
+                "_owner_id": "alice",
+                "_shared_scope": "private"
+            }),
+        )
+        .await;
+        add_rls_edge(&state1, 4, shared_id, public_id).await;
+        assert!(state1
+            .read()
+            .await
+            .registry
+            .get("__commons__")
+            .unwrap()
+            .core
+            .has_edge(shared_id, public_id));
+
+        backend1.shutdown();
+        drop(state1);
+        drop(backend1);
+
+        let backend2: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("reopen read side"),
+        );
+        let state2 = state_with_backend(&dir_s, backend2.clone(), rls_isolation()).await;
+        let loaded = backend2.load_catalog(&state2).await.expect("load catalog");
+        assert_eq!(loaded, 1, "the commons metadata row must be recovered");
+        assert!(
+            !state2.read().await.registry.is_resident("__commons__"),
+            "restart must not leave the synthetic empty commons core resident"
+        );
+        assert_eq!(
+            state2
+                .read()
+                .await
+                .registry
+                .materialization_manifest("__commons__")
+                .unwrap()
+                .phase,
+            crate::registry::MaterializationPhase::CatalogOnly
+        );
+
+        // Native point reads and the Cypher projection both hydrate the same
+        // durable graph. Alice owns the private row; Bob is a same-tenant peer.
+        for (id, node) in [(10, public_id), (11, shared_id), (12, private_id)] {
+            let response = dispatch_on_heap(
+                &state2,
+                req_as_tenant(
+                    id,
+                    "__commons__",
+                    "alice",
+                    "tenant-shared",
+                    Method::GetNodeProperties {
+                        node_id: node.to_string(),
+                    },
+                ),
+            )
+            .await;
+            assert!(
+                response.error.is_none(),
+                "alice point read failed: {response:?}"
+            );
+            assert!(!raw_result(&response).is_empty(), "alice must see {node}");
+        }
+
+        let bob_private = dispatch_on_heap(
+            &state2,
+            req_as_tenant(
+                13,
+                "__commons__",
+                "bob",
+                "tenant-shared",
+                Method::GetNodeProperties {
+                    node_id: private_id.to_string(),
+                },
+            ),
+        )
+        .await;
+        assert!(bob_private.error.is_none());
+        assert!(
+            matches!(
+                bob_private.result,
+                Some(crate::protocol::ResultPayload::Json(
+                    serde_json::Value::Null
+                ))
+            ),
+            "same-tenant peer must not point-read the private row: {bob_private:?}"
+        );
+        for (id, node) in [(14, public_id), (15, shared_id)] {
+            let response = dispatch_on_heap(
+                &state2,
+                req_as_tenant(
+                    id,
+                    "__commons__",
+                    "bob",
+                    "tenant-shared",
+                    Method::GetNodeProperties {
+                        node_id: node.to_string(),
+                    },
+                ),
+            )
+            .await;
+            assert!(
+                response.error.is_none(),
+                "bob point read failed: {response:?}"
+            );
+            assert!(!raw_result(&response).is_empty(), "bob must see {node}");
+        }
+
+        let query_state = Arc::clone(&state2);
+        let query = move |id, agent| {
+            let state = Arc::clone(&query_state);
+            async move {
+                dispatch_on_heap(
+                    &state,
+                    req_as_tenant(
+                        id,
+                        "__commons__",
+                        agent,
+                        "tenant-shared",
+                        Method::CypherQuery {
+                            query: "MATCH (n:Doc) RETURN n".to_string(),
+                            mode: crate::protocol::CypherMode::Read,
+                        },
+                    ),
+                )
+                .await
+            }
+        };
+        let alice_rows = query(16, "alice").await;
+        assert!(
+            alice_rows.error.is_none(),
+            "alice Cypher failed: {alice_rows:?}"
+        );
+        let alice_bytes = raw_result(&alice_rows);
+        let alice_text = String::from_utf8_lossy(&alice_bytes);
+        for node in [public_id, shared_id, private_id] {
+            assert!(
+                alice_text.contains(node),
+                "owner Cypher omitted {node}: {alice_text}"
+            );
+        }
+
+        let bob_rows = query(17, "bob").await;
+        assert!(bob_rows.error.is_none(), "bob Cypher failed: {bob_rows:?}");
+        let bob_bytes = raw_result(&bob_rows);
+        let bob_text = String::from_utf8_lossy(&bob_bytes);
+        assert!(bob_text.contains(public_id));
+        assert!(bob_text.contains(shared_id));
+        assert!(
+            !bob_text.contains(private_id),
+            "RLS leaked private row: {bob_text}"
+        );
+
+        let edge_rows = dispatch_on_heap(
+            &state2,
+            req_as_tenant(
+                18,
+                "__commons__",
+                "bob",
+                "tenant-shared",
+                Method::CypherQuery {
+                    query: "MATCH (a:Doc)-[:RELATED_TO]->(b:Doc) RETURN a, b".to_string(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            edge_rows.error.is_none(),
+            "edge Cypher failed: {edge_rows:?}"
+        );
+        let edge_bytes = raw_result(&edge_rows);
+        let edge_text = String::from_utf8_lossy(&edge_bytes);
+        assert!(edge_text.contains(shared_id));
+        assert!(edge_text.contains(public_id));
+
+        let cross_tenant = dispatch_on_heap(
+            &state2,
+            req_as_tenant(
+                19,
+                "__commons__",
+                "bob",
+                "tenant-foreign",
+                Method::CypherQuery {
+                    query: "MATCH (n:Doc) RETURN n".to_string(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            cross_tenant.error.is_some(),
+            "cross-tenant request must fail closed: {cross_tenant:?}"
+        );
+
+        backend2.shutdown();
+        drop(state2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
