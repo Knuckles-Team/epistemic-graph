@@ -2732,6 +2732,44 @@ pub(crate) async fn commit_graphql_cross_modal(
     let staged = registry
         .take(authority.owner_scope(), txn_id)
         .ok_or_else(|| format!("unknown transaction '{txn_id}'"))?;
+    // NE-071 sweep verdict (EG-OCC-SWEEP): this `begin_version: core.version()`
+    // LOOKS like the same commit-time re-derivation the wire/mod.rs P0 fixed,
+    // but it is BENIGN here — read this before "fixing" it again.
+    //
+    //   * `isolation: Snapshot` is hardcoded a few lines below (no
+    //     `predicate`), so `validate()`'s coarse guard can only ever be
+    //     gating the plain per-node `read_set` check, never a
+    //     `predicate_reads` re-check — unlike the wire multi-statement
+    //     `BEGIN … COMMIT` path, there is no serializable predicate state
+    //     captured at an earlier, real client `BEGIN` that this could be
+    //     starving of validation.
+    //   * `read_set` for THIS `txn` is populated ONLY by the
+    //     `txn.stage_vector(core, …)` calls below (`GraphTxnState::observe`)
+    //     — `staged.graph_writes()` push straight into `txn.write_set`
+    //     without going through `stage`/`observe`, so they never touch
+    //     `read_set` at all. Every `observe()` call that does run happens
+    //     synchronously, right here, in the SAME span as this
+    //     `begin_version` capture — there is no `.await` between them, so
+    //     they always see the identical `core.version()`.
+    //   * The only real gap validate() needs to protect is between here and
+    //     `commit_cross_modal_txn`'s `txn.validate(&core)` call, which runs
+    //     AFTER `state.read().await` and `mutation_batch::lock_graph(...).await`
+    //     — genuine yield points a concurrent commit can land during. Because
+    //     `begin_version` is captured BEFORE those awaits (not re-derived
+    //     inside `commit_cross_modal_txn` itself), a conflicting write landing
+    //     in that window correctly bumps `core.version()` past `begin_version`,
+    //     defeats the coarse guard, and forces the real `read_set` re-check —
+    //     which fails, as intended, if a staged vector's target node changed.
+    //
+    //   In short: this function's own `begin_version` capture already IS the
+    //   earliest point its `read_set` could possibly be evaluated from (the
+    //   GraphQL cross-modal registry — `crates/eg-graphql/src/crossmodal.rs`
+    //   — does not itself timestamp/fingerprint a node at `stageEmbedding`
+    //   time, so there is no earlier "true begin" available to thread through
+    //   even in principle without changing that crate + `handlers/query.rs`,
+    //   both outside this track). This is the SAME shape as the wire path's
+    //   legitimate off-txn `TxnBeginVersion::Autocommit` call sites, not the
+    //   broken multi-statement one.
     let mut txn = GraphTxnState::new(
         core,
         NewTxnArgs {
