@@ -1433,9 +1433,8 @@ impl WireSession {
                 .clone()
                 .ok_or_else(|| user_err("cross-modal transaction has no pinned graph"))?;
             // `new_txn_state` resolves the pinned graph's core (surfacing a not-found).
-            let mut ts = self
-                .new_txn_state(&graph, *self.txn_isolation.lock())
-                .await?;
+            let mixed_isolation = *self.txn_isolation.lock();
+            let mut ts = self.new_txn_state(&graph, mixed_isolation).await?;
             ts.write_set = Self::node_ops_to_methods(&node_ops)?;
             ts.vectors = xmodal.vectors;
             #[cfg(feature = "tsdb")]
@@ -1479,13 +1478,9 @@ impl WireSession {
                 .clone()
                 .ok_or_else(|| user_err("transaction has node ops but no pinned graph"))?;
             let methods = Self::node_ops_to_methods(&node_ops)?;
-            self.commit_graph_methods_with_op(
-                &graph,
-                methods,
-                uuid::Uuid::new_v4(),
-                *self.txn_isolation.lock(),
-            )
-            .await?;
+            let graph_isolation = *self.txn_isolation.lock();
+            self.commit_graph_methods_with_op(&graph, methods, uuid::Uuid::new_v4(), graph_isolation)
+                .await?;
         }
 
         // SQL catalog/table store: rows, result, OCC/fence, idempotency, and outbox
@@ -1605,7 +1600,11 @@ impl WireSession {
         let persist_dir = std::path::Path::new(&persist_dir_buf);
         crate::server::txn_intent::write_intent(&authority, persist_dir, &intent)
             .map_err(user_err)?;
-        self.resolve_commit_intent(&authority, persist_dir, intent, isolation)
+        // The live path already HAS the real, already-buffered `TableTxn` —
+        // commit it directly rather than re-deriving it from the replay log
+        // (that reconstruction is for RECOVERY, which has no live `TableTxn`
+        // to work from).
+        self.resolve_commit_intent(&authority, persist_dir, intent, isolation, Some(table_txn))
             .await?;
         Ok(WireOutcome::TxnEnd { tag: "COMMIT" })
     }
@@ -1626,6 +1625,7 @@ impl WireSession {
         persist_dir: &Path,
         intent: crate::server::txn_intent::CommitIntent,
         isolation: crate::server::txn::IsolationLevel,
+        live_table_txn: Option<TableTxn>,
     ) -> WireResult<()> {
         let operation_id = intent.operation_id();
         // Phase 1: graph side. Idempotent — a crash-recovery replay of an
@@ -1647,8 +1647,18 @@ impl WireSession {
                 crate::server::txn_intent::delete_intent(authority, persist_dir, operation_id);
             return Err(e);
         }
-        // Phase 2: table side. Idempotent — same reasoning, keyed the same way.
-        match self.replay_table_steps_and_commit(&intent).await {
+        // Phase 2: table side. Idempotent — same reasoning, keyed the same
+        // way. The live caller already has the real buffered `TableTxn`
+        // (`live_table_txn`); a recovery sweep does not, and rebuilds an
+        // equivalent one by replaying `intent.table_steps`.
+        let table_result = match live_table_txn {
+            Some(table_txn) => {
+                self.commit_table_txn_with_op(&intent.graph, "transaction", table_txn, operation_id)
+                    .await
+            }
+            None => self.replay_table_steps_and_commit(&intent).await,
+        };
+        match table_result {
             Ok(_) => {
                 let _ = crate::server::txn_intent::delete_intent(
                     authority,
@@ -1781,6 +1791,7 @@ impl WireSession {
                 persist_dir,
                 intent,
                 crate::server::txn::IsolationLevel::Snapshot,
+                None,
             )
             .await?;
         }
