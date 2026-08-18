@@ -364,7 +364,7 @@ pub(crate) async fn try_handle_gateway(
     #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))] tsdb_store: Option<
         &Arc<eg_tsdb::store::SeriesStore>,
     >,
-    mut method: Method,
+    method: Method,
 ) -> Result<Response, Method> {
     if !mutation::is_gateway_routed(&method) {
         return Err(method);
@@ -418,6 +418,8 @@ pub(crate) async fn try_handle_gateway(
     // a real per-agent owner and must not be stamped as one. An absent
     // `caller` (state-machine-authorized replicated apply) is likewise
     // exempt — there is no per-request identity to stamp with there.
+    #[cfg(feature = "security")]
+    let mut method = method;
     #[cfg(feature = "security")]
     if matches!(
         method,
