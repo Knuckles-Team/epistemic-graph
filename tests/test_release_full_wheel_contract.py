@@ -42,7 +42,7 @@ def test_maturin_default_and_python_extra_are_full() -> None:
     assert "pyoxigraph>=0.3.22" in dependencies
     assert "httpx>=0.24.0" in dependencies
     optional = project["project"]["optional-dependencies"]
-    assert "quant" not in optional
+    assert optional["quant"] == []
     assert all(
         "numpy" not in requirement.lower()
         for requirements in optional.values()

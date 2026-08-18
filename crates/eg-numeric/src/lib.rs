@@ -68,6 +68,7 @@ mod py {
 
     const MAX_INPUT_RANK: usize = 8;
     const MAX_INPUT_ELEMENTS: usize = 1_000_000;
+    const MAX_KMEANS_ITERATIONS: usize = 10_000;
 
     fn map_err(e: crate::NumericError) -> PyErr {
         match e {
@@ -178,6 +179,54 @@ mod py {
         to_f64_dyn(a)?
             .into_dimensionality::<Ix2>()
             .map_err(|_| PyValueError::new_err("expected a two-dimensional numeric sequence"))
+    }
+
+    fn to_bool_1d(a: &Bound<'_, PyAny>) -> PyResult<Vec<bool>> {
+        if a.is_instance_of::<PyString>()
+            || a.is_instance_of::<PyBytes>()
+            || a.is_instance_of::<PyByteArray>()
+            || a.cast::<PyMapping>().is_ok()
+        {
+            return Err(PyValueError::new_err(
+                "condition cannot be text, bytes, or a mapping",
+            ));
+        }
+        let sequence = a
+            .cast::<PySequence>()
+            .map_err(|_| PyValueError::new_err("condition must be a one-dimensional sequence"))?;
+        let length = sequence.len()?;
+        if length > MAX_INPUT_ELEMENTS {
+            return Err(PyValueError::new_err(format!(
+                "condition exceeds the {MAX_INPUT_ELEMENTS}-element limit"
+            )));
+        }
+        let mut values = Vec::with_capacity(length);
+        for index in 0..length {
+            let item = sequence.get_item(index)?;
+            if item.is_instance_of::<PyString>()
+                || item.is_instance_of::<PyBytes>()
+                || item.is_instance_of::<PyByteArray>()
+                || item.cast::<PyMapping>().is_ok()
+                || item.cast::<PySequence>().is_ok()
+            {
+                return Err(PyValueError::new_err(
+                    "condition must contain only boolean scalars",
+                ));
+            }
+            values.push(item.extract::<bool>().map_err(|_| {
+                PyValueError::new_err("condition must contain only boolean scalars")
+            })?);
+        }
+        Ok(values)
+    }
+
+    fn check_output_size(size: usize) -> PyResult<()> {
+        if size > MAX_INPUT_ELEMENTS {
+            return Err(PyValueError::new_err(format!(
+                "output size exceeds the {MAX_INPUT_ELEMENTS}-element limit"
+            )));
+        }
+        Ok(())
     }
 
     fn nested_f64(
@@ -606,10 +655,11 @@ mod py {
     #[pyfunction]
     fn where_(
         py: Python<'_>,
-        cond: Vec<bool>,
+        cond: &Bound<'_, PyAny>,
         a: &Bound<'_, PyAny>,
         b: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyAny>> {
+        let cond = to_bool_1d(cond)?;
         let left = to_f64_1d(a)?;
         let right = to_f64_1d(b)?;
         py_f64(
@@ -774,6 +824,16 @@ mod py {
         max_iter: usize,
         seed: u64,
     ) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
+        if k > MAX_INPUT_ELEMENTS {
+            return Err(PyValueError::new_err(format!(
+                "k exceeds the {MAX_INPUT_ELEMENTS}-element limit"
+            )));
+        }
+        if max_iter > MAX_KMEANS_ITERATIONS {
+            return Err(PyValueError::new_err(format!(
+                "max_iter exceeds the {MAX_KMEANS_ITERATIONS}-iteration limit"
+            )));
+        }
         let input = to_f64_2d(data)?;
         let res = py
             .detach(|| cluster::kmeans(input.view(), k, max_iter, seed))
@@ -789,6 +849,7 @@ mod py {
     #[pyfunction]
     #[pyo3(signature = (loc, scale, size, seed))]
     fn normal(py: Python<'_>, loc: f64, scale: f64, size: usize, seed: u64) -> PyResult<Py<PyAny>> {
+        check_output_size(size)?;
         let mut g = random::Generator::new(seed);
         py_f64(
             py,
@@ -798,6 +859,7 @@ mod py {
     #[pyfunction]
     #[pyo3(signature = (low, high, size, seed))]
     fn uniform(py: Python<'_>, low: f64, high: f64, size: usize, seed: u64) -> PyResult<Py<PyAny>> {
+        check_output_size(size)?;
         let mut g = random::Generator::new(seed);
         py_f64(
             py,
@@ -813,6 +875,7 @@ mod py {
         size: usize,
         seed: u64,
     ) -> PyResult<Py<PyAny>> {
+        check_output_size(size)?;
         let mut g = random::Generator::new(seed);
         py_i64(
             py,
