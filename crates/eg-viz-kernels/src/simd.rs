@@ -1,8 +1,8 @@
 //! Runtime-detected AVX2 acceleration (D-VZ-1 lane V2).
 //!
 //! ★ **Runtime detection only — never a compile-time `target-feature`/`target-cpu`
-//! assumption.** `rw710` (part of this fleet, see the workspace `AGENTS.md`) lacks
-//! `x86-64-v3`; a binary built assuming AVX2 SIGILLs there. Every SIMD entry point
+//! assumption.** This fleet's interactive dev host (a pre-AVX2 Westmere-era x86_64
+//! machine) lacks `x86-64-v3`; a binary built assuming AVX2 SIGILLs there. Every SIMD entry point
 //! in this crate is reached only after [`avx2_available`] (a cached
 //! `is_x86_feature_detected!("avx2")`, checked once at first use, never assumed)
 //! returns `true` — the SAME binary runs the scalar fallback on a CPU without AVX2

@@ -99,9 +99,10 @@ flowchart TB
 
 ## CPU portability (no x86_64 host in this fleet has AVX2)
 
-Every x86_64 host was individually audited (`/proc/cpuinfo`): `rw710`/`r710`
-(Westmere, 2010) and `r820` (Sandy Bridge, 2012) all lack `x86-64-v3`/AVX2
-entirely (`gb10` is a separate `aarch64` architecture). This is the decisive
+Every x86_64 host was individually audited (`/proc/cpuinfo`): the interactive
+dev host (Westmere, 2010) and both build hosts (Westmere, 2010, and Sandy
+Bridge, 2012) all lack `x86-64-v3`/AVX2 entirely (the fleet's GPU host is a
+separate `aarch64` architecture). This is the decisive
 reason this lane implements `whisper-rs`/ggml rather than ONNX Runtime: the
 sibling native-TTS lane independently hit a dead end because `ort`'s only
 x86_64 CPU prebuilt hard-requires AVX2 with no baseline fallback artifact —
@@ -137,8 +138,8 @@ that does have it — an explicit, documented trade-off. See
 
 ## Hardware verification (native, not emulated)
 
-Built and run natively (no `qemu`/emulation) on `r820`
-(`Intel(R) Xeon(R) CPU E5-4620`, Sandy Bridge — `/proc/cpuinfo` confirms
+Built and run natively (no `qemu`/emulation) on the Sandy Bridge build host
+(`Intel(R) Xeon(R) CPU E5-4620` — `/proc/cpuinfo` confirms
 `avx sse4_1 sse4_2` present, `avx2`/`fma`/`f16c`/`bmi2` all absent). A real
 `ggml-tiny.en.bin` model (MIT, `huggingface.co/ggerganov/whisper.cpp`,
 digest-verified) transcribed a synthesized 16 kHz mono speech fixture
