@@ -760,12 +760,50 @@ impl IsolationLayer {
 
     /// Register or update an agent identity; written through to the durable store
     /// when configured (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
+    ///
+    /// NE-065 note for callers reached from a signer-authenticated
+    /// `Method::RegisterIdentity` (`src/server/dispatch.rs`'s non-bootstrap
+    /// `RegisterIdentity` arm calls `try_register_agent` below for exactly
+    /// that path): this layer does NOT itself restrict `identity.role` —
+    /// deliberately, since this method and `try_register_agent` are also the
+    /// general-purpose, directly-callable Rust-level primitive dozens of
+    /// trusted in-process call sites across this crate use to seed a fresh
+    /// `IsolationLayer` with an `AgentRole::System` test/bootstrap identity,
+    /// entirely outside any signer or dispatch path. Whether a SIGNER may
+    /// cause an `AgentRole::System` identity to be minted through the wire
+    /// protocol is enforced one layer up, at the trust boundary that
+    /// actually knows which signer authenticated the request and what it is
+    /// allowed to grant: `server::auth::SignerKeyRegistry::authorize_grant`
+    /// (`src/server/auth.rs`), consulted by
+    /// `verify_register_identity_signature` before dispatch ever reaches
+    /// this function. See that module's doc comment for the full policy
+    /// (per-signer `allowed_roles` + `may_grant_system`, fail-closed
+    /// legacy-entry migration) and its `signer_*` tests for coverage.
+    ///
+    /// Residual gap this does NOT close (recorded for the ledger, not fixed
+    /// here — closing it needs a `src/server/dispatch.rs` change, a file
+    /// this track does not own): `authorize_grant`'s System-grant check is
+    /// necessarily a STRUCTURAL one (self-registration, empty `roles`) —
+    /// auth.rs has no access to `IsolationLayer::identity_bootstrap_pending`
+    /// state, so it cannot itself distinguish "this is the real, one-time
+    /// genesis bootstrap" from "this looks bootstrap-shaped but genesis was
+    /// already consumed." A signer explicitly granted `may_grant_system` in
+    /// the registry — which should in practice be retired (NE-066 rotation)
+    /// immediately after genesis completes — could still self-re-register
+    /// as `System` after genesis if it is separately allowed to reach this
+    /// method at all (which itself requires already holding admin capability
+    /// per `server::access::require_admin_capability`, since dispatch's own
+    /// scope/admin gate runs first). Fully closing this needs either a
+    /// dispatch-side flag threaded into a call here, or a dedicated
+    /// signer-path-only entrypoint dispatch would call instead of this one.
     pub fn register_agent(&mut self, identity: AgentIdentity) {
         let _ = self.try_register_agent(identity);
     }
 
     /// Fallible registration used by secure handlers. When a durable adapter is
     /// configured, an unsuccessful commit restores the prior in-memory identity.
+    /// See [`Self::register_agent`]'s doc comment for the NE-065 division of
+    /// responsibility between this layer and `server::auth`.
     pub fn try_register_agent(&mut self, identity: AgentIdentity) -> Result<(), String> {
         let agent_id = identity.agent_id.clone();
         let previous = self.agents.insert(agent_id.clone(), identity);
