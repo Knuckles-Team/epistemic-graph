@@ -905,6 +905,12 @@ mod tests {
         Column::new(name, ColumnType::Text, false, false)
     }
 
+    /// A hypertable's time column must be a real `Timestamp` — `put_hypertable`
+    /// rejects anything else, so the notice fixture cannot use `text_col` here.
+    fn timestamp_col(name: &str) -> Column {
+        Column::new(name, ColumnType::Timestamp, false, false)
+    }
+
     // ── two actors in one tenant share a granted table ──────────────────────
 
     #[test]
@@ -1372,7 +1378,7 @@ mod tests {
         let legacy = sql_tables::user_table_store(&alice, Some(&dir)).unwrap();
         legacy
             .create_table(
-                &schema("series", vec![text_col("id"), text_col("ts")]),
+                &schema("series", vec![text_col("id"), timestamp_col("ts")]),
                 false,
             )
             .unwrap();
