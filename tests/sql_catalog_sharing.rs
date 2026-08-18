@@ -80,11 +80,8 @@ fn check_graph_access_precedes_query_try_handle_in_dispatch() {
 /// guard against an accidental visibility widening or feature-gate drift.
 #[test]
 fn sql_catalog_acl_module_is_declared_crate_private_and_query_gated() {
-    let mod_rs = fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/server/mod.rs"
-    ))
-    .expect("src/server/mod.rs must exist and be readable");
+    let mod_rs = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/server/mod.rs"))
+        .expect("src/server/mod.rs must exist and be readable");
     assert!(
         mod_rs.contains("pub(crate) mod sql_catalog_acl;"),
         "sql_catalog_acl must be declared pub(crate), not pub — its access-control \
