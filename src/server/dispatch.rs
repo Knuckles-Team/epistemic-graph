@@ -22,6 +22,7 @@ use super::auth::{
 #[cfg(feature = "ast")]
 use super::compute::compute_off_lock;
 use super::handlers;
+#[cfg(feature = "redb")]
 use super::persistence::PersistenceBackend;
 use super::state::ServerState;
 use crate::isolation::AccessLevel;
@@ -5924,6 +5925,7 @@ async fn dispatch_graph_op_inner(
         };
 
     let core = entry.core.clone();
+    #[cfg(feature = "redb")]
     let graph_incarnation_id = entry.incarnation_id.clone();
     let materialization_manifest = s.registry.materialization_handle(graph_name);
     // Clone the authoritative durable backend under the registry lock. Mutation

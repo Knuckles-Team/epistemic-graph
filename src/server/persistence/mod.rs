@@ -17,6 +17,7 @@ use crate::epistemic_operations::{
     DevelopmentLaneStatusResult, ResourceReservationResult, ResourceReservationStatusRequest,
     ResourceReservationStatusResult,
 };
+#[cfg(feature = "redb")]
 use crate::epistemic_operations_ext::{
     WorkItemClaimCapabilityMintRequest, WorkItemClaimCapabilityResult,
     WorkItemClaimCapabilityVerifyRequest,
