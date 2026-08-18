@@ -277,3 +277,62 @@ pub struct ServerState {
     #[cfg(feature = "lake")]
     pub lake: Arc<crate::server::lake::LakeManager>,
 }
+
+#[cfg(test)]
+impl ServerState {
+    /// Build the explicit empty state used by unit tests that exercise dispatch
+    /// without a durable backend. Keeping every field in one test-only literal
+    /// makes a newly feature-gated field fail this constructor at compile time
+    /// instead of silently disappearing from one test target.
+    pub(crate) fn new_for_test(auth_secret: impl Into<String>, isolation: IsolationLayer) -> Self {
+        Self {
+            registry: GraphRegistry::new(),
+            isolation,
+            channels: ChannelManager::new(),
+            auth_secret: auth_secret.into(),
+            persist_dir: None,
+            persistence: None,
+            #[cfg(feature = "redb")]
+            cold_tracker: Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            read_admission: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(
+                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+            ),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(TxnIdGen),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: Arc::new(Mutex::new(crate::raft::pregel::MatViewStore::new())),
+            #[cfg(feature = "federation")]
+            foreign_sources: Arc::new(DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
+            #[cfg(feature = "lake")]
+            lake: Arc::new(crate::server::lake::LakeManager::new()),
+        }
+    }
+}
