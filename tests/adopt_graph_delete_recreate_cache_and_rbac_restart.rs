@@ -50,6 +50,13 @@ fn cache_and_eviction_registry_agree_after_delete_recreate_of_an_evicted_graph()
     let mut reg = GraphRegistry::new();
     const NAME: &str = "adopt:ne045-cache-evict";
 
+    // `GraphRegistry::new()` pre-populates `__commons__` in BOTH the resident map
+    // and the catalog, so neither starts empty. Measure the baseline instead of
+    // hardcoding 0/1 -- the original absolute counts asserted an empty registry
+    // and failed on the built-in entry, not on any real cache/catalog divergence.
+    let base_catalog = reg.catalog_len();
+    let base_resident = reg.resident_len();
+
     reg.create_graph_with_incarnation(
         NAME,
         GraphType::Agent,
@@ -63,15 +70,29 @@ fn cache_and_eviction_registry_agree_after_delete_recreate_of_an_evicted_graph()
     // Evict it to catalog-only (the LRU/memory-budget path, `cost.rs`'s own
     // `registry.evict_resident` call) -- resident cache loses it, catalog keeps
     // it.
-    assert!(reg.evict_resident(NAME), "evict_resident must find the resident entry");
-    assert!(!reg.is_resident(NAME), "evicted graph is no longer resident");
-    assert_eq!(reg.catalog_len(), 1, "eviction does not remove the catalog entry");
+    assert!(
+        reg.evict_resident(NAME),
+        "evict_resident must find the resident entry"
+    );
+    assert!(
+        !reg.is_resident(NAME),
+        "evicted graph is no longer resident"
+    );
+    assert_eq!(
+        reg.catalog_len(),
+        base_catalog + 1,
+        "eviction does not remove the catalog entry"
+    );
 
     // Delete the (now catalog-only) graph outright.
     reg.delete_graph(NAME).expect("delete the evicted graph");
     assert!(!reg.is_resident(NAME));
-    assert_eq!(reg.catalog_len(), 0, "delete must clear BOTH resident and catalog state");
-    assert_eq!(reg.resident_len(), 0);
+    assert_eq!(
+        reg.catalog_len(),
+        base_catalog,
+        "delete must clear BOTH resident and catalog state"
+    );
+    assert_eq!(reg.resident_len(), base_resident);
 
     // Recreate under the identical name with a genuinely new incarnation id.
     reg.create_graph_with_incarnation(
@@ -91,8 +112,16 @@ fn cache_and_eviction_registry_agree_after_delete_recreate_of_an_evicted_graph()
         "the new incarnation must be resident, not silently left catalog-only \
          by a stale eviction record"
     );
-    assert_eq!(reg.resident_len(), 1, "exactly the new incarnation, nothing phantom");
-    assert_eq!(reg.catalog_len(), 1, "cache and catalog counts must agree");
+    assert_eq!(
+        reg.resident_len(),
+        base_resident + 1,
+        "exactly the new incarnation, nothing phantom"
+    );
+    assert_eq!(
+        reg.catalog_len(),
+        base_catalog + 1,
+        "cache and catalog counts must agree"
+    );
     let handle = reg.handle(NAME).expect("handle for the new incarnation");
     assert_eq!(
         handle.incarnation_id, "incarnation:two",
