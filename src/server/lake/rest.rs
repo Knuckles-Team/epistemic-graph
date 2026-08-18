@@ -343,7 +343,13 @@ async fn serve_inner(
                                 .await;
                             }
                         }
-                        route(&lake, store.as_ref(), &req, security_state.as_ref(), credential.as_deref())
+                        route(
+                            &lake,
+                            store.as_ref(),
+                            &req,
+                            security_state.as_ref(),
+                            credential.as_deref(),
+                        )
                     }
                     _ => (
                         "400 Bad Request",
@@ -832,14 +838,22 @@ fn handle(
                 Err(_) => {
                     return (
                         "400 Bad Request",
-                        err_body("malformed CreateTableRequest body", "BadRequestException", 400),
+                        err_body(
+                            "malformed CreateTableRequest body",
+                            "BadRequestException",
+                            400,
+                        ),
                     )
                 }
             };
             let Some(table) = body.get("name").and_then(Value::as_str).map(str::to_string) else {
                 return (
                     "400 Bad Request",
-                    err_body("CreateTableRequest.name is required", "BadRequestException", 400),
+                    err_body(
+                        "CreateTableRequest.name is required",
+                        "BadRequestException",
+                        400,
+                    ),
                 );
             };
             let schema = match schema_from_create_request(&body) {
@@ -931,7 +945,11 @@ fn handle(
                 Err(_) => {
                     return (
                         "400 Bad Request",
-                        err_body("malformed RenameTableRequest body", "BadRequestException", 400),
+                        err_body(
+                            "malformed RenameTableRequest body",
+                            "BadRequestException",
+                            400,
+                        ),
                     )
                 }
             };
@@ -952,7 +970,11 @@ fn handle(
             ) else {
                 return (
                     "400 Bad Request",
-                    err_body("destination identifier is required", "BadRequestException", 400),
+                    err_body(
+                        "destination identifier is required",
+                        "BadRequestException",
+                        400,
+                    ),
                 );
             };
             let outcome = lake.rename_table(&src_ns, src_name, &dst_ns, dst_name, &visibility);
@@ -1060,8 +1082,7 @@ mod tests {
     #[test]
     fn list_and_load_table_shapes_match_iceberg_rest_spec() {
         let (mgr, store) = seed();
-        let (status, body) =
-            handle_open(&mgr, &store, &req("GET", "/v1/namespaces/engine/tables"));
+        let (status, body) = handle_open(&mgr, &store, &req("GET", "/v1/namespaces/engine/tables"));
         assert_eq!(status, "200 OK");
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
         let ids = v["identifiers"].as_array().unwrap();
@@ -1173,14 +1194,23 @@ mod tests {
         );
         assert_eq!(status, "200 OK", "got: {body}");
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(v["metadata"]["schemas"][0]["fields"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            v["metadata"]["schemas"][0]["fields"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
 
         let (status, _) = handle_open(
             &mgr,
             &store,
             &req("GET", "/v1/namespaces/engine/tables/brand_new"),
         );
-        assert_eq!(status, "200 OK", "a freshly created table must be immediately loadable");
+        assert_eq!(
+            status, "200 OK",
+            "a freshly created table must be immediately loadable"
+        );
 
         // known-bad: creating the SAME table again is a typed 409, not a silent
         // overwrite.
@@ -1237,7 +1267,10 @@ mod tests {
             &store,
             &req("GET", "/v1/namespaces/engine/tables/rest_series1"),
         );
-        assert_eq!(status, "404 Not Found", "a dropped table must no longer load");
+        assert_eq!(
+            status, "404 Not Found",
+            "a dropped table must no longer load"
+        );
 
         // known-bad: dropping an already-dropped (or never-existed) table is a
         // typed 404, not a 200/500.
@@ -1252,10 +1285,9 @@ mod tests {
     #[test]
     fn rename_table_moves_identity_and_rejects_existing_destination() {
         let (mgr, store) = seed();
-        let body =
-            json!({"source": {"namespace": ["engine"], "name": "rest_series1"},
+        let body = json!({"source": {"namespace": ["engine"], "name": "rest_series1"},
                     "destination": {"namespace": ["engine"], "name": "renamed"}})
-            .to_string();
+        .to_string();
         let (status, _) = handle_open(&mgr, &store, &req_body("POST", "/v1/tables/rename", &body));
         assert_eq!(status, "204 No Content");
 
@@ -1264,7 +1296,10 @@ mod tests {
             &store,
             &req("GET", "/v1/namespaces/engine/tables/rest_series1"),
         );
-        assert_eq!(status, "404 Not Found", "the OLD identifier must no longer resolve");
+        assert_eq!(
+            status, "404 Not Found",
+            "the OLD identifier must no longer resolve"
+        );
         let (status, _) = handle_open(
             &mgr,
             &store,
@@ -1275,9 +1310,12 @@ mod tests {
         // known-bad: renaming a nonexistent source is a typed 404.
         let bad_src = json!({"source": {"namespace": ["engine"], "name": "nope"},
                               "destination": {"namespace": ["engine"], "name": "x"}})
-            .to_string();
-        let (status, _) =
-            handle_open(&mgr, &store, &req_body("POST", "/v1/tables/rename", &bad_src));
+        .to_string();
+        let (status, _) = handle_open(
+            &mgr,
+            &store,
+            &req_body("POST", "/v1/tables/rename", &bad_src),
+        );
         assert_eq!(status, "404 Not Found");
 
         // known-bad: renaming onto an EXISTING destination is a typed 409, never a
@@ -1286,13 +1324,20 @@ mod tests {
         handle_open(
             &mgr2,
             &store2,
-            &req_body("POST", "/v1/namespaces/engine/tables", &create_table_body("dest")),
+            &req_body(
+                "POST",
+                "/v1/namespaces/engine/tables",
+                &create_table_body("dest"),
+            ),
         );
         let collide = json!({"source": {"namespace": ["engine"], "name": "rest_series1"},
                               "destination": {"namespace": ["engine"], "name": "dest"}})
-            .to_string();
-        let (status, _) =
-            handle_open(&mgr2, &store2, &req_body("POST", "/v1/tables/rename", &collide));
+        .to_string();
+        let (status, _) = handle_open(
+            &mgr2,
+            &store2,
+            &req_body("POST", "/v1/tables/rename", &collide),
+        );
         assert_eq!(status, "409 Conflict");
     }
 
@@ -1324,7 +1369,10 @@ mod tests {
         );
         assert_eq!(status, "200 OK");
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(v["identifiers"][0]["namespace"], json!(["accounting", "tax"]));
+        assert_eq!(
+            v["identifiers"][0]["namespace"],
+            json!(["accounting", "tax"])
+        );
         assert_eq!(v["identifiers"][0]["name"], "ledger");
     }
 
@@ -1367,7 +1415,11 @@ mod tests {
                 None => break,
             }
         }
-        assert_eq!(seen.len(), 6, "every table must be seen exactly once across pages");
+        assert_eq!(
+            seen.len(),
+            6,
+            "every table must be seen exactly once across pages"
+        );
     }
 
     // ── W04: tenant/RLS projection — the disjoint-catalog proof ─────────────────
@@ -1507,7 +1559,10 @@ mod tests {
             &req("DELETE", "/v1/namespaces/alice_ns/tables/alice_secret"),
             Some(&bob),
         );
-        assert_eq!(status, "404 Not Found", "cross-tenant leak: bob dropped alice's table");
+        assert_eq!(
+            status, "404 Not Found",
+            "cross-tenant leak: bob dropped alice's table"
+        );
         // Proven still alive for Alice.
         let (status, _) = handle(
             &mgr,
@@ -1515,7 +1570,10 @@ mod tests {
             &req("GET", "/v1/namespaces/alice_ns/tables/alice_secret"),
             Some(&alice),
         );
-        assert_eq!(status, "200 OK", "alice's table must be unaffected by bob's denied drop");
+        assert_eq!(
+            status, "200 OK",
+            "alice's table must be unaffected by bob's denied drop"
+        );
 
         // 6) Positive control: Alice CAN see/load/drop her own table throughout.
         let (status, _) = handle(
@@ -1565,15 +1623,15 @@ mod tests {
         );
         let events = mgr.recent_audit(10);
         assert!(
-            events
-                .iter()
-                .any(|e| e["op"] == "CreateTable" && e["table"] == "audited" && e["outcome"] == "allow"),
+            events.iter().any(|e| e["op"] == "CreateTable"
+                && e["table"] == "audited"
+                && e["outcome"] == "allow"),
             "CreateTable must appear in the audit trail: {events:?}"
         );
         assert!(
-            events
-                .iter()
-                .any(|e| e["op"] == "DropTable" && e["table"] == "audited" && e["outcome"] == "allow"),
+            events.iter().any(|e| e["op"] == "DropTable"
+                && e["table"] == "audited"
+                && e["outcome"] == "allow"),
             "DropTable must appear in the audit trail: {events:?}"
         );
     }
@@ -1636,7 +1694,10 @@ mod tests {
             ),
             Some(&writer),
         );
-        assert_eq!(status, "200 OK", "setup: write-capable carrier must be able to create");
+        assert_eq!(
+            status, "200 OK",
+            "setup: write-capable carrier must be able to create"
+        );
 
         // CreateTable
         let (status, _) = handle(
@@ -1649,7 +1710,10 @@ mod tests {
             ),
             Some(&reader),
         );
-        assert_eq!(status, "403 Forbidden", "kg:read-only must be denied CreateTable");
+        assert_eq!(
+            status, "403 Forbidden",
+            "kg:read-only must be denied CreateTable"
+        );
 
         // CommitTable
         let (status, _) = handle(
@@ -1658,7 +1722,10 @@ mod tests {
             &req_body("POST", "/v1/namespaces/scoped_ns/tables/scoped_table", "{}"),
             Some(&reader),
         );
-        assert_eq!(status, "403 Forbidden", "kg:read-only must be denied CommitTable");
+        assert_eq!(
+            status, "403 Forbidden",
+            "kg:read-only must be denied CommitTable"
+        );
 
         // DropTable
         let (status, _) = handle(
@@ -1667,7 +1734,10 @@ mod tests {
             &req("DELETE", "/v1/namespaces/scoped_ns/tables/scoped_table"),
             Some(&reader),
         );
-        assert_eq!(status, "403 Forbidden", "kg:read-only must be denied DropTable");
+        assert_eq!(
+            status, "403 Forbidden",
+            "kg:read-only must be denied DropTable"
+        );
 
         // RenameTable
         let rename_body = json!({
@@ -1681,7 +1751,10 @@ mod tests {
             &req_body("POST", "/v1/tables/rename", &rename_body),
             Some(&reader),
         );
-        assert_eq!(status, "403 Forbidden", "kg:read-only must be denied RenameTable");
+        assert_eq!(
+            status, "403 Forbidden",
+            "kg:read-only must be denied RenameTable"
+        );
 
         // The table must be completely unaffected by all four denied attempts.
         let (status, _) = handle(
@@ -1690,7 +1763,10 @@ mod tests {
             &req("GET", "/v1/namespaces/scoped_ns/tables/scoped_table"),
             Some(&reader),
         );
-        assert_eq!(status, "200 OK", "the table must survive every denied write attempt");
+        assert_eq!(
+            status, "200 OK",
+            "the table must survive every denied write attempt"
+        );
     }
 
     #[test]
@@ -1759,7 +1835,10 @@ mod tests {
             &req("GET", "/v1/namespaces"),
             Some(&writer_only),
         );
-        assert_eq!(status, "403 Forbidden", "kg:write-only must be denied a read operation");
+        assert_eq!(
+            status, "403 Forbidden",
+            "kg:write-only must be denied a read operation"
+        );
     }
 
     #[test]
@@ -1915,7 +1994,21 @@ mod tests {
             }
         }
 
+        /// Sign a bearer carrying BOTH Iceberg scopes.
+        ///
+        /// These fixtures previously minted a token with **no `scope` claim at
+        /// all**, which was harmless only while `authenticated_iceberg_bearer`
+        /// hardcoded `kg:read`+`kg:write` for every correctly-tenanted bearer.
+        /// Now that scope is derived from the claim and an absent claim denies
+        /// (NE-048), a scope-less fixture would make every test below fail for
+        /// the wrong reason. Tests here vary TENANT and signature validity, so
+        /// the scope claim is held constant and valid; scope behaviour itself is
+        /// covered by the dedicated `carrier_for_scopes` tests.
         fn sign(sub: &str, tenant: &str, exp_offset_secs: i64) -> String {
+            sign_with_scope(sub, tenant, exp_offset_secs, "kg:read kg:write")
+        }
+
+        fn sign_with_scope(sub: &str, tenant: &str, exp_offset_secs: i64, scope: &str) -> String {
             let mut header = Header::new(JwtAlgorithm::RS256);
             header.kid = Some(KID.to_string());
             let der = hex::decode(TEST_RSA_PRIVATE_KEY_PKCS1_DER_HEX).unwrap();
@@ -1926,8 +2019,26 @@ mod tests {
                 "aud": AUDIENCE,
                 "exp": exp,
                 "tenant_id": tenant,
+                "scope": scope,
             });
             encode(&header, &claims, &EncodingKey::from_rsa_der(&der)).unwrap()
+        }
+
+        /// A verified, correctly-tenanted bearer with NO scope claim must still
+        /// mint nothing — the fail-closed half of NE-048, pinned here so the
+        /// `sign` default above can never quietly become the only path tested.
+        #[test]
+        fn verified_bearer_without_a_scope_claim_mints_no_carrier() {
+            let credential = credential();
+            let token = sign_with_scope("agent:reader", "tenant-shared", 300, "");
+            let verified = verify_bearer(Some(&credential), &headers_with_bearer(&token));
+            let minted = verified
+                .as_ref()
+                .and_then(|v| crate::server::auth::mint_iceberg_carrier(Some(v)));
+            assert!(
+                minted.is_none(),
+                "a bearer with an empty scope claim must not mint a carrier"
+            );
         }
 
         fn headers_with_bearer(token: &str) -> HashMap<String, String> {
@@ -2015,9 +2126,7 @@ mod tests {
                 target: "/v1/oauth/tokens".to_string(),
                 origin: String::new(),
                 headers: HashMap::new(),
-                body: format!(
-                    "grant_type=client_credentials&client_id=x&client_secret={token}"
-                ),
+                body: format!("grant_type=client_credentials&client_id=x&client_secret={token}"),
             };
             let (status, body) = handle_oauth_token(Some(&credential), &req);
             assert_eq!(status, "200 OK", "got: {body}");
