@@ -5,15 +5,16 @@
 //! surfaces" foundation of the Analytics Program.
 //!
 //! * **Surface A (`python` feature):** a pyo3 extension module `epistemic_graph.numeric`
-//!   with zero-copy numpy interop (`rust-numpy`) + Python detachment for kernels,
-//!   consumed by `agent_utilities.numeric.xp`. Migration off numpy is then mechanical.
+//!   with bounded built-in Python sequence conversion and Python detachment for kernels,
+//!   consumed by `agent_utilities.numeric.xp`. It has no Python numeric runtime dependency.
 //! * **Surface B (rlib, always):** the same pure kernel the engine links for
 //!   in-database analytics (DataFusion UDFs, graph/vector/timeseries ops) — no FFI,
 //!   compute-near-data. `python` is OFF by default so the engine links **no pyo3**
 //!   (the Plan-01 no-pyo3-in-engine contract holds).
 //!
 //! The pure kernel (`reductions`, `elementwise`, `linalg`, `random`) is
-//! parity-tested `np.allclose` vs numpy in `agent_utilities` and in-crate tests.
+//! parity-tested against the isolated developer reference implementation in
+//! `agent_utilities` and in-crate tests.
 
 pub mod cluster;
 pub mod elementwise;
@@ -43,23 +44,30 @@ pub use error::{NumericError, Result};
 // ---------------------------------------------------------------------------
 // Surface A — pyo3 Python extension module `epistemic_graph.numeric`.
 // Gated behind the `python` feature so the engine-linked rlib pulls no pyo3.
+// The operation names remain stable, but the boundary contract is deliberately
+// built-in-only: scalar results are Python scalars, array results are nested
+// Python lists, and NumPy-only constructors/dtype passthroughs are not exported.
+// The richer compatibility facade is owned by the agent-utilities numeric layer.
 // ---------------------------------------------------------------------------
 #[cfg(feature = "python")]
 // pyo3 bindings carry unavoidable boilerplate lints: PyErr .into() round-trips
-// (useless_conversion), complex numpy return types (type_complexity), and a
-// PyO3 macro-generated cfgs are scoped to this optional extension module.
+// (useless_conversion), complex return types (type_complexity), and PyO3
+// macro-generated cfgs are scoped to this optional extension module.
 #[allow(clippy::useless_conversion, clippy::type_complexity, unexpected_cfgs)]
 mod py {
     use crate::{cluster, elementwise, linalg, random, reductions, stats};
-    use ndarray::{ArrayD, ArrayViewD, Axis, IxDyn};
-    use numpy::{
-        IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArrayDyn,
-    };
+    use ndarray::{ArrayD, ArrayViewD, Axis, Ix1, Ix2, IxDyn};
     use pyo3::create_exception;
     use pyo3::exceptions::{PyException, PyValueError};
     use pyo3::prelude::*;
+    use pyo3::types::{
+        PyByteArray, PyBytes, PyList, PyMapping, PySequence, PySequenceMethods, PyString,
+    };
 
     create_exception!(numeric, LinAlgError, PyException);
+
+    const MAX_INPUT_RANK: usize = 8;
+    const MAX_INPUT_ELEMENTS: usize = 1_000_000;
 
     fn map_err(e: crate::NumericError) -> PyErr {
         match e {
@@ -68,34 +76,186 @@ mod py {
         }
     }
 
-    // ---- N-D / integer extraction + axis dispatch (CONCEPT:EG-KG.compute.concept-4) ----
+    // ---- built-in sequence extraction + axis dispatch ----
 
-    /// Coerce any array-like to an owned `ArrayD<f64>`. Native float64/float32 and
-    /// int64/int32 arrays are extracted zero-copy-ish (cast for the narrower/int
-    /// dtypes); anything else (lists, other dtypes) is coerced through the numpy
-    /// container substrate (`np.asarray(x, float64)`) — the shim never imports
-    /// numpy itself, but the kernel privately uses it as its container substrate.
-    fn to_f64_dyn(a: &Bound<'_, PyAny>) -> PyResult<ArrayD<f64>> {
-        if let Ok(arr) = a.extract::<PyReadonlyArrayDyn<f64>>() {
-            return Ok(arr.as_array().to_owned());
+    /// Flatten a rectangular Python scalar/sequence tree into ndarray storage.
+    ///
+    /// The Python boundary intentionally accepts only numeric scalars and the
+    /// sequence protocol. This keeps the native module importable when NumPy is
+    /// absent and avoids silently adopting a dataframe/array runtime.
+    fn flatten_f64(
+        value: &Bound<'_, PyAny>,
+        values: &mut Vec<f64>,
+        shape: &mut Vec<usize>,
+        depth: usize,
+        element_count: &mut usize,
+        shape_product: &mut usize,
+    ) -> PyResult<()> {
+        if value.is_instance_of::<PyString>()
+            || value.is_instance_of::<PyBytes>()
+            || value.is_instance_of::<PyByteArray>()
+            || value.cast::<PyMapping>().is_ok()
+        {
+            return Err(PyValueError::new_err(
+                "numeric input cannot be text, bytes, or a mapping",
+            ));
         }
-        if let Ok(arr) = a.extract::<PyReadonlyArrayDyn<i64>>() {
-            return Ok(arr.as_array().mapv(|v| v as f64));
+        if let Ok(number) = value.extract::<f64>() {
+            if shape.len() != depth {
+                return Err(PyValueError::new_err("numeric input must be rectangular"));
+            }
+            *element_count = element_count
+                .checked_add(1)
+                .ok_or_else(|| PyValueError::new_err("numeric input exceeds the element limit"))?;
+            if *element_count > MAX_INPUT_ELEMENTS {
+                return Err(PyValueError::new_err(format!(
+                    "numeric input exceeds the {MAX_INPUT_ELEMENTS}-element limit"
+                )));
+            }
+            values.push(number);
+            return Ok(());
         }
-        if let Ok(arr) = a.extract::<PyReadonlyArrayDyn<i32>>() {
-            return Ok(arr.as_array().mapv(|v| v as f64));
+        if depth >= MAX_INPUT_RANK {
+            return Err(PyValueError::new_err(format!(
+                "numeric input exceeds the rank-{MAX_INPUT_RANK} limit"
+            )));
         }
-        if let Ok(arr) = a.extract::<PyReadonlyArrayDyn<f32>>() {
-            return Ok(arr.as_array().mapv(|v| v as f64));
+        let sequence = value.cast::<PySequence>().map_err(|_| {
+            PyValueError::new_err("numeric input must contain only real numbers and sequences")
+        })?;
+        let length = sequence.len()?;
+        if shape.len() == depth {
+            *shape_product = shape_product.checked_mul(length).ok_or_else(|| {
+                PyValueError::new_err("numeric input shape overflows the element limit")
+            })?;
+            if *shape_product > MAX_INPUT_ELEMENTS {
+                return Err(PyValueError::new_err(format!(
+                    "numeric input exceeds the {MAX_INPUT_ELEMENTS}-element limit"
+                )));
+            }
+            shape.push(length);
+        } else if shape[depth] != length {
+            return Err(PyValueError::new_err("numeric input must be rectangular"));
         }
-        let np = a.py().import("numpy")?;
-        let f64ty = np.getattr("float64")?;
-        let coerced = np.getattr("asarray")?.call1((a, f64ty))?;
-        let arr: PyReadonlyArrayDyn<f64> = coerced.extract()?;
-        Ok(arr.as_array().to_owned())
+        for index in 0..length {
+            flatten_f64(
+                &sequence.get_item(index)?,
+                values,
+                shape,
+                depth + 1,
+                element_count,
+                shape_product,
+            )?;
+        }
+        Ok(())
     }
 
-    /// Normalize a possibly-negative numpy axis to `Some(usize)` (or `None`).
+    /// Coerce a scalar or rectangular built-in Python sequence to an owned ndarray.
+    fn to_f64_dyn(a: &Bound<'_, PyAny>) -> PyResult<ArrayD<f64>> {
+        let mut values = Vec::new();
+        let mut shape = Vec::new();
+        let mut element_count = 0;
+        let mut shape_product = 1;
+        flatten_f64(
+            a,
+            &mut values,
+            &mut shape,
+            0,
+            &mut element_count,
+            &mut shape_product,
+        )?;
+        ArrayD::from_shape_vec(IxDyn(&shape), values)
+            .map_err(|error| PyValueError::new_err(format!("invalid numeric shape: {error}")))
+    }
+
+    fn to_f64_1d(a: &Bound<'_, PyAny>) -> PyResult<ndarray::Array1<f64>> {
+        to_f64_dyn(a)?
+            .into_dimensionality::<Ix1>()
+            .map_err(|_| PyValueError::new_err("expected a one-dimensional numeric sequence"))
+    }
+
+    fn to_f64_2d(a: &Bound<'_, PyAny>) -> PyResult<ndarray::Array2<f64>> {
+        to_f64_dyn(a)?
+            .into_dimensionality::<Ix2>()
+            .map_err(|_| PyValueError::new_err("expected a two-dimensional numeric sequence"))
+    }
+
+    fn nested_f64(
+        py: Python<'_>,
+        values: &[f64],
+        shape: &[usize],
+        depth: usize,
+    ) -> PyResult<Py<PyAny>> {
+        if depth == shape.len() {
+            return Ok(values[0].into_pyobject(py)?.to_owned().into_any().unbind());
+        }
+        let list = PyList::empty(py);
+        let stride = shape[depth + 1..].iter().product::<usize>();
+        for index in 0..shape[depth] {
+            let start = index * stride;
+            let end = start + stride;
+            list.append(nested_f64(py, &values[start..end], shape, depth + 1)?)?;
+        }
+        Ok(list.into_any().unbind())
+    }
+
+    fn nested_i64(
+        py: Python<'_>,
+        values: &[i64],
+        shape: &[usize],
+        depth: usize,
+    ) -> PyResult<Py<PyAny>> {
+        if depth == shape.len() {
+            return Ok(values[0].into_pyobject(py)?.into_any().unbind());
+        }
+        let list = PyList::empty(py);
+        let stride = shape[depth + 1..].iter().product::<usize>();
+        for index in 0..shape[depth] {
+            let start = index * stride;
+            let end = start + stride;
+            list.append(nested_i64(py, &values[start..end], shape, depth + 1)?)?;
+        }
+        Ok(list.into_any().unbind())
+    }
+
+    fn nested_bool(
+        py: Python<'_>,
+        values: &[bool],
+        shape: &[usize],
+        depth: usize,
+    ) -> PyResult<Py<PyAny>> {
+        if depth == shape.len() {
+            return Ok(values[0].into_pyobject(py)?.to_owned().into_any().unbind());
+        }
+        let list = PyList::empty(py);
+        let stride = shape[depth + 1..].iter().product::<usize>();
+        for index in 0..shape[depth] {
+            let start = index * stride;
+            let end = start + stride;
+            list.append(nested_bool(py, &values[start..end], shape, depth + 1)?)?;
+        }
+        Ok(list.into_any().unbind())
+    }
+
+    fn py_f64(py: Python<'_>, array: ArrayD<f64>) -> PyResult<Py<PyAny>> {
+        let shape = array.shape().to_vec();
+        let values: Vec<f64> = array.iter().copied().collect();
+        nested_f64(py, &values, &shape, 0)
+    }
+
+    fn py_i64(py: Python<'_>, array: ArrayD<i64>) -> PyResult<Py<PyAny>> {
+        let shape = array.shape().to_vec();
+        let values: Vec<i64> = array.iter().copied().collect();
+        nested_i64(py, &values, &shape, 0)
+    }
+
+    fn py_bool(py: Python<'_>, array: ArrayD<bool>) -> PyResult<Py<PyAny>> {
+        let shape = array.shape().to_vec();
+        let values: Vec<bool> = array.iter().copied().collect();
+        nested_bool(py, &values, &shape, 0)
+    }
+
+    /// Normalize a possibly-negative axis to `Some(usize)` (or `None`).
     fn norm_axis(axis: Option<isize>, ndim: usize) -> PyResult<Option<usize>> {
         match axis {
             None => Ok(None),
@@ -113,7 +273,7 @@ mod py {
     }
 
     /// Finish a float-valued reduction: a Python scalar for `axis=None`
-    /// (keepdims=False), else a numpy array (keepdims inserts the collapsed axis).
+    /// (keepdims=False), else nested Python lists (keepdims inserts the collapsed axis).
     fn finish_f64(
         py: Python<'_>,
         a: ArrayD<f64>,
@@ -128,7 +288,7 @@ mod py {
                 if keepdims {
                     let shape: Vec<usize> = a.shape().iter().map(|_| 1).collect();
                     let arr = ArrayD::from_elem(IxDyn(&shape), s);
-                    Ok(arr.into_pyarray(py).into_any().unbind())
+                    py_f64(py, arr)
                 } else {
                     Ok(s.into_pyobject(py)?.into_any().unbind())
                 }
@@ -138,7 +298,7 @@ mod py {
                 if keepdims {
                     out = out.insert_axis(Axis(ax));
                 }
-                Ok(out.into_pyarray(py).into_any().unbind())
+                py_f64(py, out)
             }
         }
     }
@@ -158,7 +318,7 @@ mod py {
                 if keepdims {
                     let shape: Vec<usize> = a.shape().iter().map(|_| 1).collect();
                     let arr = ArrayD::from_elem(IxDyn(&shape), s);
-                    Ok(arr.into_pyarray(py).into_any().unbind())
+                    py_i64(py, arr)
                 } else {
                     Ok(s.into_pyobject(py)?.into_any().unbind())
                 }
@@ -168,7 +328,7 @@ mod py {
                 if keepdims {
                     out = out.insert_axis(Axis(ax));
                 }
-                Ok(out.into_pyarray(py).into_any().unbind())
+                py_i64(py, out)
             }
         }
     }
@@ -348,36 +508,42 @@ mod py {
         )
     }
     #[pyfunction]
-    fn argsort(py: Python<'_>, a: PyReadonlyArray1<f64>) -> Py<PyArray1<i64>> {
-        let idx: Vec<i64> = reductions::argsort(a.as_array())
+    fn argsort(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let input = to_f64_1d(a)?;
+        let idx = reductions::argsort(input.view())
             .into_iter()
             .map(|i| i as i64)
-            .collect();
-        idx.into_pyarray(py).unbind()
+            .collect::<Vec<_>>();
+        py_i64(py, ndarray::Array1::from_vec(idx).into_dyn())
     }
     #[pyfunction]
-    fn cumsum(py: Python<'_>, a: PyReadonlyArray1<f64>) -> Py<PyArray1<f64>> {
-        reductions::cumsum(a.as_array()).into_pyarray(py).unbind()
+    fn cumsum(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let input = to_f64_1d(a)?;
+        py_f64(py, reductions::cumsum(input.view()).into_dyn())
     }
     #[pyfunction]
-    fn cumprod(py: Python<'_>, a: PyReadonlyArray1<f64>) -> Py<PyArray1<f64>> {
-        reductions::cumprod(a.as_array()).into_pyarray(py).unbind()
+    fn cumprod(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let input = to_f64_1d(a)?;
+        py_f64(py, reductions::cumprod(input.view()).into_dyn())
     }
     #[pyfunction]
-    fn percentile(a: PyReadonlyArray1<f64>, q: f64) -> PyResult<f64> {
-        reductions::percentile(a.as_array(), q).map_err(map_err)
+    fn percentile(a: &Bound<'_, PyAny>, q: f64) -> PyResult<f64> {
+        let input = to_f64_1d(a)?;
+        reductions::percentile(input.view(), q).map_err(map_err)
     }
     #[pyfunction]
-    fn quantile(a: PyReadonlyArray1<f64>, q: f64) -> PyResult<f64> {
-        reductions::quantile(a.as_array(), q).map_err(map_err)
+    fn quantile(a: &Bound<'_, PyAny>, q: f64) -> PyResult<f64> {
+        let input = to_f64_1d(a)?;
+        reductions::quantile(input.view(), q).map_err(map_err)
     }
 
     // ---- element-wise ----
     macro_rules! ew1 {
         ($name:ident, $f:path) => {
             #[pyfunction]
-            fn $name(py: Python<'_>, a: PyReadonlyArray1<f64>) -> Py<PyArray1<f64>> {
-                $f(a.as_array()).into_pyarray(py).unbind()
+            fn $name(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+                let input = to_f64_1d(a)?;
+                py_f64(py, $f(input.view()).into_dyn())
             }
         };
     }
@@ -388,204 +554,202 @@ mod py {
     ew1!(tanh, elementwise::tanh);
 
     #[pyfunction]
-    fn clip(py: Python<'_>, a: PyReadonlyArray1<f64>, lo: f64, hi: f64) -> Py<PyArray1<f64>> {
-        elementwise::clip(a.as_array(), lo, hi)
-            .into_pyarray(py)
-            .unbind()
+    fn clip(py: Python<'_>, a: &Bound<'_, PyAny>, lo: f64, hi: f64) -> PyResult<Py<PyAny>> {
+        let input = to_f64_1d(a)?;
+        py_f64(py, elementwise::clip(input.view(), lo, hi).into_dyn())
     }
     #[pyfunction]
     #[pyo3(signature = (a, nan=0.0, posinf=f64::MAX, neginf=f64::MIN))]
     fn nan_to_num(
         py: Python<'_>,
-        a: PyReadonlyArray1<f64>,
+        a: &Bound<'_, PyAny>,
         nan: f64,
         posinf: f64,
         neginf: f64,
-    ) -> Py<PyArray1<f64>> {
-        elementwise::nan_to_num(a.as_array(), nan, posinf, neginf)
-            .into_pyarray(py)
-            .unbind()
+    ) -> PyResult<Py<PyAny>> {
+        let input = to_f64_1d(a)?;
+        py_f64(
+            py,
+            elementwise::nan_to_num(input.view(), nan, posinf, neginf).into_dyn(),
+        )
     }
     #[pyfunction]
-    fn isnan(py: Python<'_>, a: PyReadonlyArray1<f64>) -> Py<PyArray1<bool>> {
-        numpy::PyArray1::from_vec(py, elementwise::isnan(a.as_array())).unbind()
+    fn isnan(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let input = to_f64_1d(a)?;
+        py_bool(
+            py,
+            ndarray::Array1::from_vec(elementwise::isnan(input.view())).into_dyn(),
+        )
     }
     #[pyfunction]
-    fn maximum(
-        py: Python<'_>,
-        a: PyReadonlyArray1<f64>,
-        b: PyReadonlyArray1<f64>,
-    ) -> PyResult<Py<PyArray1<f64>>> {
-        Ok(elementwise::maximum(a.as_array(), b.as_array())
-            .map_err(map_err)?
-            .into_pyarray(py)
-            .unbind())
+    fn maximum(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let left = to_f64_1d(a)?;
+        let right = to_f64_1d(b)?;
+        py_f64(
+            py,
+            elementwise::maximum(left.view(), right.view())
+                .map_err(map_err)?
+                .into_dyn(),
+        )
     }
     #[pyfunction]
-    fn minimum(
-        py: Python<'_>,
-        a: PyReadonlyArray1<f64>,
-        b: PyReadonlyArray1<f64>,
-    ) -> PyResult<Py<PyArray1<f64>>> {
-        Ok(elementwise::minimum(a.as_array(), b.as_array())
-            .map_err(map_err)?
-            .into_pyarray(py)
-            .unbind())
+    fn minimum(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let left = to_f64_1d(a)?;
+        let right = to_f64_1d(b)?;
+        py_f64(
+            py,
+            elementwise::minimum(left.view(), right.view())
+                .map_err(map_err)?
+                .into_dyn(),
+        )
     }
     #[pyfunction]
     fn where_(
         py: Python<'_>,
         cond: Vec<bool>,
-        a: PyReadonlyArray1<f64>,
-        b: PyReadonlyArray1<f64>,
-    ) -> PyResult<Py<PyArray1<f64>>> {
-        Ok(elementwise::where_(&cond, a.as_array(), b.as_array())
-            .map_err(map_err)?
-            .into_pyarray(py)
-            .unbind())
+        a: &Bound<'_, PyAny>,
+        b: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyAny>> {
+        let left = to_f64_1d(a)?;
+        let right = to_f64_1d(b)?;
+        py_f64(
+            py,
+            elementwise::where_(&cond, left.view(), right.view())
+                .map_err(map_err)?
+                .into_dyn(),
+        )
     }
 
     // ---- linalg (GIL released for the heavy decompositions) ----
     #[pyfunction]
-    fn norm(a: PyReadonlyArray1<f64>) -> f64 {
-        linalg::norm(a.as_array())
+    fn norm(a: &Bound<'_, PyAny>) -> PyResult<f64> {
+        Ok(linalg::norm(to_f64_1d(a)?.view()))
     }
     #[pyfunction]
-    fn norm_ord(a: PyReadonlyArray1<f64>, ord: f64) -> f64 {
-        linalg::norm_ord(a.as_array(), ord)
+    fn norm_ord(a: &Bound<'_, PyAny>, ord: f64) -> PyResult<f64> {
+        Ok(linalg::norm_ord(to_f64_1d(a)?.view(), ord))
     }
     #[pyfunction]
-    fn dot(a: PyReadonlyArray1<f64>, b: PyReadonlyArray1<f64>) -> PyResult<f64> {
-        linalg::dot(a.as_array(), b.as_array()).map_err(map_err)
+    fn dot(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<f64> {
+        let left = to_f64_1d(a)?;
+        let right = to_f64_1d(b)?;
+        linalg::dot(left.view(), right.view()).map_err(map_err)
     }
     #[pyfunction]
-    fn matmul(
-        py: Python<'_>,
-        a: PyReadonlyArray2<f64>,
-        b: PyReadonlyArray2<f64>,
-    ) -> PyResult<Py<PyArray2<f64>>> {
-        let av = a.as_array();
-        let bv = b.as_array();
-        let out = py.detach(|| linalg::matmul(av, bv)).map_err(map_err)?;
-        Ok(out.into_pyarray(py).unbind())
+    fn matmul(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let left = to_f64_2d(a)?;
+        let right = to_f64_2d(b)?;
+        let out = py
+            .detach(|| linalg::matmul(left.view(), right.view()))
+            .map_err(map_err)?;
+        py_f64(py, out.into_dyn())
     }
     #[pyfunction]
-    fn solve(
-        py: Python<'_>,
-        a: PyReadonlyArray2<f64>,
-        b: PyReadonlyArray1<f64>,
-    ) -> PyResult<Py<PyArray1<f64>>> {
-        let av = a.as_array();
-        let bv = b.as_array();
-        let out = py.detach(|| linalg::solve(av, bv)).map_err(map_err)?;
-        Ok(out.into_pyarray(py).unbind())
+    fn solve(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let left = to_f64_2d(a)?;
+        let right = to_f64_1d(b)?;
+        let out = py
+            .detach(|| linalg::solve(left.view(), right.view()))
+            .map_err(map_err)?;
+        py_f64(py, out.into_dyn())
     }
     #[pyfunction]
-    fn svdvals(py: Python<'_>, a: PyReadonlyArray2<f64>) -> Py<PyArray1<f64>> {
-        let av = a.as_array();
-        let s = py.detach(|| linalg::svdvals(av));
-        s.into_pyarray(py).unbind()
+    fn svdvals(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let input = to_f64_2d(a)?;
+        let s = py.detach(|| linalg::svdvals(input.view()));
+        py_f64(py, ndarray::Array1::from_vec(s).into_dyn())
     }
     #[pyfunction]
-    fn svd(
-        py: Python<'_>,
-        a: PyReadonlyArray2<f64>,
-    ) -> PyResult<(Py<PyArray2<f64>>, Py<PyArray1<f64>>, Py<PyArray2<f64>>)> {
-        let av = a.as_array();
-        let (u, s, vt) = py.detach(|| linalg::svd(av)).map_err(map_err)?;
+    fn svd(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<(Py<PyAny>, Py<PyAny>, Py<PyAny>)> {
+        let input = to_f64_2d(a)?;
+        let (u, s, vt) = py.detach(|| linalg::svd(input.view())).map_err(map_err)?;
         Ok((
-            u.into_pyarray(py).unbind(),
-            s.into_pyarray(py).unbind(),
-            vt.into_pyarray(py).unbind(),
+            py_f64(py, u.into_dyn())?,
+            py_f64(py, s.into_dyn())?,
+            py_f64(py, vt.into_dyn())?,
         ))
     }
     #[pyfunction]
-    fn eigh(
-        py: Python<'_>,
-        a: PyReadonlyArray2<f64>,
-    ) -> PyResult<(Py<PyArray1<f64>>, Py<PyArray2<f64>>)> {
-        let av = a.as_array();
-        let (w, v) = py.detach(|| linalg::eigh(av)).map_err(map_err)?;
-        Ok((w.into_pyarray(py).unbind(), v.into_pyarray(py).unbind()))
+    fn eigh(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
+        let input = to_f64_2d(a)?;
+        let (w, v) = py.detach(|| linalg::eigh(input.view())).map_err(map_err)?;
+        Ok((py_f64(py, w.into_dyn())?, py_f64(py, v.into_dyn())?))
     }
     /// `scipy.sparse.linalg.eigsh(A, k, which="SM")` — the k smallest-magnitude
     /// symmetric eigenpairs (CONCEPT:EG-KG.compute.concept-5). Dense first cut (O(n^3)).
     #[pyfunction]
-    fn eigsh(
-        py: Python<'_>,
-        a: PyReadonlyArray2<f64>,
-        k: usize,
-    ) -> PyResult<(Py<PyArray1<f64>>, Py<PyArray2<f64>>)> {
-        let av = a.as_array();
+    fn eigsh(py: Python<'_>, a: &Bound<'_, PyAny>, k: usize) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
+        let input = to_f64_2d(a)?;
         let (w, v) = py
-            .detach(|| linalg::eigsh_smallest(av, k))
+            .detach(|| linalg::eigsh_smallest(input.view(), k))
             .map_err(map_err)?;
-        Ok((w.into_pyarray(py).unbind(), v.into_pyarray(py).unbind()))
+        Ok((py_f64(py, w.into_dyn())?, py_f64(py, v.into_dyn())?))
     }
     #[pyfunction]
-    fn pinv(py: Python<'_>, a: PyReadonlyArray2<f64>) -> PyResult<Py<PyArray2<f64>>> {
-        let av = a.as_array();
-        let out = py.detach(|| linalg::pinv(av)).map_err(map_err)?;
-        Ok(out.into_pyarray(py).unbind())
+    fn pinv(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let input = to_f64_2d(a)?;
+        let out = py.detach(|| linalg::pinv(input.view())).map_err(map_err)?;
+        py_f64(py, out.into_dyn())
     }
     #[pyfunction]
-    fn lstsq(
-        py: Python<'_>,
-        a: PyReadonlyArray2<f64>,
-        b: PyReadonlyArray1<f64>,
-    ) -> PyResult<Py<PyArray1<f64>>> {
-        let av = a.as_array();
-        let bv = b.as_array();
-        let out = py.detach(|| linalg::lstsq(av, bv)).map_err(map_err)?;
-        Ok(out.into_pyarray(py).unbind())
+    fn lstsq(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let left = to_f64_2d(a)?;
+        let right = to_f64_1d(b)?;
+        let out = py
+            .detach(|| linalg::lstsq(left.view(), right.view()))
+            .map_err(map_err)?;
+        py_f64(py, out.into_dyn())
     }
     #[pyfunction]
-    fn qr(
-        py: Python<'_>,
-        a: PyReadonlyArray2<f64>,
-    ) -> PyResult<(Py<PyArray2<f64>>, Py<PyArray2<f64>>)> {
-        let av = a.as_array();
-        let (q, r) = py.detach(|| linalg::qr(av)).map_err(map_err)?;
-        Ok((q.into_pyarray(py).unbind(), r.into_pyarray(py).unbind()))
+    fn qr(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
+        let input = to_f64_2d(a)?;
+        let (q, r) = py.detach(|| linalg::qr(input.view())).map_err(map_err)?;
+        Ok((py_f64(py, q.into_dyn())?, py_f64(py, r.into_dyn())?))
     }
     #[pyfunction]
-    fn cholesky(py: Python<'_>, a: PyReadonlyArray2<f64>) -> PyResult<Py<PyArray2<f64>>> {
-        let av = a.as_array();
-        let out = py.detach(|| linalg::cholesky(av)).map_err(map_err)?;
-        Ok(out.into_pyarray(py).unbind())
+    fn cholesky(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let input = to_f64_2d(a)?;
+        let out = py
+            .detach(|| linalg::cholesky(input.view()))
+            .map_err(map_err)?;
+        py_f64(py, out.into_dyn())
     }
     #[pyfunction]
-    fn det(py: Python<'_>, a: PyReadonlyArray2<f64>) -> PyResult<f64> {
-        let av = a.as_array();
-        py.detach(|| linalg::det(av)).map_err(map_err)
+    fn det(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<f64> {
+        let input = to_f64_2d(a)?;
+        py.detach(|| linalg::det(input.view())).map_err(map_err)
     }
     #[pyfunction]
-    fn inv(py: Python<'_>, a: PyReadonlyArray2<f64>) -> PyResult<Py<PyArray2<f64>>> {
-        let av = a.as_array();
-        let out = py.detach(|| linalg::inverse(av)).map_err(map_err)?;
-        Ok(out.into_pyarray(py).unbind())
+    fn inv(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let input = to_f64_2d(a)?;
+        let out = py
+            .detach(|| linalg::inverse(input.view()))
+            .map_err(map_err)?;
+        py_f64(py, out.into_dyn())
     }
     #[pyfunction]
-    fn matrix_power(
-        py: Python<'_>,
-        a: PyReadonlyArray2<f64>,
-        p: i64,
-    ) -> PyResult<Py<PyArray2<f64>>> {
-        let av = a.as_array();
-        let out = py.detach(|| linalg::matrix_power(av, p)).map_err(map_err)?;
-        Ok(out.into_pyarray(py).unbind())
+    fn matrix_power(py: Python<'_>, a: &Bound<'_, PyAny>, p: i64) -> PyResult<Py<PyAny>> {
+        let input = to_f64_2d(a)?;
+        let out = py
+            .detach(|| linalg::matrix_power(input.view(), p))
+            .map_err(map_err)?;
+        py_f64(py, out.into_dyn())
     }
 
     // ---- scipy.stats-parity ops (CONCEPT:EG-KG.compute.numeric-stats/EG-358) ----
     /// `scipy.stats.spearmanr(a, b)` → `(rho, pvalue)`.
     #[pyfunction]
-    fn spearmanr(a: PyReadonlyArray1<f64>, b: PyReadonlyArray1<f64>) -> PyResult<(f64, f64)> {
-        stats::spearmanr(a.as_array(), b.as_array()).map_err(map_err)
+    fn spearmanr(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<(f64, f64)> {
+        let left = to_f64_1d(a)?;
+        let right = to_f64_1d(b)?;
+        stats::spearmanr(left.view(), right.view()).map_err(map_err)
     }
     /// `scipy.stats.ks_2samp(a, b)` → `(statistic, pvalue)` (asymptotic p-value).
     #[pyfunction]
-    fn ks_2samp(a: PyReadonlyArray1<f64>, b: PyReadonlyArray1<f64>) -> PyResult<(f64, f64)> {
-        stats::ks_2samp(a.as_array(), b.as_array()).map_err(map_err)
+    fn ks_2samp(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<(f64, f64)> {
+        let left = to_f64_1d(a)?;
+        let right = to_f64_1d(b)?;
+        stats::ks_2samp(left.view(), right.view()).map_err(map_err)
     }
     /// `scipy.stats.norm.ppf(q, loc, scale)` — normal inverse CDF (quantile).
     #[pyfunction]
@@ -605,90 +769,55 @@ mod py {
     #[pyo3(signature = (data, k, max_iter=100, seed=cluster::KMEANS_DEFAULT_SEED))]
     fn kmeans(
         py: Python<'_>,
-        data: PyReadonlyArray2<f64>,
+        data: &Bound<'_, PyAny>,
         k: usize,
         max_iter: usize,
         seed: u64,
-    ) -> PyResult<(Py<PyArray1<i64>>, Py<PyArray2<f64>>)> {
-        let av = data.as_array();
+    ) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
+        let input = to_f64_2d(data)?;
         let res = py
-            .detach(|| cluster::kmeans(av, k, max_iter, seed))
+            .detach(|| cluster::kmeans(input.view(), k, max_iter, seed))
             .map_err(map_err)?;
         let labels: Vec<i64> = res.labels.into_iter().map(|c| c as i64).collect();
         Ok((
-            labels.into_pyarray(py).unbind(),
-            res.centroids.into_pyarray(py).unbind(),
+            py_i64(py, ndarray::Array1::from_vec(labels).into_dyn())?,
+            py_f64(py, res.centroids.into_dyn())?,
         ))
     }
 
     // ---- random ----
     #[pyfunction]
     #[pyo3(signature = (loc, scale, size, seed))]
-    fn normal(py: Python<'_>, loc: f64, scale: f64, size: usize, seed: u64) -> Py<PyArray1<f64>> {
+    fn normal(py: Python<'_>, loc: f64, scale: f64, size: usize, seed: u64) -> PyResult<Py<PyAny>> {
         let mut g = random::Generator::new(seed);
-        g.normal(loc, scale, size).into_pyarray(py).unbind()
+        py_f64(
+            py,
+            ndarray::Array1::from_vec(g.normal(loc, scale, size)).into_dyn(),
+        )
     }
     #[pyfunction]
     #[pyo3(signature = (low, high, size, seed))]
-    fn uniform(py: Python<'_>, low: f64, high: f64, size: usize, seed: u64) -> Py<PyArray1<f64>> {
+    fn uniform(py: Python<'_>, low: f64, high: f64, size: usize, seed: u64) -> PyResult<Py<PyAny>> {
         let mut g = random::Generator::new(seed);
-        g.uniform(low, high, size).into_pyarray(py).unbind()
+        py_f64(
+            py,
+            ndarray::Array1::from_vec(g.uniform(low, high, size)).into_dyn(),
+        )
     }
     #[pyfunction]
     #[pyo3(signature = (low, high, size, seed))]
-    fn integers(py: Python<'_>, low: i64, high: i64, size: usize, seed: u64) -> Py<PyArray1<i64>> {
+    fn integers(
+        py: Python<'_>,
+        low: i64,
+        high: i64,
+        size: usize,
+        seed: u64,
+    ) -> PyResult<Py<PyAny>> {
         let mut g = random::Generator::new(seed);
-        g.integers(low, high, size).into_pyarray(py).unbind()
-    }
-
-    /// Array constructors + dtype/module-attribute surface (CONCEPT:EG-KG.compute.concept-3).
-    ///
-    /// numpy is the engine-**private container substrate** (rust-numpy binds the
-    /// official CPython numpy, and every kernel array IS a `numpy.ndarray`). So the
-    /// container-allocation surface — `array`/`zeros`/`arange`/… and the dtype/
-    /// `newaxis`/`pi`/`inf`/`nan`/`ndarray` attributes — is re-exported here as thin
-    /// numpy passthroughs. The POINT is that `agent_utilities.numeric.xp` imports
-    /// these from `epistemic_graph.numeric`, so agent-utilities imports numpy
-    /// NOWHERE; the compute surface (reductions/linalg/stats/random) is genuine
-    /// pure-Rust nalgebra/ndarray/statrs kernel below.
-    fn add_numpy_passthroughs(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        let np = m.py().import("numpy")?;
-        // constructors + array manipulation
-        const NAMES: &[&str] = &[
-            "array",
-            "asarray",
-            "zeros",
-            "ones",
-            "empty",
-            "full",
-            "arange",
-            "linspace",
-            "eye",
-            "diag",
-            "fill_diagonal",
-            "diff",
-            "sort",
-            "concatenate",
-            "reshape",
-            "vstack",
-            "stack",
-            // dtypes + type handle
-            "float64",
-            "float32",
-            "int64",
-            "int32",
-            "bool_",
-            "ndarray",
-            // scalar/constant module attributes
-            "newaxis",
-            "pi",
-            "inf",
-            "nan",
-        ];
-        for name in NAMES {
-            m.add(*name, np.getattr(*name)?)?;
-        }
-        Ok(())
+        py_i64(
+            py,
+            ndarray::Array1::from_vec(g.integers(low, high, size)).into_dyn(),
+        )
     }
 
     /// The `epistemic_graph.numeric` extension module.
@@ -696,7 +825,6 @@ mod py {
     fn numeric(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add("LinAlgError", m.py().get_type::<LinAlgError>())?;
         m.add("__kernel__", "eg-numeric")?;
-        add_numpy_passthroughs(m)?;
         macro_rules! add {
             ($($f:ident),* $(,)?) => { $( m.add_function(wrap_pyfunction!($f, m)?)?; )* };
         }

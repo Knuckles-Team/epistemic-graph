@@ -19,8 +19,9 @@ default = []
 # Plan-01 "no PyO3 in the engine" contract (scripts/check_no_pyo3.sh only scans
 # src/, epistemic_graph/, and the top-level Cargo.toml/pyproject.toml, never
 # crates/; and this crate keeps pyo3 out of any engine-linked build). Only the
-# wheel build (maturin) turns this on.
-python = ["dep:pyo3", "dep:numpy", "analytics"]
+# wheel build (maturin) turns this on. The boundary accepts/returns Python built-ins;
+# it deliberately has no NumPy runtime dependency.
+python = ["dep:pyo3", "analytics"]
 # Analytics stats ops (CONCEPT:EG-357/EG-358): spearmanr / ks_2samp / normal
 # ppf+pdf. Pulls `statrs` for the distribution CDFs (Student-t, Normal). Kept OUT
 # of `default` so an engine `pi`/`node`/`full` build that links the eg-numeric rlib
@@ -55,13 +56,12 @@ contract = ["dep:eg-modality", "ndarray/serde"]
 complex = ["dep:num-complex"]
 
 [dependencies]
-# arrays / reductions / element-wise / broadcasting — numpy-shaped, mature.
+# arrays / reductions / element-wise / broadcasting — mature ndarray primitives.
 ndarray = "0.17"
 # Percentile/quantile are implemented in this crate so the Python boundary and
-# kernel share numpy 0.29's ndarray type instead of admitting an incompatible
-# ndarray-stats 0.6 / ndarray 0.16 island.
+# kernel share the same ndarray implementation without a second stats stack.
 # LAPACK-class linalg: svd / eigh / solve / qr / cholesky / pinv / lstsq —
-# PURE RUST, NO system BLAS/LAPACK. PoC-validated exact vs numpy.
+# PURE RUST, NO system BLAS/LAPACK. Developer parity is validated separately.
 nalgebra = { version = "0.35", default-features = false, features = ["std"] }
 # random (default_rng / normal / randint / RandomState equivalents).
 rand = "0.8"
@@ -73,9 +73,8 @@ rand_chacha = "0.3"
 # `contract`-gated `ndarray/serde` feature above.
 serde = { version = "1.0", features = ["derive"] }
 
-# Surface-A only (feature `python`): zero-copy numpy interop + GIL release.
+# Surface-A only (feature `python`): built-in Python sequence conversion + GIL release.
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
-numpy = { version = "0.29", optional = true }
 # Analytics only (feature `analytics`): distribution CDFs/quantiles for the
 # scipy-parity stats ops (Student-t p-value, Normal ppf/pdf). Pure Rust, no BLAS.
 statrs = { version = "0.18", default-features = false, optional = true }
