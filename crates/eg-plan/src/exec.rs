@@ -1247,11 +1247,21 @@ fn normalize_class(c: &str) -> String {
 }
 
 /// SOURCE: all node ids whose `type` property equals `label`.
+///
+/// A scan is an unranked source, so the underlying `GraphView` map's discovery order
+/// is not part of its contract.  Canonicalizing the ids here makes `Scan -> Limit`
+/// reproducible for local and distributed plans alike; the exchange wire therefore
+/// carries this same producer order instead of inventing a different remote order.
 fn scan_label(view: &GraphView, label: &str) -> RowSet {
-    let ids = view.node_properties.iter().filter_map(|(id, blob)| {
-        let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
-        (v.get("type").and_then(|t| t.as_str()) == Some(label)).then(|| id.clone())
-    });
+    let mut ids: Vec<String> = view
+        .node_properties
+        .iter()
+        .filter_map(|(id, blob)| {
+            let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
+            (v.get("type").and_then(|t| t.as_str()) == Some(label)).then(|| id.clone())
+        })
+        .collect();
+    ids.sort_unstable();
     RowSet::from_ids(ids)
 }
 
@@ -2853,6 +2863,37 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
             .map(|v| v.get("relationship").and_then(|x| x.as_str()) == Some(rel))
             .unwrap_or(false)
     })
+}
+
+#[cfg(test)]
+mod scan_order_tests {
+    use super::*;
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    fn blob(value: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&value).unwrap()
+    }
+
+    #[test]
+    fn unranked_scan_limit_is_canonical_at_the_scan_producer() {
+        let core = GraphCore::new();
+        // Insert in reverse order to ensure the result does not inherit map discovery
+        // order; the distributed exchange responder uses this same executor.
+        core.add_node("b".into(), blob(json!({"type": "Doc"})));
+        core.add_node("a".into(), blob(json!({"type": "Doc"})));
+        let view = core.analysis_snapshot();
+        let semantic = SemanticStore::new();
+        let ctx = PlanCtx::new(&view, &semantic);
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Limit { k: 2 },
+        ]);
+
+        assert_eq!(plan.execute(&ctx).unwrap().ids(), vec!["a", "b"]);
+    }
 }
 
 #[cfg(test)]

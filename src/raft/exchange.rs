@@ -240,6 +240,9 @@ pub fn call_remote_branch(addr: &str, graph: &str, dag: &PlanDag) -> Result<RowS
     let ExchangeReply(result) =
         rmp_serde::from_slice(&resp_bytes).map_err(|e| format!("exchange: decode reply: {e}"))?;
     let rows = result.map_err(|e| format!("exchange: remote error: {e}"))?;
+    // Preserve the typed producer's order byte-for-byte.  In particular, an
+    // unscored branch may carry meaningful order from a temporal/property source
+    // or an upstream Limit; transport is not a second query operator.
     Ok(RowSet::from_rows(rows))
 }
 
@@ -409,7 +412,9 @@ mod tests {
     /// comparable to a plain local `execute_dag` baseline.
     fn fixture_a() -> (GraphCore, SemanticStore) {
         let core = GraphCore::new();
-        for (id, ty) in [("a", "Doc"), ("b", "Doc"), ("c", "Tool")] {
+        // Deliberately reverse the two Doc insertions.  The scan producer owns the
+        // canonical order; neither local nor remote execution may inherit map order.
+        for (id, ty) in [("b", "Doc"), ("a", "Doc"), ("c", "Tool")] {
             core.add_node(id.into(), blob(json!({ "type": ty })));
         }
         (core, SemanticStore::new())
@@ -559,6 +564,40 @@ mod tests {
         assert_eq!(first.ids(), vec!["a".to_string(), "b".to_string()]);
     }
 
+    /// The same reverse-insertion fixture must have identical local and remote
+    /// `Scan -> Limit` results.  `scan_label` is the owning typed producer and the
+    /// exchange transport preserves the resulting order byte-for-byte.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn remote_scan_matches_local_order_after_reverse_insertion() {
+        let (core_a, _) = fixture_a();
+        let local_view = core_a.analysis_snapshot();
+        let local_semantic = SemanticStore::new();
+        let local_ctx = PlanCtx::new(&local_view, &local_semantic);
+        let addr_a = spawn_responder("shardA", &core_a, SemanticStore::new()).await;
+
+        let empty_core = GraphCore::new();
+        let empty_view = empty_core.analysis_snapshot();
+        let empty_semantic = SemanticStore::new();
+        let remote_ctx = PlanCtx::new(&empty_view, &empty_semantic);
+        let dag = PlanDag::new(vec![
+            PlanNode::new(
+                Op::Scan {
+                    label: "Doc".into(),
+                },
+                vec![],
+            ),
+            PlanNode::new(Op::Limit { k: 2 }, vec![0]),
+        ]);
+        let local = execute_dag(&dag, &local_ctx).unwrap();
+        let mut routes = ExchangeMap::new();
+        routes.route(0, "shardA", 1);
+        let endpoints: BTreeMap<GroupId, String> = [(1, addr_a)].into();
+        let remote = execute_dag_distributed(&dag, &remote_ctx, &routes, &endpoints, 0).unwrap();
+
+        assert_eq!(local.ids(), vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(remote.ids(), local.ids());
+    }
+
     /// A route that targets `local_group` is a no-op distribution: the branch runs
     /// LOCALLY (no network hop, no endpoint needed) and the result is byte-identical
     /// to plain `execute_dag` — the zero-behavior-change baseline X4 must preserve
@@ -586,6 +625,7 @@ mod tests {
         let via_distributed = execute_dag_distributed(&dag, &ctx, &routes, &endpoints, 0).unwrap();
         let via_plain = execute_dag(&dag, &ctx).unwrap();
         assert_eq!(via_distributed.ids(), via_plain.ids());
+        assert_eq!(via_plain.ids(), vec!["a".to_string(), "b".to_string()]);
     }
 
     /// [`extract_branch`] pulls out exactly `root` + its ancestors, renumbered with
