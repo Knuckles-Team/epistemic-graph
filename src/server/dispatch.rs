@@ -8919,15 +8919,11 @@ mod blob_dispatch_tests {
 mod placement_route_carrier_tests {
     use super::*;
     use crate::acl::RequestContextClaims;
-    use crate::channels::ChannelManager;
     use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request};
-    use crate::registry::GraphRegistry;
     use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
-    use dashmap::DashMap;
     use std::sync::Arc;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use tokio::sync::Semaphore;
 
     const SECRET: &str = "placement-route-carrier-test-secret";
     static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -8943,55 +8939,18 @@ mod placement_route_carrier_tests {
     /// (JWT scope)-only for this method, never `IsolationLayer`-registration-only
     /// (the OLD, System-only gate this closes).
     fn state_min() -> Arc<RwLock<ServerState>> {
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
-            channels: ChannelManager::new(),
-            auth_secret: SECRET.to_string(),
-            persist_dir: None,
-            persistence: None,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        Arc::new(RwLock::new(ServerState::new_for_test(
+            SECRET,
+            IsolationLayer::new(),
+        )))
+    }
+
+    #[test]
+    fn state_min_is_constructible_in_both_viz_feature_rows() {
+        let state = state_min();
+        let _guard = state.try_read().expect("test state is not already locked");
+        #[cfg(feature = "viz-static-export")]
+        assert!(_guard.viz_engine.is_none());
     }
 
     /// Signs a REAL v2 envelope (the same production `compute_verified_envelope_token`
@@ -9070,8 +9029,7 @@ mod placement_route_carrier_tests {
     fn placement_route_authz_action_is_no_longer_admin_gated() {
         let policy = eg_capabilities::policy(&Method::PlacementRoute {
             request: crate::epistemic_operations::PlacementRouteRequest {
-                schema_version:
-                    crate::epistemic_operations::PlacementRouteRequestSchemaVersion::V1,
+                schema_version: crate::epistemic_operations::PlacementRouteRequestSchemaVersion::V1,
                 tenant_ref: "probe".to_string(),
                 partition_ref: "probe".to_string(),
                 client_epoch: 0,
@@ -9118,7 +9076,12 @@ mod placement_route_carrier_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn placement_route_succeeds_for_ordinary_kg_read_actor() {
         let state = state_min();
-        let req = signed_route_request(2, "ordinary-kg-read-actor", vec!["kg:read".to_string()], "acme");
+        let req = signed_route_request(
+            2,
+            "ordinary-kg-read-actor",
+            vec!["kg:read".to_string()],
+            "acme",
+        );
         let resp = dispatch_on_heap(&state, req).await;
         assert!(
             resp.error.is_none(),
