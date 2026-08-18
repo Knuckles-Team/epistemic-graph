@@ -55,6 +55,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+# This helper runs Maturin from a reused developer checkout. Keep Python tooling
+# from recreating cache members that a later wheel build could discover.
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TARGET_PACKAGE = REPO_ROOT / "epistemic_graph"
 KERNEL_CRATE_MANIFEST = REPO_ROOT / "crates" / "eg-numeric" / "Cargo.toml"
@@ -109,6 +113,7 @@ def build_kernel() -> Path:
     # Inherit the environment MINUS CARGO_TARGET_DIR (see TARGET_DIR above) so an
     # ambient export cannot silently redirect -- and corrupt -- this build.
     env = {k: v for k, v in os.environ.items() if k != "CARGO_TARGET_DIR"}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
 
     with tempfile.TemporaryDirectory() as tmp:
         out_dir = Path(tmp)

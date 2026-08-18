@@ -25,6 +25,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+# PEP 517 imports Python helpers before Maturin enumerates the source tree. Keep
+# those helpers from recreating interpreter caches in a reused checkout.
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
 import maturin
 
 from scripts.inject_numeric_kernel import inject

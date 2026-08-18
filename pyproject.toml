@@ -148,6 +148,9 @@ min_confidence = 95
 python-source = "."
 bindings = "bin"
 strip = true
+# Never carry interpreter caches from a reused checkout into a wheel or sdist.
+# These are source-level Maturin globs, so the checkout itself remains untouched.
+exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
 # THE ONE PUBLISHED WHEEL = the main full-featured build (CONCEPT:EG-371 — tiers
 # collapsed). `full` = every MAIN feature that builds without an external GPU/robotics
 # toolchain: durable redb-authoritative store + cypher + SQL (query/DataFusion) + graphql
