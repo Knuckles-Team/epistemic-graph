@@ -719,6 +719,17 @@ fn copy_field_to_value(field: Option<&str>, ty: ColumnType) -> Result<serde_json
         ColumnType::Json => serde_json::from_str(s).unwrap_or(Value::String(s.to_string())),
         // CONCEPT:EG-KG.query.pgvector-binary-wire — a vector arrives as pgvector text `[1,2,3]`; pass it through
         // as a string so the store's `Cell::coerce` parses + dimension-checks it.
+        // Added with the constraint/column-type work. Each of these has an exact
+        // canonical TEXT form on the Postgres wire, and the store's `Cell::coerce`
+        // is what validates it (UUID shape, NUMERIC precision/scale, timestamptz
+        // offset, array literal). Passing the text through unparsed keeps ONE
+        // parser rather than a second, divergent one here -- and critically avoids
+        // routing NUMERIC through f64, which would silently lose the exactness the
+        // type exists to guarantee.
+        ColumnType::Uuid
+        | ColumnType::Numeric(_)
+        | ColumnType::TimestampTz
+        | ColumnType::Array(_) => Value::String(s.to_string()),
         ColumnType::Text | ColumnType::Bytes | ColumnType::Vector(_) => {
             Value::String(s.to_string())
         }
@@ -834,6 +845,22 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
                         INSERT)"
                     .to_string(),
             )
+        }
+        // Added with the constraint/column-type work. Binary COPY is REFUSED for
+        // these rather than guessed at: each has a non-obvious Postgres binary
+        // encoding (UUID is 16 raw bytes, NUMERIC is a base-10000 digit vector
+        // with sign/weight/scale, timestamptz is i64 micros from a 2000-01-01
+        // epoch, arrays carry a dimension/lower-bound header). Decoding any of
+        // them incorrectly would silently corrupt data on ingest, which is worse
+        // than refusing -- and TEXT COPY and INSERT both work today. Same posture
+        // as Vector above.
+        ColumnType::Uuid
+        | ColumnType::Numeric(_)
+        | ColumnType::TimestampTz
+        | ColumnType::Array(_) => {
+            return Err(format!(
+                "binary COPY of a {ty:?} column is not supported (use TEXT COPY or INSERT)"
+            ))
         }
     };
     Ok(v)
