@@ -45,6 +45,14 @@ from .client import (
     SyncEpistemicGraphClient,
     validate_request_context,
 )
+from .client_capabilities import (
+    CLIENT_CAPABILITY_SCHEMA_VERSION,
+    WORK_ITEM_METADATA_CAS_CAPABILITY,
+    ClientCapabilityError,
+    client_build_identity,
+    client_capability_manifest,
+    require_client_capabilities,
+)
 from .parser import RustASTParser
 
 __all__ = [
@@ -66,4 +74,10 @@ __all__ = [
     "ResultTooLargeError",
     "StaleRouteError",
     "RustASTParser",
+    "CLIENT_CAPABILITY_SCHEMA_VERSION",
+    "WORK_ITEM_METADATA_CAS_CAPABILITY",
+    "ClientCapabilityError",
+    "client_build_identity",
+    "client_capability_manifest",
+    "require_client_capabilities",
 ]
