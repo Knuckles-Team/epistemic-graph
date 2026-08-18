@@ -47,17 +47,30 @@
 
 #![cfg(feature = "lake")]
 
-use epistemic_graph::server::blob::store::RedbChunkStore;
-use epistemic_graph::server::lake::LakeManager;
 use eg_lake::LakeType;
 use eg_tsdb::point::Point;
 use eg_tsdb::store::SeriesStore;
+use epistemic_graph::server::blob::store::RedbChunkStore;
+use epistemic_graph::server::lake::LakeManager;
 
 const TEST_BUCKET_NS: u64 = 3_600_000_000_000;
-const DEFAULT_NAMESPACE: &str = "default";
+// MUST match `epistemic_graph::server::lake::DEFAULT_NAMESPACE`, which is
+// "engine" -- NOT "default". This file originally declared its own constant with
+// a guessed value, so every `load_table` looked up a namespace that never
+// existed and the test died in setup before reaching the behaviour it exists to
+// characterize. Kept as a literal (the module constant is not reachable on the
+// integration-test path) with this note so the divergence is visible.
+const DEFAULT_NAMESPACE: &str = "engine";
 
 fn store() -> RedbChunkStore {
-    RedbChunkStore::open_temp().expect("open temp chunk store")
+    // NOT `open_temp()`: that constructor is `#[cfg(test)]`, so it exists only for
+    // the crate's own unit tests. An integration test in `tests/` links the library
+    // WITHOUT that cfg, so the symbol is simply absent here -- which is what made
+    // this file fail to compile the first time it was ever built. Use the public
+    // `open` with a test-owned directory instead.
+    let dir = tsdb_dir("chunk-store");
+    std::fs::create_dir_all(&dir).expect("create chunk store dir");
+    RedbChunkStore::open(&dir.to_string_lossy()).expect("open chunk store")
 }
 
 fn tsdb_dir(tag: &str) -> std::path::PathBuf {
@@ -86,11 +99,18 @@ fn defect_out_of_range_lsn_is_silently_resolved_instead_of_denied() {
     let s = store();
     let tsdb = SeriesStore::open_in_dir(&tsdb_dir("oor")).expect("open series store");
     let series_id = "adopt-asof-oor";
-    tsdb.append_batch(series_id, 1, TEST_BUCKET_NS, &["v".to_string()], &points(0, 3))
-        .expect("append points");
+    tsdb.append_batch(
+        series_id,
+        1,
+        TEST_BUCKET_NS,
+        &["v".to_string()],
+        &points(0, 3),
+    )
+    .expect("append points");
 
     let mgr = LakeManager::new();
-    mgr.drain_series(&s, &tsdb, series_id).expect("drain series");
+    mgr.drain_series(&s, &tsdb, series_id)
+        .expect("drain series");
     let table = series_id; // sanitize_table_name is a no-op for this alphanumeric+hyphen id.
 
     let current = mgr
@@ -103,12 +123,30 @@ fn defect_out_of_range_lsn_is_silently_resolved_instead_of_denied() {
              committed -- resolves successfully instead of being denied",
         );
 
-    // Not merely "returns Some": it resolves to the SAME projection as "now",
-    // silently coercing a nonsensical as-of request to latest -- exactly the
-    // failure mode the acceptance gate says must not happen.
-    assert_eq!(
+    // CORRECTED BY EXECUTION. This test was originally written from a source
+    // reading that predicted the out-of-range lsn would coerce to "now" (i.e.
+    // resolve to the same snapshot as `load_table`). Running it disproved that:
+    // `load_table` yields snapshot-id 1 while `load_table_as_of(u64::MAX)` yields
+    // -1 -- a SUCCESSFUL response carrying an EMPTY projection.
+    //
+    // The underlying defect (NE-049: no lsn-existence validation, so a
+    // nonsensical as-of is never denied) is confirmed, but the manifestation is
+    // worse than predicted: a caller asking for a point in time that was never
+    // committed receives a valid-looking "this table has no data" that is
+    // indistinguishable from a legitimately empty history, rather than an error.
+    //
+    // Asserted as the CURRENT behaviour so a real fix -- denying the request --
+    // makes this fail and forces the characterization to be revisited.
+    assert_ne!(
         current["metadata"]["current-snapshot-id"], current_lsn["metadata"]["current-snapshot-id"],
-        "an out-of-range lsn is silently coerced to \"now\" rather than denied"
+        "expected the out-of-range lsn to resolve to a DIFFERENT (empty) snapshot \
+         than \"now\"; if these now match, the coercion behaviour changed"
+    );
+    assert_eq!(
+        current_lsn["metadata"]["current-snapshot-id"],
+        serde_json::json!(-1),
+        "an out-of-range lsn returns an empty projection (snapshot-id -1) instead \
+         of being denied -- NE-049"
     );
 }
 
@@ -125,8 +163,14 @@ fn defect_as_of_read_has_no_tenant_visibility_parameter_to_isolate_on() {
     let s = store();
     let tsdb = SeriesStore::open_in_dir(&tsdb_dir("tenant")).expect("open series store");
     let series_id = "adopt-asof-tenant";
-    tsdb.append_batch(series_id, 1, TEST_BUCKET_NS, &["v".to_string()], &points(0, 2))
-        .expect("append points");
+    tsdb.append_batch(
+        series_id,
+        1,
+        TEST_BUCKET_NS,
+        &["v".to_string()],
+        &points(0, 2),
+    )
+    .expect("append points");
 
     let mgr = LakeManager::new();
     // Explicitly create the table under a named owner tenant ("tenant-a") --

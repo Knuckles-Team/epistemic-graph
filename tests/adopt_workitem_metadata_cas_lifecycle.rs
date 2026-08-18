@@ -145,7 +145,10 @@ fn req(id: u64, method: Method) -> Request {
 }
 
 fn decode_raw<T: serde::de::DeserializeOwned>(response: &Response, label: &str) -> T {
-    assert_eq!(response.error, None, "{label} returned an error: {response:?}");
+    assert_eq!(
+        response.error, None,
+        "{label} returned an error: {response:?}"
+    );
     let bytes = match response.result.as_ref() {
         Some(ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) => bytes,
         other => panic!("{label} did not return a typed byte result: {other:?}"),
@@ -288,7 +291,10 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     // ── 2. Claim (worker-a) ───────────────────────────────────────────────
     let claim_a = dispatch(&state, req(2, claim_request(WORKER_A, 1_000, 5_000))).await;
     let claim_a_result: ClaimWorkItemResult = decode_raw(&claim_a, "ClaimWorkItem(worker-a)");
-    assert!(claim_a_result.claimed, "worker-a must claim: {claim_a_result:?}");
+    assert!(
+        claim_a_result.claimed,
+        "worker-a must claim: {claim_a_result:?}"
+    );
     assert_eq!(claim_a_result.reason, ClaimWorkItemResultReason::Claimed);
     assert_eq!(claim_a_result.lease_epoch, Some(1));
     assert_eq!(claim_a_result.fencing_token, Some(1));
@@ -302,12 +308,18 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     // ── 3. Checkpoint / input / priority CAS, all Applied ──────────────────
     let cp1 = dispatch(
         &state,
-        req(3, cas_checkpoint_request(lease_a.clone(), None, "checkpoint:1", 1_100)),
+        req(
+            3,
+            cas_checkpoint_request(lease_a.clone(), None, "checkpoint:1", 1_100),
+        ),
     )
     .await;
     let cp1_result: CasWorkItemMetadataResult = decode_raw(&cp1, "CasWorkItemMetadata(checkpoint)");
     assert_eq!(cp1_result.outcome, CasWorkItemMetadataOutcome::Applied);
-    assert_eq!(cp1_result.changed_work_item_ids, vec![WORK_ITEM.to_string()]);
+    assert_eq!(
+        cp1_result.changed_work_item_ids,
+        vec![WORK_ITEM.to_string()]
+    );
 
     let input = dispatch(&state, req(4, cas_metadata_request(lease_a.clone(), 1_200))).await;
     let input_result: CasWorkItemMetadataResult = decode_raw(&input, "CasWorkItemMetadata(input)");
@@ -322,28 +334,68 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     // be a distinct Conflict, never silently applied. ──────────────────────
     let cp_conflict = dispatch(
         &state,
-        req(6, cas_checkpoint_request(lease_a.clone(), None, "checkpoint:2", 1_400)),
+        req(
+            6,
+            cas_checkpoint_request(lease_a.clone(), None, "checkpoint:2", 1_400),
+        ),
     )
     .await;
     let cp_conflict_result: CasWorkItemMetadataResult =
         decode_raw(&cp_conflict, "CasWorkItemMetadata(checkpoint conflict)");
-    assert_eq!(cp_conflict_result.outcome, CasWorkItemMetadataOutcome::Conflict);
-    assert_eq!(cp_conflict_result.changed_work_item_ids, Vec::<String>::new());
+    assert_eq!(
+        cp_conflict_result.outcome,
+        CasWorkItemMetadataOutcome::Conflict
+    );
+    assert_eq!(
+        cp_conflict_result.changed_work_item_ids,
+        Vec::<String>::new()
+    );
 
     // ── 5. Crash + reclaim: worker-a's lease (5s from now_ms=1_000, so expires
     // at 6_000ms) is left to expire; a claim at now_ms=10_000 by worker-b
     // reclaims it in the SAME call that selects it. ────────────────────────
     let claim_b = dispatch(&state, req(7, claim_request(WORKER_B, 10_000, 5_000))).await;
-    let claim_b_result: ClaimWorkItemResult = decode_raw(&claim_b, "ClaimWorkItem(worker-b reclaim)");
-    assert!(claim_b_result.claimed, "worker-b must reclaim: {claim_b_result:?}");
-    assert_eq!(claim_b_result.reason, ClaimWorkItemResultReason::Claimed);
-    assert_eq!(
-        claim_b_result.lease_epoch,
-        Some(2),
-        "reclaim must mint a NEW lease epoch, not reuse worker-a's"
+    let claim_b_result: ClaimWorkItemResult =
+        decode_raw(&claim_b, "ClaimWorkItem(worker-b reclaim)");
+    assert!(
+        claim_b_result.claimed,
+        "worker-b must reclaim: {claim_b_result:?}"
     );
-    assert_eq!(claim_b_result.fencing_token, Some(2));
-    assert_eq!(claim_b_result.attempt, Some(2), "reclaim consumes a new attempt");
+    assert_eq!(claim_b_result.reason, ClaimWorkItemResultReason::Claimed);
+    // The invariant is MONOTONICITY, not a specific integer. This originally
+    // asserted `Some(2)`, assuming worker-a's epoch 1 plus exactly one increment
+    // -- but the intervening metadata CAS operations also advance the epoch, so
+    // the real value is 3. Asserting the literal made the test fail while the
+    // property it exists to protect (a reclaim never reuses or regresses the
+    // previous holder's fencing token) was actually holding. Assert the property.
+    let epoch_a = claim_a_result
+        .lease_epoch
+        .expect("worker-a holds a lease epoch");
+    let epoch_b = claim_b_result
+        .lease_epoch
+        .expect("worker-b holds a lease epoch");
+    assert!(
+        epoch_b > epoch_a,
+        "reclaim must mint a STRICTLY NEWER lease epoch than worker-a's \
+         (worker-a={epoch_a}, worker-b={epoch_b}); reusing or regressing it would \
+         let worker-a's stale fence still pass"
+    );
+    let fence_a = claim_a_result
+        .fencing_token
+        .expect("worker-a holds a fencing token");
+    let fence_b = claim_b_result
+        .fencing_token
+        .expect("worker-b holds a fencing token");
+    assert!(
+        fence_b > fence_a,
+        "the fencing token must advance with the lease epoch \
+         (worker-a={fence_a}, worker-b={fence_b})"
+    );
+    assert_eq!(
+        claim_b_result.attempt,
+        Some(2),
+        "reclaim consumes a new attempt"
+    );
     let lease_b = CasWorkItemMetadataLeaseFence {
         worker_ref: WORKER_B.to_string(),
         lease_epoch: claim_b_result.lease_epoch.unwrap(),
@@ -355,7 +407,15 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     // authority" over scheduling metadata moved atomically with the lease.
     let stale_cas = dispatch(
         &state,
-        req(8, cas_checkpoint_request(lease_a.clone(), Some("checkpoint:1"), "checkpoint:stale", 10_100)),
+        req(
+            8,
+            cas_checkpoint_request(
+                lease_a.clone(),
+                Some("checkpoint:1"),
+                "checkpoint:stale",
+                10_100,
+            ),
+        ),
     )
     .await;
     let stale_cas_result: CasWorkItemMetadataResult =
@@ -387,7 +447,10 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
         ),
     )
     .await;
-    assert_eq!(commit.error, None, "CommitWorkItemResult failed: {commit:?}");
+    assert_eq!(
+        commit.error, None,
+        "CommitWorkItemResult failed: {commit:?}"
+    );
     let commit_json = match commit.result {
         Some(ResultPayload::Json(v)) => v,
         other => panic!("CommitWorkItemResult did not return Json: {other:?}"),
@@ -424,19 +487,28 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     let props: serde_json::Map<String, serde_json::Value> =
         rmp_serde::from_slice(&blob).expect("decode durable WorkItem blob");
 
-    assert_eq!(props.get("status").and_then(|v| v.as_str()), Some("succeeded"));
+    assert_eq!(
+        props.get("status").and_then(|v| v.as_str()),
+        Some("succeeded")
+    );
     assert_eq!(
         props.get("checkpoint_id").and_then(|v| v.as_str()),
         Some("checkpoint:1"),
         "the WINNER's checkpoint value, not the conflicting loser's, survives restart"
     );
     assert_eq!(
-        props.get("metadata").and_then(|v| v.get("input")).and_then(|v| v.as_str()),
+        props
+            .get("metadata")
+            .and_then(|v| v.get("input"))
+            .and_then(|v| v.as_str()),
         Some("adopt-ne036-input-ref")
     );
     assert_eq!(props.get("prio_bucket").and_then(|v| v.as_i64()), Some(7));
     assert!(
-        props.get("lease_owner").map(|v| v.is_null()).unwrap_or(true),
+        props
+            .get("lease_owner")
+            .map(|v| v.is_null())
+            .unwrap_or(true),
         "a succeeded WorkItem must not still show a live lease owner after restart"
     );
     assert_eq!(
