@@ -150,7 +150,7 @@ fn delete_via_sql(store: &TableStore, sql: &str) -> Result<Vec<Vec<Cell>>, Strin
     let StatementKind::DeleteTable(del) = classify(sql).expect("classify") else {
         panic!("expected DeleteTable");
     };
-    store.delete_where(&del.table, &del.selector.pred)
+    store.delete_where_returning(&del.table, &del.selector.pred)
 }
 
 /// `UPDATE ... SET ... WHERE ...` through classify → store, returning the `Result`.
@@ -158,7 +158,7 @@ fn update_via_sql(store: &TableStore, sql: &str) -> Result<Vec<Vec<Cell>>, Strin
     let StatementKind::UpdateTable(upd) = classify(sql).expect("classify") else {
         panic!("expected UpdateTable");
     };
-    store.update_where(&upd.table, &upd.set, &upd.selector.pred)
+    store.update_where_returning(&upd.table, &upd.set, &upd.selector.pred)
 }
 
 /// A graph with two `:Stock` nodes carrying a `symbol` property, for the JOIN test.
