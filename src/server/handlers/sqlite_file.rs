@@ -156,10 +156,39 @@ fn resolve_sqlite_export(value: &str) -> Result<PathBuf, String> {
     Ok(root.join(name))
 }
 
-/// Route the two SQLite-file methods. Resolves the caller's owner-scoped user-table store, then
-/// runs the (blocking, file-I/O) import/export on the blocking pool so the reactor is
-/// never stalled. `Err(method)` for a method that isn't ours (unreachable — dispatch only
-/// routes the two variants here).
+/// The configured served-engine persistence directory, or the SAME error
+/// `sql_tables::user_table_store`/`tenant_table_store` themselves report when it
+/// is unset (CONCEPT:NE-046 — EG-WIRE-CATALOG).
+async fn tenant_persist_dir(
+    state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
+) -> Result<PathBuf, String> {
+    state
+        .read()
+        .await
+        .persist_dir
+        .clone()
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            "owner-scoped SQL catalog requires the configured persistence directory".to_string()
+        })
+}
+
+/// Route the two SQLite-file methods. Resolves the caller's TENANT-shared
+/// user-table store, then runs the (blocking, file-I/O) import/export on the
+/// blocking pool so the reactor is never stalled. `Err(method)` for a method
+/// that isn't ours (unreachable — dispatch only routes the two variants here).
+///
+/// CONCEPT:NE-046 (EG-WIRE-CATALOG) — both methods are gated `require_admin`
+/// above, and `sql_catalog_acl::authorize` already treats an admin carrier as an
+/// unconditional bypass (ownership/grants AND the row-level predicate — an admin
+/// import/export is a bulk backup/restore tool, not a scoped query, so it is
+/// deliberately NOT routed through `AuthorizedTable`, which would RLS-filter an
+/// admin's own export down to just their own rows). What DOES change here: the
+/// physical store resolves to the TENANT-shared catalog (migrated on first
+/// touch) instead of the legacy per-owner file, so an imported table is
+/// immediately visible/joinable to every other tenant member with a grant on it
+/// — and import registers ownership of each table it creates, so a subsequent
+/// non-admin `GRANT`/`REVOKE` on it works.
 pub(crate) async fn try_handle(
     state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
     req_id: u64,
@@ -176,10 +205,18 @@ pub(crate) async fn try_handle(
                 Ok(value) => value,
                 Err(error) => return Ok(Response::err(req_id, error)),
             };
-            let persist_dir = state.read().await.persist_dir.clone();
-            let store = match crate::server::sql_tables::user_table_store(
-                authority,
-                persist_dir.as_deref().map(std::path::Path::new),
+            let persist_dir = match tenant_persist_dir(state).await {
+                Ok(dir) => dir,
+                Err(e) => return Ok(Response::err(req_id, e)),
+            };
+            if let Err(e) =
+                crate::server::sql_catalog_acl::ensure_actor_migrated(authority, &persist_dir)
+            {
+                return Ok(Response::err(req_id, e));
+            }
+            let store = match crate::server::sql_tables::tenant_table_store(
+                authority.tenant_scope(),
+                &persist_dir,
             ) {
                 Ok(s) => s,
                 Err(e) => return Ok(Response::err(req_id, e)),
@@ -210,10 +247,23 @@ pub(crate) async fn try_handle(
                     "IDEMPOTENCY_CONFLICT: SQLite import request identity changed",
                 ));
             }
+            let owner_authority = authority.clone();
+            let owner_persist_dir = persist_dir.clone();
             let out = tokio::task::spawn_blocking(move || {
-                let (txn, report) = prepare_sqlite_import(&source)?;
+                let (txn, report, imported_tables) = prepare_sqlite_import(&source)?;
                 let result = rmp_serde::to_vec_named(&report).map_err(|e| e.to_string())?;
                 let committed = store.commit_txn_batch_result(&txn, &batch, result, now)?;
+                // The batch committed: register ownership of every table this
+                // import created/replaced (CONCEPT:NE-046) — a no-op via
+                // `register_owner_after_create` for a table that already had an
+                // owner, matching the wire commit path's identical treatment.
+                for table in &imported_tables {
+                    crate::server::sql_catalog_acl::register_owner_after_create(
+                        &owner_authority,
+                        &owner_persist_dir,
+                        table,
+                    )?;
+                }
                 let bytes = committed
                     .record
                     .result_msgpack
@@ -234,10 +284,18 @@ pub(crate) async fn try_handle(
                 Ok(value) => value,
                 Err(error) => return Ok(Response::err(req_id, error)),
             };
-            let persist_dir = state.read().await.persist_dir.clone();
-            let store = match crate::server::sql_tables::user_table_store(
-                authority,
-                persist_dir.as_deref().map(std::path::Path::new),
+            let persist_dir = match tenant_persist_dir(state).await {
+                Ok(dir) => dir,
+                Err(e) => return Ok(Response::err(req_id, e)),
+            };
+            if let Err(e) =
+                crate::server::sql_catalog_acl::ensure_actor_migrated(authority, &persist_dir)
+            {
+                return Ok(Response::err(req_id, e));
+            }
+            let store = match crate::server::sql_tables::tenant_table_store(
+                authority.tenant_scope(),
+                &persist_dir,
             ) {
                 Ok(s) => s,
                 Err(e) => return Ok(Response::err(req_id, e)),
@@ -330,7 +388,7 @@ pub(crate) fn import_sqlite_file(store: &TableStore, path: &Path) -> Result<Json
     Ok(serde_json::json!({ "source": "sqlite", "imported_tables": report }))
 }
 
-fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue), String> {
+fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue, Vec<String>), String> {
     if !path.exists() {
         return Err("SQLite import source does not exist".to_string());
     }
@@ -376,6 +434,7 @@ fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue), String> {
     Ok((
         txn,
         serde_json::json!({ "source": "sqlite", "imported_tables": report }),
+        tables,
     ))
 }
 
@@ -685,11 +744,13 @@ fn columns_from_schema(schema: &TableSchema) -> Vec<SqliteColumnDef> {
 /// [`affinity_to_type`]). Bool/Timestamp store as INTEGER, Json/Vector as TEXT.
 fn type_to_sqlite(ty: ColumnType) -> &'static str {
     match ty {
-        ColumnType::Int | ColumnType::BigInt | ColumnType::Bool | ColumnType::Timestamp => {
-            "INTEGER"
-        }
-        ColumnType::Float | ColumnType::Double => "REAL",
-        ColumnType::Text | ColumnType::Json => "TEXT",
+        ColumnType::Int
+        | ColumnType::BigInt
+        | ColumnType::Bool
+        | ColumnType::Timestamp
+        | ColumnType::TimestampTz => "INTEGER",
+        ColumnType::Float | ColumnType::Double | ColumnType::Numeric(_) => "REAL",
+        ColumnType::Text | ColumnType::Json | ColumnType::Uuid | ColumnType::Array(_) => "TEXT",
         ColumnType::Bytes => "BLOB",
         ColumnType::Vector(_) => "TEXT",
     }

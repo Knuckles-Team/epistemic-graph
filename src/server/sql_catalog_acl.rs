@@ -102,7 +102,7 @@ use crate::server::sql_tables;
 /// admin call. Deliberately generic: a caller must not be able to distinguish
 /// "you're not allowed" from "that isn't a real table" (hard constraint: no
 /// existence leak).
-const ACCESS_DENIED: &str = "ACCESS_DENIED: table is not accessible";
+pub(crate) const ACCESS_DENIED: &str = "ACCESS_DENIED: table is not accessible";
 
 const OWNERS_TABLE: &str = "__eg_sql_owners__";
 const GRANTS_TABLE: &str = "__eg_sql_grants__";
@@ -775,23 +775,95 @@ fn row_to_map(schema: &TableSchema, row: &[Cell]) -> serde_json::Map<String, Val
     map
 }
 
+/// AND `extra` (if any) with a `rls_column = principal` predicate (if `rls_column`
+/// is declared) — the ONE place this fold happens, shared by [`AuthorizedTable`]'s
+/// own methods (single-table open/select/update/delete) AND the wire-level
+/// pre-commit rewrite of a buffered multi-op [`eg_query::TxnOp::Update`]/`Delete`
+/// (CONCEPT:NE-046 — EG-WIRE-CATALOG), which cannot construct an [`AuthorizedTable`]
+/// at all (a batched `TableTxn` commits as ONE atomic redb write via
+/// `TableStore::commit_txn_batch`, never through this type's own one-shot
+/// `TableStore` calls) but must still fold in the SAME RLS predicate before that
+/// batch commits. `And(vec![])` evaluates `true` for every row (vacuous truth) —
+/// the correct "no constraint at all" predicate when neither RLS nor a
+/// caller-supplied filter applies.
+fn scoped_predicate(
+    rls_column: Option<&str>,
+    principal: &str,
+    extra: Option<&RowPredicate>,
+) -> RowPredicate {
+    let mut parts = Vec::new();
+    if let Some(column) = rls_column {
+        parts.push(RowPredicate::Cmp {
+            col: column.to_string(),
+            op: CmpOp::Eq,
+            value: Value::String(principal.to_string()),
+        });
+    }
+    if let Some(extra) = extra {
+        parts.push(extra.clone());
+    }
+    RowPredicate::And(parts)
+}
+
+/// Stamp `rls_column` (if declared) to `principal` on every row of an INSERT —
+/// appending it to `col_order` when the caller did not supply it, overwriting
+/// whatever value the caller DID supply otherwise (item 3: a caller can never
+/// insert a row visible to a different principal than themselves). Shared by
+/// [`AuthorizedTable::insert`] and the wire-level pre-commit rewrite of a
+/// buffered [`eg_query::TxnOp::Insert`] for the same reason [`scoped_predicate`]
+/// is shared.
+fn stamp_insert_rls(
+    rls_column: Option<&str>,
+    principal: &str,
+    col_order: &[String],
+    rows: &[Vec<Value>],
+) -> (Vec<String>, Vec<Vec<Value>>) {
+    let Some(rls_column) = rls_column else {
+        return (col_order.to_vec(), rows.to_vec());
+    };
+    let stamp = Value::String(principal.to_string());
+    match col_order.iter().position(|column| column == rls_column) {
+        Some(index) => {
+            let mut stamped = rows.to_vec();
+            for row in &mut stamped {
+                if index < row.len() {
+                    row[index] = stamp.clone();
+                } else {
+                    row.resize(index + 1, Value::Null);
+                    row[index] = stamp.clone();
+                }
+            }
+            (col_order.to_vec(), stamped)
+        }
+        None => {
+            let mut owned_cols = col_order.to_vec();
+            owned_cols.push(rls_column.to_string());
+            let stamped: Vec<Vec<Value>> = rows
+                .iter()
+                .map(|row| {
+                    let mut row = row.clone();
+                    row.push(stamp.clone());
+                    row
+                })
+                .collect();
+            (owned_cols, stamped)
+        }
+    }
+}
+
 impl AuthorizedTable {
     fn combined_predicate(&self, extra: Option<&RowPredicate>) -> RowPredicate {
-        let mut parts = Vec::new();
-        if let Some(column) = &self.rls_column {
-            parts.push(RowPredicate::Cmp {
-                col: column.clone(),
-                op: CmpOp::Eq,
-                value: Value::String(self.principal.clone()),
-            });
-        }
-        if let Some(extra) = extra {
-            parts.push(extra.clone());
-        }
-        // `And(vec![])` evaluates `true` for every row (vacuous truth) — the
-        // correct "no constraint at all" predicate when neither RLS nor a
-        // caller-supplied filter applies.
-        RowPredicate::And(parts)
+        scoped_predicate(self.rls_column.as_deref(), &self.principal, extra)
+    }
+
+    /// The authorized table's current schema — safe to expose beyond `select`'s own
+    /// row-shaping use: the caller already passed [`authorize`] for this exact
+    /// `(table, privilege)` to hold an [`AuthorizedTable`] at all, so schema
+    /// metadata leaks nothing an existence check wouldn't already.
+    pub(crate) fn schema(&self) -> Result<TableSchema, String> {
+        self.store
+            .get_schema(&self.table)?
+            .ok_or_else(|| ACCESS_DENIED.to_string())
     }
 
     /// Every row currently visible to `self.principal`: RLS-filtered (if the
@@ -822,37 +894,9 @@ impl AuthorizedTable {
         col_order: &[String],
         rows: &[Vec<Value>],
     ) -> Result<usize, String> {
-        let Some(rls_column) = &self.rls_column else {
-            return self.store.insert_rows(&self.table, col_order, rows);
-        };
-        let stamp = Value::String(self.principal.clone());
-        match col_order.iter().position(|column| column == rls_column) {
-            Some(index) => {
-                let mut stamped = rows.to_vec();
-                for row in &mut stamped {
-                    if index < row.len() {
-                        row[index] = stamp.clone();
-                    } else {
-                        row.resize(index + 1, Value::Null);
-                        row[index] = stamp.clone();
-                    }
-                }
-                self.store.insert_rows(&self.table, col_order, &stamped)
-            }
-            None => {
-                let mut owned_cols = col_order.to_vec();
-                owned_cols.push(rls_column.clone());
-                let stamped: Vec<Vec<Value>> = rows
-                    .iter()
-                    .map(|row| {
-                        let mut row = row.clone();
-                        row.push(stamp.clone());
-                        row
-                    })
-                    .collect();
-                self.store.insert_rows(&self.table, &owned_cols, &stamped)
-            }
-        }
+        let (col_order, rows) =
+            stamp_insert_rls(self.rls_column.as_deref(), &self.principal, col_order, rows);
+        self.store.insert_rows(&self.table, &col_order, &rows)
     }
 
     /// `UPDATE … SET … WHERE …`. The RLS predicate (if any) is ANDed into the
@@ -882,6 +926,204 @@ impl AuthorizedTable {
     pub(crate) fn table_name(&self) -> &str {
         &self.table
     }
+}
+
+// ── wire-layer entry points (CONCEPT:NE-046 — EG-WIRE-CATALOG) ─────────────
+//
+// The functions below are the ONLY surface this module adds specifically to be
+// callable from `src/server/wire/mod.rs`'s buffered, multi-op `TxnOp`/`TableTxn`
+// commit path (and the single-table OBDA/COPY call sites in `handlers/rdf.rs` /
+// `handlers/sqlite_file.rs`). A buffered `TableTxn` — potentially mixing a
+// `CreateTable`, an `Insert`, and an `AlterTable` targeting DIFFERENT tables —
+// commits as ONE atomic `TableStore::commit_txn_batch` redb write; there is no
+// point at which the wire layer can hold an `AuthorizedTable` per op inside that
+// SAME atomic commit (each `AuthorizedTable` method opens its own one-shot
+// `TableStore` call). So instead: every op in the buffered batch is authorized
+// and RLS-rewritten HERE, entirely BEFORE the batch is handed to
+// `commit_txn_batch` — a denial on ANY op aborts the WHOLE transaction with
+// NOTHING written, matching the batch's own all-or-nothing atomicity — and
+// `commit_txn_batch` itself is never made aware of ACL/RLS at all.
+
+/// Run `authority`'s one-time lazy migration if it has not already run. A thin
+/// wrapper exposing the private [`ensure_migrated`] to the wire layer: a buffered
+/// `TableTxn` batch of e.g. ONLY `CreateTable` ops never calls any of the other
+/// entry points below (which each already call `ensure_migrated` themselves), so
+/// the wire commit path calls this once, up front, unconditionally.
+pub(crate) fn ensure_actor_migrated(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+) -> Result<(), String> {
+    ensure_migrated(authority.tenant_scope(), persist_dir, authority)
+}
+
+/// Authorize a DDL-shaped op (`DROP TABLE`, every `ALTER TABLE` action, an ANN
+/// index / hypertable declaration against a named table) against `table` for
+/// `privilege` — always [`SqlPrivilege::Alter`] at every current wire call site,
+/// but parameterized rather than hardcoded so a future DDL-shaped op can pick a
+/// different privilege without a new entry point. Runs migration first. Does not
+/// open the table (no read/write follows for this op type through this module —
+/// the raw batch commit performs the actual DDL) and does not leak whether the
+/// denial was "no such table" vs. "exists but not yours" (the SAME [`authorize`]
+/// path every other entry point uses).
+pub(crate) fn authorize_ddl(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table: &str,
+    privilege: SqlPrivilege,
+) -> Result<(), String> {
+    ensure_migrated(authority.tenant_scope(), persist_dir, authority)?;
+    authorize(
+        authority.tenant_scope(),
+        persist_dir,
+        authority,
+        table,
+        privilege,
+    )
+}
+
+/// Authorize a buffered `TxnOp::Insert` against `table` for
+/// [`SqlPrivilege::Insert`] and return the (possibly RLS-stamped) `col_order`/
+/// `rows` the wire layer must substitute back into that op before the batch
+/// commits — the SAME stamping [`AuthorizedTable::insert`] applies, just without
+/// executing the write itself (the batch commit does that).
+pub(crate) fn authorize_insert(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table: &str,
+    col_order: &[String],
+    rows: &[Vec<Value>],
+) -> Result<(Vec<String>, Vec<Vec<Value>>), String> {
+    ensure_migrated(authority.tenant_scope(), persist_dir, authority)?;
+    authorize(
+        authority.tenant_scope(),
+        persist_dir,
+        authority,
+        table,
+        SqlPrivilege::Insert,
+    )?;
+    let acl = open_acl(authority.tenant_scope(), persist_dir)?;
+    let rls_column = row_level_column(&acl, table)?;
+    Ok(stamp_insert_rls(
+        rls_column.as_deref(),
+        authority.agent_id(),
+        col_order,
+        rows,
+    ))
+}
+
+/// Authorize a buffered `TxnOp::Update` against `table` for
+/// [`SqlPrivilege::Update`] and return the (possibly RLS-rewritten) `set`/
+/// `selector` the wire layer must substitute back into that op — RLS forces
+/// `set[rls_column] = principal` (an UPDATE can never move a row into another
+/// principal's visibility) and ANDs `rls_column = principal` into `selector` (a
+/// principal can only ever touch their own rows), exactly like
+/// [`AuthorizedTable::update`].
+pub(crate) fn authorize_update(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table: &str,
+    mut set: serde_json::Map<String, Value>,
+    selector: RowPredicate,
+) -> Result<(serde_json::Map<String, Value>, RowPredicate), String> {
+    ensure_migrated(authority.tenant_scope(), persist_dir, authority)?;
+    authorize(
+        authority.tenant_scope(),
+        persist_dir,
+        authority,
+        table,
+        SqlPrivilege::Update,
+    )?;
+    let acl = open_acl(authority.tenant_scope(), persist_dir)?;
+    let rls_column = row_level_column(&acl, table)?;
+    if let Some(column) = &rls_column {
+        set.insert(
+            column.clone(),
+            Value::String(authority.agent_id().to_string()),
+        );
+    }
+    let where_predicate =
+        scoped_predicate(rls_column.as_deref(), authority.agent_id(), Some(&selector));
+    Ok((set, where_predicate))
+}
+
+/// Authorize a buffered `TxnOp::Delete` against `table` for
+/// [`SqlPrivilege::Delete`] and return the RLS-scoped `selector` the wire layer
+/// must substitute back into that op, exactly like [`AuthorizedTable::delete`].
+pub(crate) fn authorize_delete(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table: &str,
+    selector: RowPredicate,
+) -> Result<RowPredicate, String> {
+    ensure_migrated(authority.tenant_scope(), persist_dir, authority)?;
+    authorize(
+        authority.tenant_scope(),
+        persist_dir,
+        authority,
+        table,
+        SqlPrivilege::Delete,
+    )?;
+    let acl = open_acl(authority.tenant_scope(), persist_dir)?;
+    let rls_column = row_level_column(&acl, table)?;
+    Ok(scoped_predicate(
+        rls_column.as_deref(),
+        authority.agent_id(),
+        Some(&selector),
+    ))
+}
+
+/// Register `authority` as owner of `table` AFTER a buffered batch containing a
+/// `TxnOp::CreateTable { schema: <table>, .. }` has ALREADY committed
+/// successfully. `CreateTable` deliberately runs NO [`authorize`] check up front
+/// (first-writer-wins, matching [`create_owned_table`]'s own no-check-just-claim
+/// behavior for a brand new table name) — but ownership must still land
+/// SOMEWHERE, and it cannot land inside the same atomic redb write
+/// `commit_txn_batch` performs (that write is the physical `tables` catalog, a
+/// SEPARATE redb file from the ACL catalog `ensure_owner` writes to; the two were
+/// never atomic with each other even in [`create_owned_table`] itself). Calling
+/// this on a table that already had an owner (e.g. `CREATE TABLE IF NOT EXISTS`
+/// against an existing table, where the batch commit was a no-op) is always a
+/// SAFE no-op too: [`ensure_owner`] never overwrites an existing owner.
+pub(crate) fn register_owner_after_create(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table: &str,
+) -> Result<(), String> {
+    let acl = open_acl(authority.tenant_scope(), persist_dir)?;
+    ensure_owner(&acl, table, authority.agent_id())
+}
+
+/// Every table name in `authority`'s tenant-shared catalog that `authority` may
+/// [`SqlPrivilege::Select`] from — every table it owns, plus every table where it
+/// holds an explicit Select grant; every table in the catalog for an admin
+/// carrier. Runs migration first. Used by the wire read path
+/// (CONCEPT:EG-KG.query.register-user-tables-alongside) to build an
+/// authorized-only projection of the shared catalog for a free-form multi-table
+/// SQL read — the free-form SELECT/JOIN surface has no per-statement table list
+/// the way OBDA's `tables` param or a single-table DML op does, so gating happens
+/// by restricting the SET of tables materialized for the query instead of a
+/// per-reference check.
+pub(crate) fn selectable_tables(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+) -> Result<Vec<String>, String> {
+    ensure_migrated(authority.tenant_scope(), persist_dir, authority)?;
+    let tenant_store = sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
+    let all = tenant_store.list_tables()?;
+    if authority.is_admin() {
+        return Ok(all);
+    }
+    let acl = open_acl(authority.tenant_scope(), persist_dir)?;
+    let mut out = Vec::new();
+    for name in all {
+        let owner = owner_of(&acl, &name)?;
+        if owner.as_deref() == Some(authority.agent_id())
+            || grant_exists(&acl, &name, authority.agent_id(), SqlPrivilege::Select)?
+        {
+            out.push(name);
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
