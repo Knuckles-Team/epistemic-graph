@@ -768,6 +768,13 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }));
 
+    // Compose the ordinary process as a real local-placement server before any
+    // listeners are started.  A configured Raft startup replaces this authority
+    // atomically with `(RaftHandle, MultiRaft)` in `raft::node::start`; a failed
+    // configured startup exits rather than serving through this local route.
+    #[cfg(feature = "raft")]
+    state.write().await.install_local_placement_authority();
+
     // ── Prometheus metrics endpoint (CONCEPT:EG-KG.txn.per-graph-write-isolation) ────────────────────
     // Opt-in + deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): bound only when
     // --metrics-addr / GRAPH_SERVICE_METRICS_ADDR is set. A bare enable token
@@ -2082,10 +2089,10 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = &persist_dir;
                 match epistemic_graph::raft::node::start(cluster_cfg, state.clone()).await {
                     Ok(started) => {
-                        // The MultiRaft manager owns the shared listener (runs for the
-                        // process lifetime). Keep it alive by storing the handle; the
-                        // routing handle goes into ServerState for the dispatch path.
-                        state.write().await.raft = Some(started.handle);
+                        // `raft::node::start` atomically installed the routing handle
+                        // and durable MultiRaft placement authority into ServerState.
+                        // Keep the manager alive through the state-owned Arc while the
+                        // recovery checks below complete before listeners serve traffic.
                         // Cross-shard 2PC recovery (CONCEPT:EG-KG.storage.lane-n-increment): resolve any
                         // in-doubt cross-shard txns from the durable prepare/decision
                         // records BEFORE serving — a COMMIT decision re-applies, an
@@ -2110,12 +2117,6 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
-                        // Hold the manager in ServerState (CONCEPT:EG-KG.storage.100m-tenant/2.226) so
-                        // its listener task lives the process lifetime AND the
-                        // user-facing cross-group surfaces (multi-graph Commit → 2PC,
-                        // online reshard, tenant hibernation) can reach it. The Arc is
-                        // kept alive by the field; no leak needed.
-                        state.write().await.multi_raft = Some(started.multi.clone());
                         info!("Raft node started; writes now route through consensus");
                     }
                     Err(e) => {

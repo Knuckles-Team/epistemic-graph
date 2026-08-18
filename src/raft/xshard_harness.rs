@@ -560,7 +560,8 @@ async fn wire_user_graphs(state: &Arc<RwLock<ServerState>>, multi: &Arc<MultiRaf
     let mut s = state.write().await;
     let _ = s.registry.create_graph(GRAPH_A, GraphType::Global, None);
     let _ = s.registry.create_graph(GRAPH_B, GraphType::Global, None);
-    s.multi_raft = Some(multi.clone());
+    let raft = s.raft.clone();
+    s.install_multi_raft_placement_authority(raft, multi.clone());
 }
 
 /// Unwrap a handler `Response` to its `Bool` payload (the txn ack), or panic.

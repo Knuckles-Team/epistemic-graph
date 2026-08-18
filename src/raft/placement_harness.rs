@@ -703,15 +703,14 @@ async fn wire_placement_route_resolves_through_dispatch() {
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, state) = bring_up(&dir, backend.clone()).await;
-    // `bring_up`'s `ServerState` never back-references the `MultiRaft` it's shared
-    // with (the other tests in this file only ever call `multi.*` directly, never
-    // through the served `dispatch` seam) -- but the REAL served
-    // `Method::PlacementRoute` handler (`handlers/placement.rs`) resolves the
-    // catalog off `state.multi_raft`, exactly like the DIST-P2-2 cross-shard 2PC
-    // path (`handlers/txn.rs`) does. Wire it here (mirrors `xshard_harness.rs`'s
-    // `wire_state` helper) so this test exercises the SAME lookup a real server
-    // does.
-    state.write().await.multi_raft = Some(multi.clone());
+    // `MultiRaft::start` installs the live catalog into ServerState through the
+    // shared construction seam. Re-assert that binding here so the served
+    // `Method::PlacementRoute` path remains explicit in this wire regression;
+    // it resolves the same state-owned catalog as the cross-shard txn path.
+    let mut guard = state.write().await;
+    let raft = guard.raft.clone();
+    guard.install_multi_raft_placement_authority(raft, multi.clone());
+    drop(guard);
 
     let req = current_request;
     let route_json = |resp: crate::protocol::Response| -> serde_json::Value {

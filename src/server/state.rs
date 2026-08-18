@@ -57,6 +57,45 @@ pub fn max_response_nodes() -> usize {
 /// pathological frame.
 pub const DEFAULT_MAX_RESPONSE_EDGES: usize = 50_000;
 
+/// The placement authority selected by the process composition.
+///
+/// A raft-enabled binary has three deliberately distinct states: an ordinary
+/// single-node process owns the local, unplaced route; an active `MultiRaft`
+/// process owns the durable placement catalog; and a configured raft process
+/// without its catalog is incomplete and must fail closed.  Keeping this
+/// distinction at the state seam prevents individual handlers from treating a
+/// missing `MultiRaft` as either a local bypass or a valid clustered route.
+#[cfg(feature = "raft")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlacementAuthorityKind {
+    Local,
+    MultiRaft,
+    Missing,
+}
+
+#[cfg(feature = "raft")]
+pub(crate) const MISSING_PLACEMENT_AUTHORITY: &str =
+    "CLUSTER_CONFIGURATION_INVALID: MultiRaft placement authority is required";
+
+#[cfg(feature = "raft")]
+impl PlacementAuthorityKind {
+    pub(crate) fn missing_error(self) -> Option<&'static str> {
+        (self == Self::Missing).then_some(MISSING_PLACEMENT_AUTHORITY)
+    }
+}
+
+#[cfg(feature = "raft")]
+pub(crate) fn placement_authority_kind(
+    raft_configured: bool,
+    multi_raft_available: bool,
+) -> PlacementAuthorityKind {
+    match (raft_configured, multi_raft_available) {
+        (false, false) => PlacementAuthorityKind::Local,
+        (false, true) | (true, true) => PlacementAuthorityKind::MultiRaft,
+        (true, false) => PlacementAuthorityKind::Missing,
+    }
+}
+
 /// Resolve the `GetEdges` full-dump edge cap, read ONCE from
 /// `EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES` — the edge-count sibling of
 /// [`max_response_nodes`]. Cached in a `OnceLock` so the env var is parsed a
@@ -278,6 +317,90 @@ pub struct ServerState {
     pub lake: Arc<crate::server::lake::LakeManager>,
 }
 
+#[cfg(feature = "raft")]
+impl ServerState {
+    /// Compose the local single-node authority explicitly.
+    ///
+    /// This is intentionally the only constructor seam that clears the two
+    /// clustered handles.  A caller that has a Raft handle but has not wired
+    /// the durable `MultiRaft` catalog must use the separate incomplete
+    /// composition instead of accidentally looking like a local server.
+    pub fn install_local_placement_authority(&mut self) {
+        self.raft = None;
+        self.multi_raft = None;
+    }
+
+    /// Compose a state backed by the durable `MultiRaft` placement catalog.
+    ///
+    /// `raft` is optional for the in-process harnesses, which exercise the
+    /// catalog directly without a default-group routing handle.  Production
+    /// startup passes both handles together through this seam.
+    pub(crate) fn install_multi_raft_placement_authority(
+        &mut self,
+        raft: Option<crate::raft::RaftHandle>,
+        multi_raft: std::sync::Arc<crate::raft::multi::MultiRaft>,
+    ) {
+        self.raft = raft;
+        self.multi_raft = Some(multi_raft);
+    }
+
+    /// Compose the deliberately incomplete cluster state used by a negative
+    /// configuration test.  It is never a local fallback: `placement_authority`
+    /// resolves it to `Missing` and the dispatch seam returns the typed denial.
+    #[cfg(test)]
+    pub(crate) fn install_missing_placement_authority(&mut self, raft: crate::raft::RaftHandle) {
+        self.raft = Some(raft);
+        self.multi_raft = None;
+    }
+
+    /// Resolve the placement authority from the process-owned state.
+    ///
+    /// `raft == None && multi_raft == None` is the explicit single-node
+    /// composition: graph routes use the real local/unplaced authority.  A
+    /// live `MultiRaft` owns the durable catalog.  `raft == Some` without a
+    /// live `MultiRaft` is a configured-but-incomplete cluster and remains a
+    /// typed denial; it must never silently fall back to local placement.
+    pub(crate) fn placement_authority(&self) -> PlacementAuthorityKind {
+        placement_authority_kind(self.raft.is_some(), self.multi_raft.is_some())
+    }
+}
+
+#[cfg(all(test, feature = "raft"))]
+mod placement_authority_tests {
+    use super::{placement_authority_kind, IsolationLayer, PlacementAuthorityKind, ServerState};
+
+    #[test]
+    fn canonical_test_state_receives_local_authority() {
+        let state = ServerState::new_for_test("placement-test", IsolationLayer::new());
+        assert_eq!(state.placement_authority(), PlacementAuthorityKind::Local);
+    }
+
+    #[test]
+    fn placement_composition_distinguishes_local_catalog_and_missing() {
+        assert_eq!(
+            placement_authority_kind(false, false),
+            PlacementAuthorityKind::Local
+        );
+        assert_eq!(
+            placement_authority_kind(false, true),
+            PlacementAuthorityKind::MultiRaft
+        );
+        assert_eq!(
+            placement_authority_kind(true, true),
+            PlacementAuthorityKind::MultiRaft
+        );
+        assert_eq!(
+            placement_authority_kind(true, false),
+            PlacementAuthorityKind::Missing
+        );
+        assert_eq!(
+            PlacementAuthorityKind::Missing.missing_error(),
+            Some(super::MISSING_PLACEMENT_AUTHORITY)
+        );
+        assert_eq!(PlacementAuthorityKind::Local.missing_error(), None);
+    }
+}
+
 #[cfg(test)]
 impl ServerState {
     /// Build the explicit empty state used by unit tests that exercise dispatch
@@ -285,7 +408,7 @@ impl ServerState {
     /// makes a newly feature-gated field fail this constructor at compile time
     /// instead of silently disappearing from one test target.
     pub(crate) fn new_for_test(auth_secret: impl Into<String>, isolation: IsolationLayer) -> Self {
-        Self {
+        let mut state = Self {
             registry: GraphRegistry::new(),
             isolation,
             channels: ChannelManager::new(),
@@ -333,6 +456,9 @@ impl ServerState {
             kv: None,
             #[cfg(feature = "lake")]
             lake: Arc::new(crate::server::lake::LakeManager::new()),
-        }
+        };
+        #[cfg(feature = "raft")]
+        state.install_local_placement_authority();
+        state
     }
 }

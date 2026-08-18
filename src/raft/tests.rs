@@ -192,7 +192,6 @@ async fn three_node_cluster_replicates_and_survives_leader_failover() {
         let started = node::start(cluster_cfg(i, &ports), state.clone())
             .await
             .expect("start raft node");
-        state.write().await.raft = Some(started.handle.clone());
         states.push(state);
         nodes.insert(i, started);
     }
@@ -425,8 +424,6 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
         let started = node::start(cluster_cfg(i, &ports), state.clone())
             .await
             .expect("start raft node");
-        state.write().await.raft = Some(started.handle.clone());
-        state.write().await.multi_raft = Some(started.multi.clone());
         states.push(state);
         nodes.insert(i, started);
     }
@@ -1013,11 +1010,6 @@ mod placement_admin_wire_rpc {
             let started = node::start(cluster_cfg_with_groups(i, &ports, 2), state.clone())
                 .await
                 .expect("start raft node");
-            {
-                let mut s = state.write().await;
-                s.raft = Some(started.handle.clone());
-                s.multi_raft = Some(started.multi.clone());
-            }
             states.push(state);
             nodes.insert(i, started);
         }
@@ -2413,7 +2405,10 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         // (`handlers/raft_admin.rs`) resolves `MultiRaft` off `state.multi_raft`,
         // exactly like `handlers/placement.rs` does — wire it here so this test
         // exercises the SAME lookup a real server does.
-        state.write().await.multi_raft = Some(multi.clone());
+        state
+            .write()
+            .await
+            .install_multi_raft_placement_authority(None, multi.clone());
         multis.push((i, multi, state));
     }
 
@@ -3089,7 +3084,6 @@ async fn run_group_write_workload(
         let started = node::start(cluster_cfg_with_groups(i, &ports, n_groups), state.clone())
             .await
             .expect("start raft node");
-        state.write().await.raft = Some(started.handle.clone());
         nodes.insert(i, started);
     }
 
@@ -3205,7 +3199,6 @@ async fn per_group_leader_failover_is_independent() {
         let started = node::start(cluster_cfg_with_groups(i, &ports, n_groups), state.clone())
             .await
             .expect("start raft node");
-        state.write().await.raft = Some(started.handle.clone());
         nodes.insert(i, started);
     }
 

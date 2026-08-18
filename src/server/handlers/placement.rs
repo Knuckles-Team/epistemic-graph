@@ -180,16 +180,13 @@ async fn handle_route(
     let sub_key = request.partition_ref;
     let client_epoch = request.client_epoch;
 
-    let (multi, standalone_raft) = {
+    let (multi, placement) = {
         let current = state.read().await;
-        (current.multi_raft.clone(), current.raft.is_some())
+        (current.multi_raft.clone(), current.placement_authority())
     };
     let Some(multi) = multi else {
-        if standalone_raft {
-            return Response::err(
-                req_id,
-                "CLUSTER_CONFIGURATION_INVALID: MultiRaft placement authority is required",
-            );
+        if let Some(error) = placement.missing_error() {
+            return Response::err(req_id, error);
         }
         return route_response(
             req_id,
@@ -398,15 +395,15 @@ pub(crate) async fn try_handle(
 ) -> Result<Response, Method> {
     match method {
         Method::PlacementRoute { request } => Ok(route_response(
-                req_id,
-                0,
-                0,
-                false,
-                request.client_epoch,
-                request.tenant_ref,
-                request.partition_ref,
-                Vec::new(),
-            )),
+            req_id,
+            0,
+            0,
+            false,
+            request.client_epoch,
+            request.tenant_ref,
+            request.partition_ref,
+            Vec::new(),
+        )),
         Method::PlacementAdmin { .. } => Ok(Response::err(
             req_id,
             "CLUSTER_CONFIGURATION_INVALID: placement admin mutations require a `raft`-feature \
