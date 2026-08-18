@@ -196,18 +196,33 @@ pub(crate) async fn try_handle(
             let authority = read_authority
                 .and_then(GraphReadAuthority::carrier)
                 .expect("SparqlVirtual must carry verified tenant authority");
-            let persist_dir = state.read().await.persist_dir.clone();
-            let store = match crate::server::sql_tables::user_table_store(
-                authority,
-                persist_dir.as_deref().map(std::path::Path::new),
-            ) {
-                Ok(store) => store,
-                Err(error) => return Ok(Response::err(req_id, error)),
+            // CONCEPT:NE-046 (EG-WIRE-CATALOG) — `tables` is the OBDA mapping's
+            // own explicit table list (unlike the free-form multi-table SQL read
+            // path, there is no ambiguity about what this request touches), so
+            // each one is authorized for `Select` individually below inside
+            // `sparql_virtual`, through `sql_catalog_acl::open_authorized_table`,
+            // instead of handing the raw per-owner (now tenant-shared) store
+            // straight to the OBDA reader.
+            let persist_dir = match state.read().await.persist_dir.clone() {
+                Some(dir) => std::path::PathBuf::from(dir),
+                None => {
+                    return Ok(Response::err(
+                        req_id,
+                        "owner-scoped SQL catalog requires the configured persistence directory"
+                            .to_string(),
+                    ));
+                }
             };
-            Ok(
-                handle_sparql_virtual(req_id, store, query, mapping, tables, external_sources)
-                    .await,
+            Ok(handle_sparql_virtual(
+                req_id,
+                authority.clone(),
+                persist_dir,
+                query,
+                mapping,
+                tables,
+                external_sources,
             )
+            .await)
         }
         #[cfg(feature = "rdf")]
         Method::RunRules {
@@ -728,14 +743,22 @@ fn proof_node_to_wire(node: eg_rdf::owl::ProofNode) -> crate::protocol::ProofNod
 #[cfg(feature = "obda")]
 async fn handle_sparql_virtual(
     req_id: u64,
-    store: eg_query::TableStore,
+    authority: crate::server::access::CarrierAuthority,
+    persist_dir: std::path::PathBuf,
     query: String,
     mapping: String,
     tables: Vec<String>,
     external_sources: Vec<crate::protocol::ObdaExternalSource>,
 ) -> Response {
     let out = tokio::task::spawn_blocking(move || {
-        sparql_virtual(&store, &query, &mapping, &tables, &external_sources)
+        sparql_virtual(
+            &authority,
+            &persist_dir,
+            &query,
+            &mapping,
+            &tables,
+            &external_sources,
+        )
     })
     .await;
     match out {
@@ -745,17 +768,20 @@ async fn handle_sparql_virtual(
     }
 }
 
-/// A [`eg_rdf::obda::ObdaSource`] backed by one table of the verified caller's owner-scoped
-/// [`eg_query::TableStore`] (CONCEPT:EG-KG.query.r2rml-virtual-graph). Bridges the
-/// SQL-side typed [`eg_query::Cell`] to the OBDA seam's lexical `String` columns (R2RML
-/// templates/literal object maps consume the lexical form; typed SQL round-tripping
-/// through a `rr:datatype` object map is a documented follow-up, mirrored from the
-/// EG-101 `ObdaSource` contract). The full row is always scanned from the table (the
-/// store's `scan` has no column-projection API); THIS layer still applies BOTH the
-/// `needed`-column projection AND the pushed-down row-level `filters`
-/// (CONCEPT:EG-KG.query.obda-predicate-pushdown) when handing rows back, so the OBDA-side
-/// pushdown contract (only query-relevant rows/columns end up in a materialized triple)
-/// holds even though the underlying store scan itself is not column/predicate-pushed.
+/// A [`eg_rdf::obda::ObdaSource`] backed by one table of the caller's TENANT-shared
+/// [`eg_query::TableStore`], opened through an authorized [`AuthorizedTable`]
+/// (CONCEPT:NE-046 — EG-WIRE-CATALOG; CONCEPT:EG-KG.query.r2rml-virtual-graph). Bridges
+/// the SQL-side typed [`eg_query::Cell`] to the OBDA seam's lexical `String` columns
+/// (R2RML templates/literal object maps consume the lexical form; typed SQL
+/// round-tripping through a `rr:datatype` object map is a documented follow-up,
+/// mirrored from the EG-101 `ObdaSource` contract). Rows come from
+/// `AuthorizedTable::select`, so the table's row-level predicate (if declared)
+/// already constrained them before this layer ever sees them; THIS layer then still
+/// applies BOTH the `needed`-column projection AND the pushed-down row-level
+/// `filters` (CONCEPT:EG-KG.query.obda-predicate-pushdown) when handing rows back, so
+/// the OBDA-side pushdown contract (only query-relevant rows/columns end up in a
+/// materialized triple) holds even though the underlying scan itself is not
+/// column/predicate-pushed.
 #[cfg(feature = "obda")]
 struct TableStoreSource {
     schema: eg_query::TableSchema,
@@ -764,11 +790,24 @@ struct TableStoreSource {
 
 #[cfg(feature = "obda")]
 impl TableStoreSource {
-    fn load(store: &eg_query::TableStore, table: &str) -> Result<Self, String> {
-        let schema = store
-            .get_schema(table)?
-            .ok_or_else(|| format!("obda: unknown user table `{table}`"))?;
-        let rows = store.scan(table)?;
+    /// Open `table` through the ACL's authorized read path
+    /// (CONCEPT:NE-046 — EG-WIRE-CATALOG): `Select`-authorizes `authority` for
+    /// `table` (the SAME generic denial whether it doesn't exist or simply isn't
+    /// granted — no existence leak through the OBDA surface) and returns its
+    /// RLS-filtered rows.
+    fn load(
+        authority: &crate::server::access::CarrierAuthority,
+        persist_dir: &std::path::Path,
+        table: &str,
+    ) -> Result<Self, String> {
+        let authorized = crate::server::sql_catalog_acl::open_authorized_table(
+            authority,
+            persist_dir,
+            table,
+            crate::server::sql_catalog_acl::SqlPrivilege::Select,
+        )?;
+        let schema = authorized.schema()?;
+        let rows = authorized.select(None)?;
         Ok(Self { schema, rows })
     }
 
@@ -859,7 +898,8 @@ impl eg_rdf::obda::ObdaSource for TableStoreSource {
 /// the table scan + SPARQL evaluation are both synchronous CPU/redb-read work.
 #[cfg(feature = "obda")]
 fn sparql_virtual(
-    store: &eg_query::TableStore,
+    authority: &crate::server::access::CarrierAuthority,
+    persist_dir: &std::path::Path,
     query: &str,
     mapping: &str,
     tables: &[String],
@@ -867,7 +907,7 @@ fn sparql_virtual(
 ) -> Result<crate::protocol::SparqlResult, String> {
     let mut reg = eg_rdf::obda::ObdaSourceRegistry::new();
     for table in tables {
-        let src = TableStoreSource::load(store, table)?;
+        let src = TableStoreSource::load(authority, persist_dir, table)?;
         reg.register(table.clone(), std::sync::Arc::new(src));
     }
     // W4.11 — register each LIVE external relational source (CONCEPT:EG-KG.query.obda-predicate-pushdown).
