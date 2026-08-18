@@ -14,6 +14,11 @@ use eg_query::{
     classify, exec_sql_typed_with_tables, Cell, Column, ColumnType, StatementKind, TableSchema,
     TableStore, TypedQueryResult,
 };
+// CONCEPT:EG-KG.query.table-schema-constraints/NE-001/NE-002 — table-level constraints + the new scalar types are
+// reachable via the fully-qualified `tables::schema` path (not yet added to the
+// crate's top-level re-export list in `tables/mod.rs`, a file this track does not
+// own — see the final report's "files touched outside the owned list" note).
+use eg_query::tables::schema::{ArrayElemType, RefAction, TableConstraint};
 use serde_json::{json, Value};
 
 /// Resolve a `classify::ColumnDef` (raw type spelling) into a store `Column`.
@@ -39,7 +44,8 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
             let schema = TableSchema::new(
                 plan.name.clone(),
                 plan.columns.iter().map(to_store_column).collect(),
-            );
+            )
+            .with_constraints(plan.constraints.clone());
             store.create_table(&schema, plan.if_not_exists).unwrap();
             None
         }
@@ -117,6 +123,42 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
         }
         other => panic!("unexpected statement kind for user-table test: {other:?}"),
     }
+}
+
+// ── NE-001/NE-002: SQL-text helpers that return `Result` instead of `.unwrap()`ing ──
+// (`run` above panics on a store error, which is exactly right for the existing
+// happy-path tests but unusable for asserting a REJECTED statement — a missing-parent
+// FOREIGN KEY, a duplicate composite PRIMARY KEY, a CHECK violation, a blocked
+// referential-action DELETE/UPDATE, …).
+
+/// `CREATE TABLE` through the SAME classify → store path as `run`'s own branch, but
+/// returning the store's `Result` (CONCEPT:EG-KG.query.table-schema-constraints/NE-001).
+fn create_via_sql(store: &TableStore, sql: &str) -> Result<bool, String> {
+    let StatementKind::CreateTable(plan) = classify(sql).expect("classify") else {
+        panic!("expected CreateTable");
+    };
+    let schema = TableSchema::new(
+        plan.name.clone(),
+        plan.columns.iter().map(to_store_column).collect(),
+    )
+    .with_constraints(plan.constraints.clone());
+    store.create_table(&schema, plan.if_not_exists)
+}
+
+/// `DELETE FROM ... WHERE ...` through classify → store, returning the `Result`.
+fn delete_via_sql(store: &TableStore, sql: &str) -> Result<Vec<Vec<Cell>>, String> {
+    let StatementKind::DeleteTable(del) = classify(sql).expect("classify") else {
+        panic!("expected DeleteTable");
+    };
+    store.delete_where(&del.table, &del.selector.pred)
+}
+
+/// `UPDATE ... SET ... WHERE ...` through classify → store, returning the `Result`.
+fn update_via_sql(store: &TableStore, sql: &str) -> Result<Vec<Vec<Cell>>, String> {
+    let StatementKind::UpdateTable(upd) = classify(sql).expect("classify") else {
+        panic!("expected UpdateTable");
+    };
+    store.update_where(&upd.table, &upd.set, &upd.selector.pred)
 }
 
 /// A graph with two `:Stock` nodes carrying a `symbol` property, for the JOIN test.
@@ -1235,4 +1277,414 @@ fn eg310_multi_statement_txn_atomic() {
     let schema = store.get_schema("t").unwrap().unwrap();
     assert!(schema.column("c").is_some());
     assert!(schema.column("qty").is_some());
+}
+
+// ── NE-001: table-level constraints ────────────────────────────────────────────────
+
+#[test]
+fn composite_primary_key_accept_and_duplicate_rejected() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(
+        &store,
+        &view,
+        "CREATE TABLE order_items (order_id INT, product_id INT, qty INT, \
+         PRIMARY KEY (order_id, product_id))",
+    );
+    run(
+        &store,
+        &view,
+        "INSERT INTO order_items (order_id, product_id, qty) VALUES (1, 1, 5)",
+    );
+    // Same (order_id, product_id) pair, different qty ⇒ still a PK duplicate.
+    let err = store
+        .insert_rows(
+            "order_items",
+            &["order_id".into(), "product_id".into(), "qty".into()],
+            &[vec![json!(1), json!(1), json!(9)]],
+        )
+        .unwrap_err();
+    assert!(err.contains("unique"), "{err}");
+    // A different product_id is a distinct composite key ⇒ fine.
+    store
+        .insert_rows(
+            "order_items",
+            &["order_id".into(), "product_id".into(), "qty".into()],
+            &[vec![json!(1), json!(2), json!(9)]],
+        )
+        .unwrap();
+    assert_eq!(store.scan("order_items").unwrap().len(), 2);
+    // A table-level PRIMARY KEY implies NOT NULL on every participating column.
+    let schema = store.get_schema("order_items").unwrap().unwrap();
+    assert!(!schema.column("order_id").unwrap().nullable);
+    assert!(!schema.column("product_id").unwrap().nullable);
+}
+
+#[test]
+fn multi_column_unique_accept_and_violation() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(
+        &store,
+        &view,
+        "CREATE TABLE seats (show_id INT, seat_no INT, holder TEXT, \
+         UNIQUE (show_id, seat_no))",
+    );
+    run(
+        &store,
+        &view,
+        "INSERT INTO seats (show_id, seat_no, holder) VALUES (1, 10, 'alice')",
+    );
+    let err = store
+        .insert_rows(
+            "seats",
+            &["show_id".into(), "seat_no".into(), "holder".into()],
+            &[vec![json!(1), json!(10), json!("bob")]],
+        )
+        .unwrap_err();
+    assert!(err.contains("unique"), "{err}");
+    // Same seat_no but a different show_id ⇒ a distinct composite key ⇒ fine.
+    store
+        .insert_rows(
+            "seats",
+            &["show_id".into(), "seat_no".into(), "holder".into()],
+            &[vec![json!(2), json!(10), json!("bob")]],
+        )
+        .unwrap();
+    assert_eq!(store.scan("seats").unwrap().len(), 2);
+}
+
+#[test]
+fn foreign_key_creation_against_missing_parent_table_rejected() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let err = create_via_sql(
+        &store,
+        "CREATE TABLE orders (id INT, customer_id INT, \
+         FOREIGN KEY (customer_id) REFERENCES customers(id))",
+    )
+    .unwrap_err();
+    assert!(err.contains("does not exist"), "{err}");
+    assert!(store.get_schema("orders").unwrap().is_none(), "not left half-created");
+}
+
+#[test]
+fn foreign_key_creation_against_non_unique_referenced_column_rejected() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    // `code` has no PK/UNIQUE, so REFERENCES customers(code) is ambiguous.
+    run(&store, &view, "CREATE TABLE customers (id INT PRIMARY KEY, code TEXT)");
+    let err = create_via_sql(
+        &store,
+        "CREATE TABLE orders (id INT, customer_code TEXT, \
+         FOREIGN KEY (customer_code) REFERENCES customers(code))",
+    )
+    .unwrap_err();
+    assert!(err.contains("PRIMARY KEY or UNIQUE"), "{err}");
+}
+
+#[test]
+fn foreign_key_child_insert_with_no_parent_row_rejected() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(
+        &store,
+        &view,
+        "CREATE TABLE customers (id INT PRIMARY KEY, name TEXT)",
+    );
+    create_via_sql(
+        &store,
+        "CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, \
+         FOREIGN KEY (customer_id) REFERENCES customers(id))",
+    )
+    .unwrap();
+    let err = store
+        .insert_rows(
+            "orders",
+            &["id".into(), "customer_id".into()],
+            &[vec![json!(1), json!(99)]],
+        )
+        .unwrap_err();
+    assert!(err.contains("foreign key"), "{err}");
+    // A NULL FK column is exempt (MATCH SIMPLE — Postgres's default).
+    store
+        .insert_rows(
+            "orders",
+            &["id".into(), "customer_id".into()],
+            &[vec![json!(2), Value::Null]],
+        )
+        .unwrap();
+    // Once the parent row exists, the same child value is accepted.
+    run(
+        &store,
+        &view,
+        "INSERT INTO customers (id, name) VALUES (99, 'Ann')",
+    );
+    store
+        .insert_rows(
+            "orders",
+            &["id".into(), "customer_id".into()],
+            &[vec![json!(3), json!(99)]],
+        )
+        .unwrap();
+    assert_eq!(store.scan("orders").unwrap().len(), 3);
+}
+
+/// `ON DELETE RESTRICT` (and the same-behaving `NO ACTION` default) blocks a parent
+/// DELETE while a referencing child row exists, but not otherwise.
+#[test]
+fn foreign_key_on_delete_restrict_blocks_parent_delete_while_referenced() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE customers (id INT PRIMARY KEY)");
+    create_via_sql(
+        &store,
+        "CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, \
+         FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT)",
+    )
+    .unwrap();
+    run(&store, &view, "INSERT INTO customers (id) VALUES (1), (2)");
+    run(
+        &store,
+        &view,
+        "INSERT INTO orders (id, customer_id) VALUES (10, 1)",
+    );
+    let err = delete_via_sql(&store, "DELETE FROM customers WHERE id = 1").unwrap_err();
+    assert!(err.contains("foreign key"), "{err}");
+    assert_eq!(store.scan("customers").unwrap().len(), 2, "rolled back, nothing removed");
+    // Customer 2 has no referencing orders ⇒ deletes fine.
+    delete_via_sql(&store, "DELETE FROM customers WHERE id = 2").unwrap();
+    assert_eq!(store.scan("customers").unwrap().len(), 1);
+}
+
+#[test]
+fn foreign_key_on_delete_cascade_removes_children() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE customers (id INT PRIMARY KEY)");
+    create_via_sql(
+        &store,
+        "CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, \
+         FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE)",
+    )
+    .unwrap();
+    run(&store, &view, "INSERT INTO customers (id) VALUES (1), (2)");
+    run(
+        &store,
+        &view,
+        "INSERT INTO orders (id, customer_id) VALUES (10, 1), (11, 1), (12, 2)",
+    );
+    delete_via_sql(&store, "DELETE FROM customers WHERE id = 1").unwrap();
+    assert_eq!(store.scan("customers").unwrap().len(), 1, "only customer 1 removed");
+    let remaining = store.scan("orders").unwrap();
+    assert_eq!(remaining.len(), 1, "orders 10 and 11 cascaded away, 12 untouched");
+}
+
+#[test]
+fn foreign_key_on_delete_set_null_nulls_children() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE customers (id INT PRIMARY KEY)");
+    create_via_sql(
+        &store,
+        "CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, \
+         FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL)",
+    )
+    .unwrap();
+    run(&store, &view, "INSERT INTO customers (id) VALUES (1)");
+    run(
+        &store,
+        &view,
+        "INSERT INTO orders (id, customer_id) VALUES (10, 1)",
+    );
+    delete_via_sql(&store, "DELETE FROM customers WHERE id = 1").unwrap();
+    let rows = store.scan("orders").unwrap();
+    assert_eq!(rows.len(), 1, "the order row itself survives SET NULL");
+    let schema = store.get_schema("orders").unwrap().unwrap();
+    let ci = schema.column_index("customer_id").unwrap();
+    assert_eq!(rows[0][ci], Cell::Null);
+}
+
+#[test]
+fn foreign_key_on_update_cascade_propagates_new_key() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE customers (id INT PRIMARY KEY)");
+    create_via_sql(
+        &store,
+        "CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, \
+         FOREIGN KEY (customer_id) REFERENCES customers(id) ON UPDATE CASCADE)",
+    )
+    .unwrap();
+    run(&store, &view, "INSERT INTO customers (id) VALUES (1)");
+    run(
+        &store,
+        &view,
+        "INSERT INTO orders (id, customer_id) VALUES (10, 1)",
+    );
+    update_via_sql(&store, "UPDATE customers SET id = 2 WHERE id = 1").unwrap();
+    let rows = store.scan("orders").unwrap();
+    let schema = store.get_schema("orders").unwrap().unwrap();
+    let ci = schema.column_index("customer_id").unwrap();
+    assert_eq!(rows[0][ci], Cell::Int(2), "child FK value followed the parent's new key");
+}
+
+#[test]
+fn self_referencing_foreign_key_cascade_delete() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    create_via_sql(
+        &store,
+        "CREATE TABLE tree_nodes (id INT PRIMARY KEY, parent_id INT, \
+         FOREIGN KEY (parent_id) REFERENCES tree_nodes(id) ON DELETE CASCADE)",
+    )
+    .unwrap();
+    run(
+        &store,
+        &view,
+        "INSERT INTO tree_nodes (id, parent_id) VALUES (1, NULL), (2, 1), (3, 2)",
+    );
+    delete_via_sql(&store, "DELETE FROM tree_nodes WHERE id = 1").unwrap();
+    assert_eq!(
+        store.scan("tree_nodes").unwrap().len(),
+        0,
+        "cascade removed the whole chain, not just the root"
+    );
+}
+
+/// A cyclic FOREIGN KEY across two tables (A → B and B → A, both ON DELETE CASCADE,
+/// the second added via `ADD CONSTRAINT` since a cycle cannot exist in a single
+/// CREATE TABLE) must terminate — the `visited` guard in
+/// `enforce_fk_on_parent_change_in` is what makes this provably non-infinite rather
+/// than merely "didn't happen to hang in this run".
+#[test]
+fn cyclic_foreign_key_across_two_tables_does_not_deadlock_or_infinitely_recurse() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    create_via_sql(&store, "CREATE TABLE tbl_b (id INT PRIMARY KEY, a_id INT)").unwrap();
+    create_via_sql(
+        &store,
+        "CREATE TABLE tbl_a (id INT PRIMARY KEY, b_id INT, \
+         FOREIGN KEY (b_id) REFERENCES tbl_b(id) ON DELETE CASCADE)",
+    )
+    .unwrap();
+    store
+        .add_constraint(
+            "tbl_b",
+            TableConstraint::ForeignKey {
+                name: None,
+                columns: vec!["a_id".into()],
+                ref_table: "tbl_a".into(),
+                ref_columns: vec!["id".into()],
+                on_delete: RefAction::Cascade,
+                on_update: RefAction::NoAction,
+            },
+        )
+        .unwrap();
+
+    run(&store, &view, "INSERT INTO tbl_a (id, b_id) VALUES (1, NULL)");
+    run(&store, &view, "INSERT INTO tbl_b (id, a_id) VALUES (1, 1)");
+    update_via_sql(&store, "UPDATE tbl_a SET b_id = 1 WHERE id = 1").unwrap();
+
+    // This call must RETURN (not hang) and leave both rows removed exactly once.
+    delete_via_sql(&store, "DELETE FROM tbl_a WHERE id = 1").unwrap();
+    assert_eq!(store.scan("tbl_a").unwrap().len(), 0);
+    assert_eq!(store.scan("tbl_b").unwrap().len(), 0);
+}
+
+#[test]
+fn compound_check_constraint_accept_and_violation() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(
+        &store,
+        &view,
+        "CREATE TABLE t (lo INT, hi INT, status TEXT, \
+         CHECK (lo <= hi AND status IN ('a', 'b')))",
+    );
+    run(
+        &store,
+        &view,
+        "INSERT INTO t (lo, hi, status) VALUES (1, 2, 'a')",
+    );
+    let err = store
+        .insert_rows(
+            "t",
+            &["lo".into(), "hi".into(), "status".into()],
+            &[vec![json!(5), json!(2), json!("a")]],
+        )
+        .unwrap_err();
+    assert!(err.contains("check constraint"), "{err}");
+    let err2 = store
+        .insert_rows(
+            "t",
+            &["lo".into(), "hi".into(), "status".into()],
+            &[vec![json!(1), json!(2), json!("z")]],
+        )
+        .unwrap_err();
+    assert!(err2.contains("check constraint"), "{err2}");
+    assert_eq!(store.scan("t").unwrap().len(), 1, "both violations rolled back");
+}
+
+#[test]
+fn add_constraint_rejects_data_that_already_violates_it() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE t (a INT, b INT)");
+    run(&store, &view, "INSERT INTO t (a, b) VALUES (1, 1), (1, 1)");
+    let err = store
+        .add_constraint(
+            "t",
+            TableConstraint::Unique {
+                name: None,
+                columns: vec!["a".into(), "b".into()],
+            },
+        )
+        .unwrap_err();
+    assert!(err.contains("unique"), "{err}");
+    // The constraint was NOT persisted after the rejection.
+    let schema = store.get_schema("t").unwrap().unwrap();
+    assert!(schema.constraints().is_empty());
+}
+
+// ── NE-002: column-type completeness ───────────────────────────────────────────────
+
+#[test]
+fn ne002_column_types_round_trip_through_insert_select_arrow() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(
+        &store,
+        &view,
+        "CREATE TABLE typed (id UUID, amount NUMERIC(10,2), seen TIMESTAMPTZ, tags TEXT[])",
+    );
+    run(
+        &store,
+        &view,
+        "INSERT INTO typed (id, amount, seen, tags) VALUES \
+         ('A1A2A3A4-B1B2-C1C2-D1D2-E1E2E3E4E5E6', '123.40', '2024-01-01T00:00:00Z', '{a,b}')",
+    );
+    let res = run(&store, &view, "SELECT id, amount, seen, tags FROM typed").unwrap();
+    assert_eq!(res.rows.len(), 1);
+    // UUID: normalized to canonical lowercase, round-tripped through Arrow Utf8.
+    assert_eq!(res.rows[0][0], json!("a1a2a3a4-b1b2-c1c2-d1d2-e1e2e3e4e5e6"));
+    // NUMERIC(10,2): rounded/validated to the declared scale (Arrow Utf8 renders the
+    // stored `Cell::Float`'s canonical text — the documented precision ceiling on
+    // `ColumnType::Numeric`'s doc comment).
+    assert_eq!(res.rows[0][1], json!("123.4"));
+    // TIMESTAMPTZ: normalized to UTC epoch micros (Arrow Int64, same shape as `Timestamp`).
+    assert_eq!(res.rows[0][2], json!(1_704_067_200_000_000i64));
+    // TEXT[]: a genuine JSON array round-trips as its canonical JSON text (Arrow Utf8).
+    assert_eq!(res.rows[0][3], json!(r#"["a","b"]"#));
+
+    let schema = store.get_schema("typed").unwrap().unwrap();
+    assert_eq!(schema.column("id").unwrap().ty, ColumnType::Uuid);
+    assert_eq!(
+        schema.column("amount").unwrap().ty,
+        ColumnType::Numeric(Some((10, 2)))
+    );
+    assert_eq!(schema.column("seen").unwrap().ty, ColumnType::TimestampTz);
+    assert_eq!(
+        schema.column("tags").unwrap().ty,
+        ColumnType::Array(ArrayElemType::Text)
+    );
 }

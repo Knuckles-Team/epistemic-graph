@@ -36,10 +36,12 @@
 use datafusion::sql::sqlparser::ast::{
     AlterColumnOperation, AlterTableOperation, Assignment, AssignmentTarget, BinaryOperator,
     ColumnDef as SqlColumnDef, ColumnOption, ConflictTarget, CopyOption, CopySource, CopyTarget,
-    CreateTable, Delete, Expr, FromTable, Function, FunctionArg, FunctionArgExpr,
-    FunctionArguments, Insert, ObjectName, ObjectType, OnConflictAction as SqlOnConflictAction,
-    OnInsert, RenameTableNameKind, SelectItem, SetExpr, Statement, TableFactor, TableObject,
-    TableWithJoins, UnaryOperator, UpdateTableFromKind, Value as SqlValue, Values,
+    CreateTable, Delete, Expr, ForeignKeyConstraint as SqlForeignKeyConstraint, FromTable,
+    Function, FunctionArg, FunctionArgExpr, FunctionArguments, IndexColumn, Insert, ObjectName,
+    ObjectType, OnConflictAction as SqlOnConflictAction, OnInsert, ReferentialAction as SqlReferentialAction,
+    RenameTableNameKind, SelectItem, SetExpr, Statement, TableConstraint as SqlTableConstraint,
+    TableFactor, TableObject, TableWithJoins, UnaryOperator, UpdateTableFromKind,
+    Value as SqlValue, Values,
 };
 // CONCEPT:EG-KG.query.postgres-family-extension-plan/116/117 — the Postgres-family extension plan shapes classify routes to.
 use super::pgfamily::{AnnIndexPlan, ContinuousAggPlan, CypherCallPlan, HypertablePlan};
@@ -51,7 +53,8 @@ use eg_types::wire::{JsonPathOp, Pred};
 use serde_json::{Map, Value};
 
 use crate::tables::schema::{
-    CmpOp, ColCheck, FunctionArg as CatalogArg, FunctionLanguage, FunctionReturns, StoredFunction,
+    CheckExpr, CmpOp, ColCheck, FunctionArg as CatalogArg, FunctionLanguage, FunctionReturns,
+    RefAction, StoredFunction, TableConstraint,
 };
 
 /// How a single parsed SQL statement should be routed by the wire shim.
@@ -203,12 +206,23 @@ pub struct ColumnDef {
     pub check: Option<ColCheck>,
 }
 
-/// A decoded `CREATE TABLE` (CONCEPT:EG-KG.query.register-user-tables-alongside).
+/// A decoded `CREATE TABLE` (CONCEPT:EG-KG.query.register-user-tables-alongside; table-level constraints
+/// CONCEPT:EG-KG.query.table-schema-constraints/NE-001).
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateTablePlan {
     pub name: String,
     pub columns: Vec<ColumnDef>,
     pub if_not_exists: bool,
+    /// Table-level constraints (CONCEPT:EG-KG.query.table-schema-constraints/NE-001) — composite `PRIMARY
+    /// KEY`/`UNIQUE`, `FOREIGN KEY … REFERENCES`, and general `CHECK`. Decoded from
+    /// BOTH the statement's own table-constraint list (`ct.constraints`) AND any
+    /// inline single-column `REFERENCES` promoted here by [`decode_column_def`] (a
+    /// store-level [`TableConstraint`] has no notion of "declared inline on a
+    /// column" — a FK is uniformly a table-level fact either way). An inline
+    /// column-level `CHECK` stays on the SIMPLE `col OP literal` shape only (unchanged
+    /// from before this track) — a complex inline CHECK is rejected; write it as a
+    /// separate table-level `CHECK (...)` instead.
+    pub constraints: Vec<TableConstraint>,
 }
 
 /// A decoded `DROP TABLE` (CONCEPT:EG-KG.query.register-user-tables-alongside).
@@ -1525,7 +1539,8 @@ fn decode_table_where(
     Ok(TableWhereEq { pred })
 }
 
-/// Decode `CREATE TABLE name (col type [NOT NULL] [PRIMARY KEY], …) [IF NOT EXISTS]`.
+/// Decode `CREATE TABLE name (col type [NOT NULL] [PRIMARY KEY], …) [IF NOT EXISTS]`
+/// (table-level constraints CONCEPT:EG-KG.query.table-schema-constraints/NE-001).
 fn classify_create_table(ct: &CreateTable) -> Result<CreateTablePlan, String> {
     let name = last_ident(&ct.name);
     if is_reserved_table(&name) {
@@ -1537,13 +1552,20 @@ fn classify_create_table(ct: &CreateTable) -> Result<CreateTablePlan, String> {
         return Err("CREATE TABLE requires at least one column".to_string());
     }
     let mut columns = Vec::with_capacity(ct.columns.len());
+    let mut constraints = Vec::new();
     for c in &ct.columns {
-        columns.push(decode_column_def(c)?);
+        let (col, inline_fk) = decode_column_def(c)?;
+        columns.push(col);
+        constraints.extend(inline_fk);
+    }
+    for tc in &ct.constraints {
+        constraints.push(decode_table_constraint(tc)?);
     }
     Ok(CreateTablePlan {
         name,
         columns,
         if_not_exists: ct.if_not_exists,
+        constraints,
     })
 }
 
@@ -1551,7 +1573,12 @@ fn classify_create_table(ct: &CreateTable) -> Result<CreateTablePlan, String> {
 /// constraints CONCEPT:EG-KG.query.register-each-user-table): name, raw type spelling, NULL/NOT NULL/PRIMARY KEY,
 /// UNIQUE, column DEFAULT (literal or `nextval` ⇒ SERIAL), SERIAL/BIGSERIAL types, and
 /// a simple `CHECK (col OP literal)`. A `PRIMARY KEY` column is implicitly NOT NULL.
-fn decode_column_def(c: &SqlColumnDef) -> Result<ColumnDef, String> {
+/// An inline `REFERENCES other(col)` (CONCEPT:EG-KG.query.table-schema-constraints/NE-001) is promoted to a
+/// single-column table-level [`TableConstraint::ForeignKey`] and returned alongside —
+/// the store's schema has no notion of a column-scoped FK, a FK is uniformly a
+/// table-level fact. Previously this was matched by the trailing `_ => {}` and
+/// SILENTLY DROPPED; it is now decoded (or, for an unsupported shape, rejected).
+fn decode_column_def(c: &SqlColumnDef) -> Result<(ColumnDef, Option<TableConstraint>), String> {
     let type_name = c.data_type.to_string();
     // SERIAL/BIGSERIAL: auto-increment + NOT NULL (Postgres pseudo-types).
     let base_ty = type_name
@@ -1569,6 +1596,7 @@ fn decode_column_def(c: &SqlColumnDef) -> Result<ColumnDef, String> {
     let mut unique = false;
     let mut default = None;
     let mut check = None;
+    let mut inline_fk = None;
     for opt in &c.options {
         match &opt.option {
             ColumnOption::NotNull => nullable = false,
@@ -1598,10 +1626,17 @@ fn decode_column_def(c: &SqlColumnDef) -> Result<ColumnDef, String> {
             ColumnOption::Check(constraint) => {
                 check = Some(decode_check(&constraint.expr, &c.name.value)?);
             }
+            ColumnOption::ForeignKey(fk) => {
+                inline_fk = Some(decode_foreign_key(
+                    opt.name.as_ref().map(|i| i.value.clone()),
+                    &[c.name.value.clone()],
+                    fk,
+                )?);
+            }
             _ => {}
         }
     }
-    Ok(ColumnDef {
+    let col = ColumnDef {
         name: c.name.value.clone(),
         type_name,
         nullable,
@@ -1610,7 +1645,214 @@ fn decode_column_def(c: &SqlColumnDef) -> Result<ColumnDef, String> {
         serial,
         default,
         check,
+    };
+    Ok((col, inline_fk))
+}
+
+/// Decode a sqlparser `TableConstraint` (CONCEPT:EG-KG.query.table-schema-constraints/NE-001) — `CREATE TABLE`'s
+/// own `ct.constraints` list, previously never even READ (every table-level
+/// `PRIMARY KEY (...)`/`UNIQUE (...)`/`FOREIGN KEY ... REFERENCES`/`CHECK (...)` was
+/// silently ignored). A shape this store cannot enforce (an index-promotion
+/// constraint, a MySQL `INDEX`/`FULLTEXT` definition, …) is REJECTED with a precise
+/// error rather than silently dropped.
+fn decode_table_constraint(tc: &SqlTableConstraint) -> Result<TableConstraint, String> {
+    match tc {
+        SqlTableConstraint::PrimaryKey(pk) => Ok(TableConstraint::PrimaryKey {
+            name: pk.name.as_ref().map(|i| i.value.clone()),
+            columns: index_columns_to_names(&pk.columns)?,
+        }),
+        SqlTableConstraint::Unique(u) => Ok(TableConstraint::Unique {
+            name: u.name.as_ref().map(|i| i.value.clone()),
+            columns: index_columns_to_names(&u.columns)?,
+        }),
+        SqlTableConstraint::ForeignKey(fk) => {
+            let columns: Vec<String> = fk.columns.iter().map(|i| i.value.clone()).collect();
+            decode_foreign_key(fk.name.as_ref().map(|i| i.value.clone()), &columns, fk)
+        }
+        SqlTableConstraint::Check(chk) => Ok(TableConstraint::Check {
+            name: chk.name.as_ref().map(|i| i.value.clone()),
+            expr: decode_check_expr(&chk.expr)?,
+        }),
+        other => Err(format!(
+            "unsupported table constraint (only PRIMARY KEY, UNIQUE, FOREIGN KEY, and CHECK are supported): `{other}`"
+        )),
+    }
+}
+
+/// Extract plain column names from a `PRIMARY KEY (...)`/`UNIQUE (...)` column list
+/// (CONCEPT:EG-KG.query.table-schema-constraints/NE-001). Rejects an indexed expression (`col DESC`, an operator
+/// class, …) — only a bare column name is supported.
+fn index_columns_to_names(cols: &[IndexColumn]) -> Result<Vec<String>, String> {
+    cols.iter()
+        .map(|ic| ident_from_expr(&ic.column.expr))
+        .collect()
+}
+
+/// A plain column identifier from an `Expr` (CONCEPT:EG-KG.query.table-schema-constraints/NE-001) — rejects
+/// anything but a bare (possibly table-qualified) identifier.
+fn ident_from_expr(expr: &Expr) -> Result<String, String> {
+    match expr {
+        Expr::Identifier(id) => Ok(id.value.clone()),
+        Expr::CompoundIdentifier(parts) => parts
+            .last()
+            .map(|i| i.value.clone())
+            .ok_or_else(|| "empty compound identifier".to_string()),
+        other => Err(format!("expected a plain column name, got `{other}`")),
+    }
+}
+
+/// Decode a `FOREIGN KEY (...) REFERENCES table(...) [ON DELETE ...] [ON UPDATE ...]`
+/// (CONCEPT:EG-KG.query.table-schema-constraints/NE-001), shared by the table-level and inline column-level
+/// spellings (both carry the SAME `ForeignKeyConstraint` in this sqlparser version).
+/// A `MATCH FULL|PARTIAL|SIMPLE` clause is rejected (this store only implements
+/// MATCH SIMPLE semantics — accepting a `MATCH FULL` and silently running SIMPLE
+/// would be a real behavior change, not a supported degrade).
+fn decode_foreign_key(
+    name: Option<String>,
+    columns: &[String],
+    fk: &SqlForeignKeyConstraint,
+) -> Result<TableConstraint, String> {
+    if fk.match_kind.is_some() {
+        return Err(
+            "FOREIGN KEY MATCH FULL/PARTIAL is not supported (only the default MATCH SIMPLE)"
+                .to_string(),
+        );
+    }
+    let ref_table = last_ident(&fk.foreign_table);
+    if fk.referred_columns.is_empty() {
+        return Err(format!(
+            "FOREIGN KEY REFERENCES `{ref_table}` must name at least one column"
+        ));
+    }
+    Ok(TableConstraint::ForeignKey {
+        name,
+        columns: columns.to_vec(),
+        ref_table,
+        ref_columns: fk.referred_columns.iter().map(|i| i.value.clone()).collect(),
+        on_delete: decode_referential_action(fk.on_delete)?,
+        on_update: decode_referential_action(fk.on_update)?,
     })
+}
+
+/// `ON DELETE`/`ON UPDATE` action (CONCEPT:EG-KG.query.table-schema-constraints/NE-001). Default (unspecified) is
+/// `NO ACTION`, matching the SQL standard. `SET DEFAULT` is explicitly rejected — the
+/// store has no per-column DEFAULT tracking wired to a referential action, so
+/// accepting it and silently downgrading to `NO ACTION`/`SET NULL` would be exactly
+/// the "silently ignored, which is worse" failure mode this track exists to close.
+fn decode_referential_action(action: Option<SqlReferentialAction>) -> Result<RefAction, String> {
+    Ok(match action {
+        None | Some(SqlReferentialAction::NoAction) => RefAction::NoAction,
+        Some(SqlReferentialAction::Restrict) => RefAction::Restrict,
+        Some(SqlReferentialAction::Cascade) => RefAction::Cascade,
+        Some(SqlReferentialAction::SetNull) => RefAction::SetNull,
+        Some(SqlReferentialAction::SetDefault) => {
+            return Err(
+                "FOREIGN KEY ... ON DELETE/UPDATE SET DEFAULT is not supported (NO ACTION, \
+                 RESTRICT, CASCADE, and SET NULL are)"
+                    .to_string(),
+            )
+        }
+    })
+}
+
+/// Decode a general `CHECK` expression (CONCEPT:EG-KG.query.table-schema-constraints/NE-001) into a [`CheckExpr`]:
+/// `AND`/`OR` of comparisons, `col OP literal`, a comparison between two columns of
+/// the same row, `[NOT] IN (...)`, and `IS [NOT] NULL`. Anything else (a function
+/// call, a subquery, `LIKE`, …) is rejected with a precise error — never silently
+/// dropped.
+fn decode_check_expr(expr: &Expr) -> Result<CheckExpr, String> {
+    let inner = match expr {
+        Expr::Nested(e) => return decode_check_expr(e),
+        other => other,
+    };
+    match inner {
+        Expr::BinaryOp { left, op, right } => match op {
+            BinaryOperator::And => Ok(CheckExpr::And(
+                Box::new(decode_check_expr(left)?),
+                Box::new(decode_check_expr(right)?),
+            )),
+            BinaryOperator::Or => Ok(CheckExpr::Or(
+                Box::new(decode_check_expr(left)?),
+                Box::new(decode_check_expr(right)?),
+            )),
+            BinaryOperator::Eq
+            | BinaryOperator::NotEq
+            | BinaryOperator::Lt
+            | BinaryOperator::LtEq
+            | BinaryOperator::Gt
+            | BinaryOperator::GtEq => decode_check_comparison(left, op.clone(), right),
+            other => Err(format!("CHECK supports only AND/OR/comparisons, got operator `{other}`")),
+        },
+        Expr::InList {
+            expr,
+            list,
+            negated,
+        } => {
+            let column = ident_from_expr(expr)?;
+            let values = list.iter().map(expr_to_json).collect::<Result<Vec<_>, _>>()?;
+            Ok(CheckExpr::In {
+                column,
+                values,
+                negated: *negated,
+            })
+        }
+        Expr::IsNull(e) => Ok(CheckExpr::IsNull {
+            column: ident_from_expr(e)?,
+            negated: false,
+        }),
+        Expr::IsNotNull(e) => Ok(CheckExpr::IsNull {
+            column: ident_from_expr(e)?,
+            negated: true,
+        }),
+        other => Err(format!(
+            "CHECK supports AND/OR, comparisons, IN (...), and IS [NOT] NULL — got `{other}`"
+        )),
+    }
+}
+
+/// One `col OP literal` or `col_a OP col_b` leaf of a general CHECK (CONCEPT:EG-KG.query.table-schema-constraints/NE-001).
+fn decode_check_comparison(left: &Expr, op: BinaryOperator, right: &Expr) -> Result<CheckExpr, String> {
+    let cmp = match op {
+        BinaryOperator::Eq => CmpOp::Eq,
+        BinaryOperator::NotEq => CmpOp::Ne,
+        BinaryOperator::Lt => CmpOp::Lt,
+        BinaryOperator::LtEq => CmpOp::Le,
+        BinaryOperator::Gt => CmpOp::Gt,
+        BinaryOperator::GtEq => CmpOp::Ge,
+        other => return Err(format!("unsupported CHECK comparison operator `{other}`")),
+    };
+    let left_col = matches!(left, Expr::Identifier(_) | Expr::CompoundIdentifier(_));
+    let right_col = matches!(right, Expr::Identifier(_) | Expr::CompoundIdentifier(_));
+    if left_col && right_col {
+        return Ok(CheckExpr::ColCmp {
+            left: ident_from_expr(left)?,
+            op: cmp,
+            right: ident_from_expr(right)?,
+        });
+    }
+    if left_col {
+        return Ok(CheckExpr::Cmp {
+            column: ident_from_expr(left)?,
+            op: cmp,
+            value: expr_to_json(right)?,
+        });
+    }
+    if right_col {
+        // `literal OP col` — flip to `col OP' literal`.
+        let flipped = match cmp {
+            CmpOp::Lt => CmpOp::Gt,
+            CmpOp::Le => CmpOp::Ge,
+            CmpOp::Gt => CmpOp::Lt,
+            CmpOp::Ge => CmpOp::Le,
+            same => same,
+        };
+        return Ok(CheckExpr::Cmp {
+            column: ident_from_expr(right)?,
+            op: flipped,
+            value: expr_to_json(left)?,
+        });
+    }
+    Err("CHECK comparison must have a column on at least one side".to_string())
 }
 
 /// Whether `expr` is a `nextval(...)` call (the `DEFAULT nextval('seq')` SERIAL idiom).
@@ -2268,7 +2510,21 @@ fn classify_alter_table(
     };
     let action = match op {
         AlterTableOperation::AddColumn { column_def, .. } => {
-            AlterTableAction::AddColumn(decode_column_def(column_def)?)
+            let (col, inline_fk) = decode_column_def(column_def)?;
+            // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — an inline `REFERENCES` on `ADD COLUMN` has no
+            // carrier in `AlterTableAction::AddColumn` (a single-op ALTER TABLE, unlike
+            // CREATE TABLE, has no side-channel for an accompanying table constraint).
+            // Rejected with a precise error rather than silently dropped; the
+            // constraint can be added in a follow-up `ALTER TABLE ... ADD CONSTRAINT`.
+            if inline_fk.is_some() {
+                return Err(
+                    "ALTER TABLE ADD COLUMN does not support an inline REFERENCES; add the \
+                     column first, then a separate ALTER TABLE ... ADD CONSTRAINT ... \
+                     FOREIGN KEY"
+                        .to_string(),
+                );
+            }
+            AlterTableAction::AddColumn(col)
         }
         // CONCEPT:EG-KG.query.rename-table-moves-catalog — `DROP [COLUMN] [IF EXISTS] col`.
         AlterTableOperation::DropColumn {
@@ -3487,6 +3743,111 @@ mod tests {
         let chk = p.columns[2].check.clone().expect("check");
         assert_eq!(chk.op, CmpOp::Ge);
         assert_eq!(chk.value, Value::Number(0.into()));
+    }
+
+    // ── table-level constraints (CONCEPT:EG-KG.query.table-schema-constraints/NE-001) ────────────────────────
+
+    #[test]
+    fn create_table_decodes_composite_primary_key_and_unique() {
+        let StatementKind::CreateTable(p) = classify(
+            "CREATE TABLE order_items (order_id INT, product_id INT, qty INT, \
+             PRIMARY KEY (order_id, product_id), UNIQUE (product_id, qty))",
+        )
+        .unwrap() else {
+            panic!("expected CreateTable");
+        };
+        assert_eq!(p.constraints.len(), 2);
+        assert_eq!(
+            p.constraints[0],
+            TableConstraint::PrimaryKey {
+                name: None,
+                columns: vec!["order_id".into(), "product_id".into()],
+            }
+        );
+        assert_eq!(
+            p.constraints[1],
+            TableConstraint::Unique {
+                name: None,
+                columns: vec!["product_id".into(), "qty".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn create_table_decodes_foreign_key_with_referential_actions() {
+        let StatementKind::CreateTable(p) = classify(
+            "CREATE TABLE orders (id INT, customer_id INT, \
+             CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES customers(id) \
+             ON DELETE CASCADE ON UPDATE SET NULL)",
+        )
+        .unwrap() else {
+            panic!("expected CreateTable");
+        };
+        assert_eq!(
+            p.constraints[0],
+            TableConstraint::ForeignKey {
+                name: Some("fk_customer".into()),
+                columns: vec!["customer_id".into()],
+                ref_table: "customers".into(),
+                ref_columns: vec!["id".into()],
+                on_delete: RefAction::Cascade,
+                on_update: RefAction::SetNull,
+            }
+        );
+    }
+
+    #[test]
+    fn create_table_decodes_inline_column_foreign_key() {
+        let StatementKind::CreateTable(p) = classify(
+            "CREATE TABLE orders (id INT, customer_id INT REFERENCES customers(id))",
+        )
+        .unwrap() else {
+            panic!("expected CreateTable");
+        };
+        assert_eq!(
+            p.constraints[0],
+            TableConstraint::ForeignKey {
+                name: None,
+                columns: vec!["customer_id".into()],
+                ref_table: "customers".into(),
+                ref_columns: vec!["id".into()],
+                on_delete: RefAction::NoAction,
+                on_update: RefAction::NoAction,
+            }
+        );
+    }
+
+    #[test]
+    fn foreign_key_set_default_is_rejected_not_silently_downgraded() {
+        let err = classify(
+            "CREATE TABLE orders (id INT, customer_id INT, \
+             FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET DEFAULT)",
+        )
+        .unwrap_err();
+        assert!(err.contains("SET DEFAULT"), "{err}");
+    }
+
+    #[test]
+    fn create_table_decodes_general_check_expression() {
+        let StatementKind::CreateTable(p) = classify(
+            "CREATE TABLE t (lo INT, hi INT, status TEXT, \
+             CHECK ((lo <= hi AND status IN ('a', 'b')) OR status IS NULL))",
+        )
+        .unwrap() else {
+            panic!("expected CreateTable");
+        };
+        let TableConstraint::Check { expr, .. } = &p.constraints[0] else {
+            panic!("expected Check constraint");
+        };
+        // Shape check: top level is an Or.
+        assert!(matches!(expr, CheckExpr::Or(_, _)));
+    }
+
+    #[test]
+    fn unsupported_table_constraint_shape_rejected() {
+        // A MySQL-style bare INDEX definition is not one of PRIMARY KEY/UNIQUE/FOREIGN
+        // KEY/CHECK — must be rejected, not silently dropped.
+        assert!(classify("CREATE TABLE t (a INT, INDEX (a))").is_err());
     }
 
     #[test]
