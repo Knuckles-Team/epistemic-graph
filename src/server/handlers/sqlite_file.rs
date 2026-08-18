@@ -744,24 +744,23 @@ fn columns_from_schema(schema: &TableSchema) -> Vec<SqliteColumnDef> {
 /// [`affinity_to_type`]). Bool/Timestamp store as INTEGER, Json/Vector as TEXT.
 fn type_to_sqlite(ty: ColumnType) -> &'static str {
     match ty {
+        // SQLite has no native UUID, NUMERIC-with-scale, timezone-aware
+        // timestamp or array type, so the expanded types round-trip through
+        // their canonical TEXT form rather than a lossy affinity. TimestampTz
+        // stays INTEGER micros like Timestamp.
         ColumnType::Int
         | ColumnType::BigInt
         | ColumnType::Bool
         | ColumnType::Timestamp
         | ColumnType::TimestampTz => "INTEGER",
-        ColumnType::Float | ColumnType::Double | ColumnType::Numeric(_) => "REAL",
-        ColumnType::Text | ColumnType::Json | ColumnType::Uuid | ColumnType::Array(_) => "TEXT",
+        ColumnType::Float | ColumnType::Double => "REAL",
+        ColumnType::Text
+        | ColumnType::Json
+        | ColumnType::Uuid
+        | ColumnType::Numeric(_)
+        | ColumnType::Array(_) => "TEXT",
         ColumnType::Bytes => "BLOB",
         ColumnType::Vector(_) => "TEXT",
-        // Added with the constraint/column-type work. SQLite has no native UUID,
-        // NUMERIC-with-scale, timezone-aware timestamp or array type, so each
-        // round-trips through its canonical TEXT form rather than being coerced
-        // into a lossy affinity: NUMERIC into REAL would silently lose exactness,
-        // which is the whole reason the type exists. TimestampTz stays INTEGER
-        // micros like Timestamp, with the zone carried in the value's canonical
-        // encoding.
-        ColumnType::Uuid | ColumnType::Numeric(_) | ColumnType::Array(_) => "TEXT",
-        ColumnType::TimestampTz => "INTEGER",
     }
 }
 
@@ -808,7 +807,21 @@ fn render_vector(v: &[f32]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use eg_query::tables::schema::ArrayElemType;
+
     use super::*;
+
+    #[test]
+    fn ne002_expanded_types_have_explicit_sqlite_mappings() {
+        assert_eq!(type_to_sqlite(ColumnType::Uuid), "TEXT");
+        // Preserve NUMERIC's exact canonical text rather than lossy REAL affinity.
+        assert_eq!(type_to_sqlite(ColumnType::Numeric(Some((10, 2)))), "TEXT");
+        assert_eq!(type_to_sqlite(ColumnType::TimestampTz), "INTEGER");
+        assert_eq!(
+            type_to_sqlite(ColumnType::Array(ArrayElemType::Text)),
+            "TEXT"
+        );
+    }
 
     fn unique_paths() -> (std::path::PathBuf, std::path::PathBuf) {
         use std::time::{SystemTime, UNIX_EPOCH};
