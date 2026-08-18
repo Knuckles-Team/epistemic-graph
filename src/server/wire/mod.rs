@@ -592,6 +592,21 @@ pub struct WireSession {
     /// autocommit statement always commits under `Snapshot`, which is already
     /// exactly as strong as a single statement needs).
     txn_isolation: parking_lot::Mutex<crate::server::txn::IsolationLevel>,
+    /// The pinned graph's `core.version()` as of this transaction's ACTUAL
+    /// `BEGIN` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005 correctness). `GraphTxnState`'s OCC coarse guard
+    /// (`validate()`: "if `core.version()` is unchanged since begin, skip
+    /// both the read-set AND the predicate re-check") is worthless if
+    /// `begin_version` is re-derived as `core.version()` FRESH at commit
+    /// time — that trivially equals the version `validate()` reads moments
+    /// later in the SAME call, short-circuiting BOTH checks unconditionally,
+    /// completely defeating a concurrent-write conflict that landed WHILE
+    /// this transaction was open (exactly the phantom SERIALIZABLE exists to
+    /// catch). Captured once, right after `begin_txn()`; threaded through to
+    /// `commit_graph_methods_with_op`/`new_txn_state` instead of letting them
+    /// re-derive it. `None` off-txn (a lone autocommit statement has no
+    /// earlier "begin" to protect — `core.version()` at its own commit time
+    /// is correct there). Reset by `begin_txn()`.
+    txn_begin_version: parking_lot::Mutex<Option<u64>>,
     /// Session-level isolation default from `SET SESSION CHARACTERISTICS AS
     /// TRANSACTION ISOLATION LEVEL …` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005). Applied to every
     /// subsequent `BEGIN` that does not name a level explicitly. `None` means
@@ -646,6 +661,7 @@ impl WireSession {
             #[cfg(feature = "query")]
             xmodal: parking_lot::Mutex::new(XmodalStaged::default()),
             txn_isolation: parking_lot::Mutex::new(crate::server::txn::IsolationLevel::Snapshot),
+            txn_begin_version: parking_lot::Mutex::new(None),
             session_isolation_default: parking_lot::Mutex::new(None),
             pending_isolation: parking_lot::Mutex::new(None),
             serializable_predicate_reads: parking_lot::Mutex::new(Vec::new()),
@@ -882,6 +898,7 @@ impl WireSession {
         // immediately overwrites this with the resolved level (inline clause,
         // else `pending_isolation`, else the session default, else Snapshot).
         *self.txn_isolation.lock() = crate::server::txn::IsolationLevel::Snapshot;
+        *self.txn_begin_version.lock() = None;
         self.serializable_predicate_reads.lock().clear();
         self.txn_replay_log.lock().clear();
     }
@@ -1439,7 +1456,10 @@ impl WireSession {
                 .ok_or_else(|| user_err("cross-modal transaction has no pinned graph"))?;
             // `new_txn_state` resolves the pinned graph's core (surfacing a not-found).
             let mixed_isolation = *self.txn_isolation.lock();
-            let mut ts = self.new_txn_state(&graph, mixed_isolation).await?;
+            let mixed_begin_version = *self.txn_begin_version.lock();
+            let mut ts = self
+                .new_txn_state(&graph, mixed_isolation, mixed_begin_version)
+                .await?;
             ts.write_set = Self::node_ops_to_methods(&node_ops)?;
             ts.vectors = xmodal.vectors;
             #[cfg(feature = "tsdb")]
@@ -1484,8 +1504,15 @@ impl WireSession {
                 .ok_or_else(|| user_err("transaction has node ops but no pinned graph"))?;
             let methods = Self::node_ops_to_methods(&node_ops)?;
             let graph_isolation = *self.txn_isolation.lock();
-            self.commit_graph_methods_with_op(&graph, methods, uuid::Uuid::new_v4(), graph_isolation)
-                .await?;
+            let begin_version = *self.txn_begin_version.lock();
+            self.commit_graph_methods_with_op(
+                &graph,
+                methods,
+                uuid::Uuid::new_v4(),
+                graph_isolation,
+                begin_version,
+            )
+            .await?;
         }
 
         // SQL catalog/table store: rows, result, OCC/fence, idempotency, and outbox
@@ -1583,6 +1610,7 @@ impl WireSession {
     ) -> WireResult<WireOutcome> {
         let methods = Self::node_ops_to_methods(&node_ops)?;
         let isolation = *self.txn_isolation.lock();
+        let begin_version = *self.txn_begin_version.lock();
         // MUST run before either commit: it reads the durable pre-txn state.
         let compensating = self.compensating_methods(graph, &methods).await?;
         let table_steps = std::mem::take(&mut *self.txn_replay_log.lock());
@@ -1609,8 +1637,15 @@ impl WireSession {
         // commit it directly rather than re-deriving it from the replay log
         // (that reconstruction is for RECOVERY, which has no live `TableTxn`
         // to work from).
-        self.resolve_commit_intent(&authority, persist_dir, intent, isolation, Some(table_txn))
-            .await?;
+        self.resolve_commit_intent(
+            &authority,
+            persist_dir,
+            intent,
+            isolation,
+            begin_version,
+            Some(table_txn),
+        )
+        .await?;
         Ok(WireOutcome::TxnEnd { tag: "COMMIT" })
     }
 
@@ -1630,6 +1665,7 @@ impl WireSession {
         persist_dir: &Path,
         intent: crate::server::txn_intent::CommitIntent,
         isolation: crate::server::txn::IsolationLevel,
+        begin_version: Option<u64>,
         live_table_txn: Option<TableTxn>,
     ) -> WireResult<()> {
         let operation_id = intent.operation_id();
@@ -1641,6 +1677,7 @@ impl WireSession {
                 intent.forward_methods.clone(),
                 operation_id,
                 isolation,
+                begin_version,
             )
             .await
         {
@@ -1680,6 +1717,7 @@ impl WireSession {
                         intent.compensating_methods.clone(),
                         compensate_id,
                         crate::server::txn::IsolationLevel::Snapshot,
+                        None,
                     )
                     .await
                 {
@@ -1796,6 +1834,7 @@ impl WireSession {
                 persist_dir,
                 intent,
                 crate::server::txn::IsolationLevel::Snapshot,
+                None,
                 None,
             )
             .await?;
@@ -2842,6 +2881,7 @@ impl WireSession {
             methods,
             uuid::Uuid::new_v4(),
             crate::server::txn::IsolationLevel::Snapshot,
+            None,
         )
         .await
     }
@@ -2861,12 +2901,19 @@ impl WireSession {
     /// (each already fingerprinted AT READ TIME — see `execute()`'s read
     /// hook) so the commit gets genuine phantom protection for the reads this
     /// txn actually performed, instead of silently behaving like `Snapshot`.
+    ///
+    /// `begin_version` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005 correctness): the wire transaction's REAL
+    /// begin-time `core.version()` (see [`WireSession::txn_begin_version`]'s
+    /// doc) — pass the captured value for a multi-statement `COMMIT`, or
+    /// `None` for a lone autocommit statement (which has no earlier "begin"
+    /// to protect, so the current version is the correct baseline).
     async fn commit_graph_methods_with_op(
         &self,
         graph: &str,
         methods: Vec<crate::protocol::Method>,
         operation_id: uuid::Uuid,
         isolation: crate::server::txn::IsolationLevel,
+        begin_version: Option<u64>,
     ) -> WireResult<()> {
         if methods.is_empty() {
             return Ok(());
@@ -2891,7 +2938,7 @@ impl WireSession {
             crate::server::txn::NewTxnArgs {
                 graph: graph.to_string(),
                 tenant_scope: authority.tenant_scope().to_string(),
-                begin_version: core.version(),
+                begin_version: begin_version.unwrap_or_else(|| core.version()),
                 isolation,
                 predicate: None,
                 agent: authority.owner_scope().to_string(),
@@ -3212,7 +3259,7 @@ impl WireSession {
                     Ok(WireOutcome::command("SET EMBEDDING"))
                 } else {
                     let mut ts = self
-                        .new_txn_state(graph, crate::server::txn::IsolationLevel::Snapshot)
+                        .new_txn_state(graph, crate::server::txn::IsolationLevel::Snapshot, None)
                         .await?;
                     ts.vectors.push((id, vec));
                     self.commit_txn_state(ts).await?;
@@ -3236,7 +3283,7 @@ impl WireSession {
                         Ok(WireOutcome::command_rows("INSERT", 1))
                     } else {
                         let mut ts = self
-                        .new_txn_state(graph, crate::server::txn::IsolationLevel::Snapshot)
+                        .new_txn_state(graph, crate::server::txn::IsolationLevel::Snapshot, None)
                         .await?;
                         ts.measurements.push(self.scope_measurement(graph, m)?);
                         self.commit_txn_state(ts).await?;
@@ -3304,7 +3351,7 @@ impl WireSession {
             Ok(WireOutcome::command("SPARQL"))
         } else {
             let mut ts = self
-                        .new_txn_state(graph, crate::server::txn::IsolationLevel::Snapshot)
+                        .new_txn_state(graph, crate::server::txn::IsolationLevel::Snapshot, None)
                         .await?;
             ts.axioms.extend(methods);
             self.commit_txn_state(ts).await?;
@@ -3456,6 +3503,7 @@ impl WireSession {
         &self,
         graph: &str,
         isolation: crate::server::txn::IsolationLevel,
+        begin_version: Option<u64>,
     ) -> WireResult<crate::server::txn::GraphTxnState> {
         let core = self.graph_core(graph).await?;
         let authority = self.carrier_authority()?;
@@ -3464,7 +3512,7 @@ impl WireSession {
             crate::server::txn::NewTxnArgs {
                 graph: graph.to_string(),
                 tenant_scope: authority.tenant_scope().to_string(),
-                begin_version: core.version(),
+                begin_version: begin_version.unwrap_or_else(|| core.version()),
                 isolation,
                 predicate: None,
                 agent: authority.owner_scope().to_string(),
@@ -3809,6 +3857,15 @@ impl WireProtocol for WireSession {
                         .unwrap_or(crate::server::txn::IsolationLevel::Snapshot),
                 };
                 *self.txn_isolation.lock() = resolved;
+                // Capture the REAL begin-time version now, before any
+                // statement runs — see `txn_begin_version`'s doc for why
+                // this must not be re-derived at commit time. Best-effort:
+                // a not-found graph here just leaves it `None`, and the
+                // later commit path's own `graph_core` call surfaces the
+                // real error.
+                if let Ok(core) = self.graph_core(&graph).await {
+                    *self.txn_begin_version.lock() = Some(core.version());
+                }
                 return Ok(WireOutcome::TxnStart);
             }
             StatementKind::Commit => return self.run_commit().await,
@@ -4271,8 +4328,9 @@ mod ne_004_ne_005_tests {
         let persist_dir = std::path::Path::new(&persist_dir_buf);
         crate::server::txn_intent::write_intent(&authority, persist_dir, &intent)
             .expect("write durable intent");
+        let begin_version = *session.txn_begin_version.lock();
         session
-            .commit_graph_methods_with_op(graph, methods, operation_id, isolation)
+            .commit_graph_methods_with_op(graph, methods, operation_id, isolation, begin_version)
             .await
             .expect("phase 1: graph commit");
         // `table_txn` is deliberately never committed and the intent is
