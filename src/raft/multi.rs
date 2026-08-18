@@ -358,7 +358,16 @@ impl MultiRaft {
         backend: Arc<dyn crate::server::persistence::PersistenceBackend>,
         ctx: AppCtx,
     ) -> Result<Arc<Self>, String> {
-        Self::start_inner(node_id, bind_addr, backend, ctx, None).await
+        let state = ctx.state.clone();
+        let multi = Self::start_inner(node_id, bind_addr, backend, ctx, None).await?;
+        // Harness construction is process-owned: once the real MultiRaft
+        // listener/catalog exists, publish it to the shared ServerState rather
+        // than making every fixture remember a second wiring assignment.
+        state
+            .write()
+            .await
+            .install_multi_raft_placement_authority(None, multi.clone());
+        Ok(multi)
     }
 
     /// Production callers cannot select the harness-only plaintext constructor.

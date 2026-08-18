@@ -222,6 +222,15 @@ pub async fn start(
         cfg.groups.max(1),
     );
 
+    // Publish the routing handle and the durable placement catalog together at
+    // the process-owned construction seam.  There is no served interval in
+    // which a configured Raft node can be mistaken for a single-node process
+    // merely because `multi_raft` has not been copied into `ServerState` yet.
+    state
+        .write()
+        .await
+        .install_multi_raft_placement_authority(Some(handle.clone()), multi.clone());
+
     Ok(StartedNode {
         handle,
         multi,

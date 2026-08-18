@@ -272,11 +272,7 @@ async fn clear_state_backend(state: Arc<RwLock<ServerState>>, label: &str) -> Re
         .await
         .map_err(|_| format!("{label} state write lock did not drain before cleanup"))?;
     let backend = guard.persistence.take();
-    guard.raft = None;
-    #[cfg(feature = "raft")]
-    {
-        guard.multi_raft = None;
-    }
+    guard.install_local_placement_authority();
     drop(guard);
     if let Some(backend) = backend {
         shutdown_backend(backend, label).await?;
@@ -349,7 +345,6 @@ impl Cluster {
                     return Err(cluster.fail_start(reason, startup_cleanup_failed).await);
                 }
             };
-            state.write().await.raft = Some(started.handle.clone());
             cluster.members.insert(
                 i,
                 Member {
@@ -715,13 +710,9 @@ impl Cluster {
                 }
             };
             let backend = guard.persistence.take();
-            guard.raft = None;
-            #[cfg(feature = "raft")]
-            {
-                // `attach_multi_raft` installs a clone in ServerState. Clear it
-                // before dropping StartedNode so it cannot retain the group store.
-                guard.multi_raft = None;
-            }
+            // Clear both clustered handles before dropping StartedNode so a
+            // killed node cannot retain a stale routing or catalog authority.
+            guard.install_local_placement_authority();
             backend
         } else {
             None
@@ -786,7 +777,6 @@ impl Cluster {
                 };
             }
         };
-        state.write().await.raft = Some(started.handle.clone());
         let m = self.members.get_mut(&id).unwrap();
         m.started = Some(started);
         m.state = Some(state);

@@ -537,7 +537,9 @@ async fn attach_multi_raft(cluster: &Cluster) {
         })
         .collect();
     for (state, multi) in nodes {
-        state.write().await.multi_raft = Some(multi);
+        let mut guard = state.write().await;
+        let raft = guard.raft.clone();
+        guard.install_multi_raft_placement_authority(raft, multi);
     }
 }
 

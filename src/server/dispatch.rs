@@ -989,7 +989,7 @@ async fn propose_native_mutation(
     let Some(multi) = multi else {
         return Response::err(
             request_id,
-            "CLUSTER_CONFIGURATION_INVALID: MultiRaft placement authority is required",
+            crate::server::state::MISSING_PLACEMENT_AUTHORITY,
         );
     };
     let Some(routed) = multi.handle_for_graph(&graph_name).await else {
@@ -2665,11 +2665,14 @@ async fn dispatch_inner(
             // domain kernel must apply locally on every replica without proposing
             // the same command again.
         } else {
-            let (standalone_raft, multi_raft) = {
+            let placement = {
                 let current = timed_read(state).await;
-                (current.raft.is_some(), current.multi_raft.is_some())
+                current.placement_authority()
             };
-            if standalone_raft || multi_raft {
+            if !matches!(
+                placement,
+                crate::server::state::PlacementAuthorityKind::Local
+            ) {
                 match crate::server::mutation::cluster_mutation_route(&req.method) {
                     // `SelfRoutedAdmin` owns its OWN `MultiRaft`-presence check
                     // (`handlers::raft_admin::try_handle` answers
@@ -2682,11 +2685,13 @@ async fn dispatch_inner(
                     ClusterMutationRoute::ConsensusGraph
                     | ClusterMutationRoute::ConsensusNative
                     | ClusterMutationRoute::ConsensusFanout
-                        if !multi_raft =>
+                        if placement.missing_error().is_some() =>
                     {
                         return Response::err(
                             req.id,
-                            "CLUSTER_CONFIGURATION_INVALID: MultiRaft placement authority is required",
+                            placement
+                                .missing_error()
+                                .expect("missing placement authority has a typed error"),
                         );
                     }
                     ClusterMutationRoute::ConsensusGraph
@@ -2699,6 +2704,10 @@ async fn dispatch_inner(
 
     #[cfg(feature = "raft")]
     if !is_replicated_apply()
+        && matches!(
+            timed_read(state).await.placement_authority(),
+            crate::server::state::PlacementAuthorityKind::MultiRaft
+        )
         && matches!(
             crate::server::mutation::cluster_mutation_route(&req.method),
             crate::server::mutation::ClusterMutationRoute::ConsensusNative
@@ -5951,12 +5960,17 @@ async fn dispatch_graph_op_inner(
     // former standalone group-0 handle is detected only to reject an incomplete
     // cluster configuration; it is never used as a write-routing fallback.
     #[cfg(feature = "raft")]
-    let standalone_raft_configured = !is_replicated_apply() && s.raft.is_some();
+    let placement_authority = s.placement_authority();
     #[cfg(feature = "raft")]
     let multi_raft = if is_replicated_apply() {
         None
-    } else {
+    } else if matches!(
+        placement_authority,
+        crate::server::state::PlacementAuthorityKind::MultiRaft
+    ) {
         s.multi_raft.clone()
+    } else {
+        None
     };
     #[cfg(feature = "raft")]
     let graph_type = entry.graph_type;
@@ -5991,11 +6005,8 @@ async fn dispatch_graph_op_inner(
     drop(s); // Release registry lock before graph lock.
 
     #[cfg(feature = "raft")]
-    if standalone_raft_configured && multi_raft.is_none() {
-        return Response::err(
-            req_id,
-            "CLUSTER_CONFIGURATION_INVALID: MultiRaft placement authority is required",
-        );
+    if let Some(error) = placement_authority.missing_error() {
+        return Response::err(req_id, error);
     }
 
     // Record this graph's access for the cold-offload sweep (CONCEPT:EG-KG.backend.r6-feature, R6) — both
