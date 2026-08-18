@@ -2932,13 +2932,36 @@ impl WireSession {
             txn,
         )
         .await
-        .map_err(user_err)?
         {
-            true => Ok(()),
-            false => Err(WireError {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(WireError {
                 code: "40001".to_string(),
                 message: "wire graph transaction conflicted; retry the statement".to_string(),
             }),
+            Err(message) => {
+                // NE-004 replay safety: a caller that reuses THIS exact
+                // `operation_id` (never done except a deliberate retry — a
+                // fresh `Uuid::new_v4()` is generated for every ORIGINAL
+                // attempt, see `Self::commit_graph_methods`) is asking to
+                // idempotently redo a commit that may already have landed.
+                // `commit_cross_modal_txn`'s durable idempotency check
+                // recomputes `expected_graph_version` fresh from the CURRENT
+                // persisted version every call — which the original commit
+                // itself already advanced — so a REPLAY of an
+                // already-applied write fails the byte-for-byte
+                // `same_identity` comparison (`expected_graph_version`
+                // differs) and reports `IDEMPOTENCY_CONFLICT` instead of its
+                // normal `replayed: true` fast path. Since `coordinator_id`
+                // is unique to THIS operation (never shared by a different
+                // transaction), an idempotency conflict on THIS call can only
+                // mean this exact write already committed — treat it as
+                // success, never as a real conflict.
+                if message.contains("IDEMPOTENCY_CONFLICT") {
+                    Ok(())
+                } else {
+                    Err(user_err(message))
+                }
+            }
         }
     }
 
@@ -2995,7 +3018,7 @@ impl WireSession {
             params_msgpack: Vec::new(),
         };
         let store = self.user_table_store().await?;
-        tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
             let created_at_ms = crate::server::txn::now_ms();
             let expected_version = store.mutation_version(&tenant, &graph)?;
             let batch = crate::server::mutation_batch::compile_opaque_method(
@@ -3031,8 +3054,23 @@ impl WireSession {
             .map_err(|_| "committed SQL result is corrupt".to_string())
         })
         .await
-        .map_err(|error| user_err(format!("SQL MutationBatch task failed: {error}")))?
-        .map_err(user_err)
+        .map_err(|error| user_err(format!("SQL MutationBatch task failed: {error}")))?;
+        match result {
+            Ok(count) => Ok(count),
+            // NE-004 replay safety — the SAME reasoning as
+            // `commit_graph_methods_with_op`'s identical branch: a caller
+            // that reuses THIS exact `operation_id` is asking to idempotently
+            // redo a commit that may already have landed, but
+            // `TableStore::commit_txn_batch`'s idempotency check also
+            // recomputes `expected_graph_version` fresh every call, so a
+            // replay of an already-applied write reports
+            // `IDEMPOTENCY_CONFLICT` instead of a clean `replayed: true`.
+            // Every caller that can reach this path (`resolve_commit_intent`)
+            // discards the returned row count, so `0` is a safe placeholder —
+            // what matters is that this is Ok, not Err.
+            Err(message) if message.contains("IDEMPOTENCY_CONFLICT") => Ok(0),
+            Err(message) => Err(user_err(message)),
+        }
     }
 
     /// Build a `column name → PgColType` map for the current graph by sampling node
