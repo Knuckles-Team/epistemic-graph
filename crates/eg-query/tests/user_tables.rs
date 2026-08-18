@@ -1426,7 +1426,11 @@ fn foreign_key_child_insert_with_no_parent_row_rejected() {
             &[vec![json!(3), json!(99)]],
         )
         .unwrap();
-    assert_eq!(store.scan("orders").unwrap().len(), 3);
+    // THREE inserts were attempted; the first was deliberately rejected as an
+    // orphan, so TWO rows are stored. The prior `3` counted the rejected row --
+    // i.e. it would have passed only if FK enforcement had silently let the
+    // orphan through, which is the exact defect this test exists to catch.
+    assert_eq!(store.scan("orders").unwrap().len(), 2);
 }
 
 /// `ON DELETE RESTRICT` (and the same-behaving `NO ACTION` default) blocks a parent
