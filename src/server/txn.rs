@@ -596,6 +596,24 @@ impl GraphTxnState {
         }
     }
 
+    /// Register an ADDITIONAL predicate/range read this txn relied on,
+    /// fingerprinted NOW (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005). Unlike the `BeginTxn`
+    /// RPC hint (which has no in-txn read op and so must declare its predicate
+    /// up front, see the module doc), a caller with a real in-txn read op — the
+    /// SQL wire's own buffered-transaction reads — can grow the serializable
+    /// read-set incrementally as each read happens, seeding genuine phantom
+    /// protection for exactly the read shape [`PredicateRead`] can express. A
+    /// no-op under `Snapshot` (there is no predicate read-set to protect at
+    /// that level, so this never silently weakens anything — it can only ADD
+    /// protection a caller explicitly captured).
+    pub(crate) fn add_predicate_read(&mut self, core: &GraphCore, predicate: PredicateRead) {
+        if self.isolation != IsolationLevel::Serializable {
+            return;
+        }
+        let fp = predicate.fingerprint(core);
+        self.predicate_reads.push((predicate, fp));
+    }
+
     /// Stage a VECTOR upsert into the cross-modal write-set (CONCEPT:EG-KG.txn.reader-never-sees-node). The
     /// node it targets is captured into the OCC read-set (so a concurrent change to
     /// that node still conflicts), then the embedding is queued to land atomically at
