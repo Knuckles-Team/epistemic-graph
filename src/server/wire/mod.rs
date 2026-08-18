@@ -4197,6 +4197,18 @@ mod ne_004_ne_005_tests {
         }
     }
 
+    /// Route a read through the FULL `execute()` dispatch (not the lower-level
+    /// `run_read` the other helpers use) — this is the ONLY entry point that
+    /// runs the NE-005 auto predicate-tracking hook, so a test proving
+    /// `SERIALIZABLE` behavior MUST issue its reads this way for the
+    /// transaction's `serializable_predicate_reads` to actually populate.
+    async fn read_row_count(session: &WireSession, sql: &str) -> usize {
+        match session.execute(sql).await.expect("read") {
+            WireOutcome::Rows(result) => result.rows.len(),
+            other => panic!("expected a row set, got {other:?}"),
+        }
+    }
+
     /// NE-004, DoD item 1: a mixed graph+table transaction commits
     /// atomically — both sides are visible after `COMMIT`.
     #[tokio::test]
@@ -4513,8 +4525,8 @@ mod ne_004_ne_005_tests {
         b.execute("BEGIN ISOLATION LEVEL SERIALIZABLE")
             .await
             .expect("begin b");
-        assert_eq!(a.run_read(graph, "SELECT id FROM nodes WHERE type = 'pool'".to_string()).await.unwrap().rows.len(), 2);
-        assert_eq!(b.run_read(graph, "SELECT id FROM nodes WHERE type = 'pool'".to_string()).await.unwrap().rows.len(), 2);
+        assert_eq!(read_row_count(&a, "SELECT id FROM nodes WHERE type = 'pool'").await, 2);
+        assert_eq!(read_row_count(&b, "SELECT id FROM nodes WHERE type = 'pool'").await, 2);
         a.execute("INSERT INTO nodes (id, type) VALUES ('pool-from-a', 'pool')")
             .await
             .expect("buffer a's insert");
@@ -4535,8 +4547,8 @@ mod ne_004_ne_005_tests {
         let d = new_session(state.clone(), graph).await;
         c.execute("BEGIN").await.expect("begin c");
         d.execute("BEGIN").await.expect("begin d");
-        assert_eq!(c.run_read(graph, "SELECT id FROM nodes WHERE type = 'pool'".to_string()).await.unwrap().rows.len(), 3);
-        assert_eq!(d.run_read(graph, "SELECT id FROM nodes WHERE type = 'pool'".to_string()).await.unwrap().rows.len(), 3);
+        assert_eq!(read_row_count(&c, "SELECT id FROM nodes WHERE type = 'pool'").await, 3);
+        assert_eq!(read_row_count(&d, "SELECT id FROM nodes WHERE type = 'pool'").await, 3);
         c.execute("INSERT INTO nodes (id, type) VALUES ('pool-from-c', 'pool')")
             .await
             .expect("buffer c's insert");
