@@ -16,8 +16,16 @@
 //!     carrier, `CarrierAuthority::is_admin`) may [`grant`] another principal in
 //!     the SAME tenant any of the five [`SqlPrivilege`]s and [`revoke`] them
 //!     independently. Default-deny: [`authorize`] returns the SAME generic denial
-//!     whether the table has no owner at all (does not exist) or simply has no
-//!     matching owner/grant/admin — no existence leak.
+//!     ([`ACCESS_DENIED`], identical text and error type) whether the table has
+//!     no owner at all (does not exist) or simply has no matching
+//!     owner/grant/admin — no message-level existence leak. **Known residual
+//!     side channel:** `authorize` deliberately equalizes the OBVIOUS timing
+//!     asymmetry (both denial branches always run the same owners-then-grants
+//!     scan pair — see its doc comment), but this is not constant-time —
+//!     `owner_of`/`grant_exists` still return as soon as a matching row is
+//!     found, so scan position is a residual, data-dependent timing signal.
+//!     Closing that fully was judged disproportionate for this system rather
+//!     than left unconsidered.
 //!   * **row-level security** — the `__eg_sql_rls__` system table optionally
 //!     declares ONE column per table as the row-level principal discriminator.
 //!     [`AuthorizedTable`] (returned only after [`authorize`] succeeds) folds a
@@ -36,16 +44,32 @@
 //! T" up front — [`crate::server::sql_tables::owner_filename`] is a one-way digest
 //! of `(tenant, agent_id)` by design, so the existing per-actor catalogs cannot be
 //! listed from the tenant side. Migration is therefore LAZY and PER-ACTOR:
-//! [`ensure_migrated`] runs at the top of every entry point in this module, and
-//! the first time a given actor reaches the tenant-shared catalog it absorbs that
-//! actor's legacy tables (schema + rows, best-effort views/extensions) into the
-//! tenant store, sets the actor as owner of each, and records a durable
-//! `__eg_sql_migrated__` marker so the scan never repeats. A table-name COLLISION
-//! against another actor's already-migrated (or natively tenant-created) table is
-//! resolved by a deterministic rename (`<name>__migrated_<actor-suffix>`) rather
-//! than dropping data — see [`migrate_legacy`]. This is intentionally NOT a
+//! [`ensure_migrated`] runs at the top of EVERY public entry point in this module
+//! ([`create_owned_table`], [`open_authorized_table`], [`grant`], [`revoke`],
+//! [`set_row_level_column`]), and the first time a given actor reaches the
+//! tenant-shared catalog through ANY of them it absorbs that actor's legacy
+//! tables (schema + rows) AND views into the tenant store, sets the actor as
+//! owner of each, and records a durable `__eg_sql_migrated__` marker so the scan
+//! never repeats. A name COLLISION against another actor's already-migrated (or
+//! natively tenant-created) table OR view is resolved by a deterministic rename
+//! (`<name>__migrated_<actor-suffix>`) rather than dropping data — see
+//! [`migrate_legacy`]. Extensions are enabled idempotently rather than renamed
+//! (an extension carries no per-actor row data, so two actors' identical
+//! enablement is the same fact reached twice, not a collision). Stored
+//! functions, pgvector ANN indexes, and hypertable declarations are NOT carried
+//! over — a deliberate scope cut, but never a SILENT one: their presence is
+//! recorded as a durable, queryable notice per actor
+//! (`__eg_sql_migration_notices__`, via [`migration_notices`]) rather than only
+//! ever existing as a log line that could be missed. This is intentionally NOT a
 //! flag-day migration: nothing runs until an actor's own request reaches this
-//! code, and `user_table_store`'s legacy path keeps working forever regardless.
+//! code, and `user_table_store`'s legacy path keeps working forever regardless
+//! (the legacy file is never modified or deleted by migration).
+//!
+//! **Concurrency:** [`ensure_migrated`]'s whole check-then-act sequence
+//! (is-migrated read → migrate → mark-migrated write) runs under a per-(tenant,
+//! agent_id) in-process lock ([`migration_lock`]), so two concurrent requests
+//! from the SAME actor cannot both observe "not migrated" and both run
+//! [`migrate_legacy`], which would otherwise double-insert every legacy row.
 //!
 //! ## What this module deliberately does NOT do
 //!
@@ -61,7 +85,9 @@
 //! track report for the full reasoning; until that wiring lands this module is a
 //! complete, independently tested, currently-unreachable-from-any-wire capability.
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use eg_query::{Cell, Column, ColumnType, TableSchema, TableStore};
 use eg_types::{CmpOp, RowPredicate};
@@ -82,6 +108,7 @@ const OWNERS_TABLE: &str = "__eg_sql_owners__";
 const GRANTS_TABLE: &str = "__eg_sql_grants__";
 const RLS_TABLE: &str = "__eg_sql_rls__";
 const MIGRATED_TABLE: &str = "__eg_sql_migrated__";
+const NOTICES_TABLE: &str = "__eg_sql_migration_notices__";
 
 /// The five independently grantable/revocable SQL privileges (item 2). Deliberately
 /// NOT `eg_types::acl::RbacAction` (Read/Write/Admin) — that three-way split would
@@ -150,6 +177,20 @@ fn migrated_schema() -> TableSchema {
     )
 }
 
+/// A durable, queryable record of a migration scope cut (item 5) — NOT a log
+/// line, which could be missed, but a row an operator can list later. Written
+/// whenever a legacy catalog contained a stored function, ANN index, or
+/// hypertable declaration that this migration deliberately did not carry over.
+fn notices_schema() -> TableSchema {
+    TableSchema::new(
+        NOTICES_TABLE,
+        vec![
+            Column::new("actor", ColumnType::Text, false, false),
+            Column::new("notice", ColumnType::Text, false, false),
+        ],
+    )
+}
+
 /// Open the tenant ACL catalog, ensuring its four system tables exist. Idempotent
 /// and cheap on the warm path (`create_table(if_not_exists: true)` against an
 /// already-cached [`TableStore`] handle).
@@ -159,6 +200,7 @@ fn open_acl(tenant_scope: &str, persist_dir: &Path) -> Result<TableStore, String
     store.create_table(&grants_schema(), true)?;
     store.create_table(&rls_schema(), true)?;
     store.create_table(&migrated_schema(), true)?;
+    store.create_table(&notices_schema(), true)?;
     Ok(store)
 }
 
@@ -240,6 +282,18 @@ fn authorize_admin(
 /// owner at all (nonexistent) or simply isn't granted to this principal — in
 /// every other case, including a lookup/registry failure (fail closed, never
 /// default to allow).
+///
+/// Timing: the two DENY-adjacent branches ("no owner recorded at all" and
+/// "owner recorded, no grant") deliberately perform the SAME two scans
+/// (`OWNERS` then `GRANTS`) in the SAME order before returning, rather than
+/// short-circuiting the nonexistent case after only the owners scan — the
+/// cheap, obvious equalization the module doc's "known side channel" note
+/// asks for. This is NOT constant-time: `owner_of`/`grant_exists` still
+/// return as soon as they find a matching row, so a real table whose owner
+/// row sits early in scan order resolves faster than one whose row sits late
+/// or is absent, a residual, data-dependent timing signal this deliberately
+/// does not attempt to close (disproportionate for this system — see the
+/// module doc).
 pub(crate) fn authorize(
     tenant_scope: &str,
     persist_dir: &Path,
@@ -251,22 +305,25 @@ pub(crate) fn authorize(
     if authority.is_admin() {
         return Ok(());
     }
-    let Some(owner) = owner_of(&acl, table)? else {
-        return Err(ACCESS_DENIED.to_string());
-    };
-    if owner == authority.agent_id() {
-        return Ok(());
+    let owner = owner_of(&acl, table)?;
+    // Always run the grants scan too, even when there is no owner at all, so
+    // "nonexistent" and "exists but ungranted" do the identical amount of
+    // work before denying.
+    let granted = grant_exists(&acl, table, authority.agent_id(), privilege)?;
+    match owner {
+        Some(owner) if owner == authority.agent_id() => Ok(()),
+        _ if granted => Ok(()),
+        _ => Err(ACCESS_DENIED.to_string()),
     }
-    if grant_exists(&acl, table, authority.agent_id(), privilege)? {
-        return Ok(());
-    }
-    Err(ACCESS_DENIED.to_string())
 }
 
 /// Grant `grantee_agent_id` one or more [`SqlPrivilege`]s on `table`, within the
 /// SAME tenant as `grantor` (there is no cross-tenant grant surface — the tenant
 /// is derived from `grantor`'s own verified authority, never caller-supplied).
-/// Only the table's owner or an admin carrier may grant (item 2).
+/// Only the table's owner or an admin carrier may grant (item 2). Runs
+/// [`ensure_migrated`] first so an owner can grant on their own table on their
+/// very first call, even before it (or any other table of theirs) has ever
+/// been read/written through the new tenant-shared path.
 pub(crate) fn grant(
     persist_dir: &Path,
     grantor: &CarrierAuthority,
@@ -274,6 +331,7 @@ pub(crate) fn grant(
     grantee_agent_id: &str,
     privileges: &[SqlPrivilege],
 ) -> Result<(), String> {
+    ensure_migrated(grantor.tenant_scope(), persist_dir, grantor)?;
     let acl = open_acl(grantor.tenant_scope(), persist_dir)?;
     authorize_admin(&acl, grantor, table)?;
     for privilege in privileges {
@@ -299,7 +357,8 @@ pub(crate) fn grant(
 /// Revoke one or more privileges previously granted via [`grant`]. Deletes the
 /// backing row(s) outright (no tombstone/deny-row) so the NEXT [`authorize`] call
 /// — there is no cache in front of the ACL catalog — sees the change immediately
-/// (item: "revoke takes effect immediately").
+/// (item: "revoke takes effect immediately"). Runs [`ensure_migrated`] first for
+/// the same reason [`grant`] does.
 pub(crate) fn revoke(
     persist_dir: &Path,
     revoker: &CarrierAuthority,
@@ -307,6 +366,7 @@ pub(crate) fn revoke(
     grantee_agent_id: &str,
     privileges: &[SqlPrivilege],
 ) -> Result<(), String> {
+    ensure_migrated(revoker.tenant_scope(), persist_dir, revoker)?;
     let acl = open_acl(revoker.tenant_scope(), persist_dir)?;
     authorize_admin(&acl, revoker, table)?;
     for privilege in privileges {
@@ -333,13 +393,15 @@ pub(crate) fn revoke(
 }
 
 /// Declare (`Some(column)`) or clear (`None`) the row-level tenant/principal
-/// discriminator column for `table` (item 3). Owner-or-admin only.
+/// discriminator column for `table` (item 3). Owner-or-admin only. Runs
+/// [`ensure_migrated`] first for the same reason [`grant`] does.
 pub(crate) fn set_row_level_column(
     persist_dir: &Path,
     authority: &CarrierAuthority,
     table: &str,
     column: Option<&str>,
 ) -> Result<(), String> {
+    ensure_migrated(authority.tenant_scope(), persist_dir, authority)?;
     let acl = open_acl(authority.tenant_scope(), persist_dir)?;
     authorize_admin(&acl, authority, table)?;
     let predicate = RowPredicate::Cmp {
@@ -392,6 +454,27 @@ fn is_migrated(acl: &TableStore, actor: &str) -> Result<bool, String> {
     Ok(false)
 }
 
+/// One in-process lock per (tenant, agent_id) pair, serializing
+/// [`ensure_migrated`] so two concurrent requests from the SAME actor cannot
+/// both observe "not migrated yet" and both run [`migrate_legacy`] — which
+/// would double-insert every legacy row (item 3, concurrency hardening).
+/// redb itself only ever has ONE physical file open per process (enforced by
+/// `sql_tables`'s registry), so the only race that can happen at all is
+/// WITHIN this process between threads; a plain `std::sync::Mutex` per key
+/// closes it completely, with no need for anything redb-transaction-level.
+fn migration_lock(tenant_scope: &str, agent_id: &str) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let registry = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = format!("{tenant_scope}\u{0}{agent_id}");
+    let mut locks = registry
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    locks
+        .entry(key)
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
+
 fn mark_migrated(acl: &TableStore, actor: &str) -> Result<(), String> {
     if is_migrated(acl, actor)? {
         return Ok(());
@@ -404,12 +487,15 @@ fn mark_migrated(acl: &TableStore, actor: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Absorb `authority`'s legacy per-(tenant, agent_id) catalog (schema + rows, plus
-/// best-effort views/extensions — see the module doc's migration section) into the
-/// tenant-shared catalog, registering `authority` as owner of each migrated table.
-/// A name collision against a table that already exists in the tenant catalog
-/// (created natively, or migrated by a different actor) is resolved by a
-/// deterministic rename rather than dropping data.
+/// Absorb `authority`'s legacy per-(tenant, agent_id) catalog (schema + rows,
+/// plus views/extensions — see the module doc's migration section) into the
+/// tenant-shared catalog, registering `authority` as owner of each migrated
+/// table. A name collision against a table (or view) that already exists in
+/// the tenant catalog (created natively, or migrated by a different actor) is
+/// resolved by a deterministic rename rather than dropping data. Stored
+/// functions/ANN indexes/hypertables are deliberately not carried over, but
+/// their presence is recorded durably rather than silently dropped — see
+/// [`record_migration_notice`].
 fn migrate_legacy(
     tenant_scope: &str,
     persist_dir: &Path,
@@ -439,8 +525,11 @@ fn migrate_legacy(
         tenant_store.create_table(&target_schema, true)?;
         let rows = legacy.scan(&name)?;
         if !rows.is_empty() {
-            let column_names: Vec<String> =
-                schema.columns().iter().map(|column| column.name.clone()).collect();
+            let column_names: Vec<String> = schema
+                .columns()
+                .iter()
+                .map(|column| column.name.clone())
+                .collect();
             let values: Vec<Vec<Value>> = rows
                 .iter()
                 .map(|row| row.iter().map(Cell::to_json).collect())
@@ -449,19 +538,116 @@ fn migrate_legacy(
         }
         ensure_owner(acl, &target_name, authority.agent_id())?;
     }
-    // Best-effort: views and extensions carry no row data and no ownership
-    // semantics of their own, so a lost race (another actor's identically-named
-    // view) is not a data-loss risk — skip rather than fail the whole migration.
-    // Deliberately NOT migrated: stored functions, pgvector ANN indexes, and
-    // hypertable declarations (secondary catalogs, recreatable, out of scope for
-    // this pass — see the track report).
-    for (view_name, select_sql) in legacy.list_views().unwrap_or_default() {
-        let _ = tenant_store.create_view(&view_name, &select_sql, false);
+    // Views: same collision-rename treatment as tables (never silently
+    // dropped), and any OTHER failure propagates loudly via `?` instead of
+    // being swallowed — a `let _ = ...` here previously hid a name collision
+    // entirely (item 1).
+    for (view_name, select_sql) in legacy.list_views()? {
+        let target_view_name = if tenant_store.get_view(&view_name)?.is_some() {
+            format!("{view_name}__migrated_{suffix}")
+        } else {
+            view_name.clone()
+        };
+        if tenant_store.get_view(&target_view_name)?.is_some() {
+            // Already migrated under the renamed target (idempotent re-run).
+            continue;
+        }
+        tenant_store
+            .create_view(&target_view_name, &select_sql, false)
+            .map_err(|error| {
+                format!(
+                    "NE-003 migration: failed to carry over view `{view_name}` for actor -> {error}"
+                )
+            })?;
     }
-    for extension in legacy.list_extensions().unwrap_or_default() {
-        let _ = tenant_store.create_extension(&extension, true);
+    // Extensions carry no per-actor row data — enabling the SAME extension
+    // name from two different actors is not a collision to rename around, it
+    // is the SAME durable fact ("this tenant has pgvector enabled") reached
+    // twice, so `if_not_exists: true` is the correct idempotent behavior, not
+    // a swallow. Any OTHER failure still propagates loudly via `?`.
+    for extension in legacy.list_extensions()? {
+        tenant_store
+            .create_extension(&extension, true)
+            .map_err(|error| {
+                format!(
+                    "NE-003 migration: failed to carry over extension `{extension}` for actor -> {error}"
+                )
+            })?;
+    }
+    // Deliberately NOT migrated (item 5): stored functions, pgvector ANN
+    // indexes, and hypertable declarations — secondary catalogs, recreatable,
+    // out of scope for this pass. A SILENT scope cut here would read as data
+    // loss later, so instead of skipping quietly this records a durable,
+    // queryable notice per actor (`__eg_sql_migration_notices__`) naming
+    // exactly what was left behind in the legacy catalog.
+    let functions = legacy.list_functions()?;
+    if !functions.is_empty() {
+        record_migration_notice(
+            acl,
+            authority.agent_id(),
+            &format!(
+                "{} stored function(s) were NOT migrated (out of scope for NE-003) — still present only in the legacy per-actor catalog",
+                functions.len()
+            ),
+        )?;
+    }
+    let ann_indexes = legacy.list_ann_indexes()?;
+    if !ann_indexes.is_empty() {
+        record_migration_notice(
+            acl,
+            authority.agent_id(),
+            &format!(
+                "{} pgvector ANN index(es) were NOT migrated (out of scope for NE-003) — still present only in the legacy per-actor catalog",
+                ann_indexes.len()
+            ),
+        )?;
+    }
+    let hypertables = legacy.list_hypertables()?;
+    if !hypertables.is_empty() {
+        record_migration_notice(
+            acl,
+            authority.agent_id(),
+            &format!(
+                "{} hypertable declaration(s) were NOT migrated (out of scope for NE-003) — still present only in the legacy per-actor catalog",
+                hypertables.len()
+            ),
+        )?;
     }
     Ok(())
+}
+
+/// Durably record a migration scope cut (item 5) so it is discoverable by an
+/// operator later, instead of only ever existing as a log line that could be
+/// missed.
+fn record_migration_notice(acl: &TableStore, actor: &str, notice: &str) -> Result<(), String> {
+    acl.insert_rows(
+        NOTICES_TABLE,
+        &["actor".to_string(), "notice".to_string()],
+        &[vec![
+            Value::String(actor.to_string()),
+            Value::String(notice.to_string()),
+        ]],
+    )?;
+    Ok(())
+}
+
+/// Every durable migration notice recorded for `actor` (item 5) — what NE-003's
+/// migration deliberately left behind in the legacy catalog.
+pub(crate) fn migration_notices(
+    tenant_scope: &str,
+    persist_dir: &Path,
+    actor: &str,
+) -> Result<Vec<String>, String> {
+    let acl = open_acl(tenant_scope, persist_dir)?;
+    let mut notices = Vec::new();
+    for row in acl.scan(NOTICES_TABLE)? {
+        if text_at(&row, 0) == Some(actor) {
+            if let Some(notice) = text_at(&row, 1) {
+                notices.push(notice.to_string());
+            }
+        }
+    }
+    Ok(notices)
 }
 
 /// Run `authority`'s one-time lazy migration if it has not already run (tracked
@@ -472,6 +658,12 @@ fn ensure_migrated(
     persist_dir: &Path,
     authority: &CarrierAuthority,
 ) -> Result<(), String> {
+    let lock = migration_lock(tenant_scope, authority.agent_id());
+    // Held for the entire check-then-act sequence below (including the
+    // migration itself) so a second concurrent call for the SAME actor blocks
+    // here instead of racing `is_migrated`'s read against the first call's
+    // write — see `migration_lock`'s doc comment.
+    let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let acl = open_acl(tenant_scope, persist_dir)?;
     if is_migrated(&acl, authority.agent_id())? {
         return Ok(());
@@ -531,7 +723,13 @@ pub(crate) fn open_authorized_table(
     privilege: SqlPrivilege,
 ) -> Result<AuthorizedTable, String> {
     ensure_migrated(authority.tenant_scope(), persist_dir, authority)?;
-    authorize(authority.tenant_scope(), persist_dir, authority, table, privilege)?;
+    authorize(
+        authority.tenant_scope(),
+        persist_dir,
+        authority,
+        table,
+        privilege,
+    )?;
     let acl = open_acl(authority.tenant_scope(), persist_dir)?;
     let rls_column = row_level_column(&acl, table)?;
     let store = sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
@@ -710,15 +908,13 @@ mod tests {
             .unwrap();
 
         // Bob has no grant yet — denied, and the denial is the generic string.
-        let denied = open_authorized_table(&bob, &dir, "orders", SqlPrivilege::Select)
-            .unwrap_err();
+        let denied = open_authorized_table(&bob, &dir, "orders", SqlPrivilege::Select).unwrap_err();
         assert_eq!(denied, ACCESS_DENIED);
 
         // Alice (owner) grants Bob SELECT.
         grant(&dir, &alice, "orders", "bob", &[SqlPrivilege::Select]).unwrap();
 
-        let bob_table =
-            open_authorized_table(&bob, &dir, "orders", SqlPrivilege::Select).unwrap();
+        let bob_table = open_authorized_table(&bob, &dir, "orders", SqlPrivilege::Select).unwrap();
         let rows = bob_table.select(None).unwrap();
         assert_eq!(rows.len(), 1, "bob must see alice's row through the grant");
 
@@ -741,8 +937,7 @@ mod tests {
         assert!(open_authorized_table(&bob, &dir, "t", SqlPrivilege::Select).is_ok());
 
         revoke(&dir, &alice, "t", "bob", &[SqlPrivilege::Select]).unwrap();
-        let denied =
-            open_authorized_table(&bob, &dir, "t", SqlPrivilege::Select).unwrap_err();
+        let denied = open_authorized_table(&bob, &dir, "t", SqlPrivilege::Select).unwrap_err();
         assert_eq!(denied, ACCESS_DENIED);
     }
 
@@ -773,7 +968,13 @@ mod tests {
         let alice = authority("alice", "tenant-one");
         let mallory = authority("alice", "tenant-two"); // same agent_id, different tenant
 
-        create_owned_table(&alice, &dir, &schema("secrets", vec![text_col("id")]), false).unwrap();
+        create_owned_table(
+            &alice,
+            &dir,
+            &schema("secrets", vec![text_col("id")]),
+            false,
+        )
+        .unwrap();
         let alice_table =
             open_authorized_table(&alice, &dir, "secrets", SqlPrivilege::Insert).unwrap();
         alice_table
@@ -803,7 +1004,10 @@ mod tests {
         create_owned_table(
             &alice,
             &dir,
-            &schema("notes", vec![text_col("id"), text_col("body"), text_col("owner_tag")]),
+            &schema(
+                "notes",
+                vec![text_col("id"), text_col("body"), text_col("owner_tag")],
+            ),
             false,
         )
         .unwrap();
@@ -813,7 +1017,12 @@ mod tests {
             &alice,
             "notes",
             "bob",
-            &[SqlPrivilege::Select, SqlPrivilege::Insert, SqlPrivilege::Update, SqlPrivilege::Delete],
+            &[
+                SqlPrivilege::Select,
+                SqlPrivilege::Insert,
+                SqlPrivilege::Update,
+                SqlPrivilege::Delete,
+            ],
         )
         .unwrap();
 
@@ -822,7 +1031,11 @@ mod tests {
         // Alice tries to insert a row STAMPED as bob's — must be forced back to hers.
         alice_table
             .insert(
-                &["id".to_string(), "body".to_string(), "owner_tag".to_string()],
+                &[
+                    "id".to_string(),
+                    "body".to_string(),
+                    "owner_tag".to_string(),
+                ],
                 &[vec![
                     Value::String("a1".to_string()),
                     Value::String("alice's secret".to_string()),
@@ -831,19 +1044,25 @@ mod tests {
             )
             .unwrap();
 
-        let bob_table =
-            open_authorized_table(&bob, &dir, "notes", SqlPrivilege::Insert).unwrap();
+        let bob_table = open_authorized_table(&bob, &dir, "notes", SqlPrivilege::Insert).unwrap();
         bob_table
             .insert(
                 &["id".to_string(), "body".to_string()], // owner_tag omitted entirely
-                &[vec![Value::String("b1".to_string()), Value::String("bob's note".to_string())]],
+                &[vec![
+                    Value::String("b1".to_string()),
+                    Value::String("bob's note".to_string()),
+                ]],
             )
             .unwrap();
 
         let alice_select =
             open_authorized_table(&alice, &dir, "notes", SqlPrivilege::Select).unwrap();
         let alice_rows = alice_select.select(None).unwrap();
-        assert_eq!(alice_rows.len(), 1, "alice must see only her own row, override or not");
+        assert_eq!(
+            alice_rows.len(),
+            1,
+            "alice must see only her own row, override or not"
+        );
 
         let bob_select = open_authorized_table(&bob, &dir, "notes", SqlPrivilege::Select).unwrap();
         let bob_rows = bob_select.select(None).unwrap();
@@ -894,13 +1113,19 @@ mod tests {
         // Simulate pre-upgrade state: data written through the UNCHANGED legacy path.
         let legacy = sql_tables::user_table_store(&alice, Some(&dir)).unwrap();
         legacy
-            .create_table(&schema("legacy_events", vec![text_col("id"), text_col("payload")]), false)
+            .create_table(
+                &schema("legacy_events", vec![text_col("id"), text_col("payload")]),
+                false,
+            )
             .unwrap();
         legacy
             .insert_rows(
                 "legacy_events",
                 &["id".to_string(), "payload".to_string()],
-                &[vec![Value::String("e1".to_string()), Value::String("hello".to_string())]],
+                &[vec![
+                    Value::String("e1".to_string()),
+                    Value::String("hello".to_string()),
+                ]],
             )
             .unwrap();
 
@@ -931,8 +1156,13 @@ mod tests {
         let tenant_scope = alice.tenant_scope().to_string();
 
         {
-            create_owned_table(&alice, &dir, &schema("durable", vec![text_col("id")]), false)
-                .unwrap();
+            create_owned_table(
+                &alice,
+                &dir,
+                &schema("durable", vec![text_col("id")]),
+                false,
+            )
+            .unwrap();
             grant(&dir, &alice, "durable", "bob", &[SqlPrivilege::Select]).unwrap();
             set_row_level_column(&dir, &alice, "durable", Some("id")).unwrap();
             // Every handle above must be dropped before eviction, or the redb
@@ -950,7 +1180,10 @@ mod tests {
         assert!(open_authorized_table(&bob, &dir, "durable", SqlPrivilege::Select).is_ok());
         let acl = open_acl(&tenant_scope, &dir).unwrap();
         assert_eq!(owner_of(&acl, "durable").unwrap().as_deref(), Some("alice"));
-        assert_eq!(row_level_column(&acl, "durable").unwrap().as_deref(), Some("id"));
+        assert_eq!(
+            row_level_column(&acl, "durable").unwrap().as_deref(),
+            Some("id")
+        );
     }
 
     // ── admin bypass, and non-owner cannot grant ────────────────────────────
@@ -966,5 +1199,177 @@ mod tests {
         // Bob is neither owner nor admin — his grant attempt is denied.
         let denied = grant(&dir, &bob, "t", "carol", &[SqlPrivilege::Select]).unwrap_err();
         assert_eq!(denied, ACCESS_DENIED);
+    }
+
+    // ── grant()/revoke()/set_row_level_column() trigger migration themselves ─
+
+    #[test]
+    fn grant_migrates_a_not_yet_touched_legacy_table_before_authorizing() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-grant-migrate");
+
+        // Legacy data exists, but NOTHING has yet called create_owned_table or
+        // open_authorized_table for this actor in this tenant — grant() must be
+        // the thing that triggers the migration, not merely benefit from one
+        // that already ran.
+        let legacy = sql_tables::user_table_store(&alice, Some(&dir)).unwrap();
+        legacy
+            .create_table(&schema("legacy_only", vec![text_col("id")]), false)
+            .unwrap();
+
+        let bob = authority("bob", "tenant-grant-migrate");
+        grant(&dir, &alice, "legacy_only", "bob", &[SqlPrivilege::Select]).unwrap();
+
+        // The grant succeeded, which is only possible if alice was resolved as
+        // owner — which is only possible if migration already ran.
+        assert!(open_authorized_table(&bob, &dir, "legacy_only", SqlPrivilege::Select).is_ok());
+    }
+
+    // ── migration concurrency: two racing calls, no duplicate rows ─────────
+
+    #[test]
+    fn concurrent_migration_of_the_same_actor_is_race_free() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-race");
+
+        let legacy = sql_tables::user_table_store(&alice, Some(&dir)).unwrap();
+        legacy
+            .create_table(&schema("race_events", vec![text_col("id")]), false)
+            .unwrap();
+        for i in 0..5 {
+            legacy
+                .insert_rows(
+                    "race_events",
+                    &["id".to_string()],
+                    &[vec![Value::String(format!("row-{i}"))]],
+                )
+                .unwrap();
+        }
+
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let mut handles = Vec::new();
+        for _ in 0..2 {
+            let dir = dir.clone();
+            let barrier = barrier.clone();
+            handles.push(std::thread::spawn(move || {
+                let racer = authority("alice", "tenant-race");
+                barrier.wait();
+                open_authorized_table(&racer, &dir, "race_events", SqlPrivilege::Select)
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap().unwrap();
+        }
+
+        let table =
+            open_authorized_table(&alice, &dir, "race_events", SqlPrivilege::Select).unwrap();
+        let rows = table.select(None).unwrap();
+        assert_eq!(rows.len(), 5, "a race must not duplicate migrated rows");
+
+        // Exactly one physical copy — no collision-renamed duplicate table
+        // produced by the two racing migrations.
+        let tenant_store = sql_tables::tenant_table_store(alice.tenant_scope(), &dir).unwrap();
+        let matching: Vec<String> = tenant_store
+            .list_tables()
+            .unwrap()
+            .into_iter()
+            .filter(|name| name.starts_with("race_events"))
+            .collect();
+        assert_eq!(
+            matching,
+            vec!["race_events".to_string()],
+            "no partial/duplicate migrated table from the race"
+        );
+    }
+
+    // ── views collision-rename on migration (item 1) ────────────────────────
+
+    #[test]
+    fn migrated_view_name_collision_is_renamed_not_dropped() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-view-collide");
+        let bob = authority("bob", "tenant-view-collide");
+
+        // Bob migrates first and ends up owning the bare view name "summary".
+        let bob_legacy = sql_tables::user_table_store(&bob, Some(&dir)).unwrap();
+        bob_legacy
+            .create_table(&schema("t", vec![text_col("id")]), false)
+            .unwrap();
+        bob_legacy
+            .create_view("summary", "SELECT * FROM t", false)
+            .unwrap();
+        create_owned_table(
+            &bob,
+            &dir,
+            &schema("bob_trigger", vec![text_col("id")]),
+            false,
+        )
+        .unwrap(); // triggers bob's migration, including the view.
+
+        // Alice has her OWN legacy view also named "summary" — must not vanish.
+        let alice_legacy = sql_tables::user_table_store(&alice, Some(&dir)).unwrap();
+        alice_legacy
+            .create_table(&schema("t2", vec![text_col("id")]), false)
+            .unwrap();
+        alice_legacy
+            .create_view("summary", "SELECT * FROM t2", false)
+            .unwrap();
+        create_owned_table(
+            &alice,
+            &dir,
+            &schema("alice_trigger", vec![text_col("id")]),
+            false,
+        )
+        .unwrap(); // triggers alice's migration.
+
+        let tenant_store = sql_tables::tenant_table_store(alice.tenant_scope(), &dir).unwrap();
+        let views = tenant_store.list_views().unwrap();
+        let view_names: Vec<String> = views.into_iter().map(|(name, _)| name).collect();
+        assert!(
+            view_names.contains(&"summary".to_string()),
+            "bob's original name survives"
+        );
+        let renamed_suffix = actor_migration_suffix(alice.agent_id());
+        assert!(
+            view_names.contains(&format!("summary__migrated_{renamed_suffix}")),
+            "alice's colliding view must be preserved under a renamed, discoverable name, not dropped; views seen: {view_names:?}"
+        );
+    }
+
+    // ── loud scope-cut notices for functions/ANN indexes/hypertables ───────
+
+    #[test]
+    fn unmigrated_hypertable_produces_a_durable_notice_not_silence() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-notice");
+
+        let legacy = sql_tables::user_table_store(&alice, Some(&dir)).unwrap();
+        legacy
+            .create_table(
+                &schema("series", vec![text_col("id"), text_col("ts")]),
+                false,
+            )
+            .unwrap();
+        legacy
+            .put_hypertable(&eg_query::HypertablePlan {
+                table: "series".to_string(),
+                time_column: "ts".to_string(),
+            })
+            .unwrap();
+
+        // Trigger migration.
+        create_owned_table(
+            &alice,
+            &dir,
+            &schema("trigger", vec![text_col("id")]),
+            false,
+        )
+        .unwrap();
+
+        let notices = migration_notices(alice.tenant_scope(), &dir, alice.agent_id()).unwrap();
+        assert!(
+            notices.iter().any(|notice| notice.contains("hypertable")),
+            "a not-carried-over hypertable must leave a durable notice, not silence; notices: {notices:?}"
+        );
     }
 }
