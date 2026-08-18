@@ -210,6 +210,22 @@ fn commons_isolation() -> epistemic_graph::isolation::IsolationLayer {
         };
         isolation.add_grant(grant(RbacAction::Read));
         isolation.add_grant(grant(RbacAction::Write));
+
+        // NE-065 migration: `root` is registered `AgentRole::Agent` (not `System`,
+        // see `register_root_req`), so it needs an explicit grant of
+        // `RbacAction::Admin` on the `"__admin__"` resource context
+        // `IsolationLayer::has_admin_capability` checks -- exactly the capability
+        // `Method::RegisterIdentity`/`RbacAdmin`/etc. require of their ACTOR
+        // (`server::access::require_admin_capability`), and nothing more: unlike
+        // `System`, `root` still goes through ordinary RLS/ACL for every other
+        // operation.
+        isolation.add_role(Role::new(common::ROOT_ADMIN_ROLE));
+        isolation.add_grant(Grant {
+            role: common::ROOT_ADMIN_ROLE.to_string(),
+            resource: ResourceSelector::Graph("__admin__".to_string()),
+            action: RbacAction::Admin,
+            effect: GrantEffect::Allow,
+        });
     }
     isolation
 }
@@ -777,9 +793,10 @@ fn req_as(id: u64, agent: &str, method: Method) -> Request {
 /// every peer this file registers can Read+Write `__commons__` -- without it, EVERY RPC a
 /// non-`System` registered peer makes against `__commons__` is `ACCESS_DENIED` under
 /// `feature = "security"`'s mandatory RBAC (there is no pre-RBAC Commons-open-to-all
-/// fall-through for a non-`System` identity). Harmless for a `System`-role registrant
-/// (e.g. `"root"`): `check_access` short-circuits `System` identities before RBAC is ever
-/// consulted, so the extra role name is simply unused.
+/// fall-through for a non-`System` identity). `root` (registered via
+/// [`register_root_req`], below) is itself a plain non-`System` identity since the
+/// NE-065 migration, so it needs `"commons-user"` exactly like every other peer this
+/// helper registers -- it is not just harmlessly-unused role baggage.
 #[cfg(feature = "security")]
 fn register_identity_req(
     id: u64,
@@ -796,6 +813,39 @@ fn register_identity_req(
         role,
         teams: Vec::new(),
         roles: vec![COMMONS_USER_ROLE.to_string()],
+    })
+}
+
+/// Registers `"root"` as an ordinary `AgentRole::Agent` identity carrying
+/// [`common::ROOT_ADMIN_ROLE`] -- NOT `AgentRole::System` -- so it holds just enough
+/// authority (`RbacAction::Admin` on `"__admin__"`, granted by [`commons_isolation`])
+/// to go on and call `RegisterIdentity` itself for the ordinary peers
+/// (`agent_a`/`stranger`/etc.) the fixtures below need.
+///
+/// NE-065 forbids a signer scoped only to bootstrap ITSELF from also minting an
+/// independent `System` identity for a third party -- `root` is registered by
+/// `actor` (`common::TEST_AGENT`), a DIFFERENT principal, which is exactly the
+/// unconstrained delegation NE-065 closes. Self-registration doesn't rescue `System`
+/// either: `RegisterIdentity`'s own `authz_action` ("security:admin") requires the
+/// ACTOR to already hold admin capability, which a freshly self-registering identity
+/// never has. Dropping `System` for `root` entirely -- replacing the blanket
+/// RBAC-bypass with a scoped RBAC grant -- is the only shape that satisfies both
+/// constraints at once.
+#[cfg(feature = "security")]
+fn register_root_req(id: u64, actor: &str) -> Request {
+    common::signed_register_identity_request(common::SignedRegisterIdentity {
+        secret: SECRET,
+        id,
+        graph: "__commons__",
+        actor,
+        registered_agent: "root",
+        role: epistemic_graph::acl::AgentRole::Agent,
+        teams: Vec::new(),
+        // `root` never itself reads/writes `__commons__` in these fixtures -- it only
+        // signs `RegisterIdentity` for the ordinary peers below, which needs admin
+        // capability (granted by this role), not a Read/Write RBAC grant. Keep the
+        // grant to exactly what `root` is proven to use.
+        roles: vec![common::ROOT_ADMIN_ROLE.to_string()],
     })
 }
 
@@ -879,7 +929,7 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
     // as plain `Agent`-role identities for the RLS peer-isolation fixture below.
     let r = Box::pin(dispatch(
         &state,
-        register_identity_req(999_000, common::TEST_AGENT, "root", AgentRole::System),
+        register_root_req(999_000, common::TEST_AGENT),
     ))
     .await;
     assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
@@ -1834,7 +1884,7 @@ async fn explain_plan_cost_estimate_respects_rls_eg_goc12() {
 
     let r = Box::pin(dispatch(
         &state,
-        register_identity_req(999_000, common::TEST_AGENT, "root", AgentRole::System),
+        register_root_req(999_000, common::TEST_AGENT),
     ))
     .await;
     assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
@@ -2048,11 +2098,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
 
     // Register root as System through the signed admin operation, then have root
     // register agent_a + stranger — the same governed two-step flow EG-391 uses.
-    let r = Box::pin(dispatch(
-        &state,
-        register_identity_req(100, common::TEST_AGENT, "root", AgentRole::System),
-    ))
-    .await;
+    let r = Box::pin(dispatch(&state, register_root_req(100, common::TEST_AGENT))).await;
     assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
     for (i, agent) in [(101u64, "agent_a"), (102, "stranger")] {
         let r = Box::pin(dispatch(
@@ -2431,11 +2477,7 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
     )
     .await;
 
-    let r = Box::pin(dispatch(
-        &state,
-        register_identity_req(100, common::TEST_AGENT, "root", AgentRole::System),
-    ))
-    .await;
+    let r = Box::pin(dispatch(&state, register_root_req(100, common::TEST_AGENT))).await;
     assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
     for (i, agent) in [(101u64, "agent_a"), (102, "stranger")] {
         let r = Box::pin(dispatch(
@@ -2898,11 +2940,7 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
     )
     .await;
 
-    let r = Box::pin(dispatch(
-        &state,
-        register_identity_req(100, common::TEST_AGENT, "root", AgentRole::System),
-    ))
-    .await;
+    let r = Box::pin(dispatch(&state, register_root_req(100, common::TEST_AGENT))).await;
     assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
     for (i, agent) in [(101u64, "agent_a"), (102, "stranger")] {
         let r = Box::pin(dispatch(

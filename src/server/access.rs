@@ -22,6 +22,8 @@ pub(crate) struct CarrierAuthority {
     owner_scope: String,
     agent_id: String,
     admin: bool,
+    can_read: bool,
+    can_write: bool,
 }
 
 impl CarrierAuthority {
@@ -55,17 +57,30 @@ impl CarrierAuthority {
             &tenant_scope,
             &actor_scope,
         );
-        let admin = context
-            .claims()
-            .scopes
+        let scopes = &context.claims().scopes;
+        let admin = scopes
             .iter()
             .any(|scope| scope == "*" || scope == "kg:admin");
+        // Coarse per-verb capability, independent of `admin`: every existing
+        // carrier-minting site (SigV4, KV-cache, native SQL, broker, ...) mints
+        // BOTH `kg:read` and `kg:write` unconditionally, so these two remain
+        // `true` for all of them exactly as before this field existed. The
+        // Iceberg-REST bearer path (`auth::authenticated_iceberg_bearer`,
+        // NE-048) is the first minting site whose scopes are NOT hardcoded --
+        // they are projected from the verified bearer's own claim -- so a
+        // `kg:read`-only bearer now yields `can_write() == false` here, closing
+        // the P0 privilege escalation where every Iceberg-REST bearer silently
+        // received write authority regardless of what it was actually issued.
+        let can_read = admin || scopes.iter().any(|scope| scope == "kg:read");
+        let can_write = admin || scopes.iter().any(|scope| scope == "kg:write");
         Ok(Self {
             tenant_scope,
             actor_scope,
             owner_scope,
             agent_id: agent_id.to_string(),
             admin,
+            can_read,
+            can_write,
         })
     }
 
@@ -96,6 +111,19 @@ impl CarrierAuthority {
 
     pub(crate) fn is_admin(&self) -> bool {
         self.admin
+    }
+
+    /// Coarse read capability (`kg:read` or admin). See the field's doc
+    /// comment in [`Self::from_verified`] for why this is `true` for every
+    /// pre-existing carrier-minting site and only meaningfully varies for the
+    /// Iceberg-REST bearer path (NE-048).
+    pub(crate) fn can_read(&self) -> bool {
+        self.can_read
+    }
+
+    /// Coarse write capability (`kg:write` or admin). See [`Self::can_read`].
+    pub(crate) fn can_write(&self) -> bool {
+        self.can_write
     }
 
     pub(crate) fn require_admin(&self, domain: &str) -> Result<(), String> {

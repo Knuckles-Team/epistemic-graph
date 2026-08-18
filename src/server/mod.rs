@@ -479,6 +479,11 @@ pub mod traces;
 // persistence directory; there is no global or temporary fallback.
 #[cfg(feature = "query")]
 pub mod sql_tables;
+// Tenant-scoped SQL table ownership, grants, and row-level security layered on top
+// of `sql_tables`'s tenant-shared catalog (CONCEPT:NE-003). Crate-private: not yet
+// wired into any live request path — see the module doc for why.
+#[cfg(feature = "query")]
+pub(crate) mod sql_catalog_acl;
 // Natural-language query planner resolution (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`): owns
 // which `eg_plan::NlPlanner` the facade uses (injected vs standalone-config default).
 #[cfg(feature = "nl-query")]
@@ -541,6 +546,9 @@ mod transport;
 // Server-staged OCC ACID transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid). `txn` holds the staged
 // transaction state + id source; `handlers::txn` owns the Txn* methods.
 pub mod txn;
+// Durable cross-store commit-intent log for a mixed graph+user-table SQL
+// transaction (CONCEPT:EG-TXN.mixed-commit-intent, NE-004) — see its module doc.
+pub(crate) mod txn_intent;
 
 // External path surface — `server::ServerState`, `server::MAX_BATCH_IDS`,
 // `server::dispatch`, and

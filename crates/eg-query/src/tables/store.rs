@@ -48,7 +48,7 @@ use redb::{
 };
 use serde_json::Value;
 
-use super::schema::{Cell, Column, ColumnType, StoredFunction, TableSchema};
+use super::schema::{Cell, Column, ColumnType, RefAction, StoredFunction, TableConstraint, TableSchema};
 // CONCEPT:EG-KG.query.real-ann-top-k/EG-313 — the durable pgvector ANN index registration the exec
 // pushdown consults to choose a real eg-ann index over the brute-force scan.
 use crate::sql::{AnnIndexPlan, HypertablePlan};
@@ -221,6 +221,12 @@ pub enum TxnOp {
         table: String,
         constraint: String,
         if_exists: bool,
+    },
+    /// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — `ALTER TABLE … ADD CONSTRAINT`: append a table-level
+    /// constraint to an existing table.
+    AddConstraint {
+        table: String,
+        constraint: TableConstraint,
     },
     Insert {
         table: String,
@@ -398,7 +404,8 @@ impl TableStore {
 
     /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE DROP CONSTRAINT name`: drop the named constraint
     /// (matched against Postgres's synthesized names — `<table>_pkey`, `<table>_<col>_key`,
-    /// `<table>_<col>_check`). Errors if no such constraint exists unless `if_exists`.
+    /// `<table>_<col>_check`, `<table>_<col>_fkey`). Errors if no such constraint
+    /// exists unless `if_exists`.
     pub fn drop_constraint(
         &self,
         table: &str,
@@ -407,6 +414,20 @@ impl TableStore {
     ) -> Result<(), String> {
         let wtx = self.begin()?;
         drop_constraint_in(&wtx, table, constraint, if_exists)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(())
+    }
+
+    /// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — `ALTER TABLE ADD CONSTRAINT`: append a table-level
+    /// constraint (composite PK/UNIQUE, FOREIGN KEY, or general CHECK) to an
+    /// already-created table, atomically. Runs the SAME structural + cross-table
+    /// validation `CREATE TABLE` runs (FK target existence/uniqueness, at most one
+    /// PK, …) and, for PK/UNIQUE/CHECK, re-validates every EXISTING row against the
+    /// new constraint before committing — matching Postgres's `ADD CONSTRAINT`
+    /// behavior of refusing to add a constraint the current data already violates.
+    pub fn add_constraint(&self, table: &str, constraint: TableConstraint) -> Result<(), String> {
+        let wtx = self.begin()?;
+        add_constraint_in(&wtx, table, constraint)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -1302,6 +1323,10 @@ fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
             drop_constraint_in(wtx, table, constraint, *if_exists)?;
             Ok(0)
         }
+        TxnOp::AddConstraint { table, constraint } => {
+            add_constraint_in(wtx, table, constraint.clone())?;
+            Ok(0)
+        }
         TxnOp::Insert {
             table,
             col_order,
@@ -1415,6 +1440,22 @@ fn get_schema_in(wtx: &WriteTransaction, name: &str) -> Result<Option<TableSchem
     let schema: TableSchema = decode_stored(&blob, "schema")?;
     schema.validate()?;
     Ok(Some(schema))
+}
+
+/// The names of every user table, read THROUGH the open write txn (staged-write-aware
+/// — CONCEPT:EG-KG.query.table-schema-constraints/NE-001, the FK reverse-lookup this feeds needs to see a table
+/// created earlier in the SAME transaction).
+fn list_tables_in(wtx: &WriteTransaction) -> Result<Vec<String>, String> {
+    let cat = match wtx.open_table(CATALOG) {
+        Ok(t) => t,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let mut names = Vec::new();
+    for row in cat.iter().map_err(map_err)? {
+        let (key, _) = row.map_err(map_err)?;
+        names.push(key.value().to_string());
+    }
+    Ok(names)
 }
 
 fn create_view_in(
@@ -1581,6 +1622,523 @@ fn drop_ann_indexes_for_column_in(
     Ok(keys.len())
 }
 
+// ── table-level constraints: FK cross-table validation + write-path enforcement ───
+// (CONCEPT:EG-KG.query.table-schema-constraints/NE-001)
+
+/// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — a table-level `PRIMARY KEY (a, b, …)` implies NOT NULL on
+/// every participating column (mirrors Postgres), regardless of how the column's own
+/// `ColumnDef` declared nullability.
+fn force_pk_not_null(schema: &mut TableSchema) {
+    let pk_cols: Vec<String> = schema
+        .constraints()
+        .iter()
+        .filter_map(|c| match c {
+            TableConstraint::PrimaryKey { columns, .. } => Some(columns.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    if pk_cols.is_empty() {
+        return;
+    }
+    for col in schema.columns_mut() {
+        if pk_cols.iter().any(|c| c == &col.name) {
+            col.nullable = false;
+        }
+    }
+}
+
+/// Is `cols` covered by exactly one PRIMARY KEY or UNIQUE constraint (column-level
+/// flag for a single column, or a table-level constraint over the SAME column set) on
+/// `schema`? Postgres requires a FK's REFERENCES side to be backed by a unique
+/// constraint — otherwise "the referenced row" is ambiguous under a referential
+/// action, so this is a fail-closed DDL-time check, not a runtime nicety.
+fn schema_has_unique_over(schema: &TableSchema, cols: &[String]) -> bool {
+    if let [only] = cols {
+        if schema.column(only).is_some_and(Column::is_unique) {
+            return true;
+        }
+    }
+    let set: HashSet<&str> = cols.iter().map(|s| s.as_str()).collect();
+    schema.constraints().iter().any(|c| {
+        let group: Option<&[String]> = match c {
+            TableConstraint::PrimaryKey { columns, .. } | TableConstraint::Unique { columns, .. } => {
+                Some(columns)
+            }
+            _ => None,
+        };
+        group.is_some_and(|g| g.len() == cols.len() && g.iter().all(|x| set.contains(x.as_str())))
+    })
+}
+
+/// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — validate ONE `FOREIGN KEY` constraint's cross-table
+/// requirements: the referenced table exists (a self-reference resolves against
+/// `schema` itself, since the table being created is not yet in the catalog), its
+/// `ref_columns` exist, each local/referenced column pair's TYPE matches, and the
+/// referenced column set is backed by a PK/UNIQUE constraint. Fails closed with a
+/// precise error — a `REFERENCES` naming a table/column that does not exist is
+/// otherwise the "silently ignored, which is worse" bug this track exists to fix.
+fn validate_fk_target_in(
+    wtx: &WriteTransaction,
+    schema: &TableSchema,
+    columns: &[String],
+    ref_table: &str,
+    ref_columns: &[String],
+) -> Result<(), String> {
+    let ref_schema = if ref_table == schema.name {
+        schema.clone()
+    } else {
+        get_schema_in(wtx, ref_table)?.ok_or_else(|| {
+            format!(
+                "FOREIGN KEY on table `{}`: referenced table `{ref_table}` does not exist",
+                schema.name
+            )
+        })?
+    };
+    for (local_col, ref_col) in columns.iter().zip(ref_columns) {
+        let local = schema.column(local_col).ok_or_else(|| {
+            format!(
+                "FOREIGN KEY on table `{}`: column `{local_col}` does not exist",
+                schema.name
+            )
+        })?;
+        let referenced = ref_schema.column(ref_col).ok_or_else(|| {
+            format!(
+                "FOREIGN KEY on table `{}`: referenced column `{ref_table}.{ref_col}` does not exist",
+                schema.name
+            )
+        })?;
+        if local.ty != referenced.ty {
+            return Err(format!(
+                "FOREIGN KEY on table `{}`: column `{local_col}` type does not match referenced column `{ref_table}.{ref_col}`",
+                schema.name
+            ));
+        }
+    }
+    if !schema_has_unique_over(&ref_schema, ref_columns) {
+        return Err(format!(
+            "FOREIGN KEY on table `{}`: referenced column(s) ({}) on `{ref_table}` are not covered by a PRIMARY KEY or UNIQUE constraint",
+            schema.name,
+            ref_columns.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+/// Evaluate every `Check` constraint in `checks` against one row map (CONCEPT:EG-KG.query.table-schema-constraints/NE-001),
+/// returning a precise error naming the first violated constraint.
+fn eval_table_checks(
+    table: &str,
+    checks: &[&TableConstraint],
+    row: &serde_json::Map<String, Value>,
+) -> Result<(), String> {
+    for c in checks {
+        if let TableConstraint::Check { expr, .. } = c {
+            if !expr.holds(row) {
+                let name = TableSchema::constraint_display_name(table, c);
+                return Err(format!(
+                    "new row for table `{table}` violates check constraint `{name}`"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Does a row with the given `columns`' values equal to `key` already exist in
+/// `table` (CONCEPT:EG-KG.query.table-schema-constraints/NE-001)? Reads through `wtx` (staged-write-aware).
+fn row_exists_with_key_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    schema: &TableSchema,
+    columns: &[String],
+    key: &[Cell],
+) -> Result<bool, String> {
+    let idxs: Vec<usize> = columns
+        .iter()
+        .map(|c| {
+            schema
+                .column_index(c)
+                .expect("FK column existence validated at DDL time")
+        })
+        .collect();
+    let width = schema.columns().len();
+    let rows_t = match wtx.open_table(ROWS) {
+        Ok(t) => t,
+        Err(_) => return Ok(false),
+    };
+    for r in rows_t
+        .range((table, 0u64)..=(table, u64::MAX))
+        .map_err(map_err)?
+    {
+        let (_, v) = r.map_err(map_err)?;
+        let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
+        if cells.len() < width {
+            cells.resize(width, Cell::Null);
+        }
+        if idxs.iter().zip(key).all(|(&i, k)| cells.get(i) == Some(k)) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — verify every OUTGOING `FOREIGN KEY` on `schema` for ONE
+/// row's cells. MATCH SIMPLE semantics (Postgres's default): a FK with ANY NULL
+/// participating column is exempt. Reads the referenced table through `wtx`, so a
+/// parent inserted earlier in the SAME transaction already satisfies a child
+/// inserted later in it.
+fn validate_fk_out_for_row_in(
+    wtx: &WriteTransaction,
+    schema: &TableSchema,
+    cells: &[Cell],
+) -> Result<(), String> {
+    for c in schema.constraints() {
+        let TableConstraint::ForeignKey {
+            columns,
+            ref_table,
+            ref_columns,
+            ..
+        } = c
+        else {
+            continue;
+        };
+        let mut key: Vec<Cell> = Vec::with_capacity(columns.len());
+        let mut any_null = false;
+        for col in columns {
+            let idx = schema
+                .column_index(col)
+                .expect("FK column existence validated at DDL time");
+            let cell = cells.get(idx).cloned().unwrap_or(Cell::Null);
+            if matches!(cell, Cell::Null) {
+                any_null = true;
+            }
+            key.push(cell);
+        }
+        if any_null {
+            continue;
+        }
+        let ref_schema = if ref_table == &schema.name {
+            schema.clone()
+        } else {
+            get_schema_in(wtx, ref_table)?.ok_or_else(|| {
+                format!(
+                    "FOREIGN KEY on table `{}`: referenced table `{ref_table}` does not exist",
+                    schema.name
+                )
+            })?
+        };
+        if !row_exists_with_key_in(wtx, ref_table, &ref_schema, ref_columns, &key)? {
+            let name = TableSchema::constraint_display_name(&schema.name, c);
+            return Err(format!(
+                "insert or update on table `{}` violates foreign key constraint `{name}`",
+                schema.name
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The combined per-row write-path check (CONCEPT:EG-KG.query.table-schema-constraints/NE-001): table-level CHECK
+/// constraints, then outgoing FOREIGN KEY constraints. Called for every row an
+/// INSERT/ON CONFLICT DO UPDATE/UPDATE stages, right after its cells are built.
+fn validate_row_constraints_in(
+    wtx: &WriteTransaction,
+    schema: &TableSchema,
+    cells: &[Cell],
+) -> Result<(), String> {
+    let checks: Vec<&TableConstraint> = schema
+        .constraints()
+        .iter()
+        .filter(|c| matches!(c, TableConstraint::Check { .. }))
+        .collect();
+    if !checks.is_empty() {
+        eval_table_checks(&schema.name, &checks, &row_map(schema, cells))?;
+    }
+    validate_fk_out_for_row_in(wtx, schema, cells)
+}
+
+/// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — enforce every OTHER table's `FOREIGN KEY` that references
+/// `table` when ONE of `table`'s rows changes: `new_row = None` for a DELETE,
+/// `Some(..)` for an UPDATE (a no-op for a FK whose referenced columns did not
+/// change). `visited` guards a cascade across a cyclic FK (self-referencing OR a
+/// cycle spanning two-or-more tables) from ever reprocessing the SAME `(table,
+/// rowid)` twice, which is what makes an unbounded recursive cascade impossible.
+fn enforce_fk_on_parent_change_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    rowid: u64,
+    old_row: &[Cell],
+    new_row: Option<&[Cell]>,
+    visited: &mut HashSet<(String, u64)>,
+) -> Result<(), String> {
+    if !visited.insert((table.to_string(), rowid)) {
+        return Ok(());
+    }
+    let parent_schema =
+        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    for child_table in list_tables_in(wtx)? {
+        let child_schema = match get_schema_in(wtx, &child_table)? {
+            Some(s) => s,
+            None => continue,
+        };
+        for c in child_schema.constraints().to_vec() {
+            let TableConstraint::ForeignKey {
+                columns,
+                ref_table,
+                ref_columns,
+                on_delete,
+                on_update,
+                name: _,
+            } = &c
+            else {
+                continue;
+            };
+            if ref_table != table {
+                continue;
+            }
+            let ref_idxs: Vec<usize> = ref_columns
+                .iter()
+                .map(|c| {
+                    parent_schema
+                        .column_index(c)
+                        .expect("FK ref column existence validated at DDL time")
+                })
+                .collect();
+            let old_key: Vec<Cell> = ref_idxs
+                .iter()
+                .map(|&i| old_row.get(i).cloned().unwrap_or(Cell::Null))
+                .collect();
+            let new_key: Option<Vec<Cell>> = new_row.map(|nr| {
+                ref_idxs
+                    .iter()
+                    .map(|&i| nr.get(i).cloned().unwrap_or(Cell::Null))
+                    .collect()
+            });
+            if let Some(nk) = &new_key {
+                if nk == &old_key {
+                    continue;
+                }
+            }
+            let action = if new_row.is_some() {
+                *on_update
+            } else {
+                *on_delete
+            };
+            let child_idxs: Vec<usize> = columns
+                .iter()
+                .map(|c| {
+                    child_schema
+                        .column_index(c)
+                        .expect("FK column existence validated at DDL time")
+                })
+                .collect();
+            let width = child_schema.columns().len();
+            let matches: Vec<(u64, Vec<Cell>)> = {
+                let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+                let mut out = Vec::new();
+                for r in rows_t
+                    .range((child_table.as_str(), 0u64)..=(child_table.as_str(), u64::MAX))
+                    .map_err(map_err)?
+                {
+                    let (k, v) = r.map_err(map_err)?;
+                    let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
+                    if cells.len() < width {
+                        cells.resize(width, Cell::Null);
+                    }
+                    let any_null = child_idxs
+                        .iter()
+                        .any(|&i| !matches!(cells.get(i), Some(c) if !matches!(c, Cell::Null)));
+                    if any_null {
+                        continue;
+                    }
+                    if child_idxs
+                        .iter()
+                        .zip(&old_key)
+                        .all(|(&i, k)| cells.get(i) == Some(k))
+                    {
+                        out.push((k.value().1, cells));
+                    }
+                }
+                out
+            };
+            if matches.is_empty() {
+                continue;
+            }
+            match action {
+                RefAction::NoAction | RefAction::Restrict => {
+                    let cname = TableSchema::constraint_display_name(&child_table, &c);
+                    return Err(format!(
+                        "update or delete on table `{table}` violates foreign key constraint `{cname}` on table `{child_table}`"
+                    ));
+                }
+                RefAction::Cascade => {
+                    for (child_rowid, child_cells) in matches {
+                        if let Some(nk) = &new_key {
+                            let mut updated = child_cells.clone();
+                            for (&i, v) in child_idxs.iter().zip(nk) {
+                                updated[i] = v.clone();
+                            }
+                            validate_fk_out_for_row_in(wtx, &child_schema, &updated)?;
+                            let blob = rmp_serde::to_vec_named(&updated)
+                                .map_err(|e| format!("encode row: {e}"))?;
+                            {
+                                let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+                                rows_t
+                                    .insert((child_table.as_str(), child_rowid), blob.as_slice())
+                                    .map_err(map_err)?;
+                            }
+                            enforce_fk_on_parent_change_in(
+                                wtx,
+                                &child_table,
+                                child_rowid,
+                                &child_cells,
+                                Some(&updated),
+                                visited,
+                            )?;
+                        } else {
+                            {
+                                let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+                                rows_t
+                                    .remove((child_table.as_str(), child_rowid))
+                                    .map_err(map_err)?;
+                            }
+                            enforce_fk_on_parent_change_in(
+                                wtx,
+                                &child_table,
+                                child_rowid,
+                                &child_cells,
+                                None,
+                                visited,
+                            )?;
+                        }
+                    }
+                }
+                RefAction::SetNull => {
+                    for (child_rowid, child_cells) in matches {
+                        for &i in &child_idxs {
+                            if !child_schema.columns()[i].nullable {
+                                return Err(format!(
+                                    "cannot SET NULL on non-nullable column `{}` of table `{child_table}` for foreign key `{}`",
+                                    child_schema.columns()[i].name,
+                                    TableSchema::constraint_display_name(&child_table, &c)
+                                ));
+                            }
+                        }
+                        let mut updated = child_cells.clone();
+                        for &i in &child_idxs {
+                            updated[i] = Cell::Null;
+                        }
+                        let blob = rmp_serde::to_vec_named(&updated)
+                            .map_err(|e| format!("encode row: {e}"))?;
+                        let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+                        rows_t
+                            .insert((child_table.as_str(), child_rowid), blob.as_slice())
+                            .map_err(map_err)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Existing rows must not already violate a NEWLY added NOT NULL requirement (CONCEPT:EG-KG.query.table-schema-constraints/NE-001,
+/// `ADD CONSTRAINT` adding a PK that forces NOT NULL on a previously-nullable
+/// column) — mirrors Postgres's refusal to add such a constraint over violating data.
+fn validate_not_null_in(wtx: &WriteTransaction, table: &str, schema: &TableSchema) -> Result<(), String> {
+    let not_null_cols: Vec<usize> = schema
+        .columns()
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| !c.nullable)
+        .map(|(i, _)| i)
+        .collect();
+    if not_null_cols.is_empty() {
+        return Ok(());
+    }
+    let width = schema.columns().len();
+    let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    for r in rows_t
+        .range((table, 0u64)..=(table, u64::MAX))
+        .map_err(map_err)?
+    {
+        let (_, v) = r.map_err(map_err)?;
+        let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
+        if cells.len() < width {
+            cells.resize(width, Cell::Null);
+        }
+        for &ci in &not_null_cols {
+            if matches!(cells[ci], Cell::Null) {
+                return Err(format!(
+                    "column `{}` of table `{table}` has existing NULL values; cannot add a NOT NULL/PRIMARY KEY constraint",
+                    schema.columns()[ci].name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Every EXISTING row of `table` must already satisfy every `Check` constraint in
+/// `checks` (CONCEPT:EG-KG.query.table-schema-constraints/NE-001, `ADD CONSTRAINT`) — mirrors Postgres's refusal
+/// to add a CHECK the current data already violates.
+fn validate_table_checks_over_existing_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    schema: &TableSchema,
+    checks: &[&TableConstraint],
+) -> Result<(), String> {
+    if checks.is_empty() {
+        return Ok(());
+    }
+    let width = schema.columns().len();
+    let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    for r in rows_t
+        .range((table, 0u64)..=(table, u64::MAX))
+        .map_err(map_err)?
+    {
+        let (_, v) = r.map_err(map_err)?;
+        let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
+        if cells.len() < width {
+            cells.resize(width, Cell::Null);
+        }
+        eval_table_checks(table, checks, &row_map(schema, &cells))?;
+    }
+    Ok(())
+}
+
+/// Every EXISTING row of `table` must already satisfy the outgoing FOREIGN KEY
+/// `constraint` (CONCEPT:EG-KG.query.table-schema-constraints/NE-001, `ADD CONSTRAINT`) — mirrors Postgres's
+/// refusal to add a FK the current data already violates.
+fn validate_existing_fk_children_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    schema: &TableSchema,
+    constraint: &TableConstraint,
+) -> Result<(), String> {
+    let width = schema.columns().len();
+    let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let rows: Vec<Vec<Cell>> = rows_t
+        .range((table, 0u64)..=(table, u64::MAX))
+        .map_err(map_err)?
+        .map(|r| {
+            let (_, v) = r.map_err(map_err)?;
+            let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
+            if cells.len() < width {
+                cells.resize(width, Cell::Null);
+            }
+            Ok::<_, String>(cells)
+        })
+        .collect::<Result<_, _>>()?;
+    drop(rows_t);
+    let scoped = schema.clone().with_constraints(vec![constraint.clone()]);
+    for cells in &rows {
+        validate_fk_out_for_row_in(wtx, &scoped, cells)?;
+    }
+    Ok(())
+}
+
 fn create_in(
     wtx: &WriteTransaction,
     schema: &TableSchema,
@@ -1593,6 +2151,20 @@ fn create_in(
         }
         return Err(format!("table `{}` already exists", schema.name));
     }
+    let mut schema = schema.clone();
+    force_pk_not_null(&mut schema);
+    for c in schema.constraints().to_vec() {
+        if let TableConstraint::ForeignKey {
+            columns,
+            ref_table,
+            ref_columns,
+            ..
+        } = &c
+        {
+            validate_fk_target_in(wtx, &schema, columns, ref_table, ref_columns)?;
+        }
+    }
+    let schema = &schema;
     let blob = rmp_serde::to_vec_named(schema).map_err(|e| format!("encode schema: {e}"))?;
     {
         let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
@@ -1892,7 +2464,13 @@ fn drop_constraint_in(
     let mut schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     let mut matched = false;
-    if constraint == format!("{table}_pkey") {
+    // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — a table-level constraint (composite PK/UNIQUE/FK/CHECK)
+    // is tried FIRST so an explicit `CONSTRAINT <name>` always takes precedence over
+    // a same-named synthesized column-flag match.
+    if schema.remove_constraint_named(constraint) {
+        matched = true;
+    }
+    if !matched && constraint == format!("{table}_pkey") {
         for c in schema.columns_mut() {
             if c.primary_key {
                 c.primary_key = false;
@@ -1924,6 +2502,50 @@ fn drop_constraint_in(
     put_schema_in(wtx, &schema)
 }
 
+/// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — `ALTER TABLE … ADD CONSTRAINT`: validate `constraint`
+/// against the table's schema AS IT WOULD BE with it added (structural + cross-table
+/// FK checks, reusing exactly what `CREATE TABLE` runs), THEN re-validate every
+/// EXISTING row against it (PK/UNIQUE uniqueness + implied NOT NULL, CHECK, or FK)
+/// before persisting — a constraint the current data already violates is refused,
+/// matching Postgres.
+fn add_constraint_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    constraint: TableConstraint,
+) -> Result<(), String> {
+    let schema =
+        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    let mut trial = schema.clone();
+    trial.push_constraint(constraint.clone());
+    trial.validate()?;
+    if let TableConstraint::ForeignKey {
+        columns,
+        ref_table,
+        ref_columns,
+        ..
+    } = &constraint
+    {
+        validate_fk_target_in(wtx, &trial, columns, ref_table, ref_columns)?;
+    }
+    force_pk_not_null(&mut trial);
+    match &constraint {
+        TableConstraint::PrimaryKey { .. } => {
+            validate_not_null_in(wtx, table, &trial)?;
+            validate_uniqueness_in(wtx, table, &trial)?;
+        }
+        TableConstraint::Unique { .. } => {
+            validate_uniqueness_in(wtx, table, &trial)?;
+        }
+        TableConstraint::Check { .. } => {
+            validate_table_checks_over_existing_in(wtx, table, &trial, &[&constraint])?;
+        }
+        TableConstraint::ForeignKey { .. } => {
+            validate_existing_fk_children_in(wtx, table, &trial, &constraint)?;
+        }
+    }
+    put_schema_in(wtx, &trial)
+}
+
 /// Best-effort coerce an already-stored [`Cell`] to `ty` for an `ALTER COLUMN … TYPE`
 /// migration (CONCEPT:EG-KG.query.rename-table-moves-catalog). A cell already of the target shape is kept verbatim; a
 /// NULL passes through subject to `nullable`; otherwise the value is rendered into a
@@ -1943,6 +2565,14 @@ fn coerce_cell(old: &Cell, ty: ColumnType, nullable: bool) -> Result<Cell, Strin
 /// Whether `cell`'s stored shape already matches `ty` (so an ALTER TYPE is a no-op for
 /// that cell). `Int`/`BigInt` share `Cell::Int`; `Float`/`Double` share `Cell::Float`.
 fn cell_matches_type(cell: &Cell, ty: ColumnType) -> bool {
+    // CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — deliberately NOT extended for `Uuid`/`Numeric`/
+    // `TimestampTz`/`Array`, even though they share a storage `Cell` variant with an
+    // existing type (`Text`/`Float`/`Timestamp`/`Json`): those four have EXTRA
+    // validation beyond their storage shape (UUID format, NUMERIC precision/scale,
+    // an explicit TIMESTAMPTZ offset, a well-typed array), so an `ALTER COLUMN …
+    // TYPE` onto one of them must always run the full `Cell::coerce` re-validation
+    // below — treating "same storage shape" as "already valid" would silently skip
+    // that check.
     matches!(
         (cell, ty),
         (Cell::Int(_), ColumnType::Int | ColumnType::BigInt)
@@ -2067,6 +2697,10 @@ fn insert_in(
     }
     // Uniqueness over the post-insert state (reads staged writes through `wtx`).
     validate_uniqueness_in(wtx, table, &schema)?;
+    // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — table-level CHECK + outgoing FOREIGN KEY per inserted row.
+    for cells in &inserted {
+        validate_row_constraints_in(wtx, &schema, cells)?;
+    }
     Ok(inserted)
 }
 
@@ -2287,6 +2921,11 @@ fn insert_on_conflict_in(
     }
     drop(rows_t);
     validate_uniqueness_in(wtx, table, &schema)?;
+    // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — table-level CHECK + outgoing FOREIGN KEY per
+    // inserted-or-updated row (fresh insert AND a DO UPDATE merge both land in `affected`).
+    for cells in &affected {
+        validate_row_constraints_in(wtx, &schema, cells)?;
+    }
     Ok(affected)
 }
 
@@ -2328,6 +2967,9 @@ fn update_in(
     }
     let width = schema.columns().len();
     let mut updated: Vec<Vec<Cell>> = Vec::new();
+    // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — `(rowid, old_cells, new_cells)` for the parent-side
+    // referential-action pass AFTER the write is staged.
+    let mut changed: Vec<(u64, Vec<Cell>, Vec<Cell>)> = Vec::new();
     {
         let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
         let mut hits: Vec<(u64, Vec<Cell>)> = Vec::new();
@@ -2346,7 +2988,8 @@ fn update_in(
                 hits.push((k.value().1, cells));
             }
         }
-        for (rowid, mut cells) in hits {
+        for (rowid, old_cells) in hits {
+            let mut cells = old_cells.clone();
             for (idx, cell) in &assigns {
                 cells[*idx] = cell.clone();
             }
@@ -2365,10 +3008,19 @@ fn update_in(
             rows_t
                 .insert((table, rowid), blob.as_slice())
                 .map_err(map_err)?;
+            changed.push((rowid, old_cells, cells.clone()));
             updated.push(cells);
         }
     }
     validate_uniqueness_in(wtx, table, &schema)?;
+    // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — table-level CHECK + outgoing FOREIGN KEY, then the
+    // parent-side referential action for every OTHER table whose FK references a
+    // column this UPDATE changed (NO ACTION/RESTRICT/CASCADE/SET NULL).
+    let mut visited = HashSet::new();
+    for (rowid, old_cells, new_cells) in &changed {
+        validate_row_constraints_in(wtx, &schema, new_cells)?;
+        enforce_fk_on_parent_change_in(wtx, table, *rowid, old_cells, Some(new_cells), &mut visited)?;
+    }
     Ok(updated)
 }
 
@@ -2399,9 +3051,16 @@ fn delete_in(
             victims.push((k.value().1, cells));
         }
     }
-    for (rowid, cells) in victims {
-        rows_t.remove((table, rowid)).map_err(map_err)?;
-        removed.push(cells);
+    for (rowid, cells) in &victims {
+        rows_t.remove((table, *rowid)).map_err(map_err)?;
+        removed.push(cells.clone());
+    }
+    drop(rows_t);
+    // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — the parent-side referential action for every OTHER
+    // table whose FK references a column of a row this DELETE removed.
+    let mut visited = HashSet::new();
+    for (rowid, cells) in &victims {
+        enforce_fk_on_parent_change_in(wtx, table, *rowid, cells, None, &mut visited)?;
     }
     Ok(removed)
 }
@@ -2415,19 +3074,43 @@ fn validate_uniqueness_in(
     table: &str,
     schema: &TableSchema,
 ) -> Result<(), String> {
-    let unique_cols: Vec<usize> = schema
+    // Single-column groups from the per-column PK/UNIQUE flags, PLUS every
+    // multi-column PK/UNIQUE table-level constraint (CONCEPT:EG-KG.query.table-schema-constraints/NE-001) — each
+    // group is checked independently (a composite key is the JOIN of its columns'
+    // individual coerced-value keys; a NULL in ANY participating column exempts the
+    // row from THAT group, mirroring single-column UNIQUE's NULL exemption and
+    // Postgres's multi-column UNIQUE semantics).
+    let mut groups: Vec<(Vec<usize>, String)> = schema
         .columns()
         .iter()
         .enumerate()
         .filter(|(_, c)| c.is_unique())
-        .map(|(i, _)| i)
+        .map(|(i, c)| (vec![i], format!("column `{}`", c.name)))
         .collect();
-    if unique_cols.is_empty() {
+    for c in schema.constraints() {
+        let cols = match c {
+            TableConstraint::PrimaryKey { columns, .. } | TableConstraint::Unique { columns, .. } => {
+                columns
+            }
+            _ => continue,
+        };
+        let idxs: Vec<usize> = cols
+            .iter()
+            .map(|name| {
+                schema
+                    .column_index(name)
+                    .expect("constraint column existence validated at DDL time")
+            })
+            .collect();
+        let name = TableSchema::constraint_display_name(table, c);
+        groups.push((idxs, format!("`{name}`")));
+    }
+    if groups.is_empty() {
         return Ok(());
     }
     let width = schema.columns().len();
     let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
-    let mut seen: Vec<HashSet<String>> = vec![HashSet::new(); unique_cols.len()];
+    let mut seen: Vec<HashSet<String>> = vec![HashSet::new(); groups.len()];
     for r in rows_t
         .range((table, 0u64)..=(table, u64::MAX))
         .map_err(map_err)?
@@ -2437,11 +3120,25 @@ fn validate_uniqueness_in(
         if cells.len() < width {
             cells.resize(width, Cell::Null);
         }
-        for (slot, &ci) in unique_cols.iter().enumerate() {
-            if unique_cell_key(&cells[ci]).is_some_and(|key| !seen[slot].insert(key)) {
+        for (slot, (idxs, label)) in groups.iter().enumerate() {
+            let mut parts: Vec<String> = Vec::with_capacity(idxs.len());
+            let mut any_null = false;
+            for &ci in idxs {
+                match unique_cell_key(&cells[ci]) {
+                    Some(k) => parts.push(k),
+                    None => {
+                        any_null = true;
+                        break;
+                    }
+                }
+            }
+            if any_null {
+                continue;
+            }
+            let key = parts.join("\u{1}");
+            if !seen[slot].insert(key) {
                 return Err(format!(
-                    "duplicate key value violates unique constraint on column `{}`",
-                    schema.columns()[ci].name
+                    "duplicate key value violates unique constraint on {label}"
                 ));
             }
         }
