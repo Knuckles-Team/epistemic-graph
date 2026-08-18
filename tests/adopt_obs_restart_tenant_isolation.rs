@@ -4,11 +4,12 @@
 //! The commit's own unit tests (`src/server/obs/mod.rs::tests::
 //! bug_016_traces_survive_an_obsstate_restart_only_after_persist_traces` and
 //! `bug_210_segment_manifests_survive_an_obsstate_restart`) already prove restart
-//! continuity for a SINGLE stream, and `crates/eg-tsdb/src/traces.rs::tests::
+//! continuity for a SINGLE stream/trace, and
+//! `crates/eg-tsdb/src/traces.rs::tests::
 //! bug_016_recover_rejects_corrupt_bytes_without_panicking` already proves bounded
-//! (fail-closed, non-panicking) recovery from corrupt durable bytes. Neither proves
-//! the acceptance ledger's remaining condition: **zero cross-tenant rows** after
-//! recovery.
+//! (fail-closed, non-panicking) recovery from corrupt durable bytes. This integration
+//! test extends that proof to TWO tenant streams and TWO durable traces on the same
+//! store, requiring **zero cross-tenant rows** after recovery for both substrates.
 //!
 //! `ObsState`'s own module doc is explicit that `stream` IS the tenancy key ("Org/
 //! stream namespace (the tenancy key -> its own series + text namespace)",
@@ -40,6 +41,29 @@ fn record(stream: &str, ts: i64, body: &str) -> LogRecord {
     }
 }
 
+#[cfg(feature = "traces")]
+fn span(
+    trace_id: &str,
+    span_id: &str,
+    parent_span_id: &str,
+    service: &str,
+    operation: &str,
+    start_time: i64,
+) -> eg_tsdb::traces::Span {
+    eg_tsdb::traces::Span {
+        trace_id: trace_id.to_string(),
+        span_id: span_id.to_string(),
+        parent_span_id: parent_span_id.to_string(),
+        service: service.to_string(),
+        operation: operation.to_string(),
+        start_time,
+        duration: 10,
+        status: "OK".to_string(),
+        attributes: BTreeMap::new(),
+        events: Vec::new(),
+    }
+}
+
 /// Two tenants (`tenant-a`, `tenant-b`) ingest past the flush threshold on the SAME
 /// persist dir, "crash" (drop the handle), and reopen. Each tenant's segment
 /// manifest and row bytes must be recoverable and must contain EXACTLY that
@@ -60,12 +84,75 @@ fn obs_restart_recovers_disjoint_per_stream_segments_with_zero_cross_tenant_rows
             record("tenant-b", 40, "bravo-two"),
         ];
         let out_a = obs.ingest(tenant_a_recs).expect("ingest tenant-a");
-        assert_eq!(out_a.segments_flushed, 1, "threshold=2 rolls one segment for tenant-a");
+        assert_eq!(
+            out_a.segments_flushed, 1,
+            "threshold=2 rolls one segment for tenant-a"
+        );
         let out_b = obs.ingest(tenant_b_recs).expect("ingest tenant-b");
-        assert_eq!(out_b.segments_flushed, 1, "threshold=2 rolls one segment for tenant-b");
+        assert_eq!(
+            out_b.segments_flushed, 1,
+            "threshold=2 rolls one segment for tenant-b"
+        );
 
-        assert_eq!(obs.segments_for("tenant-a").len(), 1, "tenant-a durably indexed pre-restart");
-        assert_eq!(obs.segments_for("tenant-b").len(), 1, "tenant-b durably indexed pre-restart");
+        assert_eq!(
+            obs.segments_for("tenant-a").len(),
+            1,
+            "tenant-a durably indexed pre-restart"
+        );
+        assert_eq!(
+            obs.segments_for("tenant-b").len(),
+            1,
+            "tenant-b durably indexed pre-restart"
+        );
+
+        // Traces use the same durable ObsState base but their own explicit
+        // snapshot/restore path. Keep each tenant in a separate trace and make
+        // each trace a root plus child so restart proves both span retention and
+        // parent/child assembly, not merely a trace-count increment.
+        #[cfg(feature = "traces")]
+        {
+            let traces = obs.trace_store();
+            assert_eq!(
+                traces.add_spans(vec![
+                    span(
+                        "trace-tenant-a",
+                        "a-root",
+                        "",
+                        "tenant-a",
+                        "alpha-root",
+                        100
+                    ),
+                    span(
+                        "trace-tenant-a",
+                        "a-child",
+                        "a-root",
+                        "tenant-a",
+                        "alpha-child",
+                        110,
+                    ),
+                    span(
+                        "trace-tenant-b",
+                        "b-root",
+                        "",
+                        "tenant-b",
+                        "bravo-root",
+                        200
+                    ),
+                    span(
+                        "trace-tenant-b",
+                        "b-child",
+                        "b-root",
+                        "tenant-b",
+                        "bravo-child",
+                        210,
+                    ),
+                ]),
+                4,
+                "all tenant spans must be accepted before persistence"
+            );
+            assert_eq!(traces.trace_count(), 2, "one durable trace per tenant");
+            obs.persist_traces().expect("persist tenant traces");
+        }
     }
 
     // "Restart on the same durable store": drop the handle entirely and reopen
@@ -74,11 +161,23 @@ fn obs_restart_recovers_disjoint_per_stream_segments_with_zero_cross_tenant_rows
 
     let segs_a = reopened.segments_for("tenant-a");
     let segs_b = reopened.segments_for("tenant-b");
-    assert_eq!(segs_a.len(), 1, "tenant-a's manifest must survive the restart");
-    assert_eq!(segs_b.len(), 1, "tenant-b's manifest must survive the restart");
+    assert_eq!(
+        segs_a.len(),
+        1,
+        "tenant-a's manifest must survive the restart"
+    );
+    assert_eq!(
+        segs_b.len(),
+        1,
+        "tenant-b's manifest must survive the restart"
+    );
 
-    let rows_a = reopened.read_segment(&segs_a[0]).expect("read tenant-a segment");
-    let rows_b = reopened.read_segment(&segs_b[0]).expect("read tenant-b segment");
+    let rows_a = reopened
+        .read_segment(&segs_a[0])
+        .expect("read tenant-a segment");
+    let rows_b = reopened
+        .read_segment(&segs_b[0])
+        .expect("read tenant-b segment");
 
     let bodies_a: Vec<&str> = rows_a.iter().map(|r| r.body.as_str()).collect();
     let bodies_b: Vec<&str> = rows_b.iter().map(|r| r.body.as_str()).collect();
@@ -112,4 +211,48 @@ fn obs_restart_recovers_disjoint_per_stream_segments_with_zero_cross_tenant_rows
     // `read_segment` didn't silently truncate or over-read.
     assert_eq!(segs_a[0].row_count, rows_a.len());
     assert_eq!(segs_b[0].row_count, rows_b.len());
+
+    #[cfg(feature = "traces")]
+    {
+        let traces = reopened.trace_store();
+        assert_eq!(
+            traces.trace_count(),
+            2,
+            "both tenant traces survive restart"
+        );
+
+        let trace_a = traces.assemble("trace-tenant-a").expect("tenant-a trace");
+        let trace_b = traces.assemble("trace-tenant-b").expect("tenant-b trace");
+        assert_eq!(trace_a.span_count, 2, "tenant-a trace keeps both spans");
+        assert_eq!(trace_b.span_count, 2, "tenant-b trace keeps both spans");
+        assert_eq!(trace_a.services, vec!["tenant-a".to_string()]);
+        assert_eq!(trace_b.services, vec!["tenant-b".to_string()]);
+        assert_eq!(trace_a.roots.len(), 1, "tenant-a root survives assembly");
+        assert_eq!(
+            trace_a.roots[0].children.len(),
+            1,
+            "tenant-a child survives assembly"
+        );
+        assert_eq!(trace_b.roots.len(), 1, "tenant-b root survives assembly");
+        assert_eq!(
+            trace_b.roots[0].children.len(),
+            1,
+            "tenant-b child survives assembly"
+        );
+
+        let spans_a = traces.spans_of("trace-tenant-a");
+        let spans_b = traces.spans_of("trace-tenant-b");
+        assert!(
+            spans_a
+                .iter()
+                .all(|item| item.service == "tenant-a" && item.operation.starts_with("alpha-")),
+            "tenant-a trace must contain no tenant-b span rows: {spans_a:?}"
+        );
+        assert!(
+            spans_b
+                .iter()
+                .all(|item| item.service == "tenant-b" && item.operation.starts_with("bravo-")),
+            "tenant-b trace must contain no tenant-a span rows: {spans_b:?}"
+        );
+    }
 }
