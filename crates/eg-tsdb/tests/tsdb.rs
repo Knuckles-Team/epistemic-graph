@@ -203,7 +203,10 @@ fn store_legal_hold_survives_retention_sweep_that_deletes_a_comparable_unheld_se
     let dropped_held = store.evict_before("held", 100 * NS).unwrap();
     let dropped_unheld = store.evict_before("unheld", 100 * NS).unwrap();
 
-    assert_eq!(dropped_held, 0, "a held series is never trimmed by retention");
+    assert_eq!(
+        dropped_held, 0,
+        "a held series is never trimmed by retention"
+    );
     assert_eq!(
         dropped_unheld, 10,
         "the comparable un-held series is trimmed exactly as before"

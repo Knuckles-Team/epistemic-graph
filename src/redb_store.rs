@@ -6202,7 +6202,10 @@ fn apply_work_item_rows(
             }
             props.insert("updated_at".into(), serde_json::Value::from(now_s));
             write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
-            respond(CasWorkItemMetadataOutcome::Applied, vec![work_item_id.clone()])
+            respond(
+                CasWorkItemMetadataOutcome::Applied,
+                vec![work_item_id.clone()],
+            )
         }
         Method::CommitWorkItemResult {
             tenant,
@@ -13059,8 +13062,8 @@ mod mutation_batch_tests {
         };
 
         let cas_request = |expected_checkpoint_id: Option<&str>,
-                            set_checkpoint_id: &str,
-                            expected_graph_version: u64| {
+                           set_checkpoint_id: &str,
+                           expected_graph_version: u64| {
             let mut op = batch(
                 &format!("cas-metadata-{set_checkpoint_id}"),
                 &format!("cas-metadata-{set_checkpoint_id}-key"),
@@ -13103,7 +13106,9 @@ mod mutation_batch_tests {
                 crate::protocol::ResultPayload::Raw(inner)
                 | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
                 other => {
-                    panic!("CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}")
+                    panic!(
+                        "CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}"
+                    )
                 }
             };
             decode_durable(&bytes).unwrap()
@@ -13113,7 +13118,10 @@ mod mutation_batch_tests {
         let winner = commit_at(&db, &cas_request(None, "checkpoint:1", 5), None).unwrap();
         let winner_result = decode_result(&winner);
         assert_eq!(winner_result.outcome, CasWorkItemMetadataOutcome::Applied);
-        assert_eq!(winner_result.changed_work_item_ids, vec!["cas-a".to_string()]);
+        assert_eq!(
+            winner_result.changed_work_item_ids,
+            vec!["cas-a".to_string()]
+        );
 
         // Contender B: derived its request from the SAME pre-claim read
         // (checkpoint_id == None) -- now stale, because A already committed.
@@ -13181,7 +13189,10 @@ mod mutation_batch_tests {
             60_000,
             64,
         );
-        assert!(claim.claimed, "setup: claim must win to reach the claimed state");
+        assert!(
+            claim.claimed,
+            "setup: claim must win to reach the claimed state"
+        );
         let lease = CasWorkItemMetadataLeaseFence {
             worker_ref: claim.lease_holder_ref.clone().unwrap(),
             lease_epoch: claim.lease_epoch.unwrap(),
@@ -13253,7 +13264,9 @@ mod mutation_batch_tests {
                 crate::protocol::ResultPayload::Raw(inner)
                 | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
                 other => {
-                    panic!("CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}")
+                    panic!(
+                        "CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}"
+                    )
                 }
             };
             decode_durable(&bytes).unwrap()
@@ -13403,7 +13416,10 @@ mod mutation_batch_tests {
             );
             assert!(claim.claimed);
 
-            let mut apply = batch("cas-metadata-restart-apply", "cas-metadata-restart-apply-key");
+            let mut apply = batch(
+                "cas-metadata-restart-apply",
+                "cas-metadata-restart-apply-key",
+            );
             apply.expected_graph_version = Some(5);
             apply.operations = vec![MutationOperation {
                 ordinal: 0,

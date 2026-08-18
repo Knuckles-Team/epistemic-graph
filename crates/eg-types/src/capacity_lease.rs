@@ -147,7 +147,9 @@ impl CapacityCell {
             return Err("reserved_floor must not exceed capacity".to_string());
         }
         if self.epoch == 0 {
-            return Err("epoch must be non-zero (0 is reserved for 'never provisioned')".to_string());
+            return Err(
+                "epoch must be non-zero (0 is reserved for 'never provisioned')".to_string(),
+            );
         }
         Ok(())
     }
@@ -293,7 +295,9 @@ impl CapacityLease {
     /// authority is the timestamp comparison itself, so two independent
     /// reclaimers can never race on "is it expired").
     pub fn is_expired(&self, now_ms: u64) -> bool {
-        self.state.is_terminal() || self.state == LeaseState::Expired || now_ms >= self.expires_at_ms
+        self.state.is_terminal()
+            || self.state == LeaseState::Expired
+            || now_ms >= self.expires_at_ms
     }
 }
 
@@ -383,7 +387,10 @@ impl CapacityLedger {
     ) -> Result<CapacityLease, CapacityDenial> {
         let replay_key = (tenant_ref.to_string(), idempotency_key.to_string());
         if let Some(existing_id) = self.idempotency.get(&replay_key) {
-            let existing = self.leases.get(existing_id).expect("idempotency index points at a live lease");
+            let existing = self
+                .leases
+                .get(existing_id)
+                .expect("idempotency index points at a live lease");
             if existing.cell_id == cell.cell_id
                 && existing.resource_class == resource_class
                 && existing.amount == amount
@@ -442,7 +449,10 @@ impl CapacityLedger {
         now_ms: u64,
         ttl_ms: u64,
     ) -> Result<CapacityLease, CapacityDenial> {
-        let lease = self.leases.get_mut(lease_id).ok_or(CapacityDenial::NotFound)?;
+        let lease = self
+            .leases
+            .get_mut(lease_id)
+            .ok_or(CapacityDenial::NotFound)?;
         if lease.is_expired(now_ms) {
             lease.state = LeaseState::Expired;
             return Err(CapacityDenial::LeaseExpired);
@@ -472,7 +482,10 @@ impl CapacityLedger {
         cell_epoch: u64,
         now_ms: u64,
     ) -> Result<(), CapacityDenial> {
-        let lease = self.leases.get_mut(lease_id).ok_or(CapacityDenial::NotFound)?;
+        let lease = self
+            .leases
+            .get_mut(lease_id)
+            .ok_or(CapacityDenial::NotFound)?;
         if lease.state.is_terminal() {
             // Idempotent terminal commit (mirrors CommitDescriptorV1's
             // idempotency invariant): a repeated release on an already-terminal
@@ -541,23 +554,44 @@ mod tests {
         let c = cell(1);
         let lease = ledger
             .try_acquire(
-                &c, "lease-1".into(), "wi-1", "tenant-a", "actor-a",
-                CapacityResourceClass::LlmGenerator, 1, LeasePriority::Interactive,
-                "idem-1", 0, 1_000,
+                &c,
+                "lease-1".into(),
+                "wi-1",
+                "tenant-a",
+                "actor-a",
+                CapacityResourceClass::LlmGenerator,
+                1,
+                LeasePriority::Interactive,
+                "idem-1",
+                0,
+                1_000,
             )
             .expect("acquire admits under capacity");
 
         // Time passes well beyond the 1000ms TTL — the holder never renewed.
         let now_ms = 5_000;
         let err = ledger
-            .try_renew(&lease.lease_id, lease.fence_token, lease.lease_epoch, c.epoch, now_ms, 1_000)
+            .try_renew(
+                &lease.lease_id,
+                lease.fence_token,
+                lease.lease_epoch,
+                c.epoch,
+                now_ms,
+                1_000,
+            )
             .expect_err("an expired lease must be rejected, never silently renewed");
         assert_eq!(err, CapacityDenial::LeaseExpired);
 
         // And release, likewise, does not let a stale-but-terminal-by-time
         // holder pretend it still owned the capacity.
         let err2 = ledger
-            .try_release(&lease.lease_id, lease.fence_token, lease.lease_epoch, c.epoch, now_ms)
+            .try_release(
+                &lease.lease_id,
+                lease.fence_token,
+                lease.lease_epoch,
+                c.epoch,
+                now_ms,
+            )
             .expect_err("an expired lease must also be rejected on release");
         assert_eq!(err2, CapacityDenial::LeaseExpired);
     }
@@ -571,16 +605,31 @@ mod tests {
         let c_old = cell(1);
         let lease = ledger
             .try_acquire(
-                &c_old, "lease-2".into(), "wi-2", "tenant-a", "actor-a",
-                CapacityResourceClass::LlmGenerator, 1, LeasePriority::Interactive,
-                "idem-2", 0, 1_000_000, // huge TTL: NOT a timestamp-expiry story
+                &c_old,
+                "lease-2".into(),
+                "wi-2",
+                "tenant-a",
+                "actor-a",
+                CapacityResourceClass::LlmGenerator,
+                1,
+                LeasePriority::Interactive,
+                "idem-2",
+                0,
+                1_000_000, // huge TTL: NOT a timestamp-expiry story
             )
             .expect("acquire admits under capacity");
 
         // Cell fails over: epoch bumps from 1 -> 2.
         let cell_epoch_now = 2;
         let err = ledger
-            .try_renew(&lease.lease_id, lease.fence_token, lease.lease_epoch, cell_epoch_now, 500, 1_000)
+            .try_renew(
+                &lease.lease_id,
+                lease.fence_token,
+                lease.lease_epoch,
+                cell_epoch_now,
+                500,
+                1_000,
+            )
             .expect_err("a stale-epoch holder must be rejected regardless of its timestamp TTL");
         assert_eq!(
             err,
@@ -599,15 +648,30 @@ mod tests {
         let c = cell(1);
         let lease = ledger
             .try_acquire(
-                &c, "lease-3".into(), "wi-3", "tenant-a", "actor-a",
-                CapacityResourceClass::LlmGenerator, 1, LeasePriority::Interactive,
-                "idem-3", 0, 10_000,
+                &c,
+                "lease-3".into(),
+                "wi-3",
+                "tenant-a",
+                "actor-a",
+                CapacityResourceClass::LlmGenerator,
+                1,
+                LeasePriority::Interactive,
+                "idem-3",
+                0,
+                10_000,
             )
             .expect("acquire admits under capacity");
 
         let forged = lease.fence_token + 1;
         let err = ledger
-            .try_renew(&lease.lease_id, forged, lease.lease_epoch, c.epoch, 100, 1_000)
+            .try_renew(
+                &lease.lease_id,
+                forged,
+                lease.lease_epoch,
+                c.epoch,
+                100,
+                1_000,
+            )
             .expect_err("a mismatched fence token must be rejected");
         assert_eq!(err, CapacityDenial::StaleFence);
     }
@@ -631,17 +695,33 @@ mod tests {
         // so the "second acquire is exhausted" assertion would be vacuous.
         ledger
             .try_acquire(
-                &c, "hog".into(), "wi-hog", "tenant-hog", "actor-hog",
-                CapacityResourceClass::LlmGenerator, 10, LeasePriority::Interactive,
-                "idem-hog", 0, 1_000,
+                &c,
+                "hog".into(),
+                "wi-hog",
+                "tenant-hog",
+                "actor-hog",
+                CapacityResourceClass::LlmGenerator,
+                10,
+                LeasePriority::Interactive,
+                "idem-hog",
+                0,
+                1_000,
             )
             .expect("fills the cell");
 
         // A second acquire right away is exhausted — the hog never released.
         let denied = ledger.try_acquire(
-            &c, "second".into(), "wi-2", "tenant-b", "actor-b",
-            CapacityResourceClass::LlmGenerator, 1, LeasePriority::Interactive,
-            "idem-2", 500, 1_000,
+            &c,
+            "second".into(),
+            "wi-2",
+            "tenant-b",
+            "actor-b",
+            CapacityResourceClass::LlmGenerator,
+            1,
+            LeasePriority::Interactive,
+            "idem-2",
+            500,
+            1_000,
         );
         assert!(matches!(denied, Err(CapacityDenial::Exhausted { .. })));
 
@@ -651,9 +731,17 @@ mod tests {
         assert_eq!(reclaimed, vec!["hog".to_string()]);
         let admitted = ledger
             .try_acquire(
-                &c, "third".into(), "wi-3", "tenant-b", "actor-b",
-                CapacityResourceClass::LlmGenerator, 1, LeasePriority::Interactive,
-                "idem-3", 2_100, 1_000,
+                &c,
+                "third".into(),
+                "wi-3",
+                "tenant-b",
+                "actor-b",
+                CapacityResourceClass::LlmGenerator,
+                1,
+                LeasePriority::Interactive,
+                "idem-3",
+                2_100,
+                1_000,
             )
             .expect("capacity was reclaimed, so this now admits");
         assert_eq!(admitted.amount, 1);
@@ -673,26 +761,52 @@ mod tests {
         for i in 0..8 {
             ledger
                 .try_acquire(
-                    &c, format!("flood-{i}"), "wi-flood", "tenant-flood", "actor-flood",
-                    CapacityResourceClass::LlmGenerator, 1, LeasePriority::BackgroundIngestion,
-                    format!("idem-flood-{i}").as_str(), 0, 1_000_000,
+                    &c,
+                    format!("flood-{i}"),
+                    "wi-flood",
+                    "tenant-flood",
+                    "actor-flood",
+                    CapacityResourceClass::LlmGenerator,
+                    1,
+                    LeasePriority::BackgroundIngestion,
+                    format!("idem-flood-{i}").as_str(),
+                    0,
+                    1_000_000,
                 )
-                .unwrap_or_else(|e| panic!("flood unit {i} should admit into spare capacity: {e:?}"));
+                .unwrap_or_else(|e| {
+                    panic!("flood unit {i} should admit into spare capacity: {e:?}")
+                });
         }
         // A 9th BackgroundIngestion unit is denied — spare is exhausted.
         let ninth = ledger.try_acquire(
-            &c, "flood-8".into(), "wi-flood", "tenant-flood", "actor-flood",
-            CapacityResourceClass::LlmGenerator, 1, LeasePriority::BackgroundIngestion,
-            "idem-flood-8", 0, 1_000_000,
+            &c,
+            "flood-8".into(),
+            "wi-flood",
+            "tenant-flood",
+            "actor-flood",
+            CapacityResourceClass::LlmGenerator,
+            1,
+            LeasePriority::BackgroundIngestion,
+            "idem-flood-8",
+            0,
+            1_000_000,
         );
         assert!(matches!(ninth, Err(CapacityDenial::Exhausted { .. })));
 
         // Yet Interactive can still acquire from the untouched 2-unit floor.
         let interactive = ledger
             .try_acquire(
-                &c, "interactive-1".into(), "wi-int", "tenant-int", "actor-int",
-                CapacityResourceClass::LlmGenerator, 2, LeasePriority::Interactive,
-                "idem-int-1", 0, 1_000,
+                &c,
+                "interactive-1".into(),
+                "wi-int",
+                "tenant-int",
+                "actor-int",
+                CapacityResourceClass::LlmGenerator,
+                2,
+                LeasePriority::Interactive,
+                "idem-int-1",
+                0,
+                1_000,
             )
             .expect("interactive must be able to draw the full reserved floor despite the flood");
         assert_eq!(interactive.amount, 2);
@@ -704,16 +818,32 @@ mod tests {
         let c = cell(1);
         let first = ledger
             .try_acquire(
-                &c, "lease-idem".into(), "wi-1", "tenant-a", "actor-a",
-                CapacityResourceClass::LlmGenerator, 1, LeasePriority::Interactive,
-                "idem-shared", 0, 1_000,
+                &c,
+                "lease-idem".into(),
+                "wi-1",
+                "tenant-a",
+                "actor-a",
+                CapacityResourceClass::LlmGenerator,
+                1,
+                LeasePriority::Interactive,
+                "idem-shared",
+                0,
+                1_000,
             )
             .unwrap();
         let second = ledger
             .try_acquire(
-                &c, "lease-idem-DIFFERENT-id".into(), "wi-1", "tenant-a", "actor-a",
-                CapacityResourceClass::LlmGenerator, 1, LeasePriority::Interactive,
-                "idem-shared", 1, 1_000,
+                &c,
+                "lease-idem-DIFFERENT-id".into(),
+                "wi-1",
+                "tenant-a",
+                "actor-a",
+                CapacityResourceClass::LlmGenerator,
+                1,
+                LeasePriority::Interactive,
+                "idem-shared",
+                1,
+                1_000,
             )
             .unwrap();
         assert_eq!(first.fence_token, second.fence_token);
@@ -726,15 +856,31 @@ mod tests {
         let c = cell(1);
         ledger
             .try_acquire(
-                &c, "lease-a".into(), "wi-1", "tenant-a", "actor-a",
-                CapacityResourceClass::LlmGenerator, 1, LeasePriority::Interactive,
-                "idem-shared", 0, 1_000,
+                &c,
+                "lease-a".into(),
+                "wi-1",
+                "tenant-a",
+                "actor-a",
+                CapacityResourceClass::LlmGenerator,
+                1,
+                LeasePriority::Interactive,
+                "idem-shared",
+                0,
+                1_000,
             )
             .unwrap();
         let conflict = ledger.try_acquire(
-            &c, "lease-b".into(), "wi-1", "tenant-a", "actor-a",
-            CapacityResourceClass::LlmGenerator, 999, LeasePriority::Interactive,
-            "idem-shared", 1, 1_000,
+            &c,
+            "lease-b".into(),
+            "wi-1",
+            "tenant-a",
+            "actor-a",
+            CapacityResourceClass::LlmGenerator,
+            999,
+            LeasePriority::Interactive,
+            "idem-shared",
+            1,
+            1_000,
         );
         assert!(matches!(conflict, Err(CapacityDenial::IdempotencyConflict)));
     }
@@ -753,9 +899,17 @@ mod tests {
         let mut ledger = CapacityLedger::new();
         let mut lease = ledger
             .try_acquire(
-                &c, "lease-v".into(), "wi-1", "tenant-a", "actor-a",
-                CapacityResourceClass::LlmGenerator, 1, LeasePriority::Interactive,
-                "idem-v", 0, 1_000,
+                &c,
+                "lease-v".into(),
+                "wi-1",
+                "tenant-a",
+                "actor-a",
+                CapacityResourceClass::LlmGenerator,
+                1,
+                LeasePriority::Interactive,
+                "idem-v",
+                0,
+                1_000,
             )
             .unwrap();
         lease.fence_token = 0;

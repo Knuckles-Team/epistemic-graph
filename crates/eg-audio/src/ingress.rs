@@ -428,7 +428,11 @@ impl SequenceTracker {
             // rather than re-verified here.
             return Ok(Admission::DuplicateIgnored);
         }
-        if seq >= self.next_expected.saturating_add(u64::from(self.reorder_window)) {
+        if seq
+            >= self
+                .next_expected
+                .saturating_add(u64::from(self.reorder_window))
+        {
             return Err(IngressError::Gap {
                 expected: Sequence(self.next_expected),
                 got: sequence,
@@ -645,10 +649,7 @@ mod validate_frame_tests {
     fn accepts_a_well_formed_pcm_frame() {
         let limits = limits();
         let frame = pcm_frame(1, 0, &[1, 2, 3, 4]);
-        assert_eq!(
-            validate_frame(&frame, &limits, StreamGeneration(1)),
-            Ok(())
-        );
+        assert_eq!(validate_frame(&frame, &limits, StreamGeneration(1)), Ok(()));
     }
 
     #[test]
@@ -740,10 +741,7 @@ mod sequence_tracker_tests {
     #[test]
     fn admits_in_order_frames_and_advances_watermark() {
         let mut tracker = SequenceTracker::new(Sequence(0), 4);
-        assert_eq!(
-            tracker.classify(Sequence(0), "d0"),
-            Ok(Admission::New)
-        );
+        assert_eq!(tracker.classify(Sequence(0), "d0"), Ok(Admission::New));
         tracker.commit(Sequence(0), "d0".to_string());
         assert_eq!(tracker.next_expected(), 1);
     }
@@ -826,7 +824,9 @@ mod backpressure_tests {
         let mut queue = BoundedIngressQueue::new(&limits);
 
         for seq in 0..limits.max_inflight_frames {
-            assert!(queue.try_push(pcm_frame(1, u64::from(seq), &[1, 2])).is_ok());
+            assert!(queue
+                .try_push(pcm_frame(1, u64::from(seq), &[1, 2]))
+                .is_ok());
         }
         assert_eq!(queue.len(), limits.max_inflight_frames as usize);
 
@@ -916,10 +916,7 @@ mod ingress_session_tests {
         limits.max_inflight_frames = 1;
         let mut session = IngressSession::new(StreamGeneration(1), Sequence(0), limits);
 
-        assert_eq!(
-            session.accept(pcm_frame(1, 0, &[1, 2])),
-            Ok(Admission::New)
-        );
+        assert_eq!(session.accept(pcm_frame(1, 0, &[1, 2])), Ok(Admission::New));
         assert_eq!(session.watermark(), 1);
 
         // Queue is now full (capacity 1) and nothing drains it.
@@ -934,10 +931,7 @@ mod ingress_session_tests {
     #[test]
     fn duplicate_frame_is_ignored_without_double_counting_bytes() {
         let mut session = IngressSession::new(StreamGeneration(1), Sequence(0), limits());
-        assert_eq!(
-            session.accept(pcm_frame(1, 0, &[1, 2])),
-            Ok(Admission::New)
-        );
+        assert_eq!(session.accept(pcm_frame(1, 0, &[1, 2])), Ok(Admission::New));
         let bytes_after_first = session.queued_bytes();
         assert_eq!(
             session.accept(pcm_frame(1, 0, &[1, 2])),
@@ -950,19 +944,13 @@ mod ingress_session_tests {
     #[test]
     fn fence_generation_rejects_frames_from_the_old_generation() {
         let mut session = IngressSession::new(StreamGeneration(1), Sequence(0), limits());
-        assert_eq!(
-            session.accept(pcm_frame(1, 0, &[1, 2])),
-            Ok(Admission::New)
-        );
+        assert_eq!(session.accept(pcm_frame(1, 0, &[1, 2])), Ok(Admission::New));
         let _drained = session.fence_generation(StreamGeneration(2), Sequence(0));
 
         assert_eq!(
             session.accept(pcm_frame(1, 1, &[1, 2])),
             Err(IngressError::Expired)
         );
-        assert_eq!(
-            session.accept(pcm_frame(2, 0, &[1, 2])),
-            Ok(Admission::New)
-        );
+        assert_eq!(session.accept(pcm_frame(2, 0, &[1, 2])), Ok(Admission::New));
     }
 }

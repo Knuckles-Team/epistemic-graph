@@ -156,9 +156,7 @@ impl ColumnType {
         // CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — `numeric`/`decimal[(p[,s])]`. The precision/scale is
         // read from the ORIGINAL spelling for the same reason `vector(n)` is.
         if base == "numeric" || base == "decimal" {
-            return Ok(ColumnType::Numeric(parse_numeric_precision_scale(
-                trimmed,
-            )?));
+            return Ok(ColumnType::Numeric(parse_numeric_precision_scale(trimmed)?));
         }
         let ty = match base.as_str() {
             "int" | "int4" | "integer" | "serial" | "smallint" | "int2" => ColumnType::Int,
@@ -309,13 +307,28 @@ pub enum RefAction {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CheckExpr {
     /// `col OP literal`.
-    Cmp { column: String, op: CmpOp, value: Value },
+    Cmp {
+        column: String,
+        op: CmpOp,
+        value: Value,
+    },
     /// `col_a OP col_b` — a comparison between two columns of the same row.
-    ColCmp { left: String, op: CmpOp, right: String },
+    ColCmp {
+        left: String,
+        op: CmpOp,
+        right: String,
+    },
     /// `col [NOT] IN (v1, v2, …)`.
-    In { column: String, values: Vec<Value>, negated: bool },
+    In {
+        column: String,
+        values: Vec<Value>,
+        negated: bool,
+    },
     /// `col IS [NOT] NULL`.
-    IsNull { column: String, negated: bool },
+    IsNull {
+        column: String,
+        negated: bool,
+    },
     And(Box<CheckExpr>, Box<CheckExpr>),
     Or(Box<CheckExpr>, Box<CheckExpr>),
 }
@@ -340,11 +353,7 @@ impl CheckExpr {
                 if a.is_null() || b.is_null() {
                     return true;
                 }
-                ColCheck {
-                    op: *op,
-                    value: b,
-                }
-                .holds(&a)
+                ColCheck { op: *op, value: b }.holds(&a)
             }
             CheckExpr::In {
                 column,
@@ -371,7 +380,9 @@ impl CheckExpr {
     /// "the constraint references real columns" fail-closed check.
     fn referenced_columns<'a>(&'a self, out: &mut Vec<&'a str>) {
         match self {
-            CheckExpr::Cmp { column, .. } | CheckExpr::In { column, .. } | CheckExpr::IsNull { column, .. } => {
+            CheckExpr::Cmp { column, .. }
+            | CheckExpr::In { column, .. }
+            | CheckExpr::IsNull { column, .. } => {
                 out.push(column);
             }
             CheckExpr::ColCmp { left, right, .. } => {
@@ -395,9 +406,15 @@ impl CheckExpr {
 pub enum TableConstraint {
     /// `PRIMARY KEY (a, b, …)`. At most ONE primary key (column-level OR table-level)
     /// may exist per table — enforced by [`TableSchema::validate`].
-    PrimaryKey { name: Option<String>, columns: Vec<String> },
+    PrimaryKey {
+        name: Option<String>,
+        columns: Vec<String>,
+    },
     /// `UNIQUE (a, b, …)`.
-    Unique { name: Option<String>, columns: Vec<String> },
+    Unique {
+        name: Option<String>,
+        columns: Vec<String>,
+    },
     /// `FOREIGN KEY (a, b, …) REFERENCES ref_table(x, y, …) [ON DELETE …] [ON UPDATE …]`.
     ForeignKey {
         name: Option<String>,
@@ -408,7 +425,10 @@ pub enum TableConstraint {
         on_update: RefAction,
     },
     /// A general `CHECK (<expr>)`.
-    Check { name: Option<String>, expr: CheckExpr },
+    Check {
+        name: Option<String>,
+        expr: CheckExpr,
+    },
 }
 
 impl TableConstraint {
@@ -487,13 +507,16 @@ impl Clone for TableSchema {
     fn clone(&self) -> Self {
         // A clone is intentionally cold. Copying a populated directory would make
         // cache state observable through clone/equality and duplicates derived data.
-        Self::new(self.name.clone(), self.columns.clone()).with_constraints(self.constraints.clone())
+        Self::new(self.name.clone(), self.columns.clone())
+            .with_constraints(self.constraints.clone())
     }
 }
 
 impl PartialEq for TableSchema {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.columns == other.columns && self.constraints == other.constraints
+        self.name == other.name
+            && self.columns == other.columns
+            && self.constraints == other.constraints
     }
 }
 
@@ -552,7 +575,9 @@ impl TableSchema {
         match c {
             TableConstraint::PrimaryKey { .. } => format!("{table}_pkey"),
             TableConstraint::Unique { columns, .. } => format!("{table}_{}_key", columns.join("_")),
-            TableConstraint::ForeignKey { columns, .. } => format!("{table}_{}_fkey", columns.join("_")),
+            TableConstraint::ForeignKey { columns, .. } => {
+                format!("{table}_{}_fkey", columns.join("_"))
+            }
             TableConstraint::Check { .. } => format!("{table}_check"),
         }
     }
@@ -628,7 +653,11 @@ impl TableSchema {
         Ok(())
     }
 
-    fn validate_constraint_columns(&self, columns: &[impl AsRef<str>], kind: &str) -> Result<(), String> {
+    fn validate_constraint_columns(
+        &self,
+        columns: &[impl AsRef<str>],
+        kind: &str,
+    ) -> Result<(), String> {
         if columns.is_empty() {
             return Err(format!(
                 "table `{}`: {kind} must name at least one column",
@@ -843,7 +872,8 @@ mod table_schema_tests {
                 }
             ]
         });
-        let restored: TableSchema = serde_json::from_value(old_json).expect("old schema deserializes");
+        let restored: TableSchema =
+            serde_json::from_value(old_json).expect("old schema deserializes");
         assert!(restored.constraints().is_empty());
         assert!(restored.validate().is_ok());
     }
@@ -884,10 +914,7 @@ mod table_schema_tests {
                 columns: vec!["missing".into()],
             },
         ]);
-        assert!(schema
-            .validate()
-            .unwrap_err()
-            .contains("unknown column"));
+        assert!(schema.validate().unwrap_err().contains("unknown column"));
     }
 
     #[test]
@@ -937,7 +964,10 @@ mod table_schema_tests {
     // ── general CHECK expressions (CONCEPT:EG-KG.query.table-schema-constraints/NE-001) ──────────────────────
 
     fn row(pairs: &[(&str, Value)]) -> Map<String, Value> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
     }
 
     #[test]
@@ -1001,7 +1031,10 @@ mod table_schema_tests {
             op: CmpOp::Lt,
             right: "hi".into(),
         };
-        assert!(colcmp_null.holds(&row(&[("lo", Value::Null), ("hi", Value::Number(1.into()))])));
+        assert!(colcmp_null.holds(&row(&[
+            ("lo", Value::Null),
+            ("hi", Value::Number(1.into()))
+        ])));
     }
 
     // ── NE-002: UUID / NUMERIC / TIMESTAMPTZ / ARRAY ────────────────────────────────
@@ -1017,7 +1050,10 @@ mod table_schema_tests {
             ColumnType::parse("decimal(5)").unwrap(),
             ColumnType::Numeric(Some((5, 0)))
         );
-        assert_eq!(ColumnType::parse("numeric").unwrap(), ColumnType::Numeric(None));
+        assert_eq!(
+            ColumnType::parse("numeric").unwrap(),
+            ColumnType::Numeric(None)
+        );
         assert_eq!(
             ColumnType::parse("timestamptz").unwrap(),
             ColumnType::TimestampTz
@@ -1027,7 +1063,10 @@ mod table_schema_tests {
             ColumnType::TimestampTz
         );
         // Bare `timestamp` stays the zone-less type.
-        assert_eq!(ColumnType::parse("timestamp").unwrap(), ColumnType::Timestamp);
+        assert_eq!(
+            ColumnType::parse("timestamp").unwrap(),
+            ColumnType::Timestamp
+        );
         assert_eq!(
             ColumnType::parse("text[]").unwrap(),
             ColumnType::Array(ArrayElemType::Text)
@@ -1036,7 +1075,10 @@ mod table_schema_tests {
             ColumnType::parse("_uuid").unwrap(),
             ColumnType::Array(ArrayElemType::Uuid)
         );
-        assert!(ColumnType::parse("numeric(3,10)").is_err(), "scale > precision rejected");
+        assert!(
+            ColumnType::parse("numeric(3,10)").is_err(),
+            "scale > precision rejected"
+        );
     }
 
     #[test]
@@ -1059,7 +1101,9 @@ mod table_schema_tests {
         )
         .unwrap();
         assert_eq!(cell2, cell);
-        assert!(Cell::coerce(&Value::String("not-a-uuid".into()), ColumnType::Uuid, false).is_err());
+        assert!(
+            Cell::coerce(&Value::String("not-a-uuid".into()), ColumnType::Uuid, false).is_err()
+        );
     }
 
     #[test]
@@ -1413,7 +1457,10 @@ fn numeric_literal_text(value: &Value) -> Result<String, String> {
 /// truncates): a non-decimal literal, more fractional digits than `scale`, or more
 /// total significant digits than `precision`. Returns the canonical form, its
 /// fractional part zero-padded to exactly `scale` digits when a scale is declared.
-fn normalize_numeric_literal(raw: &str, precision_scale: Option<(u32, u32)>) -> Result<String, String> {
+fn normalize_numeric_literal(
+    raw: &str,
+    precision_scale: Option<(u32, u32)>,
+) -> Result<String, String> {
     let s = raw.trim();
     let (sign, digits) = match s.strip_prefix('-') {
         Some(rest) => ("-", rest),
@@ -1431,14 +1478,22 @@ fn normalize_numeric_literal(raw: &str, precision_scale: Option<(u32, u32)>) -> 
         return Err(format!("invalid NUMERIC literal `{raw}`"));
     }
     let int_trimmed = int_part.trim_start_matches('0');
-    let int_digits = if int_trimmed.is_empty() { 1 } else { int_trimmed.len() };
+    let int_digits = if int_trimmed.is_empty() {
+        1
+    } else {
+        int_trimmed.len()
+    };
     let Some((precision, scale)) = precision_scale else {
         let frac = if frac_part.is_empty() {
             String::new()
         } else {
             format!(".{frac_part}")
         };
-        let int_out = if int_trimmed.is_empty() { "0" } else { int_trimmed };
+        let int_out = if int_trimmed.is_empty() {
+            "0"
+        } else {
+            int_trimmed
+        };
         return Ok(format!("{sign}{int_out}{frac}"));
     };
     let scale = scale as usize;
@@ -1457,7 +1512,11 @@ fn normalize_numeric_literal(raw: &str, precision_scale: Option<(u32, u32)>) -> 
     while padded_frac.len() < scale {
         padded_frac.push('0');
     }
-    let int_out = if int_trimmed.is_empty() { "0" } else { int_trimmed };
+    let int_out = if int_trimmed.is_empty() {
+        "0"
+    } else {
+        int_trimmed
+    };
     if scale == 0 {
         Ok(format!("{sign}{int_out}"))
     } else {
@@ -1484,7 +1543,8 @@ fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
 /// whole point of the type: no silent local-time assumption).
 fn parse_timestamptz(s: &str) -> Result<i64, String> {
     let raw = s.trim();
-    let bad = || format!("invalid timestamptz literal `{s}` (an explicit UTC offset or `Z` is required)");
+    let bad =
+        || format!("invalid timestamptz literal `{s}` (an explicit UTC offset or `Z` is required)");
     let (date, rest) = raw.split_once(['T', 't', ' ']).ok_or_else(bad)?;
     let mut dparts = date.splitn(3, '-');
     let year: i64 = dparts.next().ok_or_else(bad)?.parse().map_err(|_| bad())?;
@@ -1496,28 +1556,26 @@ fn parse_timestamptz(s: &str) -> Result<i64, String> {
 
     // Split the time-plus-offset tail. `Z`/`z` is a zero offset; otherwise find the
     // LAST `+`/`-` (the time-of-day itself never contains one).
-    let (time_part, offset_minutes): (&str, i64) = if let Some(t) = rest
-        .strip_suffix('Z')
-        .or_else(|| rest.strip_suffix('z'))
-    {
-        (t, 0)
-    } else if let Some(pos) = rest.rfind(['+', '-']) {
-        let (t, off) = rest.split_at(pos);
-        let sign = if off.starts_with('-') { -1i64 } else { 1i64 };
-        let off = &off[1..];
-        let (oh, om): (&str, &str) = if let Some((h, m)) = off.split_once(':') {
-            (h, m)
-        } else if off.len() >= 3 {
-            off.split_at(off.len() - 2)
+    let (time_part, offset_minutes): (&str, i64) =
+        if let Some(t) = rest.strip_suffix('Z').or_else(|| rest.strip_suffix('z')) {
+            (t, 0)
+        } else if let Some(pos) = rest.rfind(['+', '-']) {
+            let (t, off) = rest.split_at(pos);
+            let sign = if off.starts_with('-') { -1i64 } else { 1i64 };
+            let off = &off[1..];
+            let (oh, om): (&str, &str) = if let Some((h, m)) = off.split_once(':') {
+                (h, m)
+            } else if off.len() >= 3 {
+                off.split_at(off.len() - 2)
+            } else {
+                (off, "0")
+            };
+            let oh: i64 = oh.parse().map_err(|_| bad())?;
+            let om: i64 = om.parse().map_err(|_| bad())?;
+            (t, sign * (oh * 60 + om))
         } else {
-            (off, "0")
+            return Err(bad());
         };
-        let oh: i64 = oh.parse().map_err(|_| bad())?;
-        let om: i64 = om.parse().map_err(|_| bad())?;
-        (t, sign * (oh * 60 + om))
-    } else {
-        return Err(bad());
-    };
 
     let mut tparts = time_part.splitn(3, ':');
     let hh: i64 = tparts.next().ok_or_else(bad)?.parse().map_err(|_| bad())?;
@@ -1540,9 +1598,7 @@ fn parse_timestamptz(s: &str) -> Result<i64, String> {
     }
 
     let days = days_from_civil(year, month, day);
-    let micros = days * 86_400_000_000i64
-        + (hh * 3600 + mm * 60 + ss) * 1_000_000i64
-        + frac_micros
+    let micros = days * 86_400_000_000i64 + (hh * 3600 + mm * 60 + ss) * 1_000_000i64 + frac_micros
         - offset_minutes * 60_000_000i64;
     Ok(micros)
 }

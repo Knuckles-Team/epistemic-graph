@@ -634,10 +634,7 @@ mod tests {
         let mut only_seq = minimal_envelope();
         only_seq.commit_seq = Some(5);
         only_seq.commit_descriptor_ref = None;
-        assert!(only_seq
-            .validate()
-            .unwrap_err()
-            .contains("set together"));
+        assert!(only_seq.validate().unwrap_err().contains("set together"));
 
         let mut only_ref = minimal_envelope();
         only_ref.commit_seq = None;

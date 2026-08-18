@@ -587,8 +587,10 @@ async fn scenario_stale_fenced_participant_rejected() -> Result<bool, String> {
                 graph_type: GraphType::Global,
                 methods: vec![Method::AddNode {
                     node_id: "n-stale".to_string(),
-                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": "n-stale"}))
-                        .unwrap(),
+                    properties_msgpack: rmp_serde::to_vec_named(
+                        &serde_json::json!({"n": "n-stale"}),
+                    )
+                    .unwrap(),
                 }],
                 placement_epoch: epoch1,
                 fencing_token: stale_fence,
@@ -634,8 +636,10 @@ async fn scenario_stale_fenced_participant_rejected() -> Result<bool, String> {
                 graph_type: GraphType::Global,
                 methods: vec![Method::AddNode {
                     node_id: "n-fresh".to_string(),
-                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": "n-fresh"}))
-                        .unwrap(),
+                    properties_msgpack: rmp_serde::to_vec_named(
+                        &serde_json::json!({"n": "n-fresh"}),
+                    )
+                    .unwrap(),
                 }],
                 placement_epoch: epoch2,
                 fencing_token: current_fence,
@@ -655,8 +659,9 @@ async fn scenario_stale_fenced_participant_rejected() -> Result<bool, String> {
     };
     let fresh_outcome = coord.commit_cross_shard(&fresh_txn).await?;
     let modal_after_fresh = ModalityState::read(&state).await;
-    let fresh_accepted =
-        fresh_outcome == TxnOutcome::Committed && modal_after_fresh.a_present && modal_after_fresh.b_present;
+    let fresh_accepted = fresh_outcome == TxnOutcome::Committed
+        && modal_after_fresh.a_present
+        && modal_after_fresh.b_present;
 
     multi.stop_listener();
     backend.shutdown();

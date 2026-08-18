@@ -26,8 +26,8 @@ pub use eg_core::broker;
 #[cfg(feature = "knowledge-batch")]
 pub use eg_types::knowledge_stream;
 pub use eg_types::{
-    acl, change_envelope, epistemic_operations, epistemic_operations_ext, mutation_batch,
-    protocol, types, wire,
+    acl, change_envelope, epistemic_operations, epistemic_operations_ext, mutation_batch, protocol,
+    types, wire,
 };
 // Compute domains live in `eg-compute`; re-export under the historical `crate::`
 // paths. algorithms/ast/parser are always present; the feature-gated domains are

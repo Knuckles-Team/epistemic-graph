@@ -86,7 +86,9 @@ pub use artifact::{
 };
 pub use capability::{IngestReport, ModalitySelfTest, NativeProductionProbe, StorageStats};
 pub use contract::{ConformanceTestable, GovernedModality, ModalityContract};
-pub use delta_store::{export_all, verify_round_trip, ExportedRows, IndexMembership, MutationDelta};
+pub use delta_store::{
+    export_all, verify_round_trip, ExportedRows, IndexMembership, MutationDelta,
+};
 pub use native::{
     signature_bands, spatial_cells, temporal_buckets, NativeIndexKey, NativePredicate,
     NativePredicateError, NativeQueryStats, MAX_PERCEPTUAL_HASH_DISTANCE,

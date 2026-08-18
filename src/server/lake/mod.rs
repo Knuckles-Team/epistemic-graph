@@ -852,9 +852,9 @@ impl LakeManager {
 
     fn namespace_visible(&self, namespace: &str, visibility: &LakeVisibility) -> bool {
         let tables = self.tables.lock();
-        tables
-            .iter()
-            .any(|((ns, _), entry)| ns == namespace && visibility.allows(entry.owner_tenant.as_deref()))
+        tables.iter().any(|((ns, _), entry)| {
+            ns == namespace && visibility.allows(entry.owner_tenant.as_deref())
+        })
     }
 
     pub(crate) fn list_namespaces_visible(
@@ -874,7 +874,8 @@ impl LakeManager {
         namespaces.sort();
         namespaces.dedup();
         let (page, next) = paginate(&namespaces, page_token, page_size);
-        let namespaces_json: Vec<Value> = page.iter().map(|ns| json!(namespace_levels(ns))).collect();
+        let namespaces_json: Vec<Value> =
+            page.iter().map(|ns| json!(namespace_levels(ns))).collect();
         let mut out = json!({ "namespaces": namespaces_json });
         if let Some(t) = next {
             out["next-page-token"] = json!(t);
@@ -882,7 +883,11 @@ impl LakeManager {
         out
     }
 
-    pub(crate) fn namespace_exists_visible(&self, namespace: &str, visibility: &LakeVisibility) -> bool {
+    pub(crate) fn namespace_exists_visible(
+        &self,
+        namespace: &str,
+        visibility: &LakeVisibility,
+    ) -> bool {
         self.namespace_visible(namespace, visibility)
     }
 
@@ -973,8 +978,11 @@ impl LakeManager {
             owner_tenant,
         )
         .map_err(CreateTableError::Other)?;
-        self.load_table(namespace, table)
-            .ok_or_else(|| CreateTableError::Other(format!("table {namespace}.{table} vanished immediately after create")))
+        self.load_table(namespace, table).ok_or_else(|| {
+            CreateTableError::Other(format!(
+                "table {namespace}.{table} vanished immediately after create"
+            ))
+        })
     }
 
     /// `DropTable`: remove `(namespace, table)` from both this manager's table
@@ -1000,7 +1008,9 @@ impl LakeManager {
         if removed {
             self.catalog.lock().remove(namespace, table);
             let prefix = format!("{}/", Self::location_for(namespace, table));
-            self.paths.lock().retain(|path, _| !path.starts_with(&prefix));
+            self.paths
+                .lock()
+                .retain(|path, _| !path.starts_with(&prefix));
         }
         removed
     }

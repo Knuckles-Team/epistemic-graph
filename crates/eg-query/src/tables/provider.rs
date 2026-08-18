@@ -47,9 +47,11 @@ pub fn arrow_type(ty: ColumnType) -> DataType {
             DataType::Int64
         }
         ColumnType::Float | ColumnType::Double => DataType::Float64,
-        ColumnType::Text | ColumnType::Json | ColumnType::Uuid | ColumnType::Numeric(_) | ColumnType::Array(_) => {
-            DataType::Utf8
-        }
+        ColumnType::Text
+        | ColumnType::Json
+        | ColumnType::Uuid
+        | ColumnType::Numeric(_)
+        | ColumnType::Array(_) => DataType::Utf8,
         ColumnType::Bool => DataType::Boolean,
         ColumnType::Bytes => DataType::Binary,
         // CONCEPT:EG-KG.query.pgvector-binary-wire — a pgvector column materializes as `List<Float32>`; the exec

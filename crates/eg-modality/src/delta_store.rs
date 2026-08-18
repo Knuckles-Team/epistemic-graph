@@ -110,7 +110,10 @@ where
     let after_native_set: BTreeSet<NativeIndexKey> = after_native.into_iter().collect();
     (
         IndexMembership {
-            modality: after_modality.difference(&before_modality).cloned().collect(),
+            modality: after_modality
+                .difference(&before_modality)
+                .cloned()
+                .collect(),
             segment: after_segment.difference(&before_segment).cloned().collect(),
             native: after_native_set
                 .difference(&before_native_set)
@@ -118,7 +121,10 @@ where
                 .collect(),
         },
         IndexMembership {
-            modality: before_modality.difference(&after_modality).cloned().collect(),
+            modality: before_modality
+                .difference(&after_modality)
+                .cloned()
+                .collect(),
             segment: before_segment.difference(&after_segment).cloned().collect(),
             native: before_native_set
                 .difference(&after_native_set)
@@ -240,8 +246,12 @@ pub fn verify_round_trip<T>(
 where
     T: GovernedModality + Clone + PartialEq + fmt::Debug + Serialize + DeserializeOwned,
 {
-    let reconstructed =
-        ServedModalityRuntime::from_rows(rows.records, rows.events, rows.next_sequence, rows.idempotency)?;
+    let reconstructed = ServedModalityRuntime::from_rows(
+        rows.records,
+        rows.events,
+        rows.next_sequence,
+        rows.idempotency,
+    )?;
     if &reconstructed != original {
         return Err(ServedError::CorruptSnapshot);
     }

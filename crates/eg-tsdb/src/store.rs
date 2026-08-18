@@ -902,7 +902,9 @@ impl SeriesStore {
             };
             meta.legal_hold = hold;
             let blob = rmp_serde::to_vec(&meta).map_err(codec_err)?;
-            meta_tab.insert(series_id, blob.as_slice()).map_err(redb_err)?;
+            meta_tab
+                .insert(series_id, blob.as_slice())
+                .map_err(redb_err)?;
         }
         wtx.commit().map_err(redb_err)?;
         Ok(())
