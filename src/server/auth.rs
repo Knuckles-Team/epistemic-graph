@@ -1571,47 +1571,299 @@ pub(crate) fn verify_request_with_security_dir(
     verify_envelope_v2_with(secret, req, policy, replay)
 }
 
-// ── Detached identity / multisig verification ─────────────────────────────
+// ── Detached identity / multisig verification (NE-065 / NE-066) ───────────
+//
+// `SignerKeyRegistry` answers two SEPARATE questions for a detached
+// `signer_id:hex_hmac` signature: (1) is this signer trusted at all
+// (`verify`), and (2) — new in NE-065 — what is THIS signer allowed to grant
+// through `Method::RegisterIdentity` (`authorize_grant`). Before NE-065 only
+// (1) existed, which made every configured signer an unscoped identity-plane
+// admin credential: whoever held ANY trusted key could self-register with
+// ANY `roles` (RBAC role names) and ANY `role` (the `AgentRole` hierarchy
+// enum, including `System`, which gives `IsolationLayer::check_access` an
+// UNCONDITIONAL RBAC bypass). `authorize_grant` closes that: each signer
+// carries its own `allowed_roles` allowance and an explicit
+// `may_grant_system` flag, both read from the SAME JSON object as the
+// signer's key, so a signer can never widen its own allowance from inside a
+// request it authenticates — only whoever can edit/replace the registry can
+// do that.
+//
+// NE-066 layers rotation on top: `SignerRegistryStore` holds the live
+// registry behind a `RwLock<Arc<..>>` bounded cache rather than the
+// `OnceLock`-latched-forever value this module used before, so a deployment
+// can add a new signer, run both old and new concurrently (a genuine
+// overlap window — see `reload_from_json`'s doc comment), then retire the
+// old one, all without a process restart. See `global_signer_registry_store`/
+// `reload_signer_registry_from_json`/`revoke_signer` below.
+
+/// Generic denial returned for every signer-trust failure: an unknown
+/// signer, a bad MAC, a role outside the signer's `allowed_roles`, or a
+/// disallowed `AgentRole::System` grant. NE-065 explicitly calls out that
+/// "untrusted signer" and "signer not allowed that role" must not be
+/// distinguishable in the RESPONSE — a caller who can tell those apart can
+/// enumerate which signer ids are configured by probing candidates. The
+/// specific reason is always available to an operator via the
+/// `tracing::warn!` calls below (audit log only, never the return value).
+const SIGNER_TRUST_DENIED: &str = "signer is not authorized for this identity registration";
+
+/// One namespace-or-exact entry in a signer's `allowed_roles` allowance.
+/// Parsed once, at registry-load time (`parse`), never re-parsed per
+/// request — the hot verification path only ever calls `allows`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RoleAllowance {
+    /// Exact RBAC role-name match.
+    Exact(String),
+    /// `"<namespace>:*"` — matches any role name starting with
+    /// `"<namespace>:"`. `parse` rejects a bare `"*"` and an empty namespace
+    /// (`":*"`), so a policy file can never spell "every role" by accident:
+    /// the only way to grant everything is to enumerate every namespace (or
+    /// every role) explicitly.
+    Prefix(String),
+}
+
+impl RoleAllowance {
+    fn parse(raw: &str) -> Result<Self, String> {
+        if raw.is_empty() {
+            return Err("signer allowed_roles entries must not be empty".to_string());
+        }
+        if let Some(namespace) = raw.strip_suffix('*') {
+            let Some(namespace) = namespace.strip_suffix(':') else {
+                return Err(format!(
+                    "signer allowed_roles wildcard '{raw}' must be of the form 'namespace:*'"
+                ));
+            };
+            if namespace.is_empty() {
+                return Err(format!(
+                    "signer allowed_roles wildcard '{raw}' must not be a bare '*' -- a \
+                     wildcard must be scoped to a non-empty namespace (e.g. 'team:*') so a \
+                     policy cannot accidentally express \"every role\""
+                ));
+            }
+            return Ok(RoleAllowance::Prefix(format!("{namespace}:")));
+        }
+        Ok(RoleAllowance::Exact(raw.to_string()))
+    }
+
+    /// Test-only: matches any non-empty role name. NEVER producible from
+    /// `parse` above (a bare `"*"` is rejected there), so production JSON
+    /// can never reach this — only trusted in-process Rust construction can.
+    /// Used solely by the ambient `#[cfg(test)]` signer fixture below, so
+    /// the hundreds of pre-existing tests across this crate that register
+    /// identities through it (all written before NE-065's role scoping
+    /// existed) keep their exact prior behavior; NE-065's own scoping
+    /// behavior is instead proven by the dedicated `signer_*` tests at the
+    /// bottom of this module, which build their own narrowly-scoped
+    /// `SignerKeyRegistry` values directly.
+    #[cfg(test)]
+    fn match_anything() -> Self {
+        RoleAllowance::Prefix(String::new())
+    }
+
+    fn allows(&self, role: &str) -> bool {
+        match self {
+            RoleAllowance::Exact(exact) => exact == role,
+            RoleAllowance::Prefix(prefix) => !role.is_empty() && role.starts_with(prefix.as_str()),
+        }
+    }
+}
+
+/// One signer's trust-root key plus what it may grant through
+/// `Method::RegisterIdentity` (NE-065). Co-located with the key in the SAME
+/// JSON object so the allowance is tamper-evident with the trust root:
+/// whoever can add or replace a signer's key is the only party who can also
+/// change what that signer may grant.
+#[derive(Debug, Clone)]
+struct SignerEntry {
+    key: String,
+    /// RBAC role NAMES (`Method::RegisterIdentity.roles`) this signer may
+    /// place on an identity it registers. Empty means none.
+    allowed_roles: Vec<RoleAllowance>,
+    /// Whether this signer may register an identity with `AgentRole::System`
+    /// at all. Default `false` for every JSON shape (see `SignerKeySpec`)
+    /// unless a scoped entry sets it explicitly — `System` gives
+    /// `IsolationLayer::check_access` an unconditional RBAC bypass, so it is
+    /// never implied by `allowed_roles` regardless of wildcard shape.
+    may_grant_system: bool,
+}
+
+impl SignerEntry {
+    fn allows_role(&self, role: &str) -> bool {
+        self.allowed_roles
+            .iter()
+            .any(|allowance| allowance.allows(role))
+    }
+}
+
+/// Wire shape of one JSON value in `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON`.
+/// `#[serde(untagged)]` tries the bare-string `Legacy` shape before the
+/// object `Scoped` shape, so a single registry can hold a MIX of both while
+/// a deployment migrates one signer at a time.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum SignerKeySpec {
+    /// `{"signer_id": "key"}` — the ONLY shape this registry supported
+    /// before NE-065. Maps to `allowed_roles: []`, `may_grant_system: false`
+    /// — explicitly NO roles and NO System grant, never "unlimited".
+    ///
+    /// Justification for fail-closed over a compatibility marker: a flat
+    /// entry predates the very concept of a scoped allowance, so there is no
+    /// prior intent to preserve beyond "this key is cryptographically
+    /// trusted" — treating silence as "every role" would silently
+    /// reconstitute the exact unscoped-admin defect NE-065 exists to close,
+    /// just one JSON-parsing hop removed. An operator who needs a legacy
+    /// signer to keep registering specific roles (or to perform bootstrap)
+    /// must deliberately migrate it to `Scoped` below and say so.
+    Legacy(String),
+    /// `{"signer_id": {"key": "...", "allowed_roles": [...], "may_grant_system": bool}}`.
+    /// Both `allowed_roles` and `may_grant_system` default to empty/`false`
+    /// when omitted, so an incomplete scoped entry is exactly as
+    /// unprivileged as a legacy one, never more permissive by omission.
+    Scoped {
+        key: String,
+        #[serde(default)]
+        allowed_roles: Vec<String>,
+        #[serde(default)]
+        may_grant_system: bool,
+    },
+}
 
 #[derive(Debug, Default)]
 struct SignerKeyRegistry {
-    keys: BTreeMap<String, String>,
+    signers: BTreeMap<String, SignerEntry>,
 }
 
 impl SignerKeyRegistry {
     fn from_json(raw: &str) -> Result<Self, String> {
-        let keys: BTreeMap<String, String> = serde_json::from_str(raw)
-            .map_err(|_| "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON is not a string map".to_string())?;
-        if keys.is_empty()
-            || keys
-                .iter()
-                .any(|(signer, key)| signer.trim().is_empty() || key.is_empty())
-        {
+        let specs: BTreeMap<String, SignerKeySpec> = serde_json::from_str(raw).map_err(|_| {
+            "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON is not a valid signer registry".to_string()
+        })?;
+        if specs.is_empty() {
             return Err(
-                "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON must contain non-empty signer keys".to_string(),
+                "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON must contain at least one signer".to_string(),
             );
         }
-        Ok(SignerKeyRegistry { keys })
+        let mut signers = BTreeMap::new();
+        for (signer_id, spec) in specs {
+            if signer_id.trim().is_empty() {
+                return Err(
+                    "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON signer id must not be empty".to_string(),
+                );
+            }
+            let entry = match spec {
+                SignerKeySpec::Legacy(key) => {
+                    if key.is_empty() {
+                        return Err(format!("signer '{signer_id}' key must not be empty"));
+                    }
+                    SignerEntry {
+                        key,
+                        allowed_roles: Vec::new(),
+                        may_grant_system: false,
+                    }
+                }
+                SignerKeySpec::Scoped {
+                    key,
+                    allowed_roles,
+                    may_grant_system,
+                } => {
+                    if key.is_empty() {
+                        return Err(format!("signer '{signer_id}' key must not be empty"));
+                    }
+                    let allowed_roles = allowed_roles
+                        .iter()
+                        .map(|role| RoleAllowance::parse(role))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|error| format!("signer '{signer_id}': {error}"))?;
+                    SignerEntry {
+                        key,
+                        allowed_roles,
+                        may_grant_system,
+                    }
+                }
+            };
+            signers.insert(signer_id, entry);
+        }
+        Ok(SignerKeyRegistry { signers })
     }
 
+    /// Is `signature` a valid detached HMAC over `digest` from a trusted
+    /// signer? Returns the signer id on success. Does NOT decide what that
+    /// signer may grant — see `authorize_grant`.
     fn verify(&self, signature: &str, digest: &[u8]) -> Result<String, String> {
-        let (signer, tag) = signature
-            .rsplit_once(':')
-            .ok_or_else(|| "signature must use signer_id:hex_hmac format".to_string())?;
+        let (signer, tag) = signature.rsplit_once(':').ok_or(SIGNER_TRUST_DENIED)?;
         if signer.is_empty() || tag.is_empty() {
-            return Err("signature must use signer_id:hex_hmac format".to_string());
+            return Err(SIGNER_TRUST_DENIED.to_string());
         }
-        let key = self
-            .keys
-            .get(signer)
-            .ok_or_else(|| format!("signature uses untrusted signer '{signer}'"))?;
-        let tag = hex::decode(tag).map_err(|_| "signature HMAC is not valid hex".to_string())?;
-        let mut mac = HmacSha256::new_from_slice(key.as_bytes())
-            .map_err(|_| "signer key is invalid".to_string())?;
+        let Some(entry) = self.signers.get(signer) else {
+            tracing::warn!(signer, "signer trust denied: unknown signer id");
+            return Err(SIGNER_TRUST_DENIED.to_string());
+        };
+        let Ok(tag) = hex::decode(tag) else {
+            return Err(SIGNER_TRUST_DENIED.to_string());
+        };
+        let Ok(mut mac) = HmacSha256::new_from_slice(entry.key.as_bytes()) else {
+            return Err(SIGNER_TRUST_DENIED.to_string());
+        };
         mac.update(digest);
-        mac.verify_slice(&tag)
-            .map_err(|_| format!("signature from '{signer}' did not verify"))?;
+        if mac.verify_slice(&tag).is_err() {
+            tracing::warn!(signer, "signer trust denied: signature did not verify");
+            return Err(SIGNER_TRUST_DENIED.to_string());
+        }
         Ok(signer.to_string())
+    }
+
+    /// NE-065: having verified WHO signed, decide WHAT `signer` is allowed
+    /// to grant through this `RegisterIdentity` call. Must run strictly
+    /// AFTER `verify` succeeds for the same signer id, before any state
+    /// changes.
+    ///
+    /// `role == AgentRole::System` is gated separately from `roles` (the
+    /// RBAC role-NAME list), never implied by `allowed_roles`: it is a
+    /// different KIND of grant (an unconditional `check_access` bypass, not
+    /// one more RBAC role). A System grant additionally requires (a)
+    /// `roles` to be empty — a System identity's RBAC role list is inert
+    /// (bypassed), so a non-empty one is either dead weight or a sign the
+    /// request body was mutated after being built for a different branch —
+    /// and (b) self-registration (`agent_id == signer`), mirroring genesis
+    /// bootstrap's own shape: a signer trusted to bootstrap ITSELF into
+    /// existence is never thereby trusted to mint an INDEPENDENT System
+    /// identity for a third party, which is a strictly more dangerous grant
+    /// (a rogue extra super-admin) with no bootstrap justification.
+    fn authorize_grant(
+        &self,
+        signer: &str,
+        agent_id: &str,
+        role: &AgentRole,
+        roles: &[String],
+    ) -> Result<(), String> {
+        let Some(entry) = self.signers.get(signer) else {
+            // `verify` already proved `signer` exists at the time it ran;
+            // getting here regardless keeps this function safe to call
+            // standalone (e.g. from a future caller, or a test) without
+            // relying on that ordering invariant.
+            return Err(SIGNER_TRUST_DENIED.to_string());
+        };
+        if matches!(role, AgentRole::System) {
+            if !entry.may_grant_system || !roles.is_empty() || agent_id != signer {
+                tracing::warn!(
+                    signer,
+                    may_grant_system = entry.may_grant_system,
+                    self_registration = (agent_id == signer),
+                    roles_empty = roles.is_empty(),
+                    "signer trust denied: not authorized to grant AgentRole::System"
+                );
+                return Err(SIGNER_TRUST_DENIED.to_string());
+            }
+            return Ok(());
+        }
+        if let Some(role_name) = roles.iter().find(|role_name| !entry.allows_role(role_name)) {
+            tracing::warn!(
+                signer,
+                role = %role_name,
+                "signer trust denied: role outside signer's allowed_roles"
+            );
+            return Err(SIGNER_TRUST_DENIED.to_string());
+        }
+        Ok(())
     }
 
     fn verified_unique_count(&self, signatures: &[String], digest: &[u8]) -> Result<usize, String> {
@@ -1623,34 +1875,169 @@ impl SignerKeyRegistry {
     }
 }
 
+/// NE-066: the live, rotatable registry cell. A bounded, explicit-reload
+/// cache — `RwLock<Arc<SignerKeyRegistry>>` — NOT a periodic re-read of the
+/// environment on the hot verification path (that would be a lock/syscall
+/// per request for a value that changes maybe once a quarter). A read is one
+/// read-lock acquisition plus one `Arc` refcount bump: no allocation, and
+/// std's `RwLock` read side does not contend against other readers, so this
+/// is not the "lock-contended step per request" NE-066 warns against.
+/// Reload/revoke take the write side, held only for the pointer swap itself.
+struct SignerRegistryStore {
+    current: std::sync::RwLock<std::sync::Arc<SignerKeyRegistry>>,
+}
+
+// The production wiring (`global_signer_registry_store` and the
+// `reload_signer_registry_from_*`/`revoke_signer` wrappers below) is itself
+// unwired pending a dispatch-side rotation trigger, so under a plain
+// `cargo clippy`/`cargo check` (no `--tests`, no `cfg(test)`) nothing in this
+// non-test build calls these methods at all -- they are exercised directly
+// by this module's own `signer_*` unit tests (`#[cfg(test)] mod tests`
+// below), which only exist under `--tests`. `#[allow(dead_code)]` reflects
+// that reality rather than papering over an actual gap.
+#[allow(dead_code)]
+impl SignerRegistryStore {
+    fn new(initial: SignerKeyRegistry) -> Self {
+        SignerRegistryStore {
+            current: std::sync::RwLock::new(std::sync::Arc::new(initial)),
+        }
+    }
+
+    fn current(&self) -> std::sync::Arc<SignerKeyRegistry> {
+        std::sync::Arc::clone(
+            &self
+                .current
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
+    /// Add-new -> cutover -> retire-old rotation, one call per transition:
+    /// reload with {old, new} present (both verify -- the overlap window),
+    /// then reload again with only {new} (old now fails from the very next
+    /// verification). Atomic and fail-closed: `SignerKeyRegistry::from_json`
+    /// fully parses AND validates `raw` (malformed JSON, an empty map, an
+    /// empty key, an unparseable `allowed_roles` entry) BEFORE this function
+    /// ever touches `current` -- a bad reload returns `Err` and the
+    /// previously-installed registry keeps serving every request, both
+    /// concurrent and subsequent. There is no window where authentication is
+    /// disarmed: the swap itself is a single write-lock-guarded pointer
+    /// replace.
+    fn reload_from_json(&self, raw: &str) -> Result<(), String> {
+        let candidate = SignerKeyRegistry::from_json(raw)?;
+        let mut current = self
+            .current
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *current = std::sync::Arc::new(candidate);
+        Ok(())
+    }
+
+    /// Immediate, single-signer revocation that does not require resupplying
+    /// (or even having on hand) the full registry JSON — the emergency path
+    /// distinct from a normal rotation reload. Effective from the very next
+    /// `verify()` call: there is no reload cycle, poll interval, or cache TTL
+    /// to wait out. Idempotent and infallible: revoking an id that is not
+    /// currently trusted (already gone, or never existed) is a silent no-op,
+    /// so the caller cannot use this to probe which signer ids exist.
+    fn revoke(&self, signer_id: &str) {
+        let mut current = self
+            .current
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if current.signers.contains_key(signer_id) {
+            let mut signers = current.signers.clone();
+            signers.remove(signer_id);
+            *current = std::sync::Arc::new(SignerKeyRegistry { signers });
+        }
+    }
+}
+
 #[cfg(not(test))]
-fn signer_registry() -> Result<&'static SignerKeyRegistry, String> {
-    static REGISTRY: OnceLock<Result<SignerKeyRegistry, String>> = OnceLock::new();
-    match REGISTRY.get_or_init(|| {
+fn global_signer_registry_store() -> Result<&'static SignerRegistryStore, String> {
+    static STORE: OnceLock<Result<SignerRegistryStore, String>> = OnceLock::new();
+    match STORE.get_or_init(|| {
         let raw = std::env::var("EPISTEMIC_GRAPH_SIGNER_KEYS_JSON").map_err(|_| {
             "verified identity operations require EPISTEMIC_GRAPH_SIGNER_KEYS_JSON".to_string()
         })?;
-        SignerKeyRegistry::from_json(&raw)
+        Ok(SignerRegistryStore::new(SignerKeyRegistry::from_json(
+            &raw,
+        )?))
     }) {
-        Ok(registry) => Ok(registry),
+        Ok(store) => Ok(store),
         Err(message) => Err(message.clone()),
     }
 }
 
+#[cfg(not(test))]
+fn signer_registry() -> Result<std::sync::Arc<SignerKeyRegistry>, String> {
+    Ok(global_signer_registry_store()?.current())
+}
+
+/// NE-066 rotation primitive: reload the live signer registry from `raw`
+/// JSON without a process restart. See `SignerRegistryStore::reload_from_json`
+/// for the atomicity/fail-closed contract. Triggering this from an actual
+/// rotation event (an admin RPC, a SIGHUP handler, a secret-file watch) is
+/// deployment/dispatch wiring outside this module -- this is the mechanism
+/// that trigger would call, not the trigger itself.
+#[cfg(not(test))]
+#[allow(dead_code)] // unwired pending a dispatch-side rotation trigger (see doc comment)
+pub(crate) fn reload_signer_registry_from_json(raw: &str) -> Result<(), String> {
+    global_signer_registry_store()?.reload_from_json(raw)
+}
+
+/// Convenience wrapper: reload from the CURRENT value of
+/// `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` (an operator updates the env/secret
+/// source the deployment mounts it from, then triggers this).
+#[cfg(not(test))]
+#[allow(dead_code)] // unwired pending a dispatch-side rotation trigger (see doc comment)
+pub(crate) fn reload_signer_registry_from_env() -> Result<(), String> {
+    let raw = std::env::var("EPISTEMIC_GRAPH_SIGNER_KEYS_JSON").map_err(|_| {
+        "verified identity operations require EPISTEMIC_GRAPH_SIGNER_KEYS_JSON".to_string()
+    })?;
+    reload_signer_registry_from_json(&raw)
+}
+
+/// NE-066 rotation primitive: revoke one signer immediately. See
+/// `SignerRegistryStore::revoke`. Unwired for the same reason as
+/// `reload_signer_registry_from_json` above.
+#[cfg(not(test))]
+#[allow(dead_code)] // unwired pending a dispatch-side rotation trigger (see doc comment)
+pub(crate) fn revoke_signer(signer_id: &str) -> Result<(), String> {
+    global_signer_registry_store()?.revoke(signer_id);
+    Ok(())
+}
+
+/// Ambient signer fixture shared by every `#[cfg(test)]` unit test in this
+/// crate that signs a `RegisterIdentity`/multisig request (dispatch.rs,
+/// mutation.rs, and this module's own tests) — NOT specific to NE-065's own
+/// coverage, which lives in the dedicated `signer_*` tests below and builds
+/// its own narrowly-scoped registries directly. All four ids share one key
+/// and, deliberately, `RoleAllowance::match_anything()` +
+/// `may_grant_system: true` — unrestricted, exactly this registry's
+/// behavior before NE-065 — so the hundreds of pre-existing call sites that
+/// register identities through it keep their exact prior behavior rather
+/// than failing on an allowance none of them were ever written to satisfy.
 #[cfg(test)]
-fn signer_registry() -> Result<&'static SignerKeyRegistry, String> {
-    static REGISTRY: OnceLock<SignerKeyRegistry> = OnceLock::new();
-    Ok(REGISTRY.get_or_init(|| SignerKeyRegistry {
-        keys: ["system", "root", "alice", "priv"]
-            .into_iter()
-            .map(|signer| {
-                (
-                    signer.to_string(),
-                    "rust-unit-operation-signer-key".to_string(),
-                )
-            })
-            .collect(),
-    }))
+fn signer_registry() -> Result<std::sync::Arc<SignerKeyRegistry>, String> {
+    static REGISTRY: OnceLock<std::sync::Arc<SignerKeyRegistry>> = OnceLock::new();
+    Ok(std::sync::Arc::clone(REGISTRY.get_or_init(|| {
+        std::sync::Arc::new(SignerKeyRegistry {
+            signers: ["system", "root", "alice", "priv"]
+                .into_iter()
+                .map(|signer| {
+                    (
+                        signer.to_string(),
+                        SignerEntry {
+                            key: "rust-unit-operation-signer-key".to_string(),
+                            allowed_roles: vec![RoleAllowance::match_anything()],
+                            may_grant_system: true,
+                        },
+                    )
+                })
+                .collect(),
+        })
+    })))
 }
 
 fn digest_operation(
@@ -1723,10 +2110,16 @@ pub(crate) fn verify_register_identity_signature(
     signature: &str,
 ) -> Result<(), String> {
     let digest = register_identity_digest(context, graph, agent_id, role, teams, roles);
-    let signer = signer_registry()?.verify(signature, &digest)?;
+    let registry = signer_registry()?;
+    let signer = registry.verify(signature, &digest)?;
     if signer != context.principal() {
-        return Err("identity registration signer does not match verified principal".to_string());
+        tracing::warn!(
+            signer,
+            "signer trust denied: signer does not match verified principal"
+        );
+        return Err(SIGNER_TRUST_DENIED.to_string());
     }
+    registry.authorize_grant(&signer, agent_id, role, roles)?;
     Ok(())
 }
 
@@ -2248,12 +2641,25 @@ mod tests {
         format!("{signer}:{}", hex::encode(mac.finalize().into_bytes()))
     }
 
+    /// Trust-only signer entry: verifies but grants no roles and no
+    /// `AgentRole::System` (matches the legacy-flat-JSON default). Most
+    /// pre-NE-065 tests in this module only exercise `verify`/
+    /// `verified_unique_count`, which never consult `allowed_roles`/
+    /// `may_grant_system`, so this is the right default for them.
+    fn trust_only_entry(key: &str) -> SignerEntry {
+        SignerEntry {
+            key: key.to_string(),
+            allowed_roles: Vec::new(),
+            may_grant_system: false,
+        }
+    }
+
     #[test]
     fn multisig_registry_counts_unique_signers_and_binds_exact_digest() {
         let registry = SignerKeyRegistry {
-            keys: BTreeMap::from([
-                ("signer:a".into(), "key-a".into()),
-                ("signer:b".into(), "key-b".into()),
+            signers: BTreeMap::from([
+                ("signer:a".into(), trust_only_entry("key-a")),
+                ("signer:b".into(), trust_only_entry("key-b")),
             ]),
         };
         let context =
@@ -2275,7 +2681,7 @@ mod tests {
     #[test]
     fn identity_registration_signature_binds_full_identity_record() {
         let registry = SignerKeyRegistry {
-            keys: BTreeMap::from([("agent:planner".into(), "planner-key".into())]),
+            signers: BTreeMap::from([("agent:planner".into(), trust_only_entry("planner-key"))]),
         };
         let context =
             VerifiedRequestContext::from_verified_claims(verified_claims(), "register-1".into());
@@ -2302,6 +2708,345 @@ mod tests {
             &["reader".into()],
         );
         assert!(registry.verify(&signature, &changed).is_err());
+    }
+
+    // ── NE-065: signer -> allowed_roles scoping ────────────────────────────
+
+    fn scoped_entry(key: &str, roles: &[&str], may_grant_system: bool) -> SignerEntry {
+        SignerEntry {
+            key: key.to_string(),
+            allowed_roles: roles
+                .iter()
+                .map(|role| RoleAllowance::parse(role).unwrap())
+                .collect(),
+            may_grant_system,
+        }
+    }
+
+    #[test]
+    fn signer_role_within_allowance_is_authorized() {
+        let registry = SignerKeyRegistry {
+            signers: BTreeMap::from([(
+                "svc:planner".into(),
+                scoped_entry("planner-key", &["reader", "team:*"], false),
+            )]),
+        };
+        assert!(registry
+            .authorize_grant(
+                "svc:planner",
+                "svc:planner",
+                &AgentRole::Agent,
+                &["reader".to_string()],
+            )
+            .is_ok());
+        assert!(registry
+            .authorize_grant(
+                "svc:planner",
+                "svc:planner",
+                &AgentRole::Agent,
+                &["team:blue".to_string()],
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn signer_role_outside_allowance_is_rejected() {
+        let registry = SignerKeyRegistry {
+            signers: BTreeMap::from([(
+                "svc:planner".into(),
+                scoped_entry("planner-key", &["reader"], false),
+            )]),
+        };
+        let err = registry
+            .authorize_grant(
+                "svc:planner",
+                "svc:planner",
+                &AgentRole::Agent,
+                &["sysadmin".to_string()],
+            )
+            .unwrap_err();
+        // NE-065: the denial must not leak WHY -- same generic message as an
+        // unknown signer or a bad MAC (see `SIGNER_TRUST_DENIED`'s doc
+        // comment).
+        assert_eq!(err, SIGNER_TRUST_DENIED);
+    }
+
+    /// End-to-end through `verify_register_identity_signature`: a role
+    /// outside the allowance must be rejected by the SAME function the
+    /// dispatch `RegisterIdentity` handler calls before it ever touches
+    /// `IsolationLayer::try_register_agent` -- so denial here is denial
+    /// before any identity is written, not merely a policy-object opinion.
+    #[test]
+    fn signer_role_outside_allowance_rejected_end_to_end_before_any_write() {
+        // `verify_register_identity_signature` always consults the ambient
+        // `#[cfg(test)]` `signer_registry()`, which is deliberately
+        // unrestricted (see its doc comment) -- so this test proves the
+        // WIRING (digest -> verify -> authorize_grant, in that order, with
+        // authorize_grant's failure surfacing as the function's `Err`)
+        // using a registry built the same way, rather than the shared
+        // ambient fixture.
+        let registry = SignerKeyRegistry {
+            signers: BTreeMap::from([(
+                "svc:planner".into(),
+                scoped_entry("planner-key", &["reader"], false),
+            )]),
+        };
+        let context = VerifiedRequestContext::from_verified_claims(
+            {
+                let mut claims = verified_claims();
+                claims.principal = "svc:planner".to_string();
+                claims.agent_id = "svc:planner".to_string();
+                claims
+            },
+            "register-2".into(),
+        );
+        let digest = register_identity_digest(
+            &context,
+            "g",
+            "svc:planner",
+            &AgentRole::Agent,
+            &[],
+            &["sysadmin".to_string()],
+        );
+        let signature = detached_signature("svc:planner", "planner-key", &digest);
+        // Exercise the exact sequence `verify_register_identity_signature`
+        // runs, against OUR registry rather than the process-global one.
+        let signer = registry.verify(&signature, &digest).unwrap();
+        assert_eq!(signer, context.principal());
+        let result = registry.authorize_grant(
+            &signer,
+            "svc:planner",
+            &AgentRole::Agent,
+            &["sysadmin".into()],
+        );
+        assert!(result.is_err(), "role outside allowance must be rejected");
+    }
+
+    #[test]
+    fn signer_cannot_grant_system_by_default() {
+        let registry = SignerKeyRegistry {
+            signers: BTreeMap::from([(
+                "svc:planner".into(),
+                scoped_entry("planner-key", &["*:*"], false), // even a broad roles allowance...
+            )]),
+        };
+        // ...never implies AgentRole::System.
+        let err = registry
+            .authorize_grant("svc:planner", "svc:planner", &AgentRole::System, &[])
+            .unwrap_err();
+        assert_eq!(err, SIGNER_TRUST_DENIED);
+    }
+
+    #[test]
+    fn signer_system_grant_requires_explicit_allowance_self_registration_and_empty_roles() {
+        let registry = SignerKeyRegistry {
+            signers: BTreeMap::from([(
+                "svc:genesis".into(),
+                scoped_entry("genesis-key", &[], true), // may_grant_system: true
+            )]),
+        };
+        // Self-registration, no roles: allowed.
+        assert!(registry
+            .authorize_grant("svc:genesis", "svc:genesis", &AgentRole::System, &[])
+            .is_ok());
+        // Same signer, but for a DIFFERENT agent_id: rejected -- a signer
+        // trusted to bootstrap itself is not thereby trusted to mint an
+        // independent System identity for anyone else.
+        let err = registry
+            .authorize_grant("svc:genesis", "someone-else", &AgentRole::System, &[])
+            .unwrap_err();
+        assert_eq!(err, SIGNER_TRUST_DENIED);
+        // Same signer, self-registration, but carrying RBAC roles: rejected
+        // -- a System identity's roles are inert, so a non-empty list is
+        // refused rather than silently ignored.
+        let err = registry
+            .authorize_grant(
+                "svc:genesis",
+                "svc:genesis",
+                &AgentRole::System,
+                &["anything".to_string()],
+            )
+            .unwrap_err();
+        assert_eq!(err, SIGNER_TRUST_DENIED);
+    }
+
+    #[test]
+    fn legacy_flat_signer_entry_grants_no_roles_and_no_system() {
+        let raw = r#"{"legacy-signer": "legacy-key"}"#;
+        let registry = SignerKeyRegistry::from_json(raw).unwrap();
+        let entry = &registry.signers["legacy-signer"];
+        assert!(entry.allowed_roles.is_empty());
+        assert!(!entry.may_grant_system);
+        // A legacy signer can still self-register with role Agent/no roles
+        // (bare identity, no privilege) -- but nothing more.
+        assert!(registry
+            .authorize_grant("legacy-signer", "legacy-signer", &AgentRole::Agent, &[])
+            .is_ok());
+        assert!(registry
+            .authorize_grant(
+                "legacy-signer",
+                "legacy-signer",
+                &AgentRole::Agent,
+                &["anything".to_string()],
+            )
+            .is_err());
+        assert!(registry
+            .authorize_grant("legacy-signer", "legacy-signer", &AgentRole::System, &[])
+            .is_err());
+    }
+
+    #[test]
+    fn scoped_json_shape_parses_allowed_roles_and_may_grant_system() {
+        let raw = r#"{
+            "svc:genesis": {"key": "genesis-key", "allowed_roles": [], "may_grant_system": true},
+            "svc:planner": {"key": "planner-key", "allowed_roles": ["reader", "team:*"]}
+        }"#;
+        let registry = SignerKeyRegistry::from_json(raw).unwrap();
+        assert!(registry.signers["svc:genesis"].may_grant_system);
+        assert!(registry.signers["svc:planner"].allows_role("reader"));
+        assert!(registry.signers["svc:planner"].allows_role("team:blue"));
+        assert!(!registry.signers["svc:planner"].allows_role("teams:blue"));
+        assert!(!registry.signers["svc:planner"].allows_role("sysadmin"));
+        // Omitted `may_grant_system` on a scoped entry defaults to false,
+        // exactly like a legacy entry -- an incomplete scoped entry is never
+        // MORE permissive than a legacy one by omission.
+        assert!(!registry.signers["svc:planner"].may_grant_system);
+    }
+
+    #[test]
+    fn wildcard_allowance_rejects_bare_star_and_empty_namespace_at_load_time() {
+        for bad in ["*", ":*"] {
+            let raw = format!(r#"{{"svc": {{"key": "k", "allowed_roles": ["{bad}"]}}}}"#);
+            let result = SignerKeyRegistry::from_json(&raw);
+            assert!(
+                result.is_err(),
+                "wildcard '{bad}' must be rejected at registry-load time, not accepted as \
+                 \"every role\""
+            );
+        }
+        // A properly namespaced wildcard loads fine and stays scoped.
+        let raw = r#"{"svc": {"key": "k", "allowed_roles": ["team:*"]}}"#;
+        let registry = SignerKeyRegistry::from_json(raw).unwrap();
+        assert!(registry.signers["svc"].allows_role("team:blue"));
+        assert!(!registry.signers["svc"].allows_role("other:blue"));
+        assert!(!registry.signers["svc"].allows_role("team")); // no namespace separator present
+    }
+
+    #[test]
+    fn empty_registry_and_empty_key_are_rejected_at_load_time() {
+        assert!(SignerKeyRegistry::from_json("{}").is_err());
+        assert!(SignerKeyRegistry::from_json(r#"{"svc": ""}"#).is_err());
+        assert!(SignerKeyRegistry::from_json(r#"{"svc": {"key": ""}}"#).is_err());
+        assert!(SignerKeyRegistry::from_json("not json").is_err());
+    }
+
+    // ── NE-066: reload / revocation lifecycle ──────────────────────────────
+
+    #[test]
+    fn reload_with_malformed_registry_keeps_previous_one_in_force_and_errors() {
+        let store = SignerRegistryStore::new(
+            SignerKeyRegistry::from_json(r#"{"root": "root-key"}"#).unwrap(),
+        );
+        assert!(store.current().signers.contains_key("root"));
+
+        // Malformed JSON.
+        assert!(store.reload_from_json("not json").is_err());
+        assert!(store.current().signers.contains_key("root"));
+
+        // Well-formed JSON, but an empty registry -- also fail-closed.
+        assert!(store.reload_from_json("{}").is_err());
+        assert!(store.current().signers.contains_key("root"));
+
+        // An invalid wildcard inside an otherwise well-formed entry.
+        assert!(store
+            .reload_from_json(r#"{"root": {"key": "root-key", "allowed_roles": ["*"]}}"#)
+            .is_err());
+        assert!(store.current().signers.contains_key("root"));
+
+        // A genuinely good reload still works after all the rejected ones.
+        assert!(store
+            .reload_from_json(r#"{"new-root": "new-root-key"}"#)
+            .is_ok());
+        assert!(store.current().signers.contains_key("new-root"));
+        assert!(!store.current().signers.contains_key("root"));
+    }
+
+    #[test]
+    fn revocation_takes_effect_on_the_next_verification_with_no_reload() {
+        let store = SignerRegistryStore::new(
+            SignerKeyRegistry::from_json(r#"{"root": "root-key", "alice": "alice-key"}"#).unwrap(),
+        );
+        let digest = b"revocation-test-digest";
+        let root_sig = detached_signature("root", "root-key", digest);
+
+        assert_eq!(store.current().verify(&root_sig, digest).unwrap(), "root");
+        store.revoke("root");
+        assert!(
+            store.current().verify(&root_sig, digest).is_err(),
+            "a revoked signer must fail from the very next verification"
+        );
+        // "alice" was untouched by revoking "root".
+        let alice_sig = detached_signature("alice", "alice-key", digest);
+        assert_eq!(store.current().verify(&alice_sig, digest).unwrap(), "alice");
+        // Revoking an id that does not exist (already gone, or never did) is
+        // a harmless, infallible no-op -- proves nothing about existence.
+        store.revoke("root");
+        store.revoke("nobody-home");
+    }
+
+    #[test]
+    fn two_signers_valid_simultaneously_during_an_overlap_window_then_old_is_retired() {
+        let store = SignerRegistryStore::new(
+            SignerKeyRegistry::from_json(r#"{"old-key": "old-secret"}"#).unwrap(),
+        );
+        let digest = b"rotation-overlap-digest";
+        let old_sig = detached_signature("old-key", "old-secret", digest);
+        assert!(store.current().verify(&old_sig, digest).is_ok());
+
+        // add-new: both signers now verify -- the overlap window.
+        store
+            .reload_from_json(r#"{"old-key": "old-secret", "new-key": "new-secret"}"#)
+            .unwrap();
+        let new_sig = detached_signature("new-key", "new-secret", digest);
+        assert!(store.current().verify(&old_sig, digest).is_ok());
+        assert!(store.current().verify(&new_sig, digest).is_ok());
+
+        // retire-old: only the new signer verifies from here on.
+        store
+            .reload_from_json(r#"{"new-key": "new-secret"}"#)
+            .unwrap();
+        assert!(store.current().verify(&new_sig, digest).is_ok());
+        assert!(
+            store.current().verify(&old_sig, digest).is_err(),
+            "the retired signer must no longer verify after cutover"
+        );
+    }
+
+    /// Preserve the existing bootstrap property (NE-065's constraint, not
+    /// just NE-066's): a fresh, empty registry populated with exactly the
+    /// one signer-backed bootstrap shape genesis needs -- self-registration,
+    /// `AgentRole::System`, empty `roles` -- must still be admitted once
+    /// `may_grant_system` is explicitly granted, through the SAME
+    /// `authorize_grant` gate every other signer now goes through. This is
+    /// the auth-layer half of genesis; `crates::eg_core::isolation`'s own
+    /// `try_bootstrap_system_identity` enforces the "exactly once" half
+    /// independently (see that module's tests).
+    #[test]
+    fn empty_rbac_store_bootstrap_registration_is_still_admitted() {
+        let store = SignerRegistryStore::new(
+            SignerKeyRegistry::from_json(
+                r#"{"genesis": {"key": "genesis-key", "allowed_roles": [], "may_grant_system": true}}"#,
+            )
+            .unwrap(),
+        );
+        let registry = store.current();
+        let digest = b"bootstrap-digest";
+        let signature = detached_signature("genesis", "genesis-key", digest);
+        let signer = registry.verify(&signature, digest).unwrap();
+        assert_eq!(signer, "genesis");
+        assert!(registry
+            .authorize_grant(&signer, "genesis", &AgentRole::System, &[])
+            .is_ok());
     }
 
     #[test]
