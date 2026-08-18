@@ -33,20 +33,52 @@ import pytest
 # if the wheel isn't installed — the `pytestmark` skip below covers that case), not
 # a value with a static Python type, so every `_k.<op>(...)` call below is exempt
 # from mypy's "may be None" attribute checks by construction.
-_k: Any = None
+_kernel_module: Any = None
 for _name in ("epistemic_graph.numeric", "numeric"):
     try:
         _m = importlib.import_module(_name)
     except ImportError:
         continue
     if getattr(_m, "__kernel__", None) == "eg-numeric":
-        _k = _m
+        _kernel_module = _m
         break
 
 pytestmark = pytest.mark.skipif(
-    _k is None,
+    _kernel_module is None,
     reason="eg-numeric kernel wheel not installed (build with maturin --features python)",
 )
+
+
+def _plain(value: Any) -> Any:
+    """Keep NumPy isolated to the reference side of this parity test."""
+
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, list):
+        return [_plain(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_plain(item) for item in value)
+    return value
+
+
+class _BuiltinKernel:
+    """Call the native module with built-ins while retaining NumPy references."""
+
+    def __init__(self, module: Any) -> None:
+        self._module = module
+
+    def __getattr__(self, name: str) -> Any:
+        function = getattr(self._module, name)
+        if not callable(function) or isinstance(function, type):
+            return function
+
+        def call(*args: Any, **kwargs: Any) -> Any:
+            return function(*(_plain(arg) for arg in args), **kwargs)
+
+        return call
+
+
+_k: Any = _BuiltinKernel(_kernel_module) if _kernel_module is not None else None
 
 
 def _close(a, b, atol=1e-6, rtol=1e-6):
@@ -157,11 +189,11 @@ def test_linalg(seed):
     assert _close(_k.matmul(Sq, B), Sq @ B)
 
     assert _close(_k.svdvals(A), np.linalg.svd(A, compute_uv=False))
-    U, s, Vt = _k.svd(A)
+    U, s, Vt = (np.asarray(part) for part in _k.svd(A))
     assert _close(U[:, : len(s)] @ np.diag(s) @ Vt[: len(s), :], A)
 
     S = (Sq + Sq.T) / 2
-    w, V = _k.eigh(S)
+    w, V = (np.asarray(part) for part in _k.eigh(S))
     assert _close(w, np.linalg.eigvalsh(S))
     assert _close(V @ np.diag(w) @ V.T, S)
 
@@ -170,11 +202,11 @@ def test_linalg(seed):
     bt = rng.normal(0, 2, m).astype(np.float64)
     assert _close(_k.lstsq(A, bt), np.linalg.lstsq(A, bt, rcond=None)[0])
 
-    Q, R = _k.qr(A)
+    Q, R = (np.asarray(part) for part in _k.qr(A))
     assert _close(Q @ R, A)
 
     SPD = (S @ S.T + n * np.eye(n)).astype(np.float64)
-    L = _k.cholesky(SPD)
+    L = np.asarray(_k.cholesky(SPD))
     assert _close(L @ L.T, SPD)
 
     assert _close(_k.det(Sq), np.linalg.det(Sq))
@@ -202,9 +234,9 @@ def test_random_determinism_and_distribution():
     assert np.array_equal(a1, a2)  # same seed → identical stream
     assert abs(float(np.mean(a1))) < 0.02
     assert abs(float(np.std(a1)) - 1.0) < 0.02
-    u = _k.uniform(-1.0, 1.0, 100000, 7)
+    u = np.asarray(_k.uniform(-1.0, 1.0, 100000, 7))
     assert u.min() >= -1.0 and u.max() <= 1.0
-    ints = _k.integers(0, 10, 10000, 5)
+    ints = np.asarray(_k.integers(0, 10, 10000, 5))
     assert ints.min() >= 0 and ints.max() < 10
 
 
