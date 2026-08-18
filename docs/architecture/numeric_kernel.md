@@ -1,15 +1,16 @@
 # Numeric kernel — one kernel, two surfaces (CONCEPT:AU-KG.compute.numeric-kernel)
 
 > **Kernel foundation of the Analytics Program.** A slim, **BLAS/LAPACK-free**
-> Rust numeric kernel that serves **both** Python-side array math (replacing numpy in
-> agent-utilities) **and** in-database analytics over engine-resident data. The
+> Rust numeric kernel that serves **both** Python-side array math without a Python
+> numeric runtime dependency **and** in-database analytics over engine-resident data. The
 > compiled kernel, Agent Utilities numeric surface, and native engine operators
 > described here are the current contract.
 
 ## Thesis
 
 epistemic-graph already does **compute-near-data** for vectors
-(`semantic_search` and `batch_l2_normalize` run server-side in Rust, zero numpy).
+(`semantic_search` and `batch_l2_normalize` run server-side in Rust, without a Python
+numeric runtime dependency).
 The Analytics Program generalizes that proven pattern into **one numeric kernel**
 (`crates/eg-numeric`) exposed on **two surfaces**.
 
@@ -20,15 +21,15 @@ flowchart TD
         ND["ndarray 0.16<br/>arrays · reductions · element-wise"]
         FA["faer 0.20<br/>svd · eigh · solve · pinv · lstsq · qr · cholesky<br/>(NO system BLAS/LAPACK)"]
         RN["rand / rand_distr<br/>seedable RNG"]
-        ERR["NumericError → LinAlgError<br/>(numpy parity)"]
+        ERR["NumericError → LinAlgError<br/>(isolated reference parity)"]
     end
 
-    K -->|"feature: python<br/>(pyo3 + rust-numpy,<br/>zero-copy + allow_threads)"| SA
+    K -->|"feature: python<br/>(pyo3 + bounded built-ins,<br/>owned conversion)"| SA
     K -->|"rlib link<br/>(NO pyo3 — python feature OFF)"| SB
 
     subgraph SA["Surface A — in-process Python"]
         M1["epistemic_graph.numeric<br/>(extension module)"]
-        M2["agent_utilities.numeric.xp<br/>(kernel required; kernel-owned numpy tail) — AU-KG.compute.surface-analytics-program"]
+        M2["agent_utilities.numeric.xp<br/>(kernel required; bounded built-in scalar/list contract) — AU-KG.compute.surface-analytics-program"]
         M1 --> M2
     end
 
@@ -58,7 +59,8 @@ compute (anti-pattern).
 - **`rlib`** — the pure kernel (`reductions`, `elementwise`, `linalg`, `random`,
   `error`). No pyo3. This is what the engine links for Surface B.
 - **`cdylib`** — the Surface-A Python extension, built only with `--features python`
-  (pulls `pyo3` + `numpy`/`rust-numpy`).
+  (pulls `pyo3` only; Python values cross the boundary as bounded built-in
+  scalars/rectangular sequences and scalar/nested-list results).
 
 Feature boundaries:
 
@@ -79,7 +81,8 @@ Feature boundaries:
 
 ## Operation surface
 
-Curated from the real audit (`grep np\.` over `agent_utilities/`) — **not** "all of numpy":
+Curated from the real operation-compatibility inventory — this is a bounded API,
+not a Python array-runtime dependency:
 
 - **Reductions / stats:** `sum · prod · mean · var(ddof) · std(ddof) · min · max ·
   argmin · argmax · argsort · cumsum · cumprod · percentile · quantile`.
@@ -87,18 +90,22 @@ Curated from the real audit (`grep np\.` over `agent_utilities/`) — **not** "a
   nan_to_num · isnan`.
 - **Linalg (faer):** `norm(+ord) · dot · matmul · solve · svd · svdvals · eigh · pinv ·
   lstsq · qr · cholesky · det · inv · matrix_power`, plus a `LinAlgError` exception that
-  mirrors `numpy.linalg.LinAlgError` (raised on singular / non-PD).
+  mirrors the isolated parity reference's `LinAlgError` (raised on singular / non-PD).
 - **Random:** `normal · uniform · integers` (seedable ChaCha20; deterministic, and
-  distribution-parity — bit-for-bit parity with numpy's PCG64 is a non-goal).
+  distribution-parity — bit-for-bit parity with the isolated oracle's PCG64 is a non-goal).
 
 ## Parity
 
-Every op is asserted `np.allclose` vs numpy on randomized inputs, with mandatory edge
-cases (nan/inf, singular matrices, empty arrays). The corpus contains **847 parity
-checks with 0 failures**. It lives in agent-utilities (`tests/test_numeric_parity.py`, AU-KG.compute.surface-analytics-program)
-and requires the compiled kernel; a missing kernel is an import failure. A **second,
-engine-side** corpus (`crates/eg-numeric/tests/test_kernel_parity.py`, CONCEPT:AU-KG.compute.is-installed-kernel-discovery)
-tests the compiled kernel DIRECTLY (not the shim) and is what the CI gate runs — see below.
+Every op is asserted against an isolated NumPy parity oracle on randomized inputs, with
+mandatory edge cases (nan/inf, singular matrices, empty arrays). The corpus contains
+**847 parity checks with 0 failures**. It lives in agent-utilities
+(`tests/test_numeric_parity.py`, AU-KG.compute.surface-analytics-program) and requires
+the compiled kernel; a missing kernel is an import failure. A **second, engine-side**
+corpus (`crates/eg-numeric/tests/test_kernel_parity.py`,
+CONCEPT:AU-KG.compute.is-installed-kernel-discovery) tests the compiled kernel
+DIRECTLY (not the shim) and is what the developer-only parity gate runs — see below.
+NumPy is installed for these reference checks only; the runtime package and wheel do
+not import or depend on it.
 
 ## Packaging: one published package — `epistemic-graph[full]` (CONCEPT:AU-KG.compute.is-installed-kernel-discovery / AU-KG.compute.shim-goes-kernel-live)
 
@@ -107,9 +114,14 @@ wheel. The approved Agent Utilities runtime requires `epistemic-graph[full]`, wh
 the compiled kernel importable as **`epistemic_graph.numeric`**.
 `agent_utilities.numeric.xp` is therefore **kernel-LIVE** (`HAVE_KERNEL == True`)
 or fails to import; it has no missing-kernel fallback
-(AU-KG.compute.shim-goes-kernel-live). Python `[full]` includes `[numeric]`, which
-pulls `numpy` for the kernel's zero-copy interop; the extension itself is
-self-contained and BLAS/LAPACK-free.
+(AU-KG.compute.shim-goes-kernel-live). Python `[full]` and `[numeric]` are no-op
+compatibility aliases; they add no numeric runtime dependency. The extension is
+self-contained and BLAS/LAPACK-free. Its PyO3 boundary accepts bounded built-in
+scalars or rectangular sequences and returns scalars or nested lists (the
+scalar↔nested-list PyO3 contract); conversion owns Rust storage and does not expose
+an array-buffer aliasing contract.
+Cross-component engine results use the bounded Arrow `KnowledgeBatch` currency; Arrow
+is not an additional dependency of the low-level Python boundary.
 
 **How release and development composition works.** The build compiles the kernel
 crate's pyo3 cdylib with its `python` feature while the server binary stays
@@ -153,8 +165,8 @@ single artifact. A missing, malformed, hash-mismatched, or structurally invalid
 entry is discarded and rebuilt while holding the key lock; it is never installed.
 
 ```bash
-# On CPython ≤ 3.13 (pyo3 0.22's supported range) no flag is needed.
-# On a newer interpreter (e.g. 3.14) pyo3 0.22 refuses to build unless you opt in:
+# On interpreters supported by the current pyo3 abi3 build no flag is needed.
+# On a newer interpreter that requires forward-compatible abi3 compilation, opt in:
 export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out target/wheels
 python scripts/inject_numeric_kernel.py <server-wheel> <numeric-component-wheel>
@@ -179,28 +191,31 @@ remains 0 because pyo3 is only pulled by the kernel crate's own
 which the guard's `epistemic_graph/epistemic_graph*.so` / `_epistemic_graph*.so` patterns do
 not match, and it exists only in the built wheel, never in the source tree.
 
-### numpy-parity CI gate
+### Isolated NumPy parity gate
 
-The `numeric-parity` job in `.github/workflows/rust-ci.yml` maturin-builds the wheel,
-installs it, and runs `crates/eg-numeric/tests/test_kernel_parity.py` — a self-contained
-corpus that asserts **every** compiled-kernel op equals its numpy reference (`np.allclose`)
-across the full op-surface, including the mandatory edge cases (nan/inf, singular matrix,
-empty). The job **FAILS CI if the Rust kernel ever diverges from numpy**, which is what
-makes it safe to run the `xp` shim kernel-live in production. CI uses Python 3.12 (inside
-pyo3-0.22's supported interpreter range).
+The developer-only `numeric-parity` job in `.github/workflows/rust-ci.yml`
+maturin-builds the wheel, installs NumPy as a reference oracle in its isolated
+environment, and runs `crates/eg-numeric/tests/test_kernel_parity.py` — a self-contained
+corpus that asserts **every** compiled-kernel op against that oracle across the full
+op-surface, including the mandatory edge cases (nan/inf, singular matrix, empty). The
+job **fails if the Rust kernel diverges from the reference**. Release/runtime smoke
+tests separately block NumPy imports; the published wheel never requires it. CI uses
+Python 3.12 for the developer parity environment.
 
 ## Current surfaces
 
 - **Surface A:** `from agent_utilities.numeric import xp as np` is the supported
-  import across Agent Utilities. A missing compiled kernel raises immediately.
+  import across Agent Utilities. A missing compiled kernel raises immediately; the
+  native boundary accepts bounded Python built-in scalars/rectangular sequences and
+  returns Python scalars/nested lists.
 - **Surface B:** the same rlib is exposed as DataFusion UDFs/UDAFs + graph/vector/
   timeseries operators, re-homing KG-resident numerics (spectral_navigator, world_model)
   to compute-near-data; cross-modal joins then PCA/cluster in-engine. See the
   operator inventory below.
-- **Agent Utilities:** contains no direct numpy/scipy dependency or
+- **Agent Utilities:** contains no direct NumPy/SciPy runtime dependency or
   import. The approved dependency is `epistemic-graph[full]`; its Python `full`
-  extra includes numeric interoperability dependencies. Long-tail operations use the
-  numpy module already loaded inside the kernel boundary.
+  extra is a no-op compatibility alias. Unsupported shapes fail explicitly at the
+  bounded native boundary; NumPy appears only in isolated developer parity tests.
 
 ## Surface B — in-database analytics operators (CONCEPT:EG-KG.query.surface-b-numeric-operators/EG-KG.compute.l2-normalize-batch-vectors/EG-KG.query.concept-6/EG-KG.query.svd-eg-pca-column/EG-KG.query.kmeans-clustering-half-one/EG-KG.query.eg-3)
 
@@ -284,11 +299,11 @@ The capability matrix is authoritative for any additional operator.
 
 ## The differentiator — cross-modal join → PCA/cluster in-engine (CONCEPT:EG-KG.query.eg-3)
 
-This is the capability that lets epistemic-graph **surpass numpy**: **join graph + vector +
-timeseries, then run PCA / k-means / covariance over the JOINED result set IN-ENGINE.** numpy
-has *no data layer* — to do this it must first fetch each modality into a separate array and
-align them by hand in Python. Here the join and the analytics are **one SQL statement over
-resident data**, computed where the data lives (compute-near-data, no FFI, no round-trip).
+This is the capability that goes beyond Python-only array computation: **join graph ⋈ vector
+⋈ timeseries, then run PCA / k-means / covariance over the JOINED result set IN-ENGINE.** A
+Python-only array workflow must first fetch each modality into a separate array and align them
+by hand. Here the join and the analytics are **one SQL statement over resident data**, computed
+where the data lives (compute-near-data, no FFI, no round-trip).
 
 ```mermaid
 flowchart LR
@@ -332,8 +347,8 @@ The six nodes form two communities (embeddings near `[10,10]` / `[-10,-10]`, all
 text `row_to_vector` decodes — so the **vector modality is a resident graph property**, the
 **graph modality** is the `nodes` table, and the **timeseries modality** is the per-node
 `AVG(reading)` aggregate; the `JOIN` fuses them and the kernel UDAFs analyze the joined rows.
-The cross-modal `covariance(x, avg_reading)` is the sharpest "impossible in numpy" moment: two
-different modalities correlated in a single expression over the joined result set.
+The cross-modal `covariance(x, avg_reading)` demonstrates the value of a data-resident query:
+two different modalities are correlated in a single expression over the joined result set.
 
 ---
 

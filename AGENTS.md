@@ -60,9 +60,10 @@ Two rules follow, and they shape every integration:
   = one round-trip. If a batch op you need doesn't exist yet, add it engine-side
   rather than looping client-side.
 - **Keep tight per-element math in-process.** A single cosine of two vectors is
-  cheaper in local numpy than marshalled over the wire — push to the engine only
-  when a *batch* amortizes the round-trip. (Reference: agent-utilities `KG-2.3`
-  similarity collapse routes the all-pairs batch here but keeps pairwise cosine local.)
+  cheaper in local scalar/list code than marshalled over the wire — push to the
+  engine only when a *batch* amortizes the round-trip. (Reference:
+  agent-utilities `KG-2.3` similarity collapse routes the all-pairs batch here
+  but keeps pairwise cosine local.)
 
 There is no GIL coupling and no shared address space — design for a network boundary,
 because that is exactly what it is.

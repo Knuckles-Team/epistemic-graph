@@ -275,11 +275,13 @@ natural-language → query (`NlQuery`) is a complete, LLM-optional seam.
   `client.jobs.submit_program_optimization(...)` and polls the ordinary durable job surface.
 - **[Analytics Program](docs/architecture/analytics_program.md) — "one kernel, two surfaces."** A
   BLAS/LAPACK-free Rust numeric kernel ([`eg-numeric`](docs/architecture/numeric_kernel.md), faer +
-  ndarray) exposed as (A) an in-process Python extension + numpy-shim and (B) **in-database DataFusion
+  ndarray) exposed as (A) an in-process Python extension with a bounded built-in
+  scalar/rectangular-sequence ↔ scalar/nested-list contract and (B) **in-database DataFusion
   UDFs/UDAFs** — `cosine_sim`/`l2_normalize`/`zscore`/`covariance` scalars + `svd`/`pca`/`kmeans`
   column→matrix aggregates, and the differentiator: **cross-modal join → analytics in-engine** (join
-  graph ⋈ vector ⋈ time-series, then run `pca`/`kmeans` over the joined set — impossible in numpy, which
-  has no data layer).
+  graph ⋈ vector ⋈ time-series, then run `pca`/`kmeans` over the joined set without fetching and
+  aligning each modality in Python). NumPy is used only as an isolated developer parity oracle;
+  Arrow remains the cross-component interchange currency.
 - **[Lakehouse LTAP interop](docs/architecture/lakehouse_ltap.md).** The engine's tables materialize as
   open **Parquet + Delta + Iceberg** (real Iceberg v2 **Avro** manifests, per-column stats for predicate
   pushdown) with an Iceberg-REST catalog + LSN as-of, so Databricks/Spark/Trino/DuckDB read them with
@@ -471,7 +473,7 @@ evidence, causal reasoning, and alignment. See
 | **Robotics** | ROS2 bridge over rosbridge-WebSocket (CDC↔topic, no DDS/C toolchain) | ✅ opt-in | `ros2-bridge` | EG-KG.domains.robotics-gpu-distribution; pure-Rust `tokio-tungstenite` |
 | **Robotics** | native DDS/RTPS ROS2 wire — TWO legs behind one `DdsTransport` trait, both zero-config `rmw`-mangled | ✅ opt-in | `ros2-dds` (pure-Rust `rustdds`) / `ros2-rmw` (real CycloneDDS-C, S5) | EG-KG.ingest.dds-transport / EG-KG.ingest.rmw-cyclonedds-leg; `ros2-rmw` vendors + cmake-builds the CycloneDDS C sources (no network/libclang at build time) for genuine live-`ros2` interop |
 | **GPU** | GPU distance/tensor dispatch seam + real CUDA backend (NVRTC, `dynamic-loading`) | ✅ opt-in | `gpu` / `gpu-cuda` | EG-KG.compute.gpu-distance-seam/327; pure-Rust CPU is the byte-for-byte ground truth and CUDA falls back cleanly on a GPU-less host; live-device kernel results belong in exact-release hardware certification |
-| **Numeric / analytics** | BLAS/LAPACK-free Rust numeric kernel (`eg-numeric`: reductions/stats · element-wise · linalg via faer · seedable random) | ✅ Python + in-database | Agent Utilities: `epistemic-graph[full]` · Cargo: `full` (includes `numeric`) | AU-KG.compute.numeric-kernel; [Analytics Program](docs/architecture/analytics_program.md) “one kernel, two surfaces.” The Python kernel is folded into the one wheel as `epistemic_graph.numeric`; the main build exposes the same Rust kernels through DataFusion UDF/UDAF and batched engine operations—see [numeric kernel](docs/architecture/numeric_kernel.md) |
+| **Numeric / analytics** | BLAS/LAPACK-free Rust numeric kernel (`eg-numeric`: reductions/stats · element-wise · linalg via faer · seedable random) | ✅ Python + in-database | Agent Utilities: `epistemic-graph[full]` · Cargo: `full` (includes `numeric`) | AU-KG.compute.numeric-kernel; [Analytics Program](docs/architecture/analytics_program.md) “one kernel, two surfaces.” The Python kernel is folded into the one wheel as `epistemic_graph.numeric`; Surface A accepts bounded built-in scalars/rectangular sequences and returns scalars/nested lists, with no NumPy runtime dependency. The main build exposes the same Rust kernels through DataFusion UDF/UDAF and batched engine operations; Arrow is the cross-component interchange—see [numeric kernel](docs/architecture/numeric_kernel.md) |
 | **Clients** | multi-language client drivers — Python (full, including native atomic create-if-absent) · JS / Go (thin: broker/streams/RBAC/backup/NL) over framed MessagePack (no PyO3/FFI) | ✅ | (client) | EG-328; wire-parity gated (`test_protocol_parity.py`) — see [clients](docs/interfaces/clients.md) |
 
 ---
