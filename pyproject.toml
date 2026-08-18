@@ -67,6 +67,7 @@ owl = [
     "pyoxigraph>=0.3.22",
 ]
 finance = []
+quant = []
 ast = []
 datascience = []
 reasoning = []

@@ -75,3 +75,22 @@ def test_builtin_boundary_rejects_unsafe_shapes_and_types() -> None:
 
     with pytest.raises(ValueError, match="element limit"):
         kernel.sum(range(1_000_001))
+
+
+def test_native_outputs_are_bounded_before_allocation() -> None:
+    kernel = _kernel()
+
+    for function, args in (
+        (kernel.normal, (0.0, 1.0, 1_000_001, 1)),
+        (kernel.uniform, (0.0, 1.0, 1_000_001, 1)),
+        (kernel.integers, (0, 10, 1_000_001, 1)),
+    ):
+        with pytest.raises(ValueError, match="output size"):
+            function(*args)
+
+    with pytest.raises(ValueError, match="condition"):
+        kernel.where_(range(1_000_001), [1.0], [2.0])
+    with pytest.raises(ValueError, match="k exceeds"):
+        kernel.kmeans([[1.0, 2.0]], 1_000_001)
+    with pytest.raises(ValueError, match="max_iter exceeds"):
+        kernel.kmeans([[1.0, 2.0]], 1, 10_001)
