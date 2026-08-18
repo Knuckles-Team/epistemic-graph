@@ -5395,12 +5395,14 @@ mod wired_catalog_tests {
             "grantee sees only their own row"
         );
 
-        // WRITES are constrained: an unconditional UPDATE from the grantee
-        // only ever touches the grantee's OWN row.
+        // WRITES are constrained: a broadly-matching UPDATE from the grantee
+        // (a plain WHERE clause is required by the engine's own unscoped-DML
+        // guard, unrelated to RLS — `id IS NOT NULL` matches EVERY row a
+        // naive scan would see) only ever touches the grantee's OWN row.
         grantee
-            .execute("UPDATE notes SET body = 'edited'")
+            .execute("UPDATE notes SET body = 'edited' WHERE id IS NOT NULL")
             .await
-            .expect("grantee's unconditional UPDATE is RLS-scoped to their own row");
+            .expect("grantee's broadly-matching UPDATE is RLS-scoped to their own row");
         let owner_rows_after = read_rows(&owner, "SELECT id, body FROM notes")
             .await
             .expect("owner selects after grantee's UPDATE");
@@ -5411,19 +5413,20 @@ mod wired_catalog_tests {
             "the owner's row must be UNCHANGED by the grantee's UPDATE"
         );
 
-        // An unconditional DELETE from the grantee only ever deletes the
-        // grantee's OWN row.
+        // A broadly-matching DELETE from the grantee (same `IS NOT NULL`
+        // reasoning as the UPDATE above) only ever deletes the grantee's OWN
+        // row.
         grantee
-            .execute("DELETE FROM notes")
+            .execute("DELETE FROM notes WHERE id IS NOT NULL")
             .await
-            .expect("grantee's unconditional DELETE is RLS-scoped to their own row");
+            .expect("grantee's broadly-matching DELETE is RLS-scoped to their own row");
         let owner_rows_final = read_rows(&owner, "SELECT id FROM notes")
             .await
             .expect("owner selects after grantee's DELETE");
         assert_eq!(
             owner_rows_final.rows.len(),
             1,
-            "the owner's row must SURVIVE the grantee's unconditional DELETE"
+            "the owner's row must SURVIVE the grantee's broadly-matching DELETE"
         );
     }
 
