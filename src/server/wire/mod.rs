@@ -3856,3 +3856,582 @@ impl WireProtocol for WireSession {
         result
     }
 }
+
+#[cfg(test)]
+mod ne_004_ne_005_tests {
+    //! Unit tests for NE-004 (mixed graph+table transaction atomicity via a
+    //! durable commit-intent) and NE-005 (SQL-selectable isolation level).
+    //!
+    //! These construct a `WireSession` + `ServerState` directly (in-crate, so
+    //! `pub(crate)`/private items are reachable) rather than driving a real
+    //! wire listener — the SAME lighter-weight approach `server::mod::tests`
+    //! uses for its own dispatch-level tests. `bind_authenticated_sql_actor`
+    //! is the SAME native-SQL-identity seam `sqlite_wire`/`mysql_wire` use;
+    //! it is not a test-only shortcut.
+    use super::*;
+    use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
+    use crate::protocol::{GraphType, Method};
+    use crate::registry::GraphRegistry;
+    use dashmap::DashMap;
+    use tokio::sync::Semaphore;
+
+    const SECRET: &str = "eg-txn-atomicity-test-secret";
+    const AGENT: &str = "txn-test-agent";
+
+    fn ensure_env() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+            #[cfg(feature = "security")]
+            std::env::set_var(
+                crate::crypto::ENCRYPTION_KEY_ENV,
+                "eg-txn-atomicity-test-recovery-key",
+            );
+        });
+    }
+
+    /// A real durable `ServerState` on its own uniquely-named temp dir (mirrors
+    /// `server::mod::tests::test_state`, trimmed to nothing this module's
+    /// tests don't need). `AGENT` is registered `AgentRole::System` so every
+    /// access check trivially passes regardless of the `security` feature —
+    /// this module tests transaction ATOMICITY, not RBAC (that is covered
+    /// elsewhere).
+    fn test_state() -> Arc<RwLock<ServerState>> {
+        ensure_env();
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: AGENT.into(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
+            registry: GraphRegistry::new(),
+            isolation,
+            channels: crate::channels::ChannelManager::new(),
+            #[cfg(feature = "viz-static-export")]
+            viz_engine: None,
+            auth_secret: SECRET.to_string(),
+            #[cfg(feature = "query")]
+            persist_dir: Some(
+                crate::server::sql_tables::test_persist_dir()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            #[cfg(not(feature = "query"))]
+            persist_dir: None,
+            #[cfg(feature = "redb")]
+            persistence: Some(std::sync::Arc::new(
+                crate::server::persistence::redb_backend::RedbBackend::open(
+                    crate::server::unique_temp_dir("eg-wire-txn-atomicity-test")
+                        .to_string_lossy()
+                        .into_owned(),
+                    crate::durability::DurabilityPolicy::Each,
+                    256,
+                )
+                .expect("open test redb backend"),
+            )),
+            #[cfg(not(feature = "redb"))]
+            persistence: None,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            read_admission: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
+            routed_write_coalescer: Arc::new(
+                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
+            ),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: Some(Arc::new(
+                eg_tsdb::store::SeriesStore::open(&std::env::temp_dir().join(format!(
+                    "eg-wire-txn-atomicity-tsdb-test-{}-{}.redb",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos() as u64)
+                        .unwrap_or(0)
+                )))
+                .expect("open test series store"),
+            )),
+            #[cfg(feature = "streaming")]
+            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
+        }))
+    }
+
+    /// Build a signed `Request` exactly like `server::mod::tests::request` —
+    /// only used here to drive the ONE real `Method::CreateGraph` RPC so a
+    /// test graph is durably initialized the SAME way production does it
+    /// (never by poking the registry directly).
+    fn request(id: u64, graph: &str, method: Method) -> Request {
+        static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let claims = crate::acl::RequestContextClaims {
+            principal: AGENT.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: AGENT.to_string(),
+            roles: vec!["test".to_string()],
+            scopes: vec!["*".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+            node: None,
+            priority: None,
+        };
+        let mut req = Request {
+            id,
+            graph: graph.to_string(),
+            auth_token: String::new(),
+            agent_id: Some(AGENT.to_string()),
+            method,
+        };
+        let nonce = format!(
+            "ne004-005-{}-{}",
+            std::process::id(),
+            NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        req.auth_token = crate::server::compute_verified_envelope_token(
+            SECRET,
+            &req,
+            &crate::server::VerifiedEnvelopeParams {
+                context: &claims,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system clock")
+                    .as_secs(),
+                nonce: &nonce,
+                idempotency_key: &format!("ne004-005-request-{id}"),
+            },
+        );
+        req
+    }
+
+    async fn create_test_graph(state: &Arc<RwLock<ServerState>>, graph: &str, id: u64) {
+        let resp = crate::server::dispatch(
+            state,
+            request(
+                id,
+                graph,
+                Method::CreateGraph {
+                    graph_name: graph.to_string(),
+                    graph_type: GraphType::Agent,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            resp.error.is_none(),
+            "CreateGraph failed: {:?}",
+            resp.error
+        );
+    }
+
+    /// A fresh, authenticated `WireSession` — a new "connection" sharing
+    /// `state`, exactly the shape a crash-then-reconnect looks like: no
+    /// in-memory buffer carries over, only what is durable on disk does.
+    async fn new_session(state: Arc<RwLock<ServerState>>, graph: &str) -> WireSession {
+        let session = WireSession::new(state, graph.to_string());
+        session
+            .bind_authenticated_sql_actor("pgwire", AGENT)
+            .await
+            .expect("bind test identity");
+        session
+    }
+
+    async fn node_count(session: &WireSession, graph: &str, id: &str) -> usize {
+        match session
+            .run_read(graph, format!("SELECT id FROM nodes WHERE id = '{id}'"))
+            .await
+        {
+            Ok(result) => result.rows.len(),
+            Err(_) => 0,
+        }
+    }
+
+    async fn table_row_count(session: &WireSession, sql: &str) -> usize {
+        match session.run_read("", sql.to_string()).await {
+            Ok(result) => result.rows.len(),
+            Err(_) => 0,
+        }
+    }
+
+    /// NE-004, DoD item 1: a mixed graph+table transaction commits
+    /// atomically — both sides are visible after `COMMIT`.
+    #[tokio::test]
+    async fn mixed_txn_commits_atomically() {
+        let state = test_state();
+        let graph = "ne004-atomic";
+        create_test_graph(&state, graph, 1).await;
+        let session = new_session(state.clone(), graph).await;
+        session
+            .execute("CREATE TABLE ledger (id INT, note TEXT)")
+            .await
+            .expect("create table");
+
+        session.execute("BEGIN").await.expect("begin");
+        session
+            .execute("INSERT INTO nodes (id) VALUES ('atomic-node')")
+            .await
+            .expect("buffer graph insert");
+        session
+            .execute("INSERT INTO ledger (id, note) VALUES (1, 'paired')")
+            .await
+            .expect("buffer table insert");
+        session.execute("COMMIT").await.expect("commit");
+
+        assert_eq!(node_count(&session, graph, "atomic-node").await, 1);
+        assert_eq!(
+            table_row_count(&session, "SELECT id FROM ledger WHERE id = 1").await,
+            1
+        );
+    }
+
+    /// NE-004, DoD item 2: an injected failure AT the table-commit step
+    /// (here, a natural one — the target table does not exist, which
+    /// `eg_query::classify` cannot detect syntactically, only the table
+    /// store's own commit-time schema lookup can) leaves ZERO graph writes
+    /// applied. The graph side already landed durably by the time the table
+    /// commit is attempted; this proves the synchronous COMPENSATION path
+    /// (not just the crash-recovery path) actually undoes it.
+    #[tokio::test]
+    async fn mixed_txn_table_failure_leaves_zero_graph_writes() {
+        let state = test_state();
+        let graph = "ne004-compensate";
+        create_test_graph(&state, graph, 2).await;
+        let session = new_session(state.clone(), graph).await;
+
+        session.execute("BEGIN").await.expect("begin");
+        session
+            .execute("INSERT INTO nodes (id) VALUES ('compensated-node')")
+            .await
+            .expect("buffer graph insert");
+        session
+            .execute("INSERT INTO nonexistent_table (id) VALUES (1)")
+            .await
+            .expect("buffering a DML statement never validates the target table");
+        let commit_result = session.execute("COMMIT").await;
+        assert!(
+            commit_result.is_err(),
+            "COMMIT against a nonexistent table must fail"
+        );
+
+        assert_eq!(
+            node_count(&session, graph, "compensated-node").await,
+            0,
+            "the graph write must be compensated away, not left applied"
+        );
+    }
+
+    /// NE-004, DoD item 3: an injected failure AFTER the graph commit but
+    /// BEFORE the table commit is detected and resolved on restart with no
+    /// torn state.
+    ///
+    /// Simulates the crash by running exactly the first half of
+    /// `commit_mixed_txn` (write the durable intent, then commit the graph
+    /// side) and deliberately stopping there — never calling the table
+    /// commit or deleting the intent, exactly the state a real process death
+    /// in that window leaves on disk. The graph write already went through
+    /// the SAME `commit_cross_modal_txn` / redb `WriteTransaction::commit()`
+    /// path an ordinary commit uses, so it is genuinely durable, not merely
+    /// in-memory. A brand-new `WireSession` (no buffers/state carried over —
+    /// the connection-level analogue of a process restart) then runs one
+    /// ordinary statement, which lazily triggers recovery.
+    #[tokio::test]
+    async fn mixed_txn_crash_between_commits_recovers_on_restart() {
+        let state = test_state();
+        let graph = "ne004-crash-recovery";
+        create_test_graph(&state, graph, 3).await;
+        let session = new_session(state.clone(), graph).await;
+        session
+            .execute("CREATE TABLE audit (id INT, note TEXT)")
+            .await
+            .expect("create table");
+
+        session.execute("BEGIN").await.expect("begin");
+        session
+            .execute("INSERT INTO nodes (id) VALUES ('crash-node')")
+            .await
+            .expect("buffer graph insert");
+        session
+            .execute("INSERT INTO audit (id, note) VALUES (7, 'pending')")
+            .await
+            .expect("buffer table insert");
+
+        // ---- inline, truncated `commit_mixed_txn`: stop after phase 1 ----
+        let (table_txn, node_ops) = session.take_txn();
+        let table_txn = table_txn.expect("table ops were buffered");
+        let methods = WireSession::node_ops_to_methods(&node_ops).expect("lower node ops");
+        let isolation = *session.txn_isolation.lock();
+        let compensating = session
+            .compensating_methods(graph, &methods)
+            .await
+            .expect("snapshot pre-txn state");
+        let table_steps = std::mem::take(&mut *session.txn_replay_log.lock());
+        let operation_id = uuid::Uuid::new_v4();
+        let intent = crate::server::txn_intent::CommitIntent::new(
+            graph.to_string(),
+            operation_id,
+            methods.clone(),
+            compensating,
+            table_steps,
+            crate::server::txn::now_ms(),
+        );
+        let authority = session.carrier_authority().expect("bound authority");
+        let persist_dir_buf = state
+            .read()
+            .await
+            .persist_dir
+            .clone()
+            .expect("persist dir configured");
+        let persist_dir = std::path::Path::new(&persist_dir_buf);
+        crate::server::txn_intent::write_intent(&authority, persist_dir, &intent)
+            .expect("write durable intent");
+        session
+            .commit_graph_methods_with_op(graph, methods, operation_id, isolation)
+            .await
+            .expect("phase 1: graph commit");
+        // `table_txn` is deliberately never committed and the intent is
+        // deliberately never deleted — this IS the crash.
+        drop(table_txn);
+        drop(session);
+
+        // The torn state is real: the graph write is durable, the table
+        // write is not, and the intent survives on disk.
+        assert_eq!(
+            crate::server::txn_intent::list_intents(&authority, persist_dir).len(),
+            1,
+            "the crashed intent must still be on disk"
+        );
+        let probe = new_session(state.clone(), graph).await;
+        assert_eq!(node_count(&probe, graph, "crash-node").await, 1);
+        assert_eq!(
+            table_row_count(&probe, "SELECT id FROM audit WHERE id = 7").await,
+            0,
+            "the table side must NOT be applied yet — this is the torn state"
+        );
+
+        // A brand-new connection for the SAME owner: its first statement
+        // lazily sweeps and resolves the leftover intent.
+        let fresh = new_session(state.clone(), graph).await;
+        fresh
+            .execute("SELECT id FROM nodes WHERE id = 'unrelated-probe'")
+            .await
+            .expect("a trivial read triggers recovery as a side effect");
+
+        assert!(
+            crate::server::txn_intent::list_intents(&authority, persist_dir).is_empty(),
+            "recovery must clear the resolved intent"
+        );
+        assert_eq!(
+            node_count(&fresh, graph, "crash-node").await,
+            1,
+            "the graph write must remain applied EXACTLY once (idempotent replay, no duplication)"
+        );
+        assert_eq!(
+            table_row_count(&fresh, "SELECT id FROM audit WHERE id = 7").await,
+            1,
+            "recovery must complete the table side — no torn state survives"
+        );
+    }
+
+    /// `ROLLBACK` still drops everything, including a mixed graph+table
+    /// transaction's NE-004 bookkeeping (the replay log / serializable
+    /// label set) — no commit-intent is ever written for a rolled-back txn.
+    #[tokio::test]
+    async fn rollback_drops_mixed_transaction_entirely() {
+        let state = test_state();
+        let graph = "ne004-rollback";
+        create_test_graph(&state, graph, 4).await;
+        let session = new_session(state.clone(), graph).await;
+        session
+            .execute("CREATE TABLE ledger (id INT)")
+            .await
+            .expect("create table");
+
+        session.execute("BEGIN").await.expect("begin");
+        session
+            .execute("INSERT INTO nodes (id) VALUES ('rolled-back-node')")
+            .await
+            .expect("buffer graph insert");
+        session
+            .execute("INSERT INTO ledger (id) VALUES (1)")
+            .await
+            .expect("buffer table insert");
+        let outcome = session.execute("ROLLBACK").await.expect("rollback");
+        assert!(matches!(
+            outcome,
+            WireOutcome::TxnEnd { tag: "ROLLBACK" }
+        ));
+
+        assert_eq!(node_count(&session, graph, "rolled-back-node").await, 0);
+        assert_eq!(
+            table_row_count(&session, "SELECT id FROM ledger WHERE id = 1").await,
+            0
+        );
+    }
+
+    /// The `25P02` aborted-transaction-block behaviour is unchanged: a
+    /// statement error inside an open txn latches it aborted; every
+    /// subsequent statement except COMMIT/ROLLBACK is rejected `25P02` until
+    /// the block ends, and COMMIT while aborted behaves as ROLLBACK.
+    #[tokio::test]
+    async fn aborted_transaction_block_still_rejects_with_25p02() {
+        let state = test_state();
+        let graph = "ne004-aborted";
+        create_test_graph(&state, graph, 5).await;
+        let session = new_session(state.clone(), graph).await;
+
+        session.execute("BEGIN").await.expect("begin");
+        let bad = session.execute("SELECT * FROM this_table_does_not_exist").await;
+        assert!(bad.is_err(), "a bad statement must fail");
+
+        let next = session.execute("SELECT 1").await;
+        let err = next.expect_err("a statement after an error must be rejected");
+        assert_eq!(err.code, "25P02");
+
+        let commit_outcome = session.execute("COMMIT").await.expect("commit-as-rollback");
+        assert!(matches!(
+            commit_outcome,
+            WireOutcome::TxnEnd { tag: "ROLLBACK" }
+        ));
+    }
+
+    /// NE-005: an unsupported isolation-level spelling is REJECTED with a
+    /// typed error (SQLSTATE `0A000`) — never silently accepted.
+    #[tokio::test]
+    async fn unsupported_isolation_level_is_rejected_not_downgraded() {
+        let state = test_state();
+        let graph = "ne005-reject";
+        create_test_graph(&state, graph, 6).await;
+        let session = new_session(state.clone(), graph).await;
+
+        let err = session
+            .execute("SET TRANSACTION ISOLATION LEVEL BOGUS")
+            .await
+            .expect_err("an unsupported level must be rejected");
+        assert_eq!(err.code, "0A000");
+    }
+
+    /// NE-005: `REPEATABLE READ` / `READ COMMITTED` / `READ UNCOMMITTED` are
+    /// accepted (mapped upward onto `Snapshot`, never rejected — this engine
+    /// always provides AT LEAST that much).
+    #[tokio::test]
+    async fn weaker_standard_isolation_levels_are_accepted() {
+        let state = test_state();
+        let graph = "ne005-weaker";
+        create_test_graph(&state, graph, 7).await;
+        let session = new_session(state.clone(), graph).await;
+
+        for level in ["REPEATABLE READ", "READ COMMITTED", "READ UNCOMMITTED"] {
+            session
+                .execute(&format!("BEGIN ISOLATION LEVEL {level}"))
+                .await
+                .unwrap_or_else(|e| panic!("{level} must be accepted, got {e:?}"));
+            assert_eq!(
+                *session.txn_isolation.lock(),
+                crate::server::txn::IsolationLevel::Snapshot
+            );
+            session.execute("ROLLBACK").await.expect("rollback");
+        }
+    }
+
+    /// NE-005's central rule: a requested `SERIALIZABLE` either genuinely
+    /// serializes or is rejected — never silently downgraded to `Snapshot`.
+    /// Proved with a concurrent read-modify-write write-skew scenario a
+    /// per-node OCC check (which `Snapshot` already has) does NOT catch: two
+    /// transactions each scan `label = 'pool'` nodes and each insert one
+    /// more IF the scanned count is below a cap — neither writes to a node
+    /// the other reads, so only the AUTO predicate-label tracking
+    /// (`extract_label_predicates` + `GraphTxnState::add_predicate_read`)
+    /// can catch the phantom. Under `SERIALIZABLE`, the second committer
+    /// MUST be rejected `40001`; the SAME scenario under the engine default
+    /// (`Snapshot`) is proved to let both through, showing this is a REAL
+    /// difference in behaviour, not a coincidental failure.
+    #[tokio::test]
+    async fn serializable_genuinely_catches_a_write_skew_snapshot_misses() {
+        let state = test_state();
+        let graph = "ne005-serializable";
+        create_test_graph(&state, graph, 8).await;
+        let seed = new_session(state.clone(), graph).await;
+        for i in 0..2 {
+            seed.execute(&format!(
+                "INSERT INTO nodes (id, type) VALUES ('pool-{i}', 'pool')"
+            ))
+            .await
+            .expect("seed pool nodes");
+        }
+
+        // ---- SERIALIZABLE: the second committer must be rejected. ----
+        let a = new_session(state.clone(), graph).await;
+        let b = new_session(state.clone(), graph).await;
+        a.execute("BEGIN ISOLATION LEVEL SERIALIZABLE")
+            .await
+            .expect("begin a");
+        b.execute("BEGIN ISOLATION LEVEL SERIALIZABLE")
+            .await
+            .expect("begin b");
+        assert_eq!(a.run_read(graph, "SELECT id FROM nodes WHERE type = 'pool'".to_string()).await.unwrap().rows.len(), 2);
+        assert_eq!(b.run_read(graph, "SELECT id FROM nodes WHERE type = 'pool'".to_string()).await.unwrap().rows.len(), 2);
+        a.execute("INSERT INTO nodes (id, type) VALUES ('pool-from-a', 'pool')")
+            .await
+            .expect("buffer a's insert");
+        b.execute("INSERT INTO nodes (id, type) VALUES ('pool-from-b', 'pool')")
+            .await
+            .expect("buffer b's insert");
+        a.execute("COMMIT").await.expect("a commits first");
+        let b_commit = b.execute("COMMIT").await;
+        assert!(
+            b_commit.is_err(),
+            "SERIALIZABLE must reject the phantom-inducing second commit"
+        );
+        assert_eq!(b_commit.unwrap_err().code, "40001");
+
+        // ---- Snapshot (the default): the SAME scenario is let through,
+        // proving SERIALIZABLE is not a no-op relabeling. ----
+        let c = new_session(state.clone(), graph).await;
+        let d = new_session(state.clone(), graph).await;
+        c.execute("BEGIN").await.expect("begin c");
+        d.execute("BEGIN").await.expect("begin d");
+        assert_eq!(c.run_read(graph, "SELECT id FROM nodes WHERE type = 'pool'".to_string()).await.unwrap().rows.len(), 3);
+        assert_eq!(d.run_read(graph, "SELECT id FROM nodes WHERE type = 'pool'".to_string()).await.unwrap().rows.len(), 3);
+        c.execute("INSERT INTO nodes (id, type) VALUES ('pool-from-c', 'pool')")
+            .await
+            .expect("buffer c's insert");
+        d.execute("INSERT INTO nodes (id, type) VALUES ('pool-from-d', 'pool')")
+            .await
+            .expect("buffer d's insert");
+        c.execute("COMMIT").await.expect("c commits");
+        d.execute("COMMIT")
+            .await
+            .expect("Snapshot does NOT catch this write skew — both commit");
+    }
+}
