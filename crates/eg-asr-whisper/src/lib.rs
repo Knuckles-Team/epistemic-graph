@@ -41,9 +41,10 @@
 //! - **Decisive, confirmed after the fact: an ONNX Runtime (`ort`) binding
 //!   cannot run on this fleet's x86_64 hosts at all.** The sibling native-TTS
 //!   lane independently discovered that `ort`'s only x86_64 CPU prebuilt
-//!   requires AVX2, and audited every host: `rw710`/`r710` (Westmere, 2010)
-//!   and `r820` (Sandy Bridge, 2012) all lack AVX2 (`gb10` is a separate
-//!   `aarch64` architecture) — so there is no host here an `ort`-based
+//!   requires AVX2, and audited every host: the interactive dev host and the
+//!   two build hosts (Westmere, 2010, and Sandy Bridge, 2012 respectively)
+//!   all lack AVX2 (the fleet's aarch64 GPU host is a separate architecture)
+//!   — so there is no host here an `ort`-based
 //!   provider could execute on natively; that lane only proved correctness
 //!   under `qemu-x86_64 -cpu max` emulation, explicitly not a hardware
 //!   qualification. `whisper-rs`/ggml does not share this failure mode: ggml
@@ -78,11 +79,11 @@
 //!
 //! ## CPU-safety build contract (NO x86_64 host in this fleet has AVX2)
 //!
-//! This is not a hypothetical edge case: `rw710` (Westmere, 2010), `r710`
-//! (Westmere, 2010), and `r820` (Sandy Bridge, 2012) — dev host and BOTH
-//! build hosts — were all individually checked (`/proc/cpuinfo`) and confirm
-//! **no `x86-64-v3`/AVX2 anywhere in this fleet's x86_64 estate** (`gb10` is
-//! `aarch64`, a different architecture). A binding whose only available
+//! This is not a hypothetical edge case: the interactive dev host (Westmere,
+//! 2010) and both build hosts (Westmere, 2010, and Sandy Bridge, 2012) were
+//! all individually checked (`/proc/cpuinfo`) and confirm
+//! **no `x86-64-v3`/AVX2 anywhere in this fleet's x86_64 estate** (the fleet's
+//! GPU host is `aarch64`, a different architecture). A binding whose only available
 //! artifact requires AVX2 cannot run natively on ANY x86_64 host here at
 //! all — this is exactly the dead end the sibling native-TTS lane hit with
 //! `ort` (ONNX Runtime)'s prebuilt CPU binary, which hard-requires AVX2 with
@@ -106,7 +107,7 @@
 //!   GGML_FMA=OFF GGML_F16C=OFF GGML_AVX512=OFF GGML_BMI2=OFF`). The `BMI2`
 //!   flag was NOT optional in practice: ggml's CMake defaults it ON
 //!   independent of `GGML_NATIVE`, and the very first real-fixture run (on
-//!   r820, Sandy Bridge — no AVX2, no BMI2) actually SIGILLed on a `shlx`
+//!   the Sandy Bridge build host — no AVX2, no BMI2) actually SIGILLed on a `shlx`
 //!   (BMI2) instruction inside `ggml_graph_plan` with every AVX* flag
 //!   already off — caught by running `tests/real_transcription.rs` under
 //!   `gdb`, not by reasoning about flags alone; see the GOC-33 report for the
@@ -114,7 +115,7 @@
 //!   CPU dispatch, `GGML_CPU_ALL_VARIANTS=ON` — the C-side equivalent of
 //!   `is_x86_feature_detected!` (the pattern the viz lane established in this
 //!   repo's own Rust code) — was evaluated empirically (`cargo check -p
-//!   eg-asr-whisper` on r820) and **rejected for this
+//!   eg-asr-whisper` on the Sandy Bridge build host) and **rejected for this
 //!   change**: ggml's CMake hard-requires pairing it with
 //!   `GGML_BACKEND_DL=ON`, which turns the CPU backend into a runtime-
 //!   `dlopen`ed `.so` selected from a search path at process start rather
@@ -128,14 +129,15 @@
 //!   `GGML_BACKEND_DL` requirement. Genuine runtime multi-ISA dispatch
 //!   remains documented future work once a deploy-image change to ship the
 //!   `.so` variants is separately owned and qualified — the fixed baseline
-//!   is always safe (never SIGILLs on any x86_64 host, including rw710) at
+//!   is always safe (never SIGILLs on any x86_64 host, including the
+//!   pre-AVX2 Westmere-era hosts) at
 //!   the cost of leaving AVX2/AVX512 throughput on the table on capable
 //!   hosts, an explicit trade-off, not an oversight.
 //!
 //! ## Hardware verification (native, not emulated)
 //!
-//! Built and run **natively** (no `qemu`/emulation) on `r820`
-//! (`Intel(R) Xeon(R) CPU E5-4620`, Sandy Bridge — confirmed via
+//! Built and run **natively** (no `qemu`/emulation) on the Sandy Bridge build
+//! host (`Intel(R) Xeon(R) CPU E5-4620` — confirmed via
 //! `/proc/cpuinfo`: `avx sse4_1 sse4_2` present, `avx2`/`fma`/`f16c`/`bmi2`
 //! ALL absent). A real `ggml-tiny.en.bin` model (MIT, from
 //! `huggingface.co/ggerganov/whisper.cpp`, digest-verified) transcribed a

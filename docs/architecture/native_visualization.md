@@ -90,7 +90,7 @@ scalar/SIMD equivalence — see that crate's `tests/proptest_invariants.rs`.
   protocol (V3b), where a client hovering/picking a point must see a genuine
   row, not a synthesized extremum.
 - **SIMD.** A cached `is_x86_feature_detected!("avx2")` check (never a
-  compile-time `target-feature` assumption — this fleet's `rw710` lacks
+  compile-time `target-feature` assumption — this fleet's interactive dev host lacks
   `x86-64-v3` and would SIGILL on a build that assumed AVX2) gates a
   vectorized fast path for the genuinely regular, independent arithmetic each
   kernel needs (M4's bucket-index/finite-mask precompute; LTTB's

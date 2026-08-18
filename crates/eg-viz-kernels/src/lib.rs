@@ -23,7 +23,7 @@
 //! **Runtime SIMD, never compile-time.** See [`simd`]'s module doc: every
 //! accelerated path is reached only after a cached `is_x86_feature_detected!`
 //! check, so the SAME binary runs correctly (scalar fallback) on a CPU without
-//! AVX2 (e.g. this fleet's `rw710`, which lacks `x86-64-v3`) as on one with it.
+//! AVX2 (e.g. this fleet's interactive dev host, which lacks `x86-64-v3`) as on one with it.
 
 pub mod lttb;
 pub mod m4;
