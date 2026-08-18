@@ -7,11 +7,11 @@
 //! validating an LSN, so a cross-owner request is indistinguishable from a
 //! missing table even when it supplies an invalid LSN.
 //!
-//! The established Iceberg REST `LoadTable` route in `src/server/lake/rest.rs`
-//! has no as-of/snapshot-id query field.  This acceptance surface therefore
-//! exercises the owning manager directly; it does not invent an unauthenticated
-//! REST side channel.  If the protocol later gains an authenticated as-of
-//! field, its adapter must call this same scoped API.
+//! The authenticated Iceberg REST `LoadTable` route now accepts the explicit
+//! `?as_of=<LSN>` extension and calls this same scoped API; focused handler tests
+//! in `src/server/lake/rest.rs` prove that served mapping.  This integration file
+//! retains the manager-level contract proof so the storage owner remains tested
+//! independently of HTTP parsing and carrier setup.
 
 #![cfg(feature = "lake")]
 

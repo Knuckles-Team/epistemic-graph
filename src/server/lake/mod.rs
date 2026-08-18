@@ -1230,8 +1230,9 @@ mod tests {
     /// compaction (rewrites to 1 live file at a NEWER LSN), a scoped as-of read
     /// pinned to the LSN recorded right after the second drain must still see
     /// the OLD 2-file historical state, even though `load_table` sees the
-    /// compacted 1-file state.  The Iceberg REST adapter intentionally has no
-    /// as-of field today; this manager test owns the available protocol seam.
+    /// compacted 1-file state.  An authenticated REST handler exercises this
+    /// manager seam; this test keeps the lower-level historical projection proof
+    /// close to the storage owner.
     #[test]
     fn load_table_as_of_returns_historical_state_after_a_later_compaction() {
         let s = store();

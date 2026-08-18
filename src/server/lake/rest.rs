@@ -15,8 +15,10 @@
 //! * `GET  /v1/namespaces/{ns}`                      → `GetNamespace` (exists check)
 //! * `GET  /v1/namespaces/{ns}/tables[?pageToken=&pageSize=]` → `ListTables` (paginated)
 //! * `POST /v1/namespaces/{ns}/tables`               → `CreateTable`
-//! * `GET  /v1/namespaces/{ns}/tables/{table}`       → `LoadTable` (INLINE `metadata`, so
-//!   a client needs no second fetch to open the table)
+//! * `GET  /v1/namespaces/{ns}/tables/{table}[?as_of=<LSN>]` → `LoadTable` (INLINE
+//!   `metadata`, so a client needs no second fetch to open the table).  The explicit
+//!   `as_of` extension pins the response to a committed engine LSN; absent means the
+//!   current snapshot, preserving the Iceberg response shape and normal auth path.
 //! * `HEAD /v1/namespaces/{ns}/tables/{table}`       → `TableExists`
 //! * `POST /v1/namespaces/{ns}/tables/{table}`       → `CommitTable` (see the honest scope
 //!   note on [`super::LakeManager::commit_table`] — accepted per the spec's request/
@@ -617,6 +619,33 @@ fn parse_pagination(target: &str) -> (Option<String>, Option<usize>) {
     (page_token, page_size)
 }
 
+/// Parse the optional engine-owned `LoadTable` time-travel extension.  `as_of` is
+/// deliberately an unsigned decimal engine LSN rather than a timestamp: the lake
+/// manager's verified contract maps an `Op::AsOf` request to one concrete committed
+/// LSN, with `0` reserved for the valid empty-history boundary.  A present but empty,
+/// malformed, duplicated, or overflowing value is rejected by the handler as a typed
+/// bad request; an out-of-range *representable* LSN is checked by
+/// [`LakeManager::load_table_as_of`] after owner visibility has been established.
+fn parse_as_of_lsn(target: &str) -> Result<Option<u64>, ()> {
+    let Some(query) = target.split_once('?').map(|(_, q)| q) else {
+        return Ok(None);
+    };
+    let mut as_of = None;
+    for pair in query.split('&') {
+        let mut it = pair.splitn(2, '=');
+        let key = it.next().unwrap_or("");
+        if key != "as_of" {
+            continue;
+        }
+        if as_of.is_some() {
+            return Err(());
+        }
+        let value = percent_decode(it.next().unwrap_or(""));
+        as_of = Some(value.parse::<u64>().map_err(|_| ())?);
+    }
+    Ok(as_of)
+}
+
 /// Join a `TableIdentifier.namespace` JSON array (`["a","b"]`) back into this
 /// tier's internal `\x1f`-joined flat namespace string — the inverse of
 /// [`namespace_levels`]. `None` if the field is missing or not an array of strings.
@@ -887,9 +916,37 @@ fn handle(
             (status, resp)
         }
         ("GET", ["v1", "namespaces", ns, "tables", table]) => {
-            match lake.load_table_visible(ns, table, &visibility) {
-                Some(v) => ("200 OK", v.to_string()),
-                None => ("404 Not Found", not_found("table")),
+            // Resolve visibility before parsing or validating `as_of`: a hidden
+            // table must remain the same privacy-safe 404 for malformed, future,
+            // hole, or overflow LSNs, with no cross-owner existence oracle.
+            let Some(current) = lake.load_table_visible(ns, table, &visibility) else {
+                return ("404 Not Found", not_found("table"));
+            };
+            match parse_as_of_lsn(&req.target) {
+                Err(()) => (
+                    "400 Bad Request",
+                    err_body(
+                        "as_of must be one unsigned decimal LSN",
+                        "InvalidAsOfException",
+                        400,
+                    ),
+                ),
+                Ok(None) => ("200 OK", current.to_string()),
+                Ok(Some(lsn)) => match lake.load_table_as_of(ns, table, lsn, &visibility) {
+                    Ok(Some(v)) => ("200 OK", v.to_string()),
+                    // The visibility check above and the manager's scoped check
+                    // intentionally both fail closed if a concurrent delete or
+                    // policy change removes the table between the two reads.
+                    Ok(None) => ("404 Not Found", not_found("table")),
+                    Err(_) => (
+                        "400 Bad Request",
+                        err_body(
+                            "requested as_of LSN is unavailable",
+                            "InvalidSnapshotException",
+                            400,
+                        ),
+                    ),
+                },
             }
         }
         ("HEAD", ["v1", "namespaces", ns, "tables", table]) => {
@@ -1126,6 +1183,146 @@ mod tests {
         );
         assert_eq!(status, "200 OK");
         assert!(body_head.is_empty());
+    }
+
+    /// NE-033: the authenticated Iceberg LoadTable caller maps its explicit
+    /// `as_of=<LSN>` query parameter to the scoped lake-manager contract while
+    /// preserving the ordinary current response when the parameter is absent.
+    #[test]
+    fn authenticated_load_table_as_of_serves_current_historical_and_empty_history() {
+        let (mgr, store) = seed();
+        let reader = carrier_for("asof-reader", "tenant-shared");
+        let current_path = "/v1/namespaces/engine/tables/rest_series1";
+
+        // The existing authenticated LoadTable shape remains the current view.
+        let (status, body) = handle(&mgr, &store, &req("GET", current_path), Some(&reader));
+        assert_eq!(status, "200 OK");
+        let current: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let historical_lsn = current["metadata"]["current-snapshot-id"]
+            .as_i64()
+            .expect("seeded table has a current LSN") as u64;
+
+        // Move the current projection forward, leaving the first committed LSN
+        // available as a real historical point.
+        let compacted = mgr
+            .compact(&store, "engine", "rest_series1")
+            .unwrap()
+            .expect("seeded table compacts");
+        assert!(compacted.lsn > historical_lsn);
+
+        let (status, body) = handle(
+            &mgr,
+            &store,
+            &req("GET", &format!("{current_path}?as_of={historical_lsn}")),
+            Some(&reader),
+        );
+        assert_eq!(status, "200 OK");
+        let historical: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(
+            historical["metadata"]["current-snapshot-id"], historical_lsn as i64,
+            "as_of must pin the requested committed LSN, not silently serve current"
+        );
+
+        let (status, body) = handle(
+            &mgr,
+            &store,
+            &req("GET", &format!("{current_path}?as_of=0")),
+            Some(&reader),
+        );
+        assert_eq!(status, "200 OK");
+        let empty: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(empty["metadata"]["current-snapshot-id"], 0);
+        assert_eq!(
+            empty["metadata"]["snapshots"][0]["summary"]["total-data-files"], "0",
+            "zero is the explicit valid empty-history boundary"
+        );
+
+        let (status, body) = handle(&mgr, &store, &req("GET", current_path), Some(&reader));
+        assert_eq!(status, "200 OK");
+        let current_after: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(
+            current_after["metadata"]["current-snapshot-id"], compacted.lsn as i64,
+            "an absent as_of parameter keeps current LoadTable behavior"
+        );
+    }
+
+    /// NE-033: invalid syntax and unavailable LSNs are typed, privacy-safe
+    /// denials, while the visibility check runs first so a different owner
+    /// receives the same 404 as an actually missing table.
+    #[test]
+    fn authenticated_load_table_as_of_rejects_invalid_and_hides_cross_owner_history() {
+        let (mgr, store) = seed();
+        let alice = carrier_for("asof-alice", "tenant-shared");
+        let bob = carrier_for("asof-bob", "tenant-shared");
+        let current_path = "/v1/namespaces/engine/tables/rest_series1";
+        let (status, body) = handle(&mgr, &store, &req("GET", current_path), Some(&alice));
+        assert_eq!(status, "200 OK");
+        let current: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let current_lsn = current["metadata"]["current-snapshot-id"]
+            .as_i64()
+            .expect("seeded table has a current LSN") as u64;
+
+        for unavailable in [current_lsn + 1, u64::MAX] {
+            let target = format!("{current_path}?as_of={unavailable}");
+            let (status, body) = handle(&mgr, &store, &req("GET", &target), Some(&alice));
+            assert_eq!(status, "400 Bad Request");
+            let error: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(error["error"]["type"], "InvalidSnapshotException");
+            assert!(
+                !body.contains(&unavailable.to_string()),
+                "invalid LSN detail must not echo into the response: {body}"
+            );
+        }
+
+        let (status, body) = handle(
+            &mgr,
+            &store,
+            &req("GET", &format!("{current_path}?as_of=not-a-number")),
+            Some(&alice),
+        );
+        assert_eq!(status, "400 Bad Request");
+        let error: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(error["error"]["type"], "InvalidAsOfException");
+
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req_body(
+                "POST",
+                "/v1/namespaces/alice_ns/tables",
+                &create_table_body("alice_private"),
+            ),
+            Some(&alice),
+        );
+        assert_eq!(status, "200 OK");
+
+        let hidden_current = handle(
+            &mgr,
+            &store,
+            &req("GET", "/v1/namespaces/alice_ns/tables/alice_private"),
+            Some(&bob),
+        );
+        let hidden_invalid = handle(
+            &mgr,
+            &store,
+            &req(
+                "GET",
+                "/v1/namespaces/alice_ns/tables/alice_private?as_of=not-a-number",
+            ),
+            Some(&bob),
+        );
+        let hidden_overflow = handle(
+            &mgr,
+            &store,
+            &req(
+                "GET",
+                "/v1/namespaces/alice_ns/tables/alice_private?as_of=18446744073709551615",
+            ),
+            Some(&bob),
+        );
+        assert_eq!(hidden_current.0, "404 Not Found");
+        assert_eq!(hidden_invalid, hidden_current);
+        assert_eq!(hidden_overflow, hidden_current);
     }
 
     #[test]
