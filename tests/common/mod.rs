@@ -16,6 +16,21 @@ const TEST_POLICY_VERSION: &str = "integration-test-policy-v1";
 const TEST_AGENT_SIGNER_KEY: &str = "integration-test-agent-signing-key";
 const ROOT_SIGNER_KEY: &str = "integration-test-root-signing-key";
 
+/// RBAC role name every non-`System` peer a test registers (via `root`, see
+/// [`ROOT_ADMIN_ROLE`]) needs on `__commons__` -- under `feature = "security"` there is
+/// no pre-RBAC Commons-open-to-all fall-through for a non-`System` identity. Each
+/// integration-test file's own `commons_isolation()` grants this role Read+Write on
+/// `__commons__`; this constant is just the shared NAME both that grant and
+/// `configure_authority`'s signer allowance must agree on.
+pub const COMMONS_USER_ROLE: &str = "commons-user";
+
+/// RBAC role name `root` is registered with in place of `AgentRole::System` (NE-065
+/// migration, see `configure_authority`'s doc comment below). Each integration-test
+/// file's own `commons_isolation()` grants this role `RbacAction::Admin` on the
+/// `"__admin__"` resource context `IsolationLayer::has_admin_capability` checks --
+/// enough for `root` to go on and call `RegisterIdentity` itself, nothing more.
+pub const ROOT_ADMIN_ROLE: &str = "root-admin";
+
 static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static SECURITY_STATE_DIR: OnceLock<String> = OnceLock::new();
 
@@ -55,9 +70,39 @@ pub fn configure_authority() {
     std::env::set_var("EPISTEMIC_GRAPH_TENANT", TEST_TENANT);
     std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", TEST_POLICY_VERSION);
     std::env::set_var("EPISTEMIC_GRAPH_SECURITY_STATE_DIR", security_state_dir());
+    // Scoped signer registry (NE-065). The legacy flat `{"signer":"key"}` shape
+    // still parses, but grants NO roles and NO System -- deliberately fail-closed,
+    // because a flat entry predates the allowance concept and silence must not mean
+    // "unlimited". These fixtures previously relied on exactly that unlimited
+    // reading: TEST_AGENT signed a `System` registration for a DIFFERENT agent
+    // ("root"), which is precisely the unconstrained delegation NE-065 closes.
+    //
+    // Widening the rule is not an option (the whole point of NE-065 is that a
+    // signer trusted to bootstrap ITSELF must not mint an independent System
+    // identity for a third party), and having `root` self-register as `System`
+    // cannot work either: `RegisterIdentity`'s own `authz_action` ("security:admin")
+    // requires the ACTOR to already hold admin capability
+    // (`server::access::require_admin_capability`), which a freshly
+    // self-registering identity never has -- the empty-RBAC-store bootstrap
+    // exemption does not apply here because `TEST_AGENT` is already registered.
+    //
+    // Migrated by dropping `root`'s `System` role entirely: `TEST_AGENT` (already
+    // admin via its own `System` role in `current_isolation()`) registers `root` as
+    // an ordinary `AgentRole::Agent` identity carrying `ROOT_ADMIN_ROLE`, an RBAC
+    // role each integration-test file's own `commons_isolation()` grants
+    // `RbacAction::Admin` on the `"__admin__"` resource context
+    // `IsolationLayer::has_admin_capability` checks. That is exactly enough for
+    // `root` to go on and register the ordinary peer identities (`agent_a`/
+    // `stranger`/etc.) those fixtures need, and nothing more: unlike `System`,
+    // `root` is still RLS/ACL-checked like any other identity for every other
+    // operation. Neither signer carries `may_grant_system` any more -- `TEST_AGENT`
+    // may grant only `ROOT_ADMIN_ROLE` (to `root`); `root` may grant only
+    // `COMMONS_USER_ROLE` (to the ordinary peers it registers).
     std::env::set_var(
         "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON",
-        format!(r#"{{"{TEST_AGENT}":"{TEST_AGENT_SIGNER_KEY}","root":"{ROOT_SIGNER_KEY}"}}"#),
+        format!(
+            r#"{{"{TEST_AGENT}":{{"key":"{TEST_AGENT_SIGNER_KEY}","allowed_roles":["{ROOT_ADMIN_ROLE}"]}},"root":{{"key":"{ROOT_SIGNER_KEY}","allowed_roles":["{COMMONS_USER_ROLE}"]}}}}"#
+        ),
     );
 }
 
