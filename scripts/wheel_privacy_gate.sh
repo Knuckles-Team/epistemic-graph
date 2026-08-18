@@ -22,6 +22,9 @@
 # Exits non-zero (and prints the failing script's own diagnostic) on the first
 # failed step. Never echoes a build-root path itself.
 set -euo pipefail
+# The local build mirrors release composition from a reused checkout; Python
+# tooling must not recreate cache members while Maturin selects package files.
+export PYTHONDONTWRITEBYTECODE=1
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
