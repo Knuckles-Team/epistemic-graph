@@ -167,6 +167,69 @@ fn visibility_for(carrier: Option<&CarrierAuthority>) -> LakeVisibility {
     }
 }
 
+/// The minimum scope one Iceberg-REST operation needs (NE-048, P0). `None` for a
+/// route that carries no per-table/-namespace authority of its own
+/// (`GET /v1/config` is static capability advertisement; `/v1/oauth/tokens` is
+/// handled before a carrier is even resolved, in `handle_open`/its callers — see
+/// [`resolve_carrier`]'s doc comment) — such a route is never gated here.
+///
+/// This is the "map the REST surface's operations to the minimum scope each
+/// needs" half of the fix: `POST`/`DELETE` (create/commit/drop/rename a table)
+/// mutate the catalog and require `kg:write`; every `GET`/`HEAD` (list/exists/
+/// load) requires only `kg:read`. An unmatched (method, path) pair returns `None`
+/// too — `handle`'s own routing match falls through to `404 Not Found` for those,
+/// so there is nothing to gate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IcebergScope {
+    Read,
+    Write,
+}
+
+fn operation_scope(method: &str, segs: &[&str]) -> Option<IcebergScope> {
+    match (method, segs) {
+        ("GET", ["v1", "config"]) => None,
+        ("GET", ["v1", "namespaces"]) => Some(IcebergScope::Read),
+        ("GET", ["v1", "namespaces", _ns]) => Some(IcebergScope::Read),
+        ("GET", ["v1", "namespaces", _ns, "tables"]) => Some(IcebergScope::Read),
+        ("POST", ["v1", "namespaces", _ns, "tables"]) => Some(IcebergScope::Write),
+        ("GET", ["v1", "namespaces", _ns, "tables", _table]) => Some(IcebergScope::Read),
+        ("HEAD", ["v1", "namespaces", _ns, "tables", _table]) => Some(IcebergScope::Read),
+        ("POST", ["v1", "namespaces", _ns, "tables", _table]) => Some(IcebergScope::Write),
+        ("DELETE", ["v1", "namespaces", _ns, "tables", _table]) => Some(IcebergScope::Write),
+        ("POST", ["v1", "tables", "rename"]) => Some(IcebergScope::Write),
+        _ => None,
+    }
+}
+
+/// Is `carrier` entitled to perform an operation requiring `scope`?
+///
+/// `carrier: None` is the non-security `serve()` path (no live engine
+/// isolation to bind to — see `handle`'s own doc comment); it stays
+/// ungated here exactly as it was before this scope gate existed, matching
+/// [`visibility_for`]'s identical `None => Unfiltered` treatment. `scope:
+/// None` (a route [`operation_scope`] does not classify) is always allowed —
+/// there is nothing to check.
+///
+/// A `Some(carrier)` is admin-unconditional (mirrors [`visibility_for`]);
+/// otherwise it must carry the specific `kg:read`/`kg:write` grant the
+/// operation needs. Before NE-048, `authenticated_iceberg_bearer` minted
+/// EVERY verified, correctly-tenanted bearer with both scopes hardcoded, so
+/// this check was structurally unreachable-false for any real bearer; it now
+/// reflects the bearer's own verified scope claim
+/// (`CarrierAuthority::can_read`/`can_write`).
+fn scope_authorized(carrier: Option<&CarrierAuthority>, scope: Option<IcebergScope>) -> bool {
+    let (Some(carrier), Some(scope)) = (carrier, scope) else {
+        return true;
+    };
+    if carrier.is_admin() {
+        return true;
+    }
+    match scope {
+        IcebergScope::Read => carrier.can_read(),
+        IcebergScope::Write => carrier.can_write(),
+    }
+}
+
 /// A minimal per-source-IP token bucket (W05, GOC-75-W05). Deliberately
 /// dependency-free (no new crate) — a bounded `HashMap` behind the SAME
 /// `parking_lot::Mutex` idiom `LakeManager` already uses. Keyed by source IP rather
@@ -674,6 +737,12 @@ fn handle_oauth_token(
 /// socket, mirroring `crate::server::s3::handle`'s precedent. `carrier` is `None` on
 /// the non-security `serve()` path (unfiltered — today's pre-W04 behavior) or an
 /// admin caller; `Some` projects every read/write through [`LakeVisibility::Owner`].
+///
+/// W04's tenant/ownership projection above is necessary but not sufficient: a
+/// verified, correctly-tenanted `Some(carrier)` must ALSO carry the scope the
+/// specific operation needs (NE-048, P0) — [`operation_scope`] maps each route to
+/// its minimum `kg:read`/`kg:write` requirement and [`scope_authorized`] gates on
+/// it before any of the routing below runs.
 fn handle(
     lake: &LakeManager,
     store: &dyn ChunkStore,
@@ -694,6 +763,35 @@ fn handle(
         .map(percent_decode)
         .collect();
     let seg_refs: Vec<&str> = segs.iter().map(String::as_str).collect();
+
+    // NE-048 (P0): a verified, correctly-tenanted carrier is still only
+    // entitled to what its OWN scope claim actually grants — reject a
+    // kg:read-only carrier attempting a mutating operation (and, for
+    // completeness of the same mapping, a kg:write-only carrier attempting a
+    // read) before touching `lake` at all. Checked ahead of body parsing and
+    // existence lookups deliberately: an unauthorized caller learns nothing
+    // about whether the target namespace/table even exists.
+    if !scope_authorized(carrier, operation_scope(req.method.as_str(), &seg_refs)) {
+        lake.record_audit(json!({
+            "ts_ms": crate::server::lake::lineage::now_ms(),
+            "op": "InsufficientScope",
+            "method": req.method,
+            "path": req.target,
+            "owner": carrier
+                .map(|c| c.owner_scope().to_string())
+                .unwrap_or_else(|| "system".to_string()),
+            "outcome": "deny",
+        }));
+        return (
+            "403 Forbidden",
+            err_body(
+                "Iceberg carrier is not authorized for this operation",
+                "ForbiddenException",
+                403,
+            ),
+        );
+    }
+
     let visibility = visibility_for(carrier);
     let owner = carrier.map(|c| c.owner_scope().to_string());
 
@@ -1274,10 +1372,26 @@ mod tests {
 
     // ── W04: tenant/RLS projection — the disjoint-catalog proof ─────────────────
 
+    /// A carrier with BOTH `kg:read` and `kg:write` (NE-048 finding: before this
+    /// lane's scope gate existed, EVERY caller of this helper implicitly
+    /// exercised a read-only carrier — `verified_for_test_in_tenant`'s fixed
+    /// `kg:read`-only default — because the surface under test never looked at
+    /// scope at all, so it didn't matter. That was itself an instance of the bug
+    /// this lane fixes: it happened to still pass CreateTable/DropTable/etc.
+    /// only because those operations weren't scope-gated yet. These call sites
+    /// test tenant/ownership isolation and audit behavior, not scope
+    /// enforcement, so they now request a full grant explicitly rather than
+    /// relying on that gap. Dedicated scope-enforcement coverage lives in the
+    /// "NE-048: per-operation scope enforcement" section below, using
+    /// [`carrier_for_scopes`].
     fn carrier_for(agent: &str, tenant: &str) -> CarrierAuthority {
+        carrier_for_scopes(agent, tenant, &["kg:read", "kg:write"])
+    }
+
+    fn carrier_for_scopes(agent: &str, tenant: &str, scopes: &[&str]) -> CarrierAuthority {
         CarrierAuthority::from_verified(
-            &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
-                agent, tenant,
+            &crate::server::auth::VerifiedRequestContext::verified_for_test_with_scopes(
+                agent, tenant, scopes,
             ),
         )
         .unwrap()
@@ -1491,6 +1605,215 @@ mod tests {
                 .iter()
                 .any(|e| e["op"] == "DropTable" && e["outcome"] == "deny"),
             "a denied cross-owner drop must be audited as a denial: {events:?}"
+        );
+    }
+
+    // ── NE-048: per-operation scope enforcement (P0 privilege-escalation fix) ──
+    //
+    // Before this lane, `handle()` never looked at scope at all — a verified,
+    // correctly-tenanted carrier could perform every operation regardless of
+    // what its own bearer was actually issued (compounded by
+    // `authenticated_iceberg_bearer` also hardcoding both scopes for every
+    // bearer, fixed alongside this in `server::auth`). These tests exercise the
+    // gate `handle()` now runs directly, independent of the scope-derivation
+    // tests in `server::auth`'s `iceberg_bearer_carrier` module.
+
+    #[test]
+    fn read_only_carrier_is_denied_every_write_operation() {
+        let (mgr, store) = seed();
+        let writer = carrier_for_scopes("writer", "tenant-shared", &["kg:read", "kg:write"]);
+        let reader = carrier_for_scopes("writer", "tenant-shared", &["kg:read"]);
+
+        // Seed a table with a write-capable carrier so CommitTable/DropTable/
+        // RenameTable below have something real to target.
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req_body(
+                "POST",
+                "/v1/namespaces/scoped_ns/tables",
+                &create_table_body("scoped_table"),
+            ),
+            Some(&writer),
+        );
+        assert_eq!(status, "200 OK", "setup: write-capable carrier must be able to create");
+
+        // CreateTable
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req_body(
+                "POST",
+                "/v1/namespaces/scoped_ns/tables",
+                &create_table_body("denied_create"),
+            ),
+            Some(&reader),
+        );
+        assert_eq!(status, "403 Forbidden", "kg:read-only must be denied CreateTable");
+
+        // CommitTable
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req_body("POST", "/v1/namespaces/scoped_ns/tables/scoped_table", "{}"),
+            Some(&reader),
+        );
+        assert_eq!(status, "403 Forbidden", "kg:read-only must be denied CommitTable");
+
+        // DropTable
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req("DELETE", "/v1/namespaces/scoped_ns/tables/scoped_table"),
+            Some(&reader),
+        );
+        assert_eq!(status, "403 Forbidden", "kg:read-only must be denied DropTable");
+
+        // RenameTable
+        let rename_body = json!({
+            "source": {"namespace": ["scoped_ns"], "name": "scoped_table"},
+            "destination": {"namespace": ["scoped_ns"], "name": "renamed_table"},
+        })
+        .to_string();
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req_body("POST", "/v1/tables/rename", &rename_body),
+            Some(&reader),
+        );
+        assert_eq!(status, "403 Forbidden", "kg:read-only must be denied RenameTable");
+
+        // The table must be completely unaffected by all four denied attempts.
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req("GET", "/v1/namespaces/scoped_ns/tables/scoped_table"),
+            Some(&reader),
+        );
+        assert_eq!(status, "200 OK", "the table must survive every denied write attempt");
+    }
+
+    #[test]
+    fn read_only_carrier_is_allowed_every_read_operation() {
+        let (mgr, store) = seed();
+        let writer = carrier_for_scopes("owner", "tenant-shared", &["kg:read", "kg:write"]);
+        let reader = carrier_for_scopes("owner", "tenant-shared", &["kg:read"]);
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req_body(
+                "POST",
+                "/v1/namespaces/scoped_ns/tables",
+                &create_table_body("scoped_table"),
+            ),
+            Some(&writer),
+        );
+        assert_eq!(status, "200 OK");
+
+        let (status, _) = handle(&mgr, &store, &req("GET", "/v1/config"), Some(&reader));
+        assert_eq!(status, "200 OK");
+        let (status, _) = handle(&mgr, &store, &req("GET", "/v1/namespaces"), Some(&reader));
+        assert_eq!(status, "200 OK");
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req("GET", "/v1/namespaces/scoped_ns"),
+            Some(&reader),
+        );
+        assert_eq!(status, "200 OK");
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req("GET", "/v1/namespaces/scoped_ns/tables"),
+            Some(&reader),
+        );
+        assert_eq!(status, "200 OK");
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req("GET", "/v1/namespaces/scoped_ns/tables/scoped_table"),
+            Some(&reader),
+        );
+        assert_eq!(status, "200 OK");
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req("HEAD", "/v1/namespaces/scoped_ns/tables/scoped_table"),
+            Some(&reader),
+        );
+        assert_eq!(status, "200 OK");
+    }
+
+    #[test]
+    fn write_only_carrier_is_denied_reads_least_privilege_is_symmetric() {
+        // Completes the mapping proof: a kg:write-only carrier must not
+        // silently also receive kg:read. Not the headline escalation this
+        // lane fixes, but proof `operation_scope`/`scope_authorized` really
+        // project per-operation minimum scope rather than just special-casing
+        // "deny writes for read-only".
+        let (mgr, store) = seed();
+        let writer_only = carrier_for_scopes("writer-only", "tenant-shared", &["kg:write"]);
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req("GET", "/v1/namespaces"),
+            Some(&writer_only),
+        );
+        assert_eq!(status, "403 Forbidden", "kg:write-only must be denied a read operation");
+    }
+
+    #[test]
+    fn both_scopes_carrier_retains_full_read_write_behavior() {
+        let (mgr, store) = seed();
+        let full = carrier_for_scopes("full", "tenant-shared", &["kg:read", "kg:write"]);
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req_body(
+                "POST",
+                "/v1/namespaces/scoped_ns/tables",
+                &create_table_body("scoped_table"),
+            ),
+            Some(&full),
+        );
+        assert_eq!(status, "200 OK");
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req("GET", "/v1/namespaces/scoped_ns/tables/scoped_table"),
+            Some(&full),
+        );
+        assert_eq!(status, "200 OK");
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req("DELETE", "/v1/namespaces/scoped_ns/tables/scoped_table"),
+            Some(&full),
+        );
+        assert_eq!(status, "204 No Content");
+    }
+
+    #[test]
+    fn insufficient_scope_denial_is_audited() {
+        let (mgr, store) = seed();
+        let reader = carrier_for_scopes("auditee", "tenant-shared", &["kg:read"]);
+        let (status, _) = handle(
+            &mgr,
+            &store,
+            &req_body(
+                "POST",
+                "/v1/namespaces/scoped_ns/tables",
+                &create_table_body("denied"),
+            ),
+            Some(&reader),
+        );
+        assert_eq!(status, "403 Forbidden");
+        let events = mgr.recent_audit(10);
+        assert!(
+            events
+                .iter()
+                .any(|e| e["op"] == "InsufficientScope" && e["outcome"] == "deny"),
+            "an insufficient-scope denial must be audited: {events:?}"
         );
     }
 

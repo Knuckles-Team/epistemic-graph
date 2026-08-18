@@ -692,6 +692,15 @@ fn type_to_sqlite(ty: ColumnType) -> &'static str {
         ColumnType::Text | ColumnType::Json => "TEXT",
         ColumnType::Bytes => "BLOB",
         ColumnType::Vector(_) => "TEXT",
+        // Added with the constraint/column-type work. SQLite has no native UUID,
+        // NUMERIC-with-scale, timezone-aware timestamp or array type, so each
+        // round-trips through its canonical TEXT form rather than being coerced
+        // into a lossy affinity: NUMERIC into REAL would silently lose exactness,
+        // which is the whole reason the type exists. TimestampTz stays INTEGER
+        // micros like Timestamp, with the zone carried in the value's canonical
+        // encoding.
+        ColumnType::Uuid | ColumnType::Numeric(_) | ColumnType::Array(_) => "TEXT",
+        ColumnType::TimestampTz => "INTEGER",
     }
 }
 

@@ -225,6 +225,30 @@ impl VerifiedRequestContext {
         )
     }
 
+    /// Same shape as [`Self::verified_for_test_in_tenant`] but with an explicit
+    /// scope set, for surfaces (`lake::rest`'s Iceberg-REST tests, NE-048) that
+    /// need to exercise a carrier with a specific `kg:read`/`kg:write` grant
+    /// rather than the shared fixture's fixed `kg:read`-only default.
+    #[cfg(test)]
+    pub(crate) fn verified_for_test_with_scopes(
+        agent_id: &str,
+        tenant: &str,
+        scopes: &[&str],
+    ) -> Self {
+        Self::from_verified_claims(
+            RequestContextClaims {
+                principal: format!("principal:{agent_id}"),
+                tenant: tenant.to_string(),
+                agent_id: agent_id.to_string(),
+                audience: "epistemic-graph".to_string(),
+                policy_version: "policy-test".to_string(),
+                scopes: scopes.iter().map(|s| s.to_string()).collect(),
+                ..RequestContextClaims::default()
+            },
+            format!("test:{agent_id}"),
+        )
+    }
+
     /// Build the authenticated in-process context used only after an auxiliary broker
     /// protocol has verified its own credential and converted the principal to
     /// a secret-keyed opaque actor reference.
@@ -325,6 +349,24 @@ impl VerifiedRequestContext {
     /// mirroring [`bind_verified_identity`]'s SAME tenant-claim requirement
     /// for the primary `eg2.` protocol.
     ///
+    /// **Minted scopes are derived from the bearer's own verified `scope`/`scp`
+    /// claim (NE-048, P0), never hardcoded.** Before this fix every
+    /// tenant-matching Iceberg bearer was unconditionally minted BOTH
+    /// `kg:read` AND `kg:write` regardless of what the token actually
+    /// granted — a `kg:read`-only bearer silently received write authority.
+    /// [`iceberg_bearer_scopes`] projects `verified.scopes` (already parsed
+    /// by `oidc::JwtValidator::validate_claims` from the standard
+    /// space-delimited `scope`/`scp` OAuth2 claim into a `HashSet<String>` —
+    /// reused as-is, not re-parsed here) into the narrower Iceberg-REST
+    /// vocabulary and fails closed on anything it does not recognize: an
+    /// absent/empty claim, or a claim containing a scope this deployment does
+    /// not project for this surface, both deny the bearer outright rather
+    /// than falling back to the old always-both-scopes default or silently
+    /// dropping the unrecognized token and granting whatever remainder is
+    /// left. `server::lake::rest::handle` maps each REST operation to the
+    /// minimum of these two scopes it actually needs (reads ⇒ `kg:read`,
+    /// mutations ⇒ `kg:write`) via `CarrierAuthority::can_read`/`can_write`.
+    ///
     /// `verified` has already passed RSA/JWKS signature + issuer + audience +
     /// expiry verification in the caller
     /// (`oidc::JwtValidator::validate_claims`) — this function only projects
@@ -353,6 +395,15 @@ impl VerifiedRequestContext {
                     .to_string(),
             );
         }
+        let scopes = iceberg_bearer_scopes(&verified.scopes).map_err(|detail| {
+            // Logged with detail for operator diagnosis; the caller
+            // (`mint_iceberg_carrier`) discards the `Err` and every denial
+            // path collapses to the SAME generic 403 `resolve_carrier`
+            // already returns for a missing/cross-tenant bearer, so nothing
+            // here tells an unauthorized caller WHICH check failed.
+            tracing::warn!(subject, "Iceberg-REST bearer denied: {detail}");
+            "verified Iceberg-REST bearer does not carry an authorized scope claim".to_string()
+        })?;
         let principal = format!("iceberg:{subject}");
         Ok(Self::from_verified_claims(
             RequestContextClaims {
@@ -361,7 +412,7 @@ impl VerifiedRequestContext {
                 audience: policy.expected_audience.clone(),
                 agent_id: principal,
                 roles: vec!["iceberg-rest-client".to_string()],
-                scopes: vec!["kg:read".to_string(), "kg:write".to_string()],
+                scopes,
                 policy_version: policy.expected_policy_version.clone(),
                 delegation: Vec::new(),
                 node: None,
@@ -446,6 +497,52 @@ pub(crate) fn mint_fixed_service_carrier(
     VerifiedRequestContext::authenticated_fixed_service_actor(service, scopes)
         .ok()
         .and_then(|context| crate::server::access::CarrierAuthority::from_verified(&context).ok())
+}
+
+/// Recognized Iceberg-REST bearer scope vocabulary (NE-048). Deliberately
+/// narrower than the primitive capability-ledger scopes
+/// [`VerifiedRequestContext::allows_action`] understands: an Iceberg-REST
+/// bearer is minted from a THIRD-PARTY-issued OAuth2 token whose issuer this
+/// deployment does not control, so this projection only ever honors the two
+/// coarse aggregate scopes the served API already treats as stable
+/// (mirroring [`VerifiedRequestContext::allows_method`]'s own
+/// `kg:read`/`kg:write` interpretation) — never `kg:admin` or `*`, which stay
+/// reserved for this deployment's OWN internally-minted identities (broker,
+/// native-SQL, replicated-mutation). Granting admin-level authority to an
+/// externally-issued Iceberg bearer would be a NEW privilege this surface
+/// never had before NE-048, not a fix to the one it lost — out of scope here.
+///
+/// `claimed` is the bearer's own verified `scope`/`scp` claim, already parsed
+/// into discrete tokens by `oidc::JwtValidator::validate_claims` (handling
+/// both the space-delimited-string `scope` and `scp` shapes — see that
+/// function). Fails closed rather than defaulting or partially granting:
+///
+/// * an empty claim (missing entirely, or present but empty) denies —
+///   a bearer's own issuer choosing to grant it nothing is not this
+///   deployment's cue to grant it `kg:read`+`kg:write` anyway;
+/// * a claim containing ANY token outside `{kg:read, kg:write}` denies the
+///   WHOLE bearer rather than silently dropping the unrecognized token and
+///   granting whatever recognized remainder is left — an issuer minting a
+///   scope this deployment does not understand needs a hard failure it can
+///   act on, not an ambiguous partial grant (the "ambiguous mapping — deny"
+///   posture).
+#[cfg(feature = "oidc")]
+fn iceberg_bearer_scopes(claimed: &HashSet<String>) -> Result<Vec<String>, String> {
+    const RECOGNIZED: [&str; 2] = ["kg:read", "kg:write"];
+    if claimed.is_empty() {
+        return Err("scope claim is missing or empty".to_string());
+    }
+    if claimed
+        .iter()
+        .any(|scope| !RECOGNIZED.contains(&scope.as_str()))
+    {
+        return Err("scope claim contains an unrecognized scope".to_string());
+    }
+    Ok(RECOGNIZED
+        .iter()
+        .filter(|scope| claimed.contains(**scope))
+        .map(|scope| scope.to_string())
+        .collect())
 }
 
 /// Mint a `CarrierAuthority` for the Iceberg-REST catalog surface (BUG-222,
@@ -3453,13 +3550,22 @@ mod tests {
         use super::*;
         use crate::server::oidc::VerifiedTokenClaims;
 
-        fn verified(subject: &str, tenant: Option<&str>) -> VerifiedTokenClaims {
+        /// `scopes` is the bearer's own verified `scope`/`scp` claim (NE-048):
+        /// unlike before this fix, this is no longer discarded in favor of a
+        /// hardcoded grant, so tests that only care about the tenant/subject
+        /// binding decision (not scope enforcement) must pass a full grant —
+        /// see [`full_scopes`] — to keep exercising what they always tested.
+        fn verified(subject: &str, tenant: Option<&str>, scopes: &[&str]) -> VerifiedTokenClaims {
             VerifiedTokenClaims {
                 subject: subject.to_string(),
                 tenant: tenant.map(str::to_string),
                 roles: HashSet::new(),
-                scopes: HashSet::new(),
+                scopes: scopes.iter().map(|s| s.to_string()).collect(),
             }
+        }
+
+        fn full_scopes() -> &'static [&'static str] {
+            &["kg:read", "kg:write"]
         }
 
         #[test]
@@ -3467,7 +3573,7 @@ mod tests {
             // The `#[cfg(test)]` `request_context_policy()` fixture's tenant is
             // "tenant-shared" (see its definition above) — the SAME deployment
             // tenant every other test in this file authenticates against.
-            let claims = verified("agent:reader", Some("tenant-shared"));
+            let claims = verified("agent:reader", Some("tenant-shared"), full_scopes());
             let carrier = crate::server::auth::mint_iceberg_carrier(Some(&claims));
             assert!(
                 carrier.is_some(),
@@ -3483,7 +3589,7 @@ mod tests {
             // A validly-verified bearer for ANOTHER deployment's tenant must
             // never open a CarrierAuthority against this one (BUG-222's own
             // acceptance bar: "bearer for a different tenant -> 403").
-            let claims = verified("agent:reader", Some("tenant-other"));
+            let claims = verified("agent:reader", Some("tenant-other"), full_scopes());
             let carrier = crate::server::auth::mint_iceberg_carrier(Some(&claims));
             assert!(
                 carrier.is_none(),
@@ -3499,7 +3605,7 @@ mod tests {
             // An absent tenant claim is proof of nothing (mirrors
             // `bind_verified_identity`'s identical requirement for the
             // primary `eg2.` protocol) — must fail closed, not default-admit.
-            let claims = verified("agent:reader", None);
+            let claims = verified("agent:reader", None, full_scopes());
             assert!(crate::server::auth::mint_iceberg_carrier(Some(&claims)).is_none());
         }
 
@@ -3514,7 +3620,7 @@ mod tests {
 
         #[test]
         fn empty_subject_mints_no_carrier() {
-            let claims = verified("   ", Some("tenant-shared"));
+            let claims = verified("   ", Some("tenant-shared"), full_scopes());
             assert!(crate::server::auth::mint_iceberg_carrier(Some(&claims)).is_none());
         }
 
@@ -3524,8 +3630,8 @@ mod tests {
             // `/sparql`), Iceberg-REST's OAuth2 bearer DOES carry a
             // distinguishable per-caller subject, so two different verified
             // bearers must not collapse onto the identical carrier identity.
-            let a = verified("agent:alice", Some("tenant-shared"));
-            let b = verified("agent:bob", Some("tenant-shared"));
+            let a = verified("agent:alice", Some("tenant-shared"), full_scopes());
+            let b = verified("agent:bob", Some("tenant-shared"), full_scopes());
             let carrier_a =
                 crate::server::auth::mint_iceberg_carrier(Some(&a)).expect("alice carrier");
             let carrier_b =
@@ -3533,6 +3639,158 @@ mod tests {
             assert_ne!(carrier_a.actor_scope(), carrier_b.actor_scope());
             assert!(!carrier_a.is_admin());
             assert!(!carrier_b.is_admin());
+        }
+
+        // ── NE-048: scope derivation (P0 privilege-escalation fix) ──────────
+        //
+        // Before this fix `authenticated_iceberg_bearer` hardcoded
+        // `scopes: vec!["kg:read", "kg:write"]` for every tenant-matching
+        // bearer, completely ignoring `verified.scopes`. These tests would ALL
+        // have failed against that old code (a read-only claim would still
+        // yield `can_write() == true`) — that is the point: they are the
+        // regression tests for the escalation itself, not incidental coverage.
+
+        #[test]
+        fn read_only_bearer_mints_a_carrier_that_cannot_write() {
+            let claims = verified("agent:reader", Some("tenant-shared"), &["kg:read"]);
+            let carrier = crate::server::auth::mint_iceberg_carrier(Some(&claims))
+                .expect("kg:read alone is a valid, recognized, non-empty scope claim");
+            assert!(carrier.can_read(), "kg:read must still grant read");
+            assert!(
+                !carrier.can_write(),
+                "a kg:read-only bearer must NOT receive write authority (NE-048)"
+            );
+            assert!(!carrier.is_admin());
+        }
+
+        #[test]
+        fn write_only_bearer_mints_a_carrier_that_cannot_read() {
+            // The symmetric case, proving the mapping is a real per-scope
+            // projection and not a one-directional patch: a bearer minted with
+            // ONLY kg:write must not silently also receive kg:read.
+            let claims = verified("agent:writer", Some("tenant-shared"), &["kg:write"]);
+            let carrier = crate::server::auth::mint_iceberg_carrier(Some(&claims))
+                .expect("kg:write alone is a valid, recognized, non-empty scope claim");
+            assert!(carrier.can_write());
+            assert!(!carrier.can_read());
+        }
+
+        #[test]
+        fn both_scopes_bearer_retains_full_read_write_authority() {
+            // The one case that matches today's pre-fix behavior byte for
+            // byte: a bearer actually issued both scopes keeps both.
+            let claims = verified("agent:full", Some("tenant-shared"), full_scopes());
+            let carrier = crate::server::auth::mint_iceberg_carrier(Some(&claims))
+                .expect("both scopes present");
+            assert!(carrier.can_read());
+            assert!(carrier.can_write());
+        }
+
+        #[test]
+        fn empty_scope_claim_mints_no_carrier() {
+            // A present-but-empty scope claim (as opposed to entirely absent —
+            // both collapse to an empty `HashSet` by the time they reach here,
+            // see `oidc::JwtValidator::validate_claims`) must deny, not
+            // default to the old hardcoded both-scopes grant.
+            let claims = verified("agent:noscope", Some("tenant-shared"), &[]);
+            assert!(
+                crate::server::auth::mint_iceberg_carrier(Some(&claims)).is_none(),
+                "a bearer with no scope claim at all must be denied entirely, not \
+                 default-granted kg:read/kg:write"
+            );
+        }
+
+        #[test]
+        fn unrecognized_scope_token_mints_no_carrier() {
+            // A scope claim this deployment does not project for the
+            // Iceberg-REST surface (here: a syntactically valid but unknown
+            // token) denies the WHOLE bearer rather than silently dropping the
+            // unrecognized token and granting the recognized remainder —
+            // "ambiguous mapping — deny".
+            let claims = verified(
+                "agent:odd",
+                Some("tenant-shared"),
+                &["kg:read", "some-other-issuers-custom-scope"],
+            );
+            assert!(
+                crate::server::auth::mint_iceberg_carrier(Some(&claims)).is_none(),
+                "an unrecognized scope token must deny the bearer outright, not just \
+                 fail to grant the token it doesn't understand"
+            );
+        }
+
+        // Same test RSA-2048 keypair used by the `oidc_binding` module above and
+        // by `oidc.rs`'s own test suite (generated solely for tests via
+        // `openssl genrsa`; not used for anything else). Duplicated locally
+        // rather than reaching into `oidc_binding`'s private constants,
+        // matching the file's existing per-module duplication convention.
+        const ICEBERG_TEST_RSA_PRIVATE_KEY_PKCS1_DER_HEX: &str = "308204a30201000282010100be4725fd791744d873c4c82cc04ba74db85707a72581e4773e3f9041531b15ea57dcccda092adecbfa818521f10de4f849de2f6b359a20ad4eeec7da6aa550baf49a8f471089348b5c677a4c3d9b7f027395d3a08fa87345e4f842d3f5e6d9846f139883cb9ed94e1a868f85a741a5cb1262beaa4b395c6f9bc82fc46e65267cd50d7d752d2194b69a03ca41f3c135a9862f48d7697f74e8da8dca840cdf4f2cda9addc48ea6445574ffbc79f23144a520ba9aaa3ea8b549c25a89188a869a8ee7f05a096a66bfa4f49d4b5900f49579e88da8c25da9baea53f93cb69e744e5d80b55a41e0de41449bb437b53b57f6ef179eae0b3815a20b1df65fbdf28fc3b7020301000102820100019495093241f2381b5b62ba3f17f71a1b2785e5bfd700af1e323da027f0e2a6b6a21bdacd16b1110aa746becdc21573c67bf4f2dead700b60761fecd2d3f0040d820c7744f8e419d58e4fcd65a443fd7638f95aad0c1e20fcd23463e44d4d8ddf0a4fa0509c4f7bbeebfd31d95374981232b06e0e5539f7a75895fa50b1c061bcb1816d44e1c9155192cc37707747c6abf0af131a3b7d94a774fdc8a491d949ca0049b5845aca493b71352800d31d6f8d4e6beb352571f1586e9c9184a7a691cc556e53953ac5fc7995fed28d0fd92918b2dac30a4892595f70083f18d42a8768bb76077625bc917b347a8c3ec245db23f0eaaebeff571a7141891df5aa380102818100f6cae082d13337d73a723d4672f5a8b7113dfc820251e05380a672055c27dbab82c044f73fdb5d1a3fce5894fda55e57372fcf5f2704ee0ae927fd73c0e80eead6832d5a5938c3c63e69cab78d53e15b535d8a724e93eadf2d9ad45ce6bd2ae3653d087583fd0c7c8e9dac3c33c1f5bc651a2f69f898c379cc3722a85a163c0102818100c5607fbcc1a5a3ae9fa1a3c2469c17dd6d402515ecc724957d7fec575517254acf1dfc70c915390d8f489fae188c17372548603d442b06ad8195c74f8ee8bf51cfa22a2b4740d9e43e35d1942e4e4be545baf43127910c1c7e983f0f5ff5852f85311a56dc8d27fb1b5f669b0f7e83971f99ada964c1f4c6233299a84666dfb702818100d4186938a417d37eca4111be30e044fe07f870c13ec324fa3e8f4d60a3e1b15d46027d82cc4377512ed2e4b82f00e702277094549f51124f18300117710b3e7ebe9a7fe8acd3271581e02392fa07c39e5c1800fad9e32fb05c1e3b32182f2ce3bec6e4353298d0195febcbf0f53e553572e23d2b62b5cf1126db9f9275d1b40102818001a2a60c4b527303bc60db797d9a477c572e63e045a0f4c5a44f8e06bf36bce15ccbf3ce7f6c0497ff2aebdfc6664abef339214b00a8969a936b49467879a734275341a43027f26638b9bb6dcde06a32911c566f9dd34ed5619b23529e49eb7b944feed6ef66e000ed9e21bc81295c2fc15c459b14b1a2b48d901ac3d129830b0281807b5d9e95bf0e2892ff7ee7251fa14bec34d00c031d216c0f06dfa698407ec750e3d357e800907812a61d90281ce93320ad4a50d33364429710f249b87bc925ba89c5f675ed99229d09399943934811b25f4bac5a6cba9303dcd82ccbd31216092e1b9fe5ab1921188bd3e96256c692602be876e09c919c04735638b19646a658";
+        const ICEBERG_TEST_RSA_MODULUS_HEX: &str = "BE4725FD791744D873C4C82CC04BA74DB85707A72581E4773E3F9041531B15EA57DCCCDA092ADECBFA818521F10DE4F849DE2F6B359A20AD4EEEC7DA6AA550BAF49A8F471089348B5C677A4C3D9B7F027395D3A08FA87345E4F842D3F5E6D9846F139883CB9ED94E1A868F85A741A5CB1262BEAA4B395C6F9BC82FC46E65267CD50D7D752D2194B69A03CA41F3C135A9862F48D7697F74E8DA8DCA840CDF4F2CDA9ADDC48EA6445574FFBC79F23144A520BA9AAA3EA8B549C25A89188A869A8EE7F05A096A66BFA4F49D4B5900F49579E88DA8C25DA9BAEA53F93CB69E744E5D80B55A41E0DE41449BB437B53B57F6EF179EAE0B3815A20B1DF65FBDF28FC3B7";
+        const ICEBERG_TEST_RSA_EXPONENT_HEX: &str = "010001";
+        const ICEBERG_TEST_KID: &str = "iceberg-test-kid";
+        const ICEBERG_TEST_ISSUER: &str = "https://identity.example.test/realms/eg-iceberg";
+        const ICEBERG_TEST_AUDIENCE: &str = "epistemic-graph-iceberg";
+
+        #[test]
+        fn unparseable_scope_claim_fails_verification_before_scope_projection_even_runs() {
+            // A raw bearer whose `scope` claim is a JSON array rather than the
+            // documented OAuth2 space-delimited string is rejected by
+            // `oidc::JwtValidator::validate_claims` itself (a `serde`
+            // deserialize failure on the whole claim body -- `BindingClaims::
+            // scope` is typed `Option<String>`) -- well before
+            // `authenticated_iceberg_bearer`/`iceberg_bearer_scopes` ever run.
+            // Proves "reject anything unparseable rather than treating it as
+            // empty-and-permissive" holds at the wire level too, not only for
+            // the already-parsed `HashSet<String>` this module's other tests
+            // exercise directly.
+            use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};
+
+            let mut keys = HashMap::new();
+            let n = hex::decode(ICEBERG_TEST_RSA_MODULUS_HEX).unwrap();
+            let e = hex::decode(ICEBERG_TEST_RSA_EXPONENT_HEX).unwrap();
+            keys.insert(
+                ICEBERG_TEST_KID.to_string(),
+                DecodingKey::from_rsa_raw_components(&n, &e),
+            );
+            let validator = crate::server::oidc::JwtValidator::from_parts(
+                ICEBERG_TEST_ISSUER,
+                ICEBERG_TEST_AUDIENCE,
+                keys,
+            );
+
+            let mut header = Header::new(Algorithm::RS256);
+            header.kid = Some(ICEBERG_TEST_KID.to_string());
+            let der = hex::decode(ICEBERG_TEST_RSA_PRIVATE_KEY_PKCS1_DER_HEX).unwrap();
+            let token = encode(
+                &header,
+                &serde_json::json!({
+                    "sub": "agent:reader",
+                    "iss": ICEBERG_TEST_ISSUER,
+                    "aud": ICEBERG_TEST_AUDIENCE,
+                    "exp": now_secs() + 300,
+                    "tenant_id": "tenant-shared",
+                    "scope": ["kg:read", "kg:write"],
+                }),
+                &EncodingKey::from_rsa_der(&der),
+            )
+            .unwrap();
+
+            assert!(
+                validator.validate_claims(&token).is_none(),
+                "an array-shaped scope claim must fail closed at verification, not be \
+                 silently treated as an empty/absent claim"
+            );
+        }
+
+        #[test]
+        fn kg_admin_scope_alone_does_not_mint_an_iceberg_carrier() {
+            // `kg:admin`/`*` are reserved for this deployment's OWN
+            // internally-minted identities; an externally-issued Iceberg
+            // bearer claiming `kg:admin` is an unrecognized token for THIS
+            // projection, not a shortcut to admin authority — granting that
+            // would be a NEW privilege NE-048 never intended to add.
+            let claims = verified("agent:wouldbeadmin", Some("tenant-shared"), &["kg:admin"]);
+            assert!(crate::server::auth::mint_iceberg_carrier(Some(&claims)).is_none());
         }
     }
 }
