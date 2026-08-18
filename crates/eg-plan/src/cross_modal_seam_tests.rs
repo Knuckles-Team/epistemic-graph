@@ -12,15 +12,25 @@
 //! additionally `cfg`-gated on the modality feature it exercises (`owl` / `timeseries`
 //! / `tensor`), so the module compiles under any feature subset of `query`.
 
-#![allow(unused_imports)]
-
+#[cfg(any(feature = "owl", feature = "timeseries", feature = "tensor"))]
 use eg_core::compute::semantic::SemanticStore;
+#[cfg(any(feature = "owl", feature = "timeseries", feature = "tensor"))]
 use eg_core::graph::{GraphCore, GraphView};
+#[cfg(any(feature = "owl", feature = "timeseries", feature = "tensor"))]
 use serde_json::json;
 
-use crate::algebra::{Op, Plan, Pred};
-use crate::exec::{execute, PlanCtx, PlanExt};
+#[cfg(feature = "owl")]
+use crate::algebra::Pred;
+#[cfg(any(feature = "owl", feature = "timeseries", feature = "tensor"))]
+use crate::algebra::{Op, Plan};
+#[cfg(feature = "owl")]
+use crate::exec::execute;
+#[cfg(any(feature = "owl", feature = "timeseries", feature = "tensor"))]
+use crate::exec::PlanCtx;
+#[cfg(any(feature = "timeseries", feature = "tensor"))]
+use crate::exec::PlanExt;
 
+#[cfg(any(feature = "owl", feature = "timeseries", feature = "tensor"))]
 fn blob(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()
 }
@@ -326,6 +336,7 @@ fn reason_iri_midplan_filters_string_typed() {
 // SensorFuse → Rank  (CONCEPT:EG-KG.ingest.timeseries-source-mid-pipeline, timeseries-source mid-pipeline)
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "timeseries")]
 const NS: i64 = 1_000_000_000;
 
 /// Three sensor layers (imu/gps/lidar) at different rates — the sensor_fuse_tests

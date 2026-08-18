@@ -654,6 +654,7 @@ mod tests {
     fn insert(id: &str, v: Value) -> Delta {
         Delta::from(vec![super::super::zset::ZRow::insert(id, props(v))])
     }
+    #[cfg(feature = "timeseries")]
     fn retract(id: &str, v: Value) -> Delta {
         Delta::from(vec![super::super::zset::ZRow::retract(id, props(v))])
     }
