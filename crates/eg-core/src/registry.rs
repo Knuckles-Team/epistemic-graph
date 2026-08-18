@@ -433,6 +433,8 @@ impl Default for GraphRegistry {
 }
 
 impl GraphRegistry {
+    const BOOTSTRAP_COMMONS_INCARNATION: &'static str = "incarnation:commons:v1";
+
     fn next_incarnation_id() -> String {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         format!("incarnation:local:{}", NEXT.fetch_add(1, Ordering::Relaxed))
@@ -440,7 +442,7 @@ impl GraphRegistry {
 
     /// Create a new registry with the `__commons__` graph pre-created.
     pub fn new() -> Self {
-        let commons_incarnation = "incarnation:commons:v1".to_string();
+        let commons_incarnation = Self::BOOTSTRAP_COMMONS_INCARNATION.to_string();
         let commons_cancel = Arc::new(AtomicBool::new(false));
         let mut graphs = HashMap::new();
         graphs.insert(
@@ -481,6 +483,44 @@ impl GraphRegistry {
             materializer: None,
             materialization,
         }
+    }
+
+    /// Reconcile the synthetic commons entry seeded by [`Self::new`] with a
+    /// durable catalog row recovered at served startup.
+    ///
+    /// `GraphRegistry::new` must keep the commons graph available for embedded
+    /// and in-memory callers, but that resident placeholder cannot remain in a
+    /// catalog-first restart: it has no durable topology and would prevent the
+    /// normal lazy materializer from opening the committed commons rows. This
+    /// method is deliberately narrow: only the untouched bootstrap incarnation
+    /// and an empty core may be demoted. A live graph, including an empty graph
+    /// that has already acquired a durable incarnation, is never replaced.
+    pub fn reconcile_bootstrap_catalog_entry(
+        &mut self,
+        name: &str,
+        graph_type: GraphType,
+        owner: Option<String>,
+        incarnation_id: String,
+    ) -> bool {
+        let Some(entry) = self.graphs.get(name) else {
+            return false;
+        };
+        if name != "__commons__"
+            || entry.incarnation_id != Self::BOOTSTRAP_COMMONS_INCARNATION
+            || entry.core.node_count() != 0
+        {
+            return false;
+        }
+
+        let entry = self
+            .graphs
+            .remove(name)
+            .expect("bootstrap commons entry was present above");
+        entry.cancellation.store(true, Ordering::Release);
+        self.catalog.remove(name);
+        self.materialization.remove(name);
+        self.register_catalog_only_with_incarnation(name, graph_type, owner, incarnation_id);
+        true
     }
 
     /// Install the durable read-through factory and attach a per-graph read-through
@@ -1382,6 +1422,62 @@ mod tests {
         let reg = GraphRegistry::new();
         assert!(reg.exists("__commons__"));
         assert_eq!(reg.list().len(), 1);
+    }
+
+    #[test]
+    fn durable_commons_catalog_recovery_replaces_only_bootstrap_resident() {
+        let mut reg = GraphRegistry::new();
+        let durable_incarnation = "incarnation:durable:commons".to_string();
+
+        assert!(reg.reconcile_bootstrap_catalog_entry(
+            "__commons__",
+            GraphType::Commons,
+            None,
+            durable_incarnation.clone(),
+        ));
+        assert!(!reg.is_resident("__commons__"));
+        assert_eq!(
+            reg.catalog_record("__commons__").unwrap().incarnation_id,
+            durable_incarnation
+        );
+        assert_eq!(
+            reg.materialization_manifest("__commons__").unwrap().phase,
+            MaterializationPhase::CatalogOnly
+        );
+
+        // A second recovery pass is idempotent and cannot replace the durable
+        // catalog entry with another incarnation.
+        assert!(!reg.reconcile_bootstrap_catalog_entry(
+            "__commons__",
+            GraphType::Commons,
+            None,
+            "incarnation:durable:other".to_string(),
+        ));
+        assert_eq!(
+            reg.catalog_record("__commons__").unwrap().incarnation_id,
+            durable_incarnation
+        );
+    }
+
+    #[test]
+    fn durable_catalog_recovery_does_not_demote_live_commons() {
+        let mut reg = GraphRegistry::new();
+        reg.get("__commons__")
+            .unwrap()
+            .core
+            .add_node("live".to_string(), props(serde_json::json!({"v": 1})));
+
+        assert!(!reg.reconcile_bootstrap_catalog_entry(
+            "__commons__",
+            GraphType::Commons,
+            None,
+            "incarnation:durable:commons".to_string(),
+        ));
+        assert!(reg.is_resident("__commons__"));
+        assert_eq!(
+            reg.catalog_record("__commons__").unwrap().incarnation_id,
+            GraphRegistry::BOOTSTRAP_COMMONS_INCARNATION
+        );
     }
 
     #[test]

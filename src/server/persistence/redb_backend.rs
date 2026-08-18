@@ -1845,10 +1845,12 @@ impl RedbBackend {
     /// read. Mirrors `load_into`'s parallel cross-shard fan-out (each shard's
     /// cheap meta scan runs concurrently on the blocking pool) but with a vastly
     /// smaller per-shard read: one small `{name, graph_type}` table instead of
-    /// four. `register_catalog_only` takes `&self` on the registry (a `DashMap`
-    /// under the hood), so this only needs a READ lock on `ServerState` — booting
-    /// with millions of persisted graphs costs one shared-lock scan, not a
-    /// per-graph write-lock round-trip.
+    /// four. Catalog rows are registered through the registry's `DashMap`, but
+    /// startup also has to reconcile the synthetic `__commons__` placeholder
+    /// seeded by `GraphRegistry::new` with its durable incarnation. Take one
+    /// bounded write lock for that reconciliation, then retain a shared lock
+    /// for the bulk catalog scan rather than leaving an empty resident core that
+    /// would shadow lazy materialization after restart.
     async fn load_catalog_into(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
         // Write-new half of the one-time graph_meta migration, before the read
         // below. A store written by a pre-versioned build has rows the current
@@ -1892,6 +1894,17 @@ impl RedbBackend {
             .collect();
 
         let count = rows.len();
+        if let Some((_, name, graph_type, incarnation_id)) =
+            rows.iter().find(|(_, name, _, _)| name == "__commons__")
+        {
+            let mut s = state.write().await;
+            s.registry.reconcile_bootstrap_catalog_entry(
+                name,
+                graph_type.clone(),
+                None,
+                incarnation_id.clone(),
+            );
+        }
         let s = state.read().await;
         for (_fname, name, graph_type, incarnation_id) in rows {
             s.registry.register_catalog_only_with_incarnation(
