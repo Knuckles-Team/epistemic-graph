@@ -48,7 +48,9 @@ use redb::{
 };
 use serde_json::Value;
 
-use super::schema::{Cell, Column, ColumnType, RefAction, StoredFunction, TableConstraint, TableSchema};
+use super::schema::{
+    Cell, Column, ColumnType, RefAction, StoredFunction, TableConstraint, TableSchema,
+};
 // CONCEPT:EG-KG.query.real-ann-top-k/EG-313 — the durable pgvector ANN index registration the exec
 // pushdown consults to choose a real eg-ann index over the brute-force scan.
 use crate::sql::{AnnIndexPlan, HypertablePlan};
@@ -1662,9 +1664,8 @@ fn schema_has_unique_over(schema: &TableSchema, cols: &[String]) -> bool {
     let set: HashSet<&str> = cols.iter().map(|s| s.as_str()).collect();
     schema.constraints().iter().any(|c| {
         let group: Option<&[String]> = match c {
-            TableConstraint::PrimaryKey { columns, .. } | TableConstraint::Unique { columns, .. } => {
-                Some(columns)
-            }
+            TableConstraint::PrimaryKey { columns, .. }
+            | TableConstraint::Unique { columns, .. } => Some(columns),
             _ => None,
         };
         group.is_some_and(|g| g.len() == cols.len() && g.iter().all(|x| set.contains(x.as_str())))
@@ -2046,7 +2047,11 @@ fn enforce_fk_on_parent_change_in(
 /// Existing rows must not already violate a NEWLY added NOT NULL requirement (CONCEPT:EG-KG.query.table-schema-constraints/NE-001,
 /// `ADD CONSTRAINT` adding a PK that forces NOT NULL on a previously-nullable
 /// column) — mirrors Postgres's refusal to add such a constraint over violating data.
-fn validate_not_null_in(wtx: &WriteTransaction, table: &str, schema: &TableSchema) -> Result<(), String> {
+fn validate_not_null_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    schema: &TableSchema,
+) -> Result<(), String> {
     let not_null_cols: Vec<usize> = schema
         .columns()
         .iter()
@@ -3019,7 +3024,14 @@ fn update_in(
     let mut visited = HashSet::new();
     for (rowid, old_cells, new_cells) in &changed {
         validate_row_constraints_in(wtx, &schema, new_cells)?;
-        enforce_fk_on_parent_change_in(wtx, table, *rowid, old_cells, Some(new_cells), &mut visited)?;
+        enforce_fk_on_parent_change_in(
+            wtx,
+            table,
+            *rowid,
+            old_cells,
+            Some(new_cells),
+            &mut visited,
+        )?;
     }
     Ok(updated)
 }
@@ -3089,9 +3101,8 @@ fn validate_uniqueness_in(
         .collect();
     for c in schema.constraints() {
         let cols = match c {
-            TableConstraint::PrimaryKey { columns, .. } | TableConstraint::Unique { columns, .. } => {
-                columns
-            }
+            TableConstraint::PrimaryKey { columns, .. }
+            | TableConstraint::Unique { columns, .. } => columns,
             _ => continue,
         };
         let idxs: Vec<usize> = cols

@@ -1364,7 +1364,10 @@ fn foreign_key_creation_against_missing_parent_table_rejected() {
     )
     .unwrap_err();
     assert!(err.contains("does not exist"), "{err}");
-    assert!(store.get_schema("orders").unwrap().is_none(), "not left half-created");
+    assert!(
+        store.get_schema("orders").unwrap().is_none(),
+        "not left half-created"
+    );
 }
 
 #[test]
@@ -1372,7 +1375,11 @@ fn foreign_key_creation_against_non_unique_referenced_column_rejected() {
     let (store, _p) = TableStore::open_temp().unwrap();
     let view = graph_with_stocks();
     // `code` has no PK/UNIQUE, so REFERENCES customers(code) is ambiguous.
-    run(&store, &view, "CREATE TABLE customers (id INT PRIMARY KEY, code TEXT)");
+    run(
+        &store,
+        &view,
+        "CREATE TABLE customers (id INT PRIMARY KEY, code TEXT)",
+    );
     let err = create_via_sql(
         &store,
         "CREATE TABLE orders (id INT, customer_code TEXT, \
@@ -1454,7 +1461,11 @@ fn foreign_key_on_delete_restrict_blocks_parent_delete_while_referenced() {
     );
     let err = delete_via_sql(&store, "DELETE FROM customers WHERE id = 1").unwrap_err();
     assert!(err.contains("foreign key"), "{err}");
-    assert_eq!(store.scan("customers").unwrap().len(), 2, "rolled back, nothing removed");
+    assert_eq!(
+        store.scan("customers").unwrap().len(),
+        2,
+        "rolled back, nothing removed"
+    );
     // Customer 2 has no referencing orders ⇒ deletes fine.
     delete_via_sql(&store, "DELETE FROM customers WHERE id = 2").unwrap();
     assert_eq!(store.scan("customers").unwrap().len(), 1);
@@ -1478,9 +1489,17 @@ fn foreign_key_on_delete_cascade_removes_children() {
         "INSERT INTO orders (id, customer_id) VALUES (10, 1), (11, 1), (12, 2)",
     );
     delete_via_sql(&store, "DELETE FROM customers WHERE id = 1").unwrap();
-    assert_eq!(store.scan("customers").unwrap().len(), 1, "only customer 1 removed");
+    assert_eq!(
+        store.scan("customers").unwrap().len(),
+        1,
+        "only customer 1 removed"
+    );
     let remaining = store.scan("orders").unwrap();
-    assert_eq!(remaining.len(), 1, "orders 10 and 11 cascaded away, 12 untouched");
+    assert_eq!(
+        remaining.len(),
+        1,
+        "orders 10 and 11 cascaded away, 12 untouched"
+    );
 }
 
 #[test]
@@ -1529,7 +1548,11 @@ fn foreign_key_on_update_cascade_propagates_new_key() {
     let rows = store.scan("orders").unwrap();
     let schema = store.get_schema("orders").unwrap().unwrap();
     let ci = schema.column_index("customer_id").unwrap();
-    assert_eq!(rows[0][ci], Cell::Int(2), "child FK value followed the parent's new key");
+    assert_eq!(
+        rows[0][ci],
+        Cell::Int(2),
+        "child FK value followed the parent's new key"
+    );
 }
 
 #[test]
@@ -1585,7 +1608,11 @@ fn cyclic_foreign_key_across_two_tables_does_not_deadlock_or_infinitely_recurse(
         )
         .unwrap();
 
-    run(&store, &view, "INSERT INTO tbl_a (id, b_id) VALUES (1, NULL)");
+    run(
+        &store,
+        &view,
+        "INSERT INTO tbl_a (id, b_id) VALUES (1, NULL)",
+    );
     run(&store, &view, "INSERT INTO tbl_b (id, a_id) VALUES (1, 1)");
     update_via_sql(&store, "UPDATE tbl_a SET b_id = 1 WHERE id = 1").unwrap();
 
@@ -1626,7 +1653,11 @@ fn compound_check_constraint_accept_and_violation() {
         )
         .unwrap_err();
     assert!(err2.contains("check constraint"), "{err2}");
-    assert_eq!(store.scan("t").unwrap().len(), 1, "both violations rolled back");
+    assert_eq!(
+        store.scan("t").unwrap().len(),
+        1,
+        "both violations rolled back"
+    );
 }
 
 #[test]
@@ -1670,7 +1701,10 @@ fn ne002_column_types_round_trip_through_insert_select_arrow() {
     let res = run(&store, &view, "SELECT id, amount, seen, tags FROM typed").unwrap();
     assert_eq!(res.rows.len(), 1);
     // UUID: normalized to canonical lowercase, round-tripped through Arrow Utf8.
-    assert_eq!(res.rows[0][0], json!("a1a2a3a4-b1b2-c1c2-d1d2-e1e2e3e4e5e6"));
+    assert_eq!(
+        res.rows[0][0],
+        json!("a1a2a3a4-b1b2-c1c2-d1d2-e1e2e3e4e5e6")
+    );
     // NUMERIC(10,2): rounded/validated to the declared scale (Arrow Utf8 renders the
     // stored `Cell::Float`'s canonical text — the documented precision ceiling on
     // `ColumnType::Numeric`'s doc comment).

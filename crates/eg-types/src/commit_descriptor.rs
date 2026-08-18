@@ -239,10 +239,7 @@ impl CommitDescriptorV1 {
             return Err("commit descriptor requires at least one participant digest".to_string());
         }
         for (domain, digest) in &self.participant_digests {
-            validate_hex_digest(
-                &format!("participant_digests[{domain:?}]"),
-                digest,
-            )?;
+            validate_hex_digest(&format!("participant_digests[{domain:?}]"), digest)?;
         }
         match self.status {
             CommitStatus::Prepared => {
@@ -261,7 +258,6 @@ impl CommitDescriptorV1 {
         }
         Ok(())
     }
-
 }
 
 // Acceptance gate 9 ("Cross-node participants are explicitly rejected or
@@ -337,12 +333,12 @@ impl ProjectionCursorV1 {
         match self.state {
             ProjectionState::Ready => {
                 if self.applied_seq != self.committed_seq {
-                    return Err(
-                        "Ready requires applied_seq == committed_seq".to_string()
-                    );
+                    return Err("Ready requires applied_seq == committed_seq".to_string());
                 }
                 if self.applied_digest.is_none() && self.applied_seq != 0 {
-                    return Err("Ready requires applied_digest once applied_seq is non-zero".to_string());
+                    return Err(
+                        "Ready requires applied_digest once applied_seq is non-zero".to_string()
+                    );
                 }
                 if self.last_error_ref.is_some() {
                     return Err("Ready must not carry last_error_ref".to_string());
@@ -464,9 +460,7 @@ pub enum ReadBarrierResponse {
     /// At least one requested domain is not yet `Ready` at `min_commit_seq`
     /// (`CatchingUp`) or is `Degraded`. Carries the exact cursors so the caller
     /// can retry/back off or surface the degraded domain, never a generic error.
-    NotReady {
-        cursors: Vec<ProjectionCursorV1>,
-    },
+    NotReady { cursors: Vec<ProjectionCursorV1> },
     /// Tenant, classification, deletion, retention, legal-hold, or purpose
     /// policy denied release (invariant 7), evaluated again at barrier time even
     /// though it was already evaluated before prepare.
@@ -569,7 +563,10 @@ mod tests {
             .unwrap()
             .insert("bogus_future_field".to_string(), serde_json::json!(true));
         let decoded: Result<CommitDescriptorV1, _> = serde_json::from_value(value);
-        assert!(decoded.is_err(), "an unknown field must be rejected, not ignored");
+        assert!(
+            decoded.is_err(),
+            "an unknown field must be rejected, not ignored"
+        );
     }
 
     // ---- PASS-on-good: zero commit_seq / zero fencing_token are rejected ----
@@ -632,7 +629,12 @@ mod tests {
             .contains("non-graph-authoritative"));
     }
 
-    fn cursor(committed: u64, applied: u64, fence: u64, state: ProjectionState) -> ProjectionCursorV1 {
+    fn cursor(
+        committed: u64,
+        applied: u64,
+        fence: u64,
+        state: ProjectionState,
+    ) -> ProjectionCursorV1 {
         ProjectionCursorV1 {
             schema_version: COMMIT_DESCRIPTOR_VERSION,
             domain: CommitParticipantDomain::Graph,
@@ -640,7 +642,11 @@ mod tests {
             committed_seq: committed,
             applied_seq: applied,
             fence,
-            applied_digest: if applied == 0 { None } else { Some(hex_digest(0xAB)) },
+            applied_digest: if applied == 0 {
+                None
+            } else {
+                Some(hex_digest(0xAB))
+            },
             state,
             last_error_ref: None,
             updated_at_ms: 100,
@@ -664,7 +670,10 @@ mod tests {
     fn projection_cursor_degraded_requires_error_ref() {
         let mut degraded = cursor(5, 3, 9, ProjectionState::Degraded);
         degraded.last_error_ref = None;
-        assert!(degraded.validate().unwrap_err().contains("Degraded requires"));
+        assert!(degraded
+            .validate()
+            .unwrap_err()
+            .contains("Degraded requires"));
 
         let mut ok = degraded.clone();
         ok.last_error_ref = Some("err-ref-1".into());
@@ -677,7 +686,10 @@ mod tests {
     fn projection_cursor_advance_rejects_sequence_rollback() {
         let c = cursor(10, 10, 5, ProjectionState::Ready);
         let err = c.advance(9, 9, 6, Some(hex_digest(0xAB)), 200).unwrap_err();
-        assert!(err.starts_with("PROJECTION_SEQUENCE_ROLLBACK"), "got: {err}");
+        assert!(
+            err.starts_with("PROJECTION_SEQUENCE_ROLLBACK"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -685,8 +697,13 @@ mod tests {
         let c = cursor(10, 10, 5, ProjectionState::Ready);
         // advancing to a strictly newer applied_seq without a strictly greater
         // fence must be rejected — a stale fence cannot claim newer authority.
-        let err = c.advance(11, 11, 5, Some(hex_digest(0xAB)), 200).unwrap_err();
-        assert!(err.starts_with("PROJECTION_SEQUENCE_ROLLBACK"), "got: {err}");
+        let err = c
+            .advance(11, 11, 5, Some(hex_digest(0xAB)), 200)
+            .unwrap_err();
+        assert!(
+            err.starts_with("PROJECTION_SEQUENCE_ROLLBACK"),
+            "got: {err}"
+        );
     }
 
     // ---- PASS-on-good: a legitimate forward advance succeeds and becomes Ready ----
@@ -747,7 +764,10 @@ mod tests {
             tenant_ref: "tenant-1".into(),
             authority_ref: "shard-0".into(),
             min_commit_seq: 7,
-            required_domains: vec![CommitParticipantDomain::Graph, CommitParticipantDomain::Vector],
+            required_domains: vec![
+                CommitParticipantDomain::Graph,
+                CommitParticipantDomain::Vector,
+            ],
         };
         req.validate().unwrap();
         let mp = rmp_serde::to_vec_named(&req).unwrap();

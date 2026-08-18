@@ -655,10 +655,7 @@ pub fn finalize_result(
     }
 
     let total_duration_ms = if request.output_format.sample_rate > 0 {
-        quality
-            .total_samples
-            .saturating_mul(1000)
-            / u64::from(request.output_format.sample_rate)
+        quality.total_samples.saturating_mul(1000) / u64::from(request.output_format.sample_rate)
     } else {
         0
     };
@@ -836,7 +833,10 @@ mod request_validation_tests {
     fn rejects_incompatible_protocol_version() {
         let mut request = request();
         request.protocol_version = 99;
-        assert_eq!(validate_request(&request), Err(TtsError::IncompatibleVersion));
+        assert_eq!(
+            validate_request(&request),
+            Err(TtsError::IncompatibleVersion)
+        );
     }
 
     /// Known-bad input (proof 1, half A): text input whose declared length
@@ -925,7 +925,10 @@ mod request_validation_tests {
     fn rejects_speaker_id_beyond_limit() {
         let mut request = request();
         request.speaker = SpeakerSelection::Id(request.limits.max_speaker_id + 1);
-        assert_eq!(validate_request(&request), Err(TtsError::UnsupportedSpeaker));
+        assert_eq!(
+            validate_request(&request),
+            Err(TtsError::UnsupportedSpeaker)
+        );
     }
 
     #[test]

@@ -171,7 +171,10 @@ impl WorkItemCommandLog {
             return WorkItemCommandOutcome::InvalidDescriptor(error);
         }
 
-        let key = (descriptor.tenant_ref.clone(), descriptor.idempotency_key.clone());
+        let key = (
+            descriptor.tenant_ref.clone(),
+            descriptor.idempotency_key.clone(),
+        );
         if let Some(existing) = self.by_key.get(&key) {
             return if existing.descriptor.mutation_digest == descriptor.mutation_digest {
                 WorkItemCommandOutcome::Replayed(existing.clone())
@@ -222,7 +225,9 @@ impl WorkItemCommandLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commit_descriptor::{CommitParticipantDomain, CommitStatus, COMMIT_DESCRIPTOR_VERSION};
+    use crate::commit_descriptor::{
+        CommitParticipantDomain, CommitStatus, COMMIT_DESCRIPTOR_VERSION,
+    };
 
     fn hex_digest(byte: u8) -> String {
         (0..32).map(|_| format!("{byte:02x}")).collect()
@@ -293,8 +298,14 @@ mod tests {
         assert_eq!(log.len(), 1, "a replay must not create a second command");
         match outcome2 {
             WorkItemCommandOutcome::Replayed(record) => {
-                assert_eq!(record.descriptor.commit_id, "commit-A", "replay must return the ORIGINAL commit_id, not the retried one");
-                assert_eq!(record.work_item_id, "wi-1", "replay must return the ORIGINAL WorkItem id");
+                assert_eq!(
+                    record.descriptor.commit_id, "commit-A",
+                    "replay must return the ORIGINAL commit_id, not the retried one"
+                );
+                assert_eq!(
+                    record.work_item_id, "wi-1",
+                    "replay must return the ORIGINAL WorkItem id"
+                );
             }
             other => panic!("expected Replayed, got {other:?}"),
         }
@@ -311,7 +322,11 @@ mod tests {
         let different = descriptor("commit-C", "idem-1", "tenant-1", "shard-0", 1, 2, 200, 0x99);
         let outcome = log.submit(different, "wi-3".to_string());
 
-        assert_eq!(log.len(), 1, "a conflicting reuse must not create a second command");
+        assert_eq!(
+            log.len(),
+            1,
+            "a conflicting reuse must not create a second command"
+        );
         match outcome {
             WorkItemCommandOutcome::IdempotencyConflict { existing_commit_id } => {
                 assert_eq!(existing_commit_id, "commit-A");
@@ -332,7 +347,11 @@ mod tests {
         let stale = descriptor("commit-D", "idem-2", "tenant-1", "shard-0", 1, 6, 600, 0x33);
         let outcome = log.submit(stale, "wi-4".to_string());
 
-        assert_eq!(log.len(), 1, "a stale-epoch submission must not be admitted");
+        assert_eq!(
+            log.len(),
+            1,
+            "a stale-epoch submission must not be admitted"
+        );
         match outcome {
             WorkItemCommandOutcome::StaleAuthorityEpoch { observed_epoch } => {
                 assert_eq!(observed_epoch, 2);
@@ -354,7 +373,9 @@ mod tests {
 
         assert_eq!(log.len(), 1);
         match outcome {
-            WorkItemCommandOutcome::StaleCommitSeq { observed_commit_seq } => {
+            WorkItemCommandOutcome::StaleCommitSeq {
+                observed_commit_seq,
+            } => {
                 assert_eq!(observed_commit_seq, 5);
             }
             other => panic!("expected StaleCommitSeq, got {other:?}"),
@@ -376,7 +397,9 @@ mod tests {
 
         assert_eq!(log.len(), 1);
         match outcome {
-            WorkItemCommandOutcome::StaleFencingToken { observed_fencing_token } => {
+            WorkItemCommandOutcome::StaleFencingToken {
+                observed_fencing_token,
+            } => {
                 assert_eq!(observed_fencing_token, 500);
             }
             other => panic!("expected StaleFencingToken, got {other:?}"),
@@ -398,7 +421,10 @@ mod tests {
 
         let third = descriptor("commit-H", "idem-3", "tenant-1", "shard-0", 3, 7, 700, 0x44);
         let outcome3 = log.submit(third, "wi-3".to_string());
-        assert!(outcome3.created(), "a higher epoch with forward progress must be admitted");
+        assert!(
+            outcome3.created(),
+            "a higher epoch with forward progress must be admitted"
+        );
         assert_eq!(log.len(), 3);
     }
 
@@ -407,17 +433,44 @@ mod tests {
     #[test]
     fn idempotency_index_is_tenant_scoped() {
         let mut log = WorkItemCommandLog::new();
-        let tenant_a = descriptor("commit-A", "shared-key", "tenant-a", "shard-0", 1, 1, 100, 0x22);
-        let tenant_b = descriptor("commit-B", "shared-key", "tenant-b", "shard-0", 1, 2, 200, 0x22);
+        let tenant_a = descriptor(
+            "commit-A",
+            "shared-key",
+            "tenant-a",
+            "shard-0",
+            1,
+            1,
+            100,
+            0x22,
+        );
+        let tenant_b = descriptor(
+            "commit-B",
+            "shared-key",
+            "tenant-b",
+            "shard-0",
+            1,
+            2,
+            200,
+            0x22,
+        );
 
         assert!(log.submit(tenant_a, "wi-a".to_string()).created());
         // Same idempotency_key string, different tenant: must be an
         // independent admission, not a replay/conflict of tenant-a's command.
         let outcome_b = log.submit(tenant_b, "wi-b".to_string());
-        assert!(outcome_b.created(), "expected Created for a different tenant, got {outcome_b:?}");
+        assert!(
+            outcome_b.created(),
+            "expected Created for a different tenant, got {outcome_b:?}"
+        );
         assert_eq!(log.len(), 2);
-        assert_eq!(log.get("tenant-a", "shared-key").unwrap().work_item_id, "wi-a");
-        assert_eq!(log.get("tenant-b", "shared-key").unwrap().work_item_id, "wi-b");
+        assert_eq!(
+            log.get("tenant-a", "shared-key").unwrap().work_item_id,
+            "wi-a"
+        );
+        assert_eq!(
+            log.get("tenant-b", "shared-key").unwrap().work_item_id,
+            "wi-b"
+        );
     }
 
     // ---- KNOWN-BAD: a structurally invalid descriptor is rejected before any admission bookkeeping ----

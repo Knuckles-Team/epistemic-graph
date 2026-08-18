@@ -181,7 +181,8 @@ mod tests {
     #[test]
     fn empty_selection_is_a_typed_error() {
         let core = build_triangle();
-        let err = pull_candidate_subgraph(&core, "MATCH (:NoSuchLabel) |> LIMIT 10", 24).unwrap_err();
+        let err =
+            pull_candidate_subgraph(&core, "MATCH (:NoSuchLabel) |> LIMIT 10", 24).unwrap_err();
         assert!(matches!(err, SubgraphError::Empty { .. }));
     }
 }

@@ -299,15 +299,9 @@ impl TableSchemaVersionV1 {
         }
         match (self.version, self.previous_version) {
             (0, None) => {}
-            (0, Some(_)) => {
-                return Err("version 0 must not declare a previous_version".to_string())
-            }
+            (0, Some(_)) => return Err("version 0 must not declare a previous_version".to_string()),
             (v, Some(prev)) if prev == v - 1 => {}
-            _ => {
-                return Err(
-                    "table schema version must chain to exactly version - 1".to_string(),
-                )
-            }
+            _ => return Err("table schema version must chain to exactly version - 1".to_string()),
         }
         self.governance.validate()?;
         self.commit_fence.validate()
@@ -727,7 +721,10 @@ mod tests {
     #[test]
     fn destructive_change_is_rejected_under_legal_hold_even_with_approval() {
         // Known-bad input: an approved DROP TABLE while the table is under legal hold.
-        let mut record = change(SchemaChangeKind::DropTable, SchemaCompatibility::Destructive);
+        let mut record = change(
+            SchemaChangeKind::DropTable,
+            SchemaCompatibility::Destructive,
+        );
         record.approved_by = Some("principal:sha256:approver".to_string());
         record.governance.retention.legal_hold = true;
         let error = record.validate().unwrap_err();

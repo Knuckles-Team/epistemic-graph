@@ -38,10 +38,10 @@ use datafusion::sql::sqlparser::ast::{
     ColumnDef as SqlColumnDef, ColumnOption, ConflictTarget, CopyOption, CopySource, CopyTarget,
     CreateTable, Delete, Expr, ForeignKeyConstraint as SqlForeignKeyConstraint, FromTable,
     Function, FunctionArg, FunctionArgExpr, FunctionArguments, IndexColumn, Insert, ObjectName,
-    ObjectType, OnConflictAction as SqlOnConflictAction, OnInsert, ReferentialAction as SqlReferentialAction,
-    RenameTableNameKind, SelectItem, SetExpr, Statement, TableConstraint as SqlTableConstraint,
-    TableFactor, TableObject, TableWithJoins, UnaryOperator, UpdateTableFromKind,
-    Value as SqlValue, Values,
+    ObjectType, OnConflictAction as SqlOnConflictAction, OnInsert,
+    ReferentialAction as SqlReferentialAction, RenameTableNameKind, SelectItem, SetExpr, Statement,
+    TableConstraint as SqlTableConstraint, TableFactor, TableObject, TableWithJoins, UnaryOperator,
+    UpdateTableFromKind, Value as SqlValue, Values,
 };
 // CONCEPT:EG-KG.query.postgres-family-extension-plan/116/117 — the Postgres-family extension plan shapes classify routes to.
 use super::pgfamily::{AnnIndexPlan, ContinuousAggPlan, CypherCallPlan, HypertablePlan};
@@ -1728,7 +1728,11 @@ fn decode_foreign_key(
         name,
         columns: columns.to_vec(),
         ref_table,
-        ref_columns: fk.referred_columns.iter().map(|i| i.value.clone()).collect(),
+        ref_columns: fk
+            .referred_columns
+            .iter()
+            .map(|i| i.value.clone())
+            .collect(),
         on_delete: decode_referential_action(fk.on_delete)?,
         on_update: decode_referential_action(fk.on_update)?,
     })
@@ -1781,7 +1785,9 @@ fn decode_check_expr(expr: &Expr) -> Result<CheckExpr, String> {
             | BinaryOperator::LtEq
             | BinaryOperator::Gt
             | BinaryOperator::GtEq => decode_check_comparison(left, op.clone(), right),
-            other => Err(format!("CHECK supports only AND/OR/comparisons, got operator `{other}`")),
+            other => Err(format!(
+                "CHECK supports only AND/OR/comparisons, got operator `{other}`"
+            )),
         },
         Expr::InList {
             expr,
@@ -1789,7 +1795,10 @@ fn decode_check_expr(expr: &Expr) -> Result<CheckExpr, String> {
             negated,
         } => {
             let column = ident_from_expr(expr)?;
-            let values = list.iter().map(expr_to_json).collect::<Result<Vec<_>, _>>()?;
+            let values = list
+                .iter()
+                .map(expr_to_json)
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(CheckExpr::In {
                 column,
                 values,
@@ -1811,7 +1820,11 @@ fn decode_check_expr(expr: &Expr) -> Result<CheckExpr, String> {
 }
 
 /// One `col OP literal` or `col_a OP col_b` leaf of a general CHECK (CONCEPT:EG-KG.query.table-schema-constraints/NE-001).
-fn decode_check_comparison(left: &Expr, op: BinaryOperator, right: &Expr) -> Result<CheckExpr, String> {
+fn decode_check_comparison(
+    left: &Expr,
+    op: BinaryOperator,
+    right: &Expr,
+) -> Result<CheckExpr, String> {
     let cmp = match op {
         BinaryOperator::Eq => CmpOp::Eq,
         BinaryOperator::NotEq => CmpOp::Ne,
@@ -3798,10 +3811,10 @@ mod tests {
 
     #[test]
     fn create_table_decodes_inline_column_foreign_key() {
-        let StatementKind::CreateTable(p) = classify(
-            "CREATE TABLE orders (id INT, customer_id INT REFERENCES customers(id))",
-        )
-        .unwrap() else {
+        let StatementKind::CreateTable(p) =
+            classify("CREATE TABLE orders (id INT, customer_id INT REFERENCES customers(id))")
+                .unwrap()
+        else {
             panic!("expected CreateTable");
         };
         assert_eq!(

@@ -483,7 +483,9 @@ fn bug_017_write_bytes_scale_with_corpus_not_delta() {
         );
     }
 
-    eprintln!("BUG-017 write-bytes-vs-corpus-size measurement (eg-modality/tests/served_runtime.rs):");
+    eprintln!(
+        "BUG-017 write-bytes-vs-corpus-size measurement (eg-modality/tests/served_runtime.rs):"
+    );
     for (i, &target) in CHECKPOINTS.iter().enumerate() {
         eprintln!(
             "  corpus={target:>6}  BEFORE(full snapshot)={:>9} bytes   AFTER(record+event+idempotency+index-delta)={:>6} bytes",

@@ -787,7 +787,11 @@ where
     pub fn index_memberships(
         &self,
         occurrence_id: &OccurrenceId,
-    ) -> (BTreeSet<ModalityKind>, BTreeSet<SegmentKind>, Vec<NativeIndexKey>) {
+    ) -> (
+        BTreeSet<ModalityKind>,
+        BTreeSet<SegmentKind>,
+        Vec<NativeIndexKey>,
+    ) {
         match self.records.get(occurrence_id) {
             Some(record) => record_index_memberships(record),
             None => (BTreeSet::new(), BTreeSet::new(), Vec::new()),
@@ -1046,7 +1050,11 @@ struct IngestUndo<T> {
 /// mutation against the "after" state (BUG-017 delta-scoped index writes).
 pub fn record_index_memberships<T>(
     record: &ServedRecord<T>,
-) -> (BTreeSet<ModalityKind>, BTreeSet<SegmentKind>, Vec<NativeIndexKey>)
+) -> (
+    BTreeSet<ModalityKind>,
+    BTreeSet<SegmentKind>,
+    Vec<NativeIndexKey>,
+)
 where
     T: GovernedModality,
 {

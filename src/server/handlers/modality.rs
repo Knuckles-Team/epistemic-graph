@@ -347,12 +347,14 @@ where
     T: GovernedModality + Clone + PartialEq + fmt::Debug + Serialize + DeserializeOwned,
 {
     let partition = authority.node_id(modality);
-    let record_bytes = serde_json::to_vec(&delta.record).map_err(|_| "modality row codec failure".to_string())?;
+    let record_bytes =
+        serde_json::to_vec(&delta.record).map_err(|_| "modality row codec failure".to_string())?;
     core.add_node(
         delta_row_node_id(&partition, "record", delta.occurrence_id.as_ref().as_str()),
         authority.cipher.seal(&record_bytes),
     );
-    let event_bytes = serde_json::to_vec(&delta.event).map_err(|_| "modality row codec failure".to_string())?;
+    let event_bytes =
+        serde_json::to_vec(&delta.event).map_err(|_| "modality row codec failure".to_string())?;
     core.add_node(
         delta_row_node_id(&partition, "event", &delta.event.sequence.to_string()),
         authority.cipher.seal(&event_bytes),
@@ -363,8 +365,8 @@ where
     // `delta_store::MutationDelta::idempotency`'s doc for why this is a
     // strict subset of the ingest/delete row shape, not a format change.
     if let Some((idempotency_key, idempotency_entry)) = &delta.idempotency {
-        let idempotency_bytes =
-            serde_json::to_vec(idempotency_entry).map_err(|_| "modality row codec failure".to_string())?;
+        let idempotency_bytes = serde_json::to_vec(idempotency_entry)
+            .map_err(|_| "modality row codec failure".to_string())?;
         core.add_node(
             delta_row_node_id(&partition, "idem", idempotency_key.as_str()),
             authority.cipher.seal(&idempotency_bytes),
@@ -426,16 +428,23 @@ fn shadow_write_deltas<T>(
     authority: &ModalityAuthority,
     modality: ServedModalityKind,
     runtime: &ServedModalityRuntime<T>,
-    befores: &[(OccurrenceId, OpaqueRef, Option<ServedRecord<T>>)],
+    before_records: &[(OccurrenceId, OpaqueRef, Option<ServedRecord<T>>)],
     outcomes: &[ApplyOutcome],
 ) -> Result<(), String>
 where
     T: GovernedModality + Clone + PartialEq + fmt::Debug + Serialize + DeserializeOwned,
 {
-    for ((occurrence_id, idempotency_key, before), outcome) in befores.iter().zip(outcomes.iter()) {
+    for ((occurrence_id, idempotency_key, before), outcome) in
+        before_records.iter().zip(outcomes.iter())
+    {
         let is_replay = outcome.disposition == ApplyDisposition::IdempotentReplay;
-        if let Some(delta) = MutationDelta::capture(runtime, before.as_ref(), occurrence_id, idempotency_key, is_replay)
-        {
+        if let Some(delta) = MutationDelta::capture(
+            runtime,
+            before.as_ref(),
+            occurrence_id,
+            idempotency_key,
+            is_replay,
+        ) {
             store_delta(core, authority, modality, &delta)?;
         }
     }
@@ -471,21 +480,24 @@ where
     let partition = authority.node_id(modality);
 
     for (occurrence_id, record) in &exported.records {
-        let bytes = serde_json::to_vec(record).map_err(|_| "modality row codec failure".to_string())?;
+        let bytes =
+            serde_json::to_vec(record).map_err(|_| "modality row codec failure".to_string())?;
         core.add_node(
             delta_row_node_id(&partition, "record", occurrence_id.as_ref().as_str()),
             authority.cipher.seal(&bytes),
         );
     }
     for event in &exported.events {
-        let bytes = serde_json::to_vec(event).map_err(|_| "modality row codec failure".to_string())?;
+        let bytes =
+            serde_json::to_vec(event).map_err(|_| "modality row codec failure".to_string())?;
         core.add_node(
             delta_row_node_id(&partition, "event", &event.sequence.to_string()),
             authority.cipher.seal(&bytes),
         );
     }
     for (key, entry) in &exported.idempotency {
-        let bytes = serde_json::to_vec(entry).map_err(|_| "modality row codec failure".to_string())?;
+        let bytes =
+            serde_json::to_vec(entry).map_err(|_| "modality row codec failure".to_string())?;
         core.add_node(
             delta_row_node_id(&partition, "idem", key.as_str()),
             authority.cipher.seal(&bytes),
@@ -508,8 +520,8 @@ where
             .get_node_properties(&node_id)
             .ok_or_else(|| "missing record row after migration write".to_string())?;
         let bytes = authority.cipher.unseal(&sealed)?;
-        let record: ServedRecord<T> =
-            serde_json::from_slice(&bytes).map_err(|_| "corrupt migrated record row".to_string())?;
+        let record: ServedRecord<T> = serde_json::from_slice(&bytes)
+            .map_err(|_| "corrupt migrated record row".to_string())?;
         read_records.insert(occurrence_id.clone(), record);
     }
     let mut read_events = Vec::with_capacity(exported.events.len());
@@ -519,8 +531,9 @@ where
             .get_node_properties(&node_id)
             .ok_or_else(|| "missing event row after migration write".to_string())?;
         let bytes = authority.cipher.unseal(&sealed)?;
-        read_events
-            .push(serde_json::from_slice(&bytes).map_err(|_| "corrupt migrated event row".to_string())?);
+        read_events.push(
+            serde_json::from_slice(&bytes).map_err(|_| "corrupt migrated event row".to_string())?,
+        );
     }
     let mut read_idempotency = BTreeMap::new();
     for key in exported.idempotency.keys() {
@@ -531,7 +544,8 @@ where
         let bytes = authority.cipher.unseal(&sealed)?;
         read_idempotency.insert(
             key.clone(),
-            serde_json::from_slice(&bytes).map_err(|_| "corrupt migrated idempotency row".to_string())?,
+            serde_json::from_slice(&bytes)
+                .map_err(|_| "corrupt migrated idempotency row".to_string())?,
         );
     }
     let manifest_node_id = delta_row_node_id(&partition, "manifest", "");
@@ -539,8 +553,8 @@ where
         .get_node_properties(&manifest_node_id)
         .ok_or_else(|| "missing manifest row after migration write".to_string())?;
     let manifest_bytes = authority.cipher.unseal(&manifest_sealed)?;
-    let manifest: DeltaManifest =
-        serde_json::from_slice(&manifest_bytes).map_err(|_| "corrupt migrated manifest row".to_string())?;
+    let manifest: DeltaManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|_| "corrupt migrated manifest row".to_string())?;
 
     eg_modality::verify_round_trip(
         &original,
@@ -737,12 +751,19 @@ fn ingest_stream(
                 .collect::<Result<Vec<_>, String>>()?;
             let mut runtime: ServedModalityRuntime<DocumentData> =
                 load_runtime(core, authority, modality)?;
-            let befores = capture_befores(&runtime, &commands);
+            let before_records = capture_befores(&runtime, &commands);
             let outcomes = runtime
                 .ingest_stream(commands)
                 .map_err(|error| error.to_string())?;
             store_runtime_excluding_sources(core, authority, modality, &runtime, &sources)?;
-            shadow_write_deltas(core, authority, modality, &runtime, &befores, &outcomes)?;
+            shadow_write_deltas(
+                core,
+                authority,
+                modality,
+                &runtime,
+                &before_records,
+                &outcomes,
+            )?;
             Ok(outcomes)
         }
         ServedModalityKind::Image => {
@@ -778,12 +799,19 @@ fn ingest_stream(
                 })
                 .collect::<Result<Vec<_>, String>>()?;
             let mut runtime: ImageServingRuntime = load_runtime(core, authority, modality)?;
-            let befores = capture_befores(&runtime, &commands);
+            let before_records = capture_befores(&runtime, &commands);
             let outcomes = runtime
                 .ingest_stream(commands)
                 .map_err(|error| error.to_string())?;
             store_runtime_excluding_sources(core, authority, modality, &runtime, &sources)?;
-            shadow_write_deltas(core, authority, modality, &runtime, &befores, &outcomes)?;
+            shadow_write_deltas(
+                core,
+                authority,
+                modality,
+                &runtime,
+                &before_records,
+                &outcomes,
+            )?;
             Ok(outcomes)
         }
         ServedModalityKind::Audio => {
@@ -820,12 +848,19 @@ fn ingest_stream(
                 })
                 .collect::<Result<Vec<_>, String>>()?;
             let mut runtime: AudioServingRuntime = load_runtime(core, authority, modality)?;
-            let befores = capture_befores(&runtime, &commands);
+            let before_records = capture_befores(&runtime, &commands);
             let outcomes = runtime
                 .ingest_stream(commands)
                 .map_err(|error| error.to_string())?;
             store_runtime_excluding_sources(core, authority, modality, &runtime, &sources)?;
-            shadow_write_deltas(core, authority, modality, &runtime, &befores, &outcomes)?;
+            shadow_write_deltas(
+                core,
+                authority,
+                modality,
+                &runtime,
+                &before_records,
+                &outcomes,
+            )?;
             Ok(outcomes)
         }
         ServedModalityKind::Video => {
@@ -858,12 +893,19 @@ fn ingest_stream(
                 })
                 .collect::<Result<Vec<_>, String>>()?;
             let mut runtime: VideoServingRuntime = load_runtime(core, authority, modality)?;
-            let befores = capture_befores(&runtime, &commands);
+            let before_records = capture_befores(&runtime, &commands);
             let outcomes = runtime
                 .ingest_stream(commands)
                 .map_err(|error| error.to_string())?;
             store_runtime_excluding_sources(core, authority, modality, &runtime, &sources)?;
-            shadow_write_deltas(core, authority, modality, &runtime, &befores, &outcomes)?;
+            shadow_write_deltas(
+                core,
+                authority,
+                modality,
+                &runtime,
+                &before_records,
+                &outcomes,
+            )?;
             Ok(outcomes)
         }
     }
@@ -1561,7 +1603,12 @@ mod tests {
     }
 
     fn document_value(authority: &ModalityAuthority) -> DocumentData {
-        let lexemes = |term: &str| authority.lexeme_ref(term).ok().map(|reference| reference.to_string());
+        let lexemes = |term: &str| {
+            authority
+                .lexeme_ref(term)
+                .ok()
+                .map(|reference| reference.to_string())
+        };
         NativeDocumentRuntime::decode_text(b"bug-017 fixture text content", &lexemes)
             .expect("fixture text decodes")
     }
@@ -1575,7 +1622,8 @@ mod tests {
     /// reusable), scaled by `index` so every occurrence is distinct.
     fn document_ingest(authority: &ModalityAuthority, index: u64) -> ServedIngest<DocumentData> {
         let token = |offset: u64| format!("{:016x}", index * 32 + offset);
-        let opaque = |namespace: &str, offset: u64| OpaqueRef::scoped(namespace, &token(offset)).unwrap();
+        let opaque =
+            |namespace: &str, offset: u64| OpaqueRef::scoped(namespace, &token(offset)).unwrap();
         let artifact_id = ArtifactId::from_token(&token(1)).unwrap();
         let occurrence_id = OccurrenceId::from_token(&token(2)).unwrap();
         let rendition_id = RenditionId::from_token(&token(3)).unwrap();
@@ -1694,8 +1742,10 @@ mod tests {
                 .expect("a fresh Applied ingest always produces a delta");
                 store_delta(&core, &authority, modality, &delta).expect("store delta");
 
-                let record_id = delta_row_node_id(&partition, "record", occurrence_id.as_ref().as_str());
-                let event_id = delta_row_node_id(&partition, "event", &delta.event.sequence.to_string());
+                let record_id =
+                    delta_row_node_id(&partition, "record", occurrence_id.as_ref().as_str());
+                let event_id =
+                    delta_row_node_id(&partition, "event", &delta.event.sequence.to_string());
                 let idem_id = delta_row_node_id(&partition, "idem", idempotency_key.as_str());
                 let manifest_id = delta_row_node_id(&partition, "manifest", "");
                 last_bytes = core.get_node_properties(&record_id).unwrap().len()
@@ -1709,7 +1759,10 @@ mod tests {
 
         eprintln!("BUG-017 REAL delta-write bytes vs corpus (src/server/handlers/modality.rs, store_delta against a real GraphCore):");
         for (i, &target) in CHECKPOINTS.iter().enumerate() {
-            eprintln!("  corpus={target:>6}  real store_delta bytes for ONE more mutation={:>6}", real_delta_bytes[i]);
+            eprintln!(
+                "  corpus={target:>6}  real store_delta bytes for ONE more mutation={:>6}",
+                real_delta_bytes[i]
+            );
         }
 
         let smallest = real_delta_bytes[0] as f64;
@@ -1752,8 +1805,11 @@ mod tests {
             .delete(
                 &authority.scope,
                 ServedDelete {
-                    idempotency_ref: OpaqueRef::scoped("idempotency", &format!("{:016x}", 999_998u64))
-                        .unwrap(),
+                    idempotency_ref: OpaqueRef::scoped(
+                        "idempotency",
+                        &format!("{:016x}", 999_998u64),
+                    )
+                    .unwrap(),
                     occurrence_id: deleted,
                     expected_version: 1,
                 },
