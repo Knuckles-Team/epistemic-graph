@@ -18,10 +18,9 @@ dependencies = [
     "msgpack>=1.2.1",
     # numeric is a NATIVE core primitive, NOT an extra (CONCEPT:EG-346): the compiled
     # pure-Rust faer/ndarray kernel ships as always-bundled package data
-    # (`epistemic_graph/numeric.abi3.so`), and numpy — its zero-copy interop boundary — is a
-    # BASE dependency so `import epistemic_graph.numeric` works on a bare `pip install
-    # epistemic-graph` (the module `agent_utilities.numeric`'s `xp` shim binds, CONCEPT:KG-2.315).
-    "numpy>=1.22.0",
+    # (`epistemic_graph/numeric.abi3.so`). It has no Python package dependency; the
+    # wheel gate and release smoke test prove the bundled native module is callable
+    # without resolving an interpreter-side numeric implementation.
     # FULL-BY-DEFAULT (CONCEPT:EG-346, 2026-07-25): the UNIFIED binary is the default install
     # — `pip install epistemic-graph` (NO extra tag) ships the complete engine. OWL/SPARQL
     # (pyoxigraph) and the LMCache HTTP driver (httpx) join numeric in the base so `[full]` is
@@ -67,17 +66,14 @@ test = [
 owl = [
     "pyoxigraph>=0.3.22",
 ]
-quant = [
-    "numpy>=1.22.0",
-]
 finance = []
 ast = []
 datascience = []
 reasoning = []
 server = []
 # `full` is now a NO-OP ALIAS (2026-07-25): the unified binary is full-by-DEFAULT, so its
-# Python deps (numpy for numeric, pyoxigraph for owl, httpx for lmcache) moved UP into the
-# base `dependencies`. `pip install epistemic-graph` (no tag) is now the complete engine;
+# Python deps (pyoxigraph for owl and httpx for lmcache) live in the base
+# `dependencies`. `pip install epistemic-graph` (no tag) is now the complete engine;
 # `[full]` is retained only so existing installs/refs keep resolving.
 full = []
 # CONCEPT:EG-337 — the Python LMCache/vLLM remote-backend driver for the EG-187
@@ -87,10 +83,11 @@ full = []
 lmcache = [
     "httpx>=0.24.0",
 ]
-# CONCEPT:EG-346 — numeric is NATIVE (numpy moved to base `dependencies` above); this extra
-# is retained as a NO-OP alias so existing `epistemic-graph[numeric]`/`[full]` installs and
-# the `all` aggregate keep resolving. The compiled faer/ndarray kernel remains always-bundled
-# as package data `epistemic_graph/numeric.abi3.so` (pure-Rust, BLAS/LAPACK-free).
+# CONCEPT:EG-346 — numeric is NATIVE; this extra is retained as a NO-OP alias so existing
+# `epistemic-graph[numeric]`/`[full]` installs and the `all` aggregate keep resolving. The
+# compiled faer/ndarray kernel remains always-bundled as package data
+# `epistemic_graph/numeric.abi3.so` (pure-Rust, BLAS/LAPACK-free) and does not add a
+# Python numeric dependency.
 numeric = []
 # W4.8 (CONCEPT:EG-317) — TEST-ONLY reference-implementation readers for the lake/
 # lake-rest read-parity suite (`tests/test_lake_iceberg_delta_parity.py`): real

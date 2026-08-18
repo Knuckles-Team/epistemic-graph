@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import hashlib
 import json
@@ -23,6 +24,24 @@ pytestmark = pytest.mark.no_engine
 
 REPO = Path(__file__).resolve().parents[1]
 EXPECTED_EXCLUDES = {"**/__pycache__/**", "**/*.pyc", "**/*.pyo"}
+
+
+def test_shipped_python_surface_has_no_numpy_runtime_imports() -> None:
+    """The native kernel is the only numeric runtime; Python source stays stdlib-only."""
+
+    findings: list[str] = []
+    for path in sorted((REPO / "epistemic_graph").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            else:
+                continue
+            if any(name == "numpy" or name.startswith("numpy.") for name in names):
+                findings.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    assert not findings, "NumPy runtime imports in shipped source: " + ", ".join(findings)
 
 
 def _recorded_numeric_wheel(path: Path) -> None:
@@ -84,7 +103,7 @@ def _fixture_pyproject(root_config: dict[str, object], root: Path) -> None:
         'name = "epistemic-graph"\n'
         'version = "0.0.0"\n'
         'requires-python = ">=3.10"\n'
-        'dependencies = ["msgpack>=1.2.1", "numpy>=1.22.0"]\n\n'
+        'dependencies = ["msgpack>=1.2.1"]\n\n'
         "[tool.maturin]\n"
         'python-source = "."\n'
         'module-name = "epistemic_graph"\n'
