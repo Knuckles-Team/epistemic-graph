@@ -408,7 +408,7 @@ impl ServerState {
     /// makes a newly feature-gated field fail this constructor at compile time
     /// instead of silently disappearing from one test target.
     pub(crate) fn new_for_test(auth_secret: impl Into<String>, isolation: IsolationLayer) -> Self {
-        let mut state = Self {
+        let state = Self {
             registry: GraphRegistry::new(),
             isolation,
             channels: ChannelManager::new(),
@@ -458,7 +458,11 @@ impl ServerState {
             lake: Arc::new(crate::server::lake::LakeManager::new()),
         };
         #[cfg(feature = "raft")]
-        state.install_local_placement_authority();
+        let state = {
+            let mut state = state;
+            state.install_local_placement_authority();
+            state
+        };
         state
     }
 }
