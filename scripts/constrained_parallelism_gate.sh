@@ -65,7 +65,9 @@
 # USAGE:
 #   scripts/constrained_parallelism_gate.sh                # default: 2 same-NUMA-node cores, --lib + extra integration binaries
 #   EG_CONSTRAINED_CORES=0,1,2,3 scripts/constrained_parallelism_gate.sh
-#   EG_CONSTRAINED_TIMEOUT=2400 scripts/constrained_parallelism_gate.sh    # raise the per-tier hang-kill deadline (default 1200s)
+#   EG_CONSTRAINED_TIMEOUT=2400 scripts/constrained_parallelism_gate.sh    # raise the suite deadline (default 1200s)
+#   EG_CONSTRAINED_TEST_TIMEOUT=1200 scripts/constrained_parallelism_gate.sh # raise one-test watchdog (default 900s)
+#   EG_CONSTRAINED_TERM_GRACE=45 EG_CONSTRAINED_KILL_GRACE=15 scripts/constrained_parallelism_gate.sh
 #   EG_CONSTRAINED_EXTRA_TESTS=0 scripts/constrained_parallelism_gate.sh   # --lib ONLY (fast local loop, not for CI/pre-push)
 #   EG_CONSTRAINED_FILTER='write_coalescer::' scripts/constrained_parallelism_gate.sh  # scope to one area
 #
@@ -106,7 +108,9 @@
 # (1) default to two CPUs confirmed to share one NUMA node, so "2-core
 # affinity" actually means what the header comment says it means, and (2)
 # never let this gate block a host indefinitely again, regardless of root
-# cause -- see the `timeout` wrapping below.
+# cause -- see the bounded process-group runner below. The runner also has a
+# per-libtest-case watchdog and emits deterministic thread/fd teardown
+# evidence, so a hung test cannot leave cargo descendants behind.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -145,8 +149,11 @@ export CARGO_TARGET_DIR="$TARGET_DIR"
 # slow." Override with EG_CONSTRAINED_TIMEOUT for a slower/smaller runner;
 # never remove the bound.
 TIMEOUT_SECS="${EG_CONSTRAINED_TIMEOUT:-1200}"
-if ! command -v timeout >/dev/null 2>&1; then
-  echo "FAIL: 'timeout' (coreutils) is not installed -- this gate refuses to run unbounded." >&2
+TEST_TIMEOUT_SECS="${EG_CONSTRAINED_TEST_TIMEOUT:-900}"
+TERM_GRACE_SECS="${EG_CONSTRAINED_TERM_GRACE:-30}"
+KILL_GRACE_SECS="${EG_CONSTRAINED_KILL_GRACE:-10}"
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "FAIL: python3 is not installed -- bounded lifecycle gate refuses to run unbounded." >&2
   exit 2
 fi
 
@@ -169,9 +176,26 @@ n_cores=$(($(echo "$CORES" | tr ',' '\n' | wc -l)))
 echo "== GOC-70 constrained-parallelism gate =="
 echo "== environment: CPU affinity restricted to cores [$CORES] ($n_cores logical cores) =="
 echo "== host reports $(nproc) cores total; this run deliberately does not use them all =="
+echo "== lifecycle bounds: suite=${TIMEOUT_SECS}s test=${TEST_TIMEOUT_SECS}s TERM=${TERM_GRACE_SECS}s KILL=${KILL_GRACE_SECS}s =="
+
+# Keep the test command unchanged while giving every invocation a private
+# process group, an absolute suite deadline, a per-test deadline, and bounded
+# TERM/grace/KILL containment. The wrapper preserves cargo's return code and
+# never retries, ignores, or rewrites an assertion failure.
+bounded_test() {
+  local suite_name="$1"
+  shift
+  python3 scripts/bounded_test_runner.py \
+    --suite-name "$suite_name" \
+    --suite-timeout "$TIMEOUT_SECS" \
+    --test-timeout "$TEST_TIMEOUT_SECS" \
+    --term-grace "$TERM_GRACE_SECS" \
+    --kill-grace "$KILL_GRACE_SECS" \
+    -- "$@"
+}
 
 echo "-- step 1/2: unconstrained build (full host parallelism; compile cost must not be paid under 2-core affinity) --"
-if ! cargo test --no-run -p epistemic-graph --features full --lib; then
+if ! bounded_test "constrained-lib-build" cargo test --no-run -p epistemic-graph --features full --lib; then
   echo "FAIL: build failed before constrained execution even started." >&2
   exit 1
 fi
@@ -179,9 +203,9 @@ fi
 echo "-- step 2/2: running --lib suite under taskset -c $CORES (bounded to ${TIMEOUT_SECS}s) --"
 # --no-fail-fast: a fail-fast run stops at the first failure across binaries,
 # which would under-report exactly the class this gate exists to find.
-# timeout -k 30: send TERM at the deadline, KILL 30s later if it ignores TERM
-# (a genuinely wedged process, all threads parked, often won't react to TERM).
-if timeout -k 30 "${TIMEOUT_SECS}s" taskset -c "$CORES" cargo test -p epistemic-graph --features full --lib --no-fail-fast; then
+# The runner sends TERM at the deadline and KILL after the configured grace if
+# a genuinely wedged process (all threads parked, for example) ignores TERM.
+if bounded_test "constrained-lib" taskset -c "$CORES" cargo test -p epistemic-graph --features full --lib --no-fail-fast; then
   constrained_rc=0
 else
   constrained_rc=$?
@@ -191,7 +215,8 @@ if [ "$constrained_rc" -eq 124 ] || [ "$constrained_rc" -eq 137 ]; then
   cat >&2 <<EOF
 
 FAIL: the lib suite did not finish within ${TIMEOUT_SECS}s under $n_cores-core
-CPU affinity (cores $CORES) -- killed, not a test assertion failure. This
+CPU affinity (cores $CORES) -- contained in its private process group, not a
+test assertion failure. This
 gate used to be able to hang silently and indefinitely instead of failing;
 see this file's header (fix/txn-snapshot-phantom-deadlock investigation) for
 why that changed. A timeout here means one of:
@@ -240,11 +265,11 @@ if [ "${EG_CONSTRAINED_EXTRA_TESTS:-1}" != "0" ]; then
   EXTRA_TESTS="pgwire_roundtrip mysql_roundtrip mssql_roundtrip advanced_crossmodal_roundtrip incremental_server_indexes txn_recovery_key_decoupled_d_orc_50 external_compute_e2e"
   build_args=()
   for t in $EXTRA_TESTS; do build_args+=(--test "$t"); done
-  if ! cargo test --no-run -p epistemic-graph --features full "${build_args[@]}"; then
+  if ! bounded_test "constrained-extra-build" cargo test --no-run -p epistemic-graph --features full "${build_args[@]}"; then
     echo "FAIL: extra-target build failed." >&2
     exit 1
   fi
-  if timeout -k 30 "${TIMEOUT_SECS}s" taskset -c "$CORES" cargo test -p epistemic-graph --features full "${build_args[@]}" --no-fail-fast; then
+  if bounded_test "constrained-extra" taskset -c "$CORES" cargo test -p epistemic-graph --features full "${build_args[@]}" --no-fail-fast; then
     extra_rc=0
   else
     extra_rc=$?
@@ -253,8 +278,9 @@ if [ "${EG_CONSTRAINED_EXTRA_TESTS:-1}" != "0" ]; then
     cat >&2 <<EOF
 
 FAIL: the extra integration-test binaries did not finish within
-${TIMEOUT_SECS}s under $n_cores-core CPU affinity (cores $CORES) -- killed,
-not a test assertion failure. See the --lib tier's identical-shaped timeout
+${TIMEOUT_SECS}s under $n_cores-core CPU affinity (cores $CORES) -- contained,
+not a test assertion failure. The bounded runner emitted process-group,
+thread, fd, and teardown evidence above. See the --lib tier's identical-shaped timeout
 message above for how to get a backtrace from the next hang and how to tell
 a host-contention artifact from a real product deadlock before touching
 EG_CONSTRAINED_TIMEOUT.
