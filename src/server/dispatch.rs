@@ -3759,7 +3759,7 @@ async fn dispatch_inner(
             {
                 s.isolation.try_bootstrap_system_identity(identity)
             } else {
-                s.isolation.try_register_agent(identity)
+                s.isolation.try_register_agent_from_request(identity)
             };
             if let Err(message) = result {
                 return Response::err(req.id, message);
@@ -8412,6 +8412,38 @@ mod admin_scope_tests {
         let second =
             register_identity(&state, 22, Some("second"), "second", AgentRole::System).await;
         assert!(second.error.is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn system_registration_after_genesis_cannot_use_non_bootstrap_arm() {
+        let state = state_min();
+        let response = dispatch_on_heap(
+            &state,
+            req_as(
+                23,
+                Some("root"),
+                Method::RegisterIdentity {
+                    agent_id: "root".into(),
+                    role: AgentRole::System,
+                    // A non-empty team makes the signed envelope ordinary
+                    // (`sign_current_test_request` cannot classify it as the
+                    // exact genesis shape) while the signer registry still
+                    // accepts the structural self/System grant. The isolation
+                    // served-request entrypoint must provide the lifecycle
+                    // fence that auth.rs cannot see.
+                    teams: vec!["post-genesis".into()],
+                    signature: String::new(),
+                    roles: vec![],
+                },
+            ),
+        )
+        .await;
+        assert_eq!(
+            response.error.as_deref(),
+            Some("ACCESS_DENIED: System identities require the dedicated bootstrap path")
+        );
+        assert!(!state.read().await.isolation.identity_bootstrap_pending());
+        assert!(state.read().await.isolation.is_system("root"));
     }
 
     #[tokio::test(flavor = "multi_thread")]
