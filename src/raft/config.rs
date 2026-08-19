@@ -19,6 +19,11 @@ const MIN_RAFT_AUTH_SECRET_BYTES: usize = 32;
 const MAX_RAFT_AUTH_SECRET_BYTES: usize = 4 * 1024;
 const MAX_RAFT_PEERS: usize = 1_024;
 const MAX_RAFT_PEER_ADDRESS_BYTES: usize = 1_024;
+/// Optional explicit placement/failure-domain map used by the bounded leader
+/// balancer.  The value is a comma-separated `node_id=domain` list and, when
+/// present, must cover every configured peer exactly once.
+const RAFT_FAILURE_DOMAINS_ENV: &str = "EPISTEMIC_GRAPH_RAFT_FAILURE_DOMAINS";
+const MAX_RAFT_FAILURE_DOMAIN_BYTES: usize = 256;
 /// ADR-1 / W1.1 — this node's client-reachable address, self-reported into the
 /// durable cluster-topology store (`NodeInfoUpsert`) and handed back by
 /// `Method::ClusterMembers`/`PlacementRoute.endpoints`. Required once Raft peers
@@ -365,6 +370,105 @@ fn parse_peers(raw: &str) -> Result<PeerMap, String> {
     Ok(peers)
 }
 
+/// Resolve the failure domain for each configured Raft peer.  An explicit map is
+/// preferred for deployments where multiple addresses share a host or where the
+/// operator's failure boundary is an availability zone/rack.  Without one, the
+/// endpoint host is the conservative domain: the balancer will never move a leader
+/// between two voters that resolve to the same host.
+pub(crate) fn resolve_failure_domains(
+    peers: &PeerMap,
+) -> Result<BTreeMap<NodeId, String>, String> {
+    let explicit = std::env::var(RAFT_FAILURE_DOMAINS_ENV).ok();
+    match explicit {
+        Some(raw) if !raw.trim().is_empty() => parse_failure_domains(&raw, peers),
+        _ => Ok(peers
+            .iter()
+            .map(|(node_id, peer)| (*node_id, failure_domain_for_peer(*node_id, &peer.addr)))
+            .collect()),
+    }
+}
+
+/// Derive a stable host-oriented fallback domain from an advertised peer address.
+/// This is deliberately only a safety fallback; operators should set
+/// [`RAFT_FAILURE_DOMAINS_ENV`] when the actual fault boundary is larger than a
+/// hostname/IP address.
+pub(crate) fn failure_domain_for_peer(node_id: NodeId, endpoint: &str) -> String {
+    // In-process acceptance fixtures bind every node to loopback but intentionally
+    // model distinct node failure domains.  This is test-only topology metadata and
+    // must never be read as evidence of cross-host isolation.
+    #[cfg(any(test, feature = "harness"))]
+    if is_loopback_endpoint(endpoint) {
+        return format!("harness-node-{node_id}");
+    }
+    let authority = endpoint
+        .split_once("://")
+        .map_or(endpoint, |(_, authority)| authority)
+        .split('/')
+        .next()
+        .unwrap_or_default();
+    let host = if let Some(host) = authority.strip_prefix('[') {
+        host.split(']').next().unwrap_or_default()
+    } else {
+        authority
+            .rsplit_once(':')
+            .map_or(authority, |(host, _)| host)
+    }
+    .trim();
+    if host.is_empty() {
+        format!("node-{node_id}")
+    } else {
+        host.to_ascii_lowercase()
+    }
+}
+
+fn parse_failure_domains(
+    raw: &str,
+    peers: &PeerMap,
+) -> Result<BTreeMap<NodeId, String>, String> {
+    let mut domains = BTreeMap::new();
+    for (entry_index, part) in raw
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .enumerate()
+    {
+        let (node_id, domain) = part.split_once('=').ok_or_else(|| {
+            format!(
+                "malformed failure-domain entry {entry_index} (expected 'node_id=domain')"
+            )
+        })?;
+        let node_id = node_id
+            .trim()
+            .parse::<NodeId>()
+            .map_err(|_| format!("malformed failure-domain node id in entry {entry_index}"))?;
+        if !peers.contains_key(&node_id) {
+            return Err(format!(
+                "failure-domain entry names unknown Raft node {node_id}"
+            ));
+        }
+        let domain = domain.trim();
+        if domain.is_empty() || domain.len() > MAX_RAFT_FAILURE_DOMAIN_BYTES {
+            return Err(format!(
+                "failure domain must be non-empty and at most {MAX_RAFT_FAILURE_DOMAIN_BYTES} bytes"
+            ));
+        }
+        if domains.insert(node_id, domain.to_string()).is_some() {
+            return Err(format!("duplicate failure-domain entry for node {node_id}"));
+        }
+    }
+    if domains.len() != peers.len() {
+        let missing = peers
+            .keys()
+            .find(|node_id| !domains.contains_key(node_id))
+            .copied()
+            .unwrap_or_default();
+        return Err(format!(
+            "failure-domain map must cover every configured peer (missing node {missing})"
+        ));
+    }
+    Ok(domains)
+}
+
 /// Parse `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2 / ADR-2 W1.2): `None`/empty/`"0"` all
 /// collapse to `default` rather than erroring — an operator who never heard of this knob
 /// gets the cores-derived default ([`default_raft_group_count`]). A non-empty,
@@ -476,6 +580,20 @@ mod tests {
         assert!(is_loopback_endpoint("localhost:7001"));
         assert!(!is_loopback_endpoint("0.0.0.0:7001"));
         assert!(!is_loopback_endpoint("localhost.example:7001"));
+    }
+
+    #[test]
+    fn failure_domains_are_complete_and_non_oracular() {
+        let peers = parse_peers("1@10.0.0.1:7001,2@10.0.0.1:7002,3@10.0.0.2:7003").unwrap();
+        let fallback = peers
+            .iter()
+            .map(|(node_id, peer)| (*node_id, failure_domain_for_peer(*node_id, &peer.addr)))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(fallback.get(&1).map(String::as_str), Some("10.0.0.1"));
+        assert_eq!(fallback.get(&3).map(String::as_str), Some("10.0.0.2"));
+        assert!(parse_failure_domains("1=az-a,2=az-a,3=az-b", &peers).is_ok());
+        assert!(parse_failure_domains("1=az-a,2=az-a", &peers).is_err());
+        assert!(parse_failure_domains("1=az-a,2=az-a,4=az-b", &peers).is_err());
     }
 
     #[test]
