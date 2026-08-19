@@ -289,7 +289,7 @@ _CANONICAL_BINARY_FIELDS = frozenset(
         "conditions_msgpack",
         "updates_msgpack",
         # Statechart::Define's payload (see `Statechart.define` below, which packs
-        # the definition and sends {"Define": {"def_msgpack": [...]}}). Omitting it
+        # the definition and sends {"Define": {"def_msgpack": <binary>}}). Omitting it
         # here left the field outside canonicalization, so the client's MAC did not
         # match the server's recomputation and every Statechart::Define was rejected
         # with "Authentication failed".
@@ -367,6 +367,16 @@ _BTREEMAP_SORTED_FIELDS = {
     "CausalEstimate": frozenset({"do_values"}),
     "CausalCounterfactual": frozenset({"actual", "do_values"}),
 }
+
+# These nested request fields are intentionally plain Rust ``Vec<u8>`` rather
+# than ``#[serde(with = "serde_bytes")]`` in the current server protocol.  The
+# transport may carry them as MessagePack ``bin`` (rmp-serde accepts bin while
+# deserializing a byte sequence), but the server's typed re-serialization for
+# the signed body remains an integer array.  Keep that canonical form without
+# giving up the compact binary wire representation.
+_CANONICAL_ARRAY_BYTE_FIELDS = frozenset(
+    {"expected_metadata_msgpack", "set_metadata_msgpack"}
+)
 
 
 class _CanonicalF32:
@@ -701,6 +711,20 @@ def _pack_canonical_msgpack(value: Any) -> bytes:
     return bytes(output)
 
 
+def _pack_binary_msgpack(value: Any) -> bytes:
+    """Encode an opaque MessagePack payload as a transport-native byte string.
+
+    RPC fields declared as ``Vec<u8>``/``serde_bytes`` are binary payloads, not
+    MessagePack arrays of integer octets.  Keeping this one helper at the client
+    boundary makes every batch/lifecycle blob use the same ``bin`` encoding and
+    avoids the substantial wire and signing overhead of ``list(packb(...))``.
+    The payload itself remains ordinary named MessagePack, so this does not alter
+    any scalar field compatibility.
+    """
+
+    return msgpack.packb(value, use_bin_type=True)
+
+
 def _canonical_method_body(method: str, params: dict[str, Any] | None = None) -> bytes:
     method_wire: dict[str, Any] = {"method": method}
     if params is not None:
@@ -711,8 +735,11 @@ def _canonical_method_body(method: str, params: dict[str, Any] | None = None) ->
 
 def _canonicalize_method_value(value: Any, *, method: str, field: str = "") -> Any:
     """Mirror serde's binary representation for v2 method-body signatures."""
-    if isinstance(value, bytearray):
-        return bytes(value)
+    if isinstance(value, bytes | bytearray):
+        binary = bytes(value)
+        if field in _CANONICAL_ARRAY_BYTE_FIELDS:
+            return list(binary)
+        return binary
     if isinstance(value, dict):
         return {
             key: _canonicalize_method_value(item, method=method, field=key)
@@ -2580,7 +2607,7 @@ class NodeClient:
             "AddNode",
             {
                 "node_id": node_id,
-                "properties_msgpack": list(msgpack.packb(properties or {})),
+                "properties_msgpack": _pack_binary_msgpack(properties or {}),
             },
         )
 
@@ -2597,7 +2624,7 @@ class NodeClient:
             "CreateNodeIfAbsent",
             {
                 "node_id": node_id,
-                "properties_msgpack": list(msgpack.packb(properties or {})),
+                "properties_msgpack": _pack_binary_msgpack(properties or {}),
             },
         )
 
@@ -2621,8 +2648,8 @@ class NodeClient:
             "CompareAndSetNodeFields",
             {
                 "node_id": node_id,
-                "conditions_msgpack": list(msgpack.packb(conditions)),
-                "updates_msgpack": list(msgpack.packb(updates)),
+                "conditions_msgpack": _pack_binary_msgpack(conditions),
+                "updates_msgpack": _pack_binary_msgpack(updates),
             },
         )
 
@@ -2639,7 +2666,7 @@ class NodeClient:
         and Raft replay stay deterministic."""
         raw_val = await self._client._send(
             "ClaimNext",
-            {"label": label, "updates_msgpack": list(msgpack.packb(updates))},
+            {"label": label, "updates_msgpack": _pack_binary_msgpack(updates)},
         )
         if isinstance(raw_val, bytes):
             raw_val = msgpack.unpackb(raw_val, raw=False)
@@ -2817,9 +2844,9 @@ class StatechartClient:
         its shape). Returns the content-addressed ``def_id``."""
         if not isinstance(definition, dict):
             raise TypeError("definition must be a dict shaped like StatechartDef")
-        blob = msgpack.packb(definition, use_bin_type=True)
+        blob = _pack_binary_msgpack(definition)
         resp = await self._client._send(
-            "Statechart", {"op": {"Define": {"def_msgpack": list(blob)}}}
+            "Statechart", {"op": {"Define": {"def_msgpack": blob}}}
         )
         return str(resp["def_id"])
 
@@ -3788,12 +3815,14 @@ class WorkItemClient:
             "expected_checkpoint_id": expected_checkpoint_id,
             "set_checkpoint_id": set_checkpoint_id,
             "expected_metadata_msgpack": (
-                list(msgpack.packb(expected_metadata or {}))
+                _pack_binary_msgpack(expected_metadata or {})
                 if set_metadata is not None
                 else None
             ),
             "set_metadata_msgpack": (
-                list(msgpack.packb(set_metadata)) if set_metadata is not None else None
+                _pack_binary_msgpack(set_metadata)
+                if set_metadata is not None
+                else None
             ),
             "expected_prio_bucket": expected_prio_bucket,
             "set_prio_bucket": set_prio_bucket,
@@ -5340,7 +5369,7 @@ class EdgeClient:
             {
                 "source_id": source_id,
                 "target_id": target_id,
-                "properties_msgpack": list(msgpack.packb(properties or {})),
+                "properties_msgpack": _pack_binary_msgpack(properties or {}),
             },
         )
 
@@ -5397,7 +5426,7 @@ class EdgeClient:
             {
                 "source_id": source_id,
                 "target_id": target_id,
-                "properties_msgpack": list(msgpack.packb(properties or {})),
+                "properties_msgpack": _pack_binary_msgpack(properties or {}),
                 "prior_source": prior_source,
                 "prior_target": prior_target,
                 "prior_relationship": prior_relationship,
@@ -5566,7 +5595,7 @@ class GraphOperationsClient:
         Pass the returned ``hash``/``frame_id`` back as ``prev_hash``/``prev_frame_id``
         on the next call to chain the frames.
         """
-        blob = msgpack.packb(
+        blob = _pack_binary_msgpack(
             {
                 "session_id": session_id,
                 "frame_seq": frame_seq,
@@ -5826,7 +5855,7 @@ class LifecycleClient:
         rows are retained.
         """
         return await self._client._send(
-            "BatchUpdate", {"operations_msgpack": list(msgpack.packb(operations))}
+            "BatchUpdate", {"operations_msgpack": _pack_binary_msgpack(operations)}
         )
 
     async def multi_graph_batch_update(
@@ -5846,12 +5875,12 @@ class LifecycleClient:
         ``Vec<(graph_name, operations_msgpack)>`` so the ordering is deterministic.
         """
         encoded = [
-            (str(graph), list(msgpack.packb(list(ops))))
+            (str(graph), _pack_binary_msgpack(list(ops)))
             for graph, ops in batches.items()
         ]
         return await self._client._send(
             "MultiGraphBatchUpdate",
-            {"batches_msgpack": list(msgpack.packb(encoded))},
+            {"batches_msgpack": _pack_binary_msgpack(encoded)},
         )
 
     async def metrics(self) -> dict[str, Any]:
@@ -9581,7 +9610,7 @@ class TxnClient:
         params: dict[str, Any] = {
             "txn_id": txn_id,
             "node_id": node_id,
-            "properties_msgpack": list(msgpack.packb(properties or {})),
+            "properties_msgpack": _pack_binary_msgpack(properties or {}),
             "graph": graph,
         }
         return await self._client._send("TxnAddNode", params)
@@ -9608,7 +9637,7 @@ class TxnClient:
             "txn_id": txn_id,
             "source_id": source_id,
             "target_id": target_id,
-            "properties_msgpack": list(msgpack.packb(properties or {})),
+            "properties_msgpack": _pack_binary_msgpack(properties or {}),
             "graph": graph,
         }
         return await self._client._send("TxnAddEdge", params)
@@ -9636,8 +9665,8 @@ class TxnClient:
         params: dict[str, Any] = {
             "txn_id": txn_id,
             "node_id": node_id,
-            "conditions_msgpack": list(msgpack.packb(conditions)),
-            "updates_msgpack": list(msgpack.packb(updates)),
+            "conditions_msgpack": _pack_binary_msgpack(conditions),
+            "updates_msgpack": _pack_binary_msgpack(updates),
             "graph": graph,
         }
         return await self._client._send("TxnCas", params)
@@ -9697,7 +9726,7 @@ class TxnClient:
         params: dict[str, Any] = {
             "txn_id": txn_id,
             "series": series,
-            "points": msgpack.packb(
+            "points": _pack_binary_msgpack(
                 [[int(ts), [float(v) for v in vals]] for ts, vals in points]
             ),
             "graph": graph,
@@ -9966,7 +9995,7 @@ class TimeSeriesClient:
                 raise TypeError("field_names must be a list of strings")
             names = list(field_names)
 
-        blob = msgpack.packb(normalized_points)
+        blob = _pack_binary_msgpack(normalized_points)
         return await self._client._send(
             "TsAppend",
             {
@@ -9994,7 +10023,7 @@ class TimeSeriesClient:
         """ASOF join: for each event ts in ``left_ts``, the series' field-0 value as
         of (nearest at-or-before) that time. Results are in the SAME order as
         ``left_ts``; an unmatched / out-of-tolerance event yields ``None``."""
-        blob = msgpack.packb([int(t) for t in left_ts])
+        blob = _pack_binary_msgpack([int(t) for t in left_ts])
         return await self._client._send(
             "TsAsofJoin",
             {
@@ -10495,7 +10524,7 @@ class StreamingClient:
         spec = {"graph": graph, "label": label, "agg": spec_agg}
         return await self._client._send(
             "RegisterContinuousQuery",
-            {"name": name, "spec_msgpack": msgpack.packb(spec)},
+            {"name": name, "spec_msgpack": _pack_binary_msgpack(spec)},
         )
 
     async def read_continuous_query(self, name: str) -> dict[str, Any]:
@@ -10562,7 +10591,7 @@ class StreamingClient:
                 "graph": graph,
                 "label": label,
                 "op": op,
-                "action_msgpack": msgpack.packb(action or {}),
+                "action_msgpack": _pack_binary_msgpack(action or {}),
             },
         )
 
@@ -10638,7 +10667,7 @@ class StreamingClient:
         spec = {"pattern": pattern, "window": window}
         return await self._client._send(
             "CepSubscribe",
-            {"pattern_msgpack": msgpack.packb(spec), "buffer": int(buffer)},
+            {"pattern_msgpack": _pack_binary_msgpack(spec), "buffer": int(buffer)},
         )
 
     async def cep_poll(
