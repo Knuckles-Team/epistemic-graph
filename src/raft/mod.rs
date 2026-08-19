@@ -83,6 +83,8 @@ pub mod cross_shard_txn;
 #[cfg(feature = "query")]
 pub mod exchange;
 pub mod multi;
+/// Durable drain/safety contract for Raft membership shrink.
+pub mod membership_shrink;
 pub mod network;
 pub mod node;
 /// The placement catalog (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) — the ONE durable,
