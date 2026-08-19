@@ -12,6 +12,14 @@ pub enum NumericError {
     LinAlg(String),
     /// Bad shape / dimension mismatch (numpy raises `ValueError`).
     Shape(String),
+    /// A value has a type that the bounded native boundary does not support.
+    Type(String),
+    /// A parameter is outside the operation's valid domain.
+    Bounds(String),
+    /// An operation would exceed the kernel's explicit resource budget.
+    Resource(String),
+    /// Random-distribution parameters are invalid.
+    Random(String),
 }
 
 impl NumericError {
@@ -21,6 +29,22 @@ impl NumericError {
     pub fn shape(msg: impl Into<String>) -> Self {
         NumericError::Shape(msg.into())
     }
+
+    pub fn type_error(msg: impl Into<String>) -> Self {
+        NumericError::Type(msg.into())
+    }
+
+    pub fn bounds(msg: impl Into<String>) -> Self {
+        NumericError::Bounds(msg.into())
+    }
+
+    pub fn resource(msg: impl Into<String>) -> Self {
+        NumericError::Resource(msg.into())
+    }
+
+    pub fn random(msg: impl Into<String>) -> Self {
+        NumericError::Random(msg.into())
+    }
 }
 
 impl fmt::Display for NumericError {
@@ -28,6 +52,10 @@ impl fmt::Display for NumericError {
         match self {
             NumericError::LinAlg(m) => write!(f, "LinAlgError: {m}"),
             NumericError::Shape(m) => write!(f, "ValueError: {m}"),
+            NumericError::Type(m) => write!(f, "TypeError: {m}"),
+            NumericError::Bounds(m) => write!(f, "ValueError: {m}"),
+            NumericError::Resource(m) => write!(f, "ResourceError: {m}"),
+            NumericError::Random(m) => write!(f, "ValueError: {m}"),
         }
     }
 }

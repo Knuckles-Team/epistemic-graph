@@ -94,3 +94,14 @@ def test_native_outputs_are_bounded_before_allocation() -> None:
         kernel.kmeans([[1.0, 2.0]], 1_000_001)
     with pytest.raises(ValueError, match="max_iter exceeds"):
         kernel.kmeans([[1.0, 2.0]], 1, 10_001)
+
+
+def test_native_random_rejects_invalid_parameters_without_panicking() -> None:
+    kernel = _kernel()
+
+    with pytest.raises(ValueError, match="normal"):
+        kernel.normal(0.0, -1.0, 1, 1)
+    with pytest.raises(ValueError, match="uniform"):
+        kernel.uniform(1.0, 1.0, 1, 1)
+    with pytest.raises(ValueError, match="integers"):
+        kernel.integers(2, 2, 1, 1)

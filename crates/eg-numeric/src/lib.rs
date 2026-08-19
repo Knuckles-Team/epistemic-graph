@@ -58,7 +58,7 @@ mod py {
     use crate::{cluster, elementwise, linalg, random, reductions, stats};
     use ndarray::{ArrayD, ArrayViewD, Axis, Ix1, Ix2, IxDyn};
     use pyo3::create_exception;
-    use pyo3::exceptions::{PyException, PyValueError};
+    use pyo3::exceptions::{PyException, PyTypeError, PyValueError};
     use pyo3::prelude::*;
     use pyo3::types::{
         PyByteArray, PyBytes, PyList, PyMapping, PySequence, PySequenceMethods, PyString,
@@ -67,13 +67,17 @@ mod py {
     create_exception!(numeric, LinAlgError, PyException);
 
     const MAX_INPUT_RANK: usize = 8;
-    const MAX_INPUT_ELEMENTS: usize = 1_000_000;
+    const MAX_INPUT_ELEMENTS: usize = random::MAX_RANDOM_ELEMENTS;
     const MAX_KMEANS_ITERATIONS: usize = 10_000;
 
     fn map_err(e: crate::NumericError) -> PyErr {
         match e {
             crate::NumericError::LinAlg(m) => LinAlgError::new_err(m),
             crate::NumericError::Shape(m) => PyValueError::new_err(m),
+            crate::NumericError::Type(m) => PyTypeError::new_err(m),
+            crate::NumericError::Bounds(m)
+            | crate::NumericError::Resource(m)
+            | crate::NumericError::Random(m) => PyValueError::new_err(m),
         }
     }
 
@@ -851,20 +855,16 @@ mod py {
     fn normal(py: Python<'_>, loc: f64, scale: f64, size: usize, seed: u64) -> PyResult<Py<PyAny>> {
         check_output_size(size)?;
         let mut g = random::Generator::new(seed);
-        py_f64(
-            py,
-            ndarray::Array1::from_vec(g.normal(loc, scale, size)).into_dyn(),
-        )
+        let values = g.try_normal(loc, scale, size).map_err(map_err)?;
+        py_f64(py, ndarray::Array1::from_vec(values).into_dyn())
     }
     #[pyfunction]
     #[pyo3(signature = (low, high, size, seed))]
     fn uniform(py: Python<'_>, low: f64, high: f64, size: usize, seed: u64) -> PyResult<Py<PyAny>> {
         check_output_size(size)?;
         let mut g = random::Generator::new(seed);
-        py_f64(
-            py,
-            ndarray::Array1::from_vec(g.uniform(low, high, size)).into_dyn(),
-        )
+        let values = g.try_uniform(low, high, size).map_err(map_err)?;
+        py_f64(py, ndarray::Array1::from_vec(values).into_dyn())
     }
     #[pyfunction]
     #[pyo3(signature = (low, high, size, seed))]
@@ -877,10 +877,8 @@ mod py {
     ) -> PyResult<Py<PyAny>> {
         check_output_size(size)?;
         let mut g = random::Generator::new(seed);
-        py_i64(
-            py,
-            ndarray::Array1::from_vec(g.integers(low, high, size)).into_dyn(),
-        )
+        let values = g.try_integers(low, high, size).map_err(map_err)?;
+        py_i64(py, ndarray::Array1::from_vec(values).into_dyn())
     }
 
     /// The `epistemic_graph.numeric` extension module.

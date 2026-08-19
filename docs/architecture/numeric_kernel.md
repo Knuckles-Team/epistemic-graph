@@ -120,6 +120,10 @@ self-contained and BLAS/LAPACK-free. Its PyO3 boundary accepts bounded built-in
 scalars or rectangular sequences and returns scalars or nested lists (the
 scalar↔nested-list PyO3 contract); conversion owns Rust storage and does not expose
 an array-buffer aliasing contract.
+The Rust `Generator` keeps its established `Vec`-valued methods for in-process
+engine consumers; the extension routes random calls through checked `try_*`
+adapters so invalid parameters and output budgets become Python `ValueError`s
+before sampling or allocation.
 Cross-component engine results use the bounded Arrow `KnowledgeBatch` currency; Arrow
 is not an additional dependency of the low-level Python boundary.
 
