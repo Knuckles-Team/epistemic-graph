@@ -1,6 +1,9 @@
 //! Native TTS synthesis (GOC-34, `OWNER-VOICE-TTS`). Stateless — no graph core, runs
 //! inline, mirroring `finance.rs`'s pure-compute shape (Method::TtsSynthesize is
-//! `mutates: false` in `eg-capabilities`'s policy ledger — see that crate).
+//! `mutates: false` in `eg-capabilities`'s policy ledger — see that crate). The
+//! verified caller is required before inference, but the request contains no
+//! graph-row selector or server-side result handle; it therefore has no
+//! cross-tenant row read to project or shape.
 //!
 //! ## What this handler honestly does and does not do
 //!

@@ -4,9 +4,15 @@
 //! bytes, fetch the mark x surface capability matrix, or look up a rendered
 //! view's durable provenance.
 //!
-//! NOT graph-scoped: a render never reads a live `GraphCore` — so this module
+//! NOT graph-row-scoped: a render never reads a live `GraphCore` — so this module
 //! self-routes in `dispatch.rs`'s top-level match, ahead of the per-graph
 //! `dispatch_graph_op` chain — exactly like `handlers::jobs`/`handlers::statechart`.
+//! The persistent ColumnStore and provenance side-store are nevertheless
+//! owner-scoped: the verified `CarrierAuthority` is applied to the caller's
+//! dataset reference before lookup, ingestion, caching, or provenance access.
+//! A caller therefore cannot reuse another principal's raw `dataset_ref` or
+//! `result_ref` as a cross-tenant read handle. This is an owner-scoped
+//! non-row exception, not a bypass of the graph RLS predicate.
 //! Gated on the facade's `viz-static-export` feature (a deliberate deviation from
 //! gating on bare `viz`: this handler needs a real `eg_viz_columnstore::ColumnStore`
 //! and `eg_viz_export::ColumnStoreExportBackend` to do anything, which only exist
@@ -20,13 +26,16 @@
 //! (`crate::server::viz_engine::VizEngineState`, lazily created on first use —
 //! see [`engine_state`]) across requests:
 //!
-//! - **Persistent ColumnStore.** `VizRenderRequest::dataset` is now `Option`:
-//!   a caller who already ingested a `dataset_ref` (any prior `VizOp::Render`
-//!   call that supplied data) may omit it on a later request — e.g. a
-//!   different `ViewSpec`/canvas/format over the SAME data, or a pan/zoom
-//!   follow-up — without resending the dataset over the wire. Omitting it
-//!   against an unknown `dataset_ref` is a clear, typed "unavailable" error,
-//!   never a fabricated empty render (see [`render`]'s "no usable data" path).
+//! - **Persistent, owner-scoped ColumnStore.** `VizRenderRequest::dataset` is
+//!   now `Option`: a caller who already ingested a `dataset_ref` (any prior
+//!   `VizOp::Render` call that supplied data) may omit it on a later request —
+//!   e.g. a different `ViewSpec`/canvas/format over the SAME data, or a
+//!   pan/zoom follow-up — without resending the dataset over the wire. The
+//!   handler namespaces that reference with the verified carrier before the
+//!   lookup, so this reuse is limited to the same owner. Omitting it against
+//!   an unknown owner-scoped `dataset_ref` is a clear, typed "unavailable"
+//!   error, never a fabricated empty render (see [`render`]'s "no usable
+//!   data" path).
 //! - **Content-addressed render cache**, keyed by
 //!   `crate::server::viz_engine::render_cache_key` — see that function's own
 //!   doc, and this handler's [`render`], for why it is keyed on the dataset's
@@ -79,16 +88,18 @@ const MAX_SYNTHETIC_CLUSTERS: u32 = 10_000;
 const MAX_SYNTHETIC_GRAPH_NODES: u64 = 2_000_000;
 const MAX_SYNTHETIC_GRAPH_EDGES: u64 = 10_000_000;
 const MAX_INLINE_COLUMN_ROWS: usize = 20_000_000;
+const VIZ_DATASET_NAMESPACE: &str = "viz-dataset";
+const VIZ_RESULT_OWNER_NAMESPACE: &str = "viz-result-owner";
+const MAX_SCOPED_RESULT_REF_BYTES: usize = 512;
 
-/// Handle `Method::Viz { op }`. `authority` is currently unused for
-/// render/capability/provenance (a render touches no owner-scoped durable
-/// state and provenance is engine-wide, not per-actor ACL'd) — kept in the
-/// signature for parity with the sibling self-routed handlers and so a future
-/// per-caller rate limit has an authenticated identity ready to hand.
+/// Handle `Method::Viz { op }`. Although the render data is not graph-row
+/// scoped, the persistent ColumnStore and provenance side-store are
+/// owner-scoped by the verified carrier. Scope is applied before any state
+/// lookup or mutation, so cache/provenance hits cannot cross principals.
 pub(crate) async fn handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
-    _authority: &CarrierAuthority,
+    authority: &CarrierAuthority,
     op: VizOp,
 ) -> Response {
     match op {
@@ -97,13 +108,25 @@ pub(crate) async fn handle(
             ResultPayload::raw(&CapabilityMatrix::default_matrix()),
         ),
         VizOp::Render(request) => {
+            let mut request = request;
+            request.dataset_ref = match scoped_dataset_ref(authority, &request.dataset_ref) {
+                Ok(dataset_ref) => dataset_ref,
+                Err(message) => return Response::err(req_id, message),
+            };
             let engine = engine_state(state).await;
-            match render(&engine, request) {
+            match render(&engine, authority, request) {
                 Ok(response) => Response::ok(req_id, ResultPayload::raw(&response)),
                 Err(message) => Response::err(req_id, message),
             }
         }
         VizOp::RenderProvenance { result_ref } => {
+            let owner_prefix = scoped_result_owner_prefix(authority);
+            if !authorized_result_ref(&owner_prefix, &result_ref) {
+                return Response::err(
+                    req_id,
+                    "ACCESS_DENIED: viz result is outside the verified owner scope",
+                );
+            }
             let engine = engine_state(state).await;
             let record: Option<VizProvenanceRecord> = engine.provenance.get(&result_ref);
             Response::ok(req_id, ResultPayload::raw(&record))
@@ -164,7 +187,11 @@ struct VizRenderResponse {
 /// check either way), this returns an explicit, typed "no usable data" error
 /// — never a silently empty render that could be mistaken for a real
 /// zero-row result.
-fn render(engine: &VizEngineState, request: VizRenderRequest) -> Result<VizRenderResponse, String> {
+fn render(
+    engine: &VizEngineState,
+    authority: &CarrierAuthority,
+    request: VizRenderRequest,
+) -> Result<VizRenderResponse, String> {
     let spec: ViewSpec = serde_json::from_value(request.spec_json)
         .map_err(|e| format!("failed to parse spec_json as a ViewSpec: {e}"))?;
     spec.validate()
@@ -195,7 +222,7 @@ fn render(engine: &VizEngineState, request: VizRenderRequest) -> Result<VizRende
     let query_hash = eg_viz_core::query_hash(&spec, &request.dataset_ref, fingerprint)
         .map_err(|e| format!("failed to compute query hash: {e}"))?;
     let cache_key = render_cache_key(&query_hash, width_px, height_px, request.format, budget);
-    let result_ref = provenance_result_ref(&cache_key);
+    let result_ref = scoped_result_ref(authority, &provenance_result_ref(&cache_key));
 
     if let Some(cached) = engine.cache_get(&cache_key) {
         return Ok(VizRenderResponse {
@@ -287,6 +314,39 @@ fn provenance_result_ref(cache_key: &str) -> String {
         "eg:viz_result:{}",
         cache_key.trim_start_matches("eg:viz_render:")
     )
+}
+
+/// Derive the internal ColumnStore key from the verified carrier, never from
+/// the caller's raw dataset reference alone. The raw reference is deliberately
+/// hashed by [`CarrierAuthority::namespace`], so it cannot appear in cache,
+/// provenance, or error state.
+fn scoped_dataset_ref(authority: &CarrierAuthority, dataset_ref: &str) -> Result<String, String> {
+    let dataset_ref = dataset_ref.trim();
+    if dataset_ref.is_empty() {
+        return Err("ACCESS_DENIED: viz dataset_ref must not be empty".to_string());
+    }
+    Ok(authority.namespace(VIZ_DATASET_NAMESPACE, dataset_ref))
+}
+
+/// The result key includes a stable, opaque owner prefix. Keeping that prefix
+/// in the returned reference lets a provenance lookup validate ownership
+/// without decoding or trusting any caller-provided tenant/principal field.
+fn scoped_result_owner_prefix(authority: &CarrierAuthority) -> String {
+    format!(
+        "{}:",
+        authority.namespace(VIZ_RESULT_OWNER_NAMESPACE, "owner")
+    )
+}
+
+fn scoped_result_ref(authority: &CarrierAuthority, result_ref: &str) -> String {
+    format!("{}{}", scoped_result_owner_prefix(authority), result_ref)
+}
+
+fn authorized_result_ref(owner_prefix: &str, result_ref: &str) -> bool {
+    !result_ref.is_empty()
+        && result_ref.len() <= MAX_SCOPED_RESULT_REF_BYTES
+        && !result_ref.contains('\0')
+        && result_ref.starts_with(owner_prefix)
 }
 
 /// Ingest `dataset` into `store` under `dataset_ref`, per [`VizDatasetSource`]'s
@@ -504,4 +564,50 @@ fn synthetic_graph_edges(node_count: u64, edge_count: u64, seed: u64) -> Vec<(u3
         }
     }
     edges
+}
+
+#[cfg(test)]
+mod authority_tests {
+    use super::*;
+    use crate::server::auth::VerifiedRequestContext;
+
+    fn authority(agent_id: &str, tenant: &str) -> CarrierAuthority {
+        CarrierAuthority::from_verified(
+            &VerifiedRequestContext::verified_for_test_in_tenant(agent_id, tenant),
+        )
+        .expect("test context must mint a carrier authority")
+    }
+
+    #[test]
+    fn viz_dataset_handles_are_not_reusable_across_tenants() {
+        let alice = authority("alice", "tenant-a");
+        let bob = authority("bob", "tenant-b");
+        let alice_dataset = scoped_dataset_ref(&alice, "shared-export").unwrap();
+        let bob_dataset = scoped_dataset_ref(&bob, "shared-export").unwrap();
+
+        assert_ne!(
+            alice_dataset, bob_dataset,
+            "the same caller-facing dataset_ref must resolve to distinct owner scopes"
+        );
+        assert!(
+            !bob.owns(alice.tenant_scope(), alice.actor_scope()),
+            "a foreign tenant must not own Alice's dataset scope"
+        );
+    }
+
+    #[test]
+    fn viz_provenance_lookup_denies_a_foreign_owner_result_ref() {
+        let alice = authority("alice", "tenant-a");
+        let bob = authority("bob", "tenant-b");
+        let alice_result = scoped_result_ref(&alice, "eg:viz_result:fixture");
+
+        assert!(authorized_result_ref(
+            &scoped_result_owner_prefix(&alice),
+            &alice_result
+        ));
+        assert!(
+            !authorized_result_ref(&scoped_result_owner_prefix(&bob), &alice_result),
+            "a result produced under Alice's verified owner scope must be denied to Bob"
+        );
+    }
 }
