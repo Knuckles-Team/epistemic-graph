@@ -30,7 +30,7 @@
 //!   * `semantic_store` `graph                  -> semantic store blob (msgpack)`
 //!   * `graph_meta`     `graph                  -> {name, graph_type} blob` (replaces manifest.json)
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
@@ -708,7 +708,9 @@ impl Default for RedbGroupCommitConfig {
 /// Group-commit observability for the redb writer (CONCEPT:EG-KG.backend.adaptive-linger-coalesce), mirroring
 /// `write_coalescer::BatchStats`. `ops / commits` is the average batch size = the
 /// fsyncs-saved ratio; `lingered` counts commits that paid a micro-linger window.
-/// Cheap relaxed atomics, shared (`Arc`) between the writer thread and any reader.
+/// `linger_waiting` exposes whether the writer is currently inside that bounded
+/// receive window, which makes operational probes and deterministic contention
+/// tests observe the mechanism instead of guessing from scheduler timing.
 #[derive(Debug, Default)]
 pub struct RedbCommitStats {
     /// Group-commit `WriteTransaction`s issued on the run-loop barrier/timeout path.
@@ -717,6 +719,8 @@ pub struct RedbCommitStats {
     pub ops: AtomicU64,
     /// How many of those commits paid a micro-linger window.
     pub lingered: AtomicU64,
+    /// True only while the writer is blocked in the bounded micro-linger receive.
+    linger_waiting: AtomicBool,
 }
 
 impl RedbCommitStats {
@@ -735,6 +739,11 @@ impl RedbCommitStats {
     }
     pub fn lingered(&self) -> u64 {
         self.lingered.load(Ordering::Relaxed)
+    }
+    /// Whether this writer is currently waiting for a concurrent mutation in its
+    /// bounded micro-linger window.
+    pub fn is_linger_waiting(&self) -> bool {
+        self.linger_waiting.load(Ordering::Acquire)
     }
     /// Average group-commit batch size (`ops / commits`); 0.0 before any commit.
     pub fn avg_batch(&self) -> f64 {
@@ -3681,7 +3690,10 @@ fn run(
                         && pending.ops.len() < group_commit.shallow_threshold
                     {
                         lingered = true;
-                        match rx.recv_timeout(group_commit.linger) {
+                        stats.linger_waiting.store(true, Ordering::Release);
+                        let linger_result = rx.recv_timeout(group_commit.linger);
+                        stats.linger_waiting.store(false, Ordering::Release);
+                        match linger_result {
                             Ok(cmd) => {
                                 if handle_cmd(
                                     cmd,
@@ -5960,26 +5972,23 @@ mod tests {
     ///
     /// GOC-70 rule 3 (deterministic contention, not scheduler luck): the original
     /// shape fanned N `record_durable` calls out across N separate `tokio::spawn`
-    /// tasks and relied on the executor overlapping enough of them within the 2ms
+    /// tasks and relied on the executor overlapping enough of them within a short
     /// linger window — exactly the anti-pattern this file's own
     /// `write_coalescer::tests::concurrent_writes_coalesce_into_fewer_lock_
     /// acquisitions` was rewritten away from after it broke
     /// `dispatch_coalesces_concurrent_writes_to_one_graph` in 2.25.0 (true on a
     /// lightly-loaded many-core host; not guaranteed when a couple of tokio workers
-    /// and a `spawn_blocking` hop each contend for 2 real CPUs). This test enqueues
-    /// every `Cmd::Mutation` directly onto the shard's channel from ONE synchronous
-    /// loop on the test's own task, with no `.await` inside it — `SyncSender::send`
-    /// is a plain, non-blocking-for-capacity push (capacity 4096 ≫ `n`), so the
-    /// whole 256-op burst lands in the channel in a handful of microseconds, orders
-    /// of magnitude under the 2ms linger window the writer OS thread pays out once
-    /// it drains the first arrival. That leaves coalescing a near-certainty by
-    /// construction rather than a hope that 256 independently-scheduled tasks (each
-    /// its own executor poll + `spawn_blocking` hand-off) all land in time.
+    /// and a `spawn_blocking` hop each contend for 2 real CPUs). This test sends one
+    /// mutation, waits for the production `linger_waiting` observation to become
+    /// true, and only then sends exactly one follow-up. That command wakes the writer
+    /// immediately and yields one two-op commit; with no trailing commands, a second
+    /// linger window cannot be created by a race between sender and writer. This
+    /// constructs the exact contention the mechanism handles on every core count.
     ///
     /// Serializes the env-mutating linger tests. `EPISTEMIC_GRAPH_REDB_GROUP_*` are
     /// process-global and read once inside `RedbBackend::open`, so two parallel tests
     /// setting different values would race the config read (the disabled test could
-    /// observe the coalesce test's `2000`). Hold this across set_var → open →
+    /// observe the coalesce test's configured value). Hold this across set_var → open →
     /// remove_var; `open` is sync so there is no await under the guard.
     static LINGER_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -5991,7 +6000,11 @@ mod tests {
         let backend = {
             // Explicit, deterministic knobs; serialized vs the other env-mutating test.
             let _env = LINGER_ENV_LOCK.lock().unwrap();
-            std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "2000");
+            // The test observes entry into this window and wakes it immediately with
+            // the second mutation. Two seconds is a deadlock bound, not a paid delay.
+            std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "2000000");
+            // One pending operation must be classified as shallow so it enters the
+            // micro-linger receive before the second operation is sent.
             std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW", "256");
             let b = Arc::new(
                 RedbBackend::open(
@@ -5999,22 +6012,10 @@ mod tests {
                     // Long interval so the ONLY thing that commits a batch is the barrier
                     // path (+ its micro-linger), never the tick.
                     DurabilityPolicy::Interval(Duration::from_millis(500)),
-                    // Channel capacity 4096 ⇒ `resolve_flush_threshold` (capacity/2, clamped
-                    // 256..16384) resolves to 2048 — comfortably above `n` below (256), so
-                    // the writer's early-flush memory bound (`handle_cmd`'s `pending.ops.len()
-                    // >= flush_threshold` early commit) can never fire for this batch. That
-                    // path used to collide with `n` (old capacity 512 ⇒ threshold == 256 ==
-                    // n exactly): on a scheduling pattern where every op lands in the channel
-                    // before the writer's first drain (routine on a CPU-constrained 2-vCPU
-                    // runner, rare on a many-core dev box — the exact asymmetry that hid this
-                    // from local verification), ALL 256 ops would flush through that early
-                    // path in one shot. This test exists to prove the MICRO-LINGER mechanism
-                    // specifically (CONCEPT:EG-KG.backend.adaptive-linger-coalesce), not the
-                    // separate early-flush bound, so we now deterministically keep `n` out of
-                    // the early-flush path's reach on any core count — see GOC-70 rule 3
-                    // (construct the mechanism's own contention deterministically rather than
-                    // colliding with an unrelated threshold by chance).
-                    4096,
+                    // Capacity 512 resolves to the minimum early-flush threshold of
+                    // 256, far above the two-op fixture. This test proves the
+                    // MICRO-LINGER mechanism, not the separate early-flush bound.
+                    512,
                 )
                 .expect("open"),
             );
@@ -6023,16 +6024,39 @@ mod tests {
             b
         };
 
-        let stats = backend.commit_stats();
-        let n = 256usize;
+        let n = 2usize;
         // GOC-70 rule 3: construct the concurrent pile-up deterministically instead
-        // of spawning N tasks and hoping the scheduler overlaps them (see the doc
-        // comment above). Every op is enqueued directly onto the shard's channel
-        // from this one synchronous loop — no `.await` between sends — then every
-        // completion is awaited only once the whole burst is already queued.
+        // of spawning N tasks and hoping the scheduler overlaps them. Send exactly
+        // one operation, observe the writer inside the production linger receive,
+        // then deliver exactly one concurrent follow-up.
         let shard = backend.shard_for("g1");
+        // Observe the writer that actually owns this graph. `commit_stats()` is the
+        // shard-0 compatibility view and is not a valid oracle when auto-sizing K>1.
+        let stats = shard.stats.clone();
         let mut receivers = Vec::with_capacity(n);
-        for i in 0..n {
+        let (done, rx) = oneshot::channel();
+        shard
+            .tx
+            .send(Cmd::Mutation {
+                graph: "g1".to_string(),
+                method: Box::new(Method::AddNode {
+                    node_id: "n0".to_string(),
+                    properties_msgpack: props(serde_json::json!({"i": 0})),
+                }),
+                done,
+            })
+            .expect("redb writer thread alive");
+        receivers.push(rx);
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !stats.is_linger_waiting() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("writer entered bounded micro-linger receive");
+
+        for i in 1..n {
             let (done, rx) = oneshot::channel();
             shard
                 .tx
@@ -6063,7 +6087,7 @@ mod tests {
                 "n{i} durable"
             );
         }
-        // The win: many writers folded into far fewer commits than ops.
+        // The win: both writers folded into one commit rather than one commit each.
         let commits = stats.commits();
         let ops = stats.ops();
         assert_eq!(ops, n as u64, "every op must be accounted for exactly once");
@@ -6090,7 +6114,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend = {
-            // Serialized vs the coalesce test so its `2000` can't leak into our `open`.
+            // Serialized vs the coalesce test so its linger value can't leak into our `open`.
             let _env = LINGER_ENV_LOCK.lock().unwrap();
             std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "0");
             let b = Arc::new(
