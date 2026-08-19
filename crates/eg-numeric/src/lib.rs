@@ -620,10 +620,10 @@ mod py {
         posinf: f64,
         neginf: f64,
     ) -> PyResult<Py<PyAny>> {
-        let input = to_f64_1d(a)?;
+        let input = to_f64_dyn(a)?;
         py_f64(
             py,
-            elementwise::nan_to_num(input.view(), nan, posinf, neginf).into_dyn(),
+            elementwise::nan_to_num(input.view(), nan, posinf, neginf),
         )
     }
     #[pyfunction]
