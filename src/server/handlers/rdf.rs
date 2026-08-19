@@ -444,11 +444,13 @@ pub(crate) async fn try_handle_distributed(
             state,
             req_id,
             read_authority,
-            graphs,
-            ontology,
-            target_class,
-            class_base,
-            min_confidence,
+            OwlReasonDistributedRequest {
+                graphs,
+                ontology,
+                target_class,
+                class_base,
+                min_confidence,
+            },
         )
         .await),
         other => Err(other),
@@ -513,6 +515,15 @@ async fn handle_owl_reason(
     resp
 }
 
+#[cfg(feature = "owl")]
+struct OwlReasonDistributedRequest {
+    graphs: Vec<String>,
+    ontology: String,
+    target_class: String,
+    class_base: String,
+    min_confidence: f64,
+}
+
 /// DISTRIBUTED reasoning over the UNION of `graphs` (CONCEPT:EG-KG.ontology.concept-13). Gathers each
 /// graph's off-lock snapshot (the cross-shard union-read seam), then runs the SAME
 /// weighted closure as the single-graph path over the unioned axioms + facts.
@@ -521,12 +532,15 @@ async fn handle_owl_reason_distributed(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     read_authority: &GraphReadAuthority,
-    graphs: Vec<String>,
-    ontology: String,
-    target_class: String,
-    class_base: String,
-    min_confidence: f64,
+    request: OwlReasonDistributedRequest,
 ) -> Response {
+    let OwlReasonDistributedRequest {
+        graphs,
+        ontology,
+        target_class,
+        class_base,
+        min_confidence,
+    } = request;
     // Resolve and ACL-check every shard under the registry lock, then project each
     // core after releasing it. No graph in the union can become an RLS bypass.
     let cores = {

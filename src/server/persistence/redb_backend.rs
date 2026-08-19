@@ -1899,7 +1899,7 @@ impl RedbBackend {
             let mut s = state.write().await;
             s.registry.reconcile_bootstrap_catalog_entry(
                 name,
-                graph_type.clone(),
+                *graph_type,
                 None,
                 incarnation_id.clone(),
             );
