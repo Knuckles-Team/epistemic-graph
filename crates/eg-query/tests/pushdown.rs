@@ -208,3 +208,191 @@ fn pushdown_mixed_equality_and_inequality() {
     truth.sort();
     assert_eq!(got, truth);
 }
+
+/// Ordinary user-table indexes are explicit catalog objects, not an implicit
+/// scan hint. This fixture covers deterministic CREATE/DROP, schema binding,
+/// equality/range narrowing, and the owner scope that is part of the physical
+/// key. Root should run it alongside the provider pushdown suite after wiring
+/// SQL DDL classification to the public TableStore methods.
+#[test]
+fn secondary_index_catalog_and_scalar_lookup_contract() {
+    use eg_query::tables::{
+        Cell, Column, ColumnType, SecondaryIndexColumn, SecondaryIndexLookup, TableSchema,
+        TableStore,
+    };
+
+    let path = std::env::temp_dir().join(format!(
+        "eg_secondary_contract_{}_{}.redb",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let store = TableStore::open_scoped(&path, "tenant-a").unwrap();
+    let schema = TableSchema::new(
+        "events",
+        vec![
+            Column::new("id", ColumnType::BigInt, false, false),
+            Column::new("team", ColumnType::Text, false, false),
+            Column::new("score", ColumnType::BigInt, false, false),
+        ],
+    );
+    store.create_table(&schema, false).unwrap();
+    let team = store
+        .secondary_index_spec(
+            "events",
+            "events_team_idx",
+            vec![SecondaryIndexColumn::ascending("team")],
+            &schema,
+        )
+        .unwrap();
+    let score = store
+        .secondary_index_spec(
+            "events",
+            "events_score_idx",
+            vec![SecondaryIndexColumn::ascending("score")],
+            &schema,
+        )
+        .unwrap();
+    let mut stale = team.clone();
+    stale.schema_digest = "stale".into();
+    assert!(store.create_secondary_index(&stale, false).is_err());
+    let mut wrong_scope = team.clone();
+    wrong_scope.tenant_scope = "tenant-b".into();
+    assert!(store.create_secondary_index(&wrong_scope, false).is_err());
+    assert!(store.create_secondary_index(&team, false).unwrap());
+    assert!(store.create_secondary_index(&score, false).unwrap());
+    store
+        .insert_rows(
+            "events",
+            &["id".into(), "team".into(), "score".into()],
+            &[
+                vec![1i64.into(), "blue".into(), 10i64.into()],
+                vec![2i64.into(), "red".into(), 20i64.into()],
+                vec![3i64.into(), "blue".into(), 30i64.into()],
+            ],
+        )
+        .unwrap();
+    let blue = store
+        .secondary_index_rows(
+            "events",
+            &SecondaryIndexLookup::Eq {
+                column: "team".into(),
+                value: Cell::Text("blue".into()),
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(blue.len(), 2);
+    assert!(blue.iter().all(|row| row[1] == Cell::Text("blue".into())));
+
+    let high_scores = store
+        .secondary_index_rows(
+            "events",
+            &SecondaryIndexLookup::Ge {
+                column: "score".into(),
+                value: Cell::Int(20),
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(high_scores.len(), 2);
+    let page = store
+        .secondary_index_ordered_rows(
+            "events",
+            "events_score_idx",
+            eg_query::tables::SecondaryIndexOrder::Desc,
+            1,
+            Some(1),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(page[0][2], Cell::Int(20));
+
+    let mut set = serde_json::Map::new();
+    set.insert("team".into(), "green".into());
+    store
+        .update_where(
+            "events",
+            &set,
+            &eg_types::RowPredicate::Cmp {
+                col: "id".into(),
+                op: eg_types::CmpOp::Eq,
+                value: 1i64.into(),
+            },
+        )
+        .unwrap();
+    let blue_after_update = store
+        .secondary_index_rows(
+            "events",
+            &SecondaryIndexLookup::Eq {
+                column: "team".into(),
+                value: Cell::Text("blue".into()),
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(blue_after_update.len(), 1);
+
+    store
+        .delete_where(
+            "events",
+            &eg_types::RowPredicate::Cmp {
+                col: "id".into(),
+                op: eg_types::CmpOp::Eq,
+                value: 3i64.into(),
+            },
+        )
+        .unwrap();
+    let blue_after_delete = store
+        .secondary_index_rows(
+            "events",
+            &SecondaryIndexLookup::Eq {
+                column: "team".into(),
+                value: Cell::Text("blue".into()),
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert!(blue_after_delete.is_empty());
+
+    assert!(store.drop_secondary_index("events", "events_team_idx", false).unwrap());
+    assert!(store
+        .secondary_index_rows(
+            "events",
+            &SecondaryIndexLookup::Eq {
+                column: "team".into(),
+                value: Cell::Text("green".into()),
+            },
+        )
+        .unwrap()
+        .is_none());
+
+    drop(store);
+    let reopened = TableStore::open_scoped(&path, "tenant-a").unwrap();
+    assert_eq!(reopened.list_secondary_indexes(Some("events")).unwrap().len(), 1);
+    assert_eq!(reopened.scan("events").unwrap().len(), 2);
+}
+
+/// Vector columns remain ANN-only; a generic scalar index request is rejected
+/// before any catalog row is written.
+#[test]
+fn secondary_index_rejects_vector_columns_without_touching_ann_catalog() {
+    use eg_query::tables::{Column, ColumnType, SecondaryIndexColumn, TableSchema, TableStore};
+    let (store, _path) = TableStore::open_temp().unwrap();
+    let schema = TableSchema::new(
+        "embeddings",
+        vec![Column::new("embedding", ColumnType::Vector(Some(3)), false, false)],
+    );
+    store.create_table(&schema, false).unwrap();
+    let spec = store
+        .secondary_index_spec(
+            "embeddings",
+            "embedding_btree",
+            vec![SecondaryIndexColumn::ascending("embedding")],
+            &schema,
+        );
+    assert!(spec.is_err());
+    assert!(store.list_ann_indexes().unwrap().is_empty());
+}

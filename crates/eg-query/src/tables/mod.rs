@@ -12,13 +12,21 @@
 //!   * [`store`] — the durable redb [`TableStore`]: a catalog system table + a
 //!     per-table row store, all writes commit-before-ack at `Durability::Immediate`,
 //!     persisting across restart.
+//!   * [`index`] — bounded, schema/version-bound scalar secondary-index catalog
+//!     identities and deterministic equality/range/order key contracts. Vector
+//!     columns remain in the separate ANN path.
 //!   * [`provider`] — Arrow materialization so each user table registers as a
 //!     DataFusion `TableProvider` alongside `nodes`/`edges`.
 
+pub mod index;
 pub mod provider;
 pub mod schema;
 pub mod store;
 
+pub use index::{
+    SecondaryIndexColumn, SecondaryIndexKind, SecondaryIndexLookup, SecondaryIndexOrder,
+    SecondaryIndexSpec,
+};
 pub use schema::{
     Cell, CmpOp, ColCheck, Column, ColumnType, FunctionArg, FunctionLanguage, FunctionReturns,
     StoredFunction, TableSchema,
