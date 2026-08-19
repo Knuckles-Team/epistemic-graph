@@ -153,6 +153,8 @@ fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
     let bind_addr = peers.get(&node_id).unwrap().addr.clone();
     RaftClusterConfig {
         node_id,
+        cluster_id: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            .to_string(),
         peers: peers.clone(),
         bind_addr,
         // ADR-1 / W1.1: harness nodes advertise a distinct client endpoint per
@@ -160,6 +162,10 @@ fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
         // against a real (loopback) multi-node topology.
         advertised_client_addr: format!("tcp://127.0.0.1:{}", 20_000 + node_id),
         advertised_tls_server_name: None,
+        advertised_certificate_id: None,
+        advertised_certificate_rotation_epoch: 0,
+        advertised_certificate_not_before_ms: None,
+        advertised_certificate_not_after_ms: None,
         is_bootstrap: peers.keys().next() == Some(&node_id),
         groups: 1,
         transport_secret: Some(

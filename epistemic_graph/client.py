@@ -5819,55 +5819,401 @@ class ClusterTopologyClient:
     discovery (``reports/wave1/ADR-scale-trio.md`` §ADR-1).
 
     Exposes ``Method::ClusterMembers`` — every known Raft group's members, each
-    with its role (``leader``/``follower``/``learner``) and client-reachable
-    endpoint, sourced from the engine's durable ``NodeInfoStore``. Answered from
-    ANY reachable node, not just the leader (unlike :class:`PlacementClient`'s
-    ``route``), so a client can re-resolve via any healthy seed contact. Gated
-    ``cluster:topology-read`` — an ordinary service role's scopes already cover
-    it, not just a cluster operator's ``admin:cluster-read``. Replaces the
-    static hand-maintained ``GRAPH_RAFT_GROUP_ENDPOINTS`` client map.
+    with its role (``leader``/``follower``/``learner``), health, immutable member
+    identity, certificate-rotation metadata, and client-reachable endpoint,
+    sourced from the engine's durable ``NodeInfoStore``.  The response is a
+    bounded HMAC-signed snapshot bound to the verified tenant/principal/agent
+    context and carries monotonic membership and placement epochs.  Answered
+    from ANY reachable node, not just the leader (unlike
+    :class:`PlacementClient`'s ``route``), so a client can re-resolve via any
+    healthy seed contact. Gated ``cluster:topology-read`` — an ordinary service
+    role's scopes already cover it, not just a cluster operator's
+    ``admin:cluster-read``. Replaces the static hand-maintained
+    ``GRAPH_RAFT_GROUP_ENDPOINTS`` client map.
     """
+
+    _SCHEMA_VERSION = 1
+    _DISCOVERY_DOMAIN = b"epistemic-graph/cluster-discovery/v1\0"
+    _MAX_GROUPS = 1_024
+    _MAX_MEMBERS = 4_096
+    _MAX_FIELD_BYTES = 4 * 1024
+    _MAX_CERTIFICATE_ID_BYTES = 512
+    _MAX_U64 = (1 << 64) - 1
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
+        self._cluster_id: str | None = None
+        self._membership_epoch = 0
+        self._placement_epoch = 0
 
-    async def members(self) -> dict[str, Any]:
+    @staticmethod
+    def _is_digest(value: Any, *, prefix: str = "sha256:") -> bool:
+        return (
+            isinstance(value, str)
+            and value.startswith(prefix)
+            and len(value) == len(prefix) + 64
+            and all(character in "0123456789abcdefABCDEF" for character in value[len(prefix) :])
+        )
+
+    @classmethod
+    def _member_identity(cls, cluster_id: str, node_id: int) -> str:
+        cluster_bytes = cluster_id.encode("utf-8")
+        return "sha256:" + hashlib.sha256(
+            cls._DISCOVERY_DOMAIN.replace(
+                b"cluster-discovery", b"member-identity"
+            )
+            + len(cluster_bytes).to_bytes(8, "big")
+            + cluster_bytes
+            + node_id.to_bytes(8, "big")
+        ).hexdigest()
+
+    @classmethod
+    def _endpoint_is_bounded(cls, endpoint: Any) -> bool:
+        if not isinstance(endpoint, str) or not endpoint or len(endpoint) > cls._MAX_FIELD_BYTES:
+            return False
+        if any(character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F for character in endpoint):
+            return False
+        if not (endpoint.startswith("tcp://") or endpoint.startswith("tls://")):
+            return False
+        address = endpoint.split("://", 1)[1]
+        if any(character in address for character in "/?#@"):
+            return False
+        if address.startswith("["):
+            if "]:" not in address:
+                return False
+            host, port = address[1:].split("]:", 1)
+            if not host or "]" in host:
+                return False
+        else:
+            if ":" not in address:
+                return False
+            host, port = address.rsplit(":", 1)
+            if not host or ":" in host:
+                return False
+        try:
+            numeric_port = int(port)
+        except (TypeError, ValueError):
+            return False
+        return 0 < numeric_port <= 65_535
+
+    @classmethod
+    def _certificate(cls, member: dict[str, Any]) -> tuple[Any, ...]:
+        certificate = member.get("certificate")
+        if not isinstance(certificate, dict) or set(certificate) != {
+            "id",
+            "rotation_epoch",
+            "not_before_ms",
+            "not_after_ms",
+        }:
+            raise ValueError("ClusterMembers certificate metadata is malformed")
+        certificate_id = certificate["id"]
+        if certificate_id is not None and (
+            not isinstance(certificate_id, str)
+            or not certificate_id
+            or len(certificate_id) > cls._MAX_CERTIFICATE_ID_BYTES
+            or any(
+                character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
+                for character in certificate_id
+            )
+        ):
+            raise ValueError("ClusterMembers certificate id is malformed")
+        rotation_epoch = certificate["rotation_epoch"]
+        not_before = certificate["not_before_ms"]
+        not_after = certificate["not_after_ms"]
+        if (
+            isinstance(rotation_epoch, bool)
+            or not isinstance(rotation_epoch, int)
+            or not 0 <= rotation_epoch <= cls._MAX_U64
+        ):
+            raise ValueError("ClusterMembers certificate rotation epoch is malformed")
+        for value in (not_before, not_after):
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not 0 <= value <= cls._MAX_U64
+            ):
+                raise ValueError("ClusterMembers certificate validity is malformed")
+        if (
+            not_before is not None
+            and not_after is not None
+            and not_before > not_after
+        ):
+            raise ValueError("ClusterMembers certificate validity is inverted")
+        if rotation_epoch > 0 and certificate_id is None:
+            raise ValueError("ClusterMembers certificate rotation requires an id")
+        return certificate_id, rotation_epoch, not_before, not_after
+
+    def _validate_and_verify(
+        self,
+        answer: dict[str, Any],
+        *,
+        expected_cluster_id: str | None,
+        min_membership_epoch: int | None,
+        min_placement_epoch: int | None,
+    ) -> dict[str, Any]:
+        if expected_cluster_id is not None and not self._is_digest(expected_cluster_id):
+            raise ValueError("expected_cluster_id is malformed")
+        for floor, name in (
+            (min_membership_epoch, "min_membership_epoch"),
+            (min_placement_epoch, "min_placement_epoch"),
+        ):
+            if floor is not None and (
+                isinstance(floor, bool) or not isinstance(floor, int) or floor < 0
+            ):
+                raise ValueError(f"{name} must be a non-negative integer")
+        if set(answer) != {
+            "schema_version",
+            "cluster_id",
+            "epoch",
+            "membership_epoch",
+            "placement_epoch",
+            "leader",
+            "leaders",
+            "groups",
+            "auth_binding",
+            "signature",
+        }:
+            raise ValueError("ClusterMembers response has unexpected or missing fields")
+        if isinstance(answer["schema_version"], bool) or answer["schema_version"] != self._SCHEMA_VERSION:
+            raise ValueError("ClusterMembers schema version is unsupported")
+        cluster_id = answer["cluster_id"]
+        if not self._is_digest(cluster_id):
+            raise ValueError("ClusterMembers.cluster_id is malformed")
+        if expected_cluster_id is not None and cluster_id != expected_cluster_id:
+            raise ValueError("ClusterMembers belongs to a different cluster")
+        if self._cluster_id is not None and cluster_id != self._cluster_id:
+            raise ValueError("ClusterMembers cluster identity changed")
+
+        def non_negative_int(value: Any, field: str) -> int:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not 0 <= value <= self._MAX_U64
+            ):
+                raise ValueError(f"ClusterMembers.{field} must be a non-negative integer")
+            return value
+
+        epoch = non_negative_int(answer["epoch"], "epoch")
+        membership_epoch = non_negative_int(answer["membership_epoch"], "membership_epoch")
+        placement_epoch = non_negative_int(answer["placement_epoch"], "placement_epoch")
+        if epoch != membership_epoch:
+            raise ValueError("ClusterMembers epoch alias does not match membership_epoch")
+        if min_membership_epoch is not None and membership_epoch < min_membership_epoch:
+            raise ValueError("ClusterMembers membership snapshot is stale")
+        if min_placement_epoch is not None and placement_epoch < min_placement_epoch:
+            raise ValueError("ClusterMembers placement snapshot is stale")
+        if membership_epoch < self._membership_epoch or placement_epoch < self._placement_epoch:
+            raise ValueError("ClusterMembers snapshot moved backwards")
+
+        groups = answer["groups"]
+        leaders = answer["leaders"]
+        if not isinstance(groups, list) or len(groups) > self._MAX_GROUPS:
+            raise ValueError("ClusterMembers.groups exceeds resource limits")
+        if not isinstance(leaders, list) or len(leaders) > self._MAX_GROUPS:
+            raise ValueError("ClusterMembers.leaders exceeds resource limits")
+
+        canonical_groups: list[list[Any]] = []
+        expected_leaders: list[dict[str, int]] = []
+        seen_groups: set[int] = set()
+        member_count = 0
+        for group in groups:
+            if not isinstance(group, dict) or set(group) != {"group_id", "leader_id", "members"}:
+                raise ValueError("ClusterMembers group entry is malformed")
+            group_id = group["group_id"]
+            if (
+                isinstance(group_id, bool)
+                or not isinstance(group_id, int)
+                or not 0 <= group_id <= self._MAX_U64
+            ):
+                raise ValueError("ClusterMembers group_id is malformed")
+            if group_id in seen_groups:
+                raise ValueError("ClusterMembers contains duplicate groups")
+            seen_groups.add(group_id)
+            leader_id = group["leader_id"]
+            if leader_id is not None and (
+                isinstance(leader_id, bool)
+                or not isinstance(leader_id, int)
+                or not 0 <= leader_id <= self._MAX_U64
+            ):
+                raise ValueError("ClusterMembers leader_id is malformed")
+            members = group["members"]
+            if not isinstance(members, list):
+                raise ValueError("ClusterMembers members must be a list")
+            canonical_members: list[list[Any]] = []
+            seen_members: set[int] = set()
+            for member in members:
+                if not isinstance(member, dict) or set(member) != {
+                    "node_id",
+                    "member_identity",
+                    "role",
+                    "client_endpoint",
+                    "tls_name",
+                    "health",
+                    "certificate",
+                }:
+                    raise ValueError("ClusterMembers member entry is malformed")
+                node_id = member["node_id"]
+                if (
+                    isinstance(node_id, bool)
+                    or not isinstance(node_id, int)
+                    or not 0 <= node_id <= self._MAX_U64
+                ):
+                    raise ValueError("ClusterMembers node_id is malformed")
+                if node_id in seen_members:
+                    raise ValueError("ClusterMembers contains duplicate members")
+                seen_members.add(node_id)
+                identity = member["member_identity"]
+                if not self._is_digest(identity) or identity != self._member_identity(cluster_id, node_id):
+                    raise ValueError("ClusterMembers member identity is invalid")
+                role = member["role"]
+                if role not in ("leader", "follower", "learner"):
+                    raise ValueError("ClusterMembers member role is invalid")
+                endpoint = member["client_endpoint"]
+                if not self._endpoint_is_bounded(endpoint):
+                    raise ValueError("ClusterMembers client endpoint is invalid")
+                tls_name = member["tls_name"]
+                if tls_name is not None and (
+                    not isinstance(tls_name, str)
+                    or not tls_name
+                    or len(tls_name) > self._MAX_FIELD_BYTES
+                    or any(
+                        character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
+                        for character in tls_name
+                    )
+                ):
+                    raise ValueError("ClusterMembers TLS name is invalid")
+                health = member["health"]
+                if health not in ("healthy", "degraded", "unknown"):
+                    raise ValueError("ClusterMembers member health is invalid")
+                certificate_id, rotation_epoch, not_before, not_after = self._certificate(member)
+                canonical_members.append(
+                    [
+                        node_id,
+                        identity,
+                        role,
+                        endpoint,
+                        tls_name,
+                        health,
+                        certificate_id,
+                        rotation_epoch,
+                        not_before,
+                        not_after,
+                    ]
+                )
+                member_count += 1
+                if member_count > self._MAX_MEMBERS:
+                    raise ValueError("ClusterMembers members exceed resource limits")
+            if leader_id is not None:
+                if leader_id not in seen_members:
+                    raise ValueError("ClusterMembers leader is not a member")
+                if sum(1 for member in members if member["node_id"] == leader_id and member["role"] == "leader") != 1:
+                    raise ValueError("ClusterMembers leader role is inconsistent")
+                expected_leaders.append({"group_id": group_id, "node_id": leader_id})
+            canonical_groups.append([group_id, leader_id, canonical_members])
+
+        for leader in leaders:
+            if not isinstance(leader, dict) or set(leader) != {"group_id", "node_id"}:
+                raise ValueError("ClusterMembers leader entry is malformed")
+            if any(
+                isinstance(leader[field], bool)
+                or not isinstance(leader[field], int)
+                or not 0 <= leader[field] <= self._MAX_U64
+                for field in ("group_id", "node_id")
+            ):
+                raise ValueError("ClusterMembers leader entry is malformed")
+        if leaders != expected_leaders:
+            raise ValueError("ClusterMembers leaders do not match group leaders")
+        expected_leader = expected_leaders[0] if expected_leaders else None
+        if answer["leader"] is not None and (
+            not isinstance(answer["leader"], dict)
+            or set(answer["leader"]) != {"group_id", "node_id"}
+            or any(
+                isinstance(answer["leader"][field], bool)
+                or not isinstance(answer["leader"][field], int)
+                or not 0 <= answer["leader"][field] <= self._MAX_U64
+                for field in ("group_id", "node_id")
+            )
+        ):
+            raise ValueError("ClusterMembers leader is malformed")
+        if answer["leader"] != expected_leader:
+            raise ValueError("ClusterMembers leader does not match group leaders")
+
+        binding = answer["auth_binding"]
+        if not isinstance(binding, dict) or set(binding) != {
+            "tenant_digest",
+            "principal_digest",
+            "agent_digest",
+        }:
+            raise ValueError("ClusterMembers auth binding is malformed")
+        context = self._client._effective_verified_context()
+        expected_binding = {
+            "tenant_digest": "sha256:" + hashlib.sha256(str(context["tenant"]).encode("utf-8")).hexdigest(),
+            "principal_digest": "sha256:" + hashlib.sha256(str(context["principal"]).encode("utf-8")).hexdigest(),
+            "agent_digest": "sha256:" + hashlib.sha256(str(context["agent_id"]).encode("utf-8")).hexdigest(),
+        }
+        if binding != expected_binding:
+            raise ValueError("ClusterMembers snapshot is bound to a different request context")
+
+        signature = answer["signature"]
+        if (
+            not isinstance(signature, str)
+            or not signature.startswith("hmac-sha256:")
+            or len(signature) != len("hmac-sha256:") + 64
+            or any(character not in "0123456789abcdefABCDEF" for character in signature[len("hmac-sha256:") :])
+        ):
+            raise ValueError("ClusterMembers signature is missing or malformed")
+        payload = json.dumps(
+            [
+                "cluster-discovery-v1",
+                cluster_id,
+                membership_epoch,
+                placement_epoch,
+                str(context["tenant"]),
+                str(context["principal"]),
+                str(context["agent_id"]),
+                canonical_groups,
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        expected_signature = "hmac-sha256:" + hmac.new(
+            self._client._auth_secret.encode("utf-8"),
+            self._DISCOVERY_DOMAIN + payload,
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected_signature):
+            raise ValueError("ClusterMembers signature verification failed")
+        self._cluster_id = cluster_id
+        self._membership_epoch = membership_epoch
+        self._placement_epoch = placement_epoch
+        return answer
+
+    async def members(
+        self,
+        *,
+        expected_cluster_id: str | None = None,
+        min_membership_epoch: int | None = None,
+        min_placement_epoch: int | None = None,
+    ) -> dict[str, Any]:
         """Read the current cluster topology.
 
-        Returns ``{"groups": [{"group_id": int, "members": [{"node_id": int,
-        "role": "leader"|"follower"|"learner", "client_endpoint": str,
-        "tls_name": str | None}, ...]}, ...], "epoch": int}``. A single-node
-        deployment (or a raft build with no live cluster) answers an empty,
-        well-formed topology (``{"groups": [], "epoch": ...}``) rather than an
-        error — the caller's single-contact fallback then applies.
+        Returns a verified schema-v1 snapshot with cluster identity, monotonic
+        membership/placement epochs, health, member identity, certificate
+        metadata, and signed request-context binding.  Unsigned, stale,
+        cross-cluster, malformed, or differently scoped responses are rejected
+        before any endpoint is exposed to a caller.  The method accepts only
+        identity/epoch expectations; it has no caller-supplied endpoint
+        authority.
         """
         answer = await self._client._send("ClusterMembers")
         if not isinstance(answer, dict):
             raise TypeError("ClusterMembers must be a mapping")
-        groups = answer.get("groups")
-        epoch = answer.get("epoch")
-        if not isinstance(groups, list):
-            raise ValueError("ClusterMembers.groups must be a list")
-        if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 0:
-            raise ValueError("ClusterMembers.epoch must be a non-negative integer")
-        for group in groups:
-            if not isinstance(group, dict):
-                raise ValueError("ClusterMembers.groups entries must be mappings")
-            members = group.get("members")
-            if not isinstance(group.get("group_id"), int) or not isinstance(
-                members, list
-            ):
-                raise ValueError("ClusterMembers.groups entry is malformed")
-            for member in members:
-                if (
-                    not isinstance(member, dict)
-                    or not isinstance(member.get("node_id"), int)
-                    or member.get("role") not in ("leader", "follower", "learner")
-                    or not isinstance(member.get("client_endpoint"), str)
-                    or not member.get("client_endpoint")
-                ):
-                    raise ValueError("ClusterMembers member entry is malformed")
-        return answer
+        return self._validate_and_verify(
+            answer,
+            expected_cluster_id=expected_cluster_id,
+            min_membership_epoch=min_membership_epoch,
+            min_placement_epoch=min_placement_epoch,
+        )
 
 
 class ServerRegistryClient:
