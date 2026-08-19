@@ -5,6 +5,10 @@
 pytest>=7.0.0
 pyiceberg[pyarrow]>=0.7.0
 deltalake>=0.18.0
+# The parity assertions intentionally use each reader's Arrow -> pandas adapter
+# for timestamp/null normalization. This is test-only and never enters the
+# engine/client dependency graph (nor the numeric kernel runtime).
+pandas>=2.0.0
 # BUG-222: signs/verifies the OAuth2 bearer test fixtures for the Iceberg-REST
 # carrier tests (a local RSA keypair + JWKS HTTP server standing in for
 # Keycloak, so the REAL Rust oidc::JwtValidator RSA/JWKS path is exercised
