@@ -73,6 +73,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::{oneshot, Notify};
 
 use super::{EgRaft, GroupId, NodeId, TypeConfig};
 
@@ -116,6 +117,11 @@ const MAX_RAFT_PEER_ADDRESS_BYTES: usize = 1_024;
 const RAFT_FRAME_BUDGET_UNIT_BYTES: usize = 64 * 1024;
 pub(crate) const RAFT_FRAME_BUDGET_UNITS: usize =
     MAX_RAFT_FRAME_BYTES / RAFT_FRAME_BUDGET_UNIT_BYTES;
+/// Bounded coalescing window.  OpenRaft's configured heartbeat interval is 250 ms;
+/// this short window lets concurrent group heartbeats share a frame without turning
+/// a heartbeat into an unbounded queue or materially delaying failure detection.
+pub(crate) const HEARTBEAT_COALESCE_WINDOW: std::time::Duration =
+    std::time::Duration::from_millis(5);
 const CLIENT_HELLO_MAGIC: &[u8; 4] = b"EGRC";
 const SERVER_HELLO_MAGIC: &[u8; 4] = b"EGRS";
 const SECURE_FRAME_MAGIC: &[u8; 4] = b"EGRF";
@@ -680,7 +686,7 @@ impl Default for PeerPool {
 /// A Raft RPC tagged with the group id it belongs to (openraft 0.10 types). The
 /// snapshot RPC carries the full snapshot (vote + meta + MessagePack body) rather than
 /// a chunk, matching the v2 `full_snapshot` model.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub enum GroupRpc {
     Append(GroupId, AppendEntriesRequest<TypeConfig>),
@@ -758,12 +764,24 @@ pub enum RaftFrameReply {
 ///
 /// [`is_heartbeat`]: HeartbeatCoalescer::is_heartbeat
 pub struct HeartbeatCoalescer {
-    /// peer `host:port` → queued heartbeat RPCs awaiting the next flush.
-    pending: std::sync::Mutex<HashMap<String, Vec<GroupRpc>>>,
+    /// peer `host:port` → queued heartbeat RPCs awaiting the next flush.  A waiter
+    /// is present only for the live OpenRaft path; the public `offer`/`drain_batches`
+    /// surface intentionally remains a side-effect-free construction fixture.
+    pending: std::sync::Mutex<HashMap<String, Vec<PendingHeartbeat>>>,
     /// Total heartbeats folded into a batch (a frame AVOIDED vs sending individually).
     coalesced: AtomicU64,
     /// Flush passes performed (one batched frame emitted per non-empty peer per flush).
     flushes: AtomicU64,
+    /// Wakes the bounded flush worker after a heartbeat is queued.
+    wake: Notify,
+    /// Set during shutdown so queued OpenRaft callers fail promptly rather than
+    /// waiting forever if the manager is being torn down.
+    stopping: std::sync::atomic::AtomicBool,
+}
+
+struct PendingHeartbeat {
+    rpc: GroupRpc,
+    completion: Option<oneshot::Sender<Result<GroupRpcReply, String>>>,
 }
 
 impl HeartbeatCoalescer {
@@ -772,6 +790,8 @@ impl HeartbeatCoalescer {
             pending: std::sync::Mutex::new(HashMap::new()),
             coalesced: AtomicU64::new(0),
             flushes: AtomicU64::new(0),
+            wake: Notify::new(),
+            stopping: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -785,11 +805,26 @@ impl HeartbeatCoalescer {
     /// heartbeat and is now BUFFERED for the next flush; `false` if it is not a
     /// heartbeat and the caller must send it directly.
     pub fn offer(&self, addr: &str, rpc: GroupRpc) -> bool {
+        self.enqueue(addr, rpc, None)
+    }
+
+    fn enqueue(
+        &self,
+        addr: &str,
+        rpc: GroupRpc,
+        completion: Option<oneshot::Sender<Result<GroupRpcReply, String>>>,
+    ) -> bool {
+        if self.stopping.load(Ordering::Acquire) {
+            return false;
+        }
         if !Self::is_heartbeat(&rpc) || addr.is_empty() || addr.len() > MAX_RAFT_PEER_ADDRESS_BYTES
         {
             return false;
         }
         let mut pending = self.pending.lock().unwrap();
+        if self.stopping.load(Ordering::Acquire) {
+            return false;
+        }
         if !pending.contains_key(addr) && pending.len() >= MAX_RAFT_POOL_PEERS {
             return false;
         }
@@ -797,20 +832,149 @@ impl HeartbeatCoalescer {
         if peer.len() >= MAX_RAFT_BATCH_RPCS {
             return false;
         }
-        peer.push(rpc);
+        peer.push(PendingHeartbeat { rpc, completion });
+        self.wake.notify_one();
         true
     }
 
-    /// Drain every buffered peer into one batch per peer (CONCEPT:EG-KG.storage.concept-2).
-    pub fn drain_batches(&self) -> Vec<(String, Vec<GroupRpc>)> {
+    /// Queue one live OpenRaft heartbeat and return its eventual ordered reply.
+    /// The caller owns the await; the coalescer owns only the bounded queue and
+    /// completion sender.  Non-heartbeats never enter this path.
+    pub(crate) async fn heartbeat_round_trip(
+        &self,
+        addr: &str,
+        rpc: GroupRpc,
+    ) -> Result<GroupRpcReply, io::Error> {
+        if !Self::is_heartbeat(&rpc) {
+            return Err(invalid_data("only heartbeat RPCs may be coalesced"));
+        }
+        let (tx, rx) = oneshot::channel();
+        if !self.enqueue(addr, rpc, Some(tx)) {
+            return Err(invalid_data("raft heartbeat coalescer is full"));
+        }
+        match rx.await {
+            Ok(Ok(reply)) => Ok(reply),
+            Ok(Err(error)) => Err(io::Error::new(io::ErrorKind::Other, error)),
+            Err(_) => {
+                // A standalone factory may not have a flush worker.  Keep this
+                // branch fail-closed rather than silently sending a second frame;
+                // production factories always install the worker in MultiRaft.
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "raft heartbeat coalescer stopped",
+                ))
+            }
+        }
+    }
+
+    /// Run the bounded coalescing worker used by a live [`super::multi::MultiRaft`].
+    /// Each wake gets one short window, then every peer is drained into at most one
+    /// bounded batch and sent through the shared [`PeerPool`].
+    pub(crate) async fn run(self: Arc<Self>, pool: Arc<PeerPool>) {
+        loop {
+            self.wake.notified().await;
+            if self.stopping.load(Ordering::Acquire) {
+                break;
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(HEARTBEAT_COALESCE_WINDOW) => {}
+                _ = self.wake.notified() => {}
+            }
+            if self.stopping.load(Ordering::Acquire) {
+                break;
+            }
+            self.flush_pending(&pool).await;
+        }
+        self.fail_pending("raft heartbeat coalescer stopped");
+    }
+
+    /// Stop the worker and release every caller waiting on a queued heartbeat.
+    pub(crate) fn stop(&self) {
+        self.stopping.store(true, Ordering::Release);
+        self.wake.notify_waiters();
+        self.fail_pending("raft heartbeat coalescer stopped");
+    }
+
+    fn take_pending(&self) -> Vec<(String, Vec<PendingHeartbeat>)> {
         let mut pending = self.pending.lock().unwrap();
-        let drained: Vec<(String, Vec<GroupRpc>)> = pending.drain().collect();
+        pending.drain().collect()
+    }
+
+    fn drain_pending(&self) -> Vec<(String, Vec<PendingHeartbeat>)> {
+        let drained = self.take_pending();
         let folded: u64 = drained.iter().map(|(_, v)| v.len() as u64).sum();
         if folded > 0 {
             self.coalesced.fetch_add(folded, Ordering::Relaxed);
             self.flushes.fetch_add(1, Ordering::Relaxed);
         }
         drained
+    }
+
+    async fn flush_pending(&self, pool: &PeerPool) {
+        // Flush peers concurrently: one unavailable destination must not hold the
+        // heartbeat cadence of every other peer behind the transport timeout.
+        let jobs = self.drain_pending().into_iter().map(|(addr, pending)| async move {
+            let batch: Vec<GroupRpc> = pending.iter().map(|item| item.rpc.clone()).collect();
+            let result = Self::send_batch(pool, &addr, batch).await;
+            match result {
+                Ok(replies) if replies.len() == pending.len() => {
+                    for (item, reply) in pending.into_iter().zip(replies) {
+                        if let Some(done) = item.completion {
+                            let _ = done.send(Ok(reply));
+                        }
+                    }
+                }
+                Ok(replies) => {
+                    let error = format!(
+                        "raft heartbeat batch reply count mismatch: expected {}, got {}",
+                        pending.len(),
+                        replies.len()
+                    );
+                    for item in pending {
+                        if let Some(done) = item.completion {
+                            let _ = done.send(Err(error.clone()));
+                        }
+                    }
+                }
+                Err(error) => {
+                    let error = format!("raft heartbeat batch failed: {error}");
+                    for item in pending {
+                        if let Some(done) = item.completion {
+                            let _ = done.send(Err(error.clone()));
+                        }
+                    }
+                }
+            }
+        });
+        futures::future::join_all(jobs).await;
+    }
+
+    fn fail_pending(&self, error: &str) {
+        // These requests never reached a peer, so shutdown/failure cleanup must
+        // not report them as emitted/coalesced frames in the live metrics.
+        for (_, pending) in self.take_pending() {
+            for item in pending {
+                if let Some(done) = item.completion {
+                    let _ = done.send(Err(error.to_string()));
+                }
+            }
+        }
+    }
+
+    /// Drain every buffered peer into one batch per peer (CONCEPT:EG-KG.storage.concept-2).
+    pub fn drain_batches(&self) -> Vec<(String, Vec<GroupRpc>)> {
+        self.drain_pending()
+            .into_iter()
+            .map(|(addr, pending)| {
+                (
+                    addr,
+                    pending
+                        .into_iter()
+                        .map(|item| item.rpc)
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect()
     }
 
     /// Heartbeats buffered for `addr` right now (test/metrics visibility).
@@ -841,13 +1005,22 @@ impl HeartbeatCoalescer {
         {
             return Err(invalid_data("invalid raft heartbeat batch"));
         }
+        let expected = batch.len();
         let body = rmp_serde::to_vec_named(&RaftFrame::Batch(batch))
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         let resp = pool.round_trip(addr, &body).await?;
         match decode_wire::<RaftFrameReply>(&resp)? {
-            RaftFrameReply::Batch(replies) if replies.len() <= MAX_RAFT_BATCH_RPCS => Ok(replies),
-            RaftFrameReply::One(reply) => Ok(vec![reply]),
+            RaftFrameReply::Batch(replies)
+                if replies.len() <= MAX_RAFT_BATCH_RPCS && replies.len() == expected =>
+            {
+                Ok(replies)
+            }
+            RaftFrameReply::One(reply) if expected == 1 => Ok(vec![reply]),
+            RaftFrameReply::Batch(replies) if replies.len() <= MAX_RAFT_BATCH_RPCS => Err(
+                invalid_data("raft reply batch does not match request batch"),
+            ),
             RaftFrameReply::Batch(_) => Err(invalid_data("raft reply batch exceeds limits")),
+            RaftFrameReply::One(_) => Err(invalid_data("raft reply is not a batch")),
         }
     }
 }
@@ -867,11 +1040,33 @@ pub struct GroupNetworkFactory {
     local: NodeId,
     /// Shared per-peer connection pool (CONCEPT:AU-KG.ontology.manage-arbitrary).
     pool: Arc<PeerPool>,
+    /// Installed only by a live MultiRaft manager.  The legacy constructor keeps
+    /// standalone callers on the exact single-RPC behavior.
+    coalescer: Option<Arc<HeartbeatCoalescer>>,
 }
 
 impl GroupNetworkFactory {
     pub fn new(gid: GroupId, local: NodeId, pool: Arc<PeerPool>) -> Self {
-        Self { gid, local, pool }
+        Self {
+            gid,
+            local,
+            pool,
+            coalescer: None,
+        }
+    }
+
+    pub(crate) fn with_coalescer(
+        gid: GroupId,
+        local: NodeId,
+        pool: Arc<PeerPool>,
+        coalescer: Arc<HeartbeatCoalescer>,
+    ) -> Self {
+        Self {
+            gid,
+            local,
+            pool,
+            coalescer: Some(coalescer),
+        }
     }
 }
 
@@ -885,6 +1080,7 @@ impl RaftNetworkFactory<TypeConfig> for GroupNetworkFactory {
             target,
             addr: node.addr.clone(),
             pool: self.pool.clone(),
+            coalescer: self.coalescer.clone(),
         }
     }
 }
@@ -902,6 +1098,7 @@ pub struct GroupNetworkClient {
     addr: String,
     /// The node's shared per-peer connection pool.
     pool: Arc<PeerPool>,
+    coalescer: Option<Arc<HeartbeatCoalescer>>,
 }
 
 impl GroupNetworkClient {
@@ -935,7 +1132,19 @@ impl RaftNetworkV2<TypeConfig> for GroupNetworkClient {
         rpc: AppendEntriesRequest<TypeConfig>,
         _option: RPCOption,
     ) -> Result<AppendEntriesResponse<TypeConfig>, RPCError<TypeConfig>> {
-        match self.round_trip(GroupRpc::Append(self.gid, rpc)).await {
+        let group_rpc = GroupRpc::Append(self.gid, rpc);
+        let result = if let Some(coalescer) = &self.coalescer {
+            if HeartbeatCoalescer::is_heartbeat(&group_rpc) {
+                coalescer
+                    .heartbeat_round_trip(&self.addr, group_rpc)
+                    .await
+            } else {
+                self.round_trip(group_rpc).await
+            }
+        } else {
+            self.round_trip(group_rpc).await
+        };
+        match result {
             Ok(GroupRpcReply::Append(Ok(r))) => Ok(r),
             Ok(GroupRpcReply::Append(Err(e))) => Err(net_err(&e)),
             Ok(_) => Err(net_err("unexpected reply variant")),

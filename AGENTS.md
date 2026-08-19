@@ -124,8 +124,10 @@ Raft groups (ADR-2 / W1.2 — `reports/wave1/ADR-scale-trio.md` §ADR-2): raft g
 owns redb shard *g***, so HA and write-scaling coexist (N groups = N parallel durable
 writers per node). K then follows `EPISTEMIC_GRAPH_RAFT_GROUPS` (default cores-derived up
 to `MAX_SHARD_COUNT`=64); `EPISTEMIC_GRAPH_REDB_SHARDS` does NOT apply under raft. An
-existing K=1 raft store stays K=1 (all groups on shard 0, exactly the pre-ADR-2 behavior)
-until the offline `migrate-shards` tool rewrites its layout.
+On restart, an existing on-disk K is authoritative: node startup reconciles the
+requested group count to that durable layout before creating the group ring. Changing
+K requires the offline `migrate-shards` tool; an un-migrated K=1 store therefore remains
+a single authoritative group/ring even if the environment requests a larger fresh-store N.
 
 **Snapshot reads off the writer (CONCEPT:EG-KG.storage.snapshot-read-off-writer).** redb 4.1 is MVCC: a
 `Database::begin_read()` opens a consistent read snapshot that runs CONCURRENTLY with
@@ -226,10 +228,13 @@ coalescing** (`RaftFrame::Batch` + `HeartbeatCoalescer` fold same-peer heartbeat
 one pooled round-trip, EG-KG.storage.concept-2). The openraft **0.9→0.10 migration** (AU-KG.backend.authority-has-already-acked) moved
 `src/raft/` to the v2 split storage (`RaftLogStorage` + `RaftStateMachine` on
 `Arc<EgStore>`, no `Adaptor`; `io::Error` returns; stream-based `apply`; full-snapshot
-transfer) and `RaftNetworkV2`. Validate the cluster mechanism (formation / replication /
-failover / **native transfer** / durable log) on throwaway loopback nodes with
-`scripts/validate-raft-cluster.sh`. What still needs **real multi-node hardware**: wiring
-the coalescer under openraft's live heartbeat cadence + a cross-host soak. See
+transfer) and `RaftNetworkV2`. The current source also installs a bounded coalescer
+worker under OpenRaft's live heartbeat cadence, reconciles the durable on-disk group
+count before ring startup, and runs a benefit/hysteresis/cooldown/failure-domain gated
+leader-balance scheduler. Validate the cluster mechanism (formation / replication /
+failover / **native transfer** / durable log / live heartbeat batching) on throwaway
+loopback nodes with `scripts/validate-raft-cluster.sh`. What still needs **real
+multi-node hardware** is the cross-host soak and measured performance benefit. See
 `docs/architecture/m2-raft-status.md` and `docs/architecture/cluster-deployment.md`.
 
 ---
@@ -646,7 +651,8 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` (feature `oidc`) | Primary-protocol OIDC identity binding (`src/server/oidc.rs`, `server::auth::bind_verified_identity`): when set, every `eg2.` envelope must additionally carry an `oidc_token` that independently RSA/JWKS-verifies against this issuer, and the envelope's principal/tenant/roles/scopes must match the verified token's claims (reject on mismatch) — extends the same RSA-JWKS verifier the KV-cache HTTP surface already used. Falls back to the shared `OIDC_ISSUER` when unset. **Absent ⇒ today's HMAC-only `eg2.` behavior is unchanged** (unauthenticated local/dev deployments still work); once set, identity is enforced. Independent of `EPISTEMIC_GRAPH_KVCACHE_JWT_ISSUER` — the two surfaces may point at different realms/audiences. |
 | `EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE` (feature `oidc`) | The OIDC client audience `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER`'s tokens must carry. Falls back to the shared `OIDC_AUDIENCE`. Mandatory once an issuer is configured. |
 | `EPISTEMIC_GRAPH_OIDC_JWKS_URL` (feature `oidc`) | JWKS endpoint the primary protocol fetches signing keys from. No generic fallback (discovery/vendor URL construction belongs at the deployment boundary). Mandatory once an issuer is configured. |
-| `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2 / ADR-2 W1.2, `raft`/`cluster` feature) | Number of Raft groups this node stands up at boot **and** the durable shard count K (ADR-2: K == N, raft group *g* owns redb shard *g*). Default = the effective-cgroup auto-size `clamp(cpu/2, 1, MAX_SHARD_COUNT=64)` (the same write-sharding the non-raft path uses — turning on raft no longer collapses to one writer); set explicitly to size the pool, clamped `1..=64`. Un-pinned graphs spread across the `0..N` tenant-range ring (`FNV-1a(sanitize(name)) % N`) while `PlacementCatalog` remains authoritative for explicit placements. **Per-shard cost:** each group opens one redb file descriptor + one group-commit writer thread, so a high N trades RAM/FDs for N-way parallel durable writes. An existing K=1 raft store keeps K=1 (all groups on shard 0) until `migrate-shards` rewrites its layout. |
+| `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2 / ADR-2 W1.2, `raft`/`cluster` feature) | Requested number of Raft groups this node stands up at boot **and** the durable shard count K for a fresh store (ADR-2: K == N, raft group *g* owns redb shard *g*). Default = the effective-cgroup auto-size `clamp(cpu/2, 1, MAX_SHARD_COUNT=64)` (the same write-sharding the non-raft path uses — turning on raft no longer collapses to one writer); set explicitly to size the pool, clamped `1..=64`. Un-pinned graphs spread across the `0..N` tenant-range ring (`FNV-1a(sanitize(name)) % N`) while `PlacementCatalog` remains authoritative for explicit placements. **Per-shard cost:** each group opens one redb file descriptor + one group-commit writer thread, so a high N trades RAM/FDs for N-way parallel durable writes. On restart, an existing on-disk K is authoritative and startup adopts it before creating groups/ring; changing K requires `migrate-shards`. |
+| `EPISTEMIC_GRAPH_RAFT_FAILURE_DOMAINS` (NE-171, `raft`/`cluster` feature) | Optional complete comma-separated `node_id=domain` map (for example `1=az-a,2=az-b,3=az-b`). The bounded automatic leader scheduler transfers only between distinct known domains; equal/unknown domains fail closed. Unset derives a conservative domain from each advertised Raft endpoint host. |
 | `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR` (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1, `raft::config`) | This node's client-reachable address, self-reported into the durable cluster-topology store (`Method::NodeInfoUpsert`) and handed back by `Method::ClusterMembers`/`PlacementRoute.endpoints` — the engine-authoritative discovery that replaces the static hand-maintained `GRAPH_RAFT_GROUP_ENDPOINTS` client map. **Required whenever Raft peers are configured** (`EPISTEMIC_GRAPH_RAFT_NODE_ID`/`_PEERS` set) — config-contract style, like the transport secret: a clustered node refuses to start without it, since a discovering client would otherwise have no address to learn for this node beyond its own seed contact. Not read at all when Raft is not configured (single-node). |
 | `EPISTEMIC_GRAPH_ADVERTISED_TLS_SERVER_NAME` (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1, `raft::config`) | Optional TLS server name (SNI / certificate hostname) a client should verify when connecting to `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR` over `tls://`, self-reported alongside it into the cluster-topology store. **Unset ⇒ `None`** — the client verifies against the address's own host (the TLS default); zero friction for a deployment that doesn't need SNI override. |
 | `EPISTEMIC_GRAPH_SERVER_REGISTRY_REAP_SECS` (CONCEPT:EG-KG.sharding.server-registry, W2.5, `server::registry_reaper`) | Positive interval, seconds, for the fleet server-registry stale-lease reaper: how often `__commons__` is swept for `:Server` nodes (written by `Method::RegisterServer`) whose `lease_expires_at_ms` has lapsed. A lapsed row is durably removed and a `RemoveNode` CDC event is emitted (feeds the incident brain). **Default `15`** (unset or non-positive) — short enough that even the minimum allowed `RegisterServer.ttl_secs` lease (1s) is reaped promptly; always armed (unlike cold-offload's opt-in memory policy, an unreaped dead registration is a staleness/correctness concern, not a resource-usage opt-in). |
