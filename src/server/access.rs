@@ -2089,6 +2089,14 @@ const REASON_CHANNEL_MEMBERSHIP: &str =
     "dispatch.rs checks ServerState::channels.authorize_member(channel_id, tenant_scope, agent_id) before returning channel messages/roster -- channel membership is the authority, not graph row visibility";
 const REASON_PURE_COMPUTE: &str =
     "pure compute over caller-supplied arrays/parameters (finance/datascience primitives) -- no server-held graph row is read";
+const REASON_ASR_PURE_COMPUTE: &str =
+    "src/server/handlers/asr.rs::handle/transcribe_file only verifies a caller-resolved model artifact and transcribes caller-supplied audio -- it never reads GraphCore or a tenant-owned row, so cross-tenant row RLS is not applicable";
+const REASON_QUANTUM_PURE_COMPUTE: &str =
+    "src/server/handlers/quantum.rs::handle builds and executes a bounded circuit from caller-supplied candidates/programs -- it never reads GraphCore or a tenant-owned row, so ranking is not a graph-row read and cannot bypass RLS";
+const REASON_TTS_PURE_COMPUTE: &str =
+    "src/server/handlers/tts.rs::synthesize validates and authorizes the caller-supplied carrier/input, then runs bounded Piper inference inline -- it never reads GraphCore or a tenant-owned row, so no graph-row RLS projection is required";
+const REASON_VIZ_CARRIER_SCOPED: &str =
+    "src/server/handlers/viz.rs never reads GraphCore: its persistent ColumnStore/provenance side-store is an owner-scoped non-row surface, and verified CarrierAuthority namespaces dataset handles plus result references before lookup, cache, ingestion, or shaping";
 const REASON_SANDBOXED_UDF: &str =
     "wasm_udf.rs's RunUdf executes a sandboxed WASM module over an opaque caller-supplied byte payload only -- no graph state is read";
 const REASON_TENANT_KEY_SCOPED_SERIES: &str =
@@ -2173,6 +2181,9 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("GetChannelMessages", REASON_CHANNEL_MEMBERSHIP),
     ("ListChannels", REASON_CHANNEL_MEMBERSHIP),
     // REASON_PURE_COMPUTE
+    ("Asr", REASON_ASR_PURE_COMPUTE),
+    ("Quantum", REASON_QUANTUM_PURE_COMPUTE),
+    ("TtsSynthesize", REASON_TTS_PURE_COMPUTE),
     ("DsAdamStep", REASON_PURE_COMPUTE),
     ("DsComputeStats", REASON_PURE_COMPUTE),
     ("DsCrossEntropy", REASON_PURE_COMPUTE),
@@ -2257,6 +2268,8 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("FinanceVwap", REASON_PURE_COMPUTE),
     // REASON_SANDBOXED_UDF
     ("RunUdf", REASON_SANDBOXED_UDF),
+    // REASON_VIZ_CARRIER_SCOPED
+    ("Viz", REASON_VIZ_CARRIER_SCOPED),
     // REASON_TENANT_KEY_SCOPED_SERIES
     ("TsAsofJoin", REASON_TENANT_KEY_SCOPED_SERIES),
     ("TsGapFill", REASON_TENANT_KEY_SCOPED_SERIES),
@@ -2417,6 +2430,92 @@ mod read_rls_coverage_tests {
                 "'{method}' must not also claim to be RLS_ROUTED"
             );
         }
+    }
+
+    /// Self-routed modality/compute handlers have no graph row target to
+    /// project. Their negative control is therefore the verified carrier's
+    /// owner boundary: a foreign tenant cannot mint or claim the same
+    /// owner-scoped handle. Viz applies this boundary to its persistent
+    /// dataset/result handles in `handlers::viz`; the three pure-compute
+    /// handlers have no server-held handle at all, so there is no row or
+    /// non-row resource for them to read across tenants.
+    fn assert_self_routed_cross_tenant_control(
+        method: &str,
+        expected_reason: &'static str,
+    ) {
+        let owner = CarrierAuthority::from_verified(
+            &super::super::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                "owner", "tenant-a",
+            ),
+        )
+        .unwrap();
+        let foreign = CarrierAuthority::from_verified(
+            &super::super::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                "foreign", "tenant-b",
+            ),
+        )
+        .unwrap();
+        let owner_handle = owner.namespace("read-rls-control", method);
+        let foreign_handle = foreign.namespace("read-rls-control", method);
+        let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
+
+        assert_eq!(
+            non_row.get(method).copied(),
+            Some(expected_reason),
+            "{method} must remain in the documented non-row exception bucket"
+        );
+        assert!(!RLS_ROUTED.contains(&method));
+        assert_ne!(
+            owner_handle, foreign_handle,
+            "foreign tenants must not receive the same {method} owner handle"
+        );
+        assert!(
+            !foreign.owns(owner.tenant_scope(), owner.actor_scope()),
+            "foreign tenant must be denied ownership of the {method} scope"
+        );
+    }
+
+    #[test]
+    fn asr_is_non_row_scoped_and_foreign_tenant_control_is_denied() {
+        assert_self_routed_cross_tenant_control("Asr", REASON_ASR_PURE_COMPUTE);
+    }
+
+    #[test]
+    fn quantum_is_non_row_scoped_and_foreign_tenant_control_is_denied() {
+        assert_self_routed_cross_tenant_control("Quantum", REASON_QUANTUM_PURE_COMPUTE);
+    }
+
+    #[test]
+    fn tts_is_non_row_scoped_and_foreign_tenant_control_is_denied() {
+        assert_self_routed_cross_tenant_control("TtsSynthesize", REASON_TTS_PURE_COMPUTE);
+    }
+
+    #[test]
+    fn viz_is_owner_scoped_non_row_and_foreign_tenant_control_is_denied() {
+        let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
+        assert_eq!(
+            non_row.get("Viz").copied(),
+            Some(REASON_VIZ_CARRIER_SCOPED),
+            "Viz must be documented as an owner-scoped non-row surface"
+        );
+        assert!(!RLS_ROUTED.contains(&"Viz"));
+
+        let owner = CarrierAuthority::from_verified(
+            &super::super::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                "owner", "tenant-a",
+            ),
+        )
+        .unwrap();
+        let foreign = CarrierAuthority::from_verified(
+            &super::super::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                "foreign", "tenant-b",
+            ),
+        )
+        .unwrap();
+        assert!(
+            !foreign.owns(owner.tenant_scope(), owner.actor_scope()),
+            "foreign tenant must be denied the owner of Viz's persistent side-store"
+        );
     }
 
     // ── L-RLS-1 follow-up: the 5 formerly-`NOT_YET_AUDITED` epistemic read methods ──
