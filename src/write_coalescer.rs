@@ -70,6 +70,55 @@ impl BatchStats {
     }
 }
 
+// Process-wide queue telemetry is kept in atomics rather than a per-graph
+// registry.  The queues themselves remain one bounded channel per resident
+// graph, while ResourceStats can expose their aggregate depth/bytes without
+// allocating a million-entry map.
+static QUEUED_OPS: AtomicU64 = AtomicU64::new(0);
+static QUEUED_BYTES: AtomicU64 = AtomicU64::new(0);
+static OPERATIONS_TOTAL: AtomicU64 = AtomicU64::new(0);
+
+pub fn global_stats() -> (u64, u64, u64) {
+    (
+        QUEUED_OPS.load(Ordering::Relaxed),
+        QUEUED_BYTES.load(Ordering::Relaxed),
+        OPERATIONS_TOTAL.load(Ordering::Relaxed),
+    )
+}
+
+pub(crate) fn queue_admitted(bytes: u64) {
+    let _ = QUEUED_OPS.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        Some(value.saturating_add(1))
+    });
+    let _ = QUEUED_BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        Some(value.saturating_add(bytes))
+    });
+    let (depth, queued_bytes, operations) = global_stats();
+    crate::metrics::set_coalescer_stats(depth, queued_bytes, operations);
+}
+
+pub(crate) fn queue_released(bytes: u64) {
+    // Saturating updates keep a worker shutdown or a future cancellation path
+    // from turning a telemetry counter into a huge wrapped value.
+    let _ = QUEUED_OPS.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        Some(value.saturating_sub(1))
+    });
+    let _ = QUEUED_BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        Some(value.saturating_sub(bytes))
+    });
+    let (depth, queued_bytes, operations) = global_stats();
+    crate::metrics::set_coalescer_stats(depth, queued_bytes, operations);
+}
+
+pub(crate) fn operations_applied(ops: usize) {
+    let ops = ops as u64;
+    let _ = OPERATIONS_TOTAL.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        Some(value.saturating_add(ops))
+    });
+    let (depth, queued_bytes, operations) = global_stats();
+    crate::metrics::set_coalescer_stats(depth, queued_bytes, operations);
+}
+
 /// One queued structural write against a graph, with a reply channel. These mirror
 /// the five high-frequency single-op write methods that today each open their own
 /// one-shot txn; multi-step writes (BatchUpdate, ClearGraph, reasoning, …) keep
@@ -102,6 +151,66 @@ pub enum WriteOp {
         updates: serde_json::Map<String, serde_json::Value>,
         reply: oneshot::Sender<WriteOutcome>,
     },
+}
+
+impl WriteOp {
+    /// Conservative, allocation-free queue footprint used only for the global
+    /// byte gauge.  It intentionally includes payload/map key sizes but not the
+    /// oneshot sender's opaque runtime allocation.
+    pub fn approx_bytes(&self) -> u64 {
+        fn json_bytes(value: &serde_json::Value) -> u64 {
+            match value {
+                serde_json::Value::Null => 1,
+                serde_json::Value::Bool(_) => 1,
+                serde_json::Value::Number(_) => 16,
+                serde_json::Value::String(value) => value.len() as u64,
+                serde_json::Value::Array(values) => values
+                    .iter()
+                    .fold(0u64, |total, value| total.saturating_add(json_bytes(value))),
+                serde_json::Value::Object(values) => values.iter().fold(0u64, |total, (key, value)| {
+                    total
+                        .saturating_add(key.len() as u64)
+                        .saturating_add(json_bytes(value))
+                }),
+            }
+        }
+
+        match self {
+            Self::AddNode {
+                node_id,
+                properties_msgpack,
+                ..
+            } => (node_id.len() as u64)
+                .saturating_add(properties_msgpack.len() as u64),
+            Self::RemoveNode { node_id, .. } => node_id.len() as u64,
+            Self::AddEdge {
+                source_id,
+                target_id,
+                properties_msgpack,
+                ..
+            } => (source_id.len() as u64)
+                .saturating_add(target_id.len() as u64)
+                .saturating_add(properties_msgpack.len() as u64),
+            Self::RemoveEdge {
+                source_id,
+                target_id,
+                ..
+            } => (source_id.len() as u64).saturating_add(target_id.len() as u64),
+            Self::CompareAndSet {
+                node_id,
+                conditions,
+                updates,
+                ..
+            } => conditions
+                .iter()
+                .chain(updates.iter())
+                .fold(node_id.len() as u64, |total, (key, value)| {
+                    total
+                        .saturating_add(key.len() as u64)
+                        .saturating_add(json_bytes(value))
+                }),
+        }
+    }
 }
 
 /// The result of applying one [`WriteOp`] under the batch txn, handed back to the
@@ -225,13 +334,18 @@ impl GraphWriter {
         let ticket = admission.next_ticket;
         // CONCEPT:EG-KG.compute.parse-resolve-span — stamp the enqueue instant here (the moment the producer
         // hands the op off) so the worker measures the true enqueue→acquire wait.
+        let queued_bytes = op.approx_bytes();
+        queue_admitted(queued_bytes);
         match self.tx.try_send((ticket, Instant::now(), op)) {
             Ok(()) => {
                 admission.next_ticket = ticket + 1;
                 Ok(())
             }
             Err(mpsc::error::TrySendError::Full((_, _, op)))
-            | Err(mpsc::error::TrySendError::Closed((_, _, op))) => Err(op),
+            | Err(mpsc::error::TrySendError::Closed((_, _, op))) => {
+                queue_released(queued_bytes);
+                Err(op)
+            }
         }
     }
 
@@ -254,6 +368,7 @@ async fn run_worker(
     let mut next_ticket = 0u64;
     while let Some(first) = rx.recv().await {
         let (ticket, enqueued, op) = first;
+        queue_released(op.approx_bytes());
         assert_eq!(
             ticket, next_ticket,
             "write coalescer admission order must be contiguous"
@@ -268,6 +383,7 @@ async fn run_worker(
         while batch.len() < config.max_batch {
             match rx.try_recv() {
                 Ok((ticket, enqueued, op)) => {
+                    queue_released(op.approx_bytes());
                     assert_eq!(
                         ticket, next_ticket,
                         "write coalescer admission order must be contiguous"
@@ -288,6 +404,7 @@ async fn run_worker(
             if let Ok(Some((ticket, enqueued, op))) =
                 tokio::time::timeout(config.max_linger, rx.recv()).await
             {
+                queue_released(op.approx_bytes());
                 assert_eq!(
                     ticket, next_ticket,
                     "write coalescer admission order must be contiguous"
@@ -299,6 +416,7 @@ async fn run_worker(
                 while batch.len() < config.max_batch {
                     match rx.try_recv() {
                         Ok((ticket, enqueued, op)) => {
+                            queue_released(op.approx_bytes());
                             assert_eq!(
                                 ticket, next_ticket,
                                 "write coalescer admission order must be contiguous"
@@ -475,6 +593,7 @@ fn apply_batch(
                // CONCEPT:EG-KG.compute.parse-resolve-span — hold = acquire → release: the window readers were blocked.
     crate::metrics::observe_write_lock_hold(graph_name, acquired.elapsed().as_secs_f64());
     stats.record(n);
+    operations_applied(n);
     crate::metrics::write_batch_committed(graph_name, n);
 }
 
