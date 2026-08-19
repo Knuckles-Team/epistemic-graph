@@ -73,6 +73,8 @@ where
 
 pub mod config;
 pub mod cross_shard_txn;
+/// Pure, policy-only M3 cross-node elasticity proposals with resumable move identities.
+pub mod cross_node_elasticity;
 /// X4 — the distributed cross-shard DAG EXCHANGE operator (CONCEPT:EG-KG.query.dag-distributed-exchange),
 /// the cluster-tier extension of E5's `eg_plan::dag::PlanDag`: ships a branch subtree to
 /// its owning Raft group over a length-prefixed-MessagePack transport, runs it there via
