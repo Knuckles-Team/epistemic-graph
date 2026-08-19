@@ -20,9 +20,15 @@
 //!   * `scram` — SCRAM-SHA-256 (what modern drivers negotiate). This is the only
 //!     accepted mode and requires a non-empty `GRAPH_SERVICE_AUTH_SECRET`.
 //!
-//! The direct listener never terminates TLS and is therefore always loopback-only.
-//! A remote client must traverse an authenticated TLS/mTLS gateway whose backend is
-//! this loopback socket; the SCRAM proof still binds the pg user to the ACL actor.
+//! Native TLS paths are configured independently through
+//! `EPISTEMIC_GRAPH_PGWIRE_TLS_CERT`, `EPISTEMIC_GRAPH_PGWIRE_TLS_KEY`, and the
+//! optional `EPISTEMIC_GRAPH_PGWIRE_TLS_CLIENT_CA` (mTLS) variable.
+//!
+//! Native TLS is optional for loopback deployments and required before a listener
+//! can bind a non-loopback address. When a certificate is configured, SCRAM also
+//! advertises `SCRAM-SHA-256-PLUS`, binding clients that select channel binding to
+//! the configured server certificate. The SCRAM proof still binds the pg user to
+//! the ACL actor independently of the transport identity.
 //!
 //! The mode is resolved ONCE at `serve()` startup and logged.
 
@@ -142,13 +148,25 @@ pub enum EngineStartupHandler {
 
 impl EngineStartupHandler {
     /// Build the SCRAM startup handler over the engine key material.
-    pub fn new(mode: PgWireAuthMode, auth_secret: &str) -> Self {
+    ///
+    /// `certificate_pem` is optional for loopback/plain deployments. When it is
+    /// supplied, the handler advertises SCRAM channel binding and verifies the
+    /// `tls-server-end-point` proof for clients that select `SCRAM-SHA-256-PLUS`.
+    /// Startup validates the PEM before a listener is opened; the `expect` below
+    /// therefore protects an already-validated invariant rather than accepting
+    /// malformed operator input at connection time.
+    pub fn new(mode: PgWireAuthMode, auth_secret: &str, certificate_pem: Option<&[u8]>) -> Self {
         match mode {
             PgWireAuthMode::Scram => {
                 let source = Arc::new(EngineAuthSource {
                     secret: auth_secret.to_string(),
                 });
-                let scram = ScramAuth::new(source);
+                let mut scram = ScramAuth::new(source);
+                if let Some(certificate_pem) = certificate_pem {
+                    scram
+                        .configure_certificate(certificate_pem)
+                        .expect("pgwire TLS certificate was validated before listener startup");
+                }
                 let handler = SASLAuthStartupHandler::new(Arc::new(
                     DefaultServerParameterProvider::default(),
                 ))
@@ -157,6 +175,17 @@ impl EngineStartupHandler {
             }
         }
     }
+}
+
+/// Validate the exact certificate bytes used by native TLS before a listener is
+/// opened. This keeps SCRAM channel-binding failures in the fail-closed startup
+/// path instead of discovering an invalid X.509 chain only after a client logs in.
+pub fn validate_certificate(certificate_pem: &[u8]) -> PgWireResult<()> {
+    let source = Arc::new(EngineAuthSource {
+        secret: "pgwire-tls-validation".to_owned(),
+    });
+    let mut scram = ScramAuth::new(source);
+    scram.configure_certificate(certificate_pem)
 }
 
 #[async_trait]
