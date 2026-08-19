@@ -91,8 +91,11 @@ not a Python array-runtime dependency:
 - **Linalg (faer):** `norm(+ord) · dot · matmul · solve · svd · svdvals · eigh · pinv ·
   lstsq · qr · cholesky · det · inv · matrix_power`, plus a `LinAlgError` exception that
   mirrors the isolated parity reference's `LinAlgError` (raised on singular / non-PD).
-- **Random:** `normal · uniform · integers` (seedable ChaCha20; deterministic, and
-  distribution-parity — bit-for-bit parity with the isolated oracle's PCG64 is a non-goal).
+- **Random:** `normal · uniform · integers · choice_indices · permutation_indices`
+  (seedable ChaCha20; deterministic, and distribution-parity — bit-for-bit parity with
+  the isolated oracle's PCG64 is a non-goal). `choice_indices` is one bounded batch
+  supporting uniform or finite non-negative weights, with or without replacement;
+  no-replacement sampling is native and unbiased.
 
 ## Parity
 

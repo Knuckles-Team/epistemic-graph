@@ -105,3 +105,30 @@ def test_native_random_rejects_invalid_parameters_without_panicking() -> None:
         kernel.uniform(1.0, 1.0, 1, 1)
     with pytest.raises(ValueError, match="integers"):
         kernel.integers(2, 2, 1, 1)
+
+
+def test_native_choice_and_permutation_indices_are_bounded_batches() -> None:
+    kernel = _kernel()
+
+    assert kernel.choice_indices(0, 0, True, None, 7) == []
+    sampled = kernel.choice_indices(32, 16, False, None, 7)
+    assert len(sampled) == 16
+    assert len(set(sampled)) == 16
+    assert all(0 <= index < 32 for index in sampled)
+
+    weighted = kernel.choice_indices(4, 128, True, [0.0, 1.0, 3.0, 0.0], 7)
+    assert set(weighted) <= {1, 2}
+
+    permutation = kernel.permutation_indices(32, 7)
+    assert sorted(permutation) == list(range(32))
+
+    with pytest.raises(ValueError, match="weights"):
+        kernel.choice_indices(2, 1, True, [float("nan"), 1.0], 7)
+    with pytest.raises(ValueError, match="weights"):
+        kernel.choice_indices(2, 1, True, [0.0, 0.0], 7)
+    with pytest.raises(ValueError, match="population"):
+        kernel.choice_indices(2, 3, False, None, 7)
+    with pytest.raises(ValueError, match="output size"):
+        kernel.choice_indices(2, 1_000_001, True, None, 7)
+    with pytest.raises(ValueError, match="population size"):
+        kernel.choice_indices(1_000_001, 1, True, None, 7)

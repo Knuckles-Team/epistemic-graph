@@ -881,6 +881,52 @@ mod py {
         py_i64(py, ndarray::Array1::from_vec(values).into_dyn())
     }
 
+    /// Draw a bounded batch of population indices, optionally weighted.
+    ///
+    /// `weights` is kept as a Python object until the existing bounded,
+    /// one-dimensional native extractor has validated its rank and element
+    /// count.  The Rust kernel owns all sampling loops; callers receive one
+    /// detached list of indices and can map those indices to arbitrary values.
+    #[pyfunction]
+    #[pyo3(signature = (population, size, replace=true, weights=None, seed=0))]
+    fn choice_indices(
+        py: Python<'_>,
+        population: usize,
+        size: usize,
+        replace: bool,
+        weights: Option<&Bound<'_, PyAny>>,
+        seed: u64,
+    ) -> PyResult<Py<PyAny>> {
+        if population > MAX_INPUT_ELEMENTS {
+            return Err(PyValueError::new_err(format!(
+                "population size exceeds the {MAX_INPUT_ELEMENTS}-element limit"
+            )));
+        }
+        check_output_size(size)?;
+        let weights = weights
+            .map(to_f64_1d)
+            .transpose()?
+            .map(|weights| weights.to_vec());
+        let mut generator = random::Generator::new(seed);
+        let values = generator
+            .try_choice_indices(population, size, replace, weights.as_deref())
+            .map_err(map_err)?;
+        let values = values.into_iter().map(|value| value as i64).collect();
+        py_i64(py, ndarray::Array1::from_vec(values).into_dyn())
+    }
+
+    /// Return one bounded, uniformly random permutation of population indices.
+    #[pyfunction]
+    #[pyo3(signature = (population, seed=0))]
+    fn permutation_indices(py: Python<'_>, population: usize, seed: u64) -> PyResult<Py<PyAny>> {
+        let mut generator = random::Generator::new(seed);
+        let values = generator
+            .try_permutation_indices(population)
+            .map_err(map_err)?;
+        let values = values.into_iter().map(|value| value as i64).collect();
+        py_i64(py, ndarray::Array1::from_vec(values).into_dyn())
+    }
+
     /// The `epistemic_graph.numeric` extension module.
     #[pymodule]
     fn numeric(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -938,7 +984,9 @@ mod py {
             kmeans,
             normal,
             uniform,
-            integers
+            integers,
+            choice_indices,
+            permutation_indices
         );
         Ok(())
     }
