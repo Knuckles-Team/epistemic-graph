@@ -1684,6 +1684,10 @@ pub(crate) fn verify_request_with_security_dir(
 // signer's key, so a signer can never widen its own allowance from inside a
 // request it authenticates — only whoever can edit/replace the registry can
 // do that.
+// This is deliberately the signer-local, structural half of the decision. The
+// one-time genesis lifecycle is state owned by `IsolationLayer`; dispatch routes
+// the exact pending-bootstrap shape to `try_bootstrap_system_identity` and sends
+// every other served registration through its System-rejecting entrypoint.
 //
 // NE-066 layers rotation on top: `SignerRegistryStore` holds the live
 // registry behind a `RwLock<Arc<..>>` bounded cache rather than the
