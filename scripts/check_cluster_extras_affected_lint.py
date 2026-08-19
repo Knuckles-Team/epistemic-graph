@@ -81,6 +81,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts import push_gate_evidence  # noqa: E402
 
 # The shipped feature set -- what every other local gate already lints
 # (matches the `cargo-clippy` hook's `--features full`, plus `ast-extended`
@@ -113,7 +117,12 @@ def _log(msg: str) -> None:
 
 def run_heavy(reason: str) -> int:
     _log(f"running the full --all-features clippy -- {reason}")
-    return subprocess.run(HEAVY_CLIPPY_CMD, cwd=ROOT).returncode
+    try:
+        environment = push_gate_evidence.local_build_environment()
+    except push_gate_evidence.EvidenceError as exc:
+        _log(f"local Cargo environment is invalid ({exc}); running normally")
+        environment = None
+    return subprocess.run(HEAVY_CLIPPY_CMD, cwd=ROOT, env=environment).returncode
 
 
 def _cargo_metadata(features: str) -> dict:
@@ -198,6 +207,30 @@ def _owning_crate(path: str) -> str | None:
 
 
 def main() -> int:
+    try:
+        consumer_environment = push_gate_evidence.local_build_environment()
+    except push_gate_evidence.EvidenceError as exc:
+        _log(f"local Cargo environment is invalid ({exc}); cache reuse disabled")
+        consumer_environment = None
+    evidence = push_gate_evidence.EvidenceStore.current()
+    try:
+        reusable = evidence is not None and evidence.consume(
+            push_gate_evidence.Selection.from_argv(
+                "cargo-clippy-all-features",
+                HEAVY_CLIPPY_CMD,
+                kind="cargo",
+                environment=consumer_environment,
+            )
+        )
+    except (push_gate_evidence.EvidenceError, OSError):
+        reusable = False
+    if reusable:
+        _log(
+            "reusing the successful advisory all-features clippy selection "
+            "from this pre-push invocation"
+        )
+        return 0
+
     files = _changed_files()
     if files is None:
         return run_heavy(
