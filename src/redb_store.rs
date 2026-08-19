@@ -9838,6 +9838,9 @@ pub(crate) fn clear_mutation_authority_rows(
 /// of the same name then starts from a clean slate instead of inheriting the deleted
 /// incarnation's rows on a read-through / `load_all`. Lives in the SHARED redb_store
 /// so the embedded engine's delete path purges correctly too (CONCEPT:EG-KG.backend.engine-modes).
+/// The purge also removes the graph's mutation-authority rows (replay keys,
+/// batch/outbox/delivery records, projection cursors, and lifecycle fences), so
+/// this whole-graph seam cannot leave state that a same-name recreate inherits.
 pub(crate) fn purge_graph_rows(
     db: &Database,
     graph: &str,
@@ -9865,6 +9868,12 @@ pub(crate) fn purge_graph_rows(
             .map_err(|e| e.to_string())?;
 
         clear_change_material_rows(&wtx, graph)?;
+        // Mutation authority is lifecycle-owned state too.  Keep this shared
+        // whole-graph purge aligned with the canonical DeleteGraph commit
+        // path: a caller using the embedded/legacy purge seam must not leave
+        // replay, outbox, projection, or lifecycle-fence rows behind for a
+        // same-name recreate.
+        clear_mutation_authority_rows(&wtx, graph)?;
         let mut reservations = wtx
             .open_table(RESOURCE_RESERVATIONS)
             .map_err(|e| e.to_string())?;
@@ -14878,6 +14887,135 @@ mod mutation_batch_tests {
             );
         }
 
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// The embedded/legacy whole-graph purge seam must remove the COMPLETE
+    /// lifecycle-owned authority surface, not only graph rows and graph_meta.
+    /// This is deliberately separate from
+    /// `delete_graph_purges_prior_incarnation_mutation_authority`: the
+    /// canonical MutationBatch DeleteGraph path already exercises its own
+    /// in-transaction cleanup, while `purge_graph_rows` is the path used by
+    /// `EmbeddedEngine::delete_graph` and the persistence `PurgeGraph` command.
+    #[test]
+    fn purge_graph_rows_removes_all_lifecycle_owned_mutation_state() {
+        let path = temp_path("whole-graph-authority-purge");
+        let db = open(&path);
+
+        let mut create = batch("create-graph-a", "create-key");
+        create.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Lifecycle,
+            domain: MutationDomain::Lifecycle,
+            method: Method::CreateGraph {
+                graph_name: "graph-a".to_string(),
+                graph_type: GraphType::Agent,
+            },
+        }];
+        commit_at(&db, &create, None).unwrap();
+
+        // The ordinary mutation seeds an independent idempotency/batch/outbox
+        // row for the incarnation being purged. The lifecycle batch above also
+        // seeds the graph version, fence, and lifecycle-head rows.
+        let mut content = batch("content-batch-1", "content-key-1");
+        content.expected_graph_version = Some(4);
+        commit_at(&db, &content, None).unwrap();
+
+        // Delivery and projection cursor rows are not written by commit_at;
+        // seed them explicitly so this fixture covers every table named by
+        // clear_mutation_authority_rows, not just the basic replay/outbox set.
+        {
+            let wtx = db.begin_write().unwrap();
+            wtx.open_table(MUTATION_OUTBOX_DELIVERY)
+                .unwrap()
+                .insert(
+                    ("content-batch-1", 0u32, "projection-worker"),
+                    &[1u8, 2, 3][..],
+                )
+                .unwrap();
+            wtx.open_table(MUTATION_PROJECTION_CURSOR)
+                .unwrap()
+                .insert(
+                    ("tenant-a", "graph-a", "projection-worker"),
+                    &[4u8, 5, 6][..],
+                )
+                .unwrap();
+            wtx.commit().unwrap();
+        }
+
+        // The helper is the shared durable whole-graph purge used by both the
+        // embedded engine and the persistence writer's PurgeGraph command.
+        purge_graph_rows(&db, "graph-a", DurableCrypto::none()).unwrap();
+
+        let rtx = db.begin_read().unwrap();
+        assert!(read_all_graph_meta(&db).unwrap().is_empty());
+        assert!(rtx
+            .open_table(MUTATION_BATCHES)
+            .unwrap()
+            .iter()
+            .unwrap()
+            .next()
+            .is_none());
+        assert!(rtx
+            .open_table(MUTATION_IDEMPOTENCY)
+            .unwrap()
+            .iter()
+            .unwrap()
+            .next()
+            .is_none());
+        assert!(rtx
+            .open_table(MUTATION_OUTBOX)
+            .unwrap()
+            .iter()
+            .unwrap()
+            .next()
+            .is_none());
+        assert!(rtx
+            .open_table(MUTATION_OUTBOX_DELIVERY)
+            .unwrap()
+            .iter()
+            .unwrap()
+            .next()
+            .is_none());
+        assert!(rtx
+            .open_table(MUTATION_PROJECTION_CURSOR)
+            .unwrap()
+            .iter()
+            .unwrap()
+            .next()
+            .is_none());
+        assert!(rtx
+            .open_table(MUTATION_GRAPH_VERSION)
+            .unwrap()
+            .get("graph-a")
+            .unwrap()
+            .is_none());
+        assert!(rtx
+            .open_table(MUTATION_FENCE)
+            .unwrap()
+            .get("graph-a")
+            .unwrap()
+            .is_none());
+        assert!(rtx
+            .open_table(MUTATION_LIFECYCLE_HEAD)
+            .unwrap()
+            .get("graph-a")
+            .unwrap()
+            .is_none());
+        drop(rtx);
+
+        // The deletion is durable, not merely visible in the write
+        // transaction that performed it.
+        drop(db);
+        let reopened = open(&path);
+        assert!(read_all_graph_meta(&reopened).unwrap().is_empty());
+        assert!(read_mutation_graph_version(&reopened, "graph-a")
+            .unwrap()
+            .is_none());
+        assert!(read_mutation_lifecycle_head(&reopened, "graph-a")
+            .unwrap()
+            .is_none());
+        drop(reopened);
         let _ = std::fs::remove_file(path);
     }
 
