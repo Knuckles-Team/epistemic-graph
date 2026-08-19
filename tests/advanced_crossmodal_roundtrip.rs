@@ -1464,28 +1464,21 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
     reopened.shutdown();
     drop(reopened);
 
-    // ── K2 reopen (WRONG key): the cross-modal read must ERROR, never return plaintext. ──
+    // ── K2 reopen (WRONG key): the canary must reject the open itself. ──
     std::env::set_var(ENCRYPTION_KEY_ENV, "key-two-WRONG");
-    let wrong = {
-        let mut attempt = 0;
-        loop {
-            match RedbBackend::open(dir_s.clone(), policy(), 64) {
-                Ok(backend) => break backend,
-                Err(error) if attempt < 100 => {
-                    attempt += 1;
-                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                    let _ = error;
-                }
-                Err(error) => panic!("reopen K2: {error:?}"),
-            }
+    let wrong_key_error = match RedbBackend::open(dir_s.clone(), policy(), 64) {
+        Ok(backend) => {
+            backend.shutdown();
+            panic!("reopening with the WRONG key must fail closed at RedbBackend::open")
         }
+        Err(error) => error,
     };
-    let read = wrong.read_node("__commons__", "robot").await;
     assert!(
-        read.is_err(),
-        "a wrong key must FAIL the cross-modal read (no silent plaintext), got {read:?}"
+        wrong_key_error.contains(ENCRYPTION_KEY_ENV)
+            && wrong_key_error.contains("does not match")
+            && !wrong_key_error.contains("key-two-WRONG"),
+        "the fail-fast canary rejection must be bounded and key-free, got {wrong_key_error}"
     );
-    wrong.shutdown();
 
     // Restore the env + clean up.
     match prev {
