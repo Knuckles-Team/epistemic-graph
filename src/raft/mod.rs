@@ -73,6 +73,10 @@ where
 
 pub mod config;
 pub mod cross_shard_txn;
+/// Bounded shard/Raft drain state machine (NE-167): admission is stopped and
+/// observed before a voter is removed, every acknowledgement is revision/fence
+/// bound, and restart recovery fails closed.
+pub mod drain;
 /// X4 — the distributed cross-shard DAG EXCHANGE operator (CONCEPT:EG-KG.query.dag-distributed-exchange),
 /// the cluster-tier extension of E5's `eg_plan::dag::PlanDag`: ships a branch subtree to
 /// its owning Raft group over a length-prefixed-MessagePack transport, runs it there via
