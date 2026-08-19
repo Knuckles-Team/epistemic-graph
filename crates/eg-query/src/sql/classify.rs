@@ -1629,7 +1629,7 @@ fn decode_column_def(c: &SqlColumnDef) -> Result<(ColumnDef, Option<TableConstra
             ColumnOption::ForeignKey(fk) => {
                 inline_fk = Some(decode_foreign_key(
                     opt.name.as_ref().map(|i| i.value.clone()),
-                    &[c.name.value.clone()],
+                    std::slice::from_ref(&c.name.value),
                     fk,
                 )?);
             }
