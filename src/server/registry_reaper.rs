@@ -387,18 +387,30 @@ mod tests {
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
 
-        // The minimum allowed TTL (1s) -- register, then sweep "later".
+        // The minimum allowed TTL (1s) -- register, then sweep at the injected
+        // lease boundary.
         register(&state, 1, "dead-server", 1).await;
+        // `register()` only returns after the translated AddNode has received its
+        // durable commit acknowledgement. Read the persisted lease boundary and
+        // inject that exact value into the sweep; the fixture never waits for, or
+        // pads, a wall-clock interval.
+        let lease_expires_at_ms = {
+            let s = state.read().await;
+            s.registry
+                .get("__commons__")
+                .and_then(|entry| entry.core.get_node_properties("srv:dead-server"))
+                .and_then(|blob| eg_types::msgpack::decode_property_value(&blob).ok())
+                .and_then(|value| value.get("lease_expires_at_ms").and_then(|v| v.as_u64()))
+                .expect("registration must persist its lease boundary")
+        };
         let cdc_seq_before = {
             let s = state.read().await;
             s.cdc.as_ref().unwrap().head_seq("__commons__")
         };
 
-        // Simulate the lease having elapsed (a real deployment just waits;
-        // here we sweep against a synthetic "now" past the 1s TTL instead of
-        // sleeping, keeping the test fast and deterministic).
-        let now_ms = crate::server::txn::now_ms() + 2_000;
-        let reaped = reap_expired_servers(&state, now_ms).await;
+        // The reaper's `now_ms` is an injected clock value. At the exact lease
+        // boundary `is_expired_server_node` must classify the row as expired.
+        let reaped = reap_expired_servers(&state, lease_expires_at_ms).await;
         assert_eq!(reaped, 1, "the single expired registration must be reaped");
 
         let core = {
