@@ -51,6 +51,10 @@ use serde_json::Value;
 use super::schema::{
     Cell, Column, ColumnType, RefAction, StoredFunction, TableConstraint, TableSchema,
 };
+use super::migration::{
+    MigrationState, SchemaMigration, SchemaMigrationApply, SchemaMigrationOperation,
+    SchemaMigrationRecord, SecondaryIndexPolicy,
+};
 // CONCEPT:EG-KG.query.real-ann-top-k/EG-313 — the durable pgvector ANN index registration the exec
 // pushdown consults to choose a real eg-ann index over the brute-force scan.
 use crate::sql::{AnnIndexPlan, HypertablePlan};
@@ -97,6 +101,26 @@ const MUTATION_FENCE: TableDefinition<(&str, &str), &[u8]> =
 /// Immutable transactional outbox rows.
 const MUTATION_OUTBOX: TableDefinition<(&str, u32), &[u8]> =
     TableDefinition::new("__sql_mutation_outbox__");
+/// `(tenant_scope, table) -> current schema version`.  Kept separate from the
+/// SQL-domain DML OCC counter because a schema reader must not mistake a row
+/// write for a schema transition.
+const SCHEMA_VERSIONS: TableDefinition<(&str, &str), u64> =
+    TableDefinition::new("__sql_schema_versions__");
+/// `tenant_scope -> catalog-wide schema version`, advanced once per committed
+/// migration regardless of which table changed.
+const SCHEMA_CATALOG_VERSIONS: TableDefinition<&str, u64> =
+    TableDefinition::new("__sql_schema_catalog_versions__");
+/// `(tenant_scope, table, migration_id) -> SchemaMigrationRecord`.
+const SCHEMA_MIGRATIONS: TableDefinition<(&str, &str, &str), &[u8]> =
+    TableDefinition::new("__sql_schema_migrations__");
+/// `(tenant_scope, table, schema_version) -> migration_id`, the durable ordered
+/// chain used for gap/restart verification.
+const SCHEMA_MIGRATION_ORDER: TableDefinition<(&str, &str, u64), &str> =
+    TableDefinition::new("__sql_schema_migration_order__");
+/// `(tenant_scope, catalog_version) -> migration_id`, used to reject catalog
+/// version gaps or duplicate assignments after restart.
+const SCHEMA_CATALOG_ORDER: TableDefinition<(&str, u64), &str> =
+    TableDefinition::new("__sql_schema_catalog_order__");
 const MAX_SQL_STORED_VALUE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SQL_STORED_VALUE_ITEMS: usize = 1_000_000;
 const MAX_SQL_SCAN_ROWS: usize = 100_000;
@@ -307,13 +331,33 @@ impl TableTxn {
 #[derive(Debug, Clone)]
 pub struct TableStore {
     db: Arc<Database>,
+    /// The authenticated owner scope for schema migrations.  `open()` keeps the
+    /// historical single-tenant behavior; served callers should use
+    /// `open_scoped()` so a migration cannot be replayed against another tenant.
+    scope: Arc<str>,
 }
 
 impl TableStore {
     /// Open (creating if absent) the user-table store at `path`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
+        Self::open_scoped(path, "__legacy_store__")
+    }
+
+    /// Open a store bound to one authenticated tenant/graph scope.  The scope
+    /// is not inferred from a migration payload and is checked inside the same
+    /// transaction as every schema transition.
+    pub fn open_scoped(path: impl AsRef<Path>, scope: impl Into<String>) -> Result<Self, String> {
+        let scope = scope.into();
+        if scope.is_empty() || scope.contains('\0') {
+            return Err("SQL table-store scope is empty or contains NUL".to_string());
+        }
         let db = Database::create(path).map_err(|e| format!("open sql table store: {e}"))?;
-        Ok(Self { db: Arc::new(db) })
+        let store = Self {
+            db: Arc::new(db),
+            scope: Arc::from(scope),
+        };
+        store.verify_schema_migrations()?;
+        Ok(store)
     }
 
     /// Open a fresh store at a unique temp path — for tests and ephemeral use.
@@ -345,6 +389,7 @@ impl TableStore {
 
     /// `DROP TABLE`: remove the catalog entry, the sequence, and EVERY row.
     pub fn drop_table(&self, name: &str, if_exists: bool) -> Result<bool, String> {
+        self.ensure_legacy_schema_ddl_allowed(name)?;
         let wtx = self.begin()?;
         let dropped = drop_in(&wtx, name, if_exists)?;
         wtx.commit().map_err(map_err)?;
@@ -353,6 +398,7 @@ impl TableStore {
 
     /// `ALTER TABLE ADD COLUMN`: append `column` to the table's schema.
     pub fn add_column(&self, table: &str, column: Column) -> Result<(), String> {
+        self.ensure_legacy_schema_ddl_allowed(table)?;
         let wtx = self.begin()?;
         add_column_in(&wtx, table, &column)?;
         wtx.commit().map_err(map_err)?;
@@ -363,6 +409,7 @@ impl TableStore {
     /// drop its cell from every stored row, atomically in one write txn. Errors if the
     /// column (or table) does not exist unless `if_exists`.
     pub fn drop_column(&self, table: &str, column: &str, if_exists: bool) -> Result<(), String> {
+        self.ensure_legacy_schema_ddl_allowed(table)?;
         let wtx = self.begin()?;
         drop_column_in(&wtx, table, column, if_exists)?;
         wtx.commit().map_err(map_err)?;
@@ -373,6 +420,7 @@ impl TableStore {
     /// Stored rows are positional so they need no migration. Errors if `from` is absent
     /// or `to` already exists.
     pub fn rename_column(&self, table: &str, from: &str, to: &str) -> Result<(), String> {
+        self.ensure_legacy_schema_ddl_allowed(table)?;
         let wtx = self.begin()?;
         rename_column_in(&wtx, table, from, to)?;
         wtx.commit().map_err(map_err)?;
@@ -383,6 +431,7 @@ impl TableStore {
     /// sequence, and every stored row's key to `new_name`, atomically. Errors if the
     /// table is absent or `new_name` already exists.
     pub fn rename_table(&self, table: &str, new_name: &str) -> Result<(), String> {
+        self.ensure_legacy_schema_ddl_allowed(table)?;
         let wtx = self.begin()?;
         rename_table_in(&wtx, table, new_name)?;
         wtx.commit().map_err(map_err)?;
@@ -398,6 +447,7 @@ impl TableStore {
         column: &str,
         new_type: ColumnType,
     ) -> Result<(), String> {
+        self.ensure_legacy_schema_ddl_allowed(table)?;
         let wtx = self.begin()?;
         alter_column_type_in(&wtx, table, column, new_type)?;
         wtx.commit().map_err(map_err)?;
@@ -414,6 +464,7 @@ impl TableStore {
         constraint: &str,
         if_exists: bool,
     ) -> Result<(), String> {
+        self.ensure_legacy_schema_ddl_allowed(table)?;
         let wtx = self.begin()?;
         drop_constraint_in(&wtx, table, constraint, if_exists)?;
         wtx.commit().map_err(map_err)?;
@@ -428,6 +479,7 @@ impl TableStore {
     /// new constraint before committing — matching Postgres's `ADD CONSTRAINT`
     /// behavior of refusing to add a constraint the current data already violates.
     pub fn add_constraint(&self, table: &str, constraint: TableConstraint) -> Result<(), String> {
+        self.ensure_legacy_schema_ddl_allowed(table)?;
         let wtx = self.begin()?;
         add_constraint_in(&wtx, table, constraint)?;
         wtx.commit().map_err(map_err)?;
@@ -451,6 +503,384 @@ impl TableStore {
             }
             None => Ok(None),
         }
+    }
+
+    /// The current schema version and digest for a table.  Callers should carry
+    /// this snapshot into [`Self::apply_schema_migration`]; the migration's
+    /// version/digest pair is an in-transaction CAS precondition that rejects a
+    /// stale reader rather than guessing how to merge two schema writers.
+    pub fn schema_snapshot(
+        &self,
+        table: &str,
+    ) -> Result<Option<super::migration::SchemaSnapshot>, String> {
+        let Some(schema) = self.get_schema(table)? else {
+            return Ok(None);
+        };
+        let version = self.schema_version(table)?;
+        Ok(Some(super::migration::SchemaSnapshot {
+            tenant_scope: self.scope.to_string(),
+            table: schema.name.clone(),
+            version,
+            schema_digest: schema.schema_digest()?,
+        }))
+    }
+
+    /// Current authoritative schema version for one table.  Tables created by
+    /// older engine versions have an implicit version zero until their first
+    /// governed migration commits.
+    pub fn schema_version(&self, table: &str) -> Result<u64, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let versions = match rtx.open_table(SCHEMA_VERSIONS) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
+            Err(error) => return Err(map_err(error)),
+        };
+        Ok(versions
+            .get((self.scope.as_ref(), table))
+            .map_err(map_err)?
+            .map(|value| value.value())
+            .unwrap_or(0))
+    }
+
+    /// Current catalog-wide schema version for this store scope.  It advances
+    /// exactly once for every committed migration and is suitable as a cache
+    /// invalidation token for readers that materialize more than one table.
+    pub fn schema_catalog_version(&self) -> Result<u64, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let versions = match rtx.open_table(SCHEMA_CATALOG_VERSIONS) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
+            Err(error) => return Err(map_err(error)),
+        };
+        Ok(versions
+            .get(self.scope.as_ref())
+            .map_err(map_err)?
+            .map(|value| value.value())
+            .unwrap_or(0))
+    }
+
+    fn ensure_legacy_schema_ddl_allowed(&self, table: &str) -> Result<(), String> {
+        let version = self.schema_version(table)?;
+        if version > 0 {
+            return Err(format!(
+                "table `{table}` has governed schema version {version}; use apply_schema_migration instead of legacy ALTER/DROP DDL"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Apply one forward-only schema migration as one redb transaction.  The
+    /// schema/catalog, row coercions, dependency checks, migration record, and
+    /// version CAS all commit together or none of them commit.
+    pub fn apply_schema_migration(
+        &self,
+        migration: &SchemaMigration,
+    ) -> Result<SchemaMigrationApply, String> {
+        let wtx = self.begin()?;
+        let result = apply_schema_migration_in(&wtx, self.scope.as_ref(), migration)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(result)
+    }
+
+    /// Return the durable ordered migration chain for `table`, oldest first.
+    /// The records are immutable; callers can use the checksums as a compact
+    /// audit/provenance proof without retrieving row data.
+    pub fn schema_migrations(
+        &self,
+        table: &str,
+    ) -> Result<Vec<SchemaMigrationRecord>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let order = match rtx.open_table(SCHEMA_MIGRATION_ORDER) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(error) => return Err(map_err(error)),
+        };
+        let records = match rtx.open_table(SCHEMA_MIGRATIONS) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(error) => return Err(map_err(error)),
+        };
+        let mut out = Vec::new();
+        for row in order
+            .range((self.scope.as_ref(), table, 0u64)..=(self.scope.as_ref(), table, u64::MAX))
+            .map_err(map_err)?
+        {
+            let (_, id) = row.map_err(map_err)?;
+            let id = id.value();
+            let bytes = records
+                .get((self.scope.as_ref(), table, id))
+                .map_err(map_err)?
+                .ok_or_else(|| {
+                    format!(
+                        "schema migration order points to missing record `{table}/{id}`"
+                    )
+                })?;
+            out.push(decode_stored::<SchemaMigrationRecord>(
+                bytes.value(),
+                "schema migration record",
+            )?);
+        }
+        Ok(out)
+    }
+
+    /// Verify the complete schema migration chain after opening a database.
+    /// Missing tables are valid for old stores, but an existing chain must have
+    /// contiguous versions, matching checksums, matching tenant/table bindings,
+    /// and a final digest equal to the catalog schema.  This is intentionally
+    /// fail-closed: a corrupt or partially copied migration catalog prevents a
+    /// store from serving stale schema state.
+    pub fn verify_schema_migrations(&self) -> Result<(), String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let versions = match rtx.open_table(SCHEMA_VERSIONS) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => {
+                let orphan_order = !matches!(
+                    rtx.open_table(SCHEMA_MIGRATION_ORDER),
+                    Err(redb::TableError::TableDoesNotExist(_))
+                );
+                let orphan_records = !matches!(
+                    rtx.open_table(SCHEMA_MIGRATIONS),
+                    Err(redb::TableError::TableDoesNotExist(_))
+                );
+                if orphan_order || orphan_records {
+                    return Err(
+                        "schema migration catalogs exist without the authoritative version catalog"
+                            .to_string(),
+                    );
+                }
+                return Ok(());
+            }
+            Err(error) => return Err(map_err(error)),
+        };
+        let order = match rtx.open_table(SCHEMA_MIGRATION_ORDER) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => {
+                for row in versions.iter().map_err(map_err)? {
+                    let (key, value) = row.map_err(map_err)?;
+                    if value.value() != 0 {
+                        return Err(format!(
+                            "schema version `{}/{}' has no migration order catalog",
+                            key.value().0,
+                            key.value().1
+                        ));
+                    }
+                }
+                return Ok(());
+            }
+            Err(error) => return Err(map_err(error)),
+        };
+        let records = match rtx.open_table(SCHEMA_MIGRATIONS) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => {
+                for row in versions.iter().map_err(map_err)? {
+                    let (key, value) = row.map_err(map_err)?;
+                    if value.value() != 0 {
+                        return Err(format!(
+                            "schema version `{}/{}' has no migration record catalog",
+                            key.value().0,
+                            key.value().1
+                        ));
+                    }
+                }
+                return Ok(());
+            }
+            Err(error) => return Err(map_err(error)),
+        };
+        let catalog_versions = match rtx.open_table(SCHEMA_CATALOG_VERSIONS) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => {
+                for row in versions.iter().map_err(map_err)? {
+                    let (_, value) = row.map_err(map_err)?;
+                    if value.value() != 0 {
+                        return Err(
+                            "schema migration records exist without a catalog version counter"
+                                .to_string(),
+                        );
+                    }
+                }
+                return Ok(());
+            }
+            Err(error) => return Err(map_err(error)),
+        };
+        let catalog_order = match rtx.open_table(SCHEMA_CATALOG_ORDER) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => {
+                for row in catalog_versions.iter().map_err(map_err)? {
+                    let (scope, value) = row.map_err(map_err)?;
+                    if value.value() != 0 {
+                        return Err(format!(
+                            "schema catalog scope `{}` has no catalog order chain",
+                            scope.value()
+                        ));
+                    }
+                }
+                return Ok(());
+            }
+            Err(error) => return Err(map_err(error)),
+        };
+        let catalog = match rtx.open_table(CATALOG) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(()),
+            Err(error) => return Err(map_err(error)),
+        };
+
+        let mut catalog_records: HashMap<(String, String, String), u64> = HashMap::new();
+        let mut catalog_identities: HashMap<(String, u64), (String, String)> = HashMap::new();
+        for row in records.iter().map_err(map_err)? {
+            let (key, value) = row.map_err(map_err)?;
+            let (scope, table, migration_id) = key.value();
+            if scope != self.scope.as_ref() {
+                return Err(format!(
+                    "schema migration record `{scope}/{table}/{migration_id}` is bound to another scope"
+                ));
+            }
+            let record: SchemaMigrationRecord =
+                decode_stored(value.value(), "schema migration record")?;
+            verify_migration_record(
+                &record,
+                scope,
+                table,
+                record.migration.target_schema_version,
+            )?;
+            if record.migration.migration_id != migration_id {
+                return Err(format!(
+                    "schema migration record key `{migration_id}` does not match its immutable identity"
+                ));
+            }
+            let record_key = (scope.to_string(), table.to_string(), migration_id.to_string());
+            if catalog_records
+                .insert(record_key.clone(), record.catalog_version)
+                .is_some()
+            {
+                return Err(format!(
+                    "duplicate schema migration record identity `{scope}/{table}/{migration_id}`"
+                ));
+            }
+            if catalog_identities
+                .insert(
+                    (scope.to_string(), record.catalog_version),
+                    (table.to_string(), migration_id.to_string()),
+                )
+                .is_some()
+            {
+                return Err(format!(
+                    "duplicate schema catalog version {} in scope `{scope}`",
+                    record.catalog_version
+                ));
+            }
+        }
+        for row in catalog_versions.iter().map_err(map_err)? {
+            let (scope, version) = row.map_err(map_err)?;
+            if scope.value() != self.scope.as_ref() {
+                return Err(format!(
+                    "schema catalog version is bound to scope `{}`, not `{}`",
+                    scope.value(), self.scope
+                ));
+            }
+            let current_catalog_version = version.value();
+            if current_catalog_version == 0
+                && catalog_records.keys().any(|(record_scope, _, _)| record_scope == scope.value())
+            {
+                return Err(format!(
+                    "schema catalog scope `{}` has records but remains at version zero",
+                    scope.value()
+                ));
+            }
+            for expected_catalog_version in 1..=current_catalog_version {
+                let identity = catalog_order
+                    .get((scope.value(), expected_catalog_version))
+                    .map_err(map_err)?
+                    .ok_or_else(|| {
+                        format!(
+                            "schema catalog version chain has a gap at {expected_catalog_version}"
+                        )
+                    })?;
+                let (table, migration_id) = identity
+                    .value()
+                    .split_once('\0')
+                    .ok_or_else(|| "schema catalog order contains an invalid identity".to_string())?;
+                let record_key = (
+                    scope.value().to_string(),
+                    table.to_string(),
+                    migration_id.to_string(),
+                );
+                if catalog_records.get(&record_key) != Some(&expected_catalog_version) {
+                    return Err(format!(
+                        "schema catalog order points to missing or mismatched migration `{table}/{migration_id}`"
+                    ));
+                }
+            }
+        }
+
+        for row in versions.iter().map_err(map_err)? {
+            let (key, version) = row.map_err(map_err)?;
+            let (scope, table) = key.value();
+            if scope != self.scope.as_ref() {
+                return Err(format!(
+                    "schema version catalog is bound to scope `{scope}`, not `{}`",
+                    self.scope
+                ));
+            }
+            let schema_bytes = catalog
+                .get(table)
+                .map_err(map_err)?
+                .ok_or_else(|| format!("schema version references missing table `{table}`"))?;
+            let schema = decode_stored::<TableSchema>(schema_bytes.value(), "schema")?;
+            schema.validate()?;
+            let mut previous_digest = schema.schema_digest()?;
+            let current_version = version.value();
+            for expected_version in (1..=current_version).rev() {
+                let migration_id = order
+                    .get((scope, table, expected_version))
+                    .map_err(map_err)?
+                    .ok_or_else(|| {
+                        format!(
+                            "schema migration chain for `{table}` has a version gap at {expected_version}"
+                        )
+                    })?;
+                let migration_id = migration_id.value();
+                let bytes = records
+                    .get((scope, table, migration_id))
+                    .map_err(map_err)?
+                    .ok_or_else(|| {
+                        format!(
+                            "schema migration order for `{table}` points to missing `{migration_id}`"
+                        )
+                    })?;
+                let record: SchemaMigrationRecord =
+                    decode_stored(bytes.value(), "schema migration record")?;
+                verify_migration_record(&record, scope, table, expected_version)?;
+                if record.migration.migration_id != migration_id {
+                    return Err(format!(
+                        "schema migration order for `{table}` maps version {expected_version} to a different record identity"
+                    ));
+                }
+                if record.migration.target_schema_digest != previous_digest {
+                    return Err(format!(
+                        "schema migration chain for `{table}` does not terminate at the catalog digest"
+                    ));
+                }
+                previous_digest = record.migration.expected_schema_digest.clone();
+            }
+            if current_version > 0 {
+                let first = order
+                    .get((scope, table, 1u64))
+                    .map_err(map_err)?
+                    .ok_or_else(|| format!("schema migration chain for `{table}` starts with a gap"))?;
+                let record = records
+                    .get((scope, table, first.value()))
+                    .map_err(map_err)?
+                    .ok_or_else(|| format!("schema migration chain for `{table}` has no first record"))?;
+                let first: SchemaMigrationRecord =
+                    decode_stored(record.value(), "schema migration record")?;
+                if first.migration.expected_schema_version != 0 {
+                    return Err(format!(
+                        "schema migration chain for `{table}` does not begin at version zero"
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The names of every user table (sorted for determinism).
@@ -920,7 +1350,7 @@ impl TableStore {
         let wtx = self.begin()?;
         let mut affected = 0usize;
         for op in &txn.ops {
-            affected = affected.saturating_add(apply_txn_op(&wtx, op)?);
+            affected = affected.saturating_add(apply_txn_op(&wtx, self.scope.as_ref(), op)?);
         }
         wtx.commit().map_err(map_err)?;
         Ok(affected)
@@ -1070,7 +1500,7 @@ impl TableStore {
 
         let mut affected = 0usize;
         for op in &txn.ops {
-            affected = affected.saturating_add(apply_txn_op(&wtx, op)?);
+            affected = affected.saturating_add(apply_txn_op(&wtx, self.scope.as_ref(), op)?);
         }
         if crashpoint == Some(SqlMutationCrashpoint::AfterRowsBeforeMetadata) {
             return Err("injected crash after SQL mutation rows".to_string());
@@ -1177,7 +1607,8 @@ impl TableStore {
         Ok(version)
     }
 
-    /// A single fingerprint over EVERY durable SQL-domain OCC counter this store
+    /// A single fingerprint over EVERY durable SQL-domain OCC counter and
+    /// schema/catalog version this store
     /// currently holds, across every `(tenant, scope)` entry in [`MUTATION_VERSION`]
     /// -- not just one caller-named scope. [`Self::mutation_version`] reads ONE
     /// `(tenant, graph)` counter; a served SQL write always bumps SOME entry in this
@@ -1207,18 +1638,32 @@ impl TableStore {
     pub fn catalog_fingerprint(&self) -> Result<u64, String> {
         use std::hash::{Hash, Hasher};
         let rtx = self.db.begin_read().map_err(map_err)?;
-        let table = match rtx.open_table(MUTATION_VERSION) {
-            Ok(table) => table,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-            Err(error) => return Err(map_err(error)),
-        };
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        for row in table.iter().map_err(map_err)? {
-            let (key, value) = row.map_err(map_err)?;
-            let (tenant, scope) = key.value();
-            tenant.hash(&mut hasher);
-            scope.hash(&mut hasher);
-            value.value().hash(&mut hasher);
+        match rtx.open_table(MUTATION_VERSION) {
+            Err(redb::TableError::TableDoesNotExist(_)) => {}
+            Err(error) => return Err(map_err(error)),
+            Ok(table) => {
+                for row in table.iter().map_err(map_err)? {
+                    let (key, value) = row.map_err(map_err)?;
+                    let (tenant, scope) = key.value();
+                    b"mutation".hash(&mut hasher);
+                    tenant.hash(&mut hasher);
+                    scope.hash(&mut hasher);
+                    value.value().hash(&mut hasher);
+                }
+            }
+        }
+        match rtx.open_table(SCHEMA_CATALOG_VERSIONS) {
+            Err(redb::TableError::TableDoesNotExist(_)) => {}
+            Err(error) => return Err(map_err(error)),
+            Ok(table) => {
+                for row in table.iter().map_err(map_err)? {
+                    let (scope, value) = row.map_err(map_err)?;
+                    b"schema".hash(&mut hasher);
+                    scope.value().hash(&mut hasher);
+                    value.value().hash(&mut hasher);
+                }
+            }
         }
         Ok(hasher.finish())
     }
@@ -1276,7 +1721,7 @@ impl TableStore {
 // the catalog/rows THROUGH the same `wtx` (read-your-writes) is what lets a later op
 // in a multi-statement transaction see an earlier op's staged writes.
 
-fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
+fn apply_txn_op(wtx: &WriteTransaction, tenant_scope: &str, op: &TxnOp) -> Result<usize, String> {
     match op {
         TxnOp::CreateTable {
             schema,
@@ -1286,10 +1731,12 @@ fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
             Ok(0)
         }
         TxnOp::DropTable { name, if_exists } => {
+            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, name)?;
             drop_in(wtx, name, *if_exists)?;
             Ok(0)
         }
         TxnOp::AddColumn { table, column } => {
+            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
             add_column_in(wtx, table, column)?;
             Ok(0)
         }
@@ -1298,14 +1745,17 @@ fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
             column,
             if_exists,
         } => {
+            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
             drop_column_in(wtx, table, column, *if_exists)?;
             Ok(0)
         }
         TxnOp::RenameColumn { table, from, to } => {
+            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
             rename_column_in(wtx, table, from, to)?;
             Ok(0)
         }
         TxnOp::RenameTable { table, new_name } => {
+            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
             rename_table_in(wtx, table, new_name)?;
             Ok(0)
         }
@@ -1314,6 +1764,7 @@ fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
             column,
             new_type,
         } => {
+            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
             alter_column_type_in(wtx, table, column, *new_type)?;
             Ok(0)
         }
@@ -1322,10 +1773,12 @@ fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
             constraint,
             if_exists,
         } => {
+            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
             drop_constraint_in(wtx, table, constraint, *if_exists)?;
             Ok(0)
         }
         TxnOp::AddConstraint { table, constraint } => {
+            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
             add_constraint_in(wtx, table, constraint.clone())?;
             Ok(0)
         }
@@ -1442,6 +1895,448 @@ fn get_schema_in(wtx: &WriteTransaction, name: &str) -> Result<Option<TableSchem
     let schema: TableSchema = decode_stored(&blob, "schema")?;
     schema.validate()?;
     Ok(Some(schema))
+}
+
+/// Read a table's migration version through the current write transaction.  A
+/// missing row is the compatibility value for a pre-migration store.
+fn schema_version_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+) -> Result<u64, String> {
+    let versions = wtx.open_table(SCHEMA_VERSIONS).map_err(map_err)?;
+    Ok(versions
+        .get((tenant_scope, table))
+        .map_err(map_err)?
+        .map(|value| value.value())
+        .unwrap_or(0))
+}
+
+fn schema_catalog_version_in(wtx: &WriteTransaction, tenant_scope: &str) -> Result<u64, String> {
+    let versions = wtx.open_table(SCHEMA_CATALOG_VERSIONS).map_err(map_err)?;
+    Ok(versions
+        .get(tenant_scope)
+        .map_err(map_err)?
+        .map(|value| value.value())
+        .unwrap_or(0))
+}
+
+fn catalog_order_identity(table: &str, migration_id: &str) -> String {
+    // NUL is excluded from both migration table/id components, so this remains
+    // an unambiguous compact value in the redb order table.
+    format!("{table}\0{migration_id}")
+}
+
+fn ensure_legacy_schema_ddl_allowed_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+) -> Result<(), String> {
+    let version = schema_version_in(wtx, tenant_scope, table)?;
+    if version > 0 {
+        return Err(format!(
+            "table `{table}` has governed schema version {version}; use apply_schema_migration instead of legacy ALTER/DROP DDL"
+        ));
+    }
+    Ok(())
+}
+
+/// Apply one migration under the same write transaction that records its
+/// version/order/identity.  This is the only write path for governed schema
+/// transitions; no server handler or SQL parser may partially apply a plan.
+fn apply_schema_migration_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    migration: &SchemaMigration,
+) -> Result<SchemaMigrationApply, String> {
+    migration.validate()?;
+    if migration.tenant_scope != tenant_scope {
+        return Err(format!(
+            "schema migration `{}` tenant binding mismatch: expected `{tenant_scope}`, got `{}`",
+            migration.migration_id, migration.tenant_scope
+        ));
+    }
+    let current = get_schema_in(wtx, &migration.table)?
+        .ok_or_else(|| format!("table `{}` does not exist", migration.table))?;
+    let current_digest = current.schema_digest()?;
+    let current_version = schema_version_in(wtx, tenant_scope, &migration.table)?;
+    let current_catalog_version = schema_catalog_version_in(wtx, tenant_scope)?;
+
+    // The identity lookup comes before all operation work.  A retry after a
+    // lost acknowledgement is a no-op only when the immutable bytes and the
+    // resulting catalog state match exactly.
+    let existing = {
+        let records = wtx.open_table(SCHEMA_MIGRATIONS).map_err(map_err)?;
+        records
+            .get((tenant_scope, migration.table.as_str(), migration.migration_id.as_str()))
+            .map_err(map_err)?
+            .map(|value| decode_stored::<SchemaMigrationRecord>(value.value(), "schema migration record"))
+            .transpose()?
+    };
+    if let Some(record) = existing {
+        verify_migration_record(
+            &record,
+            tenant_scope,
+            &migration.table,
+            migration.target_schema_version,
+        )?;
+        if record.migration != *migration {
+            return Err(format!(
+                "schema migration identity `{}` already exists with different immutable bytes",
+                migration.migration_id
+            ));
+        }
+        if current_version != migration.target_schema_version
+            || current_digest != migration.target_schema_digest
+        {
+            return Err(format!(
+                "schema migration replay `{}` found catalog state that does not match its target",
+                migration.migration_id
+            ));
+        }
+        if record.catalog_version > current_catalog_version {
+            return Err(format!(
+                "schema migration replay `{}` has a catalog version newer than the authoritative catalog",
+                migration.migration_id
+            ));
+        }
+        return Ok(SchemaMigrationApply {
+            migration_id: migration.migration_id.clone(),
+            schema_version: current_version,
+            catalog_version: record.catalog_version,
+            schema_digest: current_digest,
+            replayed: true,
+        });
+    }
+
+    if migration.expected_schema_version != current_version {
+        return Err(format!(
+            "STALE_SCHEMA_VERSION: table `{}` expected {} but authoritative version is {}",
+            migration.table, migration.expected_schema_version, current_version
+        ));
+    }
+    if migration.expected_schema_digest != current_digest {
+        return Err(format!(
+            "STALE_SCHEMA_DIGEST: table `{}` expected {} but authoritative digest is {}",
+            migration.table, migration.expected_schema_digest, current_digest
+        ));
+    }
+    migration.validate_type_policies(&current)?;
+    if migration.target_schema_version != current_version.saturating_add(1) {
+        return Err(format!(
+            "schema migration `{}` is out of order: expected next version {}, got {}",
+            migration.migration_id,
+            current_version.saturating_add(1),
+            migration.target_schema_version
+        ));
+    }
+    let next_catalog_version = current_catalog_version
+        .checked_add(1)
+        .ok_or_else(|| "schema catalog version overflow".to_string())?;
+    let projected = migration.projected_schema(&current)?;
+    if projected.schema_digest()? != migration.target_schema_digest {
+        return Err(format!(
+            "schema migration `{}` target digest does not match its operation projection",
+            migration.migration_id
+        ));
+    }
+
+    validate_migration_dependencies_in(wtx, &current, migration)?;
+    validate_added_columns_in(wtx, &migration.table, &current, &projected, migration)?;
+
+    // Apply the exact ordered operations through the existing row/catalog
+    // helpers.  Any coercion, FK check, or schema error returns before commit,
+    // and redb drops the whole write transaction (failure atomicity).
+    for operation in &migration.operations {
+        match operation {
+            SchemaMigrationOperation::AddColumn { column } => {
+                let mut column = column.clone();
+                if column.primary_key {
+                    column.nullable = false;
+                }
+                add_column_in(wtx, &migration.table, &column)?;
+            }
+            SchemaMigrationOperation::DropColumn { column } => {
+                drop_column_in(wtx, &migration.table, column, false)?;
+            }
+            SchemaMigrationOperation::RenameColumn { from, to } => {
+                rename_column_in(wtx, &migration.table, from, to)?;
+            }
+            SchemaMigrationOperation::AlterColumnType {
+                column, new_type, ..
+            } => {
+                alter_column_type_in(wtx, &migration.table, column, *new_type)?;
+            }
+            SchemaMigrationOperation::AddConstraint { constraint } => {
+                add_constraint_in(wtx, &migration.table, constraint.clone())?;
+            }
+            SchemaMigrationOperation::DropConstraint { constraint } => {
+                drop_constraint_in(wtx, &migration.table, constraint, false)?;
+            }
+        }
+    }
+    let resulting = get_schema_in(wtx, &migration.table)?
+        .ok_or_else(|| format!("table `{}` disappeared during migration", migration.table))?;
+    let resulting_digest = resulting.schema_digest()?;
+    if resulting_digest != migration.target_schema_digest {
+        return Err(format!(
+            "schema migration `{}` produced digest {}, expected {}",
+            migration.migration_id, resulting_digest, migration.target_schema_digest
+        ));
+    }
+
+    let record = SchemaMigrationRecord {
+        migration: migration.clone(),
+        state: MigrationState::Applied,
+        applied_schema_version: migration.target_schema_version,
+        catalog_version: next_catalog_version,
+    };
+    let bytes = rmp_serde::to_vec_named(&record)
+        .map_err(|error| format!("encode schema migration record: {error}"))?;
+    {
+        let mut versions = wtx.open_table(SCHEMA_VERSIONS).map_err(map_err)?;
+        versions
+            .insert(
+                (tenant_scope, migration.table.as_str()),
+                migration.target_schema_version,
+            )
+            .map_err(map_err)?;
+    }
+    {
+        let mut versions = wtx
+            .open_table(SCHEMA_CATALOG_VERSIONS)
+            .map_err(map_err)?;
+        versions
+            .insert(tenant_scope, next_catalog_version)
+            .map_err(map_err)?;
+    }
+    {
+        let mut order = wtx.open_table(SCHEMA_MIGRATION_ORDER).map_err(map_err)?;
+        if let Some(previous) = order
+            .get((
+                tenant_scope,
+                migration.table.as_str(),
+                migration.target_schema_version,
+            ))
+            .map_err(map_err)?
+        {
+            return Err(format!(
+                "concurrent schema migration claimed version {} as `{}`",
+                migration.target_schema_version,
+                previous.value()
+            ));
+        }
+        order
+            .insert(
+                (
+                    tenant_scope,
+                    migration.table.as_str(),
+                    migration.target_schema_version,
+                ),
+                migration.migration_id.as_str(),
+            )
+            .map_err(map_err)?;
+    }
+    {
+        let mut order = wtx.open_table(SCHEMA_CATALOG_ORDER).map_err(map_err)?;
+        if let Some(previous) = order
+            .get((tenant_scope, next_catalog_version))
+            .map_err(map_err)?
+        {
+            return Err(format!(
+                "concurrent schema migration claimed catalog version {} as `{}`",
+                next_catalog_version,
+                previous.value()
+            ));
+        }
+        let identity = catalog_order_identity(&migration.table, &migration.migration_id);
+        order
+            .insert((tenant_scope, next_catalog_version), identity.as_str())
+            .map_err(map_err)?;
+    }
+    {
+        let mut records = wtx.open_table(SCHEMA_MIGRATIONS).map_err(map_err)?;
+        records
+            .insert(
+                (
+                    tenant_scope,
+                    migration.table.as_str(),
+                    migration.migration_id.as_str(),
+                ),
+                bytes.as_slice(),
+            )
+            .map_err(map_err)?;
+    }
+    Ok(SchemaMigrationApply {
+        migration_id: migration.migration_id.clone(),
+        schema_version: migration.target_schema_version,
+        catalog_version: next_catalog_version,
+        schema_digest: resulting_digest,
+        replayed: false,
+    })
+}
+
+fn verify_migration_record(
+    record: &SchemaMigrationRecord,
+    tenant_scope: &str,
+    table: &str,
+    expected_version: u64,
+) -> Result<(), String> {
+    record.migration.validate()?;
+    if record.state != MigrationState::Applied {
+        return Err(format!(
+            "schema migration `{}` is not in Applied state",
+            record.migration.migration_id
+        ));
+    }
+    if record.migration.tenant_scope != tenant_scope
+        || record.migration.table != table
+        || record.applied_schema_version != record.migration.target_schema_version
+        || record.migration.target_schema_version != expected_version
+        || record.catalog_version == 0
+    {
+        return Err(format!(
+            "schema migration `{}` has an invalid scope/table/version binding",
+            record.migration.migration_id
+        ));
+    }
+    Ok(())
+}
+
+/// Check relationships and known local indexes before any row/catalog helper
+/// mutates the write transaction.  The check is deliberately conservative:
+/// changing a column participating in an FK is rejected because this bounded
+/// migration API does not rewrite both sides atomically.  RLS is an external
+/// authority; an affected plan must carry an explicit binding digest.
+fn validate_migration_dependencies_in(
+    wtx: &WriteTransaction,
+    current: &TableSchema,
+    migration: &SchemaMigration,
+) -> Result<(), String> {
+    let affected: HashSet<&str> = migration
+        .operations
+        .iter()
+        .flat_map(SchemaMigrationOperation::affected_columns)
+        .collect();
+    if !affected.is_empty() {
+        for constraint in current.constraints() {
+            if let TableConstraint::ForeignKey {
+                columns,
+                ref_table,
+                ref_columns,
+                ..
+            } = constraint
+            {
+                if columns.iter().any(|column| affected.contains(column.as_str())) {
+                    return Err(format!(
+                        "schema migration `{}` affects local FOREIGN KEY columns; drop/rebind the FK explicitly first",
+                        migration.migration_id
+                    ));
+                }
+                if ref_table == &current.name
+                    && ref_columns.iter().any(|column| affected.contains(column.as_str()))
+                {
+                    return Err(format!(
+                        "schema migration `{}` affects referenced FOREIGN KEY columns; child constraints must be rebound explicitly first",
+                        migration.migration_id
+                    ));
+                }
+            }
+        }
+        for child_table in list_tables_in(wtx)? {
+            let Some(child_schema) = get_schema_in(wtx, &child_table)? else {
+                continue;
+            };
+            for constraint in child_schema.constraints() {
+                if let TableConstraint::ForeignKey {
+                    ref_table,
+                    ref_columns,
+                    ..
+                } = constraint
+                {
+                    if ref_table == &current.name
+                        && ref_columns.iter().any(|column| affected.contains(column.as_str()))
+                    {
+                        return Err(format!(
+                            "schema migration `{}` affects `{}` columns referenced by child table `{child_table}`",
+                            migration.migration_id, current.name
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // The current branch's built-in dependent catalog is pgvector ANN.  The
+    // same conservative rule is used for scalar secondary indexes when that
+    // catalog is present: a caller may acknowledge a coordinated rebuild, but
+    // this transaction never silently drops or leaves a stale index behind.
+    let indexes = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
+    for row in indexes.iter().map_err(map_err)? {
+        let (_, value) = row.map_err(map_err)?;
+        let index: AnnIndexPlan = decode_stored(value.value(), "ANN index")?;
+        if index.table == current.name && affected.contains(index.column.as_str()) {
+            match migration.policy.secondary_indexes {
+                SecondaryIndexPolicy::RejectAffected => {
+                    return Err(format!(
+                        "schema migration `{}` affects indexed column `{}`; secondary index must be explicitly rebuilt",
+                        migration.migration_id, index.column
+                    ));
+                }
+                SecondaryIndexPolicy::RebuildByCaller => {
+                    return Err(format!(
+                        "schema migration `{}` acknowledged index rebuild, but the rebuild is not part of this atomic plan",
+                        migration.migration_id
+                    ));
+                }
+            }
+        }
+    }
+    if migration.policy.require_rls_revalidation
+        && migration.policy.rls_binding_digest.is_none()
+    {
+        return Err(format!(
+            "schema migration `{}` requires an RLS binding digest",
+            migration.migration_id
+        ));
+    }
+    Ok(())
+}
+
+/// Adding a NOT NULL column without a default would make existing short rows
+/// invalid.  Validate that condition before the first catalog write; the normal
+/// `add_column_in` helper intentionally remains permissive for legacy SQL DDL.
+fn validate_added_columns_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    current: &TableSchema,
+    projected: &TableSchema,
+    migration: &SchemaMigration,
+) -> Result<(), String> {
+    if projected.columns().len() <= current.columns().len() {
+        return Ok(());
+    }
+    let Some(rows) = wtx.open_table(ROWS).ok() else {
+        return Ok(());
+    };
+    let added = &projected.columns()[current.columns().len()..];
+    if added.iter().all(|column| column.nullable) {
+        return Ok(());
+    }
+    for row in rows
+        .range((table, 0u64)..=(table, u64::MAX))
+        .map_err(map_err)?
+    {
+        let (_, value) = row.map_err(map_err)?;
+        let cells: Vec<Cell> = decode_stored(value.value(), "row")?;
+        if cells.len() < projected.columns().len() {
+            return Err(format!(
+                "schema migration `{}` adds a NOT NULL column to a table with existing rows; add it nullable, backfill, then tighten it in a separate migration",
+                migration.migration_id
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The names of every user table, read THROUGH the open write txn (staged-write-aware

@@ -16,6 +16,7 @@
 //!     DataFusion `TableProvider` alongside `nodes`/`edges`.
 
 pub mod provider;
+pub mod migration;
 pub mod schema;
 pub mod store;
 
