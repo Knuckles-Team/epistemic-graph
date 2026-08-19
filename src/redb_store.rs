@@ -9220,7 +9220,10 @@ pub(crate) fn clear_change_material_rows(
 /// (there is no cheaper index; DeleteGraph is a rare, deliberate operation).
 /// `MUTATION_OUTBOX`/`MUTATION_OUTBOX_DELIVERY` ARE keyed by `batch_id` first,
 /// so once the batch_ids are known their rows are removed by a plain
-/// `(batch_id, ..)` range scan.
+/// `(batch_id, ..)` range scan. Iterator/storage errors are propagated rather
+/// than silently skipped: a partially observed authority set must abort the
+/// enclosing transaction instead of allowing a recreate to inherit unknown
+/// state.
 pub(crate) fn clear_mutation_authority_rows(
     wtx: &redb::WriteTransaction,
     graph: &str,
@@ -9229,29 +9232,28 @@ pub(crate) fn clear_mutation_authority_rows(
         let table = wtx
             .open_table(MUTATION_IDEMPOTENCY)
             .map_err(|e| e.to_string())?;
-        table
-            .iter()
-            .map_err(|e| e.to_string())?
-            .filter_map(|row| row.ok())
-            .filter_map(|(key, value)| {
-                let (_, row_graph, _) = key.value();
-                (row_graph == graph).then(|| value.value().to_string())
-            })
-            .collect()
+        let mut batch_ids = Vec::new();
+        for row in table.iter().map_err(|e| e.to_string())? {
+            let (key, value) = row.map_err(|e| e.to_string())?;
+            let (_, row_graph, _) = key.value();
+            if row_graph == graph {
+                batch_ids.push(value.value().to_string());
+            }
+        }
+        batch_ids
     };
     {
         let mut table = wtx
             .open_table(MUTATION_IDEMPOTENCY)
             .map_err(|e| e.to_string())?;
-        let keys: Vec<(String, String)> = table
-            .iter()
-            .map_err(|e| e.to_string())?
-            .filter_map(|row| row.ok())
-            .filter_map(|(key, _)| {
-                let (tenant, row_graph, idempotency) = key.value();
-                (row_graph == graph).then(|| (tenant.to_string(), idempotency.to_string()))
-            })
-            .collect();
+        let mut keys = Vec::new();
+        for row in table.iter().map_err(|e| e.to_string())? {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let (tenant, row_graph, idempotency) = key.value();
+            if row_graph == graph {
+                keys.push((tenant.to_string(), idempotency.to_string()));
+            }
+        }
         for (tenant, idempotency) in keys {
             table
                 .remove((tenant.as_str(), graph, idempotency.as_str()))
@@ -9305,15 +9307,14 @@ pub(crate) fn clear_mutation_authority_rows(
         let mut table = wtx
             .open_table(MUTATION_PROJECTION_CURSOR)
             .map_err(|e| e.to_string())?;
-        let keys: Vec<(String, String)> = table
-            .iter()
-            .map_err(|e| e.to_string())?
-            .filter_map(|row| row.ok())
-            .filter_map(|(key, _)| {
-                let (tenant, row_graph, projection) = key.value();
-                (row_graph == graph).then(|| (tenant.to_string(), projection.to_string()))
-            })
-            .collect();
+        let mut keys = Vec::new();
+        for row in table.iter().map_err(|e| e.to_string())? {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let (tenant, row_graph, projection) = key.value();
+            if row_graph == graph {
+                keys.push((tenant.to_string(), projection.to_string()));
+            }
+        }
         for (tenant, projection) in keys {
             table
                 .remove((tenant.as_str(), graph, projection.as_str()))
