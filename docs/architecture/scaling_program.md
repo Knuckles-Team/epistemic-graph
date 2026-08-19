@@ -1,5 +1,14 @@
 # Engine Scaling Program (M1 / M2 / M3)
 
+> **Claim status:** `DESIGNED` is a contract or future capability; `IMPLEMENTED`
+> means the current `main` source contains it; `UNIT-PROVEN` means a focused
+> repository fixture is the evidence; `LAB-PROVEN` means a bounded throwaway run
+> produced evidence; `LIVE` means a deployed observation identifies the artifact;
+> `1M-CERTIFIED` means the exact one-million-user/agent workload report identifies
+> the artifact and result. See the [scale claim register](scale_claims.md), which
+> is checked against source anchors. This page makes no `LIVE` or `1M-CERTIFIED`
+> claim unless it names that evidence explicitly.
+
 > The top-level map of how `epistemic-graph` scales from a Raspberry Pi to an HA
 > cluster while staying a durable source of truth **and** responsive under a 24/7
 > ingestion firehose. This page ties the three waves together and links out to the
@@ -86,8 +95,11 @@ into "K writers, batched fsyncs, parallel cores":
   its own writer thread / bounded channel / `Pending`. All of the above (micro-linger,
   audit cache, commit-before-ack, group-commit, backpressure) hold **per shard**, so
   K cores commit in parallel. A graph always routes to the same shard by
-  `FNV-1a(sanitized_name) % K`; K = `clamp(cpu/2, 1, 8)`. **K=1 is the
-  constrained-host single-shard layout** (and is forced under an active Raft node). →
+  `FNV-1a(sanitized_name) % K`. In the non-Raft main build K is the
+  effective-cgroup auto-size bounded by `clamp(cpu/2, 1, 8)`; under an active
+  Raft node K=N groups, with N using the separate cgroup-derived default bounded
+  by `MAX_SHARD_COUNT` (64) or an explicit `EPISTEMIC_GRAPH_RAFT_GROUPS`.
+  **K=1 is a valid constrained-host result, not a universal Raft rule.** →
   [`engine.md` § Sharded K-way durable writer](engine.md).
 
 ### Reads that never block on the writer
@@ -172,7 +184,7 @@ keep **interactive** traffic alive while ingestion runs flat-out:
 
 ---
 
-## M2 — HA cluster (openraft 0.10 multi-Raft)
+## M2 — HA cluster (openraft 0.10 multi-Raft) — `IMPLEMENTED` / `UNIT-PROVEN`
 
 The opt-in `cluster` layer (cargo `raft` feature, cluster-only — the main `default`/`full` build links
 **no** openraft) runs the engine as a multi-node HA cluster replicating its
@@ -199,37 +211,45 @@ byte-for-byte the single-node path.
     controls N, with the effective cgroup-aware CPU-derived default; each group's
     log and graph data remain single-writer-correct on its shard.
 
-Validate the cluster mechanism (formation / replication / failover / native transfer /
-durable log) on throwaway loopback nodes with `scripts/validate-raft-cluster.sh`. The
-DONE-vs-REMAINING handoff (incl. what still needs real multi-node hardware) is
+The focused Raft fixtures are the `UNIT-PROVEN` evidence for the source paths. The
+throwaway loopback harness (`scripts/validate-raft-cluster.sh`) is an implemented
+`LAB-PROVEN` route only after it is run against the exact artifact; this page does
+not claim that run, live deployment, or one-million-user certification. The
+DONE-vs-REMAINING handoff (including what still needs real multi-node hardware) is
 **[m2_raft_status.md](m2_raft_status.md)**; the deploy recipe is `cluster_deployment.md`.
 
 ---
 
-## M3 — horizontal / elastic scale
+## M3 — horizontal / elastic scale — `IMPLEMENTED` / `UNIT-PROVEN` where marked
 
 The "horizontal scale spine": distribute tenants across the K durable shards (and,
-behind M2, across nodes), reshard online, and offload cold tenants — so 100M graphs can
-share an engine without all being resident. Full handoff:
+behind M2, across nodes), reshard online, and offload cold tenants — a design target
+for allowing 100M graphs to share an engine without all being resident. This target is
+not a live or 1M certification result. Full handoff:
 **[m3_resharding.md](m3_resharding.md)**.
 
-| Capability | Concept | One-liner |
-|------------|---------|-----------|
-| Tenant catalog routing-override seam | `EG-031` | Durable `graph → {shard, node}` map that overrides EG-KG.backend.sharded-k-way-durable hash routing per graph; an **empty** catalog is byte-for-byte FNV-1a. |
-| Catalog auto-attach gate | `EG-KG.sharding.r5-feature` | `RedbBackend::open` attaches `catalog.redb` only under `EPISTEMIC_GRAPH_TENANT_CATALOG=1` or an existing populated catalog — default OFF, pure EG-026. |
-| Offline K-shard migration tool | `EG-030` | OFFLINE `migrate-shards` CLI rewrites a store into a new K, routing every graph with the SAME FNV-1a; copies rows verbatim (encryption + audit chain survive). |
-| Online single-node resharding | `EG-032` | Move ONE graph between shards while the engine RUNS, then flip the catalog route; a `routing_epoch` `RwLock` quiesces only the move. |
-| Online-reshard snapshot+delta copy | `EG-KG.backend.flush-pending-first` | Shrinks the moved graph's write-pause from O(graph) to O(delta): bulk-copy off a snapshot with writes flowing, then re-export + delta-flip-purge under the quiesce. |
-| Rebalancing planner | `EG-035` | PURE, deterministic greedy hottest→coldest planner emitting an ordered `Vec<ReshardMove>`; emits, never executes. |
-| Rebalance plan execution | `EG-KG.backend.r3-plan-execution` | `rebalance_execute(plan)` applies the plan move-by-move via online resharding, one graph at a time. |
-| Cold-tenant whole-graph offload | `EG-KG.sharding.eg-r6` | Hibernates graphs idle longer than a window (durably-gated, read-through-safe — no loss); `__commons__` never offloaded. |
-| Cold-tenant `touch()` + sweep | `EG-KG.backend.r6-feature` | Wires the tracker into the live read/write path + an interval offload sweep (`EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS`). |
-| In-process BLOB streaming facade | `EG-KG.sharding.m3-r4` | Streams a multi-GB blob between a `Read`/`Write` and the content-addressed CAS without buffering the whole blob. |
-| Catalog-driven resharding admin RPC | `EG-038` | The wire surface (`Reshard`/`Catalog*`/`RebalancePlan`/`RebalanceExecute`) that drives the M3 ops over the protocol. |
-| Parallel cross-shard read fan-out | `AU-KG.backend.roadmap-f-parallel-cross` | Cross-shard reads fan concurrently off per-shard `begin_read()` snapshots (also part of the responsiveness layer above). |
+| Capability | Concept | Status | One-liner |
+|------------|---------|--------|-----------|
+| Tenant catalog routing-override seam | `EG-031` | `IMPLEMENTED` | Durable `graph → {shard, node}` map overrides hash routing per graph; an **empty** catalog is byte-for-byte FNV-1a. |
+| Catalog auto-attach gate | `EG-KG.sharding.r5-feature` | `UNIT-PROVEN` | `RedbBackend::open` attaches `catalog.redb` when explicitly enabled or already present; default remains OFF. |
+| Offline K-shard migration tool | `EG-030` | `UNIT-PROVEN` | OFFLINE `migrate-shards` rewrites a store into a new K with the same FNV-1a routing and verbatim rows. |
+| Online single-node resharding | `EG-032` | `UNIT-PROVEN` | Moves one graph between shards while the engine runs, then flips the catalog route under `routing_epoch`. |
+| Online-reshard snapshot+delta copy | `EG-KG.backend.flush-pending-first` | `IMPLEMENTED` | Bulk-copies from a snapshot, then performs delta-flip-purge during the bounded quiesce. |
+| Rebalancing planner | `EG-035` | `UNIT-PROVEN` | Pure deterministic planner emits an ordered move plan; source integration and policy remain separate. |
+| Rebalance plan execution | `EG-KG.backend.r3-plan-execution` | `IMPLEMENTED` | `rebalance_execute(plan)` applies catalog-backed moves one graph at a time. |
+| Cold-tenant whole-graph offload | `EG-KG.sharding.eg-r6` | `UNIT-PROVEN` | Durably gated, read-through-safe hibernation of idle graphs; `__commons__` is never offloaded. |
+| Cold-tenant `touch()` + sweep | `EG-KG.backend.r6-feature` | `IMPLEMENTED` | The live path updates the tracker and an interval sweep uses `EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS`. |
+| In-process BLOB streaming facade | `EG-KG.sharding.m3-r4` | `UNIT-PROVEN` | Streams large content between `Read`/`Write` and CAS without buffering the whole blob. |
+| Catalog-driven resharding admin RPC | `EG-038` | `IMPLEMENTED` | `Reshard`/`Catalog*`/`RebalancePlan`/`RebalanceExecute` drive M3 operations over the protocol. |
+| Parallel cross-shard read fan-out | `AU-KG.backend.roadmap-f-parallel-cross` | `UNIT-PROVEN` | Cross-shard reads fan out from per-shard MVCC snapshots without entering writer threads. |
+| Cross-node tenant distribution (R2) | — | `DESIGNED` | Requires cross-node row movement through the destination Raft group; it is not a current live capability. |
+| Object-store cold arm of R6 | — | `DESIGNED` | Colder-than-redb spill to `cold-tier-s3`/`blob-s3` remains a follow-on. |
 
-**Still remaining:** R2 (cross-node tenant distribution — needs M2), and the object-store
-arm of R6 (cold tenants colder than redb spilled to `cold-tier-s3`/`blob-s3`).
+**Still remaining:** R2 (cross-node tenant distribution — needs the cross-node
+consensus/transport integration), and the object-store arm of R6 (cold tenants
+colder than redb spilled to `cold-tier-s3`/`blob-s3`). `UNIT-PROVEN` and
+`IMPLEMENTED` above are source/repository evidence only; neither is a `LIVE` or
+`1M-CERTIFIED` result.
 
 ---
 
@@ -263,7 +283,7 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
 
 | Variable | Layer | What to tune |
 |----------|-------|--------------|
-| `EPISTEMIC_GRAPH_REDB_SHARDS` | M1 | K independent writer files/threads. Default `clamp(effective-cgroup-cpu/2,1,8)`. **K=1 on a constrained host**; raise toward cores on a many-core box. FIXED per persist-dir (changing it needs the `migrate-shards` tool). Ignored under active Raft, where K=N groups. |
+| `EPISTEMIC_GRAPH_REDB_SHARDS` | M1 | K independent writer files/threads. Non-Raft default `clamp(effective-cgroup-cpu/2,1,8)`; explicit values clamp to the current layout ceiling of 64. **K=1 is a constrained-host result**; changing an existing persist-dir needs the `migrate-shards` tool. Ignored under active Raft, where K=N groups. |
 | `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` | M1 | Positive group-commit micro-linger (default 1000 µs). |
 | `EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW` | M1 | Shallow-batch op threshold the linger applies below (default 32). |
 | `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` | M1 | Per-shard early-flush op threshold (auto ≈ half the cgroup-aware durable-writer queue, clamped 256..16384). A positive override may lower but cannot raise the automatic bound. |
@@ -275,13 +295,16 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
 
 ### What to tune for a Pi vs a 64-core box
 
-- **Raspberry Pi 4+:** leave `REDB_SHARDS` at the K=1 default (one core, one
-  file — adding shards just adds threads it can't parallelize). The auto-sizer already
+- **Raspberry Pi 4+:** the auto-sizer will generally resolve `REDB_SHARDS` to K=1
+  on a one- or two-core constrained capacity (inspect the resolved startup config;
+  it is not a hard-coded host-class rule). Adding shards just adds threads it can't parallelize. The auto-sizer already
   derives a cgroup-aware admission cap, a RAM-derived per-graph node cap, and floors
   the reserved read lane at 8. Consider `COLD_OFFLOAD_SECS` to bound RAM
   across many tenants. No openraft, no DataFusion.
-- **64-core box:** let auto-sizing pick `REDB_SHARDS` toward 8 (or raise
-  with the migration tool if you have many hot graphs across many cores), `max_in_flight`
+- **64-core box:** let non-Raft auto-sizing pick `REDB_SHARDS` toward its current
+  ceiling of 8 (or choose a smaller stable K; changing an existing persist-dir
+  needs the migration tool). An active Raft node instead sizes K=N groups up to
+  the 64-shard layout ceiling. Set `max_in_flight`
   ≈ 4096, reserved read lane ≈ 512. This is where the K-way writer + parallel cross-shard
   fan-out actually saturate the cores.
 - **HA cluster:** build `--features cluster`, set the `RAFT_*` env, and remember the

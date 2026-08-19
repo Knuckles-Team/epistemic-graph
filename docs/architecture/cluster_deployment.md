@@ -8,6 +8,11 @@
 >
 > **This document is a runbook. It does NOT perform the live cutover.** The operator
 > runs the steps below by hand, with a verified backup in place.
+>
+> **Claim status:** `DESIGNED`/deployable procedure only. A completed run becomes
+> `LAB-PROVEN` or `LIVE` only when the exact binary/image digest, environment,
+> backup/restore evidence, and observations are recorded. This page makes no
+> `1M-CERTIFIED` claim.
 
 ---
 
