@@ -97,10 +97,11 @@ never a promoted production format, so this cutover intentionally ships no perma
 migration path. Any retained development data must be rebuilt or converted by a
 finite release-specific offline operation before it is opened by a current binary.
 
-The staged image limit is automatically sized from available RAM (bounded between
-16 MiB and 2 GiB). `EPISTEMIC_GRAPH_MUTATION_SNAPSHOT_MAX_BYTES` can set an explicit
-byte limit; `0` disables the limit. This is a capacity guard only and never changes
-the atomicity contract.
+The staged image limit is automatically sized from effective cgroup-aware RAM
+(bounded between 1 byte and 2 GiB). `EPISTEMIC_GRAPH_MUTATION_SNAPSHOT_MAX_BYTES`
+can set a positive explicit byte limit, but it is clamped to that automatic bound;
+zero and malformed values fail closed to the automatic bound. This is a capacity
+guard only and never changes the atomicity contract.
 
 ## WorkItem authority
 

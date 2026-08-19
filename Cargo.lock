@@ -2463,6 +2463,7 @@ name = "eg-asr-whisper"
 version = "0.1.0"
 dependencies = [
  "eg-audio",
+ "eg-resource",
  "sha2 0.10.9",
  "whisper-rs",
 ]
@@ -2900,6 +2901,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-resource"
+version = "0.1.0"
+
+[[package]]
 name = "eg-shacl"
 version = "0.1.0"
 dependencies = [
@@ -3152,6 +3157,7 @@ dependencies = [
  "eg-quantum-sim",
  "eg-query",
  "eg-rdf",
+ "eg-resource",
  "eg-shacl",
  "eg-shex",
  "eg-sqlite-format",

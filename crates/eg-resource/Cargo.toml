@@ -1,0 +1,10 @@
+[package]
+name = "eg-resource"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Dependency-free cgroup-aware resource capacity resolution for epistemic-graph"
+license = "MIT"
+
+[lib]
+name = "eg_resource"

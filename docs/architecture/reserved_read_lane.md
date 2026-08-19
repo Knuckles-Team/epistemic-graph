@@ -39,7 +39,7 @@ The engine's `__commons__` graph is a 24/7 ingestion firehose. Under saturation
 two admission resources fill up:
 
 1. The **global** `max_in_flight` pool (`EPISTEMIC_GRAPH_MAX_INFLIGHT`, default
-   `cpus*64` clamped `256..8192`) — shared by reads *and* writes.
+   `effective-cpus*64` clamped `64..8192`) — shared by reads *and* writes.
 2. The **per-graph fairness permit** (`per_graph_inflight`, default
    `max_in_flight/4`) for `__commons__` itself.
 
@@ -158,7 +158,7 @@ on the write firehose.
 
 | Knob | Default | Meaning |
 |------|---------|---------|
-| `EPISTEMIC_GRAPH_READ_RESERVED` | auto-sized (see below) | Size of the reserved read-admission lane (in-flight read slots). An explicit value `> 0` wins; otherwise the auto-size is used. |
+| `EPISTEMIC_GRAPH_READ_RESERVED` | auto-sized (see below) | Size of the reserved read-admission lane (in-flight read slots). A positive explicit value may lower the default but is clamped to the cgroup-aware global admission bound; invalid/absent values use the auto-size. |
 
 The auto-size is `Capacity::read_reserved()`
 ([`src/autosize.rs`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/src/autosize.rs)):

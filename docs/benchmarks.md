@@ -25,7 +25,7 @@ That is sub-millisecond round-trip including Python (de)serialisation, i.e.
 ~5,000 sequential ops/sec on a single connection. Throughput scales with
 connection pooling (`pool.py`) and shard fan-out (`ShardRouter`); concurrent
 clients are bounded server-side by the in-flight semaphore
-(`EPISTEMIC_GRAPH_MAX_INFLIGHT`, default 1024) which sheds excess load with a
+(`EPISTEMIC_GRAPH_MAX_INFLIGHT`, default cgroup-aware auto-sized capacity) which sheds excess load with a
 `BUSY` response rather than queueing unbounded work.
 
 ## Multi-shard scaling (measured) — CONCEPT:AU-KG.query.vendor-agnostic-traversal P3

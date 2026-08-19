@@ -135,12 +135,11 @@ pub struct CoalescerConfig {
 }
 
 impl CoalescerConfig {
-    /// Auto-size from cpu count. More cores mean more concurrent producers, so a
-    /// larger batch amortizes the lock while all queues remain bounded.
+    /// Auto-size from the shared cgroup-aware CPU budget. More effective cores
+    /// mean more concurrent producers, so a larger batch amortizes the lock while
+    /// all queues remain bounded; host-only affinity is never consulted here.
     pub fn auto() -> Self {
-        let cpus = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4);
+        let cpus = crate::autosize::detect_capacity().reserved_cpus();
         // 8 ops/cpu, clamped to a sane window. At 8 cpus that's a 64-op batch —
         // big enough to collapse a firehose, small enough to keep p99 lock-hold low.
         let max_batch = (cpus * 8).clamp(16, 256);

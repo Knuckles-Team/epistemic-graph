@@ -36,15 +36,15 @@
   or multi-member cluster refuses to start without key material; plaintext is limited
   to one-member loopback development.
 
-### Writer model — K=1 under an active Raft node
+### Writer model — K=N under an active Raft node
 
 With Raft active, **all durable writes for a graph route through that graph's group
-LEADER** before they are acked (consensus is the replication barrier). Today every
-graph maps to the single `DEFAULT_GROUP`, so the cluster is **HA, not write-scaling**:
-the writer is **K=1** (one serialized write path). Splitting the keyspace into many
-write groups (multi-Raft sharding, `GroupRouter` ring — EG-KG.sharding.raft-resharding/2.266) is a SEPARATE
-effort and is **off** in this deployment. Read that as: a 4-node cluster buys you
-*survivability of a node loss*, not 4× write throughput.
+LEADER** before they are acked (consensus is the replication barrier). The configured
+multi-Raft groups own matching redb shards (`K=N`), so the cluster retains HA while
+independent graph ranges can write in parallel. `EPISTEMIC_GRAPH_RAFT_GROUPS` controls
+N and defaults from effective cgroup-aware CPU capacity. A 4-node cluster still buys
+survivability of a node loss; write throughput scales with the configured groups, not
+with the number of nodes alone.
 
 ---
 

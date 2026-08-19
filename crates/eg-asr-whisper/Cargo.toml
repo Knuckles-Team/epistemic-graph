@@ -19,6 +19,7 @@ name = "eg_asr_whisper"
 
 [dependencies]
 eg-audio = { path = "../eg-audio", features = ["asr"] }
+eg-resource = { path = "../eg-resource" }
 whisper-rs = { version = "0.16", default-features = false }
 sha2 = "0.10"
 

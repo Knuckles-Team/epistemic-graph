@@ -310,13 +310,11 @@ fn encode_bounded_frame(resp: &Response, max_frame_bytes: usize) -> Vec<u8> {
 /// connection may have dispatching CONCURRENTLY, so a single client cannot spawn
 /// unbounded server tasks/memory — the global `ServerState::max_in_flight`
 /// semaphore remains the box-wide admission cap (which sheds `BUSY`). Auto-sized
-/// from cores (no knob): a 1-2 core box still pipelines a useful depth (floor 64),
-/// a big box can't let one connection hog everything (ceiling 1024).
+/// from the shared cgroup-aware capacity (no knob), so a constrained connection
+/// cannot inherit the host's affinity count or a fixed floor that exceeds its
+/// effective budget. The hard ceiling remains 1024.
 fn per_connection_inflight_limit() -> usize {
-    let cpus = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4);
-    (cpus * 8).clamp(64, 1024)
+    crate::autosize::detect_capacity().per_connection_inflight()
 }
 
 /// Bound the allocation driven by an untrusted frame prefix. The hard ceiling is
@@ -1145,10 +1143,7 @@ mod tests {
         // but is always clamped so one connection can neither stall (floor) nor
         // spawn unbounded work (ceiling).
         let n = per_connection_inflight_limit();
-        assert!(
-            (64..=1024).contains(&n),
-            "per-conn cap {n} out of [64,1024]"
-        );
+        assert!((8..=1024).contains(&n), "per-conn cap {n} out of [8,1024]");
     }
 
     #[test]

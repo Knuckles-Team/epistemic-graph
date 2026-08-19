@@ -71,7 +71,7 @@ into "K writers, batched fsyncs, parallel cores":
 - **Per-graph write coalescer** (`CONCEPT:EG-KG.sharding.per-graph-write-coalescer`) — N concurrent single-op writes
   to ONE hot graph batch onto a lazily-created per-graph writer and apply under **one**
   `topo.write()` per batch, collapsing N lock acquisitions into ⌈N/batch⌉. Default ON,
-  auto-sized from cpu count. → [`write_coalescer.md`](write_coalescer.md).
+  auto-sized from the shared cgroup-aware CPU capacity. → [`write_coalescer.md`](write_coalescer.md).
 - **Adaptive group-commit micro-linger** (`CONCEPT:EG-KG.backend.adaptive-linger-coalesce`) — when the `eg-redb-writer`
   is about to commit a *shallow* batch it spends ONE bounded `recv_timeout(linger)`
   (default 1 ms) letting concurrent in-flight authoritative writers fold into the SAME
@@ -102,11 +102,13 @@ into "K writers, batched fsyncs, parallel cores":
 ### Sizing the box automatically
 
 - **Dynamic capacity auto-sizing + Pi-OOM cap** (`CONCEPT:AU-KG.backend.b-auto-size`) — the same binary
-  sizes its concurrency / buffer / per-graph-node-cap defaults from `(cpu_count,
-  total_RAM)` at startup. `max_in_flight` becomes `cpus*64` (256 on a Pi, 4096 on a
-  64-core box); the per-graph node cap becomes `(ram/2)/2048` so a 1 GiB Pi caps a
-  runaway graph instead of OOM-killing every tenant, while a 247 GiB box stays
-  effectively unbounded. Safe because eviction is read-through (no data loss).
+  sizes its concurrency / buffer / per-graph-node-cap defaults from the shared
+  effective host/cgroup CPU+RAM capacity at startup. Finite ancestor quotas and
+  memory limits are retained even when a child reports `max`; automatic values
+  reserve headroom and explicit values cannot widen them. The per-graph node cap
+  remains RAM-derived so a constrained cgroup caps a runaway graph instead of
+  OOM-killing every tenant, while a large box stays effectively unbounded. Safe
+  because eviction is read-through (no data loss). See [`cgroup_capacity.md`](cgroup_capacity.md).
 
 ### The M1 write path
 
@@ -191,10 +193,11 @@ byte-for-byte the single-node path.
   join, leader balancing (now the native `trigger().transfer_leader(target)` handoff),
   and heartbeat coalescing — all done + lib-tested.
 
-!!! note "K=1 under Raft"
-    Under an active Raft node the durable writer is forced to **K=1** (one group = one
-    serialized write path) — M2 is **HA, not write-scaling**. Multi-Raft *sharding*
-    (many write groups) is a separate, off-by-default direction (`EG-KG.sharding.raft-resharding/2.266`).
+!!! note "K=N under Raft"
+    Under an active Raft node the durable writer count is **K=N groups** (one group
+    owns one shard), so HA and write scaling coexist. `EPISTEMIC_GRAPH_RAFT_GROUPS`
+    controls N, with the effective cgroup-aware CPU-derived default; each group's
+    log and graph data remain single-writer-correct on its shard.
 
 Validate the cluster mechanism (formation / replication / failover / native transfer /
 durable log) on throwaway loopback nodes with `scripts/validate-raft-cluster.sh`. The
@@ -260,12 +263,12 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
 
 | Variable | Layer | What to tune |
 |----------|-------|--------------|
-| `EPISTEMIC_GRAPH_REDB_SHARDS` | M1 | K independent writer files/threads. Default `clamp(cpu/2,1,8)`. **K=1 on a Pi**; raise toward cores on a many-core box. FIXED per persist-dir (changing it needs the `migrate-shards` tool). Forced to 1 under Raft. |
+| `EPISTEMIC_GRAPH_REDB_SHARDS` | M1 | K independent writer files/threads. Default `clamp(effective-cgroup-cpu/2,1,8)`. **K=1 on a constrained host**; raise toward cores on a many-core box. FIXED per persist-dir (changing it needs the `migrate-shards` tool). Ignored under active Raft, where K=N groups. |
 | `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` | M1 | Positive group-commit micro-linger (default 1000 µs). |
 | `EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW` | M1 | Shallow-batch op threshold the linger applies below (default 32). |
-| `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` | M1 | Per-shard early-flush op threshold (auto ≈ half the durable-writer queue depth, clamped 256..16384). |
-| `EPISTEMIC_GRAPH_MAX_INFLIGHT` | M1 / resp. | Global admission cap (default `cpus*64`, 256 on a Pi / 4096 on 64-core). Excess → `BUSY`. |
-| `EPISTEMIC_GRAPH_READ_RESERVED` | resp. | Reserved read lane size (default `max_inflight/8` clamped 8..1024). |
+| `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` | M1 | Per-shard early-flush op threshold (auto ≈ half the cgroup-aware durable-writer queue, clamped 256..16384). A positive override may lower but cannot raise the automatic bound. |
+| `EPISTEMIC_GRAPH_MAX_INFLIGHT` | M1 / resp. | Global admission cap (default effective `cpus*64`, clamped 64..8192). A positive override may lower it but is clamped to the cgroup-aware default; excess → `BUSY`. |
+| `EPISTEMIC_GRAPH_READ_RESERVED` | resp. | Reserved read lane size (default `max_inflight/8` clamped 8..1024). A positive override is clamped to the global cgroup-aware admission bound. |
 | `EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS` | M3 | Idle-offload sweep window (`0`/absent = disabled). |
 | `EPISTEMIC_GRAPH_TENANT_CATALOG` | M3 | Attach the durable tenant catalog (default OFF = pure FNV-1a). |
 | `EPISTEMIC_GRAPH_RAFT_NODE_ID` / `_PEERS` / `_BIND_ADDR` | M2 | Activate the cluster (with `--features raft` + a persist dir). |
@@ -274,16 +277,16 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
 
 - **Raspberry Pi 4+:** leave `REDB_SHARDS` at the K=1 default (one core, one
   file — adding shards just adds threads it can't parallelize). The auto-sizer already
-  caps `max_in_flight` at 256, the per-graph node cap at ~262 k resident nodes (1 GiB),
-  and floors the reserved read lane at 8. Consider `COLD_OFFLOAD_SECS` to bound RAM
+  derives a cgroup-aware admission cap, a RAM-derived per-graph node cap, and floors
+  the reserved read lane at 8. Consider `COLD_OFFLOAD_SECS` to bound RAM
   across many tenants. No openraft, no DataFusion.
 - **64-core box:** let auto-sizing pick `REDB_SHARDS` toward 8 (or raise
   with the migration tool if you have many hot graphs across many cores), `max_in_flight`
   ≈ 4096, reserved read lane ≈ 512. This is where the K-way writer + parallel cross-shard
   fan-out actually saturate the cores.
 - **HA cluster:** build `--features cluster`, set the `RAFT_*` env, and remember the
-  writer is **K=1 per node** under Raft — scale write throughput by adding **groups**
-  (multi-Raft), not shards.
+  durable shard count is **K=N groups per node** under active Raft — scale write
+  throughput by adding groups (multi-Raft), with each group owning its shard.
 
 ### How to verify
 

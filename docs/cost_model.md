@@ -48,12 +48,12 @@ not the durable tier).
 
 | Env var | Meaning | Default |
 |---------|---------|---------|
-| `EPISTEMIC_GRAPH_MEMORY_BUDGET` | Global resident-memory ceiling (`512m`, `2g`, or plain bytes). `0` explicitly disables budgeting. Invalid values fall back to the safe automatic ceiling. **This is the single knob.** | 40% of the smaller of system RAM and the cgroup limit |
+| `EPISTEMIC_GRAPH_MEMORY_BUDGET` | Global resident-memory ceiling (`512m`, `2g`, or plain bytes). A positive explicit value may lower the automatic ceiling but is clamped to the cgroup-aware limit; zero and malformed values fail closed. **This is the single knob.** | 40% of effective cgroup-aware RAM |
 | `EPISTEMIC_GRAPH_TENANT_BUDGET` | Optional per-tenant budget override. | = the global ceiling |
 | `EPISTEMIC_GRAPH_BUDGET_INTERVAL` | Sweep cadence, seconds. | 15 |
 
-The default auto-sizes from available memory, so a stock build on any host budgets sensibly
-with no tuning. Set `EPISTEMIC_GRAPH_MEMORY_BUDGET=0` to opt out entirely.
+The default auto-sizes from effective cgroup-aware memory, so a stock build on any host
+budgets sensibly with no tuning. Budgeting cannot be disabled by an environment override.
 
 ## Autoscale signals
 

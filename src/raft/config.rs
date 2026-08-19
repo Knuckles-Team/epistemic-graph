@@ -392,16 +392,14 @@ fn parse_groups(raw: Option<String>, default: u64) -> Result<u64, String> {
 
 /// The cores-derived default group/shard count when `EPISTEMIC_GRAPH_RAFT_GROUPS` is
 /// unset (ADR-2 / W1.2, `reports/wave1/ADR-scale-trio.md` §ADR-2 decision 2): the raft
-/// group count defaults to the non-raft durable-shard auto-size `clamp(cpu/2, 1, …)` but
+/// group count defaults to the non-raft durable-shard auto-size
+/// `clamp(effective-cgroup-cpu/2, 1, …)` but
 /// with the raised [`crate::redb_layout::MAX_SHARD_COUNT`] ceiling — so turning on raft
 /// (for HA) gets the SAME write-sharding a single-node deployment gets by default rather
 /// than collapsing to one group. Under raft K (redb shards) == N (groups), so this is the
 /// ONE default both `resolve_shard_count` and [`raft_group_count`] derive from.
 pub(crate) fn default_raft_group_count() -> u64 {
-    let cpus = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
-        .max(1) as u64;
+    let cpus = crate::autosize::detect_capacity().reserved_cpus() as u64;
     (cpus / 2).clamp(1, crate::redb_layout::MAX_SHARD_COUNT as u64)
 }
 
