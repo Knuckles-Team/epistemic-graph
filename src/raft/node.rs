@@ -31,6 +31,7 @@ use tokio::sync::RwLock;
 use super::config::RaftClusterConfig;
 use super::multi::MultiRaft;
 use super::{AppCtx, RaftHandle, DEFAULT_GROUP};
+use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
 
 async fn shutdown_after_start_error<T>(
@@ -56,7 +57,7 @@ async fn shutdown_after_start_error<T>(
 /// Returns a [`StartedNode`]: the [`RaftHandle`] for routing writes + the
 /// [`MultiRaft`] manager (so a controlled shutdown / the failover test can stop it).
 pub async fn start(
-    cfg: RaftClusterConfig,
+    mut cfg: RaftClusterConfig,
     state: Arc<RwLock<ServerState>>,
 ) -> Result<StartedNode, String> {
     let backend = {
@@ -65,6 +66,23 @@ pub async fn start(
             .clone()
             .ok_or_else(|| "raft requires a configured persistence backend".to_string())?
     };
+
+    // The on-disk shard layout is the durable authority once a store exists.
+    // `RaftClusterConfig::groups` is still the requested count for a fresh store,
+    // but allowing startup to create a different ring from the persisted K would
+    // route a graph and its Raft log to different owners after restart.  Reconcile
+    // before any group/ring is created; an offline shard migration is the only path
+    // that may change this durable count.
+    let requested_groups = cfg.groups.max(1);
+    let durable_groups = backend.as_redb().map(|redb| redb.shard_count());
+    cfg.groups = authoritative_group_count(requested_groups, durable_groups);
+    if cfg.groups != requested_groups {
+        tracing::warn!(
+            requested_groups,
+            durable_groups = cfg.groups,
+            "Raft startup adopted the authoritative on-disk shard/group count"
+        );
+    }
     let ctx = AppCtx {
         state: state.clone(),
         router: None,
@@ -238,6 +256,16 @@ pub async fn start(
     })
 }
 
+/// Existing durable shard layout wins over a fresh runtime request.  A missing or
+/// invalid durable count falls back to the already validated configuration, while
+/// a non-empty layout is never silently expanded or collapsed at startup.
+fn authoritative_group_count(requested: u64, durable: Option<usize>) -> u64 {
+    durable
+        .filter(|count| *count > 0)
+        .map(|count| count as u64)
+        .unwrap_or_else(|| requested.max(1))
+}
+
 /// A started Raft node: the [`RaftHandle`] for routing writes + the [`MultiRaft`]
 /// manager (owns the shared listener + group map).
 pub struct StartedNode {
@@ -255,5 +283,18 @@ impl StartedNode {
             task.abort();
             let _ = task.await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::authoritative_group_count;
+
+    #[test]
+    fn durable_layout_wins_and_missing_layout_keeps_requested_floor() {
+        assert_eq!(authoritative_group_count(4, Some(1)), 1);
+        assert_eq!(authoritative_group_count(1, Some(4)), 4);
+        assert_eq!(authoritative_group_count(0, None), 1);
+        assert_eq!(authoritative_group_count(4, Some(0)), 4);
     }
 }

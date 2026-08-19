@@ -690,7 +690,11 @@ where
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multi_group_startup_creates_n_groups_from_config() {
     let dir = fresh_dir("multigroup-startup");
-    let state = make_state(&dir).await;
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, 4)
+            .expect("open fresh K=4 layout"),
+    );
+    let state = make_state_with_backend(&dir, backend).await;
     let ports = free_ports(1);
     let cfg = cluster_cfg_with_groups(1, &ports, 4);
 
@@ -718,7 +722,11 @@ async fn multi_group_startup_creates_n_groups_from_config() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn graph_routes_to_its_ring_assigned_group_after_multi_group_startup() {
     let dir = fresh_dir("multigroup-routing");
-    let state = make_state(&dir).await;
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, 3)
+            .expect("open fresh K=3 layout"),
+    );
+    let state = make_state_with_backend(&dir, backend).await;
     let ports = free_ports(1);
     let cfg = cluster_cfg_with_groups(1, &ports, 3);
 
@@ -1005,7 +1013,12 @@ mod placement_admin_wire_rpc {
         let mut states: Vec<Arc<RwLock<ServerState>>> = Vec::new();
         let mut nodes: BTreeMap<NodeId, StartedNode> = BTreeMap::new();
         for i in 1..=3u64 {
-            let state = make_state(&dirs[(i - 1) as usize]).await;
+            let dir = dirs[(i - 1) as usize].clone();
+            let backend: Arc<dyn PersistenceBackend> = Arc::new(
+                RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, 2)
+                    .expect("open fresh K=2 layout"),
+            );
+            let state = make_state_with_backend(&dir, backend).await;
             register_admin_agent(&state).await;
             let started = node::start(cluster_cfg_with_groups(i, &ports, 2), state.clone())
                 .await
@@ -1867,6 +1880,25 @@ fn desired_leader_round_robin_spreads_across_voters() {
     );
 }
 
+/// NE-171: automatic leader balance must require an explicit, differing failure
+/// domain; node-id diversity alone is not a safety proof.
+#[test]
+fn leader_balance_failure_domain_gate_is_fail_closed() {
+    use super::multi::failure_domain_safe;
+
+    let distinct = [(1u64, "az-a".to_string()), (2, "az-b".to_string())]
+        .into_iter()
+        .collect();
+    assert!(failure_domain_safe(&distinct, 1, 2));
+
+    let same = [(1u64, "host-a".to_string()), (2, "host-a".to_string())]
+        .into_iter()
+        .collect();
+    assert!(!failure_domain_safe(&same, 1, 2));
+    assert!(!failure_domain_safe(&distinct, 1, 3));
+    assert!(!failure_domain_safe(&distinct, 1, 1));
+}
+
 /// KG-2.271: the heartbeat coalescer buckets heartbeats BY PEER, passes non-heartbeats
 /// through, and drains one batch per peer (the batch-construction logic).
 #[test]
@@ -1956,6 +1988,26 @@ async fn coalesced_batch_round_trips_on_one_connection() {
         1,
         "the whole batch must ride exactly ONE TCP connect"
     );
+
+    // The live OpenRaft adapter uses the same bounded worker, not just the
+    // construction helper above: three awaiting heartbeat callers must receive
+    // ordered replies from one worker-emitted batch/frame.
+    let live_pool = PeerPool::with_capacity(4);
+    let live_coalescer = Arc::new(HeartbeatCoalescer::new());
+    let live_worker = tokio::spawn(live_coalescer.clone().run(live_pool.clone()));
+    let (r1, r2, r3) = tokio::join!(
+        live_coalescer.heartbeat_round_trip(&addr, GroupRpc::Append(401, heartbeat_req())),
+        live_coalescer.heartbeat_round_trip(&addr, GroupRpc::Append(402, heartbeat_req())),
+        live_coalescer.heartbeat_round_trip(&addr, GroupRpc::Append(403, heartbeat_req())),
+    );
+    for reply in [r1, r2, r3] {
+        assert!(matches!(reply.expect("live coalesced heartbeat"), GroupRpcReply::Append(_)));
+    }
+    assert_eq!(live_coalescer.coalesced(), 3);
+    assert_eq!(live_pool.opens(), 1, "live heartbeats share one pooled frame");
+    live_coalescer.stop();
+    live_worker.abort();
+    let _ = live_worker.await;
 
     multi.stop_listener();
     backend.shutdown();
@@ -2071,6 +2123,11 @@ async fn multi_node_group_join_then_leader_rebalance() {
     // ── R1: the round-robin target for group 7 over [1,2,3] is node 2 (7 % 3 == 1).
     let target = desired_leader(gid, &[1, 2, 3]).unwrap();
     assert_eq!(target, 2, "round-robin target for group 7 is node 2");
+    let initial_term = {
+        let group = leader.group(gid).await.expect("group metrics");
+        let metrics = group.raft.metrics();
+        metrics.borrow_watched().current_term
+    };
 
     // EVERY node runs a balancing pass (as a real cluster does). openraft 0.10
     // (CONCEPT:AU-KG.backend.authority-has-already-acked): node 1 (the incumbent leader) issues the NATIVE
@@ -2111,6 +2168,15 @@ async fn multi_node_group_join_then_leader_rebalance() {
     assert!(
         converged,
         "leadership must converge to the round-robin target (node 2) via transfer_leader"
+    );
+    let converged_term = {
+        let group = node2.group(gid).await.expect("group metrics");
+        let metrics = group.raft.metrics();
+        metrics.borrow_watched().current_term
+    };
+    assert!(
+        converged_term > initial_term,
+        "native leader transfer must converge in a later Raft term (initial={initial_term}, converged={converged_term})"
     );
 
     // A request initiated on node 1 now routes to node 2's leader over the same

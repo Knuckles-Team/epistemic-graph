@@ -196,8 +196,10 @@ byte-for-byte the single-node path.
 !!! note "K=N under Raft"
     Under an active Raft node the durable writer count is **K=N groups** (one group
     owns one shard), so HA and write scaling coexist. `EPISTEMIC_GRAPH_RAFT_GROUPS`
-    controls N, with the effective cgroup-aware CPU-derived default; each group's
-    log and graph data remain single-writer-correct on its shard.
+    requests N for a fresh store, with the effective cgroup-aware CPU-derived default;
+    on restart the existing on-disk K is authoritative and node startup adopts it
+    before creating groups/ring. Each group's log and graph data remain
+    single-writer-correct on its shard; changing K requires offline migration.
 
 Validate the cluster mechanism (formation / replication / failover / native transfer /
 durable log) on throwaway loopback nodes with `scripts/validate-raft-cluster.sh`. The
@@ -272,6 +274,7 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
 | `EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS` | M3 | Idle-offload sweep window (`0`/absent = disabled). |
 | `EPISTEMIC_GRAPH_TENANT_CATALOG` | M3 | Attach the durable tenant catalog (default OFF = pure FNV-1a). |
 | `EPISTEMIC_GRAPH_RAFT_NODE_ID` / `_PEERS` / `_BIND_ADDR` | M2 | Activate the cluster (with `--features raft` + a persist dir). |
+| `EPISTEMIC_GRAPH_RAFT_FAILURE_DOMAINS` | M2 / NE-171 | Optional complete `node_id=domain` map for bounded automatic leader transfer. Distinct known domains are required; unset derives the advertised endpoint host and fails closed for same-host targets. |
 
 ### What to tune for a Pi vs a 64-core box
 

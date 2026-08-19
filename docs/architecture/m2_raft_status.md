@@ -205,14 +205,34 @@ warnings pre-date this branch in M1 `redb_backend.rs` / query handlers / `eg-que
   transfer) passes against the 0.10 API. Validate with `scripts/validate-raft-cluster.sh`.
 
 ## STILL REMAINING — needs real multi-node hardware (not in-process testable)
-- **R2 under-openraft wiring.** The coalescer + batch wire are complete and tested, but
-  hooking them under openraft's per-group heartbeat *cadence* (an enqueue + short flush
-  timer that fans each batched reply back to its awaiting `append_entries` caller, so the
-  engine's ACTUAL heartbeat ticks batch) — and measuring the frames-saved/latency
-  benefit — needs a real multi-node cluster under steady replication.
 - **Both:** true cross-host soak (leadership actually rebalancing across machines,
   heartbeat-frame reduction under load) needs multi-node hardware; the in-process
   harness proves correctness, not the distributed performance win.
+
+## NE-171 source closure — cadence, durable group authority, bounded balance
+
+The source seams described above are now wired in the current tree; root-owned
+validation remains the release gate:
+
+- `HeartbeatCoalescer` is installed on every live `GroupNetworkFactory`. Empty-entry
+  `append_entries` calls enqueue per destination, wait through a bounded 5 ms window,
+  and receive ordered replies from one `RaftFrame::Batch`; log-bearing appends, votes,
+  snapshots, and transfer notifications retain the single-RPC path. The queue and
+  frame remain bounded by the existing peer/RPC caps, and shutdown fails pending
+  waiters before groups are drained.
+- Existing on-disk redb shard count is reconciled into `RaftClusterConfig.groups`
+  before `DEFAULT_GROUP` or the tenant ring starts. A configured group count remains
+  the fresh-store request; an existing layout wins until an offline shard migration.
+- A 15 s manager-owned scheduler invokes the existing native `transfer_leader` path.
+  It observes current leaders, requires a one-slot load margin (equal loads are
+  hysteresis), permits one automatic transfer per pass, enforces the existing 10 s
+  per-group cooldown, and fails closed when current/target failure domains are equal
+  or unknown. `EPISTEMIC_GRAPH_RAFT_FAILURE_DOMAINS` can provide an explicit complete
+  node→domain map; absent that map, the advertised endpoint host is the safety domain.
+- Source fixtures cover the batch frame contract, durable-count reconciliation,
+  deterministic domain parsing/safety, and existing single-node/cluster term and
+  no-churn paths. A cross-host soak and measured performance benefit are deliberately
+  not claimed here.
 
 ---
 

@@ -29,7 +29,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use openraft::async_runtime::watch::WatchReceiver;
@@ -169,6 +169,22 @@ pub(crate) fn desired_leader(gid: GroupId, sorted_voters: &[NodeId]) -> Option<N
     Some(sorted_voters[(gid % sorted_voters.len() as u64) as usize])
 }
 
+/// Automatic transfers are safe only when both nodes have an observed domain and
+/// those domains differ.  Equality/absence is deliberately a hard no-op: a
+/// balancer must never infer that two addresses represent independent failure
+/// domains merely because their node ids differ.
+pub(crate) fn failure_domain_safe(
+    domains: &BTreeMap<NodeId, String>,
+    current: NodeId,
+    target: NodeId,
+) -> bool {
+    current != target
+        && domains
+            .get(&current)
+            .zip(domains.get(&target))
+            .is_some_and(|(current_domain, target_domain)| current_domain != target_domain)
+}
+
 /// What one [`rebalance_leaders`](MultiRaft::rebalance_leaders) pass decided, for
 /// observability + tests (CONCEPT:EG-KG.sharding.multi-raft → KG-2.273).
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -182,6 +198,9 @@ pub struct RebalanceReport {
     pub transferred: Vec<GroupId>,
     /// Per-group transfer-trigger errors (rare — e.g. the group was shutting down).
     pub errors: Vec<(GroupId, String)>,
+    /// Groups deliberately left untouched by the safety/balance gate.  Keeping the
+    /// reason visible makes a no-op distinguishable from a missing observation.
+    pub skipped: Vec<(GroupId, String)>,
 }
 
 /// A single running group: its `EgRaft` handle + the node id it runs as. Cloneable.
@@ -258,6 +277,16 @@ pub struct MultiRaft {
     ///
     /// [`rebalance_leaders`]: MultiRaft::rebalance_leaders
     last_transfer: Arc<DashMap<GroupId, Instant>>,
+    /// Live failure-domain metadata used to prevent an automatic transfer inside
+    /// one host/AZ/rack.  Missing or equal domains fail closed.
+    failure_domains: Arc<parking_lot::RwLock<BTreeMap<NodeId, String>>>,
+    /// Cross-group heartbeat coalescer and its bounded flush worker.  The worker
+    /// is owned by the manager so all live OpenRaft network clients share it.
+    heartbeat_coalescer: Arc<network::HeartbeatCoalescer>,
+    heartbeat_flush_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Periodic, policy-free observation loop.  Each actual transfer still passes
+    /// through the benefit, failure-domain, and cooldown gates below.
+    leader_balance_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// The ONE placement authority (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1): a durable,
     /// Raft-replicated virtual-partition → group map that [`route_graph`] consults
     /// before returning [`router`]'s engine-owned unplaced policy. Always present (even with an
@@ -271,6 +300,25 @@ pub struct MultiRaft {
     read_service: Arc<super::xread::ReadPageService>,
     /// Serializes the idempotent full shutdown sequence.
     shutdown_lock: tokio::sync::Mutex<()>,
+}
+
+impl Drop for MultiRaft {
+    fn drop(&mut self) {
+        // Callers normally use the async `shutdown` path, but harnesses and startup
+        // error paths can drop the last Arc directly.  Do not leave a detached
+        // coalescer or balance ticker retaining runtime resources in that case.
+        self.heartbeat_coalescer.stop();
+        if let Ok(mut task) = self.heartbeat_flush_task.lock() {
+            if let Some(task) = task.take() {
+                task.abort();
+            }
+        }
+        if let Ok(mut task) = self.leader_balance_task.lock() {
+            if let Some(task) = task.take() {
+                task.abort();
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -333,6 +381,16 @@ impl ConnectionTaskSet {
 /// (CONCEPT:AU-KG.backend.authority-has-already-acked). Comfortably above `election_timeout_max` (3s) so a handoff has
 /// settled before the balancer would consider another — no flapping.
 const TRANSFER_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(10);
+/// A transfer must remove at least one leader slot from the current node.  This is
+/// the explicit hysteresis margin: equal loads never churn, even when the target
+/// function is deterministic but membership/metrics are settling.
+const LEADER_TRANSFER_MIN_MARGIN: usize = 1;
+/// At most one automatic transfer is issued by a node per observation pass.  The
+/// next pass observes the new terms/loads before making another change.
+const MAX_AUTOMATIC_TRANSFERS_PER_PASS: usize = 1;
+/// The automatic scheduler is intentionally much slower than the 250 ms Raft
+/// heartbeat; a transfer gets several election/replication observations to settle.
+const LEADER_BALANCE_INTERVAL: Duration = Duration::from_secs(15);
 const MAX_RAFT_INBOUND_CONNECTIONS: usize = 64;
 
 fn loopback_endpoint(endpoint: &str) -> bool {
@@ -359,7 +417,21 @@ impl MultiRaft {
         ctx: AppCtx,
     ) -> Result<Arc<Self>, String> {
         let state = ctx.state.clone();
-        let multi = Self::start_inner(node_id, bind_addr, backend, ctx, None).await?;
+        // Harness nodes share a process/host, but each node id is an explicit
+        // fixture failure domain so the local leader-balance acceptance path can
+        // exercise a safe transfer without claiming cross-host proof.
+        let failure_domains = [(node_id, format!("harness-node-{node_id}"))]
+            .into_iter()
+            .collect();
+        let multi = Self::start_inner(
+            node_id,
+            bind_addr,
+            backend,
+            ctx,
+            None,
+            failure_domains,
+        )
+        .await?;
         // Harness construction is process-owned: once the real MultiRaft
         // listener/catalog exists, publish it to the shared ServerState rather
         // than making every fixture remember a second wiring assignment.
@@ -398,6 +470,7 @@ impl MultiRaft {
         backend: Arc<dyn crate::server::persistence::PersistenceBackend>,
         ctx: AppCtx,
     ) -> Result<Arc<Self>, String> {
+        let failure_domains = super::config::resolve_failure_domains(peers)?;
         let auth = match secret {
             Some(secret) => Some(
                 network::RaftTransportAuth::new(
@@ -421,7 +494,7 @@ impl MultiRaft {
                 )
             }
         };
-        Self::start_inner(node_id, bind_addr, backend, ctx, auth).await
+        Self::start_inner(node_id, bind_addr, backend, ctx, auth, failure_domains).await
     }
 
     async fn start_inner(
@@ -430,6 +503,7 @@ impl MultiRaft {
         backend: Arc<dyn crate::server::persistence::PersistenceBackend>,
         ctx: AppCtx,
         auth: Option<Arc<network::RaftTransportAuth>>,
+        failure_domains: BTreeMap<NodeId, String>,
     ) -> Result<Arc<Self>, String> {
         let groups: Arc<RwLock<BTreeMap<GroupId, EgRaft>>> = Arc::new(RwLock::new(BTreeMap::new()));
         let groups_for_listener = groups.clone();
@@ -482,7 +556,8 @@ impl MultiRaft {
             Some(auth) => network::PeerPool::with_auth(auth),
             None => network::PeerPool::new(),
         };
-        Ok(Arc::new(Self {
+        let heartbeat_coalescer = Arc::new(network::HeartbeatCoalescer::new());
+        let multi = Arc::new(Self {
             node_id,
             groups,
             router,
@@ -495,8 +570,46 @@ impl MultiRaft {
             connection_tasks,
             tenant_locks: Arc::new(DashMap::new()),
             last_transfer: Arc::new(DashMap::new()),
+            failure_domains: Arc::new(parking_lot::RwLock::new(failure_domains)),
+            heartbeat_coalescer: heartbeat_coalescer.clone(),
+            heartbeat_flush_task: Mutex::new(None),
+            leader_balance_task: Mutex::new(None),
             shutdown_lock: tokio::sync::Mutex::new(()),
-        }))
+        });
+        let heartbeat_task = tokio::spawn(heartbeat_coalescer.run(multi.pool.clone()));
+        *multi
+            .heartbeat_flush_task
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(heartbeat_task);
+
+        let weak_multi = Arc::downgrade(&multi);
+        let leader_task = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(LEADER_BALANCE_INTERVAL);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            // Consume the immediate interval tick; the first automatic pass occurs
+            // only after the bounded observation window has elapsed.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let Some(multi) = weak_multi.upgrade() else {
+                    break;
+                };
+                let report = multi.rebalance_leaders().await;
+                if !report.transferred.is_empty() || !report.errors.is_empty() {
+                    tracing::info!(
+                        node_id = multi.node_id,
+                        transferred = ?report.transferred,
+                        errors = ?report.errors,
+                        "automatic Raft leader-balance pass completed"
+                    );
+                }
+            }
+        });
+        *multi
+            .leader_balance_task
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(leader_task);
+        Ok(multi)
     }
 
     /// Acquire the per-tenant migration lock for `graph_name` (CONCEPT:EG-KG.storage.100m-tenant), so a
@@ -734,6 +847,12 @@ impl MultiRaft {
             self.pool
                 .register_peer(*peer_id, &peer.addr)
                 .map_err(|_| "invalid or conflicting Raft peer registration".to_string())?;
+            self.failure_domains
+                .write()
+                .entry(*peer_id)
+                .or_insert_with(|| {
+                    super::config::failure_domain_for_peer(*peer_id, &peer.addr)
+                });
         }
         // The store's ctx carries the router so its snapshot dump is SCOPED to this
         // group's tenant-range graphs (CONCEPT:AU-KG.ingest.staged), not the whole registry.
@@ -759,7 +878,12 @@ impl MultiRaft {
         // share the one underlying redb-backed log + state machine.
         let log_store = store.clone();
         let state_machine = store;
-        let network = network::GroupNetworkFactory::new(gid, self.node_id, self.pool.clone());
+        let network = network::GroupNetworkFactory::with_coalescer(
+            gid,
+            self.node_id,
+            self.pool.clone(),
+            self.heartbeat_coalescer.clone(),
+        );
         let raft: EgRaft =
             openraft::Raft::new(self.node_id, raft_config, network, log_store, state_machine)
                 .await
@@ -882,6 +1006,9 @@ impl MultiRaft {
         self.pool
             .register_peer(new_node, &addr)
             .map_err(|_| "invalid or conflicting Raft peer registration".to_string())?;
+        self.failure_domains.write().entry(new_node).or_insert_with(|| {
+            super::config::failure_domain_for_peer(new_node, &addr)
+        });
         let raft = self
             .groups
             .read()
@@ -1024,28 +1151,131 @@ impl MultiRaft {
     /// a balanced cluster do nothing. Returns a [`RebalanceReport`].
     pub async fn rebalance_leaders(&self) -> RebalanceReport {
         let mut report = RebalanceReport::default();
-        let gids: Vec<GroupId> = self.groups.read().await.keys().copied().collect();
-        for gid in gids {
-            let Some(raft) = self.groups.read().await.get(&gid).cloned() else {
-                continue;
-            };
-            let (mut voters, is_leader) = {
-                let metrics = raft.metrics();
-                let m = metrics.borrow_watched();
-                let voters: Vec<NodeId> = m.membership_config.voter_ids().collect();
-                (voters, matches!(m.state, openraft::ServerState::Leader))
-            };
-            voters.sort_unstable();
-            let Some(target) = desired_leader(gid, &voters) else {
-                continue;
-            };
-            report.targets.insert(gid, target);
+        let mut observations = Vec::new();
+        {
+            let groups = self.groups.read().await;
+            for (&gid, raft) in groups.iter() {
+                let (mut voters, current_leader, local_is_leader, discovered_domains) = {
+                    let metrics = raft.metrics();
+                    let m = metrics.borrow_watched();
+                    let voters: Vec<NodeId> = m.membership_config.voter_ids().collect();
+                    let discovered_domains = m
+                        .membership_config
+                        .nodes()
+                        .map(|(node_id, node)| {
+                            (
+                                *node_id,
+                                super::config::failure_domain_for_peer(*node_id, &node.addr),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    (
+                        voters,
+                        m.current_leader,
+                        matches!(m.state, openraft::ServerState::Leader),
+                        discovered_domains,
+                    )
+                };
+                voters.sort_unstable();
+                let Some(target) = desired_leader(gid, &voters) else {
+                    continue;
+                };
+                report.targets.insert(gid, target);
+                observations.push((
+                    gid,
+                    raft.clone(),
+                    voters,
+                    current_leader,
+                    local_is_leader,
+                    target,
+                    discovered_domains,
+                ));
+            }
+        }
+
+        // Build a cluster-consistent, best-effort load view from committed Raft
+        // metrics.  Every node sees the same leader assignment once caught up,
+        // while an unsettled/unknown leader simply contributes no load and cannot
+        // trigger a speculative transfer.
+        let mut leader_loads: BTreeMap<NodeId, usize> = BTreeMap::new();
+        for (_, _, voters, current_leader, _, _, _) in &observations {
+            if let Some(leader) = current_leader.filter(|leader| voters.contains(leader)) {
+                *leader_loads.entry(leader).or_default() += 1;
+            }
+        }
+        let leader_view_complete = observations.iter().all(|(_, _, voters, leader, _, _, _)| {
+            leader.is_some_and(|leader| voters.contains(&leader))
+        });
+        {
+            let mut known_domains = self.failure_domains.write();
+            for (_, _, _, _, _, _, discovered_domains) in &observations {
+                for (node_id, domain) in discovered_domains {
+                    known_domains.entry(*node_id).or_insert_with(|| domain.clone());
+                }
+            }
+        }
+        let failure_domains = self.failure_domains.read().clone();
+
+        for (
+            gid,
+            raft,
+            voters,
+            current_leader,
+            local_is_leader,
+            target,
+            _,
+        ) in observations
+        {
             // Nothing to balance for a single-voter group.
             if voters.len() <= 1 {
                 continue;
             }
-            // Only the current leader can hand off, and only when the target is elsewhere.
-            if is_leader && target != self.node_id && self.may_transfer(gid) {
+            let Some(current) = current_leader else {
+                report
+                    .skipped
+                    .push((gid, "current leader is not yet observed".to_string()));
+                continue;
+            };
+            // Only the current local leader can hand off, and only when the target
+            // is elsewhere.  This also prevents every follower from competing to
+            // transfer the same group.
+            if !local_is_leader || current != self.node_id || target == self.node_id {
+                continue;
+            }
+            if !leader_view_complete {
+                report.skipped.push((
+                    gid,
+                    "leader-load view is incomplete while membership/terms settle".to_string(),
+                ));
+                continue;
+            }
+            if !failure_domain_safe(&failure_domains, current, target) {
+                report.skipped.push((
+                    gid,
+                    "target shares the current leader failure domain or has no domain"
+                        .to_string(),
+                ));
+                continue;
+            }
+            let current_load = leader_loads.get(&current).copied().unwrap_or_default();
+            let target_load = leader_loads.get(&target).copied().unwrap_or_default();
+            if current_load.saturating_sub(target_load) < LEADER_TRANSFER_MIN_MARGIN {
+                report.skipped.push((
+                    gid,
+                    format!(
+                        "leader-load margin below hysteresis (current={current_load}, target={target_load})"
+                    ),
+                ));
+                continue;
+            }
+            let transfer_attempts = report.transferred.len() + report.errors.len();
+            if transfer_attempts >= MAX_AUTOMATIC_TRANSFERS_PER_PASS {
+                report
+                    .skipped
+                    .push((gid, "per-pass automatic transfer bound reached".to_string()));
+                continue;
+            }
+            if self.may_transfer(gid) {
                 match raft.trigger().transfer_leader(target).await {
                     Ok(()) => report.transferred.push(gid),
                     Err(e) => report.errors.push((gid, e.to_string())),
@@ -1053,6 +1283,7 @@ impl MultiRaft {
             }
         }
         report.transferred.sort_unstable();
+        report.skipped.sort_unstable_by_key(|(gid, _)| *gid);
         report
     }
 
@@ -1401,6 +1632,29 @@ impl MultiRaft {
     /// drained and joined, and only then are persistence writer threads stopped.
     pub async fn shutdown(&self) {
         let _shutdown = self.shutdown_lock.lock().await;
+
+        // Stop control-plane workers before draining groups so no new heartbeat
+        // waiter or leader-transfer decision can be created while resources are
+        // being torn down.
+        self.heartbeat_coalescer.stop();
+        let heartbeat_task = self
+            .heartbeat_flush_task
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        if let Some(task) = heartbeat_task {
+            task.abort();
+            let _ = task.await;
+        }
+        let leader_task = self
+            .leader_balance_task
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        if let Some(task) = leader_task {
+            task.abort();
+            let _ = task.await;
+        }
 
         let listener = {
             let mut listener = self
