@@ -233,6 +233,10 @@ asyncio.run(main())
 | — | Bolt auth token | `epistemic` | Fresh hex-MessagePack `Health` request carrying the current `eg2.` envelope; its signed graph/tenant/audience/policy/scopes become the session authority |
 | — | MSSQL/AMQP/MQTT/STOMP protocol auth | fixed HMAC derivation | Mandatory domain-separated credential proof from `GRAPH_SERVICE_AUTH_SECRET`; missing key material fails startup |
 | `--auth-secret` | `GRAPH_SERVICE_AUTH_SECRET` | — (**required**) | Non-empty HMAC-SHA256 secret for `eg2.` envelopes |
+| — | `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | unset (plaintext values) | ChaCha20-Poly1305 key material for redb value blobs; keep it in the deployment secret/KMS boundary and never log or persist it |
+| — | `EPISTEMIC_GRAPH_ENCRYPTION_KEY_ID` | `legacy` | Stable, non-secret KMS object identifier pinned into encrypted shards and backup manifests |
+| — | `EPISTEMIC_GRAPH_ENCRYPTION_KEY_VERSION` | `1` | Stable, non-secret key version pinned into encrypted shards and backup manifests; changing ID/version requires an offline re-encryption rotation |
+| — | `EPISTEMIC_GRAPH_ENCRYPTION_REQUIRED` | `warn` | Missing-key posture: `off`, `warn`, or `on`; `on` refuses startup before durable writer/listener admission |
 | — | `EPISTEMIC_GRAPH_REQUIRE_OIDC` | unset ⇒ **required** (secure by default since 2026-07-22) | MANDATORY-OIDC posture. Unset/unrecognized ⇒ every request must carry a verified OIDC bearer token bound to its `principal`/`tenant`, and the server refuses to **start** if no OIDC issuer is configured. Explicit, deliberate opt-out for local/dev only: `false`/`0`/`no`/`off` restores pre-2026-07-22 HMAC-only-permitted behavior. See [Migrating to OIDC-required](#migrating-to-oidc-required) below. |
 | — | `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` (falls back to `OIDC_ISSUER`) | — (required when `EPISTEMIC_GRAPH_REQUIRE_OIDC` is not explicitly opted out) | Keycloak realm issuer URL, e.g. `https://keycloak.example/realms/eg` |
 | — | `EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE` (falls back to `OIDC_AUDIENCE`) | — (required alongside the issuer) | Expected `aud` claim — the Keycloak client id/audience minted for `epistemic-graph` |
@@ -452,6 +456,28 @@ restore --bundle "${BACKUP_BUNDLE:?}" --persist-dir "${TARGET_PERSIST_DIR:?}" --
 ```
 
 Both paths are redb-only; a non-redb build returns a clean "not available" error.
+
+### Encryption key lifecycle (NE-028 / BUG-248)
+
+An encrypted shard pins a stable, non-secret `key_id@key_version` beside its
+AEAD-sealed canary. Startup verifies the binding before the writer thread or any
+listener is admitted. The old one-variable configuration is upgraded as
+`legacy@1`; new deployments should set both metadata variables to the KMS object
+and version. A mismatch is a deliberate rotation boundary and fails closed.
+
+Backups retain the encrypted values and the binding/canary metadata verbatim, and
+`MANIFEST.json` records only the non-secret key reference. Raw `migrate-shards` and
+`restore` preserve ciphertext; they do not rotate it. To rotate, retain an
+immutable old-key backup, stop writes, use the deployment's approved offline
+re-encryption/export process to write a fresh destination under the new key, open
+and read-verify the destination, verify audit/replay state, take a fresh backup,
+then atomically switch the service path. Keep the old source/key for rollback until
+the verification window closes. Never edit the canary or delete the old key first.
+
+If a configured key is present during restore, the bundle's key ID/version must
+match; an absent or different reference is rejected before importing any shard.
+Restoring without a key is permitted only as a staged offline copy and it must be
+opened later with the original key material before serving encrypted data.
 
 ### Point-in-time recovery (PITR)
 
