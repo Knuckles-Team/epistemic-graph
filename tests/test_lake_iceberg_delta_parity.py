@@ -31,7 +31,8 @@ convention), verified against a configured Keycloak-compatible JWKS issuer
 bearer whose tenant claim matches the deployment's own configured tenant now mints a
 `CarrierAuthority` and is served; an unauthenticated request, or a validly-signed bearer
 for a DIFFERENT tenant, both still fail closed (403). `test_iceberg_rest_*` below drive
-that triple (authenticated/unauthenticated/cross-tenant) against the real compiled
+that acceptance matrix (authenticated plus missing/expired/cross-tenant/
+insufficient-scope denial) against the real compiled
 server binary over a local RSA keypair + JWKS HTTP server standing in for Keycloak (so
 the REAL Rust JWKS/RSA verification path is exercised without a live network
 dependency). Same open question as before for `obs`/`federation-search` and SPARQL's own
@@ -366,11 +367,16 @@ def iceberg_oauth_fixture():
 
 
 def _sign_iceberg_bearer(
-    fixture: dict, *, subject: str, tenant: str | None, expires_in: int = 300
+    fixture: dict,
+    *,
+    subject: str,
+    tenant: str | None,
+    expires_in: int = 300,
+    scope: str | None = "kg:read kg:write",
 ) -> str:
     """Mint a real RS256 bearer over `fixture`'s key — the exact shape a
     Keycloak-issued Iceberg-REST OAuth2 token takes (`sub`/`iss`/`aud`/`exp` +
-    a `tenant_id` claim, the first of the claim names
+    `tenant_id` and space-delimited `scope` claims, the claim names
     `oidc::JwtValidator::validate_claims` checks)."""
     payload = {
         "sub": subject,
@@ -380,6 +386,8 @@ def _sign_iceberg_bearer(
     }
     if tenant is not None:
         payload["tenant_id"] = tenant
+    if scope is not None:
+        payload["scope"] = scope
     return _pyjwt.encode(
         payload,
         fixture["private_pem"],
@@ -474,36 +482,57 @@ def iceberg_server(tmp_path_factory, iceberg_oauth_fixture):
             proc.wait()
 
 
-def _http_get(addr: str, path: str, headers: dict | None = None) -> tuple[int, str]:
+def _http_request(
+    addr: str,
+    method: str,
+    path: str,
+    *,
+    headers: dict | None = None,
+    body: str | None = None,
+) -> tuple[int, str]:
     import http.client
 
     host, port = addr.split(":")
     conn = http.client.HTTPConnection(host, int(port), timeout=10)
     try:
-        conn.request("GET", path, headers=headers or {})
+        conn.request(method, path, body=body, headers=headers or {})
         resp = conn.getresponse()
         return resp.status, resp.read().decode("utf-8", errors="replace")
     finally:
         conn.close()
 
 
+def _http_get(addr: str, path: str, headers: dict | None = None) -> tuple[int, str]:
+    return _http_request(addr, "GET", path, headers=headers)
+
+
+def _assert_non_oracular_carrier_denial(status: int, body: str) -> None:
+    assert status == 403, f"expected carrier denial (403), got {status}: {body}"
+    assert json.loads(body) == {
+        "error": {
+            "message": "Iceberg carrier request denied",
+            "type": "ForbiddenException",
+            "code": 403,
+        }
+    }, "all carrier failures must share one privacy-safe error envelope"
+
+
 def test_iceberg_rest_listener_responds_when_configured(iceberg_server):
     """The real server binary, built with `full` (which folds `lake`+`lake-rest` in as
     of W4.8), opens a live HTTP listener on `--iceberg-addr` and speaks the
     Iceberg-REST envelope shape — proven here without any dependency on the
-    pyjwt/cryptography test-only deps the three `test_iceberg_rest_*` auth-outcome
+    pyjwt/cryptography test-only deps the `test_iceberg_rest_*` auth-outcome
     tests below (BUG-222) need. An unauthenticated request is denied (403), exactly
     like `test_iceberg_rest_unauthenticated_request_is_denied` proves again below.
     """
     status, body = _http_get(iceberg_server, "/v1/config")
-    assert status == 403, f"expected the fail-closed carrier gate (403), got {status}: {body}"
-    payload = json.loads(body)
-    assert payload["error"]["type"] == "ForbiddenException"
+    _assert_non_oracular_carrier_denial(status, body)
 
 
 # --------------------------------------------------------------------------------- #
-# BUG-222 acceptance triple: authenticated (200) / unauthenticated (403) /
-# cross-tenant (403). `server::unauthenticated_carrier_denied` (the shared
+# BUG-222 acceptance matrix: authenticated (200) plus missing, expired,
+# cross-tenant and insufficient-scope (403) denials. The
+# `server::unauthenticated_carrier_denied` shared
 # fail-closed predicate — untouched by this fix) is exercised here through the
 # Iceberg-REST surface's OWN OAuth2 bearer proof (`server::lake::rest::verify_bearer`
 # + `server::auth::mint_iceberg_carrier`), driven end-to-end against the real
@@ -535,12 +564,7 @@ def test_iceberg_rest_unauthenticated_request_is_denied(iceberg_server):
     itself was never relaxed, only the caller (`carrier_denied` in
     `server::lake::rest`) that used to hand it a hardcoded `None`."""
     status, body = _http_get(iceberg_server, "/v1/config")
-    assert status == 403, (
-        f"expected the fail-closed carrier gate (403) for no bearer at all, "
-        f"got {status}: {body}"
-    )
-    payload = json.loads(body)
-    assert payload["error"]["type"] == "ForbiddenException"
+    _assert_non_oracular_carrier_denial(status, body)
 
 
 @_SKIP_OAUTH_DEPS
@@ -555,9 +579,43 @@ def test_iceberg_rest_cross_tenant_bearer_is_denied(iceberg_server, iceberg_oaut
     status, body = _http_get(
         iceberg_server, "/v1/config", headers={"Authorization": f"Bearer {token}"}
     )
-    assert status == 403, (
-        f"expected a bearer verified for a DIFFERENT tenant to be DENIED, "
-        f"got {status}: {body}"
+    _assert_non_oracular_carrier_denial(status, body)
+
+
+@_SKIP_OAUTH_DEPS
+def test_iceberg_rest_expired_bearer_is_denied(iceberg_server, iceberg_oauth_fixture):
+    """A correctly signed bearer whose expiry is in the past cannot mint a
+    carrier, and its response does not reveal whether the requested resource
+    exists."""
+    token = _sign_iceberg_bearer(
+        iceberg_oauth_fixture,
+        subject="agent:expired",
+        tenant=ICEBERG_TENANT,
+        expires_in=-300,
     )
-    payload = json.loads(body)
-    assert payload["error"]["type"] == "ForbiddenException"
+    status, body = _http_get(
+        iceberg_server, "/v1/namespaces", headers={"Authorization": f"Bearer {token}"}
+    )
+    _assert_non_oracular_carrier_denial(status, body)
+
+
+@_SKIP_OAUTH_DEPS
+def test_iceberg_rest_insufficient_scope_is_denied_without_resource_oracle(
+    iceberg_server, iceberg_oauth_fixture
+):
+    """A validly signed, correctly tenanted write-only carrier cannot perform
+    a read, and the scope denial uses the same envelope as invalid carriers
+    before the target namespace/table is examined."""
+    token = _sign_iceberg_bearer(
+        iceberg_oauth_fixture,
+        subject="agent:reader",
+        tenant=ICEBERG_TENANT,
+        scope="kg:write",
+    )
+    status, body = _http_request(
+        iceberg_server,
+        "GET",
+        "/v1/namespaces",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    _assert_non_oracular_carrier_denial(status, body)
