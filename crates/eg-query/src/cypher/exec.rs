@@ -3030,6 +3030,7 @@ mod tests {
             })),
         );
         let qr = exec_cypher(&core.analysis_snapshot(), "MATCH (n:Person) RETURN n, n.id").unwrap();
+        assert_eq!(qr.columns, vec!["n", "id"]);
         let cells = cells_of(&qr, 0);
         assert_eq!(projected_id(&cells[0]), Some("canonical-id"));
         assert_eq!(cells[1], Value::String("canonical-id".into()));
@@ -3667,7 +3668,7 @@ mod tests {
     fn return_property_projection() {
         let v = fixture();
         let qr = exec_cypher(&v, "MATCH (a:Doc) RETURN a.size").unwrap();
-        assert_eq!(qr.columns, vec!["a.size"]);
+        assert_eq!(qr.columns, vec!["size"]);
         assert_eq!(cells_of(&qr, 0)[0], Value::Number(42.into()));
     }
 
@@ -3708,7 +3709,8 @@ mod tests {
 
     /// `ORDER BY` on a property that is NOT itself a projected column (the
     /// projection is the bare node `a`, column name `"a"`; the sort key is
-    /// `a.name`, column name `"a.name"` — they don't match) must still resolve
+    /// `a.name`, deterministic scalar column name `"name"` — they don't match)
+    /// must still resolve
     /// via the row's carried source `Binding`, per `order_value`'s fallback to
     /// `eval_scalar(view, &row.1, expr)`. This is the scenario `finalize()`'s
     /// per-row binding carry-through exists for: a query WITHOUT `ORDER BY`
@@ -4494,7 +4496,7 @@ mod tests {
             "CREATE (n:Task {id: 't1', state: 'open'}) RETURN n.state",
         )
         .unwrap();
-        assert_eq!(qr.columns, vec!["n.state"]);
+        assert_eq!(qr.columns, vec!["state"]);
         assert_eq!(cells_of(&qr, 0)[0], Value::String("open".into()));
     }
 
