@@ -160,7 +160,7 @@ pub(crate) fn strip_to_text(bytes: &[u8]) -> Option<String> {
         if !is_close {
             if let Some(level) = heading_level(&tag_name) {
                 output.push('\n');
-                output.extend(std::iter::repeat('#').take(level));
+                output.extend(std::iter::repeat_n('#', level));
                 output.push(' ');
                 continue;
             }
@@ -281,14 +281,27 @@ mod tests {
 
     #[test]
     fn headings_and_list_items_carry_a_classify_recognized_prefix() {
-        let html = b"<html><body><h2>Section</h2><ul><li>one</li><li>two</li></ul></body></html>";
+        let html = b"<html><body><h1>One</h1><h2>Two</h2><h3>Three</h3>\
+<h4>Four</h4><h5>Five</h5><h6>Six</h6><ul><li>one</li><li>two</li></ul></body></html>";
         let text = strip_to_text(html).unwrap();
         let lines: Vec<&str> = text
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty())
             .collect();
-        assert_eq!(lines, vec!["## Section", "- one", "- two"]);
+        assert_eq!(
+            lines,
+            vec![
+                "# One",
+                "## Two",
+                "### Three",
+                "#### Four",
+                "##### Five",
+                "###### Six",
+                "- one",
+                "- two",
+            ]
+        );
     }
 
     #[test]
@@ -309,7 +322,7 @@ mod tests {
     #[test]
     fn adversarial_angle_bracket_soup_terminates_and_stays_bounded() {
         let mut hostile = b"<html><body>".to_vec();
-        hostile.extend(std::iter::repeat(b'<').take(50_000));
+        hostile.extend(std::iter::repeat_n(b'<', 50_000));
         hostile.extend_from_slice(b">tail</body></html>");
         let result = strip_to_text(&hostile);
         // Must return (not hang) and never exceed the source length.
