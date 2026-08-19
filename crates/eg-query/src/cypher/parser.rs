@@ -1479,12 +1479,18 @@ mod tests {
     #[test]
     fn parses_property_return_and_comparison() {
         let q = parse("MATCH (a:Doc) WHERE a.size > 10 RETURN a.size").unwrap();
-        assert_eq!(q.ret.items[0].column(), "a.size");
+        assert_eq!(q.ret.items[0].column(), "size");
         let (_, where_c) = first_match(&q);
         match where_c.as_ref().unwrap() {
             WhereExpr::Cond(c) => assert!(matches!(c.test, Test::Cmp(CompareOp::Gt, _))),
             _ => panic!("expected single comparison"),
         }
+    }
+
+    #[test]
+    fn explicit_property_alias_is_preserved() {
+        let q = parse("MATCH (a:Doc) RETURN a.size AS document_size").unwrap();
+        assert_eq!(q.ret.items[0].column(), "document_size");
     }
 
     #[test]
