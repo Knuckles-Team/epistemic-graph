@@ -135,6 +135,9 @@ docker run -d --name epistemic-graph \
 ## High availability (Raft, `cluster` feature)
 
 The `cluster` feature replicates the authoritative redb store across nodes via in-engine openraft.
+This is a `DESIGNED`/staged example, not evidence of a live cutover or 1M
+certification; use the [cluster runbook](architecture/cluster_deployment.md)
+for backup, artifact, and verification gates.
 Run one container per node with a matching node id and the shared peer list:
 
 ```bash
@@ -155,6 +158,7 @@ docker run -d --name eg-node-1 \
   -e GRAPH_SERVICE_TLS_KEY=/run/secrets/server.key \
   -e EPISTEMIC_GRAPH_RAFT_NODE_ID=1 \
   -e EPISTEMIC_GRAPH_RAFT_PEERS="1@eg-node-1:9200,2@eg-node-2:9200,3@eg-node-3:9200" \
+  -e EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR="${NODE_1_CLIENT_ADDR:?set the runtime-reachable client address}" \
   -e EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE=/run/secrets/raft-auth \
   -e GRAPH_SERVICE_PERSIST_DIR="${CONTAINER_DATA_DIR}" \
   --mount type=bind,src="$RAFT_AUTH_SECRET_FILE",dst=/run/secrets/raft-auth,readonly \
