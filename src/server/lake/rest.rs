@@ -420,14 +420,7 @@ fn route(
                 "path": req.target,
                 "outcome": "deny",
             }));
-            (
-                "403 Forbidden",
-                err_body(
-                    "Iceberg carrier has no verified tenant/table ownership",
-                    "ForbiddenException",
-                    403,
-                ),
-            )
+            carrier_denied_response()
         }
         Ok(carrier) => handle(lake, store, req, carrier.as_ref()),
     }
@@ -531,6 +524,22 @@ async fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
 
 fn err_body(message: &str, kind: &str, code: u16) -> String {
     json!({ "error": { "message": message, "type": kind, "code": code } }).to_string()
+}
+
+/// Privacy-safe response shared by every carrier-authority denial. The audit
+/// event retains the internal reason (`AccessDenied` versus
+/// `InsufficientScope`), while callers receive one stable envelope so missing,
+/// expired, cross-tenant and under-scoped credentials cannot be distinguished
+/// by an authorization oracle.
+fn carrier_denied_response() -> (&'static str, String) {
+    (
+        "403 Forbidden",
+        err_body(
+            "Iceberg carrier request denied",
+            "ForbiddenException",
+            403,
+        ),
+    )
 }
 
 fn not_found(kind: &str) -> String {
@@ -817,14 +826,7 @@ fn handle(
                 .unwrap_or_else(|| "system".to_string()),
             "outcome": "deny",
         }));
-        return (
-            "403 Forbidden",
-            err_body(
-                "Iceberg carrier is not authorized for this operation",
-                "ForbiddenException",
-                403,
-            ),
-        );
+        return carrier_denied_response();
     }
 
     let visibility = visibility_for(carrier);
@@ -2179,9 +2181,10 @@ mod tests {
     // carrier gate; the tenant-match decision it feeds into
     // (`crate::server::auth::mint_iceberg_carrier`) has its own dedicated
     // test coverage in `server::auth`'s `iceberg_bearer_carrier` module. The
-    // full wire-level 200/403/403 triple (authenticated / unauthenticated /
-    // cross-tenant) is proven end-to-end against the real compiled server
-    // binary by `tests/test_lake_iceberg_delta_parity.py`.
+    // The full wire-level acceptance matrix (authenticated plus missing,
+    // expired, cross-tenant and insufficient-scope denials) is proven
+    // end-to-end against the real compiled server binary by
+    // `tests/test_lake_iceberg_delta_parity.py`.
     mod bearer_verification {
         use super::*;
         use jsonwebtoken::{encode, Algorithm as JwtAlgorithm, DecodingKey, EncodingKey, Header};
