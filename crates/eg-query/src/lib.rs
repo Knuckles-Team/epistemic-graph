@@ -48,6 +48,11 @@ pub use sql::{
 
 #[cfg(feature = "sql")]
 pub use tables::{
+    migration::{
+        conversion_may_be_lossy, MigrationPolicy, MigrationState, RollbackMetadata, SchemaMigration,
+        SchemaMigrationApply, SchemaMigrationOperation, SchemaMigrationRecord, SchemaSnapshot,
+        SecondaryIndexPolicy,
+    },
     Cell, CmpOp, ColCheck, Column, ColumnType, ConflictAction, FunctionArg, FunctionReturns,
     StoredFunction, TableSchema, TableStore, TableTxn, TxnOp,
 };
