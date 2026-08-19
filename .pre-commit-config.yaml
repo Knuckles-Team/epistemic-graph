@@ -246,21 +246,18 @@ repos:
   # commit-stage `protocol-parity`-equivalent coverage is unaffected (this hook
   # was pre-push/manual only, never commit-stage). To run it standalone:
   #   python3 -m pytest tests/test_protocol_parity.py --noconftest -q
-  # rust-ci gate 1 — workspace format. APPLIES rather than only checking: a
-  # check-only hook makes the committer re-run the formatter by hand for a
-  # mechanical, always-safe rewrite, and if they push before noticing, CI's own
-  # `cargo fmt --all --check` row fails on pure whitespace. Formatting the tree
-  # here is the same auto-fixer contract the python hooks (ruff-format,
-  # end-of-file-fixer, trailing-whitespace) already use: pre-commit reports
-  # "files were modified by this hook", the commit is re-staged, and the tree
-  # that lands is formatted by construction. CI keeps `--check` as the
-  # authority; this just stops it being the FIRST place anyone finds out.
-  - id: cargo-fmt
-    name: cargo fmt --all (rust-ci parity — auto-applies)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then cargo fmt --all; fi'
+  # rust-ci gate 1 — scoped, pinned, check-only format guard. Never invoke
+  # `cargo fmt --all` from a developer or merge track: an auto-applying
+  # workspace formatter rewrites unrelated files in another lane's worktree.
+  # `check_rustfmt_scope.py` receives only changed Rust paths and invokes the
+  # exact channel from rust-toolchain.toml. A Cargo/rustfmt/toolchain manifest
+  # change widens the read-only check to all tracked Rust files.
+  - id: rustfmt-scope
+    name: rustfmt (pinned, changed files, check-only)
+    entry: python3 scripts/check_rustfmt_scope.py
     language: system
-    pass_filenames: false
-    always_run: true
+    files: '(^|/)(Cargo\.toml|rust-toolchain\.toml|rustfmt\.toml)$|\.rs$|^\.pre-commit-config\.yaml$|^\.mergequeue\.yaml$|^scripts/check_rustfmt_scope\.py$'
+    pass_filenames: true
     stages: [pre-push, manual]
   # rust-ci gates 2-4 — clippy. The EVERYDAY leg lints the SHIPPED build (`full`,
   # which == `default`) + the two slim variants, each -D warnings. The exhaustive

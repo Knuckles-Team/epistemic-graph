@@ -26,6 +26,26 @@ batch_size: 8
 environment_signature: ["sh", "-c", "cargo --version && rustc --version && go version && node --version && npm --version"]
 
 gates:
+  # Rustfmt is deliberately scoped to the candidate diff. The old pre-push
+  # `cargo fmt --all` hook could rewrite unrelated files before a track was
+  # merged; this gate is check-only and uses the repository's pinned toolchain.
+  # A manifest/toolchain change makes the helper check every tracked Rust file
+  # read-only because formatting configuration is workspace-wide.
+  - name: rustfmt-scope
+    command: [python3, scripts/check_rustfmt_scope.py, --base, main]
+    tier: fast
+    timeout: 300
+    baseline_timeout: 600
+    compare: exit
+    when_changed:
+      - '*.rs'
+      - '**/*.rs'
+      - '*.toml'
+      - '**/*.toml'
+      - '.pre-commit-config.yaml'
+      - '.mergequeue.yaml'
+      - 'scripts/check_rustfmt_scope.py'
+
   # The one gate the engine lane applied by hand. `--all-features` because the
   # workspace's crates are feature-gated and a merge can break a crate that only
   # a non-default feature compiles.
