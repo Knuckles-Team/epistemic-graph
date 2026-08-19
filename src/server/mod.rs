@@ -3535,8 +3535,8 @@ mod tests {
     /// meaningful batching win to occur AND for all of them to land via the
     /// worker's queue. That is exactly what a small CI runner breaks:
     /// `write_coalescer::CoalescerConfig::auto` sizes `queue_capacity` from
-    /// `std::thread::available_parallelism()`, with a FLOOR of 256 at <=8 CPUs —
-    /// well under N=400 — so on a 2-core box a real fraction of the 400 writers
+    /// the cgroup-aware `Capacity::writer_queue()` floor of 256 at constrained
+    /// CPU budgets — well under N=400 — so on a 2-core box a real fraction of the 400 writers
     /// overflow the bounded channel and take `commit_via_coalescer`'s inline
     /// backpressure fallback instead of the worker's batch path. That in turn
     /// exposed a genuine PRODUCT accounting bug (now fixed, not a test bug on its

@@ -238,18 +238,20 @@ pub fn configured() -> Option<Arc<QosScheduler>> {
         if !env_truthy("EPISTEMIC_GRAPH_QOS") {
             return None;
         }
+        let automatic_capacity = crate::autosize::detect_capacity().max_inflight();
         let capacity = std::env::var("EPISTEMIC_GRAPH_QOS_CAPACITY")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
-            .unwrap_or_else(|| crate::autosize::detect_capacity().max_inflight());
+            .map(|value| crate::autosize::bound_explicit(value, automatic_capacity))
+            .unwrap_or(automatic_capacity);
         let mut config = QosConfig::auto(capacity);
         if let Some(q) = std::env::var("EPISTEMIC_GRAPH_QOS_PRINCIPAL_QUOTA")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
         {
-            config.per_principal_quota = q;
+            config.per_principal_quota = crate::autosize::bound_explicit(q, config.capacity);
         }
         tracing::info!(
             target: "epistemic_graph::qos",

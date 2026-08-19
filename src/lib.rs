@@ -129,9 +129,10 @@ pub mod mutation_apply;
 #[cfg(feature = "server")]
 pub mod write_coalescer;
 // Hardware capacity auto-detection (CONCEPT:AU-KG.backend.b-auto-size). Derives the concurrency / buffer /
-// per-graph node-cap DEFAULTS from (cpu_count, total_RAM) so the SAME binary is lean +
-// OOM-safe on a Raspberry Pi 3 (4 cores / 1 GiB) and exploits a 64-core / 247 GiB box.
-// PURE-RUST (available_parallelism + /proc/meminfo), no deps; always compiled.
+// per-graph node-cap DEFAULTS from the effective host/cgroup CPU+RAM capacity so
+// the SAME binary is lean + OOM-safe in a constrained pod and exploits a large
+// host. The dependency-free implementation is shared with lower provider crates
+// through `eg-resource`; this facade module preserves the existing API path.
 pub mod autosize;
 // Per-tenant memory budget + autoscale signals (CONCEPT:EG-KG.compute.lane-v, Lane V). The budget
 // enforcer (periodic over-budget eviction/hibernation), the per-tenant resident-RAM

@@ -1854,17 +1854,13 @@ pub(crate) async fn publish_committed_row_delta(
 fn mutation_snapshot_max_bytes() -> usize {
     static MAX: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *MAX.get_or_init(|| {
+        let automatic = crate::autosize::detect_capacity().mutation_snapshot_bytes();
         if let Ok(value) = std::env::var("EPISTEMIC_GRAPH_MUTATION_SNAPSHOT_MAX_BYTES") {
             if let Ok(parsed) = value.trim().parse::<usize>() {
-                return parsed;
+                return crate::autosize::bound_explicit(parsed, automatic);
             }
         }
-        let ram = crate::autosize::detect_capacity().total_ram_bytes;
-        if ram == 0 {
-            128 * 1024 * 1024
-        } else {
-            (ram / 16).clamp(16 * 1024 * 1024, 2 * 1024 * 1024 * 1024) as usize
-        }
+        automatic
     })
 }
 

@@ -158,8 +158,9 @@
 //! therefore sized by [`cpu_budget::effective_thread_budget`], which reads
 //! the REAL cgroup v2/v1 CPU quota (falling back to the OS-visible count
 //! only when no finite quota is set), not `std::thread::available_
-//! parallelism()` directly — see that module's doc for the full contract
-//! and an `EG_ASR_MAX_THREADS` operator override.
+//! parallelism()` directly — see that module and the shared `eg-resource`
+//! contract for the full cgroup policy. `EG_ASR_MAX_THREADS` is an upper-bound
+//! override and cannot bypass the measured safe budget.
 //!
 //! ## GPU
 //!

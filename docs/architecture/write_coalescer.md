@@ -85,8 +85,9 @@ losing a write.
 
 ## Auto-sizing (no per-connector knob)
 
-`CoalescerConfig::auto()` derives the tuning from `available_parallelism()` (per
-*Configuration discipline* — a hardware/load tunable is auto-sized, not a flag):
+`CoalescerConfig::auto()` derives the tuning from the shared cgroup-aware CPU
+capacity resolver (per *Configuration discipline* — a hardware/load tunable is
+auto-sized, not a flag):
 
 | Field | Default | Rationale |
 |------|---------|-----------|

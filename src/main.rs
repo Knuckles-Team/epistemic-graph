@@ -290,17 +290,14 @@ fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<Stri
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Explicit, hardware-sized multi-thread runtime (CONCEPT:EG-KG.storage.nonblocking-checkpoint — A4). The
-    // default `#[tokio::main]` already spins one worker per core, but building the
-    // runtime explicitly lets us (a) put a small floor under the worker count so a
-    // 1-2 core box (Raspberry Pi) still has runtime threads to overlap I/O, and
-    // (b) size the BLOCKING pool that off-reactor CPU work (parse_files, the
-    // checkpoint encode, community detection) runs on, so a big box uses every
-    // core. This is the seam Phase D's HardwareProfile tunes further.
-    let cores = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(2);
-    let worker_threads = cores.max(2);
-    let max_blocking = (cores * 2).max(4);
+    // The runtime itself is an automatic capacity consumer. Resolve through the
+    // shared cgroup-aware seam before building it; a CPU-limited pod must not
+    // inherit the host's affinity count or a two-thread floor that exceeds its
+    // measured budget. The resolver already reserves CPU headroom and keeps a
+    // one-thread progress floor.
+    let cores = epistemic_graph::autosize::detect_capacity().reserved_cpus();
+    let worker_threads = cores.max(1);
+    let max_blocking = cores.max(1);
     let driver = server::spawn_engine_driver(move || {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(worker_threads)
@@ -431,10 +428,11 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Hardware capacity auto-detection (CONCEPT:AU-KG.backend.b-auto-size) ─────────────────
     // Size the concurrency / buffer / per-graph node-cap DEFAULTS from
-    // (cpu_count, total_RAM) so the SAME binary is lean + OOM-safe on a Pi 3 and
-    // exploits a big box. Detected ONCE; each env var below still overrides its
-    // own default. Mirrors `available_parallelism()` (runtime sizing above) +
-    // CoalescerConfig::auto + cost.rs's /proc/meminfo read.
+    // (effective cgroup-aware CPU, RAM) so the SAME binary is lean + OOM-safe in
+    // a constrained pod and exploits a big box. Detected ONCE; positive explicit
+    // values below may lower their defaults but cannot widen them. Mirrors the
+    // shared cgroup-aware runtime sizing above, CoalescerConfig::auto, and
+    // cost.rs's effective-memory budget.
     let host_capacity = epistemic_graph::autosize::detect_capacity();
     info!(
         "  Capacity: {} cpu(s), {} MiB RAM, tier {:?} (auto-sizing inflight/writer/node-cap defaults)",
@@ -478,13 +476,27 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         None => None,
     };
 
-    // Default auto-sizes from cpu count (CONCEPT:AU-KG.backend.b-auto-size): a Pi sheds early, a big
-    // box admits deep concurrency. Env override (when set > 0) still wins.
+    // Default auto-sizes from effective CPU capacity (CONCEPT:AU-KG.backend.b-auto-size):
+    // a constrained cgroup sheds early and a big box admits deeper concurrency.
+    // A positive env override can only lower the cgroup-aware default.
+    let automatic_max_in_flight = host_capacity.max_inflight();
     let max_in_flight = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
-        .unwrap_or_else(|| host_capacity.max_inflight());
+        .map(|value| {
+            let bounded = epistemic_graph::autosize::bound_explicit(value, automatic_max_in_flight);
+            if bounded != value {
+                tracing::warn!(
+                    requested = value,
+                    bounded,
+                    automatic = automatic_max_in_flight,
+                    "EPISTEMIC_GRAPH_MAX_INFLIGHT exceeds cgroup-aware automatic capacity; clamping"
+                );
+            }
+            bounded
+        })
+        .unwrap_or(automatic_max_in_flight);
     // Per-graph fairness cap (Phase C-D): default to a quarter of the global pool
     // so any one hot graph holds at most 25% of capacity and ~4 graphs can saturate
     // the server, instead of a single tenant monopolizing all in-flight slots.
@@ -492,17 +504,20 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
+        .map(|value| epistemic_graph::autosize::bound_explicit(value, max_in_flight))
         .unwrap_or_else(|| (max_in_flight / 4).max(1));
     // Reserved READ-admission lane (CONCEPT:EG-KG.coordination.reserved-read-lane): a dedicated pool of in-flight
     // slots that ONLY reads/queries may use, so a write firehose that saturates the
     // global pool + per-graph cap can never shed an interactive MCP read to BUSY.
-    // Auto-sized from cpu count (an eighth of the admission cap, floored); env override
-    // (when set > 0) still wins.
+    // Auto-sized from effective CPU capacity (an eighth of the admission cap,
+    // floored); a positive env override can only lower the cgroup-aware bound.
+    let automatic_read_reserved = host_capacity.read_reserved().min(max_in_flight).max(1);
     let read_reserved = std::env::var("EPISTEMIC_GRAPH_READ_RESERVED")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
-        .unwrap_or_else(|| host_capacity.read_reserved());
+        .map(|value| epistemic_graph::autosize::bound_explicit(value, automatic_read_reserved))
+        .unwrap_or(automatic_read_reserved);
     info!(
         "Backpressure: max in-flight = {} (per-graph cap = {}, reserved read lane = {})",
         max_in_flight, per_graph_inflight_limit, read_reserved
@@ -536,11 +551,15 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("error: {error}");
                 std::process::exit(2);
             });
+            let automatic_writer_queue = host_capacity.writer_queue();
             let capacity = std::env::var("EPISTEMIC_GRAPH_REDB_WRITER_QUEUE")
                 .ok()
                 .and_then(|v| v.parse::<usize>().ok())
                 .filter(|&n| n > 0)
-                .unwrap_or_else(|| host_capacity.writer_queue());
+                .map(|value| {
+                    epistemic_graph::autosize::bound_explicit(value, automatic_writer_queue)
+                })
+                .unwrap_or(automatic_writer_queue);
             info!(
                 "Persistence: authoritative redb (fsync {:?}, queue {})",
                 policy, capacity
@@ -1782,21 +1801,33 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // — the backstop that makes a shard shed working set instead of OOM-killing
     // every tenant. The sweep is periodic so it never touches the write hot path.
     //
-    // CONCEPT:AU-KG.backend.b-auto-size (Pi-OOM correctness): the DEFAULT now AUTO-SIZES from total RAM
-    // instead of being unbounded. An unbounded projection OOM-kills a 1 GiB Pi; a
-    // RAM-derived cap bounds a runaway graph's RESIDENT footprint with ZERO data loss
+    // CONCEPT:AU-KG.backend.b-auto-size (Pi-OOM correctness): the DEFAULT now AUTO-SIZES from
+    // effective cgroup-aware RAM instead of being unbounded. An unbounded projection
+    // OOM-kills a 1 GiB Pi; a RAM-derived cap bounds a runaway graph's RESIDENT footprint with ZERO data loss
     // — evicted nodes still serve from the durable redb tier (read-through eviction,
     // CONCEPT:EG-KG.storage.read-through-seam-exercised). Any explicit override must
     // remain positive; the safety bound cannot be disabled.
+    let automatic_node_cap = host_capacity.node_cap();
     let max_nodes_per_graph = match std::env::var("EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH") {
         Ok(value) => match value.trim().parse::<usize>() {
-            Ok(limit) if limit > 0 => limit,
+            Ok(limit) if limit > 0 => {
+                let bounded = epistemic_graph::autosize::bound_explicit(limit, automatic_node_cap);
+                if bounded != limit {
+                    tracing::warn!(
+                        requested = limit,
+                        bounded,
+                        automatic = automatic_node_cap,
+                        "EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH exceeds cgroup-aware automatic capacity; clamping"
+                    );
+                }
+                bounded
+            }
             _ => {
                 eprintln!("error: EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH must be positive");
                 std::process::exit(2);
             }
         },
-        Err(std::env::VarError::NotPresent) => host_capacity.node_cap(),
+        Err(std::env::VarError::NotPresent) => automatic_node_cap,
         Err(std::env::VarError::NotUnicode(_)) => {
             eprintln!("error: EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH is not valid Unicode");
             std::process::exit(2);

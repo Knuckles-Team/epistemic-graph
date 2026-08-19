@@ -107,43 +107,11 @@ pub struct CostConfig {
     pub interval_secs: u64,
 }
 
-/// Total system RAM in bytes, read from `/proc/meminfo` (`MemTotal`). `None` if it can't
-/// be parsed (non-Linux / restricted). Used only to AUTO-SIZE the default ceiling.
-fn system_total_bytes() -> Option<u64> {
-    let s = std::fs::read_to_string("/proc/meminfo").ok()?;
-    for line in s.lines() {
-        if let Some(rest) = line.strip_prefix("MemTotal:") {
-            let kb = rest.split_whitespace().next()?.parse::<u64>().ok()?;
-            return Some(kb * 1024);
-        }
-    }
-    None
-}
-
-/// Effective memory available to this process. Containers commonly expose host
-/// `MemTotal` while enforcing a much smaller cgroup limit, so use the smallest
-/// finite value. This keeps the automatic budget meaningful in WSL/containers.
+/// Effective memory available to this process. The shared `eg-resource` resolver
+/// already intersects host RAM with cgroup v1/v2 and reserves RAM headroom, so
+/// this module must not maintain a second parser.
 fn system_memory_limit_bytes() -> Option<u64> {
-    fn read_limit(path: &str) -> Option<u64> {
-        let raw = std::fs::read_to_string(path).ok()?;
-        let value = raw.trim();
-        if value.eq_ignore_ascii_case("max") {
-            return None;
-        }
-        value.parse::<u64>().ok().filter(|limit| *limit > 0)
-    }
-
-    let total = system_total_bytes();
-    let cgroup = read_limit("/sys/fs/cgroup/memory.max")
-        .or_else(|| read_limit("/sys/fs/cgroup/memory/memory.limit_in_bytes"))
-        // Some v1 runtimes expose an effectively-unlimited sentinel near u64::MAX.
-        .filter(|limit| *limit < (1u64 << 60));
-    match (total, cgroup) {
-        (Some(total), Some(limit)) => Some(total.min(limit)),
-        (Some(total), None) => Some(total),
-        (None, Some(limit)) => Some(limit),
-        (None, None) => None,
-    }
+    Some(crate::autosize::detect_capacity().reserved_ram_bytes())
 }
 
 impl CostConfig {
@@ -152,20 +120,33 @@ impl CostConfig {
     ///
     /// * `EPISTEMIC_GRAPH_MEMORY_BUDGET` — the global resident-memory ceiling. Accepts a
     ///   plain byte count OR a `k`/`m`/`g` suffix (`512m`, `2g`). When UNSET it AUTO-SIZES
-    ///   to 40% of the smaller of system RAM and the cgroup limit. The safety
-    ///   ceiling cannot be disabled.
+    ///   to 40% of the cgroup-aware effective RAM. Explicit values may lower the
+    ///   automatic ceiling but are clamped to it, so an override cannot widen a
+    ///   constrained process beyond its measured budget.
     /// * `EPISTEMIC_GRAPH_TENANT_BUDGET` — optional per-tenant budget override. Defaults
     ///   to the global ceiling (so a single-tenant box budgets against the ceiling); the
     ///   fair-share cap still applies under multi-tenant pressure regardless.
     /// * `EPISTEMIC_GRAPH_BUDGET_INTERVAL` — sweep cadence, seconds (default 15).
     pub fn from_env() -> Result<Self, String> {
         let automatic_ceiling = system_memory_limit_bytes()
-            .map(|total| total / 10 * 4)
+            .map(|total| (total / 10 * 4).max(1))
             .unwrap_or(512 * 1024 * 1024 / 10 * 4);
         let global_ceiling_bytes = match std::env::var("EPISTEMIC_GRAPH_MEMORY_BUDGET") {
-            Ok(value) => parse_bytes(&value)
-                .filter(|parsed| *parsed > 0)
-                .ok_or_else(|| "EPISTEMIC_GRAPH_MEMORY_BUDGET must be positive".to_string())?,
+            Ok(value) => {
+                let requested = parse_bytes(&value)
+                    .filter(|parsed| *parsed > 0)
+                    .ok_or_else(|| "EPISTEMIC_GRAPH_MEMORY_BUDGET must be positive".to_string())?;
+                let bounded = requested.min(automatic_ceiling);
+                if bounded != requested {
+                    tracing::warn!(
+                        requested,
+                        bounded,
+                        automatic = automatic_ceiling,
+                        "EPISTEMIC_GRAPH_MEMORY_BUDGET exceeds cgroup-aware automatic capacity; clamping"
+                    );
+                }
+                bounded
+            }
             // A shared engine leaves most memory available to its host process,
             // filesystem cache, and peer services. Operators of a dedicated node
             // can explicitly raise this value.
@@ -175,9 +156,21 @@ impl CostConfig {
             }
         };
         let per_tenant_budget_bytes = match std::env::var("EPISTEMIC_GRAPH_TENANT_BUDGET") {
-            Ok(value) => parse_bytes(&value)
-                .filter(|budget| *budget > 0)
-                .ok_or_else(|| "EPISTEMIC_GRAPH_TENANT_BUDGET must be positive".to_string())?,
+            Ok(value) => {
+                let requested = parse_bytes(&value)
+                    .filter(|budget| *budget > 0)
+                    .ok_or_else(|| "EPISTEMIC_GRAPH_TENANT_BUDGET must be positive".to_string())?;
+                let bounded = requested.min(global_ceiling_bytes);
+                if bounded != requested {
+                    tracing::warn!(
+                        requested,
+                        bounded,
+                        automatic = global_ceiling_bytes,
+                        "EPISTEMIC_GRAPH_TENANT_BUDGET exceeds the global cgroup-aware capacity; clamping"
+                    );
+                }
+                bounded
+            }
             Err(std::env::VarError::NotPresent) => global_ceiling_bytes,
             Err(std::env::VarError::NotUnicode(_)) => {
                 return Err("EPISTEMIC_GRAPH_TENANT_BUDGET is not valid Unicode".to_string())
@@ -263,7 +256,8 @@ pub struct ResourceSnapshot {
     /// Current process RSS (falling back to peak RSS), bytes — the OS-observed
     /// footprint used for calibration and hard-ceiling pressure.
     pub process_rss_bytes: u64,
-    /// Configured global ceiling (0 ⇒ budgeting disabled).
+    /// Configured global ceiling. The cgroup-aware automatic policy is always
+    /// positive; an explicit override can lower it but cannot disable it.
     pub global_ceiling_bytes: u64,
     pub total_nodes: u64,
     pub total_edges: u64,
@@ -324,14 +318,17 @@ pub async fn collect_resource_stats(
         let permits = s.max_in_flight.available_permits();
         // The global admission semaphore was constructed with the configured max; recover
         // it from the env so `in_flight = max - available` is exact. The UNSET default
-        // now auto-sizes from host capacity (CONCEPT:AU-KG.backend.b-auto-size) — the SAME derivation
+        // now auto-sizes from effective cgroup-aware capacity
+        // (CONCEPT:AU-KG.backend.b-auto-size) — the SAME derivation
         // `main.rs` used to build the semaphore, so the gauge stays exact on a Pi and a
         // big box alike (previously hard-coded 1024).
+        let automatic_max = crate::autosize::detect_capacity().max_inflight();
         let max = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
-            .unwrap_or_else(|| crate::autosize::detect_capacity().max_inflight());
+            .map(|value| crate::autosize::bound_explicit(value, automatic_max))
+            .unwrap_or(automatic_max);
         (entries, max, permits)
     };
     let in_flight = configured_max_inflight.saturating_sub(permits_available) as u64;

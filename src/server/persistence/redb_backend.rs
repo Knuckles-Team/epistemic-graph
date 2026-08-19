@@ -759,7 +759,7 @@ impl RedbCommitStats {
 // durability invariant (commit-before-ack, group-commit, backpressure-not-drop)
 // holds unchanged inside each shard.
 //
-// K = clamp(cpu/2, 1, 8), overridable via `EPISTEMIC_GRAPH_REDB_SHARDS`. Every K uses
+// K = clamp(effective-cgroup-cpu/2, 1, 8), overridable via `EPISTEMIC_GRAPH_REDB_SHARDS`. Every K uses
 // the same canonical `graph-<n>.redb` naming contract, including `graph-0.redb` for
 // K=1. K is FIXED per persist-dir once created: `reconcile_shard_layout` validates
 // and honors the current on-disk layout (changing K needs an offline migration).
@@ -812,8 +812,8 @@ where
 ///   * `EPISTEMIC_GRAPH_REDB_SHARDS` overrides the non-raft count (clamped 1..=64).
 ///   * In `cfg(test)` default to 1 so the existing single-writer durability/audit/
 ///     group-commit tests run the byte-for-byte K=1 path unless they opt in via the env.
-///   * Otherwise K = clamp(cpu/2, 1, 8) — mirrors EG-028 `detect_capacity().cpus`
-///     (when that module lands this can call `crate::autosize::detect_capacity()`).
+///   * Otherwise K = clamp(effective-cgroup-cpu/2, 1, 8) — mirrors the shared
+///     `crate::autosize::detect_capacity()` seam.
 fn resolve_shard_count() -> usize {
     // Raft active ⇒ K == N groups (ADR-2 / W1.2), NOT the forced K=1 of the M2 spike.
     #[cfg(feature = "raft")]
@@ -844,10 +844,7 @@ fn resolve_shard_count() -> usize {
     }
     #[cfg(not(test))]
     {
-        let cpus = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1)
-            .max(1);
+        let cpus = crate::autosize::detect_capacity().reserved_cpus();
         (cpus / 2).clamp(1, 8)
     }
 }
@@ -855,18 +852,20 @@ fn resolve_shard_count() -> usize {
 /// Resolve the per-shard early-flush op threshold (CONCEPT:AU-KG.backend.b-auto-sizeb — auto-size the
 /// previously HARDCODED `4096`). The writer flushes a `Pending` batch early once it
 /// holds this many ops, bounding writer memory before the bounded channel saturates.
-///   * `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` overrides (clamped 64..=1_048_576).
+///   * `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` may lower the automatic bound,
+///     but is capped by it after the hard 64..=1_048_576 validation window.
 ///   * Else ~half the authoritative writer queue depth (`capacity`, itself
 ///     hardware-auto-sized via `Capacity::writer_queue()`), clamped 256..=16384.
 fn resolve_flush_threshold(capacity: usize) -> usize {
+    let automatic = (capacity / 2).clamp(256, 16_384);
     if let Ok(v) = std::env::var("EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD") {
         if let Ok(n) = v.trim().parse::<usize>() {
             if n > 0 {
-                return n.clamp(64, 1_048_576);
+                return n.clamp(64, 1_048_576).min(automatic);
             }
         }
     }
-    (capacity / 2).clamp(256, 16384)
+    automatic
 }
 
 /// One durable shard (CONCEPT:EG-KG.backend.sharded-k-way-durable): its OWN redb file + off-reactor group-commit
@@ -1481,10 +1480,10 @@ impl RedbBackend {
         .map_err(|error| format!("snapshot import join error: {error}"))?
     }
 
-    /// Shard 0 — the single shard under K=1 and the home of GLOBAL (non-per-graph)
-    /// durable records: the Raft log/meta + cross-shard 2PC + materialized views.
-    /// Under the `raft` feature K is forced to 1, so shard 0 is the only shard and
-    /// these stay single-writer-correct (multi-Raft sharding is M2).
+    /// Shard 0 — the home of GLOBAL (non-per-graph) durable records: the Raft
+    /// log/meta + cross-shard 2PC + materialized views. Under K=1 this is also
+    /// the only shard; under active multi-Raft, each group's graph data/log stays
+    /// co-located with its own shard while global records remain on shard 0.
     fn shard0(&self) -> &Shard {
         &self.shards[0]
     }

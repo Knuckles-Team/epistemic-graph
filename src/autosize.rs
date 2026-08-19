@@ -1,148 +1,24 @@
-//! Hardware capacity auto-detection (CONCEPT:AU-KG.backend.b-auto-size).
+//! Cgroup-aware hardware capacity (CONCEPT:AU-KG.backend.b-auto-size).
 //!
-//! The SAME server binary must be correct + lean on a Raspberry Pi 3 (4 cores /
-//! 1 GiB RAM) AND exploit a 64-core / 247 GiB box. Rather than ship per-host knobs
-//! an operator has to tune, we DERIVE the concurrency / buffer / memory-cap defaults
-//! from `(cpu_count, total_RAM)` at startup — mirroring the precedents already in the
-//! tree: `main.rs` sizes the Tokio runtime from `available_parallelism()`,
-//! `write_coalescer::CoalescerConfig::auto()` sizes its batch from cpu count, and
-//! `cost.rs` reads `/proc/meminfo` for the memory-budget default.
-//!
-//! Configuration discipline (AGENTS.md): prefer auto-detection over knobs. Every
-//! value here stays overridable by its EXISTING env var — we only change the DEFAULT
-//! (the unset branch) from a fixed constant to an auto-sized one.
+//! The implementation lives in the dependency-free `eg-resource` workspace
+//! leaf. Keeping this facade preserves the engine's existing public module path
+//! while allowing lower crates such as `eg-asr-whisper` to use the exact same
+//! v1/v2 CPU and memory parser. Automatic consumers use the effective host /
+//! cgroup minimum and reserve 10% CPU plus 20% RAM headroom. Explicit values
+//! are upper bounds only and must be clamped to these automatic values.
 
-/// Coarse host class derived from total RAM. Used for logging / coarse policy; the
-/// concrete sizes below are continuous functions of `(cpus, ram)`, not the tier.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tier {
-    /// Small single-board class (≤ 2 GiB) — a Raspberry Pi 3. Lean + bounded.
-    Pi,
-    /// Commodity server / workstation class (≤ 32 GiB).
-    Node,
-    /// Large box (> 32 GiB) — many cores, effectively unbounded graphs.
-    BigBox,
-}
+pub use eg_resource::{
+    bound_explicit, default_node_cap, detect_capacity, parse_cgroup_v1_cpu_quota,
+    parse_cgroup_v1_memory_limit, parse_cgroup_v2_cpu_max, parse_cgroup_v2_memory_max,
+    parse_mem_total, reserve_cpu, reserve_ram, resolve_cgroup_file, resolve_cgroup_files,
+    resolve_cpu_budget, resolve_memory_bytes, tier_for, Capacity, CpuLimit, MemoryLimit, Tier,
+    BYTES_PER_NODE_EST, CPU_HEADROOM_PERCENT, MALFORMED_RAM_BYTES, MAX_NODE_CAP,
+    MEMORY_HEADROOM_PERCENT, UNKNOWN_RAM_BYTES,
+};
 
-/// Detected host capacity. `total_ram_bytes == 0` ⇒ RAM was undetectable
-/// (non-Linux / restricted `/proc`); the derivations stay conservative in that case.
-#[derive(Clone, Copy, Debug)]
-pub struct Capacity {
-    pub cpus: usize,
-    pub total_ram_bytes: u64,
-    pub tier: Tier,
-}
-
-const GIB: u64 = 1024 * 1024 * 1024;
-
-/// Conservative resident-RAM estimate per graph node (property blob + topology
-/// overhead). Embedding vectors are budgeted SEPARATELY (the per-tenant byte budget,
-/// CONCEPT:EG-KG.compute.lane-v), and most graphs are embedding-free, so this is deliberately
-/// modest. Used only to translate a RAM budget into a node-count cap.
-const BYTES_PER_NODE_EST: u64 = 2048;
-
-/// Total system RAM in bytes from `/proc/meminfo` (`MemTotal`). `None` if it cannot
-/// be parsed (non-Linux / restricted). Same source `cost.rs` uses for the budget
-/// default — kept here independently so capacity detection has no `cost`-feature dep.
+/// Host RAM only, retained for callers that need the diagnostic `/proc` value.
 pub fn total_ram_bytes() -> Option<u64> {
-    let s = std::fs::read_to_string("/proc/meminfo").ok()?;
-    for line in s.lines() {
-        if let Some(rest) = line.strip_prefix("MemTotal:") {
-            let kb = rest.split_whitespace().next()?.parse::<u64>().ok()?;
-            return Some(kb * 1024);
-        }
-    }
-    None
-}
-
-/// Classify a RAM size into a [`Tier`]. Unknown RAM (`0`) maps to `Node` — the
-/// middle, never the Pi/OOM-cap extreme — so a host we cannot measure is never
-/// wrongly bounded down.
-fn tier_for(total_ram_bytes: u64) -> Tier {
-    if total_ram_bytes == 0 {
-        Tier::Node
-    } else if total_ram_bytes <= 2 * GIB {
-        Tier::Pi
-    } else if total_ram_bytes <= 32 * GIB {
-        Tier::Node
-    } else {
-        Tier::BigBox
-    }
-}
-
-/// Detect host capacity from `available_parallelism()` + `/proc/meminfo`.
-pub fn detect_capacity() -> Capacity {
-    let cpus = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
-        .max(1);
-    let total_ram_bytes = total_ram_bytes().unwrap_or(0);
-    Capacity {
-        cpus,
-        total_ram_bytes,
-        tier: tier_for(total_ram_bytes),
-    }
-}
-
-/// Translate total RAM into a per-graph node cap (the default for
-/// `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH`). `0` RAM (undetectable — non-Linux or a
-/// restricted `/proc`) ⇒ the SAME conservative cap a real 1 GiB Pi gets, NOT
-/// unbounded: a real Pi always reads `/proc/meminfo` successfully, so this branch
-/// only fires on a host we genuinely cannot measure, and defaulting an unmeasurable
-/// host to unbounded risks exactly the OOM this module exists to prevent (worse,
-/// downstream `GraphCore::lru_eviction_candidates` treats a cap of literal `0` as
-/// "evict every resident node", not "no cap" — so the old unbounded default was a
-/// full-eviction-storm trap on an undetectable-RAM host, not merely a missing
-/// safety net). Otherwise half of RAM divided by the per-node estimate, clamped to a
-/// sane window so a tiny box still serves a usable graph and a huge box is
-/// effectively unbounded. Overridable via `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH`.
-///
-/// Pi-safe because eviction is read-through (CONCEPT:EG-KG.storage.read-through-seam-exercised): a node evicted past
-/// the cap still serves from the durable redb tier — the cap bounds RESIDENT RAM with
-/// ZERO data loss, which is exactly what stops a 1 GiB Pi from OOM-killing by default.
-pub fn default_node_cap(total_ram_bytes: u64) -> usize {
-    if total_ram_bytes == 0 {
-        return default_node_cap(GIB);
-    }
-    let raw = total_ram_bytes / 2 / BYTES_PER_NODE_EST;
-    raw.clamp(50_000, 100_000_000) as usize
-}
-
-impl Capacity {
-    /// Backpressure admission cap (default for `EPISTEMIC_GRAPH_MAX_INFLIGHT`, excess
-    /// ⇒ `BUSY`). Scales with cores: a 4-core Pi sheds early at 256, a 64-core box
-    /// admits 4096 deep concurrency (well above the old fixed 1024). Floor 256 keeps a
-    /// 1-2 core box from starving; ceiling 8192 bounds the semaphore.
-    pub fn max_inflight(&self) -> usize {
-        (self.cpus * 64).clamp(256, 8192)
-    }
-
-    /// Reserved READ-admission lane (CONCEPT:EG-KG.coordination.reserved-read-lane, default for
-    /// `EPISTEMIC_GRAPH_READ_RESERVED`). A dedicated pool of in-flight slots that ONLY
-    /// read/query requests may use, SEPARATE from `max_inflight` (which writes also
-    /// contend for). Under a flood of ingestion writes that saturates `max_inflight`
-    /// and the per-graph cap, an interactive read falls back to this lane so an MCP
-    /// tool call / query is NEVER shed to `BUSY` behind the write firehose — "at least
-    /// N open lanes for reads". Cheap: reads hold a slot only for the brief off-lock
-    /// snapshot, so even a small reservation keeps the read path alive. Scales gently
-    /// with cores (an eighth of the admission cap), floored so a 1-2 core box still
-    /// keeps several read lanes open.
-    pub fn read_reserved(&self) -> usize {
-        (self.max_inflight() / 8).clamp(8, 1024)
-    }
-
-    /// Authoritative writer queue depth. The bounded channel applies backpressure
-    /// instead of dropping acknowledged work. It stays small on a Pi and absorbs
-    /// larger bursts on high-core hosts.
-    pub fn writer_queue(&self) -> usize {
-        (self.cpus * 256).clamp(1024, 65_536)
-    }
-
-    /// Per-graph node-count cap before LRU eviction back to the durable tier (default
-    /// for `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH`). See [`default_node_cap`].
-    pub fn node_cap(&self) -> usize {
-        default_node_cap(self.total_ram_bytes)
-    }
+    eg_resource::total_ram_bytes()
 }
 
 #[cfg(test)]
@@ -151,121 +27,68 @@ mod tests {
 
     #[test]
     fn pi_ram_gets_a_bounded_node_cap() {
-        // A 1 GiB Pi must NOT default to unbounded (the OOM bug). It must get a
-        // positive, MODEST cap so the per-graph eviction sweep actually bounds RAM.
-        let cap = default_node_cap(GIB);
-        assert!(
-            cap > 0,
-            "Pi must get a bounded (>0) node cap, not unbounded"
-        );
-        assert!(
-            cap < 1_000_000,
-            "Pi cap should be modest, got {cap} (a 1 GiB box can't hold ~1M resident nodes)"
-        );
+        let cap = default_node_cap(1024 * 1024 * 1024);
+        assert!(cap > 0);
+        assert!(cap < 1_000_000, "a 1 GiB box cap should stay modest: {cap}");
     }
 
     #[test]
     fn big_box_is_effectively_unbounded_not_oom_capped() {
-        // A 247 GiB box must NOT be capped down to a small number — it should stay
-        // effectively unbounded so it exploits its RAM.
-        let big = default_node_cap(247 * GIB);
-        assert!(
-            big >= 50_000_000,
-            "big box must stay effectively unbounded, got {big}"
-        );
-        // Strictly larger than the Pi's cap — the cap is monotonic in RAM.
-        assert!(big > default_node_cap(GIB));
+        let big = default_node_cap(247 * 1024 * 1024 * 1024);
+        assert!(big >= 50_000_000, "big box cap too small: {big}");
+        assert!(big > default_node_cap(1024 * 1024 * 1024));
     }
 
     #[test]
-    fn unknown_ram_gets_the_conservative_pi_cap_not_unbounded() {
-        // RAM we cannot read (0 = undetectable) must NOT default to unbounded: an
-        // undetectable host could genuinely be RAM-starved, and downstream
-        // `GraphCore::lru_eviction_candidates` treats a literal `0` cap as "evict
-        // every resident node" (not "no cap") — so the old unbounded default was a
-        // full-eviction-storm trap on such a host, not merely a missing safety net.
-        // It must fall back to EXACTLY the cap a real 1 GiB Pi gets — a real Pi
-        // always reads `/proc/meminfo` so it never actually lands on this branch.
-        assert_eq!(default_node_cap(0), default_node_cap(GIB));
-        assert!(default_node_cap(0) > 0, "must be bounded, not unbounded");
+    fn unknown_ram_gets_a_conservative_cap() {
+        assert_eq!(default_node_cap(0), default_node_cap(1024 * 1024 * 1024));
+        assert!(default_node_cap(0) > 0);
     }
 
     #[test]
-    fn capacity_with_undetectable_ram_gets_conservative_node_cap() {
-        // Simulates the 0 path end to end through `Capacity` (not just the free
-        // function) — the seam is the struct's own public fields, already
-        // exercised the same way by `inflight_scales_with_cpus_pi_vs_bigbox` below.
+    fn capacity_with_undetectable_ram_gets_a_bounded_cap() {
         let c = Capacity {
             cpus: 4,
             total_ram_bytes: 0,
             tier: Tier::Node,
         };
-        assert_eq!(c.node_cap(), default_node_cap(GIB));
-        assert!(
-            c.node_cap() > 0,
-            "undetectable RAM must not disable the cap"
-        );
+        assert_eq!(c.node_cap(), default_node_cap(0));
+        assert!(c.node_cap() > 0);
     }
 
     #[test]
     fn node_cap_is_monotonic_in_ram() {
-        let a = default_node_cap(2 * GIB);
-        let b = default_node_cap(16 * GIB);
-        let c = default_node_cap(128 * GIB);
-        assert!(a <= b && b <= c, "node cap must not shrink as RAM grows");
+        let a = default_node_cap(2 * 1024 * 1024 * 1024);
+        let b = default_node_cap(16 * 1024 * 1024 * 1024);
+        let c = default_node_cap(128 * 1024 * 1024 * 1024);
+        assert!(a <= b && b <= c);
     }
 
     #[test]
     fn tiers_classify_pi_node_bigbox() {
-        assert_eq!(tier_for(GIB), Tier::Pi);
-        assert_eq!(tier_for(2 * GIB), Tier::Pi);
-        assert_eq!(tier_for(16 * GIB), Tier::Node);
-        assert_eq!(tier_for(247 * GIB), Tier::BigBox);
-        assert_eq!(tier_for(0), Tier::Node, "unknown RAM ⇒ middle tier");
+        assert_eq!(tier_for(1024 * 1024 * 1024), Tier::Pi);
+        assert_eq!(tier_for(2 * 1024 * 1024 * 1024), Tier::Pi);
+        assert_eq!(tier_for(16 * 1024 * 1024 * 1024), Tier::Node);
+        assert_eq!(tier_for(247 * 1024 * 1024 * 1024), Tier::BigBox);
+        assert_eq!(tier_for(0), Tier::Node);
     }
 
     #[test]
-    fn inflight_scales_with_cpus_pi_vs_bigbox() {
-        let pi = Capacity {
-            cpus: 4,
-            total_ram_bytes: GIB,
-            tier: Tier::Pi,
-        };
-        let big = Capacity {
-            cpus: 64,
-            total_ram_bytes: 247 * GIB,
-            tier: Tier::BigBox,
-        };
-        // Pi sits at the floor (lean); big box exploits its cores well above the old
-        // fixed 1024 default.
-        assert_eq!(pi.max_inflight(), 256);
-        assert_eq!(big.max_inflight(), 4096);
-        assert!(big.max_inflight() > pi.max_inflight());
-    }
-
-    #[test]
-    fn writer_queue_scales_with_cpus() {
-        let pi = Capacity {
-            cpus: 4,
-            total_ram_bytes: GIB,
-            tier: Tier::Pi,
-        };
-        let big = Capacity {
-            cpus: 64,
-            total_ram_bytes: 247 * GIB,
-            tier: Tier::BigBox,
-        };
-        assert_eq!(pi.writer_queue(), 1024); // floor — lean on the Pi
-        assert_eq!(big.writer_queue(), 16_384); // absorbs bursts on the big box
-        assert!(big.writer_queue() > pi.writer_queue());
-    }
-
-    #[test]
-    fn detect_capacity_is_sane_on_this_host() {
-        // Whatever host runs the test suite, the detected values must be self-consistent.
-        let c = detect_capacity();
-        assert!(c.cpus >= 1);
-        assert!(c.max_inflight() >= 256);
-        assert!(c.writer_queue() >= 1024);
+    fn effective_cpu_and_memory_respect_fixture_limits() {
+        let cpus = resolve_cpu_budget(
+            64,
+            CpuLimit::Limited {
+                quota_us: 200_000,
+                period_us: 100_000,
+            },
+            usize::MAX,
+            None,
+        );
+        let memory = resolve_memory_bytes(
+            247 * 1024 * 1024 * 1024,
+            MemoryLimit::Limited(256 * 1024 * 1024),
+        );
+        assert!(cpus <= 2);
+        assert!(memory <= 256 * 1024 * 1024);
     }
 }
