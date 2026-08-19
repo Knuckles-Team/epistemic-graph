@@ -1534,6 +1534,19 @@ impl TableStore {
         }
         let wtx = self.begin()?;
 
+        // Capture the authoritative version once for both the OCC gate and the
+        // idempotency replay gate.  A retry reconstructed after an ack-loss may
+        // carry this current observation rather than the original version stored
+        // in its durable batch record; the record itself remains authoritative.
+        let version_key = (batch.tenant.as_str(), batch.graph.as_str());
+        let current_version = {
+            let versions = wtx.open_table(MUTATION_VERSION).map_err(map_err)?;
+            match versions.get(version_key).map_err(map_err)? {
+                Some(value) => value.value(),
+                None => INITIAL_SQL_DOMAIN_VERSION,
+            }
+        };
+
         // Idempotency check and insertion share this write transaction, closing the
         // concurrent double-execution race.
         {
@@ -1559,7 +1572,7 @@ impl TableStore {
                     .value()
                     .to_vec();
                 let record = decode_mutation_record(&bytes)?;
-                if !same_batch_identity(&record.batch, batch)? {
+                if !same_batch_identity(&record.batch, batch, current_version)? {
                     return Err(format!(
                         "IDEMPOTENCY_CONFLICT: SQL key '{}' is already committed as batch '{}'",
                         batch.idempotency_key, record.batch.batch_id
@@ -1585,15 +1598,6 @@ impl TableStore {
             }
         }
 
-        let version_key = (batch.tenant.as_str(), batch.graph.as_str());
-        let current_version = {
-            let versions = wtx.open_table(MUTATION_VERSION).map_err(map_err)?;
-            let version = match versions.get(version_key).map_err(map_err)? {
-                Some(value) => value.value(),
-                None => INITIAL_SQL_DOMAIN_VERSION,
-            };
-            version
-        };
         let expected = batch.expected_graph_version.ok_or_else(|| {
             "authoritative SQL MutationBatch requires expected_graph_version".to_string()
         })?;
@@ -1979,16 +1983,26 @@ fn apply_txn_op(
     }
 }
 
-fn same_batch_identity(stored: &MutationBatch, proposed: &MutationBatch) -> Result<bool, String> {
+fn same_batch_identity(
+    stored: &MutationBatch,
+    proposed: &MutationBatch,
+    current_version: u64,
+) -> Result<bool, String> {
     let stored_ops = rmp_serde::to_vec_named(&stored.operations).map_err(|e| e.to_string())?;
     let proposed_ops = rmp_serde::to_vec_named(&proposed.operations).map_err(|e| e.to_string())?;
+    // SQL callers may reconstruct an idempotent retry after the original commit
+    // and observe the incremented domain version.  Preserve the original value
+    // in the durable record, but accept the current observation only when every
+    // other request-identity field remains exact.
+    let expected_version_matches = stored.expected_graph_version == proposed.expected_graph_version
+        || proposed.expected_graph_version == Some(current_version);
     Ok(stored.batch_id == proposed.batch_id
         && stored.context == proposed.context
         && stored.tenant == proposed.tenant
         && stored.graph == proposed.graph
         && stored.placement_epoch == proposed.placement_epoch
         && stored.idempotency_key == proposed.idempotency_key
-        && stored.expected_graph_version == proposed.expected_graph_version
+        && expected_version_matches
         && stored.fencing_token == proposed.fencing_token
         && stored.authoritative_state == proposed.authoritative_state
         && stored.outbox == proposed.outbox
@@ -6001,6 +6015,31 @@ mod tests {
         assert!(replay.replayed);
         assert_eq!(reopened.list_tables().unwrap(), vec!["metrics".to_string()]);
         assert_eq!(reopened.mutation_outbox(&batch.batch_id).unwrap().len(), 2);
+
+        // A rebuilt retry commonly observes the incremented SQL-domain version.
+        // The durable record must retain the original observation while returning
+        // the stored result instead of executing CREATE TABLE a second time.
+        let mut rederived = batch.clone();
+        rederived.expected_graph_version = Some(1);
+        let replay = reopened
+            .commit_txn_batch(&create_metrics_txn(), &rederived, 103)
+            .unwrap();
+        assert!(replay.replayed);
+        assert_eq!(replay.record.batch.expected_graph_version, Some(0));
+
+        // Same key plus a changed operation is not a retry, even though its
+        // expected version is the current derived value.
+        let mut conflict = rederived.clone();
+        conflict.operations[0].method = eg_types::protocol::Method::ApplyMutation {
+            event_type: "sql_catalog_operation".to_string(),
+            query:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    .to_string(),
+        };
+        let error = reopened
+            .commit_txn_batch(&create_metrics_txn(), &conflict, 104)
+            .unwrap_err();
+        assert!(error.contains("IDEMPOTENCY_CONFLICT"));
     }
 
     /// L-RLS-1-adjacent (WS-H, the served SQL context cache): [`TableStore::catalog_fingerprint`]
