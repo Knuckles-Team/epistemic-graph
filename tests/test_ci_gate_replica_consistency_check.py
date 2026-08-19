@@ -111,13 +111,17 @@ def test_gates_job_run_steps_include_the_numeric_kernel_parity_chain():
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
     plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
-    gates_run_names = {p["name"] for p in plan if p["job"] == "gates" and p["mode"] == "RUN"}
+    gates_run_names = {
+        p["name"] for p in plan if p["job"] == "gates" and p["mode"] == "RUN"
+    }
     for expected in (
         "Build eg-numeric Surface-A wheel (feature python)",
         "numpy-parity gate (compiled kernel vs numpy)",
         "Audit numeric wheel for retained build identity",
     ):
-        assert expected in gates_run_names, f"missing from parsed gates RUN plan: {expected!r}"
+        assert expected in gates_run_names, (
+            f"missing from parsed gates RUN plan: {expected!r}"
+        )
 
 
 def test_advisory_feature_matrix_is_now_covered_and_expanded_per_leg():
@@ -128,20 +132,38 @@ def test_advisory_feature_matrix_is_now_covered_and_expanded_per_leg():
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
     plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["advisory.yml"], doc)
-    matrix_rows = [p for p in plan if p["job"].startswith("feature-matrix#") and p["mode"] == "RUN" and p["name"].startswith("Build ")]
-    assert len(matrix_rows) == 10, f"expected 10 feature-matrix legs, got {len(matrix_rows)}: {[r['job'] for r in matrix_rows]}"
+    matrix_rows = [
+        p
+        for p in plan
+        if p["job"].startswith("feature-matrix#")
+        and p["mode"] == "RUN"
+        and p["name"].startswith("Build ")
+    ]
+    assert len(matrix_rows) == 10, (
+        f"expected 10 feature-matrix legs, got {len(matrix_rows)}: {[r['job'] for r in matrix_rows]}"
+    )
     for row in matrix_rows:
-        assert "${{" not in row["detail"], f"unresolved matrix expression leaked into {row['job']}: {row['detail']!r}"
+        assert "${{" not in row["detail"], (
+            f"unresolved matrix expression leaked into {row['job']}: {row['detail']!r}"
+        )
     flags_by_leg = {r["job"]: r["detail"] for r in matrix_rows}
-    assert flags_by_leg["feature-matrix#full"] == "cargo build --no-default-features --features full"
-    assert flags_by_leg["feature-matrix#crate-eg-types"] == "cargo build -p eg-types --all-features"
+    assert (
+        flags_by_leg["feature-matrix#full"]
+        == "cargo build --no-default-features --features full"
+    )
+    assert (
+        flags_by_leg["feature-matrix#crate-eg-types"]
+        == "cargo build -p eg-types --all-features"
+    )
 
 
 def test_advisory_benchmarks_job_is_now_covered():
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
     plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["advisory.yml"], doc)
-    bench_run_names = {p["name"] for p in plan if p["job"] == "benchmarks" and p["mode"] == "RUN"}
+    bench_run_names = {
+        p["name"] for p in plan if p["job"] == "benchmarks" and p["mode"] == "RUN"
+    }
     assert "Run hybrid-query benches (latency + recall@k)" in bench_run_names
     assert "Perf/recall regression gate" in bench_run_names
     # advisory.yml never blocks the pre-push gate.
@@ -174,8 +196,12 @@ def test_build_tool_dependency_check_passes_on_real_cargo_config():
     problems = m.check_build_tool_dependencies(
         m.CARGO_CONFIG_PATH,
         {
-            "release.yml": (m.WORKFLOWS_DIR / "release.yml").read_text(encoding="utf-8"),
-            "advisory.yml": (m.WORKFLOWS_DIR / "advisory.yml").read_text(encoding="utf-8"),
+            "release.yml": (m.WORKFLOWS_DIR / "release.yml").read_text(
+                encoding="utf-8"
+            ),
+            "advisory.yml": (m.WORKFLOWS_DIR / "advisory.yml").read_text(
+                encoding="utf-8"
+            ),
         },
     )
     assert problems == []
@@ -196,11 +222,17 @@ def test_build_tool_dependency_check_fails_on_reintroduced_sccache_wrapper(tmp_p
     problems = m.check_build_tool_dependencies(
         bad_config,
         {
-            "release.yml": (m.WORKFLOWS_DIR / "release.yml").read_text(encoding="utf-8"),
-            "advisory.yml": (m.WORKFLOWS_DIR / "advisory.yml").read_text(encoding="utf-8"),
+            "release.yml": (m.WORKFLOWS_DIR / "release.yml").read_text(
+                encoding="utf-8"
+            ),
+            "advisory.yml": (m.WORKFLOWS_DIR / "advisory.yml").read_text(
+                encoding="utf-8"
+            ),
         },
     )
-    assert any("sccache" in p for p in problems), f"expected an sccache finding, got: {problems}"
+    assert any("sccache" in p for p in problems), (
+        f"expected an sccache finding, got: {problems}"
+    )
 
 
 def test_build_tool_dependency_check_passes_when_binary_is_actually_installed():
@@ -220,7 +252,9 @@ def test_build_tool_dependency_check_passes_when_binary_is_actually_installed():
             "      - run: apt-get install -y totally-fake-wrapper-xyz\n"
             "      - run: cargo test --workspace\n"
         )
-        problems = m.check_build_tool_dependencies(fake_path, {"release.yml": workflow_with_install})
+        problems = m.check_build_tool_dependencies(
+            fake_path, {"release.yml": workflow_with_install}
+        )
         assert problems == []
     finally:
         fake_path.unlink()
@@ -262,7 +296,9 @@ def test_build_affecting_predicate_matches_expected_patterns():
         ".github/workflows/release.yml",
         ".pre-commit-config.yaml",
     ):
-        assert is_build_affecting(path) is True, f"expected {path!r} to be build-affecting"
+        assert is_build_affecting(path) is True, (
+            f"expected {path!r} to be build-affecting"
+        )
 
 
 def test_build_affecting_predicate_excludes_unrelated_paths():
@@ -274,7 +310,9 @@ def test_build_affecting_predicate_excludes_unrelated_paths():
         "scripts/some_python_gate.py",
         "epistemic_graph/client.py",
     ):
-        assert is_build_affecting(path) is False, f"expected {path!r} to NOT be build-affecting"
+        assert is_build_affecting(path) is False, (
+            f"expected {path!r} to NOT be build-affecting"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -294,8 +332,17 @@ def test_expand_features_resolves_full_extras_to_ros2_rmw_transitively():
     m = _load_module()
     table = m._load_cargo_features()
     resolved = m._expand_features({"full-extras"}, table, all_features=False)
-    for expected in ("full-extras", "full", "gpu-cuda", "ros2-bridge", "ros2-dds", "ros2-rmw"):
-        assert expected in resolved, f"{expected!r} missing from full-extras closure: {sorted(resolved)}"
+    for expected in (
+        "full-extras",
+        "full",
+        "gpu-cuda",
+        "ros2-bridge",
+        "ros2-dds",
+        "ros2-rmw",
+    ):
+        assert expected in resolved, (
+            f"{expected!r} missing from full-extras closure: {sorted(resolved)}"
+        )
 
 
 def test_all_features_flag_seeds_the_closure_with_every_feature():
@@ -303,7 +350,9 @@ def test_all_features_flag_seeds_the_closure_with_every_feature():
     table = m._load_cargo_features()
     resolved = m._expand_features(set(), table, all_features=True)
     assert "ros2-rmw" in resolved
-    assert resolved == set(table) | m._expand_features(set(table), table, all_features=False)
+    assert resolved == set(table) | m._expand_features(
+        set(table), table, all_features=False
+    )
 
 
 def test_extract_requested_features_handles_space_and_equals_and_all_features():
@@ -311,11 +360,17 @@ def test_extract_requested_features_handles_space_and_equals_and_all_features():
     assert m._extract_requested_features(
         "cargo build --no-default-features --features full-extras"
     ) == ({"full-extras"}, False)
-    assert m._extract_requested_features("cargo build --features=a,b -p foo") == ({"a", "b"}, False)
+    assert m._extract_requested_features("cargo build --features=a,b -p foo") == (
+        {"a", "b"},
+        False,
+    )
     assert m._extract_requested_features(
         "cargo clippy --workspace --all-features --all-targets -- -D warnings"
     ) == (set(), True)
-    assert m._extract_requested_features("echo not a cargo invocation at all") == (set(), False)
+    assert m._extract_requested_features("echo not a cargo invocation at all") == (
+        set(),
+        False,
+    )
 
 
 def test_check_toolchain_requirements_flags_missing_cmake_for_ros2_rmw(monkeypatch):
@@ -324,7 +379,9 @@ def test_check_toolchain_requirements_flags_missing_cmake_for_ros2_rmw(monkeypat
     m = _load_module()
     table = m._load_cargo_features()
     monkeypatch.setattr(m.shutil, "which", lambda tool: None)
-    reason = m.check_toolchain_requirements("cargo build --no-default-features --features full-extras", table)
+    reason = m.check_toolchain_requirements(
+        "cargo build --no-default-features --features full-extras", table
+    )
     assert reason is not None
     assert "cmake" in reason
     assert "ros2-rmw" in reason
@@ -338,7 +395,9 @@ def test_check_toolchain_requirements_passes_when_tool_present(monkeypatch):
     m = _load_module()
     table = m._load_cargo_features()
     monkeypatch.setattr(m.shutil, "which", lambda tool: f"/usr/bin/{tool}")
-    reason = m.check_toolchain_requirements("cargo build --no-default-features --features full-extras", table)
+    reason = m.check_toolchain_requirements(
+        "cargo build --no-default-features --features full-extras", table
+    )
     assert reason is None
 
 
@@ -353,18 +412,28 @@ def test_check_toolchain_requirements_does_not_false_positive_on_gpu_cuda(monkey
     m = _load_module()
     table = m._load_cargo_features()
     monkeypatch.setattr(m.shutil, "which", lambda tool: None)
-    reason = m.check_toolchain_requirements("cargo build --no-default-features --features gpu-cuda", table)
-    assert reason is None, f"gpu-cuda must never be toolchain-gated here, got: {reason!r}"
-    reason = m.check_toolchain_requirements("cargo build --no-default-features --features ros2-dds", table)
+    reason = m.check_toolchain_requirements(
+        "cargo build --no-default-features --features gpu-cuda", table
+    )
+    assert reason is None, (
+        f"gpu-cuda must never be toolchain-gated here, got: {reason!r}"
+    )
+    reason = m.check_toolchain_requirements(
+        "cargo build --no-default-features --features ros2-dds", table
+    )
     assert reason is None
-    reason = m.check_toolchain_requirements("cargo build --no-default-features --features ros2-bridge", table)
+    reason = m.check_toolchain_requirements(
+        "cargo build --no-default-features --features ros2-bridge", table
+    )
     assert reason is None
 
 
 def test_check_toolchain_requirements_ignores_non_cargo_text():
     m = _load_module()
     table = m._load_cargo_features()
-    assert m.check_toolchain_requirements("python3 scripts/bench_gate.py", table) is None
+    assert (
+        m.check_toolchain_requirements("python3 scripts/bench_gate.py", table) is None
+    )
 
 
 def test_build_plan_reclassifies_run_step_when_required_tool_missing(monkeypatch):
@@ -379,8 +448,14 @@ def test_build_plan_reclassifies_run_step_when_required_tool_missing(monkeypatch
     doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
     table = m._load_cargo_features()
     monkeypatch.setattr(m.shutil, "which", lambda tool: None)
-    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["advisory.yml"], doc, feature_table=table)
-    by_job = {p["job"]: p for p in plan if p["job"].startswith("feature-matrix#") and p["name"].startswith("Build ")}
+    plan, _, _ = m.build_plan_for_workflow(
+        m.WORKFLOW_REGISTRY["advisory.yml"], doc, feature_table=table
+    )
+    by_job = {
+        p["job"]: p
+        for p in plan
+        if p["job"].startswith("feature-matrix#") and p["name"].startswith("Build ")
+    }
     assert by_job["feature-matrix#full-extras"]["mode"] == "TOOLCHAIN_MISSING"
     assert "cmake" in by_job["feature-matrix#full-extras"]["detail"]
     assert by_job["feature-matrix#full"]["mode"] == "RUN"
@@ -397,8 +472,14 @@ def test_build_plan_leaves_full_extras_as_run_when_toolchain_present():
     table = m._load_cargo_features()
     if m.shutil.which("cmake") is None or m.shutil.which("cc") is None:
         pytest.skip("this test host itself lacks cmake/cc; nothing to prove here")
-    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["advisory.yml"], doc, feature_table=table)
-    full_extras = next(p for p in plan if p["job"] == "feature-matrix#full-extras" and p["name"] == "Build full-extras")
+    plan, _, _ = m.build_plan_for_workflow(
+        m.WORKFLOW_REGISTRY["advisory.yml"], doc, feature_table=table
+    )
+    full_extras = next(
+        p
+        for p in plan
+        if p["job"] == "feature-matrix#full-extras" and p["name"] == "Build full-extras"
+    )
     assert full_extras["mode"] == "RUN"
 
 
@@ -410,5 +491,72 @@ def test_consistency_check_unaffected_by_toolchain_detection():
     m = _load_module()
     assert m.consistency_check(verbose=False) is True
     release_doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
-    release_doc["jobs"]["another-new-job"] = {"runs-on": "ubuntu-latest", "steps": [{"run": "echo hi"}]}
-    assert m.consistency_check(verbose=False, workflow_docs={"release.yml": release_doc}) is False
+    release_doc["jobs"]["another-new-job"] = {
+        "runs-on": "ubuntu-latest",
+        "steps": [{"run": "echo hi"}],
+    }
+    assert (
+        m.consistency_check(verbose=False, workflow_docs={"release.yml": release_doc})
+        is False
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# NE-192 — local Cargo resource guard. The replica changes only the child
+# environment, never the workflow shell text, and its operator override has a
+# strict parser plus a hard local ceiling so a cold multi-gate run cannot
+# escape the memory-safe bound.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_cargo_build_jobs_default_is_capped_and_has_cpu_floor(monkeypatch):
+    m = _load_module()
+    monkeypatch.delenv(m.CI_GATE_CARGO_BUILD_JOBS_ENV, raising=False)
+    # The ordinary Cargo variable is deliberately not an operator input.
+    monkeypatch.setenv("CARGO_BUILD_JOBS", "99")
+    assert m.resolve_cargo_build_jobs(detected_cpus=32) == 4
+    assert m.resolve_cargo_build_jobs(detected_cpus=2) == 2
+    assert m.resolve_cargo_build_jobs(detected_cpus=0) == 1
+    monkeypatch.setattr(m.os, "cpu_count", lambda: None)
+    assert m.resolve_cargo_build_jobs() == 1
+
+
+def test_cargo_build_jobs_accepts_valid_lower_operator_value(monkeypatch):
+    m = _load_module()
+    monkeypatch.setenv(m.CI_GATE_CARGO_BUILD_JOBS_ENV, "2")
+    assert m.resolve_cargo_build_jobs(detected_cpus=64) == 2
+
+
+def test_cargo_build_jobs_rejects_zero_and_noninteger_operator_values(monkeypatch):
+    m = _load_module()
+    for raw in ("0", "-1", "+2", "1.5", "two", " 2", "2 "):
+        monkeypatch.setenv(m.CI_GATE_CARGO_BUILD_JOBS_ENV, raw)
+        with pytest.raises(ValueError, match=m.CI_GATE_CARGO_BUILD_JOBS_ENV):
+            m.resolve_cargo_build_jobs(detected_cpus=4)
+
+
+def test_cargo_build_jobs_clamps_operator_value_above_hard_max(monkeypatch):
+    m = _load_module()
+    monkeypatch.setenv(m.CI_GATE_CARGO_BUILD_JOBS_ENV, "999")
+    assert m.resolve_cargo_build_jobs(detected_cpus=64) == 8
+    assert m.MAX_LOCAL_CARGO_BUILD_JOBS == 8
+
+
+def test_run_step_injects_guard_without_rewriting_shell_text(monkeypatch):
+    m = _load_module()
+    captured = {}
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        captured["env"] = kwargs["env"]
+        return Completed()
+
+    monkeypatch.setattr(m.subprocess, "run", fake_run)
+    command = 'printf "%s\\n" "$CARGO_BUILD_JOBS"'
+    status, _ = m._run_step(command, {"CARGO_BUILD_JOBS": "99"}, cargo_build_jobs=2)
+    assert status == 0
+    assert captured["args"] == ["bash", "-c", command]
+    assert captured["env"]["CARGO_BUILD_JOBS"] == "2"
