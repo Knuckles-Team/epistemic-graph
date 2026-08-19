@@ -5,14 +5,17 @@
 //! the existing `epistemic_graph.client` MessagePack/UDS transport — no
 //! second transport is introduced.
 //!
-//! NOT graph-scoped: a transcription reads no persisted graph state and
+//! NOT graph-row-scoped: a transcription reads no persisted graph state and
 //! commits no durable `asr.result.v1` here (that governed, `CarrierRef`-bound
 //! commit is future worker/AU-orchestration work — W03/W06 in the GOC-33 lane
 //! doc; see `crates/eg-audio/src/asr.rs`'s module doc for the authority
 //! boundary this handler deliberately stays on the near side of). This module
 //! therefore self-routes in `dispatch.rs`, ahead of the per-graph
 //! `dispatch_graph_op` chain, exactly like `handlers::quantum`/
-//! `handlers::viz`, and needs no `state`/`GraphCore` at all.
+//! `handlers::viz`, and needs no `state`/`GraphCore` at all. The verified
+//! request gate still runs before this arm: because `AsrOp` carries no graph,
+//! tenant, or server-side result handle, there is no cross-tenant row target
+//! for this pure caller-supplied computation to address or disclose.
 //!
 //! Every [`eg_audio::asr::AsrSegment`] the provider constructs is validated
 //! through that frozen contract's own `AsrSegment::validate()` before this

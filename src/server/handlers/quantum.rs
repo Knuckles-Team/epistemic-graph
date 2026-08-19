@@ -9,13 +9,15 @@
 //! 2026-08-07 status block stop being true: "no job-plane, no wire protocol Method, and
 //! no KG concept mapping" — the wire protocol Method half of that gap closes here.
 //!
-//! NOT graph-scoped: a quantum run reads no persisted graph state and writes nothing
+//! NOT graph-row-scoped: a quantum run reads no persisted graph state and writes nothing
 //! durable in the engine (every result returns to the caller as a
 //! [`eg_quantum_core::result::Proposal`], never committed here — see
 //! `eg-capabilities`' policy doc for `Method::Quantum` for the full reasoning), so this
 //! module self-routes `dispatch.rs`'s top-level match, ahead of the per-graph
 //! `dispatch_graph_op` chain — exactly like `handlers::jobs`/`handlers::statechart`. It
-//! therefore takes no `state`/`GraphCore` at all.
+//! therefore takes no `state`/`GraphCore` at all. The verified request gate runs before
+//! this arm; `QuantumOp` contains only caller-supplied candidates/edges/programs and no
+//! server-side graph or result handle, so ranking cannot disclose a cross-tenant row.
 //!
 //! ## Agents never see qubits unless they opt in
 //!
