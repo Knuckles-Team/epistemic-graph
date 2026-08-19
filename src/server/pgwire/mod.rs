@@ -44,12 +44,15 @@
 //! `eg_query::PgColType`: `Int8 → INT8`, `Float8 → FLOAT8`, `Bool → BOOL`,
 //! everything else `TEXT` (JSON-stringified) — so a column is never lossy-dropped.
 
+use std::io::{BufReader, Error, ErrorKind};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{stream, Stream};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
+use tokio::time::{timeout, Duration};
 
 use pgwire::api::auth::StartupHandler;
 use pgwire::api::portal::{Format, Portal};
@@ -82,19 +85,283 @@ pub const PGWIRE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_ADDR";
 /// Env var: the default graph a fresh connection runs against when the libpq
 /// `database` parameter is not supplied. Defaults to `__commons__`.
 pub const PGWIRE_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_GRAPH";
-/// Fail-closed startup policy for the direct pgwire listener. The adapter does
-/// not terminate TLS, so it is a loopback backend only. Production additionally
-/// requires SCRAM backed by non-empty engine key material.
+/// Env var: PEM certificate chain for the native pgwire TLS listener.
+pub const PGWIRE_TLS_CERT_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_TLS_CERT";
+/// Env var: PEM private key for the native pgwire TLS listener.
+pub const PGWIRE_TLS_KEY_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_TLS_KEY";
+/// Env var: optional PEM CA bundle that makes the native pgwire listener require
+/// a client certificate (mTLS).
+pub const PGWIRE_TLS_CLIENT_CA_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_TLS_CLIENT_CA";
+
+/// Runtime-only TLS material for the pgwire listener. Certificate contents never
+/// enter [`ServerState`] or logs; the PEM bytes are retained only so the SCRAM
+/// handler can offer certificate-bound authentication on each fresh connection.
+#[derive(Clone, Debug)]
+struct PgWireTlsConfig {
+    cert_path: String,
+    key_path: String,
+    client_ca_path: Option<String>,
+}
+
+#[derive(Clone)]
+struct PgWireTlsMaterial {
+    acceptor: pgwire::tokio::TlsAcceptor,
+    certificate_pem: Arc<Vec<u8>>,
+}
+
+fn read_path_env(name: &str) -> std::io::Result<Option<String>> {
+    match std::env::var(name) {
+        Ok(value) if value.trim().is_empty() => Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!("{name} must not be empty when configured"),
+        )),
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!("{name} is not valid UTF-8"),
+        )),
+    }
+}
+
+/// Resolve pgwire-specific TLS paths. A partial certificate/key/client-CA
+/// configuration is rejected rather than silently degrading to plaintext.
+pub fn resolve_tls_config() -> std::io::Result<Option<(String, String, Option<String>)>> {
+    let cert = read_path_env(PGWIRE_TLS_CERT_ENV)?;
+    let key = read_path_env(PGWIRE_TLS_KEY_ENV)?;
+    let client_ca = read_path_env(PGWIRE_TLS_CLIENT_CA_ENV)?;
+    if cert.is_none() && key.is_none() && client_ca.is_none() {
+        return Ok(None);
+    }
+    let cert = cert.ok_or_else(|| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            format!("{PGWIRE_TLS_CERT_ENV} is required when pgwire TLS is configured"),
+        )
+    })?;
+    let key = key.ok_or_else(|| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            format!("{PGWIRE_TLS_KEY_ENV} is required when pgwire TLS is configured"),
+        )
+    })?;
+    Ok(Some((cert, key, client_ca)))
+}
+
+fn tls_config_from_env() -> std::io::Result<Option<PgWireTlsConfig>> {
+    Ok(resolve_tls_config()?.map(|(cert_path, key_path, client_ca_path)| {
+        PgWireTlsConfig {
+            cert_path,
+            key_path,
+            client_ca_path,
+        }
+    }))
+}
+
+fn addr_is_loopback(addr: &str) -> bool {
+    addr.parse::<SocketAddr>()
+        .map(|socket| socket.ip().is_loopback())
+        .unwrap_or_else(|_| {
+            addr.rsplit_once(':')
+                .map(|(host, port)| {
+                    host.trim_matches(|character| character == '[' || character == ']')
+                        .eq_ignore_ascii_case("localhost")
+                        && !port.is_empty()
+                        && port.chars().all(|character| character.is_ascii_digit())
+                })
+                .unwrap_or(false)
+        })
+}
+
+/// Resolve the opt-in pgwire listener address. Unlike the other auxiliary
+/// listeners, an explicit non-loopback address is allowed only after
+/// [`validate_startup_policy`] proves native TLS is configured. Bare enable
+/// tokens and ports retain the loopback-safe defaults.
+pub fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<String> {
+    let value = value.map(str::trim).filter(|value| !value.is_empty())?;
+    match value.to_ascii_lowercase().as_str() {
+        "0" | "off" | "false" | "no" | "disabled" => None,
+        "1" | "on" | "true" | "yes" | "enabled" => Some(default_addr.to_owned()),
+        _ if value.chars().all(|character| character.is_ascii_digit()) => {
+            Some(format!("127.0.0.1:{value}"))
+        }
+        _ => Some(value.to_owned()),
+    }
+}
+
+/// Fail-closed startup policy for the pgwire listener. Loopback remains safe
+/// without TLS; every non-loopback bind requires a valid native TLS identity and
+/// every bind requires SCRAM backed by non-empty engine key material.
 pub fn validate_startup_policy(
     addr: &str,
     auth_secret: &str,
     auth_mode: PgWireAuthMode,
 ) -> std::io::Result<()> {
-    crate::server::validate_direct_wire_security(
-        addr,
-        "pgwire",
-        auth_mode.verified_identity_binding(auth_secret),
-    )
+    let tls = tls_config_from_env()?;
+    validate_startup_policy_with_tls(addr, auth_secret, auth_mode, tls.as_ref())
+}
+
+fn validate_startup_policy_with_tls(
+    addr: &str,
+    auth_secret: &str,
+    auth_mode: PgWireAuthMode,
+    tls: Option<&PgWireTlsConfig>,
+) -> std::io::Result<()> {
+    if !auth_mode.verified_identity_binding(auth_secret) {
+        return Err(Error::new(
+            ErrorKind::PermissionDenied,
+            "pgwire listener requires cryptographically verified login-to-actor binding",
+        ));
+    }
+    if !addr_is_loopback(addr) && tls.is_none() {
+        return Err(Error::new(
+            ErrorKind::PermissionDenied,
+            "non-loopback pgwire requires native TLS; configure certificate and private key",
+        ));
+    }
+    if let Some(tls) = tls {
+        // Build + parse every TLS component before binding. The returned acceptor
+        // is intentionally discarded here; serve_with_auth builds it once more
+        // and retains the same certificate bytes for SCRAM channel binding.
+        build_tls_material(tls)?;
+    }
+    Ok(())
+}
+
+/// Load and validate the native pgwire TLS identity once at startup. This uses
+/// pgwire's already-selected pure-Rust rustls/ring stack, so the listener and
+/// SCRAM channel-binding implementation share one certificate source without
+/// adding a second TLS dependency or an OpenSSL path.
+fn build_tls_material(config: &PgWireTlsConfig) -> std::io::Result<PgWireTlsMaterial> {
+    use pgwire::tokio_rustls::rustls::pki_types::{
+        pem::PemObject, CertificateDer, PrivateKeyDer,
+    };
+
+    let certificate_pem = std::fs::read(&config.cert_path).map_err(|_| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            "pgwire TLS certificate unavailable",
+        )
+    })?;
+    let certs = CertificateDer::pem_reader_iter(BufReader::new(certificate_pem.as_slice()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS certificate invalid"))?;
+    if certs.is_empty() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "pgwire TLS certificate invalid",
+        ));
+    }
+
+    let key_pem = std::fs::read(&config.key_path).map_err(|_| {
+        Error::new(ErrorKind::InvalidInput, "pgwire TLS private key unavailable")
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&config.key_path)
+            .map_err(|_| {
+                Error::new(ErrorKind::InvalidInput, "pgwire TLS private key unavailable")
+            })?
+            .permissions()
+            .mode();
+        if mode & 0o077 != 0 {
+            return Err(Error::new(
+                ErrorKind::PermissionDenied,
+                "pgwire TLS private key permissions are too broad",
+            ));
+        }
+    }
+    let key = PrivateKeyDer::from_pem_reader(BufReader::new(key_pem.as_slice()))
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS private key invalid"))?;
+
+    let _ = pgwire::tokio_rustls::rustls::crypto::ring::default_provider().install_default();
+    let builder = pgwire::tokio_rustls::rustls::ServerConfig::builder();
+    let server_config = if let Some(client_ca_path) = &config.client_ca_path {
+        let ca_pem = std::fs::read(client_ca_path).map_err(|_| {
+            Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA unavailable")
+        })?;
+        let mut roots = pgwire::tokio_rustls::rustls::RootCertStore::empty();
+        for certificate in CertificateDer::pem_reader_iter(BufReader::new(ca_pem.as_slice())) {
+            let certificate = certificate
+                .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA invalid"))?;
+            roots.add(certificate).map_err(|_| {
+                Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA invalid")
+            })?;
+        }
+        if roots.is_empty() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "pgwire TLS client CA invalid",
+            ));
+        }
+        let verifier = pgwire::tokio_rustls::rustls::server::WebPkiClientVerifier::builder(
+            Arc::new(roots),
+        )
+        .build()
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA invalid"))?;
+        builder
+            .with_client_cert_verifier(verifier)
+            .with_single_cert(certs, key)
+    } else {
+        builder.with_no_client_auth().with_single_cert(certs, key)
+    }
+    .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS identity invalid"))?;
+
+    let mut server_config = server_config;
+    // Advertise the PostgreSQL ALPN token for direct TLS clients. The normal
+    // PostgreSQL SSLRequest path remains compatible with clients that omit ALPN.
+    server_config.alpn_protocols = vec![b"postgresql".to_vec()];
+
+    auth::validate_certificate(&certificate_pem).map_err(|_| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            "pgwire TLS certificate cannot be used for SCRAM channel binding",
+        )
+    })?;
+
+    Ok(PgWireTlsMaterial {
+        acceptor: pgwire::tokio_rustls::TlsAcceptor::from(Arc::new(server_config)),
+        certificate_pem: Arc::new(certificate_pem),
+    })
+}
+
+const POSTGRES_SSL_REQUEST: [u8; 8] = [0, 0, 0, 8, 0x04, 0xd2, 0x16, 0x2f];
+
+/// Inspect (without consuming) the first startup bytes so a non-loopback
+/// listener never hands plaintext to pgwire when native TLS is configured.
+/// PostgreSQL clients either send the eight-byte SSLRequest or begin a direct
+/// TLS ClientHello with content-type `0x16`.
+async fn client_requested_tls(socket: &tokio::net::TcpStream) -> std::io::Result<bool> {
+    timeout(Duration::from_secs(60), async {
+        let mut first = [0u8; 1];
+        let n = socket.peek(&mut first).await?;
+        if n == 0 {
+            return Ok(false);
+        }
+        if first[0] == 0x16 {
+            return Ok(true);
+        }
+        if first[0] != 0 {
+            return Ok(false);
+        }
+        let mut header = [0u8; POSTGRES_SSL_REQUEST.len()];
+        loop {
+            // `peek` always copies from the stream's beginning; retry with the
+            // same full buffer until all eight startup bytes are available.
+            let n = socket.peek(&mut header).await?;
+            if n == 0 {
+                return Ok(false);
+            }
+            if n >= header.len() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        Ok(header == POSTGRES_SSL_REQUEST)
+    })
+    .await
+    .map_err(|_| Error::new(ErrorKind::TimedOut, "pgwire TLS negotiation timed out"))?
 }
 
 // ── error + outcome adaptation (CONCEPT:EG-KG.compute.subsystems-reference) ───────────────────────────────
@@ -1273,6 +1540,9 @@ struct EngineBackendFactory {
     /// connection — a fresh factory is created per accepted connection in `serve`).
     auth_mode: PgWireAuthMode,
     auth_secret: String,
+    /// The validated server certificate, retained solely for SCRAM channel
+    /// binding (`SCRAM-SHA-256-PLUS`) on this connection.
+    tls_certificate_pem: Option<Arc<Vec<u8>>>,
 }
 
 impl EngineBackendFactory {
@@ -1281,11 +1551,13 @@ impl EngineBackendFactory {
         default_graph: String,
         auth_mode: PgWireAuthMode,
         auth_secret: String,
+        tls_certificate_pem: Option<Arc<Vec<u8>>>,
     ) -> Self {
         Self {
             backend: Arc::new(EngineBackend::new(state, default_graph)),
             auth_mode,
             auth_secret,
+            tls_certificate_pem,
         }
     }
 }
@@ -1308,6 +1580,9 @@ impl PgWireServerHandlers for EngineBackendFactory {
         Arc::new(auth::EngineStartupHandler::new(
             self.auth_mode,
             &self.auth_secret,
+            self.tls_certificate_pem
+                .as_ref()
+                .map(|certificate| certificate.as_slice()),
         ))
     }
 
@@ -1324,7 +1599,9 @@ impl PgWireServerHandlers for EngineBackendFactory {
 /// Bind `addr` and serve pgwire connections until the process exits. Spawned by
 /// `main.rs` only when built `--features pgwire` AND `EPISTEMIC_GRAPH_PGWIRE_ADDR`
 /// is set. The default graph is read once from `EPISTEMIC_GRAPH_PGWIRE_GRAPH`
-/// (falling back to `__commons__`).
+/// (falling back to `__commons__`). Native TLS/mTLS is enabled by the
+/// `EPISTEMIC_GRAPH_PGWIRE_TLS_*` environment variables; loopback remains
+/// plaintext-compatible when those variables are absent.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     // Resolve the auth mode once from the engine secret + env (CONCEPT:EG-KG.query.concept-13).
     let auth_secret = state.read().await.auth_secret.clone();
@@ -1347,13 +1624,28 @@ pub async fn serve_with_auth(
         let state = state.read().await;
         (state.auth_secret.clone(), state.persist_dir.clone())
     };
-    validate_startup_policy(addr, &auth_secret, auth_mode)?;
+    let tls_config = tls_config_from_env()?;
+    validate_startup_policy_with_tls(addr, &auth_secret, auth_mode, tls_config.as_ref())?;
+    let tls_material = tls_config
+        .as_ref()
+        .map(build_tls_material)
+        .transpose()?;
+    // Once native TLS is configured, do not permit a plaintext downgrade even
+    // on loopback. The safe plaintext exception is only the explicit no-TLS
+    // loopback default.
+    let require_tls = tls_material.is_some();
     crate::server::sql_tables::validate_served_configuration(
         persist_dir.as_deref().map(std::path::Path::new),
     )?;
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
-        "pgwire: serving Postgres wire protocol on configured loopback (default graph '{}', auth={}, simple+extended)",
+        "pgwire: serving Postgres wire protocol (addr='{}', tls={}, mtls={}, default graph '{}', auth={}, simple+extended)",
+        addr,
+        tls_material.is_some(),
+        tls_config
+            .as_ref()
+            .and_then(|config| config.client_ca_path.as_ref())
+            .is_some(),
         default_graph,
         auth_mode.as_str()
     );
@@ -1366,12 +1658,80 @@ pub async fn serve_with_auth(
             default_graph.clone(),
             auth_mode,
             auth_secret.clone(),
+            tls_material
+                .as_ref()
+                .map(|material| material.certificate_pem.clone()),
         ));
+        let tls_acceptor = tls_material.as_ref().map(|material| material.acceptor.clone());
         tokio::spawn(async move {
-            if let Err(e) = process_socket(socket, None, factory).await {
+            if require_tls {
+                match client_requested_tls(&socket).await {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        tracing::warn!(
+                            "pgwire rejected plaintext connection from {peer}; native TLS is required"
+                        );
+                        return;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "pgwire TLS preflight from {peer} failed: {e}"
+                        );
+                        return;
+                    }
+                }
+            }
+            if let Err(e) = process_socket(socket, tls_acceptor, factory).await {
                 tracing::warn!("pgwire connection from {peer} ended with error: {e}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tls_policy_tests {
+    use super::*;
+
+    #[test]
+    fn pgwire_address_defaults_remain_loopback_safe() {
+        assert_eq!(
+            resolve_listener_addr(Some("on"), "127.0.0.1:5433"),
+            Some("127.0.0.1:5433".to_owned())
+        );
+        assert_eq!(
+            resolve_listener_addr(Some("5434"), "127.0.0.1:5433"),
+            Some("127.0.0.1:5434".to_owned())
+        );
+        assert_eq!(resolve_listener_addr(Some("off"), "127.0.0.1:5433"), None);
+    }
+
+    #[test]
+    fn explicit_remote_address_is_left_for_tls_policy() {
+        assert_eq!(
+            resolve_listener_addr(Some("0.0.0.0:5433"), "127.0.0.1:5433"),
+            Some("0.0.0.0:5433".to_owned())
+        );
+        assert!(addr_is_loopback("127.0.0.1:5433"));
+        assert!(addr_is_loopback("[::1]:5433"));
+        assert!(!addr_is_loopback("0.0.0.0:5433"));
+    }
+
+    #[test]
+    fn remote_listener_requires_tls_and_verified_scram() {
+        assert!(validate_startup_policy_with_tls(
+            "0.0.0.0:5433",
+            "secret",
+            PgWireAuthMode::Scram,
+            None,
+        )
+        .is_err());
+        assert!(validate_startup_policy_with_tls(
+            "127.0.0.1:5433",
+            "",
+            PgWireAuthMode::Scram,
+            None,
+        )
+        .is_err());
     }
 }
 

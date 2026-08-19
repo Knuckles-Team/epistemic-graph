@@ -1204,10 +1204,11 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // off, or on but unset, this is a no-op and the engine runs exactly as today.
     // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): the addr is env-driven
     // (EPISTEMIC_GRAPH_PGWIRE_ADDR); a bare enable token binds the safe localhost
-    // default `127.0.0.1:5433`; non-loopback requires the protected-ingress policy.
-    // pgwire's OWN internals are untouched — only the bind addr is resolved here.
+    // default `127.0.0.1:5433`; explicit non-loopback addresses are admitted only
+    // when pgwire's own startup policy proves native TLS is configured. The other
+    // auxiliary listeners continue using the loopback-only resolver below.
     #[cfg(feature = "pgwire")]
-    if let Some(addr) = resolve_listener_addr(
+    if let Some(addr) = epistemic_graph::server::pgwire::resolve_listener_addr(
         std::env::var(epistemic_graph::server::pgwire::PGWIRE_ADDR_ENV)
             .ok()
             .as_deref(),
@@ -1222,7 +1223,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
             pg_auth_mode,
         )?;
         let pg_state = state.clone();
-        info!("pgwire: enabling the configured loopback listener");
+        info!("pgwire: enabling the configured listener (TLS policy applies)");
         tokio::spawn(async move {
             if let Err(e) =
                 epistemic_graph::server::pgwire::serve_with_auth(&addr, pg_state, pg_auth_mode)
