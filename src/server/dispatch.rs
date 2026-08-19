@@ -5580,6 +5580,10 @@ async fn replicate_served_modality(
             "served modality replication received the wrong method",
         );
     };
+    let Some((operation, modality)) = crate::raft::SanitizedModalityMutation::from_served(&op)
+    else {
+        return Response::err(req_id, "served modality mutation category is invalid");
+    };
     let receipt_query = match &safe_method {
         Method::ApplyMutation { event_type, query } if event_type == "served_modality_v1" => {
             query.clone()
@@ -5628,50 +5632,21 @@ async fn replicate_served_modality(
                     "replicated modality receipt conflicts with request authority",
                 );
             }
+            // Raft apply authenticated the sealed runtime state and result digest
+            // before committing the record. The retry record intentionally retains
+            // only the safe result bytes, so replay reuses the same canonical typed
+            // decoder to reject receipt tampering without ever reconstructing or
+            // exposing the sealed/source material.
             let result = match record.result_msgpack.as_deref() {
-                Some(encoded) => match eg_types::msgpack::decode_bounded::<ResultPayload>(
-                    encoded,
-                    eg_types::msgpack::MsgpackLimits::new(
-                        MAX_NESTED_MSGPACK_BYTES,
-                        MAX_NESTED_MSGPACK_ITEMS,
-                        eg_types::msgpack::DEFAULT_MAX_DEPTH,
-                    ),
-                ) {
-                    Ok(result) => {
-                        let valid = matches!(
-                            &result,
-                            ResultPayload::Raw(outcome)
-                                if eg_types::msgpack::decode_bounded::<eg_modality::ApplyOutcome>(
-                                    outcome,
-                                    eg_types::msgpack::MsgpackLimits::new(
-                                        MAX_NESTED_MSGPACK_BYTES,
-                                        MAX_NESTED_MSGPACK_ITEMS,
-                                        eg_types::msgpack::DEFAULT_MAX_DEPTH,
-                                    ),
-                                )
-                                .is_ok()
-                        );
-                        if !valid {
-                            return Response::err(
-                                req_id,
-                                "replicated modality receipt has an invalid result",
-                            );
-                        }
-                        result
-                    }
-                    Err(_) => {
-                        return Response::err(
-                            req_id,
-                            "replicated modality receipt has an invalid result",
-                        )
-                    }
-                },
-                None => {
-                    return Response::err(
-                        req_id,
-                        "replicated modality receipt has no terminal result",
-                    )
-                }
+                Some(encoded) => crate::raft::decode_sanitized_modality_result(
+                    modality, operation, encoded,
+                )
+                .map_err(|_| "replicated modality receipt has an invalid result".to_string()),
+                None => Err("replicated modality receipt has no terminal result".to_string()),
+            };
+            let result = match result {
+                Ok(result) => result,
+                Err(error) => return Response::err(req_id, error),
             };
             return match persistence
                 .read_authoritative_graph_snapshot(&graph_fname)
@@ -5708,10 +5683,6 @@ async fn replicate_served_modality(
     let staged = match crate::graph::GraphCore::from_snapshot(base_snapshot, source_version) {
         Ok(staged) => staged,
         Err(error) => return Response::err(req_id, error),
-    };
-    let Some((operation, modality)) = crate::raft::SanitizedModalityMutation::from_served(&op)
-    else {
-        return Response::err(req_id, "served modality mutation category is invalid");
     };
     let payload = match handlers::modality::handle(&staged, authority, op) {
         Ok(payload) => payload,
@@ -5770,6 +5741,105 @@ async fn replicate_served_modality(
             let leader = handle.current_leader().await;
             Response::stale_route(req_id, graph_name, group_id, placement_epoch, leader, error)
         }
+    }
+}
+
+#[cfg(all(test, feature = "raft", feature = "modality-serving"))]
+mod modality_replay_receipt_tests {
+    use super::*;
+
+    fn single_wire() -> Vec<u8> {
+        let outcome = eg_modality::ApplyOutcome {
+            disposition: eg_modality::ApplyDisposition::Applied,
+            observation_version: 11,
+            event_sequence: 17,
+        };
+        rmp_serde::to_vec_named(&ResultPayload::raw(&outcome)).unwrap()
+    }
+
+    fn stream_wire() -> Vec<u8> {
+        let outcomes = vec![
+            eg_modality::ApplyOutcome {
+                disposition: eg_modality::ApplyDisposition::Applied,
+                observation_version: 11,
+                event_sequence: 17,
+            },
+            eg_modality::ApplyOutcome {
+                disposition: eg_modality::ApplyDisposition::IdempotentReplay,
+                observation_version: 12,
+                event_sequence: 18,
+            },
+        ];
+        rmp_serde::to_vec_named(&ResultPayload::raw(&outcomes)).unwrap()
+    }
+
+    #[test]
+    fn replay_decoder_accepts_single_receipt() {
+        let payload = crate::raft::decode_sanitized_modality_result(
+            eg_types::ServedModalityKind::Document,
+            crate::raft::SanitizedModalityMutation::Ingest,
+            &single_wire(),
+        )
+        .unwrap();
+        let ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes) = payload else {
+            panic!("typed replay receipt must remain a compact byte payload");
+        };
+        let outcome: eg_modality::ApplyOutcome = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(outcome.observation_version, 11);
+        assert_eq!(outcome.event_sequence, 17);
+    }
+
+    #[test]
+    fn replay_decoder_accepts_bounded_stream_receipt() {
+        let payload = crate::raft::decode_sanitized_modality_result(
+            eg_types::ServedModalityKind::Document,
+            crate::raft::SanitizedModalityMutation::IngestStream,
+            &stream_wire(),
+        )
+        .unwrap();
+        let ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes) = payload else {
+            panic!("typed replay receipt must remain a compact byte payload");
+        };
+        let outcomes: Vec<eg_modality::ApplyOutcome> = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(outcomes.len(), 2);
+        assert_eq!(
+            outcomes[1].disposition,
+            eg_modality::ApplyDisposition::IdempotentReplay
+        );
+    }
+
+    #[test]
+    fn replay_decoder_rejects_wrong_shape_and_oversized_receipts() {
+        let wrong_payload = rmp_serde::to_vec_named(&ResultPayload::Bool(true)).unwrap();
+        assert!(crate::raft::decode_sanitized_modality_result(
+            eg_types::ServedModalityKind::Document,
+            crate::raft::SanitizedModalityMutation::Ingest,
+            &wrong_payload,
+        )
+        .is_err());
+
+        // A stream operation requires the typed stream result; a single outcome
+        // must not be silently reinterpreted as a one-item stream.
+        assert!(crate::raft::decode_sanitized_modality_result(
+            eg_types::ServedModalityKind::Document,
+            crate::raft::SanitizedModalityMutation::IngestStream,
+            &single_wire(),
+        )
+        .is_err());
+
+        let outcome = eg_modality::ApplyOutcome {
+            disposition: eg_modality::ApplyDisposition::Applied,
+            observation_version: 1,
+            event_sequence: 1,
+        };
+        let oversized = vec![outcome; 65];
+        let oversized_wire = rmp_serde::to_vec_named(&ResultPayload::raw(&oversized)).unwrap();
+        assert!(crate::raft::decode_sanitized_modality_result(
+            eg_types::ServedModalityKind::Document,
+            crate::raft::SanitizedModalityMutation::IngestStream,
+            &oversized_wire,
+        )
+        .is_err());
     }
 }
 

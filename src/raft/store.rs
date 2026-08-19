@@ -693,6 +693,23 @@ impl EgStore {
                 });
             }
 
+            // Validate the complete sanitized modality envelope BEFORE lazy graph
+            // materialization or graph creation. A malformed/forged replicated
+            // command must be a pure rejected log entry, never an opportunity to
+            // create a catalog row or touch a serving projection. This is the
+            // single replica-side gate for the versioned typed result codec,
+            // sealed runtime state, bounded lengths, and HMAC/digest bindings.
+            #[cfg(feature = "modality-serving")]
+            let modality_command = match &req.command {
+                ReplicatedMutation::Native {
+                    command: NativeMutationCommand::ServedModality { command },
+                } => {
+                    command.validate(&server_secret)?;
+                    Some(command)
+                }
+                _ => None,
+            };
+
             // Resolve the target graph's RESIDENT core. Mirrors the live dispatch
             // cold-path: a follower replaying a CreateGraph->write sequence may find the
             // graph catalog-known but not yet materialized (evicted mid-replay, or
@@ -746,16 +763,6 @@ impl EgStore {
                 }
             }
             let change_envelope = req.command.open_change_envelope(&server_secret)?;
-            #[cfg(feature = "modality-serving")]
-            let modality_command = match &req.command {
-                ReplicatedMutation::Native {
-                    command: NativeMutationCommand::ServedModality { command },
-                } => {
-                    command.validate(&server_secret)?;
-                    Some(command)
-                }
-                _ => None,
-            };
 
             // ChangeEnvelope is one atomic state-machine command. Decomposing it into
             // graph operations would lose its content-version, cursor, governance,
