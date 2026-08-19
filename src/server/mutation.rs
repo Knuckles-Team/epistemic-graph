@@ -2410,7 +2410,7 @@ mod tests {
     /// `commit_mutation` call, against a REAL `RedbBackend` (not a mock), so this
     /// is exercising the actual durable-commit + audit-chain-append path, not just
     /// asserting the gateway's own bookkeeping.
-    #[cfg(feature = "redb")]
+    #[cfg(all(feature = "redb", feature = "security", feature = "streaming"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn routed_mutation_produces_one_durable_record_one_audit_entry_and_one_cdc_event() {
         let dir = temp_dir("durable-audit-cdc");
@@ -2508,7 +2508,7 @@ mod tests {
     /// agent-memory write chains into the tamper-evident log); it stays
     /// `emits_cdc: false`. This test now proves CDC -- NOT audit -- is the
     /// policy-gated leg of the gateway: audit fires, CDC does not.
-    #[cfg(feature = "redb")]
+    #[cfg(all(feature = "redb", feature = "security", feature = "streaming"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn audited_mutation_writes_audit_but_cdc_stays_policy_gated() {
         let dir = temp_dir("reinforce-audit-no-cdc");
@@ -2579,7 +2579,7 @@ mod tests {
     /// event actually land. Shared by every W1c admin/ledger-method case below (each
     /// gets its own temp dir/backend/graph, so `report.entries`/the CDC feed start
     /// clean per call).
-    #[cfg(feature = "redb")]
+    #[cfg(all(feature = "redb", feature = "security", feature = "streaming"))]
     async fn assert_w1c_method_audits_and_emits_one_cdc_marker<F>(
         tag: &str,
         method: Method,
@@ -2654,7 +2654,7 @@ mod tests {
     /// 7 of the 9 don't map onto a single node/edge row, so each emits ONE
     /// reserved-marker `UpdateNode` CDC event (the same shape `ApplyChangeEnvelope`/
     /// `ServedModality` already use); those 7 are exercised here.
-    #[cfg(feature = "redb")]
+    #[cfg(all(feature = "redb", feature = "security", feature = "streaming"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn w1c_marker_admin_ledger_methods_now_audit_and_emit_cdc() {
         assert_w1c_method_audits_and_emits_one_cdc_marker(
@@ -2757,7 +2757,7 @@ mod tests {
     /// `AddNode`) and observing the feed empty out afterward, while the audit
     /// chain still grows by one entry for the `FromMsgpack`/`Reconcile` call
     /// itself.
-    #[cfg(feature = "redb")]
+    #[cfg(all(feature = "redb", feature = "security", feature = "streaming"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn w1c_from_msgpack_and_reconcile_reset_the_cdc_feed_and_audit() {
         for (tag, build_method) in [
@@ -2862,7 +2862,12 @@ mod tests {
     /// durability domain commits through the identical `record_durable` path as
     /// the GraphRedb-domain methods above (the backend does not branch on
     /// `DurabilityDomain`, only on whether it's `None`).
-    #[cfg(all(feature = "redb", feature = "broker"))]
+    #[cfg(all(
+        feature = "redb",
+        feature = "broker",
+        feature = "security",
+        feature = "streaming"
+    ))]
     #[tokio::test(flavor = "multi_thread")]
     async fn broker_family_routed_mutation_is_audited_with_no_cdc() {
         let dir = temp_dir("broker-declare-exchange");
@@ -2937,7 +2942,7 @@ mod tests {
     /// MutationBatch boundary as ordinary graph writes. `TouchNodes` remains
     /// intentionally unaudited and CDC-silent, but its resulting graph image and
     /// terminal result must survive restart.
-    #[cfg(feature = "redb")]
+    #[cfg(all(feature = "redb", feature = "security"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn touch_nodes_commits_authoritative_state_without_audit_or_cdc() {
         let dir = temp_dir("touch-nodes-state-backed");
@@ -3038,7 +3043,7 @@ mod tests {
     ///     succeeds), and NOTHING durable/audited is produced -- proving a
     ///     read-only call is never incorrectly gated behind Write or persisted as
     ///     a phantom mutation (the bug this function exists to prevent).
-    #[cfg(all(feature = "redb", feature = "mining"))]
+    #[cfg(all(feature = "redb", feature = "mining", feature = "security"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn mining_family_writeback_gates_durability_and_authz() {
         let dir = temp_dir("mine-associate-conditional");
