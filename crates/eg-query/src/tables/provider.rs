@@ -6,10 +6,10 @@
 //! store into ONE Arrow `RecordBatch` whose schema is derived from the catalog
 //! [`TableSchema`] (so the column types are the declared types, not schema-on-read
 //! inference). [`UserTableProvider`] is the follow-up this module's original doc
-//! comment flagged as explicit future work: a `TableProvider` that pushes a
-//! `SERIAL`-column equality down to a redb POINT GET instead of an eager
-//! `TableStore::scan` — see its own doc for the full design and exactly what still
-//! falls back to a scan (and why).
+//! comment flagged as explicit future work: a `TableProvider` that pushes
+//! serial equality and schema-bound scalar secondary-index predicates down to
+//! redb instead of an eager `TableStore::scan` — see its own doc for the exact
+//! fallback boundary.
 
 use std::sync::{Arc, RwLock};
 
@@ -28,6 +28,7 @@ use datafusion::error::Result as DfResult;
 use datafusion::logical_expr::{Expr, Operator, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
 
+use super::index::SecondaryIndexLookup;
 use super::schema::{ArrayElemType, Cell, ColumnType, TableSchema};
 use super::store::TableStore;
 use crate::sql::providers::NodesTableProvider;
@@ -402,16 +403,15 @@ fn decimal_scaled_value(value: &serde_json::Value, scale: u32) -> Option<i128> {
 // return exactly what the full scan would have, just faster in the common
 // (un-overridden) case.
 //
-// RANGE pushdown (`>`/`<`/`BETWEEN`) is deliberately NOT implemented here, for the
-// same reason taken one step further: a re-check after the fact can catch a WRONG
-// candidate, but it cannot catch a MISSING one — a row whose serial value was
-// overridden to fall OUTSIDE the rowid-derived bound would be silently excluded,
-// with no way to detect the omission short of a full scan (which would defeat the
-// point). So every range predicate — on the serial column or anything else — still
-// falls back to the full scan + DataFusion's ordinary post-scan `Filter`, exactly
-// as before this change. This is the "document precisely what still falls back"
-// boundary: PK/point-lookup equality is pushed; PK/secondary-index RANGE scans are
-// not, and the paragraph above is why.
+// Ordinary scalar equality/range predicates use the durable, schema-bound
+// secondary-index directory when an owner has explicitly created one. The
+// directory is maintained in the same redb write transaction as row inserts,
+// updates, deletes, and referential cascades. A stale/malformed definition,
+// unsupported type, missing entry, or candidate budget overflow returns to the
+// authoritative full scan. ORDER BY/pagination callers can use the same
+// deterministic entry order through the store catalog contract; DataFusion's
+// TableProvider API does not pass ORDER BY expressions into `scan`, so this
+// provider never fabricates an order or truncates an inexact result.
 //
 // Every OTHER predicate (equality on a non-serial column, e.g. `WHERE symbol =
 // 'AAPL'`) still gets the SAME generic secondary-index pushdown `nodes` and every
@@ -467,6 +467,85 @@ fn is_equality_shape(expr: &Expr) -> bool {
             (be.left.as_ref(), be.right.as_ref()),
             (Expr::Column(_), Expr::Literal(..)) | (Expr::Literal(..), Expr::Column(_))
         )
+}
+
+/// A scalar literal that can be represented by the declared user-table type.
+/// The engine deliberately accepts only the finite set that has a stable
+/// secondary-index encoding; NULL and complex/list literals remain scan-only.
+fn scalar_to_json(value: &ScalarValue) -> Option<serde_json::Value> {
+    match value {
+        ScalarValue::Utf8(Some(value)) | ScalarValue::LargeUtf8(Some(value)) => {
+            Some(value.clone().into())
+        }
+        ScalarValue::Boolean(Some(value)) => Some((*value).into()),
+        ScalarValue::Int8(Some(value)) => Some((*value as i64).into()),
+        ScalarValue::Int16(Some(value)) => Some((*value as i64).into()),
+        ScalarValue::Int32(Some(value)) => Some((*value as i64).into()),
+        ScalarValue::Int64(Some(value)) => Some((*value).into()),
+        ScalarValue::UInt8(Some(value)) => Some((*value as u64).into()),
+        ScalarValue::UInt16(Some(value)) => Some((*value as u64).into()),
+        ScalarValue::UInt32(Some(value)) => Some((*value as u64).into()),
+        ScalarValue::UInt64(Some(value)) => Some((*value).into()),
+        ScalarValue::Float32(Some(value)) => serde_json::Number::from_f64(*value as f64)
+            .map(serde_json::Value::Number),
+        ScalarValue::Float64(Some(value)) => {
+            serde_json::Number::from_f64(*value).map(serde_json::Value::Number)
+        }
+        _ => None,
+    }
+}
+
+fn reverse_index_operator(op: Operator) -> Operator {
+    match op {
+        Operator::Lt => Operator::Gt,
+        Operator::LtEq => Operator::GtEq,
+        Operator::Gt => Operator::Lt,
+        Operator::GtEq => Operator::LtEq,
+        other => other,
+    }
+}
+
+/// Decode one DataFusion `column OP literal` expression into the bounded
+/// catalog lookup contract.  The provider stays conservative: unsupported
+/// expression shapes return `None`, so it cannot accidentally drop rows.
+fn secondary_lookup(expr: &Expr, schema: &TableSchema) -> Option<SecondaryIndexLookup> {
+    let Expr::BinaryExpr(binary) = expr else {
+        return None;
+    };
+    let (column, literal, op) = match (binary.left.as_ref(), binary.right.as_ref()) {
+        (Expr::Column(column), Expr::Literal(value, _)) => {
+            (column, value, binary.op)
+        }
+        (Expr::Literal(value, _), Expr::Column(column)) => {
+            (column, value, reverse_index_operator(binary.op))
+        }
+        _ => return None,
+    };
+    let ty = schema.column(&column.name)?.ty;
+    let json = scalar_to_json(literal)?;
+    let cell = Cell::coerce(&json, ty, true).ok()?;
+    let column = column.name.clone();
+    match op {
+        Operator::Eq => Some(SecondaryIndexLookup::Eq { column, value: cell }),
+        Operator::Lt => Some(SecondaryIndexLookup::Lt { column, value: cell }),
+        Operator::LtEq => Some(SecondaryIndexLookup::Le { column, value: cell }),
+        Operator::Gt => Some(SecondaryIndexLookup::Gt { column, value: cell }),
+        Operator::GtEq => Some(SecondaryIndexLookup::Ge { column, value: cell }),
+        _ => None,
+    }
+}
+
+fn is_secondary_shape(expr: &Expr) -> bool {
+    let Expr::BinaryExpr(binary) = expr else {
+        return false;
+    };
+    matches!(
+        binary.op,
+        Operator::Eq | Operator::Lt | Operator::LtEq | Operator::Gt | Operator::GtEq
+    ) && matches!(
+        (binary.left.as_ref(), binary.right.as_ref()),
+        (Expr::Column(_), Expr::Literal(..)) | (Expr::Literal(..), Expr::Column(_))
+    )
 }
 
 /// A user table's `TableProvider` (CONCEPT:EG-KG.query.register-each-user-table) — see the module section doc above for
@@ -546,13 +625,10 @@ impl TableProvider for UserTableProvider {
         TableType::Base
     }
 
-    /// `Inexact` for ANY `col = literal` equality (see `is_equality_shape` — not
-    /// restricted to the serial column, so a predicate on another column still
-    /// reaches `scan`'s `NodesTableProvider` delegate); `Unsupported` otherwise,
-    /// including a range predicate on any column (see the module doc for why
-    /// range is not pushed here). `Inexact`, not `Exact`, for the identical reason
-    /// `NodesTableProvider`/`EdgesTableProvider` use it: DataFusion re-applies the
-    /// predicate as a Filter above the scan regardless.
+    /// `Inexact` for a scalar equality/range expression. The index is only a
+    /// row-reduction optimization; DataFusion re-applies the original filter
+    /// above the scan. Other expression shapes remain `Unsupported` and use the
+    /// full authoritative row scan.
     fn supports_filters_pushdown(
         &self,
         filters: &[&Expr],
@@ -560,7 +636,7 @@ impl TableProvider for UserTableProvider {
         Ok(filters
             .iter()
             .map(|f| {
-                if is_equality_shape(f) {
+                if is_equality_shape(f) || is_secondary_shape(f) {
                     TableProviderFilterPushDown::Inexact
                 } else {
                     TableProviderFilterPushDown::Unsupported
@@ -576,6 +652,22 @@ impl TableProvider for UserTableProvider {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> DfResult<Arc<dyn ExecutionPlan>> {
+        if let Some(lookup) = filters
+            .iter()
+            .find_map(|filter| secondary_lookup(filter, &self.schema))
+        {
+            if let Some(rows) = self
+                .store
+                .secondary_index_rows(&self.schema.name, &lookup)
+                .map_err(datafusion::error::DataFusionError::Execution)?
+            {
+                let (_, batch) = materialize(&self.schema, &rows)
+                    .map_err(datafusion::error::DataFusionError::Execution)?;
+                let mem = MemTable::try_new(self.arrow_schema.clone(), vec![vec![batch]])?;
+                return mem.scan(state, projection, filters, limit).await;
+            }
+        }
+
         let pushed = self.serial_col.and_then(|ci| {
             let name = &self.schema.columns()[ci].name;
             filters
