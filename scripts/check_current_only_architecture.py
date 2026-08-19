@@ -308,8 +308,10 @@ def main() -> None:
     require(
         '"CreateNodeIfAbsent"' in client
         and '"node_id": node_id' in client
-        and '"properties_msgpack": list(msgpack.packb(properties or {}))' in client,
-        "the Python client lacks the native atomic create-if-absent operation",
+        and '"properties_msgpack": _pack_binary_msgpack(properties or {})' in client
+        and "def _pack_binary_msgpack(value: Any) -> bytes:" in client
+        and "list(msgpack.packb" not in client,
+        "the Python client does not use the native binary MessagePack batch/lifecycle contract",
     )
     require(
         "async def ack_tag(self, delivery_tag: int, *, consumer: str) -> bool:" in client
