@@ -119,6 +119,8 @@ fn cluster_cfg_with_groups(node_id: NodeId, ports: &[u16], groups: u64) -> RaftC
     let bind_addr = peers.get(&node_id).unwrap().addr.clone();
     RaftClusterConfig {
         node_id,
+        cluster_id: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            .to_string(),
         peers: peers.clone(),
         bind_addr,
         // ADR-1 / W1.1: a distinct per-node advertised client address so
@@ -126,6 +128,10 @@ fn cluster_cfg_with_groups(node_id: NodeId, ports: &[u16], groups: u64) -> RaftC
         // this real (loopback) multi-node cluster.
         advertised_client_addr: format!("tcp://127.0.0.1:{}", 30_000 + node_id),
         advertised_tls_server_name: None,
+        advertised_certificate_id: None,
+        advertised_certificate_rotation_epoch: 0,
+        advertised_certificate_not_before_ms: None,
+        advertised_certificate_not_after_ms: None,
         is_bootstrap: peers.keys().next() == Some(&node_id),
         groups,
         transport_secret: Some(
