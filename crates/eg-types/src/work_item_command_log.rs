@@ -9,27 +9,22 @@
 //! quota read, a per-dependency `get_work_item` loop, then `add_node`/
 //! `create_node_if_absent`, then per-dependency `_link` calls, then a final
 //! `_reconcile_dependency_readiness` pass — none of which race-proof against
-//! a concurrent duplicate submit (confirmed 2026-08-16 against this repo's
-//! `main`: no `protocol::Method::SubmitWorkItem` variant exists anywhere in
-//! `crates/eg-types/src/protocol.rs`, and the only submission-time engine
+//! a concurrent duplicate submit (confirmed 2026-08-16 against the pre-native
+//! baseline; the only submission-time engine
 //! guard, `redb_store/work_item_capability.rs::validate_submission_properties`,
 //! rejects a generic `AddNode`/`BatchUpdate` from smuggling in active
 //! lease/authority fields — it does not perform quota, dependency, or
 //! idempotency-key admission at all; those stay wholly client-side).
 //!
-//! This module is the **admission-decision core** a future
-//! `Method::SubmitWorkItem` redb-apply handler would call from *inside* the
+//! This module is the **admission-decision core** the native
+//! `Method::SubmitWorkItem` redb-apply handler calls from *inside* the
 //! same durable write transaction that creates the WorkItem row, indexes its
-//! dependency edges, and appends the outbox record — mirroring exactly how
-//! `crates/eg-types/src/lake_catalog.rs`/`commit_descriptor.rs` themselves
-//! shipped as additive, unconditional, pure-data/logic modules ahead of their
-//! wire-protocol wiring (see this crate's `lib.rs` doc comment on
-//! `lake_catalog`: "adds no `protocol::Method` variant... not yet
-//! implemented"). Wiring a `Method::SubmitWorkItem` variant, an
-//! `eg-capabilities` policy entry, `mutation_batch.rs` request handling, and
-//! the redb apply/outbox/index integration remains **unstarted** — that is
-//! real follow-on engine work, not something this module can honestly claim
-//! to deliver by itself. What this module DOES deliver, with tests proving
+//! dependency edges, and appends the outbox record. The native
+//! `Method::SubmitWorkItem`/`SubmitWorkItems` protocol, capability policy,
+//! mutation-batch handling, and redb apply/outbox/index adapter now live in
+//! `native_control`, `server::mutation_batch`, and `redb_store`; this module
+//! remains the reusable admission-decision reference core. What this module
+//! DOES deliver, with tests proving
 //! it against known-bad inputs:
 //!
 //! 1. Tenant-scoped idempotency: replaying `(tenant_ref, idempotency_key)`

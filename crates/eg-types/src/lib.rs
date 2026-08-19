@@ -65,6 +65,10 @@ pub mod lake_catalog;
 pub mod modality;
 pub mod msgpack;
 pub mod mutation_batch;
+// AU wire-first native control-plane operations: bounded capacity leases and
+// WorkItem admission/submission.  This module is hand-written until the AU
+// protocol catalog generator can express the bounded maps and native enums.
+pub mod native_control;
 // GOC-20 — the atomic WorkItem outcome/provenance bundle and durable run-event
 // wire contract (BUG-015). Deliberately a NEW module (not folded into
 // `mutation_batch`), same rationale as `commit_descriptor` above: the native
@@ -88,8 +92,8 @@ pub mod types;
 // GOC-19 — the WorkItem submission command-log admission core (tenant-scoped
 // idempotency replay + per-authority fencing), built on GOC-03's
 // `commit_descriptor::CommitDescriptorV1` currency. Unconditional, pure
-// data/logic, NO `protocol::Method` variant yet — mirrors `lake_catalog`'s
-// precedent of shipping ahead of its wire-protocol wiring. See
+// data/logic; the native protocol/storage adapter now lives in
+// `native_control`, `server::mutation_batch`, and `redb_store`. See
 // `plans/graph-os-completion-program/lanes/GOC-19-atomic-workitem-command-log.md`.
 pub mod work_item_command_log;
 // D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native

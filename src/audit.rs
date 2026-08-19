@@ -242,6 +242,41 @@ pub fn audit_line(method: &Method) -> Option<String> {
         Method::ClaimWorkItem { request } => {
             format!("CLAIM_WORK_ITEM|{}", request.tenant_ref)
         }
+        Method::SubmitWorkItem { request } => format!(
+            "SUBMIT_WORK_ITEM|{}|{}",
+            request.context.tenant_id, request.idempotency_key
+        ),
+        Method::SubmitWorkItems { request } => format!(
+            "SUBMIT_WORK_ITEMS|{}|{}|{}",
+            request.context.tenant_id,
+            request.idempotency_key,
+            request.requests.len()
+        ),
+        Method::AcquireCapacity { request } => format!(
+            "ACQUIRE_CAPACITY|{}|{}|{}",
+            request.tenant_ref,
+            request.idempotency_key,
+            request.demands.len()
+        ),
+        Method::RenewCapacity { request } => format!(
+            "RENEW_CAPACITY|{}|{}",
+            request.tenant_ref,
+            request.leases.len()
+        ),
+        Method::ReleaseCapacity { request } => format!(
+            "RELEASE_CAPACITY|{}|{}",
+            request.tenant_ref,
+            request.leases.len()
+        ),
+        Method::ReclaimExpiredCapacity { request } => format!(
+            "RECLAIM_EXPIRED_CAPACITY|{}|{}",
+            request.tenant_ref, request.max_count
+        ),
+        Method::UpdateCapacityCell { request } => format!(
+            "UPDATE_CAPACITY_CELL|{}|{}",
+            request.cell.cell_id, request.cell.epoch
+        ),
+        Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. } => return None,
         Method::RenewWorkItemLease {
             tenant,
             work_item_id,

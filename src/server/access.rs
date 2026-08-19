@@ -706,6 +706,13 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::DeleteGraph { .. }
             | Method::ClaimNext { .. }
             | Method::ClaimWorkItem { .. }
+            | Method::SubmitWorkItem { .. }
+            | Method::SubmitWorkItems { .. }
+            | Method::AcquireCapacity { .. }
+            | Method::RenewCapacity { .. }
+            | Method::ReleaseCapacity { .. }
+            | Method::ReclaimExpiredCapacity { .. }
+            | Method::UpdateCapacityCell { .. }
             | Method::MintWorkItemClaimCapability { .. }
             | Method::RenewWorkItemLease { .. }
             | Method::CommitWorkItemResult { .. }
