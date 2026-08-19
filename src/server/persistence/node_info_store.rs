@@ -1,5 +1,6 @@
-//! Cluster node-info store — durable `node_id -> {raft_addr,
-//! advertised_client_addr, tls_server_name}` map (CONCEPT:EG-KG.sharding.cluster-topology,
+//! Cluster node-info store — durable `node_id -> {cluster_id, member_identity,
+//! raft_addr, advertised_client_addr, TLS/certificate metadata}` map
+//! (CONCEPT:EG-KG.sharding.cluster-topology,
 //! ADR-1 / W1.1, `reports/wave1/ADR-scale-trio.md` §ADR-1).
 //!
 //! ## Why this exists
@@ -27,17 +28,46 @@ use std::sync::RwLock;
 
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 /// Durable table: `node_id -> msgpack(NodeInfo)` (CONCEPT:EG-KG.sharding.cluster-topology). One row per
 /// cluster node — bounded by [`MAX_NODE_INFO_ENTRIES`], never per-tenant data.
 const NODE_INFO: TableDefinition<u64, &[u8]> = TableDefinition::new("node_info");
+const NODE_INFO_META: TableDefinition<&str, &[u8]> = TableDefinition::new("node_info_meta");
+const NODE_INFO_META_KEY: &str = "v1";
 const MAX_NODE_INFO_ENTRIES: usize = 4_096;
 const MAX_NODE_INFO_FIELD_BYTES: usize = 4 * 1024;
+const MAX_CERTIFICATE_ID_BYTES: usize = 512;
+
+/// Stable identity for a member. Endpoint and certificate rotation metadata
+/// are intentionally absent: those values are mutable observations, while
+/// this digest remains the member's immutable cluster-scoped identity.
+pub(crate) fn member_identity_for(cluster_id: &str, node_id: u64) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"epistemic-graph/member-identity/v1\0");
+    digest.update((cluster_id.len() as u64).to_be_bytes());
+    digest.update(cluster_id.as_bytes());
+    digest.update(node_id.to_be_bytes());
+    format!("sha256:{}", hex::encode(digest.finalize()))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct NodeInfoMeta {
+    cluster_id: String,
+    generation: u64,
+}
 
 /// One cluster node's self-reported identity (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeInfo {
+    /// Stable identity of the configured Raft cluster. This is an operator /
+    /// Raft authority value, never accepted from a discovery caller.
+    #[serde(default)]
+    pub cluster_id: String,
     pub node_id: u64,
+    /// Immutable member identity derived from `(cluster_id, node_id)`.
+    #[serde(default)]
+    pub member_identity: String,
     /// This node's Raft-RPC `host:port` — the SAME address it advertises in
     /// `EPISTEMIC_GRAPH_RAFT_PEERS`.
     pub raft_addr: String,
@@ -49,9 +79,118 @@ pub struct NodeInfo {
     /// connecting to `advertised_client_addr` over `tls://`. `None` ⇒ verify
     /// against the address's own host (the TLS default).
     pub tls_server_name: Option<String>,
+    /// Opaque certificate fingerprint/reference. No PEM, private key or bearer
+    /// credential is ever stored or returned by this surface.
+    #[serde(default)]
+    pub certificate_id: Option<String>,
+    #[serde(default)]
+    pub certificate_rotation_epoch: u64,
+    #[serde(default)]
+    pub certificate_not_before_ms: Option<u64>,
+    #[serde(default)]
+    pub certificate_not_after_ms: Option<u64>,
+}
+
+fn valid_host_port(value: &str, scheme: Option<&str>) -> bool {
+    if value.is_empty()
+        || value.len() > MAX_NODE_INFO_FIELD_BYTES
+        || value.chars().any(|character| character.is_whitespace() || character.is_control())
+        || value
+            .chars()
+            .any(|character| matches!(character, '/' | '?' | '#' | '@'))
+    {
+        return false;
+    }
+    let address = if let Some(expected_scheme) = scheme {
+        let Some(rest) = value.strip_prefix(expected_scheme) else {
+            return false;
+        };
+        rest
+    } else {
+        value
+    };
+    let (host, port) = if let Some(rest) = address.strip_prefix('[') {
+        let Some((host, port)) = rest.split_once("]:") else {
+            return false;
+        };
+        if host.is_empty() || host.contains(']') {
+            return false;
+        }
+        (host, port)
+    } else {
+        let Some((host, port)) = address.rsplit_once(':') else {
+            return false;
+        };
+        if host.is_empty() || host.contains(':') {
+            return false;
+        }
+        (host, port)
+    };
+    port.parse::<u16>().is_ok_and(|port| port > 0)
 }
 
 fn validate_node_info(info: &NodeInfo) -> Result<(), String> {
+    if info.cluster_id.is_empty()
+        || info.cluster_id.len() > MAX_NODE_INFO_FIELD_BYTES
+        || info
+            .cluster_id
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err("node info cluster_id exceeds resource limits".to_string());
+    }
+    if info.member_identity != member_identity_for(&info.cluster_id, info.node_id) {
+        return Err("node info member_identity does not match cluster identity".to_string());
+    }
+    if !valid_host_port(&info.raft_addr, None) {
+        return Err("node info raft_addr is not a bounded host:port endpoint".to_string());
+    }
+    if !valid_host_port(&info.advertised_client_addr, Some("tcp://"))
+        && !valid_host_port(&info.advertised_client_addr, Some("tls://"))
+    {
+        return Err(
+            "node info advertised_client_addr must be tcp:// or tls:// host:port".to_string(),
+        );
+    }
+    if info
+        .tls_server_name
+        .as_deref()
+        .is_some_and(|name| {
+            name.is_empty()
+                || name.len() > MAX_NODE_INFO_FIELD_BYTES
+                || name.chars().any(|character| character.is_whitespace() || character.is_control())
+        })
+    {
+        return Err("node info tls_server_name exceeds resource limits".to_string());
+    }
+    if info
+        .certificate_id
+        .as_deref()
+        .is_some_and(|id| id.is_empty() || id.len() > MAX_CERTIFICATE_ID_BYTES)
+    {
+        return Err("node info certificate_id exceeds resource limits".to_string());
+    }
+    if info
+        .certificate_id
+        .as_deref()
+        .is_some_and(|id| id.chars().any(|character| character.is_whitespace() || character.is_control()))
+    {
+        return Err("node info certificate_id contains whitespace".to_string());
+    }
+    if info
+        .certificate_not_before_ms
+        .zip(info.certificate_not_after_ms)
+        .is_some_and(|(before, after)| before > after)
+    {
+        return Err("node info certificate validity interval is inverted".to_string());
+    }
+    if info.certificate_rotation_epoch > 0 && info.certificate_id.is_none() {
+        return Err("certificate rotation epoch requires certificate_id".to_string());
+    }
+    Ok(())
+}
+
+fn validate_legacy_node_info(info: &NodeInfo) -> Result<(), String> {
     if info.raft_addr.is_empty() || info.raft_addr.len() > MAX_NODE_INFO_FIELD_BYTES {
         return Err("node info raft_addr exceeds resource limits".to_string());
     }
@@ -93,6 +232,7 @@ fn decode_node_info(bytes: &[u8]) -> Result<NodeInfo, String> {
 pub struct NodeInfoStore {
     entries: RwLock<HashMap<u64, NodeInfo>>,
     db: Option<Database>,
+    cluster_id: RwLock<Option<String>>,
     /// Local monotonic generation counter, bumped on every successful `upsert`
     /// (CONCEPT:EG-KG.sharding.cluster-topology). Since an upsert replicates identically to every
     /// node (see module docs), this counter converges cluster-wide too. Exposed
@@ -109,6 +249,7 @@ impl NodeInfoStore {
         NodeInfoStore {
             entries: RwLock::new(HashMap::new()),
             db: None,
+            cluster_id: RwLock::new(None),
             generation: AtomicU64::new(0),
         }
     }
@@ -124,6 +265,8 @@ impl NodeInfoStore {
         {
             let wtx = db.begin_write().map_err(|e| e.to_string())?;
             wtx.open_table(NODE_INFO).map_err(|e| e.to_string())?;
+            wtx.open_table(NODE_INFO_META)
+                .map_err(|e| e.to_string())?;
             wtx.commit().map_err(|e| e.to_string())?;
         }
         let mut entries = HashMap::new();
@@ -139,15 +282,66 @@ impl NodeInfoStore {
                 if info.node_id != k.value() {
                     return Err("node info row key/value node_id mismatch".to_string());
                 }
-                validate_node_info(&info)?;
+                if info.cluster_id.is_empty() || info.member_identity.is_empty() {
+                    validate_legacy_node_info(&info)?;
+                } else {
+                    validate_node_info(&info)?;
+                }
                 entries.insert(k.value(), info);
             }
         }
-        let generation = entries.len() as u64;
+        let (metadata_cluster_id, metadata_generation) = {
+            let rtx = db.begin_read().map_err(|e| e.to_string())?;
+            let table = rtx.open_table(NODE_INFO_META).map_err(|e| e.to_string())?;
+            table
+                .get(NODE_INFO_META_KEY)
+                .map_err(|e| e.to_string())?
+                .map(|value| {
+                    eg_types::msgpack::decode_bounded::<NodeInfoMeta>(
+                        value.value(),
+                        eg_types::msgpack::MsgpackLimits::new(1024, 16, 8),
+                    )
+                    .map_err(|_| "node info metadata is invalid".to_string())
+                })
+                .transpose()?
+                .map(|meta| (Some(meta.cluster_id), meta.generation))
+                .unwrap_or((None, entries.len() as u64))
+        };
+        if metadata_cluster_id.as_deref().is_some_and(|cluster_id| {
+            cluster_id.is_empty()
+                || cluster_id.len() > MAX_NODE_INFO_FIELD_BYTES
+                || cluster_id
+                    .chars()
+                    .any(|character| character.is_whitespace() || character.is_control())
+        }) {
+            return Err("node info metadata cluster_id exceeds resource limits".to_string());
+        }
+        if metadata_generation < entries.len() as u64 {
+            return Err("node info metadata generation regressed below row count".to_string());
+        }
+        let mut entry_cluster_id: Option<String> = None;
+        for info in entries.values().filter(|info| !info.cluster_id.is_empty()) {
+            if entry_cluster_id
+                .as_deref()
+                .is_some_and(|cluster_id| cluster_id != info.cluster_id)
+            {
+                return Err("node info rows disagree on cluster identity".to_string());
+            }
+            entry_cluster_id = Some(info.cluster_id.clone());
+        }
+        if metadata_cluster_id
+            .as_deref()
+            .zip(entry_cluster_id.as_deref())
+            .is_some_and(|(metadata, entry)| metadata != entry)
+        {
+            return Err("node info metadata cluster_id disagrees with a member row".to_string());
+        }
+        let cluster_id = metadata_cluster_id.or(entry_cluster_id);
         Ok(NodeInfoStore {
             entries: RwLock::new(entries),
             db: Some(db),
-            generation: AtomicU64::new(generation),
+            cluster_id: RwLock::new(cluster_id),
+            generation: AtomicU64::new(metadata_generation),
         })
     }
 
@@ -160,18 +354,49 @@ impl NodeInfoStore {
         if !entries.contains_key(&info.node_id) && entries.len() >= MAX_NODE_INFO_ENTRIES {
             return Err("node info store exceeds resource limits".to_string());
         }
+        let mut cluster_id = self.cluster_id.write().unwrap_or_else(|e| e.into_inner());
+        if cluster_id
+            .as_deref()
+            .is_some_and(|current| current != info.cluster_id)
+        {
+            return Err("node info belongs to a different cluster".to_string());
+        }
+        if entries.values().any(|existing| {
+            !existing.cluster_id.is_empty() && existing.cluster_id != info.cluster_id
+        }) {
+            return Err("node info store contains a different cluster identity".to_string());
+        }
+        let next_generation = self
+            .generation
+            .load(Ordering::Acquire)
+            .checked_add(1)
+            .ok_or_else(|| "node info generation exhausted".to_string())?;
         if let Some(db) = &self.db {
             let blob = rmp_serde::to_vec_named(&info).map_err(|e| e.to_string())?;
+            let meta_blob = rmp_serde::to_vec_named(&NodeInfoMeta {
+                cluster_id: info.cluster_id.clone(),
+                generation: next_generation,
+            })
+            .map_err(|e| e.to_string())?;
             let wtx = db.begin_write().map_err(|e| e.to_string())?;
             {
                 let mut t = wtx.open_table(NODE_INFO).map_err(|e| e.to_string())?;
                 t.insert(info.node_id, blob.as_slice())
                     .map_err(|e| e.to_string())?;
+                let mut meta = wtx
+                    .open_table(NODE_INFO_META)
+                    .map_err(|e| e.to_string())?;
+                meta.insert(NODE_INFO_META_KEY, meta_blob.as_slice())
+                    .map_err(|e| e.to_string())?;
             }
             wtx.commit().map_err(|e| e.to_string())?;
         }
         entries.insert(info.node_id, info);
-        self.generation.fetch_add(1, Ordering::Release);
+        *cluster_id = entries
+            .values()
+            .find(|entry| !entry.cluster_id.is_empty())
+            .map(|entry| entry.cluster_id.clone());
+        self.generation.store(next_generation, Ordering::Release);
         Ok(())
     }
 
@@ -201,6 +426,14 @@ impl NodeInfoStore {
     /// The local generation counter (see the field doc above).
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::Acquire)
+    }
+
+    /// The one cluster identity established by the Raft self-report authority.
+    pub fn cluster_id(&self) -> Option<String> {
+        self.cluster_id
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Resolve `voters ++ learners` to their known [`NodeInfo`] rows, LEADER
@@ -238,6 +471,11 @@ impl NodeInfoStore {
         ordered_ids
             .into_iter()
             .filter_map(|id| self.get(id))
+            // Never let a legacy row, or a row corrupted after recovery, act
+            // as endpoint authority.  `ClusterMembers` returns an explicit
+            // incomplete/invalid error; the older PlacementRoute surface is
+            // best-effort and therefore omits the untrusted row.
+            .filter(|info| validate_node_info(info).is_ok())
             .collect()
     }
 }
@@ -247,11 +485,18 @@ mod tests {
     use super::*;
 
     fn info(node_id: u64) -> NodeInfo {
+        let cluster_id = "sha256:node-info-test".to_string();
         NodeInfo {
+            member_identity: member_identity_for(&cluster_id, node_id),
+            cluster_id,
             node_id,
             raft_addr: format!("127.0.0.1:710{node_id}"),
             advertised_client_addr: format!("tcp://127.0.0.1:810{node_id}"),
             tls_server_name: None,
+            certificate_id: None,
+            certificate_rotation_epoch: 0,
+            certificate_not_before_ms: None,
+            certificate_not_after_ms: None,
         }
     }
 
@@ -298,6 +543,12 @@ mod tests {
         let mut bad = info(1);
         bad.tls_server_name = Some(String::new());
         assert!(store.upsert(bad).is_err());
+        let mut bad = info(1);
+        bad.member_identity = "sha256:forged".to_string();
+        assert!(store.upsert(bad).is_err());
+        let mut bad = info(1);
+        bad.advertised_client_addr = "https://caller-supplied.invalid:443/path".to_string();
+        assert!(store.upsert(bad).is_err());
     }
 
     #[test]
@@ -312,10 +563,32 @@ mod tests {
         }
         let reopened = NodeInfoStore::open(&dir_s).expect("reopen store");
         assert_eq!(reopened.all(), vec![info(1), info(2)]);
-        // A restart's first self-report continues the SAME generation lineage
-        // (the counter is seeded from the reloaded row count) rather than
-        // resetting to zero, so a discovering client never sees `epoch` regress.
+        // A restart preserves the durable generation rather than seeding from
+        // row count, so repeated endpoint/certificate updates cannot make a
+        // discovering client observe an epoch regression.
         assert_eq!(reopened.generation(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn durable_generation_advances_across_repeated_updates_and_restart() {
+        let dir = std::env::temp_dir().join(format!(
+            "eg-node-info-generation-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        {
+            let store = NodeInfoStore::open(&dir_s).expect("open store");
+            for port in [8201, 8202, 8203, 8204] {
+                let mut current = info(1);
+                current.advertised_client_addr = format!("tcp://127.0.0.1:{port}");
+                store.upsert(current).unwrap();
+            }
+            assert_eq!(store.generation(), 4);
+        }
+        let reopened = NodeInfoStore::open(&dir_s).expect("reopen store");
+        assert_eq!(reopened.generation(), 4);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
