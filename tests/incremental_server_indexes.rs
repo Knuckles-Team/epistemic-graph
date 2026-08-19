@@ -328,9 +328,7 @@ async fn text_hybrid_read_never_torn_under_concurrent_write() {
             node_id: format!("n{i}"),
             reply,
         };
-        if let Err(op) = writer.try_enqueue(op) {
-            writer.apply_one_inline(&core, "g", op);
-        }
+        assert!(writer.try_enqueue(op).is_ok());
         let _ = rx.await;
     }
     reader.await.unwrap();
@@ -338,11 +336,13 @@ async fn text_hybrid_read_never_torn_under_concurrent_write() {
     // Barrier: a final op guarantees the last removal batch drained, then assert final
     // state — removed half gone from the text index, survivors present.
     let (reply, rx) = tokio::sync::oneshot::channel();
-    let _ = writer.try_enqueue(WriteOp::AddNode {
-        node_id: "barrier".into(),
-        properties_msgpack: props(serde_json::json!({ "text": "barrier" })),
-        reply,
-    });
+    assert!(writer
+        .try_enqueue(WriteOp::AddNode {
+            node_id: "barrier".into(),
+            properties_msgpack: props(serde_json::json!({ "text": "barrier" })),
+            reply,
+        })
+        .is_ok());
     let _ = rx.await;
 
     // Exact final state: every removed node (n0..n99) is gone from the text index;

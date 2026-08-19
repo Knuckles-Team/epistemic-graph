@@ -120,8 +120,8 @@ where
     Box::pin(mutation::commit_mutation(ctx, plan, method, apply)).await
 }
 
-/// Same boundary as [`commit_gateway`], for the four coalescable structural
-/// writes (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) — routed through
+/// Same boundary as [`commit_gateway`], for the five coalescable structural
+/// writes (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/CAS) — routed through
 /// `mutation::commit_coalescable_mutation` instead of `commit_mutation` so
 /// their prepare→durable-commit→RAM-publish sequence can be queued onto the
 /// per-graph routed-write-coalescer worker (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18
@@ -549,27 +549,11 @@ pub(crate) async fn try_handle_gateway(
         }
         // ── L11 rollout batch 2 (EG-P0-2 continued): graph-core family ──
         Method::CompareAndSetNodeFields {
-            node_id,
-            conditions_msgpack,
-            updates_msgpack,
+            ..
         } => {
-            let (node_id, conditions_msgpack, updates_msgpack) = (
-                node_id.clone(),
-                conditions_msgpack.clone(),
-                updates_msgpack.clone(),
-            );
-            commit_gateway(&ctx, &plan, &method, move |core| {
-                let conditions =
-                    match eg_types::msgpack::decode_property_object(&conditions_msgpack) {
-                        Ok(m) => m,
-                        Err(_) => return Ok(ResultPayload::Bool(false)),
-                    };
-                let updates = match eg_types::msgpack::decode_property_object(&updates_msgpack) {
-                    Ok(m) => m,
-                    Err(_) => return Ok(ResultPayload::Bool(false)),
-                };
-                let ok = core.compare_and_set_fields(&node_id, &conditions, &updates);
-                Ok(ResultPayload::Bool(ok))
+            let owned_method = method.clone();
+            commit_gateway_coalescable(&ctx, &plan, &method, move |core| {
+                mutation::apply_coalescable_write(core, &owned_method)
             })
             .await
         }
