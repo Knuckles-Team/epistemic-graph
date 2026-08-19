@@ -259,7 +259,8 @@ pub struct ReturnItem {
 }
 
 impl ReturnItem {
-    /// The column name this item produces (`alias` if present, else the expr text).
+    /// The column name this item produces (`alias` if present, else the
+    /// expression's deterministic default label).
     pub fn column(&self) -> String {
         match &self.alias {
             Some(a) => a.clone(),
@@ -288,10 +289,17 @@ pub enum Expr {
 
 impl Expr {
     /// The default column name for this expression (no alias).
+    ///
+    /// A qualified property reference is a tabular scalar projection, so its
+    /// output label is the property key rather than the parser's qualified
+    /// expression text (`n.id` → `id`).  This is deterministic for every
+    /// property (not an `id` special case) and gives row-map consumers a usable
+    /// field name.  Callers that need a different or disambiguated label can
+    /// continue to use the explicit `AS` alias on [`ReturnItem`].
     pub fn column(&self) -> String {
         match self {
             Expr::Var(v) => v.clone(),
-            Expr::Prop(v, p) => format!("{v}.{p}"),
+            Expr::Prop(_, p) => p.clone(),
             Expr::CountStar => "count(*)".to_string(),
             Expr::Aggregate(f, a) => format!("{}({})", f.name(), a.text()),
             Expr::RelType(v) => format!("type({v})"),
