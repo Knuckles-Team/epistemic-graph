@@ -6012,7 +6012,7 @@ async fn dispatch_graph_op_inner(
     // Record this graph's access for the cold-offload sweep (CONCEPT:EG-KG.backend.r6-feature, R6) — both
     // reads and writes touch, so a graph being actively used is never offloaded.
     #[cfg(feature = "redb")]
-    cold_tracker.touch(graph_name);
+    cold_tracker.touch_with_incarnation(graph_name, &graph_incarnation_id);
 
     // Mandatory placement resolution for ordinary graph operations. MultiRaft is
     // the sole clustered authority. Resolving here also fences reads away from a

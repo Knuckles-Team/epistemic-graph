@@ -39,6 +39,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::graph::GraphCore;
+use crate::registry::GraphHandle;
 use crate::server::ServerState;
 
 /// Derive the tenant a graph belongs to (CONCEPT:EG-KG.compute.lane-v). The convention across the
@@ -61,11 +62,20 @@ pub fn tenant_of(graph_name: &str) -> &str {
 #[derive(Default)]
 struct CostState {
     /// Graphs the budget enforcer has hibernated (drives the resident/hibernated split).
-    hibernated: Mutex<std::collections::HashSet<String>>,
+    hibernated: Mutex<std::collections::HashSet<GraphIdentity>>,
     /// Total LRU nodes evicted by the budget enforcer (the rate is its delta over time).
     evicted_total: std::sync::atomic::AtomicU64,
     /// Total graphs hibernated by the budget enforcer.
     hibernated_total: std::sync::atomic::AtomicU64,
+}
+
+/// Identity for process-global budget bookkeeping.  Name-only state survives
+/// a delete/recreate and makes a fresh graph appear hibernated; the immutable
+/// registry incarnation is therefore part of every state transition.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct GraphIdentity {
+    name: String,
+    incarnation_id: String,
 }
 
 fn cost_state() -> &'static CostState {
@@ -74,23 +84,60 @@ fn cost_state() -> &'static CostState {
     STATE.get_or_init(CostState::default)
 }
 
-/// Mark a graph hibernated / resident in the process-global bookkeeping.
-fn note_hibernated(graph: &str, hibernated: bool) {
+/// Mark one exact graph incarnation hibernated / resident in the process-global
+/// bookkeeping.
+fn note_hibernated(graph: &str, incarnation_id: &str, hibernated: bool) {
     let mut set = cost_state().hibernated.lock();
+    let identity = GraphIdentity {
+        name: graph.to_string(),
+        incarnation_id: incarnation_id.to_string(),
+    };
     if hibernated {
-        set.insert(graph.to_string());
+        set.insert(identity);
         cost_state()
             .hibernated_total
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     } else {
-        set.remove(graph);
+        set.remove(&identity);
     }
-    crate::metrics::set_graph_hibernated(graph, hibernated);
+    let any_hibernated = set.iter().any(|entry| entry.name.as_str() == graph);
+    crate::metrics::set_graph_hibernated(graph, any_hibernated);
 }
 
-/// Is this graph currently hibernated by the enforcer?
-fn is_hibernated(graph: &str) -> bool {
-    cost_state().hibernated.lock().contains(graph)
+/// Is this exact graph incarnation currently hibernated by the enforcer?
+fn is_hibernated(graph: &str, incarnation_id: &str) -> bool {
+    cost_state().hibernated.lock().contains(&GraphIdentity {
+        name: graph.to_string(),
+        incarnation_id: incarnation_id.to_string(),
+    })
+}
+
+/// Clear all cost bookkeeping for a deleted name.  The cold tracker calls this
+/// from the lifecycle teardown path so no name-keyed state survives a recreate.
+pub(crate) fn forget_graph(graph: &str) {
+    cost_state()
+        .hibernated
+        .lock()
+        .retain(|identity| identity.name.as_str() != graph);
+    // Deletion/admission teardown must not recreate a label series after the
+    // caller has dropped the graph's metrics.  `drop_graph` is idempotent and
+    // also frees the bounded label slot.
+    crate::metrics::drop_graph(graph);
+}
+
+/// Clear one incarnation without touching a concurrently recreated identity.
+pub(crate) fn forget_graph_incarnation(graph: &str, incarnation_id: &str) {
+    let mut hibernated = cost_state().hibernated.lock();
+    hibernated.remove(&GraphIdentity {
+        name: graph.to_string(),
+        incarnation_id: incarnation_id.to_string(),
+    });
+    if !hibernated
+        .iter()
+        .any(|identity| identity.name.as_str() == graph)
+    {
+        crate::metrics::drop_graph(graph);
+    }
 }
 
 // ── Configuration ─────────────────────────────────────────────────────────
@@ -309,11 +356,11 @@ pub async fn collect_resource_stats(
     let config = CostConfig::from_env()?;
     let (entries, configured_max_inflight, permits_available) = {
         let s = state.read().await;
-        let entries: Vec<(String, Arc<GraphCore>)> = s
+        let entries: Vec<GraphHandle> = s
             .registry
             .all_entries()
             .iter()
-            .map(|e| (e.name.clone(), e.core.clone()))
+            .filter_map(|e| s.registry.handle(&e.name))
             .collect();
         let permits = s.max_in_flight.available_permits();
         // The global admission semaphore was constructed with the configured max; recover
@@ -341,12 +388,13 @@ pub async fn collect_resource_stats(
     let mut resident_graphs = 0u64;
     let mut hibernated_graphs = 0u64;
 
-    for (name, core) in &entries {
+    for handle in &entries {
+        let name = &handle.name;
         let tenant = tenant_of(name).to_string();
-        let nodes = core.node_count() as u64;
-        let edges = core.edge_count() as u64;
-        let mem = core.memory_estimate();
-        let hibernated = is_hibernated(name);
+        let nodes = handle.core.node_count() as u64;
+        let edges = handle.core.edge_count() as u64;
+        let mem = handle.core.memory_estimate();
+        let hibernated = is_hibernated(name, &handle.incarnation_id);
 
         total_memory_bytes += mem;
         total_nodes += nodes;
@@ -445,26 +493,23 @@ pub async fn enforce_memory_budgets(
     // Snapshot per-graph footprint + durable authority.
     let (entries, backend) = {
         let s = state.read().await;
-        let entries: Vec<(String, Arc<GraphCore>)> = s
+        let entries: Vec<GraphHandle> = s
             .registry
             .all_entries()
             .iter()
-            .map(|e| (e.name.clone(), e.core.clone()))
+            .filter_map(|e| s.registry.handle(&e.name))
             .collect();
         (entries, s.persistence.clone())
     };
 
     // Roll up resident memory per tenant + count active tenants for the fair share.
-    let mut per_tenant: HashMap<String, Vec<(String, Arc<GraphCore>, u64)>> = HashMap::new();
+    let mut per_tenant: HashMap<String, Vec<(GraphHandle, u64)>> = HashMap::new();
     let mut tenant_mem: HashMap<String, u64> = HashMap::new();
-    for (name, core) in entries {
-        let mem = core.memory_estimate();
-        let tenant = tenant_of(&name).to_string();
+    for handle in entries {
+        let mem = handle.core.memory_estimate();
+        let tenant = tenant_of(&handle.name).to_string();
         *tenant_mem.entry(tenant.clone()).or_default() += mem;
-        per_tenant
-            .entry(tenant)
-            .or_default()
-            .push((name, core, mem));
+        per_tenant.entry(tenant).or_default().push((handle, mem));
     }
 
     // Fair per-tenant cap: the global ceiling split evenly across active tenants. A
@@ -497,21 +542,34 @@ pub async fn enforce_memory_budgets(
             continue;
         }
         // Reclaim coldest-first (fewest nodes ⇒ least active).
-        graphs.sort_by_key(|(_, core, _)| core.node_count());
+        graphs.sort_by_key(|(handle, _)| handle.core.node_count());
 
-        for (name, core, mem) in graphs {
+        for (handle, mem) in graphs {
+            let name = &handle.name;
             if tenant_resident <= effective_budget {
                 break;
             }
             // The `__commons__` shared graph is never reclaimed for a budget — it is not
             // a tenant's private working set and is needed by every agent.
-            if name == "__commons__" {
+            if name.as_str() == "__commons__" {
+                continue;
+            }
+
+            // A budget sweep performs durable I/O outside the registry lock.
+            // Serialize it with lifecycle and graph writes, then reject a
+            // stale captured handle before touching either RAM or bookkeeping.
+            let _lifecycle_guard = crate::server::mutation_batch::lock_graph(name).await;
+            let current = {
+                let s = state.read().await;
+                s.registry.is_current_handle(&handle)
+            };
+            if !current {
                 continue;
             }
 
             // Step 1: durability-gated LRU eviction down to empty (max_nodes = 0 evicts
             // every durable node; a node whose durability can't be confirmed stays).
-            let evicted = evict_graph_to(&name, &core, 0, &backend).await;
+            let evicted = evict_graph_to(name, &handle.core, 0, &backend).await;
             if evicted > 0 {
                 total_evicted += evicted as u64;
                 cost_state()
@@ -522,13 +580,18 @@ pub async fn enforce_memory_budgets(
 
             // Step 2: if still resident and the tenant is still over budget, hibernate
             // only after confirming every remaining node in durable authority.
-            let still_resident = core.node_count() > 0;
+            let still_resident = handle.core.node_count() > 0;
             if still_resident && tenant_resident.saturating_sub(mem) < effective_budget {
-                let freed = hibernate_graph_if_durable(&name, &core, &backend);
+                let freed = hibernate_graph_if_durable(name, &handle.core, &backend);
                 if freed > 0 {
-                    total_hibernated += 1;
-                    note_hibernated(&name, true);
-                    crate::metrics::budget_hibernated();
+                    // The lifecycle lane is held, but keep the registry fence
+                    // explicit before publishing hibernation state.
+                    let s = state.write().await;
+                    if s.registry.is_current_handle(&handle) {
+                        note_hibernated(name, &handle.incarnation_id, true);
+                        total_hibernated += 1;
+                        crate::metrics::budget_hibernated();
+                    }
                 }
             }
 
@@ -544,19 +607,25 @@ pub async fn enforce_memory_budgets(
             // pattern: once fully durable-confirmed-empty, transition the registry entry
             // to catalog-only so the NEXT access takes the existing bounded durable
             // lazy-open instead of silently serving the stale empty resident image.
-            if core.node_count() == 0 {
+            if handle.core.node_count() == 0 {
                 let mut s = state.write().await;
-                s.registry.evict_resident(&name);
+                if s.registry.evict_resident_if_current(&handle) {
+                    // Eviction is a complete lifecycle transition for this
+                    // incarnation; its hibernation marker must not survive.
+                    forget_graph_incarnation(name, &handle.incarnation_id);
+                }
             }
 
             // Recompute this graph's residual footprint and update the tenant total.
-            let new_mem = core.memory_estimate();
+            let new_mem = handle.core.memory_estimate();
             tenant_resident = tenant_resident.saturating_sub(mem).saturating_add(new_mem);
 
             // A graph that came back resident (rehydrated by access between sweeps) is no
             // longer hibernated.
-            if core.node_count() > 0 && is_hibernated(&name) {
-                note_hibernated(&name, false);
+            if handle.core.node_count() > 0
+                && is_hibernated(name, &handle.incarnation_id)
+            {
+                note_hibernated(name, &handle.incarnation_id, false);
             }
         }
     }
@@ -691,6 +760,22 @@ mod tests {
         assert_eq!(parse_bytes("4G"), Some(4 * 1024 * 1024 * 1024));
         assert_eq!(parse_bytes(""), None);
         assert_eq!(parse_bytes("notanumber"), None);
+    }
+
+    #[test]
+    fn hibernation_bookkeeping_does_not_cross_recreate() {
+        let graph = "cost-test:recreate";
+        note_hibernated(graph, "incarnation:old", true);
+        assert!(is_hibernated(graph, "incarnation:old"));
+        assert!(!is_hibernated(graph, "incarnation:new"));
+
+        // A current-incarnation transition must not clear the old key by name.
+        note_hibernated(graph, "incarnation:new", false);
+        assert!(is_hibernated(graph, "incarnation:old"));
+        forget_graph_incarnation(graph, "incarnation:old");
+        assert!(!is_hibernated(graph, "incarnation:old"));
+        assert!(!is_hibernated(graph, "incarnation:new"));
+        forget_graph(graph);
     }
 
     // ── Budget-enforcement integration proofs (CONCEPT:EG-KG.compute.lane-v) ────────────
