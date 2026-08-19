@@ -84,7 +84,16 @@ Usage:
   scripts/ci_gate_replica.py --consistency-check # only the anti-drift check
   scripts/ci_gate_replica.py --skip-safe [REF]   # is it safe to skip this gate for the diff vs REF (default HEAD)?
   scripts/ci_gate_replica.py --workflows-dir DIR # override the workflows directory (testing)
+
+LOCAL CARGO RESOURCE GUARD: every executed step receives a bounded
+`CARGO_BUILD_JOBS` environment value. The default is `min(4, detected CPUs)`
+with a floor of 1. Operators may provide only `CI_GATE_CARGO_BUILD_JOBS`; it
+must be a strict positive decimal integer, and values above the hard local
+maximum of 8 are clamped to 8. The ordinary `CARGO_BUILD_JOBS` environment
+variable is deliberately ignored as an operator override. This changes only
+the local build resource bound; each workflow step's shell text is preserved.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -99,10 +108,10 @@ import subprocess
 import sys
 import tempfile
 import time
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import tomllib
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -172,7 +181,9 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
         # 10-way feature-build matrix and the perf/recall bench gate were
         # invisible locally. Both are ordinary local `cargo`/`python3`
         # commands once ${{ matrix.* }} is substituted; they just never ran.
-        executable_jobs=frozenset({"lint-and-architecture", "feature-matrix", "benchmarks"}),
+        executable_jobs=frozenset(
+            {"lint-and-architecture", "feature-matrix", "benchmarks"}
+        ),
         job_skip_reasons={
             "pages": (
                 "job-level `uses:` calling a reusable workflow "
@@ -203,9 +214,50 @@ ARTIFACT_IO_ACTIONS = ("actions/upload-artifact", "actions/download-artifact")
 # runner) — documented here, not hidden, and never silently substituted for
 # a workflow-declared value.
 LOCAL_ENV_OVERRIDES = {
-    "CARGO_TARGET_DIR": os.environ.get("CI_GATE_CARGO_TARGET_DIR", "/var/tmp/eg-ci-gate-target"),
+    "CARGO_TARGET_DIR": os.environ.get(
+        "CI_GATE_CARGO_TARGET_DIR", "/var/tmp/eg-ci-gate-target"
+    ),
     "TMPDIR": os.environ.get("CI_GATE_TMPDIR", "/var/tmp/eg-ci-gate-tmp"),
 }
+
+# A cold local Cargo gate can fan out enough compiler jobs to exhaust the
+# machine before systemd-oomd gets a chance to intervene. Keep the override
+# explicit and bounded: CI_GATE_CARGO_BUILD_JOBS is the ONLY operator input,
+# malformed/non-positive values are rejected, and values above this hard local
+# maximum are clamped rather than allowed to create an unsafe escape hatch.
+MAX_LOCAL_CARGO_BUILD_JOBS = 8
+CI_GATE_CARGO_BUILD_JOBS_ENV = "CI_GATE_CARGO_BUILD_JOBS"
+_STRICT_POSITIVE_INTEGER_RE = re.compile(r"[1-9][0-9]*\Z")
+
+
+def resolve_cargo_build_jobs(
+    *,
+    override: str | None = None,
+    detected_cpus: int | None = None,
+) -> int:
+    """Resolve the bounded Cargo parallelism used by local workflow steps.
+
+    ``override`` is primarily a test seam; in normal execution it is read
+    from ``CI_GATE_CARGO_BUILD_JOBS``. The value is intentionally parsed
+    strictly (no whitespace, sign, decimal, or empty string), and values over
+    :data:`MAX_LOCAL_CARGO_BUILD_JOBS` are clamped to that hard ceiling.
+    Without an override, use ``min(4, detected CPUs)`` with a floor of one;
+    ``os.cpu_count()`` returning ``None`` is treated as one CPU.
+    """
+    if override is None:
+        override = os.environ.get(CI_GATE_CARGO_BUILD_JOBS_ENV)
+    if override is not None:
+        if not _STRICT_POSITIVE_INTEGER_RE.fullmatch(override):
+            raise ValueError(
+                f"{CI_GATE_CARGO_BUILD_JOBS_ENV} must be a strict positive integer "
+                f"(got {override!r})"
+            )
+        return min(int(override), MAX_LOCAL_CARGO_BUILD_JOBS)
+
+    if detected_cpus is None:
+        detected_cpus = os.cpu_count()
+    return max(1, min(4, detected_cpus or 1))
+
 
 STEP_TIMEOUT_SECS = int(os.environ.get("CI_GATE_STEP_TIMEOUT_SECS", "3600"))
 
@@ -281,7 +333,11 @@ def _matrix_combinations(matrix: dict | None) -> list[dict]:
     dropping a leg."""
     if not matrix:
         return [{}]
-    axes = {k: v for k, v in matrix.items() if k not in ("include", "exclude") and isinstance(v, list)}
+    axes = {
+        k: v
+        for k, v in matrix.items()
+        if k not in ("include", "exclude") and isinstance(v, list)
+    }
     combos: list[dict] = []
     if axes:
         combos = [{}]
@@ -346,7 +402,12 @@ def _job_steps(job: dict) -> list[dict]:
     if "steps" in job:
         return job.get("steps") or []
     if job.get("uses"):
-        return [{"uses": job["uses"], "name": job.get("name") or f"(reusable workflow: {job['uses']})"}]
+        return [
+            {
+                "uses": job["uses"],
+                "name": job.get("name") or f"(reusable workflow: {job['uses']})",
+            }
+        ]
     return []
 
 
@@ -363,7 +424,10 @@ def load_workflow(path: Path) -> dict:
     with open(path, encoding="utf-8") as f:
         doc = yaml.safe_load(f)
     if not isinstance(doc, dict) or "jobs" not in doc:
-        print(f"FATAL: {path} did not parse into a workflow with a top-level 'jobs:' map", file=sys.stderr)
+        print(
+            f"FATAL: {path} did not parse into a workflow with a top-level 'jobs:' map",
+            file=sys.stderr,
+        )
         sys.exit(90)
     return doc
 
@@ -379,8 +443,14 @@ def classify_step(step: dict) -> tuple[str, str]:
     if name in ARTIFACT_IO_ACTIONS:
         return "ARTIFACT_IO", uses
     if ".github/workflows/" in uses:
-        return "SKIP_LOUD", f"reusable workflow '{uses}' has no local runner equivalent — not executed here"
-    return "SKIP_LOUD", f"marketplace action '{uses}' has no local equivalent — not executed here"
+        return (
+            "SKIP_LOUD",
+            f"reusable workflow '{uses}' has no local runner equivalent — not executed here",
+        )
+    return (
+        "SKIP_LOUD",
+        f"marketplace action '{uses}' has no local equivalent — not executed here",
+    )
 
 
 def build_plan_for_workflow(
@@ -427,7 +497,9 @@ def build_plan_for_workflow(
                 else:
                     mode, detail = classify_step(step2)
                     if mode == "RUN":
-                        toolchain_reason = check_toolchain_requirements(detail, feature_table)
+                        toolchain_reason = check_toolchain_requirements(
+                            detail, feature_table
+                        )
                         if toolchain_reason is not None:
                             mode, detail = "TOOLCHAIN_MISSING", toolchain_reason
                 plan.append(
@@ -506,7 +578,9 @@ def _parse_cargo_config_sections(text: str) -> list[tuple[str, str, str]]:
             pending_value += " " + stripped
             depth += stripped.count("[") - stripped.count("]")
             if depth <= 0:
-                results.append((section, (pending_key or "").strip("'\""), pending_value))
+                results.append(
+                    (section, (pending_key or "").strip("'\""), pending_value)
+                )
                 pending_key, pending_value, depth = None, "", 0
     return results
 
@@ -543,7 +617,9 @@ def find_required_build_binaries(cargo_config_path: Path) -> list[tuple[str, str
             for m in _FUSE_LD_RE.finditer(value):
                 found.append((m.group(1), f"[{section}] rustflags -fuse-ld"))
             for m in _C_LINKER_RE.finditer(value):
-                found.append((Path(m.group(1)).name, f"[{section}] rustflags -C linker"))
+                found.append(
+                    (Path(m.group(1)).name, f"[{section}] rustflags -C linker")
+                )
     return found
 
 
@@ -558,7 +634,9 @@ def _binary_referenced_in_workflow(binary: str, workflow_text: str) -> bool:
     return re.search(rf"\b{re.escape(binary)}\b", workflow_text) is not None
 
 
-def check_build_tool_dependencies(cargo_config_path: Path, workflow_texts: dict[str, str]) -> list[str]:
+def check_build_tool_dependencies(
+    cargo_config_path: Path, workflow_texts: dict[str, str]
+) -> list[str]:
     """Returns a list of human-readable problems (empty = clean). Each
     problem names the missing binary, where the .cargo/config.toml
     dependency comes from, and which workflow file(s) run cargo but never
@@ -571,7 +649,8 @@ def check_build_tool_dependencies(cargo_config_path: Path, workflow_texts: dict[
         missing_in = sorted(
             wf
             for wf, text in workflow_texts.items()
-            if re.search(r"\bcargo\b", text) and not _binary_referenced_in_workflow(binary, text)
+            if re.search(r"\bcargo\b", text)
+            and not _binary_referenced_in_workflow(binary, text)
         )
         if missing_in:
             try:
@@ -671,7 +750,9 @@ TOOLCHAIN_FEATURE_REQUIREMENTS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
-def _load_cargo_features(cargo_toml_path: Path = CARGO_TOML_PATH) -> dict[str, list[str]]:
+def _load_cargo_features(
+    cargo_toml_path: Path = CARGO_TOML_PATH,
+) -> dict[str, list[str]]:
     """Parse a Cargo.toml's `[features]` table with the stdlib TOML parser
     (this is ordinary, well-formed TOML — unlike .cargo/config.toml's
     narrower dialect, no hand-rolled parser is needed or appropriate here).
@@ -706,15 +787,23 @@ def _extract_requested_features(run_text: str) -> tuple[set[str], bool]:
             all_features = True
         elif tok in ("--features", "-F"):
             if i + 1 < len(tokens):
-                features.update(v.strip() for v in re.split(r"[,\s]+", tokens[i + 1]) if v.strip())
+                features.update(
+                    v.strip() for v in re.split(r"[,\s]+", tokens[i + 1]) if v.strip()
+                )
                 i += 1
         elif tok.startswith("--features="):
-            features.update(v.strip() for v in re.split(r"[,\s]+", tok[len("--features=") :]) if v.strip())
+            features.update(
+                v.strip()
+                for v in re.split(r"[,\s]+", tok[len("--features=") :])
+                if v.strip()
+            )
         i += 1
     return features, all_features
 
 
-def _expand_features(requested: set[str], feature_table: dict[str, list[str]], all_features: bool) -> set[str]:
+def _expand_features(
+    requested: set[str], feature_table: dict[str, list[str]], all_features: bool
+) -> set[str]:
     """Transitively resolve a set of requested cargo feature names through
     the workspace `[features]` graph, e.g. `full-extras` -> {full-extras,
     full, gpu-cuda, ros2-bridge, ros2-dds, ros2-rmw, ...}. `--all-features`
@@ -743,7 +832,9 @@ def _expand_features(requested: set[str], feature_table: dict[str, list[str]], a
     return seen
 
 
-def check_toolchain_requirements(run_text: str, feature_table: dict[str, list[str]]) -> str | None:
+def check_toolchain_requirements(
+    run_text: str, feature_table: dict[str, list[str]]
+) -> str | None:
     """Returns a human reason string naming the first missing required tool
     if `run_text` invokes cargo requesting, directly or transitively, a
     workspace feature TOOLCHAIN_FEATURE_REQUIREMENTS documents as needing an
@@ -806,7 +897,9 @@ def build_affecting_files(paths: list[str]) -> list[str]:
     return [p for p in paths if is_build_affecting(p)]
 
 
-def diff_touches_build_affecting_files(base_ref: str, repo_root: Path = REPO_ROOT) -> tuple[bool, list[str]]:
+def diff_touches_build_affecting_files(
+    base_ref: str, repo_root: Path = REPO_ROOT
+) -> tuple[bool, list[str]]:
     """(is_it_safe_to_skip, matched_paths). Compares the working tree
     (including staged and unstaged changes) against base_ref. Safe to skip
     means the diff touches NONE of BUILD_AFFECTING_FILE_PATTERNS."""
@@ -844,14 +937,20 @@ def consistency_check(
     if unregistered:
         ok = False
         if verbose:
-            print("CONSISTENCY CHECK FAILED — workflow file(s) present but not in WORKFLOW_REGISTRY:")
+            print(
+                "CONSISTENCY CHECK FAILED — workflow file(s) present but not in WORKFLOW_REGISTRY:"
+            )
             for f in unregistered:
                 print(f"  - {f!r}")
-            print("Add a WorkflowSpec entry for it in scripts/ci_gate_replica.py's WORKFLOW_REGISTRY.")
+            print(
+                "Add a WorkflowSpec entry for it in scripts/ci_gate_replica.py's WORKFLOW_REGISTRY."
+            )
     if stale_registrations:
         ok = False
         if verbose:
-            print("CONSISTENCY CHECK FAILED — WORKFLOW_REGISTRY names workflow file(s) that no longer exist:")
+            print(
+                "CONSISTENCY CHECK FAILED — WORKFLOW_REGISTRY names workflow file(s) that no longer exist:"
+            )
             for f in stale_registrations:
                 print(f"  - {f!r}")
             print("Remove the stale entry from WORKFLOW_REGISTRY.")
@@ -874,14 +973,20 @@ def consistency_check(
         if unclassified:
             ok = False
             if verbose:
-                print(f"CONSISTENCY CHECK FAILED — {fname} has job(s) this replica does not classify:")
+                print(
+                    f"CONSISTENCY CHECK FAILED — {fname} has job(s) this replica does not classify:"
+                )
                 for j in unclassified:
-                    print(f"  - {j!r} is in neither executable_jobs nor job_skip_reasons for {fname}")
+                    print(
+                        f"  - {j!r} is in neither executable_jobs nor job_skip_reasons for {fname}"
+                    )
                 print(f"Update WORKFLOW_REGISTRY[{fname!r}] to cover it.")
         if stale_jobs:
             ok = False
             if verbose:
-                print(f"CONSISTENCY CHECK FAILED — WORKFLOW_REGISTRY[{fname!r}] names job(s) no longer in {fname}:")
+                print(
+                    f"CONSISTENCY CHECK FAILED — WORKFLOW_REGISTRY[{fname!r}] names job(s) no longer in {fname}:"
+                )
                 for j in stale_jobs:
                     print(f"  - {j!r}")
                 print(f"Remove the stale entry from WORKFLOW_REGISTRY[{fname!r}].")
@@ -893,7 +998,9 @@ def consistency_check(
             for fname in WORKFLOW_REGISTRY
             if (workflows_dir / fname).is_file()
         }
-    build_tool_problems = check_build_tool_dependencies(cargo_config_path, workflow_texts)
+    build_tool_problems = check_build_tool_dependencies(
+        cargo_config_path, workflow_texts
+    )
     if build_tool_problems:
         ok = False
         if verbose:
@@ -914,7 +1021,11 @@ def consistency_check(
     return ok
 
 
-def _run_step(run_text: str, job_env: dict) -> tuple[object, float]:
+def _run_step(
+    run_text: str,
+    job_env: dict,
+    cargo_build_jobs: int | None = None,
+) -> tuple[object, float]:
     cmd_text, stripped = _strip_gha_expressions(run_text)
     if stripped:
         print(f"    [gha-expr stripped to empty locally: {stripped}]")
@@ -926,6 +1037,21 @@ def _run_step(run_text: str, job_env: dict) -> tuple[object, float]:
         os.close(fd)
 
     env = dict(job_env)
+    # Inject this on every individual child process, rather than only once in
+    # the job base environment: a prior step may write CARGO_BUILD_JOBS via
+    # GITHUB_ENV, and an inherited/workflow value must never bypass the local
+    # resource ceiling. The shell text itself remains byte-for-byte unchanged.
+    if cargo_build_jobs is None:
+        cargo_build_jobs = resolve_cargo_build_jobs()
+    elif (
+        not isinstance(cargo_build_jobs, int)
+        or isinstance(cargo_build_jobs, bool)
+        or cargo_build_jobs < 1
+    ):
+        raise ValueError("cargo_build_jobs must be a positive integer")
+    else:
+        cargo_build_jobs = min(cargo_build_jobs, MAX_LOCAL_CARGO_BUILD_JOBS)
+    env["CARGO_BUILD_JOBS"] = str(cargo_build_jobs)
     env["GITHUB_ENV"] = env_path
     env["GITHUB_OUTPUT"] = out_path
     env["GITHUB_PATH"] = path_path
@@ -935,20 +1061,20 @@ def _run_step(run_text: str, job_env: dict) -> tuple[object, float]:
     status: object
     try:
         proc = subprocess.run(
-                ["bash", "-c", cmd_text],
-                cwd=REPO_ROOT,
-                env=env,
-                timeout=STEP_TIMEOUT_SECS,
-                # A replicated CI step is NON-INTERACTIVE by definition: on a real
-                # runner stdin is closed. Without this the child inherits OUR stdin,
-                # which under systemd-run/pre-commit never delivers EOF, so any step
-                # that reads input blocks for the FULL STEP_TIMEOUT_SECS (3600s)
-                # instead of failing immediately. Measured: a single pre-push run
-                # sat for 9.5 hours -- ~9 steps x 1h -- emitting nothing, because
-                # pre-commit buffers hook output until the hook exits, so it looked
-                # wedged rather than slow.
-                stdin=subprocess.DEVNULL,
-            )
+            ["bash", "-c", cmd_text],
+            cwd=REPO_ROOT,
+            env=env,
+            timeout=STEP_TIMEOUT_SECS,
+            # A replicated CI step is NON-INTERACTIVE by definition: on a real
+            # runner stdin is closed. Without this the child inherits OUR stdin,
+            # which under systemd-run/pre-commit never delivers EOF, so any step
+            # that reads input blocks for the FULL STEP_TIMEOUT_SECS (3600s)
+            # instead of failing immediately. Measured: a single pre-push run
+            # sat for 9.5 hours -- ~9 steps x 1h -- emitting nothing, because
+            # pre-commit buffers hook output until the hook exits, so it looked
+            # wedged rather than slow.
+            stdin=subprocess.DEVNULL,
+        )
         status = proc.returncode
     except subprocess.TimeoutExpired:
         status = "TIMEOUT"
@@ -1000,7 +1126,12 @@ def _local_hygiene() -> None:
         if p.exists():
             shutil.rmtree(p, ignore_errors=True)
             removed.append(pattern)
-    for pattern in ("numdist-primary", "numdist-reproduction", "dist-primary", "dist-reproduction"):
+    for pattern in (
+        "numdist-primary",
+        "numdist-reproduction",
+        "dist-primary",
+        "dist-reproduction",
+    ):
         p = REPO_ROOT / pattern
         if p.exists():
             shutil.rmtree(p, ignore_errors=True)
@@ -1010,9 +1141,15 @@ def _local_hygiene() -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--consistency-check", action="store_true", help="only run the anti-drift check")
-    ap.add_argument("--dry-run", action="store_true", help="print the execution plan; run nothing")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--consistency-check", action="store_true", help="only run the anti-drift check"
+    )
+    ap.add_argument(
+        "--dry-run", action="store_true", help="print the execution plan; run nothing"
+    )
     ap.add_argument(
         "--skip-safe",
         nargs="?",
@@ -1020,18 +1157,43 @@ def main() -> int:
         metavar="BASE_REF",
         help="print whether skipping this gate is safe for the diff vs BASE_REF (default HEAD); exit 0 if safe, 1 if not",
     )
-    ap.add_argument("--workflows-dir", type=Path, default=WORKFLOWS_DIR, help="override the workflows directory (testing)")
+    ap.add_argument(
+        "--workflows-dir",
+        type=Path,
+        default=WORKFLOWS_DIR,
+        help="override the workflows directory (testing)",
+    )
     args = ap.parse_args()
 
     if args.skip_safe is not None:
         safe, hits = diff_touches_build_affecting_files(args.skip_safe)
         if safe:
-            print(f"SKIP-SAFE: no build-affecting files changed vs {args.skip_safe!r}; skipping ci-gate-replica is safe.")
+            print(
+                f"SKIP-SAFE: no build-affecting files changed vs {args.skip_safe!r}; skipping ci-gate-replica is safe."
+            )
             return 0
-        print(f"NOT SKIP-SAFE: build-affecting file(s) changed vs {args.skip_safe!r}; do NOT skip ci-gate-replica:")
+        print(
+            f"NOT SKIP-SAFE: build-affecting file(s) changed vs {args.skip_safe!r}; do NOT skip ci-gate-replica:"
+        )
         for h in hits:
             print(f"  - {h}")
         return 1
+
+    detected_cpus = os.cpu_count()
+    try:
+        cargo_build_jobs = resolve_cargo_build_jobs(detected_cpus=detected_cpus)
+    except ValueError as exc:
+        print(
+            f"FATAL: local Cargo resource configuration is invalid: {exc}",
+            file=sys.stderr,
+        )
+        return 2
+
+    print(
+        f"=== ci_gate_replica.py START {datetime.datetime.now(datetime.timezone.utc).isoformat()} "
+        f"nproc={detected_cpus} cargo_build_jobs={cargo_build_jobs} "
+        f"cargo_build_jobs_max={MAX_LOCAL_CARGO_BUILD_JOBS} ==="
+    )
 
     ok = consistency_check(workflows_dir=args.workflows_dir)
 
@@ -1039,8 +1201,12 @@ def main() -> int:
         return 0 if ok else 1
 
     if not ok:
-        print("\nRefusing to run the gate: the consistency check above failed. This IS the")
-        print("anti-drift guard working as intended — fix the classification, don't bypass it.")
+        print(
+            "\nRefusing to run the gate: the consistency check above failed. This IS the"
+        )
+        print(
+            "anti-drift guard working as intended — fix the classification, don't bypass it."
+        )
         return 1
 
     all_plan: list[dict] = []
@@ -1071,27 +1237,37 @@ def main() -> int:
             job_envs[key] = _job_base_env(docs[item["workflow"]], base_job_id)
         return job_envs[key]
 
-    print(f"=== ci_gate_replica.py START {datetime.datetime.now(datetime.timezone.utc).isoformat()} nproc={os.cpu_count()} ===")
-
     results: list[dict] = []
     for item in all_plan:
         mode = item["mode"]
         if mode == "RUN":
             if args.dry_run:
-                print(f"[DRY-RUN] would RUN [{item['workflow']}:{item['job']}] {item['name']}")
+                print(
+                    f"[DRY-RUN] would RUN [{item['workflow']}:{item['job']}] {item['name']}"
+                )
                 results.append({**item, "status": "DRY_RUN", "elapsed": 0.0})
                 continue
-            print(f"\n############### STEP [{item['workflow']}:{item['job']}] {item['name']} ###############")
-            status, elapsed = _run_step(item["detail"], env_for(item))
-            print(f"### STEP_RESULT job={item['job']} name={item['name']!r} exit={status} secs={elapsed:.1f}")
+            print(
+                f"\n############### STEP [{item['workflow']}:{item['job']}] {item['name']} ###############"
+            )
+            status, elapsed = _run_step(item["detail"], env_for(item), cargo_build_jobs)
+            print(
+                f"### STEP_RESULT job={item['job']} name={item['name']!r} exit={status} secs={elapsed:.1f}"
+            )
             results.append({**item, "status": status, "elapsed": elapsed})
         elif mode == "ENV_SETUP":
             results.append({**item, "status": "ENV_SETUP", "elapsed": 0.0})
         elif mode == "ARTIFACT_IO":
             results.append({**item, "status": "ARTIFACT_IO", "elapsed": 0.0})
         else:
-            tag = "TOOLCHAIN ABSENT LOCALLY" if mode == "TOOLCHAIN_MISSING" else "NOT VALIDATED LOCALLY"
-            print(f"\n### {tag} [{item['workflow']}:{item['job']}] {item['name']}\n    reason: {item['detail']}")
+            tag = (
+                "TOOLCHAIN ABSENT LOCALLY"
+                if mode == "TOOLCHAIN_MISSING"
+                else "NOT VALIDATED LOCALLY"
+            )
+            print(
+                f"\n### {tag} [{item['workflow']}:{item['job']}] {item['name']}\n    reason: {item['detail']}"
+            )
             results.append({**item, "status": "NOT_VALIDATED_LOCALLY", "elapsed": 0.0})
 
     print("\n################ SUMMARY ################")
@@ -1100,7 +1276,9 @@ def main() -> int:
     for r in results:
         status = r["status"]
         label = f"{r['workflow']}:{r['job']}"
-        print(f"{label:36s} {r['name'][:56]:56s} status={str(status):22s} secs={r['elapsed']:8.1f}")
+        print(
+            f"{label:36s} {r['name'][:56]:56s} status={str(status):22s} secs={r['elapsed']:8.1f}"
+        )
         bad = (isinstance(status, str) and status not in NON_BLOCKING_STATUSES) or (
             isinstance(status, int) and status != 0
         )
@@ -1117,12 +1295,18 @@ def main() -> int:
             "this host and are NOT a pass, never counted as one:"
         )
         for r in not_validated:
-            print(f"  - [{r['workflow']}:{r['job']}] {r['name']}\n      reason: {r['detail']}")
+            print(
+                f"  - [{r['workflow']}:{r['job']}] {r['name']}\n      reason: {r['detail']}"
+            )
 
     print(f"BLOCKING_FAIL={'1' if blocking_fail else '0'}")
-    print(f"ADVISORY_FAIL={'1' if advisory_fail else '0'} (never fails the pre-push gate — reported loudly only)")
+    print(
+        f"ADVISORY_FAIL={'1' if advisory_fail else '0'} (never fails the pre-push gate — reported loudly only)"
+    )
     print(f"OVERALL_FAIL={'1' if blocking_fail else '0'}")
-    print(f"=== SENTINEL_COMPLETE {datetime.datetime.now(datetime.timezone.utc).isoformat()} ===")
+    print(
+        f"=== SENTINEL_COMPLETE {datetime.datetime.now(datetime.timezone.utc).isoformat()} ==="
+    )
     return 1 if blocking_fail else 0
 
 
