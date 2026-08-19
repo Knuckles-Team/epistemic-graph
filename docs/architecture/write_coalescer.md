@@ -22,10 +22,12 @@ For each graph, a lazily-created **`GraphWriter`** (`src/write_coalescer.rs`) ow
 bounded `tokio::mpsc` channel and a single drain worker. Producers enqueue a
 `WriteOp` (carrying a `oneshot` reply) instead of taking the lock themselves; the
 worker greedily drains up to `max_batch` queued ops, opens **ONE** `core.txn()`,
-applies the whole batch under that single guard, then replies to each producer. So M
-concurrent writers cost **⌈M / batch⌉** lock acquisitions instead of M, while each op
-still gets its own result (an `add_edge` to a missing endpoint returns its own `Err`;
-CAS returns its own boolean).
+applies the whole batch under that single guard, then replies to each producer. A
+monotonic admission ticket is assigned while `try_send` is linearized, making the
+FIFO order explicit across concurrent producers. So M admitted writers cost
+**⌈M / batch⌉** lock acquisitions instead of M, while each op still gets its own
+result (an `add_edge` to a missing endpoint returns its own `Err`; CAS returns its
+own boolean).
 
 ```mermaid
 flowchart LR
@@ -44,7 +46,7 @@ flowchart LR
     P1 & P2 & P3 & Pn -->|"try_enqueue(op+oneshot)"| W
     W -->|"drain ≤ max_batch"| B["apply_batch: ONE core.txn()<br/>= ONE topo.write() acquisition"]
     B -->|"per-op WriteOutcome"| P1 & P2 & P3 & Pn
-    B -.full queue.-> FB["apply_one_inline (backpressure fallback)"]
+    B -.full queue.-> FB["BUSY (retry with backoff)"]
 
     classDef w fill:#e6f0ff,stroke:#4477cc;
 ```
@@ -64,8 +66,11 @@ graph — a future per-connector channel, or `__commons__` itself — gets its o
 The worker applies the canonical mutation under the transaction and returns its
 outcome. The authoritative redb commit, size gauges, audit, and CDC emission remain
 centralized in `dispatch::dispatch_graph_op`, run per operation against the returned
-`Response`. The coalesced and inline paths therefore share one commit-before-ack
-durability contract; only **where** the lock is taken changes.
+`Response`. A saturated queue returns `BUSY` before any mutation is attempted; there
+is no inline overflow path that could overtake an accepted ticket. The routed gateway
+(`src/server/routed_write_coalescer.rs`) uses the same ordered admission model for
+the complete prepare→durable-commit→RAM-publish sequence, including
+`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge` and CAS.
 
 ### CAS exactly-once is preserved
 
@@ -76,12 +81,26 @@ A decode failure short-circuits to `Bool(false)` without enqueuing — identical
 inline handler. (Regressions: `cas_is_exactly_once_under_coalescing`,
 `dispatch_cas_exactly_once_under_coalescing`.)
 
-### Backpressure — never a stall, never a drop
+### Backpressure — bounded and explicit
 
 `try_enqueue` is non-blocking. On a full bounded queue (or a gone worker) the op is
-handed BACK and applied inline under its own txn (`apply_one_inline`) — so a saturated
-worker degrades to the pre-coalescer behavior rather than stalling the reactor or
-losing a write.
+handed BACK and the request receives an explicit `BUSY` response. The unaccepted op
+is dropped without touching RAM or redb, while every accepted ticket continues
+through the sole FIFO drain. This keeps memory bounded and makes backpressure
+observable instead of allowing an inline request to overtake queued work.
+
+### Cancellation, crashes, and restart boundaries
+
+A queued request whose response receiver is canceled before the worker starts is
+dropped without polling its mutation future; its ticket is not a durable admission.
+Once a ticket starts, the worker completes the full durable-commit→RAM-publish→CDC
+sequence even if the caller disconnects, so a missing acknowledgement cannot leave a
+durably committed write unpublished. A panic in one job is converted into an error
+response and the worker continues draining later tickets. After process restart, the
+authoritative MutationBatch/redb record remains the source of truth: retry/reconcile
+installs its committed snapshot before acknowledging, and the in-memory coalescer
+starts a fresh ticket stream rather than inventing an ordering relationship with the
+old process.
 
 ## Auto-sizing (no per-connector knob)
 
@@ -131,6 +150,8 @@ reduction (the contention property), not a fixed wall-clock multiple.
 
 - `src/write_coalescer.rs` — `WriteOp`, `WriteOutcome`, `GraphWriter`,
   `WriteCoalescerRegistry`, `BatchStats`, `CoalescerConfig`.
+- `src/server/routed_write_coalescer.rs` — the durable routed-write queue,
+  ticket admission, cancellation/crash boundaries, and per-graph ordered drain.
 - `src/server/state.rs` — `ServerState.write_coalescer` field.
 - `src/server/dispatch.rs` — `try_coalesce_write` fast path in `dispatch_graph_op`.
 - `src/metrics.rs` — `write_batch_committed` + the two counters.

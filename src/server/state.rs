@@ -196,12 +196,12 @@ pub struct ServerState {
     /// automatically with a bounded hardware-sized queue.
     pub write_coalescer: Arc<crate::write_coalescer::WriteCoalescerRegistry>,
     /// Per-graph ROUTED-mutation coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18
-    /// rewrite). Used by `mutation::commit_coalescable_mutation` for the four
+    /// rewrite). Used by `mutation::commit_coalescable_mutation` for the five
     /// coalescable `GATEWAY_ROUTED` structural writes
-    /// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) — the ONLY live consumer
+    /// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/CAS) — the ONLY live consumer
     /// of coalescing today (`write_coalescer` above is kept for
     /// `dispatch::try_coalesce_write`'s pre-gateway fallback path, which is
-    /// unreachable for these same four methods since the mutation gateway now
+    /// unreachable for these same five methods since the mutation gateway now
     /// intercepts them first, but is left in place rather than removed as part
     /// of this fix). See `server::routed_write_coalescer`'s module docs for why
     /// this is a SEPARATE registry from `write_coalescer`: its worker queues

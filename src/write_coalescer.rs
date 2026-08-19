@@ -36,7 +36,7 @@
 //! unchanged; only WHERE the lock is taken moved.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
@@ -46,8 +46,9 @@ use crate::graph::GraphCore;
 
 /// Process-local coalescer counters for one graph: lock acquisitions (batches) vs
 /// the single-op writes those acquisitions applied. `ops / batches` is the average
-/// batch size = the lock-acquisitions-saved ratio. Shared (`Arc`) between the worker
-/// and the inline-fallback path so both are counted. Cheap relaxed atomics.
+/// batch size = the lock-acquisitions-saved ratio. Only admitted queue work is
+/// counted; a saturated queue is rejected before it can mutate RAM. Cheap relaxed
+/// atomics.
 #[derive(Debug, Default)]
 pub struct BatchStats {
     /// Topology-lock acquisitions on the coalesced path (= committed batches).
@@ -72,7 +73,7 @@ impl BatchStats {
 /// One queued structural write against a graph, with a reply channel. These mirror
 /// the five high-frequency single-op write methods that today each open their own
 /// one-shot txn; multi-step writes (BatchUpdate, ClearGraph, reasoning, …) keep
-/// their existing inline path — they already hold one txn for the whole operation,
+/// their existing single-call path — they already hold one txn for the whole operation,
 /// so coalescing buys them nothing.
 pub enum WriteOp {
     AddNode {
@@ -106,7 +107,7 @@ pub enum WriteOp {
 /// The result of applying one [`WriteOp`] under the batch txn, handed back to the
 /// producer so the dispatch shell can reconstruct the exact same `Response` it would
 /// have produced inline. The shell keys dirty/WAL off that `Response` (as it always
-/// did), so durability/checkpoint semantics are identical to the inline path.
+/// did), so durability/checkpoint semantics remain centralized at the caller.
 #[derive(Debug)]
 pub enum WriteOutcome {
     /// Op succeeded (add_node/remove_node/remove_edge — they never fail).
@@ -127,7 +128,7 @@ pub struct CoalescerConfig {
     /// lock (bounds the worst-case time any reader waits behind a batch).
     pub max_batch: usize,
     /// Bounded per-graph queue depth (backpressure: a full queue makes
-    /// `try_enqueue` fall back to the inline path rather than stall).
+    /// `try_enqueue` reject the write with an explicit `BUSY` response).
     pub queue_capacity: usize,
     /// Tiny linger after the first op in an empty batch, to let a burst coalesce.
     /// Auto-sized small (sub-millisecond default) so a lone write is not delayed.
@@ -163,20 +164,36 @@ impl Default for CoalescerConfig {
 pub struct GraphWriter {
     // CONCEPT:EG-KG.compute.parse-resolve-span — the channel carries the op's enqueue `Instant` alongside it so
     // the worker can record `write_lock_wait` = (lock acquired − enqueued). Stamped in
-    // `try_enqueue`/`apply_one_inline`, so producer call sites are unchanged.
-    tx: mpsc::Sender<(Instant, WriteOp)>,
+    // `try_enqueue`, so producer call sites can measure the true enqueue→acquire
+    // wait without an unordered overflow path.
+    tx: mpsc::Sender<(u64, Instant, WriteOp)>,
+    /// Serializes ticket assignment with `try_send`. Tokio's channel preserves
+    /// the order in which sends linearize; assigning the ticket under this same
+    /// guard makes that order explicit instead of relying on scheduler luck
+    /// between concurrent producers.
+    admission: Mutex<AdmissionState>,
     config: CoalescerConfig,
     stats: Arc<BatchStats>,
+}
+
+#[derive(Debug, Default)]
+struct AdmissionState {
+    next_ticket: u64,
 }
 
 impl GraphWriter {
     /// Spawn the drain worker for `core` (one Tokio task that owns the receiver and
     /// the only writer of this graph's topology lock on the coalesced path).
     pub fn spawn(graph_name: String, core: Arc<GraphCore>, config: CoalescerConfig) -> Arc<Self> {
-        let (tx, rx) = mpsc::channel::<(Instant, WriteOp)>(config.queue_capacity);
+        let (tx, rx) = mpsc::channel::<(u64, Instant, WriteOp)>(config.queue_capacity);
         let stats = Arc::new(BatchStats::default());
         tokio::spawn(run_worker(graph_name, core, rx, config, stats.clone()));
-        Arc::new(Self { tx, config, stats })
+        Arc::new(Self {
+            tx,
+            admission: Mutex::new(AdmissionState::default()),
+            config,
+            stats,
+        })
     }
 
     /// Coalescing counters for this graph (batches vs ops). Mainly for tests /
@@ -190,28 +207,32 @@ impl GraphWriter {
     ///
     /// * `Ok(())` — accepted; the worker will apply it under a batch txn and reply on
     ///   the op's oneshot.
-    /// * `Err(op)` — the bounded queue is full (backpressure) OR the worker is gone:
-    ///   the op (still owning its reply sender) is handed BACK so the caller applies
-    ///   it inline and replies itself. Coalescing is an optimization, never a stall.
+    /// * `Err(op)` — the bounded queue is full (backpressure) OR the worker is gone.
+    ///   The caller must reject the request with `BUSY`; it must NOT apply `op` inline.
+    ///   An accepted queue ticket is the sole authority for this graph's write order,
+    ///   so an overflow path cannot overtake work already admitted ahead of it.
     pub fn try_enqueue(&self, op: WriteOp) -> Result<(), WriteOp> {
+        // Ticket assignment and send linearize together. A producer that loses
+        // `try_send` receives its op back but never receives a ticket, so it is
+        // rejected rather than becoming an unordered inline write.
+        let mut admission = self
+            .admission
+            .lock()
+            .expect("write coalescer admission mutex poisoned");
+        if admission.next_ticket == u64::MAX {
+            return Err(op);
+        }
+        let ticket = admission.next_ticket;
         // CONCEPT:EG-KG.compute.parse-resolve-span — stamp the enqueue instant here (the moment the producer
         // hands the op off) so the worker measures the true enqueue→acquire wait.
-        match self.tx.try_send((Instant::now(), op)) {
-            Ok(()) => Ok(()),
-            Err(mpsc::error::TrySendError::Full((_, op)))
-            | Err(mpsc::error::TrySendError::Closed((_, op))) => Err(op),
+        match self.tx.try_send((ticket, Instant::now(), op)) {
+            Ok(()) => {
+                admission.next_ticket = ticket + 1;
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Full((_, _, op)))
+            | Err(mpsc::error::TrySendError::Closed((_, _, op))) => Err(op),
         }
-    }
-
-    /// Apply ONE op inline (the backpressure fallback when the worker's queue is
-    /// full): a single-op txn, identical to the engine's pre-coalescer convenience
-    /// methods. The op's oneshot is replied to here too, so the submitter awaits the
-    /// same channel whether the op was batched or applied inline. Counted in the
-    /// same stats as the batched path.
-    pub fn apply_one_inline(&self, core: &Arc<GraphCore>, graph_name: &str, op: WriteOp) {
-        // CONCEPT:EG-KG.compute.parse-resolve-span — stamp now; the inline fallback acquires the lock essentially
-        // immediately, so its recorded wait reflects only the (tiny) acquire cost.
-        apply_batch(core, graph_name, vec![(Instant::now(), op)], &self.stats);
     }
 
     /// The active batch size, for diagnostics/tests.
@@ -224,20 +245,38 @@ impl GraphWriter {
 async fn run_worker(
     graph_name: String,
     core: Arc<GraphCore>,
-    mut rx: mpsc::Receiver<(Instant, WriteOp)>,
+    mut rx: mpsc::Receiver<(u64, Instant, WriteOp)>,
     config: CoalescerConfig,
     stats: Arc<BatchStats>,
 ) {
     // CONCEPT:EG-KG.compute.parse-resolve-span — each entry carries its enqueue instant (set by `try_enqueue`).
     let mut batch: Vec<(Instant, WriteOp)> = Vec::with_capacity(config.max_batch);
+    let mut next_ticket = 0u64;
     while let Some(first) = rx.recv().await {
-        batch.push(first);
+        let (ticket, enqueued, op) = first;
+        assert_eq!(
+            ticket, next_ticket,
+            "write coalescer admission order must be contiguous"
+        );
+        next_ticket = next_ticket
+            .checked_add(1)
+            .expect("write coalescer ticket overflow");
+        batch.push((enqueued, op));
 
         // Greedily pull everything already queued (no await) up to max_batch — the
         // common firehose case where producers are ahead of the worker.
         while batch.len() < config.max_batch {
             match rx.try_recv() {
-                Ok(op) => batch.push(op),
+                Ok((ticket, enqueued, op)) => {
+                    assert_eq!(
+                        ticket, next_ticket,
+                        "write coalescer admission order must be contiguous"
+                    );
+                    next_ticket = next_ticket
+                        .checked_add(1)
+                        .expect("write coalescer ticket overflow");
+                    batch.push((enqueued, op));
+                }
                 Err(_) => break,
             }
         }
@@ -246,11 +285,29 @@ async fn run_worker(
         // in the same lock acquisition — but never longer than max_linger, so a lone
         // write is essentially undelayed.
         if batch.len() == 1 && config.max_linger > Duration::ZERO {
-            if let Ok(Some(op)) = tokio::time::timeout(config.max_linger, rx.recv()).await {
-                batch.push(op);
+            if let Ok(Some((ticket, enqueued, op))) =
+                tokio::time::timeout(config.max_linger, rx.recv()).await
+            {
+                assert_eq!(
+                    ticket, next_ticket,
+                    "write coalescer admission order must be contiguous"
+                );
+                next_ticket = next_ticket
+                    .checked_add(1)
+                    .expect("write coalescer ticket overflow");
+                batch.push((enqueued, op));
                 while batch.len() < config.max_batch {
                     match rx.try_recv() {
-                        Ok(op) => batch.push(op),
+                        Ok((ticket, enqueued, op)) => {
+                            assert_eq!(
+                                ticket, next_ticket,
+                                "write coalescer admission order must be contiguous"
+                            );
+                            next_ticket = next_ticket
+                                .checked_add(1)
+                                .expect("write coalescer ticket overflow");
+                            batch.push((enqueued, op));
+                        }
                         Err(_) => break,
                     }
                 }
@@ -499,17 +556,57 @@ mod tests {
             properties_msgpack: node_props(k),
             reply,
         };
-        // Mirror the dispatch fallback: inline-apply if the queue is full.
-        if let Err(op) = writer.try_enqueue(op) {
-            writer.apply_one_inline(&dummy_core(), "test", op);
-        }
+        assert!(
+            writer.try_enqueue(op).is_ok(),
+            "test admission should fit its bounded queue"
+        );
         rx.await.unwrap()
     }
 
-    fn dummy_core() -> Arc<GraphCore> {
-        // Only reached if try_enqueue ever fails in these tests (it shouldn't with an
-        // ample queue) — never used to apply against a *different* core in practice.
-        Arc::new(GraphCore::new())
+    /// The legacy RAM coalescer has the same bounded-admission contract as the
+    /// routed durable worker: a full queue rejects the op, rather than applying it
+    /// inline ahead of already accepted FIFO tickets.
+    #[tokio::test(flavor = "current_thread")]
+    async fn saturated_queue_rejects_without_inline_overtaking() {
+        let core = Arc::new(GraphCore::new());
+        let writer = GraphWriter::spawn(
+            "saturated-ram-order".into(),
+            core.clone(),
+            CoalescerConfig {
+                max_batch: 1,
+                queue_capacity: 2,
+                max_linger: Duration::ZERO,
+            },
+        );
+        let (first, first_rx) = oneshot::channel();
+        let (second, second_rx) = oneshot::channel();
+        let (third, third_rx) = oneshot::channel();
+        assert!(writer
+            .try_enqueue(WriteOp::AddNode {
+                node_id: "first".into(),
+                properties_msgpack: node_props(1),
+                reply: first,
+            })
+            .is_ok());
+        assert!(writer
+            .try_enqueue(WriteOp::AddNode {
+                node_id: "second".into(),
+                properties_msgpack: node_props(2),
+                reply: second,
+            })
+            .is_ok());
+        let rejected = writer.try_enqueue(WriteOp::AddNode {
+            node_id: "third".into(),
+            properties_msgpack: node_props(3),
+            reply: third,
+        });
+        assert!(rejected.is_err(), "full RAM queue must return BUSY to its caller");
+        drop(rejected);
+        assert!(third_rx.await.is_err(), "rejected RAM op must not be applied inline");
+        assert!(matches!(first_rx.await.unwrap(), WriteOutcome::Ok));
+        assert!(matches!(second_rx.await.unwrap(), WriteOutcome::Ok));
+        assert_eq!(core.node_count(), 2, "only accepted RAM tickets may mutate");
+        assert!(!core.has_node("third"), "overflow op must not overtake queued writes");
     }
 
     /// N producers writing distinct nodes to ONE graph must (a) all land (no lost
@@ -558,9 +655,7 @@ mod tests {
                 properties_msgpack: node_props(i as i64),
                 reply,
             };
-            if let Err(op) = writer.try_enqueue(op) {
-                writer.apply_one_inline(&core, "hot", op);
-            }
+            assert!(writer.try_enqueue(op).is_ok());
             receivers.push(rx);
         }
         for rx in receivers {
@@ -613,7 +708,7 @@ mod tests {
                 updates: ups,
                 reply,
             };
-            writer.try_enqueue(op).ok();
+            assert!(writer.try_enqueue(op).is_ok());
             assert!(matches!(rx.await.unwrap(), WriteOutcome::Cas(true)));
         }
 
@@ -634,7 +729,7 @@ mod tests {
                     updates: ups,
                     reply,
                 };
-                w.try_enqueue(op).ok();
+                assert!(w.try_enqueue(op).is_ok());
                 match rx.await.unwrap() {
                     WriteOutcome::Cas(b) => b,
                     other => panic!("unexpected outcome {other:?}"),
@@ -651,6 +746,97 @@ mod tests {
             count
         };
         assert_eq!(winners, 1, "EXACTLY ONE CAS claimer may win (exactly-once)");
+    }
+
+    /// Mixed structural mutations must observe the same FIFO admission order as
+    /// homogeneous batches. In particular, the CAS must see the node admitted by
+    /// the preceding AddNode, and the edge removals must not be allowed to run
+    /// before the AddEdge that they cancel.
+    #[tokio::test]
+    async fn mixed_mutations_share_one_ordered_admission() {
+        let core = Arc::new(GraphCore::new());
+        let writer = GraphWriter::spawn(
+            "mixed-order".into(),
+            core.clone(),
+            CoalescerConfig {
+                max_batch: 8,
+                queue_capacity: 8,
+                max_linger: Duration::ZERO,
+            },
+        );
+
+        let (add_a, add_a_rx) = oneshot::channel();
+        assert!(writer
+            .try_enqueue(WriteOp::AddNode {
+                node_id: "a".into(),
+                properties_msgpack: node_props(1),
+                reply: add_a,
+            })
+            .is_ok());
+        let (add_b, add_b_rx) = oneshot::channel();
+        assert!(writer
+            .try_enqueue(WriteOp::AddNode {
+                node_id: "b".into(),
+                properties_msgpack: node_props(2),
+                reply: add_b,
+            })
+            .is_ok());
+        let (add_edge, add_edge_rx) = oneshot::channel();
+        assert!(writer
+            .try_enqueue(WriteOp::AddEdge {
+                source_id: "a".into(),
+                target_id: "b".into(),
+                properties_msgpack: Vec::new(),
+                reply: add_edge,
+            })
+            .is_ok());
+
+        let mut conditions = serde_json::Map::new();
+        conditions.insert("k".into(), serde_json::json!(2));
+        let mut updates = serde_json::Map::new();
+        updates.insert("owner".into(), serde_json::json!("worker-1"));
+        let (cas, cas_rx) = oneshot::channel();
+        assert!(writer
+            .try_enqueue(WriteOp::CompareAndSet {
+                node_id: "b".into(),
+                conditions,
+                updates,
+                reply: cas,
+            })
+            .is_ok());
+
+        let (remove_edge, remove_edge_rx) = oneshot::channel();
+        assert!(writer
+            .try_enqueue(WriteOp::RemoveEdge {
+                source_id: "a".into(),
+                target_id: "b".into(),
+                reply: remove_edge,
+            })
+            .is_ok());
+        let (remove_a, remove_a_rx) = oneshot::channel();
+        assert!(writer
+            .try_enqueue(WriteOp::RemoveNode {
+                node_id: "a".into(),
+                reply: remove_a,
+            })
+            .is_ok());
+        let (remove_b, remove_b_rx) = oneshot::channel();
+        assert!(writer
+            .try_enqueue(WriteOp::RemoveNode {
+                node_id: "b".into(),
+                reply: remove_b,
+            })
+            .is_ok());
+
+        assert!(matches!(add_a_rx.await.unwrap(), WriteOutcome::Ok));
+        assert!(matches!(add_b_rx.await.unwrap(), WriteOutcome::Ok));
+        assert!(matches!(add_edge_rx.await.unwrap(), WriteOutcome::Ok));
+        assert!(matches!(cas_rx.await.unwrap(), WriteOutcome::Cas(true)));
+        assert!(matches!(remove_edge_rx.await.unwrap(), WriteOutcome::Ok));
+        assert!(matches!(remove_a_rx.await.unwrap(), WriteOutcome::Ok));
+        assert!(matches!(remove_b_rx.await.unwrap(), WriteOutcome::Ok));
+        assert_eq!(core.node_count(), 0, "ordered removals must be applied");
+        assert_eq!(core.edge_count(), 0, "ordered edge removal must be applied");
     }
 
     /// A brand-new graph name gets a writer automatically (lazy keyed creation) —
@@ -719,7 +905,6 @@ mod tests {
             let mut handles = Vec::with_capacity(PRODUCERS);
             for p in 0..PRODUCERS {
                 let w = writer.clone();
-                let c = co_core.clone();
                 handles.push(tokio::spawn(async move {
                     let mut pending = Vec::new();
                     for i in (p..N).step_by(PRODUCERS) {
@@ -729,17 +914,23 @@ mod tests {
                             properties_msgpack: node_props(i as i64),
                             reply,
                         };
-                        // Backpressure: if the bounded queue is full, drain a few
-                        // replies before retrying (never block the worker forever).
-                        match w.try_enqueue(op) {
-                            Ok(()) => pending.push(rx),
-                            Err(op) => {
-                                w.apply_one_inline(&c, "bench", op);
-                                pending.push(rx);
-                                // Let the worker catch up on the backlog.
-                                if let Some(front) = pending.drain(..pending.len() / 2).next_back()
-                                {
-                                    let _ = front.await;
+                        // Backpressure: if the bounded queue is full, drain a
+                        // reply before retrying the SAME op. It is never applied
+                        // inline, because that could overtake an accepted ticket.
+                        let mut op = op;
+                        loop {
+                            match w.try_enqueue(op) {
+                                Ok(()) => {
+                                    pending.push(rx);
+                                    break;
+                                }
+                                Err(returned) => {
+                                    op = returned;
+                                    if let Some(front) = pending.pop() {
+                                        let _ = front.await;
+                                    } else {
+                                        tokio::task::yield_now().await;
+                                    }
                                 }
                             }
                         }
@@ -805,12 +996,13 @@ mod tests {
         // over new_core.
         let w2 = reg.writer_for("g", &new_core);
         let (reply, rx) = oneshot::channel();
-        w2.try_enqueue(WriteOp::AddNode {
-            node_id: "x".into(),
-            properties_msgpack: node_props(1),
-            reply,
-        })
-        .ok();
+        assert!(w2
+            .try_enqueue(WriteOp::AddNode {
+                node_id: "x".into(),
+                properties_msgpack: node_props(1),
+                reply,
+            })
+            .is_ok());
         let _ = rx.await;
         assert!(
             new_core.has_node("x"),
@@ -859,9 +1051,7 @@ mod tests {
                 node_id: "drop".into(),
                 reply,
             };
-            if let Err(op) = writer.try_enqueue(op) {
-                writer.apply_one_inline(&core, "g", op);
-            }
+            assert!(writer.try_enqueue(op).is_ok());
             assert!(matches!(rx.await.unwrap(), WriteOutcome::Ok));
         }
         // Barrier op — its completion guarantees the RemoveNode batch fully drained.
@@ -928,9 +1118,7 @@ mod tests {
                 node_id: format!("n{i}"),
                 reply,
             };
-            if let Err(op) = writer.try_enqueue(op) {
-                writer.apply_one_inline(&core, "g", op);
-            }
+            assert!(writer.try_enqueue(op).is_ok());
             let _ = rx.await;
         }
         reader.await.unwrap();
