@@ -277,6 +277,45 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Atomic,
         },
+        Method::SubmitWorkItem { .. } | Method::SubmitWorkItems { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::GraphRedb,
+            authz_action: "work:submit",
+            idempotent: true,
+            audited: true,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
+        },
+        Method::AcquireCapacity { .. }
+        | Method::RenewCapacity { .. }
+        | Method::ReleaseCapacity { .. }
+        | Method::ReclaimExpiredCapacity { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::GraphRedb,
+            authz_action: "capacity:lease",
+            idempotent: true,
+            audited: true,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
+        },
+        Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. } => MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::None,
+            authz_action: "capacity:read",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Snapshot,
+        },
+        Method::UpdateCapacityCell { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::GraphRedb,
+            authz_action: "capacity:admin",
+            idempotent: true,
+            audited: true,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
+        },
         Method::MintWorkItemClaimCapability { .. } => MethodPolicy {
             mutates: true,
             durability_domain: DurabilityDomain::GraphRedb,
@@ -2380,6 +2419,15 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("BrokerAck", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::Outbox, authz_action: "broker:ack", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),
         ("BrokerReject", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::Outbox, authz_action: "broker:ack", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),
         ("ClaimWorkItem", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:claim", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "engine-native tenant/fair WorkItem lease claim"),
+        ("AcquireCapacity", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "capacity:lease", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "atomic multi-dimensional capacity admission with epoch/fence ownership"),
+        ("RenewCapacity", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "capacity:lease", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "bounded all-or-nothing lease renewal"),
+        ("ReleaseCapacity", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "capacity:lease", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "bounded all-or-nothing lease release"),
+        ("ReclaimExpiredCapacity", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "capacity:lease", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "bounded expiry reclaim with native aggregate accounting"),
+        ("ReconcileCapacity", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "capacity:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "bounded native cells/leases reconciliation page"),
+        ("CapacityStatus", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "capacity:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "exact tenant-scoped native capacity status"),
+        ("UpdateCapacityCell", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "capacity:admin", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "controller epoch CAS for resource dimension/capacity policy"),
+        ("SubmitWorkItem", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:submit", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "native tenant-scoped WorkItem command-log admission and outbox commit"),
+        ("SubmitWorkItems", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:submit", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "bounded all-or-nothing WorkItem admission batch"),
         ("MintWorkItemClaimCapability", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:claim-capability", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "opaque native capability is retained in a private ledger and never projected"),
         ("VerifyWorkItemClaimCapability", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:claim-capability", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "linearizable live-lease check precedes private capability lookup"),
         ("RenewWorkItemLease", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "work:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "lease epoch and fencing token are validated atomically"),
@@ -2899,7 +2947,9 @@ mod smoke_tests {
         // `quantum`/`viz`): +1 when `tts-piper` is enabled. Landed on `main`
         // (a1f4025) WITHOUT this formula being updated -- the exact silent-
         // auto-merge trap this comment now closes; see the GOC-33 merge report.
-        let expected = 386
+        // Plus native WorkItem SubmitWorkItem(s) and capacity lease/controller
+        // operations (9 unconditional methods): 386 + 9 = 395.
+        let expected = 395
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))

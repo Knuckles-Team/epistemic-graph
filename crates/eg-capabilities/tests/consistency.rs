@@ -92,6 +92,13 @@ const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "CasWorkItemMetadata",
     "ClaimNext",
     "ClaimWorkItem",
+    "SubmitWorkItem",
+    "SubmitWorkItems",
+    "AcquireCapacity",
+    "RenewCapacity",
+    "ReleaseCapacity",
+    "ReclaimExpiredCapacity",
+    "UpdateCapacityCell",
     "MintWorkItemClaimCapability",
     "ClearGraph",
     "ClearLedger",
@@ -294,6 +301,13 @@ const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "FinishDevelopmentLane",
     "CleanupDevelopmentLane",
     "UpdateDevelopmentLaneQuota",
+    "SubmitWorkItem",
+    "SubmitWorkItems",
+    "AcquireCapacity",
+    "RenewCapacity",
+    "ReleaseCapacity",
+    "ReclaimExpiredCapacity",
+    "UpdateCapacityCell",
 ];
 
 /// Mirrors `src/mutation_apply.rs::is_durable_mutation`'s message-broker/stream true set.
@@ -353,6 +367,13 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "CasWorkItemMetadata",
     "ClaimNext",
     "ClaimWorkItem",
+    "SubmitWorkItem",
+    "SubmitWorkItems",
+    "AcquireCapacity",
+    "RenewCapacity",
+    "ReleaseCapacity",
+    "ReclaimExpiredCapacity",
+    "UpdateCapacityCell",
     "ClearGraph",
     "ClearLedger",
     "CompactNodesByType",
@@ -978,7 +999,9 @@ fn all_methods_table_has_the_expected_variant_count() {
     // `quantum`/`viz`): +1 when `tts-piper` is enabled. Landed on `main`
     // (a1f4025) WITHOUT this formula being updated -- the exact silent-
     // auto-merge trap this comment now closes; see the GOC-33 merge report.
-    let expected = 386
+    // Plus native WorkItem SubmitWorkItem(s) and capacity lease/controller
+    // operations (9 unconditional methods): 386 + 9 = 395.
+    let expected = 395
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

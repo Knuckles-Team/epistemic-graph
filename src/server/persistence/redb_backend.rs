@@ -531,6 +531,14 @@ pub(crate) enum Cmd {
         now_ms: u64,
         done: oneshot::Sender<Result<Vec<u8>, String>>,
     },
+    /// Native capacity-cell/lease mutation.  Like the development-lane
+    /// authority, this flushes queued graph mutations first and executes the
+    /// complete CAS/usage update in one writer-owned immediate transaction.
+    CommitCapacityLease {
+        graph: String,
+        method: Box<Method>,
+        done: oneshot::Sender<Result<Vec<u8>, String>>,
+    },
     /// Engine-native governed ingest commit. This is deliberately one writer
     /// command so queue pressure can never split graph/material/governance state.
     ChangeEnvelopeCommit {
@@ -2129,6 +2137,14 @@ impl PersistenceBackend for RedbBackend {
         true
     }
 
+    fn supports_native_capacity_leases(&self) -> bool {
+        true
+    }
+
+    fn supports_native_work_item_submission(&self) -> bool {
+        true
+    }
+
     async fn load_all(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
         let n = self.load_into(state).await?;
         tracing::info!(
@@ -2887,6 +2903,52 @@ impl PersistenceBackend for RedbBackend {
             .map_err(|_| "redb writer thread is gone".to_string())?;
         rx.await
             .map_err(|_| "redb writer dropped development-lane commit completion".to_string())?
+    }
+
+    async fn commit_capacity_lease(
+        &self,
+        graph_fname: &str,
+        method: Method,
+    ) -> Result<Vec<u8>, String> {
+        let (done, rx) = oneshot::channel();
+        let cmd = Cmd::CommitCapacityLease {
+            graph: graph_fname.to_string(),
+            method: Box::new(method),
+            done,
+        };
+        let send = if self.catalog.is_some() {
+            let guard = self.routing_epoch.clone().read_owned().await;
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || {
+                let _routing = guard;
+                tx.send(cmd).map_err(|_| ())
+            })
+            .await
+        } else {
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ())).await
+        };
+        send.map_err(|error| format!("capacity lease commit join error: {error}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped capacity lease completion".to_string())?
+    }
+
+    async fn read_capacity_status(
+        &self,
+        graph_fname: &str,
+        request: &crate::native_control::CapacityStatusRequest,
+    ) -> Result<crate::native_control::CapacityStatusResult, String> {
+        let shard = self.shard_for(graph_fname);
+        let db = shard
+            .db
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
+        #[cfg(not(feature = "security"))]
+        let crypto = crate::redb_store::DurableCrypto::none();
+        crate::redb_store::capacity_lease::read(&db, graph_fname, request, crypto)
     }
 
     /// Exact authenticated native development-lane hold/tombstone read (RMDD-28).
@@ -4335,6 +4397,23 @@ fn handle_cmd(
             flush(pending);
             let res = crate::redb_store::development_lane::commit_development_lane(
                 db, &graph, &method, now_ms, crypto,
+            );
+            let _ = done.send(res);
+            false
+        }
+        Cmd::CommitCapacityLease {
+            graph,
+            method,
+            done,
+        } => {
+            flush(pending);
+            let res = crate::redb_store::capacity_lease::commit(
+                db,
+                &graph,
+                &method,
+                crypto,
+                #[cfg(feature = "security")]
+                &mut pending.audit_tail,
             );
             let _ = done.send(res);
             false
