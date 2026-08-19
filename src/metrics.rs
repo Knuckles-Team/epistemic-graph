@@ -85,6 +85,10 @@ mod imp {
         m
     }
 
+    fn bounded_i64(value: u64) -> i64 {
+        value.min(i64::MAX as u64) as i64
+    }
+
     // CONCEPT:EG-OS.observability.write-lock-gap-histogram — write-lock-gap bucket layout. The starvation we measure
     // (semantic_search 0.02s idle → 14s under the `__commons__` firehose) spans
     // five orders of magnitude: an uncontended batch holds the topology lock for
@@ -348,6 +352,34 @@ mod imp {
              resident — by graph",
             &["graph"],
         );
+        // ResourceStats publishes these process-wide signals without a graph
+        // label.  They are intentionally aggregate-only so a telemetry scan
+        // cannot create a metric series for a graph the caller was not allowed
+        // to enumerate.
+        static ref EFFECTIVE_CPU_CORES: IntGauge = gauge(
+            "epistemic_graph_effective_cpu_cores",
+            "Effective cgroup-aware CPU lanes after automatic headroom",
+        );
+        static ref EFFECTIVE_MEMORY_LIMIT_BYTES: IntGauge = gauge(
+            "epistemic_graph_effective_memory_limit_bytes",
+            "Effective cgroup-aware RAM after automatic headroom",
+        );
+        static ref PROCESS_RSS_BYTES: IntGauge = gauge(
+            "epistemic_graph_process_rss_bytes",
+            "Current process RSS in bytes",
+        );
+        static ref COALESCER_QUEUE_DEPTH: IntGauge = gauge(
+            "epistemic_graph_write_coalescer_queue_depth",
+            "Structural writes waiting in bounded per-graph coalescer queues",
+        );
+        static ref COALESCER_QUEUE_BYTES: IntGauge = gauge(
+            "epistemic_graph_write_coalescer_queue_bytes",
+            "Approximate bytes held by bounded per-graph coalescer queues",
+        );
+        static ref COALESCER_OPERATIONS_TOTAL: IntGauge = gauge(
+            "epistemic_graph_write_coalescer_operations_total",
+            "Structural operations applied by the coalescer, including inline fallback",
+        );
         static ref BUDGET_EVICTIONS: IntCounter = counter(
             "epistemic_graph_budget_evictions_total",
             "LRU nodes evicted by the per-tenant memory-budget enforcer (the eviction \
@@ -513,6 +545,33 @@ mod imp {
             .set(hibernated as i64);
     }
 
+    /// Publish process-wide ResourceStats signals without introducing any
+    /// caller-visible graph labels.  The values are deliberately gauges because
+    /// they describe the current effective capacity/queue state; the operation
+    /// total is sourced from the coalescer's monotonic atomic and refreshed on
+    /// each snapshot.
+    pub fn set_resource_stats(
+        effective_cpu_cores: i64,
+        effective_memory_limit_bytes: i64,
+        process_rss_bytes: i64,
+        coalescer_queue_depth: i64,
+        coalescer_queue_bytes: i64,
+        coalescer_operations_total: i64,
+    ) {
+        EFFECTIVE_CPU_CORES.set(effective_cpu_cores);
+        EFFECTIVE_MEMORY_LIMIT_BYTES.set(effective_memory_limit_bytes);
+        PROCESS_RSS_BYTES.set(process_rss_bytes);
+        COALESCER_QUEUE_DEPTH.set(coalescer_queue_depth);
+        COALESCER_QUEUE_BYTES.set(coalescer_queue_bytes);
+        COALESCER_OPERATIONS_TOTAL.set(coalescer_operations_total);
+    }
+
+    pub fn set_coalescer_stats(queue_depth: u64, queue_bytes: u64, operations_total: u64) {
+        COALESCER_QUEUE_DEPTH.set(bounded_i64(queue_depth));
+        COALESCER_QUEUE_BYTES.set(bounded_i64(queue_bytes));
+        COALESCER_OPERATIONS_TOTAL.set(bounded_i64(operations_total));
+    }
+
     /// Record `n` LRU nodes evicted by the per-tenant budget enforcer (CONCEPT:EG-KG.compute.lane-v).
     pub fn budget_evicted(n: u64) {
         BUDGET_EVICTIONS.inc_by(n);
@@ -535,7 +594,26 @@ mod imp {
         let _ = GRAPH_OPS.remove_label_values(&[graph]);
         let _ = GRAPH_MEMORY_BYTES.remove_label_values(&[graph]);
         let _ = GRAPH_HIBERNATED.remove_label_values(&[graph]);
+        let _ = WRITE_BATCHES.remove_label_values(&[graph]);
+        let _ = WRITE_BATCHED_OPS.remove_label_values(&[graph]);
+        let _ = WRITE_LOCK_WAIT.remove_label_values(&[graph]);
+        let _ = WRITE_LOCK_HOLD.remove_label_values(&[graph]);
+
         SEEN_GRAPHS.lock().remove(graph);
+        // The overflow bucket is deliberately a single bounded aggregate, not
+        // a per-overflow-name set (which would itself grow to the million-graph
+        // target).  Removing it on every graph delete is safe: any still-live
+        // overflow graph recreates the one aggregate series on its next metric
+        // event, while a same-name recreate cannot inherit stale state.
+        let _ = GRAPH_NODES.remove_label_values(&[OVERFLOW_LABEL]);
+        let _ = GRAPH_EDGES.remove_label_values(&[OVERFLOW_LABEL]);
+        let _ = GRAPH_OPS.remove_label_values(&[OVERFLOW_LABEL]);
+        let _ = GRAPH_MEMORY_BYTES.remove_label_values(&[OVERFLOW_LABEL]);
+        let _ = GRAPH_HIBERNATED.remove_label_values(&[OVERFLOW_LABEL]);
+        let _ = WRITE_BATCHES.remove_label_values(&[OVERFLOW_LABEL]);
+        let _ = WRITE_BATCHED_OPS.remove_label_values(&[OVERFLOW_LABEL]);
+        let _ = WRITE_LOCK_WAIT.remove_label_values(&[OVERFLOW_LABEL]);
+        let _ = WRITE_LOCK_HOLD.remove_label_values(&[OVERFLOW_LABEL]);
     }
 
     pub fn checkpoint_completed(seconds: f64) {
@@ -654,6 +732,17 @@ mod imp {
 
     /// Render the full registry in Prometheus text exposition format.
     pub fn render() -> String {
+        // Ensure the process-wide autoscale families are registered even before
+        // the first ResourceStats RPC or coalescer event. Values remain zero
+        // until the authoritative telemetry path refreshes them.
+        let _ = (
+            &*EFFECTIVE_CPU_CORES,
+            &*EFFECTIVE_MEMORY_LIMIT_BYTES,
+            &*PROCESS_RSS_BYTES,
+            &*COALESCER_QUEUE_DEPTH,
+            &*COALESCER_QUEUE_BYTES,
+            &*COALESCER_OPERATIONS_TOTAL,
+        );
         let encoder = TextEncoder::new();
         let mut buf = Vec::new();
         if encoder.encode(&REGISTRY.gather(), &mut buf).is_err() {
@@ -683,6 +772,16 @@ mod imp {
     pub fn set_graph_size(_graph: &str, _nodes: i64, _edges: i64) {}
     pub fn set_graph_memory(_graph: &str, _bytes: i64) {}
     pub fn set_graph_hibernated(_graph: &str, _hibernated: bool) {}
+    pub fn set_resource_stats(
+        _effective_cpu_cores: i64,
+        _effective_memory_limit_bytes: i64,
+        _process_rss_bytes: i64,
+        _coalescer_queue_depth: i64,
+        _coalescer_queue_bytes: i64,
+        _coalescer_operations_total: i64,
+    ) {
+    }
+    pub fn set_coalescer_stats(_queue_depth: u64, _queue_bytes: u64, _operations_total: u64) {}
     pub fn budget_evicted(_n: u64) {}
     pub fn budget_hibernated() {}
     pub fn slow_query() {}
@@ -762,6 +861,7 @@ mod tests {
         // CONCEPT:EG-OS.observability.write-lock-gap-histogram — write-lock-gap histograms register + render.
         observe_write_lock_wait("agent:metrics-test", 0.003);
         observe_write_lock_hold("agent:metrics-test", 0.0005);
+        set_resource_stats(2, 1024, 2048, 3, 256, 10);
 
         let out = render();
         // Note: the per-graph label series (graph_ops_total{graph=...}, graph_nodes,
@@ -784,6 +884,12 @@ mod tests {
             "epistemic_graph_checkpoint_last_success_timestamp_seconds",
             "epistemic_graph_write_lock_wait_seconds_bucket",
             "epistemic_graph_write_lock_hold_seconds_bucket",
+            "epistemic_graph_effective_cpu_cores",
+            "epistemic_graph_effective_memory_limit_bytes",
+            "epistemic_graph_process_rss_bytes",
+            "epistemic_graph_write_coalescer_queue_depth",
+            "epistemic_graph_write_coalescer_queue_bytes",
+            "epistemic_graph_write_coalescer_operations_total",
         ] {
             assert!(out.contains(needle), "missing {needle} in:\n{out}");
         }
@@ -804,6 +910,23 @@ mod tests {
         // Deleting frees the slot and removes the series.
         drop_graph("agent:cardinality-0");
         assert!(!render().contains("graph=\"agent:cardinality-0\""));
+
+        // Deleting any graph clears the shared overflow series. Recreating a
+        // name after all tracked slots are freed must acquire a fresh bounded
+        // raw slot rather than inheriting stale `__overflow__` state.
+        for i in 1..200 {
+            drop_graph(&format!("agent:cardinality-{i}"));
+        }
+        assert!(
+            !render().contains("graph=\"__overflow__\""),
+            "last deleted overflow owner must clear every overflow series"
+        );
+        graph_op("agent:cardinality-recreated");
+        let recreated = render();
+        assert!(
+            recreated.contains("graph=\"agent:cardinality-recreated\""),
+            "a recreated graph should receive a fresh bounded label slot"
+        );
     }
 
     #[cfg(feature = "server")]

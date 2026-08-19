@@ -67,7 +67,9 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
 
 use crate::protocol::Response;
-use crate::write_coalescer::{BatchStats, CoalescerConfig};
+use crate::write_coalescer::{
+    operations_applied, queue_admitted, queue_released, BatchStats, CoalescerConfig,
+};
 
 /// Keep a panic-isolating child future from outliving the graph worker if the
 /// worker is canceled (for example during shutdown). Dropping a bare Tokio
@@ -143,6 +145,14 @@ impl RoutedCommitJob {
         self.request_id = request_id;
         self
     }
+
+    /// Conservative queue footprint for aggregate telemetry.  The future's
+    /// captured payload is intentionally opaque to this layer; counting the
+    /// job envelope still gives a bounded lower-bound signal without walking
+    /// arbitrary request data or allocating per-job metadata.
+    fn approx_bytes(&self) -> u64 {
+        std::mem::size_of::<Self>() as u64
+    }
 }
 
 /// Per-graph queue + single worker task for coalescable routed-write jobs.
@@ -200,13 +210,18 @@ impl RoutedGraphWriter {
             return Err(job);
         }
         let ticket = admission.next_ticket;
+        let queued_bytes = job.approx_bytes();
+        queue_admitted(queued_bytes);
         match self.tx.try_send((ticket, job)) {
             Ok(()) => {
                 admission.next_ticket = ticket + 1;
                 Ok(())
             }
             Err(mpsc::error::TrySendError::Full((_, job)))
-            | Err(mpsc::error::TrySendError::Closed((_, job))) => Err(job),
+            | Err(mpsc::error::TrySendError::Closed((_, job))) => {
+                queue_released(queued_bytes);
+                Err(job)
+            }
         }
     }
 
@@ -227,6 +242,7 @@ async fn run_worker(
     let mut batch: Vec<RoutedCommitJob> = Vec::with_capacity(config.max_batch);
     let mut next_ticket = 0u64;
     while let Some((ticket, first)) = rx.recv().await {
+        queue_released(first.approx_bytes());
         assert_eq!(
             ticket, next_ticket,
             "routed write coalescer admission order must be contiguous"
@@ -241,6 +257,7 @@ async fn run_worker(
         while batch.len() < config.max_batch {
             match rx.try_recv() {
                 Ok((ticket, job)) => {
+                    queue_released(job.approx_bytes());
                     assert_eq!(
                         ticket, next_ticket,
                         "routed write coalescer admission order must be contiguous"
@@ -261,6 +278,7 @@ async fn run_worker(
             if let Ok(Some((ticket, job))) =
                 tokio::time::timeout(config.max_linger, rx.recv()).await
             {
+                queue_released(job.approx_bytes());
                 assert_eq!(
                     ticket, next_ticket,
                     "routed write coalescer admission order must be contiguous"
@@ -272,6 +290,7 @@ async fn run_worker(
                 while batch.len() < config.max_batch {
                     match rx.try_recv() {
                         Ok((ticket, job)) => {
+                            queue_released(job.approx_bytes());
                             assert_eq!(
                                 ticket, next_ticket,
                                 "routed write coalescer admission order must be contiguous"
@@ -351,6 +370,7 @@ async fn flush_batch(graph_name: &str, batch: Vec<RoutedCommitJob>, stats: &Batc
         // stats().ops()` under concurrent load), even though each op still issued
         // its own separate durable commit.
         stats.record(n);
+        operations_applied(n);
     }
     .instrument(tracing::debug_span!(
         "routed_write_coalescer.flush_batch",
