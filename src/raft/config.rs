@@ -31,6 +31,15 @@ const ADVERTISED_CLIENT_ADDR_ENV: &str = "EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR
 /// client verifies against the address's own host (the TLS default) — zero
 /// friction for a deployment that doesn't need SNI override.
 const ADVERTISED_TLS_SERVER_NAME_ENV: &str = "EPISTEMIC_GRAPH_ADVERTISED_TLS_SERVER_NAME";
+/// Optional opaque certificate reference/fingerprint. Raw PEM/key material is
+/// never copied into the discovery record; this is only rotation metadata.
+const ADVERTISED_CERTIFICATE_ID_ENV: &str = "EPISTEMIC_GRAPH_ADVERTISED_CERTIFICATE_ID";
+const ADVERTISED_CERTIFICATE_ROTATION_EPOCH_ENV: &str =
+    "EPISTEMIC_GRAPH_ADVERTISED_CERTIFICATE_ROTATION_EPOCH";
+const ADVERTISED_CERTIFICATE_NOT_BEFORE_ENV: &str =
+    "EPISTEMIC_GRAPH_ADVERTISED_CERTIFICATE_NOT_BEFORE_MS";
+const ADVERTISED_CERTIFICATE_NOT_AFTER_ENV: &str =
+    "EPISTEMIC_GRAPH_ADVERTISED_CERTIFICATE_NOT_AFTER_MS";
 const MAX_ADVERTISED_FIELD_BYTES: usize = 1_024;
 
 /// Derived pre-shared key for the authenticated, encrypted Raft transport.
@@ -79,6 +88,11 @@ impl Drop for RaftTransportSecret {
 pub struct RaftClusterConfig {
     /// This node's id.
     pub node_id: NodeId,
+    /// Stable identity for the configured Raft cluster. This is derived from
+    /// the operator's explicit cluster-id reference when present, otherwise
+    /// from the initial peer authority; it is never supplied by a discovery
+    /// caller.
+    pub cluster_id: String,
     /// Every member (including self): id → Raft-RPC `host:port`.
     pub peers: PeerMap,
     /// The `host:port` this node binds its Raft-RPC listener to. Defaults to this
@@ -100,6 +114,12 @@ pub struct RaftClusterConfig {
     /// Optional TLS server name (SNI / cert hostname) a client should verify when
     /// connecting to `advertised_client_addr` over `tls://` (CONCEPT:EG-KG.sharding.cluster-topology).
     pub advertised_tls_server_name: Option<String>,
+    /// Opaque certificate reference/fingerprint metadata for discovery. It is
+    /// deliberately not certificate or private-key material.
+    pub advertised_certificate_id: Option<String>,
+    pub advertised_certificate_rotation_epoch: u64,
+    pub advertised_certificate_not_before_ms: Option<u64>,
+    pub advertised_certificate_not_after_ms: Option<u64>,
     /// Number of Raft groups THIS node stands up at boot (DIST-P2-2, CONCEPT:EG-KG.sharding.placement-catalog).
     /// `1` — the default when `EPISTEMIC_GRAPH_RAFT_GROUPS` is unset/absent — keeps
     /// production startup creating ONLY [`super::DEFAULT_GROUP`], byte-for-byte the
@@ -121,6 +141,7 @@ impl std::fmt::Debug for RaftClusterConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RaftClusterConfig")
             .field("node_id", &self.node_id)
+            .field("cluster_id", &self.cluster_id)
             .field("peer_count", &self.peers.len())
             .field("bind_addr", &"<redacted>")
             .field("advertised_client_addr", &"<redacted>")
@@ -205,17 +226,105 @@ impl RaftClusterConfig {
         // `ClusterMembers`/`PlacementRoute.endpoints` for this node forever.
         let advertised_client_addr = parse_advertised_client_addr()?;
         let advertised_tls_server_name = parse_advertised_tls_server_name()?;
+        let cluster_id = parse_cluster_id(&peers)?;
+        let (
+            advertised_certificate_id,
+            advertised_certificate_rotation_epoch,
+            advertised_certificate_not_before_ms,
+            advertised_certificate_not_after_ms,
+        ) = parse_certificate_metadata()?;
         Ok(Some(Self {
             node_id,
+            cluster_id,
             peers,
             bind_addr,
             advertised_client_addr,
             advertised_tls_server_name,
+            advertised_certificate_id,
+            advertised_certificate_rotation_epoch,
+            advertised_certificate_not_before_ms,
+            advertised_certificate_not_after_ms,
             is_bootstrap,
             groups,
             transport_secret,
         }))
     }
+}
+
+/// Resolve a stable cluster identity from operator configuration and the
+/// existing Raft peer authority. The optional environment value is an opaque
+/// deployment reference, not a caller-controlled RPC field; hashing it keeps
+/// the public discovery snapshot free of hostnames or secret material. When
+/// it is omitted, only stable configured member IDs are hashed: rotating a
+/// peer's endpoint must not rotate the cluster identity.
+fn parse_cluster_id(peers: &PeerMap) -> Result<String, String> {
+    let configured = std::env::var("EPISTEMIC_GRAPH_RAFT_CLUSTER_ID")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let mut hasher = Sha256::new();
+    hasher.update(b"epistemic-graph/cluster-id/v1\0");
+    if let Some(value) = configured {
+        if value.len() > MAX_ADVERTISED_FIELD_BYTES {
+            return Err("EPISTEMIC_GRAPH_RAFT_CLUSTER_ID exceeds resource limits".to_string());
+        }
+        hasher.update(value.as_bytes());
+    } else {
+        for node_id in peers.keys() {
+            hasher.update(node_id.to_be_bytes());
+        }
+    }
+    Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
+}
+
+fn parse_certificate_metadata(
+) -> Result<(Option<String>, u64, Option<u64>, Option<u64>), String> {
+    let certificate_id = std::env::var(ADVERTISED_CERTIFICATE_ID_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if certificate_id
+        .as_deref()
+        .is_some_and(|value| {
+            value.len() > MAX_ADVERTISED_FIELD_BYTES
+                || value.chars().any(|character| {
+                    character.is_whitespace() || character.is_control()
+                })
+        })
+    {
+        return Err(format!(
+            "{ADVERTISED_CERTIFICATE_ID_ENV} exceeds {MAX_ADVERTISED_FIELD_BYTES} bytes"
+        ));
+    }
+    let rotation_epoch = std::env::var(ADVERTISED_CERTIFICATE_ROTATION_EPOCH_ENV)
+        .ok()
+        .map(|value| value.trim().parse::<u64>())
+        .transpose()
+        .map_err(|_| format!("{ADVERTISED_CERTIFICATE_ROTATION_EPOCH_ENV} must be a u64"))?
+        .unwrap_or(0);
+    let not_before = parse_optional_u64_env(ADVERTISED_CERTIFICATE_NOT_BEFORE_ENV)?;
+    let not_after = parse_optional_u64_env(ADVERTISED_CERTIFICATE_NOT_AFTER_ENV)?;
+    if not_before.zip(not_after).is_some_and(|(before, after)| before > after) {
+        return Err(format!(
+            "{ADVERTISED_CERTIFICATE_NOT_BEFORE_ENV} must not exceed {ADVERTISED_CERTIFICATE_NOT_AFTER_ENV}"
+        ));
+    }
+    if (rotation_epoch > 0 || not_before.is_some() || not_after.is_some())
+        && certificate_id.is_none()
+    {
+        return Err(format!(
+            "certificate rotation metadata requires {ADVERTISED_CERTIFICATE_ID_ENV}"
+        ));
+    }
+    Ok((certificate_id, rotation_epoch, not_before, not_after))
+}
+
+fn parse_optional_u64_env(name: &str) -> Result<Option<u64>, String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().parse::<u64>())
+        .transpose()
+        .map_err(|_| format!("{name} must be a u64"))
 }
 
 /// Parse the required `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR` (CONCEPT:EG-KG.sharding.cluster-topology,
@@ -232,13 +341,50 @@ fn parse_advertised_client_addr() -> Result<String, String> {
         )
     })?;
     let addr = raw.trim();
-    if addr.is_empty() || addr.len() > MAX_ADVERTISED_FIELD_BYTES {
+    if addr.is_empty()
+        || addr.len() > MAX_ADVERTISED_FIELD_BYTES
+        || !valid_advertised_client_addr(addr)
+    {
         return Err(format!(
-            "{ADVERTISED_CLIENT_ADDR_ENV} must be a non-empty address within \
-             {MAX_ADVERTISED_FIELD_BYTES} bytes"
+            "{ADVERTISED_CLIENT_ADDR_ENV} must be a tcp:// or tls:// host:port \
+             address within {MAX_ADVERTISED_FIELD_BYTES} bytes"
         ));
     }
     Ok(addr.to_string())
+}
+
+fn valid_advertised_client_addr(value: &str) -> bool {
+    if value.chars().any(|character| {
+        character.is_whitespace()
+            || character.is_control()
+            || matches!(character, '/' | '?' | '#' | '@')
+    }) {
+        return false;
+    }
+    let address = value
+        .strip_prefix("tcp://")
+        .or_else(|| value.strip_prefix("tls://"));
+    let Some(address) = address else {
+        return false;
+    };
+    let (host, port) = if let Some(rest) = address.strip_prefix('[') {
+        let Some((host, port)) = rest.split_once("]:") else {
+            return false;
+        };
+        if host.is_empty() || host.contains(']') {
+            return false;
+        }
+        (host, port)
+    } else {
+        let Some((host, port)) = address.rsplit_once(':') else {
+            return false;
+        };
+        if host.is_empty() || host.contains(':') {
+            return false;
+        }
+        (host, port)
+    };
+    !host.is_empty() && port.parse::<u16>().is_ok_and(|port| port > 0)
 }
 
 fn parse_advertised_tls_server_name() -> Result<Option<String>, String> {

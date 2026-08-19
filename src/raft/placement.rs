@@ -614,6 +614,14 @@ impl PlacementCatalog {
             .unwrap_or_default()
     }
 
+    /// Current monotonic placement high-water mark used by discovery and
+    /// routing consumers. This is the same authority that allocates placement
+    /// epochs; callers must not derive an epoch from a response-local scan.
+    pub async fn current_epoch(&self) -> u64 {
+        self.ensure_index_fresh().await;
+        self.max_epoch.load(Ordering::Acquire)
+    }
+
     /// This tenant's placement entries (0, 1 whole-keyspace, or several ranged
     /// after a split). Index-backed (W0.3): an O(1) `HashMap` lookup instead of a
     /// full-catalog filter.

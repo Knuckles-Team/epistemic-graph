@@ -2653,6 +2653,18 @@ async fn dispatch_inner(
         return Response::err(req.id, error);
     }
 
+    // NodeInfoUpsert is an engine-owned self-report emitted by the Raft
+    // startup path.  Do not let a verified external caller turn the endpoint
+    // fields in this method into cluster authority, even when that caller has
+    // an administrative scope.  The replicated-apply path is the only route
+    // allowed to reach the topology handler.
+    if !state_machine_authorized && matches!(&req.method, Method::NodeInfoUpsert { .. }) {
+        return Response::err(
+            req.id,
+            "ACCESS_DENIED: NodeInfoUpsert is reserved for the engine Raft self-report path",
+        );
+    }
+
     // Cluster writes cross consensus at the authenticated request boundary. The
     // complete mutation inventory is partitioned between graph commands and typed
     // native commands; a command constructor failure is returned before any local
@@ -3412,7 +3424,14 @@ async fn dispatch_inner(
         // arm only via the replicated-apply re-entry (its live proposal is
         // intercepted earlier by the `ConsensusNative` branch above).
         Method::ClusterMembers | Method::NodeInfoUpsert { .. } => {
-            match handlers::topology::try_handle(state, req.id, req.method).await {
+            match handlers::topology::try_handle(
+                state,
+                req.id,
+                req.method,
+                &verified_context,
+            )
+            .await
+            {
                 Ok(resp) => resp,
                 // Unreachable: both variants matched above are topology methods.
                 Err(_) => Response::err(req.id, "cluster topology dispatch routing error"),

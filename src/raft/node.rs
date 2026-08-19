@@ -167,19 +167,34 @@ pub async fn start(
             .get(&cfg.node_id)
             .map(|node| node.addr.clone())
             .unwrap_or_else(|| cfg.bind_addr.clone());
+        let cluster_id = cfg.cluster_id.clone();
         let node_id = cfg.node_id;
+        let member_identity = crate::server::persistence::node_info_store::member_identity_for(
+            &cluster_id,
+            node_id,
+        );
         let advertised_client_addr = cfg.advertised_client_addr.clone();
         let advertised_tls_server_name = cfg.advertised_tls_server_name.clone();
+        let advertised_certificate_id = cfg.advertised_certificate_id.clone();
+        let advertised_certificate_rotation_epoch = cfg.advertised_certificate_rotation_epoch;
+        let advertised_certificate_not_before_ms = cfg.advertised_certificate_not_before_ms;
+        let advertised_certificate_not_after_ms = cfg.advertised_certificate_not_after_ms;
         let multi_for_report = multi.clone();
         tokio::spawn(async move {
             let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
             loop {
                 match multi_for_report
                     .commit_node_info(
+                        cluster_id.clone(),
                         node_id,
+                        member_identity.clone(),
                         raft_addr.clone(),
                         advertised_client_addr.clone(),
                         advertised_tls_server_name.clone(),
+                        advertised_certificate_id.clone(),
+                        advertised_certificate_rotation_epoch,
+                        advertised_certificate_not_before_ms,
+                        advertised_certificate_not_after_ms,
                     )
                     .await
                 {

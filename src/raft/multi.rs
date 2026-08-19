@@ -859,6 +859,24 @@ impl MultiRaft {
         Some(learners)
     }
 
+    /// The highest committed membership-log index observed across the groups
+    /// running on this node.  This is deliberately derived from openraft's
+    /// replicated membership authority rather than from a response-local
+    /// member count, so a caller can reject a snapshot that moved backwards
+    /// during a membership change.
+    pub async fn membership_epoch(&self) -> u64 {
+        let groups = self.groups.read().await;
+        let mut epoch = 0;
+        for raft in groups.values() {
+            let metrics = raft.metrics();
+            let watched = metrics.borrow_watched();
+            if let Some(log_id) = watched.membership_config.log_id().as_ref() {
+                epoch = epoch.max(log_id.index);
+            }
+        }
+        epoch
+    }
+
     /// Attach `new_node` (reachable at `addr`) to group `gid` as a NON-VOTING LEARNER
     /// (CONCEPT:EG-KG.storage.kg-kg-2) — the primitive `cluster_deployment.md` §5 item 2 flagged as having
     /// no external caller. MUST be called on the group's current LEADER (membership
@@ -1184,18 +1202,30 @@ impl MultiRaft {
     /// [ni]: crate::server::persistence::node_info_store::NodeInfo
     pub(crate) async fn commit_node_info(
         &self,
+        cluster_id: String,
         node_id: NodeId,
+        member_identity: String,
         raft_addr: String,
         advertised_client_addr: String,
         tls_server_name: Option<String>,
+        certificate_id: Option<String>,
+        certificate_rotation_epoch: u64,
+        certificate_not_before_ms: Option<u64>,
+        certificate_not_after_ms: Option<u64>,
     ) -> Result<(), String> {
         self.ensure_group(DEFAULT_GROUP).await?;
         let server_secret = self.ctx.state.read().await.auth_secret.clone();
         let method = Method::NodeInfoUpsert {
+            cluster_id,
             node_id,
+            member_identity,
             raft_addr,
             advertised_client_addr,
             tls_server_name,
+            certificate_id,
+            certificate_rotation_epoch,
+            certificate_not_before_ms,
+            certificate_not_after_ms,
         };
         let command =
             crate::raft::NativeMutationCommand::from_public_method(method, &server_secret)

@@ -1445,14 +1445,16 @@ pub enum Method {
     // the leader, unlike `PlacementRoute` -- so a client's bounded seed-retry (ADR-1
     // decision 3/4) can re-resolve via any healthy contact.
     /// Read the current cluster topology (CONCEPT:EG-KG.sharding.cluster-topology): every known Raft
-    /// group's members, each with its role (`leader`/`follower`/`learner`) and
-    /// client-reachable endpoint. Gated `cluster:topology-read` -- NOT
+    /// group's members, each with its role (`leader`/`follower`/`learner`),
+    /// health and client-reachable endpoint. The response is an authenticated,
+    /// bounded discovery snapshot carrying a stable `cluster_id`, monotonic
+    /// `membership_epoch`/`placement_epoch`, immutable member identities and
+    /// certificate-rotation metadata. Gated `cluster:topology-read` -- NOT
     /// `admin:cluster-read` -- so an ordinary service role (not just a cluster
     /// operator) can discover where to reconnect after a failover. Always declared;
     /// a non-raft build or a raft build with no live `MultiRaft` answers a
-    /// well-formed empty topology rather than an error. Returns JSON
-    /// `{groups: [{group_id, members: [{node_id, role, client_endpoint, tls_name}]}],
-    /// epoch}`.
+    /// well-formed empty topology rather than an error. The Python client rejects
+    /// unsigned, wrong-cluster, stale, or differently bound snapshots.
     ClusterMembers,
     /// Self-report this node's identity into the durable, Raft-replicated cluster
     /// topology (CONCEPT:EG-KG.sharding.cluster-topology). Issued by each node at Raft startup
@@ -1464,10 +1466,19 @@ pub enum Method {
     /// row). Raft/cluster only; a non-raft build returns a typed "not available"
     /// error. Returns `Bool` on success.
     NodeInfoUpsert {
+        /// Stable cluster identity derived from the configured Raft authority.
+        cluster_id: String,
         node_id: u64,
+        /// Stable, cluster-scoped identity for this node. Endpoint/certificate
+        /// rotation must never change it.
+        member_identity: String,
         raft_addr: String,
         advertised_client_addr: String,
         tls_server_name: Option<String>,
+        certificate_id: Option<String>,
+        certificate_rotation_epoch: u64,
+        certificate_not_before_ms: Option<u64>,
+        certificate_not_after_ms: Option<u64>,
     },
 
     // ── Fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──────
