@@ -315,7 +315,7 @@ fn aggregate_cpu_limits(limits: &[CpuLimit]) -> CpuLimit {
                 quota_us,
                 period_us,
             } if period_us > 0 && quota_us > 0 => {
-                let replace = finite.map_or(true, |(current_quota, current_period)| {
+                let replace = finite.is_none_or(|(current_quota, current_period)| {
                     (quota_us as u128) * (current_period as u128)
                         < (current_quota as u128) * (period_us as u128)
                 });
@@ -950,6 +950,23 @@ mod tests {
 
     #[test]
     fn hierarchical_limits_keep_finite_ancestors_over_unlimited_leaves() {
+        assert_eq!(
+            aggregate_cpu_limits(&[
+                CpuLimit::Limited {
+                    quota_us: 200_000,
+                    period_us: 100_000,
+                },
+                CpuLimit::Limited {
+                    quota_us: 50_000,
+                    period_us: 100_000,
+                },
+            ]),
+            CpuLimit::Limited {
+                quota_us: 50_000,
+                period_us: 100_000,
+            },
+            "hierarchical CPU limits must retain the strictest finite ratio"
+        );
         assert_eq!(
             aggregate_cpu_limits(&[
                 CpuLimit::Limited {
