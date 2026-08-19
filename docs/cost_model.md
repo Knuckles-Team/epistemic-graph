@@ -1,5 +1,10 @@
 # Cost model & capacity planning (CONCEPT:EG-KG.compute.lane-v, Lane V)
 
+> **Evidence status:** runtime budget enforcement is `IMPLEMENTED`; focused
+> source fixtures are `UNIT-PROVEN` where named below. Capacity examples are
+> `DESIGNED` planning arithmetic. Nothing on this page is `LIVE`, `LAB-PROVEN`,
+> or `1M-CERTIFIED` without an exact artifact, environment, and report reference.
+
 This maps the engine's footprint from a single Raspberry Pi 4+ node up to an HA `cluster` onto resource footprints so an
 operator can plan capacity: *given N tenants with an average working set, how much RAM /
 how many shards do I need?* It pairs with the runtime **per-tenant memory budget** + the
@@ -48,9 +53,9 @@ not the durable tier).
 
 | Env var | Meaning | Default |
 |---------|---------|---------|
-| `EPISTEMIC_GRAPH_MEMORY_BUDGET` | Global resident-memory ceiling (`512m`, `2g`, or plain bytes). A positive explicit value may lower the automatic ceiling but is clamped to the cgroup-aware limit; zero and malformed values fail closed. **This is the single knob.** | 40% of effective cgroup-aware RAM |
-| `EPISTEMIC_GRAPH_TENANT_BUDGET` | Optional per-tenant budget override. | = the global ceiling |
-| `EPISTEMIC_GRAPH_BUDGET_INTERVAL` | Sweep cadence, seconds. | 15 |
+| `EPISTEMIC_GRAPH_MEMORY_BUDGET` | Global resident-memory ceiling (`512m`, `2g`, or plain bytes). A positive explicit value may lower the automatic ceiling but is clamped to the cgroup-aware limit; `0`, negative, and malformed values reject startup. **There is no disable value.** | 40% of effective cgroup-aware RAM |
+| `EPISTEMIC_GRAPH_TENANT_BUDGET` | Optional positive per-tenant budget override; zero, negative, and malformed values reject startup. | = the global ceiling |
+| `EPISTEMIC_GRAPH_BUDGET_INTERVAL` | Sweep cadence, seconds; must be in the bounded `1..=3600` range. | 15 |
 
 The default auto-sizes from effective cgroup-aware memory, so a stock build on any host
 budgets sensibly with no tuning. Budgeting cannot be disabled by an environment override.
@@ -105,8 +110,9 @@ far fewer resident bytes.
 `capacity_estimate(100_000, 1<<20, 8<<30, 0.10)` ⇒ `recommended_shards = 2`.)
 
 The key property: because cold tenants evict/hibernate to the durable tier and rehydrate on
-access, a shard's resident RAM tracks the **hot working set**, not the total tenant count —
-the "100M agents, a local engine each" story holds across supported deployment topologies.
+access, a shard's resident RAM is designed to track the **hot working set**, not the total
+tenant count. The "100M agents, a local engine each" statement is a capacity hypothesis
+across supported deployment topologies, not a 1M-user/agent certification or a live result.
 
 ## Deferred
 
