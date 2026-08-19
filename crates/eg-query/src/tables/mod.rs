@@ -20,6 +20,7 @@
 
 pub mod index;
 pub mod provider;
+pub mod migration;
 pub mod schema;
 pub mod store;
 
