@@ -49,7 +49,8 @@ pub use sql::{
 #[cfg(feature = "sql")]
 pub use tables::{
     Cell, CmpOp, ColCheck, Column, ColumnType, ConflictAction, FunctionArg, FunctionReturns,
-    StoredFunction, TableSchema, TableStore, TableTxn, TxnOp,
+    SecondaryIndexColumn, SecondaryIndexKind, SecondaryIndexLookup, SecondaryIndexOrder,
+    SecondaryIndexSpec, StoredFunction, TableSchema, TableStore, TableTxn, TxnOp,
 };
 
 #[cfg(feature = "cypher")]
