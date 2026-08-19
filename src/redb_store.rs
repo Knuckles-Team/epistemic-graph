@@ -1021,9 +1021,11 @@ pub(crate) enum MutationBatchCrashpoint {
 ///
 /// This is deliberately separate from [`commit_ops`]: a batch is already the
 /// caller's all-or-nothing unit and must never be folded into a partially-acked
-/// queue group.  One immediate redb `WriteTransaction` is its commit point.  A
-/// byte-identical retry returns the stored result; reusing an idempotency key for
-/// different work fails closed.
+/// queue group.  One immediate redb `WriteTransaction` is its commit point.  An
+/// exact retry returns the stored result; cross-modal retries may re-derive only
+/// the OCC version from the current authoritative observation while the durable
+/// record retains the original. Reusing an idempotency key for different work
+/// fails closed.
 pub(crate) fn commit_mutation_batch(
     db: &Database,
     graph_fname: &str,
@@ -1409,7 +1411,9 @@ fn commit_mutation_batch_inner(
 /// already-open `wtx` — WITHOUT opening or committing the transaction. The caller
 /// owns `begin_write`/`commit` and the post-commit audit-tail writeback, so multiple
 /// batches (the ChangeEnvelope batch path) can share ONE transaction/fsync. Returns
-/// `replayed: true` (having done reads only) on a byte-identical idempotency hit.
+/// `replayed: true` (having done reads only) on an exact request-identity hit. A
+/// cross-modal retry may carry the current re-derived OCC version; all other
+/// request identity fields remain exact.
 ///
 /// `audited`: whether THIS commit should append tamper-evident audit-chain
 /// entries for its operations. Only consulted when `authoritative_state_msgpack`
@@ -1598,6 +1602,23 @@ fn apply_mutation_batch_in_wtx(
         }
     }
 
+    // Read the current version before the idempotency check.  A retrying caller
+    // may have rebuilt the request after the acknowledgement was lost and thus
+    // carry the version it observes NOW rather than the version observed by the
+    // original request.  The durable record below remains the source of truth for
+    // the original OCC observation; this value is only used to recognize that
+    // narrow, same-key replay shape.
+    let current_graph_version = {
+        let versions = wtx
+            .open_table(MUTATION_GRAPH_VERSION)
+            .map_err(|e| e.to_string())?;
+        versions
+            .get(graph_fname)
+            .map_err(|e| e.to_string())?
+            .map(|value| value.value())
+            .unwrap_or(INITIAL_GRAPH_VERSION)
+    };
+
     // Idempotency is checked INSIDE the same write transaction that will insert
     // the new key, closing the concurrent double-commit race.
     {
@@ -1640,12 +1661,22 @@ fn apply_mutation_batch_in_wtx(
                 &batch.outbox,
                 operations_match,
             )?;
+            // `expected_graph_version` is an OCC observation, not a caller-owned
+            // payload.  The original observation is retained in the durable
+            // record, while a replay rebuilt after an ack-loss may carry the
+            // current authoritative observation.  Permit that one derived value
+            // only for cross-modal requests; every other identity component stays
+            // byte/exact and a same-key different request still conflicts.
+            let expected_graph_version_matches =
+                record.batch.expected_graph_version == batch.expected_graph_version
+                    || (crossmodal.is_some()
+                        && batch.expected_graph_version == Some(current_graph_version));
             let same_identity = record.batch.batch_id == batch.batch_id
                 && record.batch.context == batch.context
                 && record.batch.tenant == batch.tenant
                 && record.batch.graph == batch.graph
                 && record.batch.idempotency_key == batch.idempotency_key
-                && record.batch.expected_graph_version == batch.expected_graph_version
+                && expected_graph_version_matches
                 && record.batch.authoritative_state == batch.authoritative_state
                 && outbox_match
                 && (placement_matches || placement_replay)
@@ -1833,20 +1864,6 @@ fn apply_mutation_batch_in_wtx(
         }
     }
 
-    let stored_graph_version = {
-        let versions = wtx
-            .open_table(MUTATION_GRAPH_VERSION)
-            .map_err(|e| e.to_string())?;
-        let value = versions
-            .get(graph_fname)
-            .map_err(|e| e.to_string())?
-            .map(|value| value.value());
-        value
-    };
-    let current_graph_version = match stored_graph_version {
-        Some(version) => version,
-        None => INITIAL_GRAPH_VERSION,
-    };
     if let Some(expected) = batch.expected_graph_version {
         if expected != current_graph_version {
             return Err(format!(
@@ -13699,6 +13716,37 @@ mod mutation_batch_tests {
             );
             let replay = commit_crossmodal_at(&db, &mutation, &methods, &vectors, None).unwrap();
             assert!(replay.replayed);
+            assert_eq!(
+                replay.record.batch.expected_graph_version,
+                Some(3),
+                "replay must retain the original OCC observation in the durable identity"
+            );
+
+            // A retry reconstructed after the acknowledgement-lost crash may
+            // carry the now-current graph version.  It is still the same
+            // cross-modal request and must replay without applying rows again.
+            let mut rederived = mutation.clone();
+            rederived.expected_graph_version = Some(4);
+            let replay = commit_crossmodal_at(&db, &rederived, &methods, &vectors, None).unwrap();
+            assert!(replay.replayed);
+            assert_eq!(
+                replay.record.batch.expected_graph_version,
+                Some(3),
+                "a derived retry version must never overwrite the original durable version"
+            );
+
+            // The expected version is the only re-derived field permitted for
+            // this replay shape.  Changing the operation under the same key is
+            // a genuine idempotency conflict.
+            let mut conflict = rederived.clone();
+            conflict.operations[0].method = Method::ApplyMutation {
+                event_type: "crossmodal_operation".to_string(),
+                query:
+                    "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        .to_string(),
+            };
+            let error = commit_crossmodal_at(&db, &conflict, &methods, &vectors, None).unwrap_err();
+            assert!(error.contains("IDEMPOTENCY_CONFLICT"));
         }
         let _ = std::fs::remove_file(path);
     }
