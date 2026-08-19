@@ -665,7 +665,46 @@ pub(crate) enum Cmd {
 /// touch the coalescer. Durability is unchanged: authoritative writes still commit
 /// `Durability::Immediate` BEFORE their `done` fires; we only widen the batch, never
 /// defer an ack past its commit. A crash before commit still loses only un-acked writes.
-#[derive(Debug, Clone, Copy)]
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct RedbGroupCommitTestControl {
+    entered: std::sync::mpsc::Sender<()>,
+    release: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+}
+
+#[cfg(test)]
+impl RedbGroupCommitTestControl {
+    pub(crate) fn new() -> (
+        Arc<Self>,
+        std::sync::mpsc::Receiver<()>,
+        std::sync::mpsc::Sender<()>,
+    ) {
+        let (entered, entered_rx) = std::sync::mpsc::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        (
+            Arc::new(Self {
+                entered,
+                release: std::sync::Mutex::new(Some(release_rx)),
+            }),
+            entered_rx,
+            release,
+        )
+    }
+
+    fn wait_until_released(&self) {
+        let _ = self.entered.send(());
+        let release = self
+            .release
+            .lock()
+            .expect("group-commit test control lock poisoned")
+            .take();
+        if let Some(release) = release {
+            let _ = release.recv();
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct RedbGroupCommitConfig {
     /// Max time to linger for more concurrent writers before committing a shallow
     /// barrier batch. `Duration::ZERO` disables lingering entirely (commit-on-drain
@@ -674,6 +713,11 @@ pub struct RedbGroupCommitConfig {
     /// Only linger when `pending.ops.len()` is BELOW this — a deep batch already
     /// coalesces well, so lingering buys nothing and just adds latency (adaptive).
     pub shallow_threshold: usize,
+    /// Test-only gate used to hold the writer at the start of the linger window
+    /// while the fixture queues the rest of its burst. Production opens never set
+    /// this, so the live writer path has no synchronization hook.
+    #[cfg(test)]
+    pub(crate) test_control: Option<Arc<RedbGroupCommitTestControl>>,
 }
 
 impl RedbGroupCommitConfig {
@@ -695,6 +739,8 @@ impl RedbGroupCommitConfig {
             linger: Duration::from_micros(linger_us),
             // Never above the 4096 early-flush bound; at least 1.
             shallow_threshold: shallow.clamp(1, 4096),
+            #[cfg(test)]
+            test_control: None,
         }
     }
 }
@@ -919,6 +965,7 @@ impl Shard {
         policy: DurabilityPolicy,
         capacity: usize,
         flush_threshold: usize,
+        group_commit: RedbGroupCommitConfig,
     ) -> Result<Self, String> {
         // ONE shared `Database` handle per shard (CONCEPT:EG-KG.storage.snapshot-read-off-writer). The writer thread
         // and the snapshot-read path both hold a clone of this `Arc`; redb's MVCC lets
@@ -941,9 +988,9 @@ impl Shard {
         }
         let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
         // Adaptive group-commit micro-linger config + observability (CONCEPT:EG-KG.backend.adaptive-linger-coalesce).
-        // Resolved once at open (Configuration discipline); the writer thread owns a
-        // clone of the stats Arc so callers can read batch-size/throughput live.
-        let group_commit = RedbGroupCommitConfig::from_env();
+        // Resolved once by the backend open path (Configuration discipline); the
+        // writer thread owns the supplied config and a clone of the stats Arc so
+        // callers can read batch-size/throughput live.
         let stats = Arc::new(RedbCommitStats::default());
         let stats_writer = stats.clone();
         // Encryption-at-rest (CONCEPT:EG-KG.sharding.row-level-security): resolve the value-blob cipher ONCE at
@@ -1162,6 +1209,32 @@ impl RedbBackend {
         capacity: usize,
         requested_k: usize,
     ) -> Result<Self, String> {
+        Self::open_with_shards_and_config(
+            persist_dir,
+            policy,
+            capacity,
+            requested_k,
+            RedbGroupCommitConfig::from_env(),
+        )
+    }
+
+    #[cfg(test)]
+    fn open_with_group_commit_config(
+        persist_dir: String,
+        policy: DurabilityPolicy,
+        capacity: usize,
+        group_commit: RedbGroupCommitConfig,
+    ) -> Result<Self, String> {
+        Self::open_with_shards_and_config(persist_dir, policy, capacity, 1, group_commit)
+    }
+
+    fn open_with_shards_and_config(
+        persist_dir: String,
+        policy: DurabilityPolicy,
+        capacity: usize,
+        requested_k: usize,
+        group_commit: RedbGroupCommitConfig,
+    ) -> Result<Self, String> {
         std::fs::create_dir_all(&persist_dir).map_err(|e| e.to_string())?;
         let requested_k = crate::redb_layout::validate_shard_count(requested_k)?;
         let k = crate::redb_layout::reconcile_shard_layout(
@@ -1212,6 +1285,7 @@ impl RedbBackend {
             let handles: Vec<_> = shard_specs
                 .into_iter()
                 .map(|(i, db_path, thread_name)| {
+                    let group_commit = group_commit.clone();
                     scope.spawn(move || {
                         let bytes_on_disk = std::fs::metadata(&db_path).map(|m| m.len()).ok();
                         tracing::info!(
@@ -1227,6 +1301,7 @@ impl RedbBackend {
                             policy,
                             capacity,
                             flush_threshold,
+                            group_commit,
                         );
                         match &result {
                             Ok(_) => tracing::info!(
@@ -3681,6 +3756,10 @@ fn run(
                         && pending.ops.len() < group_commit.shallow_threshold
                     {
                         lingered = true;
+                        #[cfg(test)]
+                        if let Some(control) = group_commit.test_control.as_ref() {
+                            control.wait_until_released();
+                        }
                         match rx.recv_timeout(group_commit.linger) {
                             Ok(cmd) => {
                                 if handle_cmd(
@@ -5966,21 +6045,15 @@ mod tests {
     /// acquisitions` was rewritten away from after it broke
     /// `dispatch_coalesces_concurrent_writes_to_one_graph` in 2.25.0 (true on a
     /// lightly-loaded many-core host; not guaranteed when a couple of tokio workers
-    /// and a `spawn_blocking` hop each contend for 2 real CPUs). This test enqueues
-    /// every `Cmd::Mutation` directly onto the shard's channel from ONE synchronous
-    /// loop on the test's own task, with no `.await` inside it — `SyncSender::send`
-    /// is a plain, non-blocking-for-capacity push (capacity 4096 ≫ `n`), so the
-    /// whole 256-op burst lands in the channel in a handful of microseconds, orders
-    /// of magnitude under the 2ms linger window the writer OS thread pays out once
-    /// it drains the first arrival. That leaves coalescing a near-certainty by
-    /// construction rather than a hope that 256 independently-scheduled tasks (each
-    /// its own executor poll + `spawn_blocking` hand-off) all land in time.
+    /// and a `spawn_blocking` hop each contend for 2 real CPUs). A test-only gate
+    /// pauses the writer immediately before it starts the linger receive, signals
+    /// the fixture, and is released only after the remaining 255 commands are
+    /// queued. The burst therefore lands in the same pending batch by construction;
+    /// no scheduling overlap or wall-clock window is part of the assertion.
     ///
-    /// Serializes the env-mutating linger tests. `EPISTEMIC_GRAPH_REDB_GROUP_*` are
-    /// process-global and read once inside `RedbBackend::open`, so two parallel tests
-    /// setting different values would race the config read (the disabled test could
-    /// observe the coalesce test's `2000`). Hold this across set_var → open →
-    /// remove_var; `open` is sync so there is no await under the guard.
+    /// Serializes the remaining env-mutating linger fixture. The coalescing fixture
+    /// injects its config directly; the disabled baseline still reads
+    /// `EPISTEMIC_GRAPH_REDB_GROUP_*` once at open.
     static LINGER_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[tokio::test(flavor = "multi_thread")]
@@ -5988,51 +6061,37 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eg-redb-linger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = {
-            // Explicit, deterministic knobs; serialized vs the other env-mutating test.
-            let _env = LINGER_ENV_LOCK.lock().unwrap();
-            std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "2000");
-            std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW", "256");
-            let b = Arc::new(
-                RedbBackend::open(
-                    dir_s.clone(),
-                    // Long interval so the ONLY thing that commits a batch is the barrier
-                    // path (+ its micro-linger), never the tick.
-                    DurabilityPolicy::Interval(Duration::from_millis(500)),
-                    // Channel capacity 4096 ⇒ `resolve_flush_threshold` (capacity/2, clamped
-                    // 256..16384) resolves to 2048 — comfortably above `n` below (256), so
-                    // the writer's early-flush memory bound (`handle_cmd`'s `pending.ops.len()
-                    // >= flush_threshold` early commit) can never fire for this batch. That
-                    // path used to collide with `n` (old capacity 512 ⇒ threshold == 256 ==
-                    // n exactly): on a scheduling pattern where every op lands in the channel
-                    // before the writer's first drain (routine on a CPU-constrained 2-vCPU
-                    // runner, rare on a many-core dev box — the exact asymmetry that hid this
-                    // from local verification), ALL 256 ops would flush through that early
-                    // path in one shot. This test exists to prove the MICRO-LINGER mechanism
-                    // specifically (CONCEPT:EG-KG.backend.adaptive-linger-coalesce), not the
-                    // separate early-flush bound, so we now deterministically keep `n` out of
-                    // the early-flush path's reach on any core count — see GOC-70 rule 3
-                    // (construct the mechanism's own contention deterministically rather than
-                    // colliding with an unrelated threshold by chance).
-                    4096,
-                )
-                .expect("open"),
-            );
-            std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US");
-            std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW");
-            b
-        };
+        let (control, entered_rx, release_tx) = RedbGroupCommitTestControl::new();
+        let backend = Arc::new(
+            RedbBackend::open_with_group_commit_config(
+                dir_s.clone(),
+                // Long interval so the ONLY thing that commits a batch is the barrier
+                // path (+ its injected micro-linger control), never the tick.
+                DurabilityPolicy::Interval(Duration::from_millis(500)),
+                // Channel capacity 4096 ⇒ `resolve_flush_threshold` (capacity/2, clamped
+                // 256..16384) resolves to 2048 — comfortably above `n` below (256), so
+                // the writer's early-flush memory bound cannot fire for this batch. This
+                // keeps the fixture focused on the micro-linger mechanism rather than
+                // the separate early-flush bound.
+                4096,
+                RedbGroupCommitConfig {
+                    linger: Duration::from_millis(2),
+                    shallow_threshold: 256,
+                    test_control: Some(control),
+                },
+            )
+            .expect("open"),
+        );
 
         let stats = backend.commit_stats();
         let n = 256usize;
-        // GOC-70 rule 3: construct the concurrent pile-up deterministically instead
-        // of spawning N tasks and hoping the scheduler overlaps them (see the doc
-        // comment above). Every op is enqueued directly onto the shard's channel
-        // from this one synchronous loop — no `.await` between sends — then every
-        // completion is awaited only once the whole burst is already queued.
+        // GOC-70 rule 3: queue the first command, then wait for the writer's
+        // injected pre-linger signal before queueing the rest. The writer is held
+        // until this loop has filled the same channel batch, so this remains
+        // deterministic even when the test binary is CPU-starved.
         let shard = backend.shard_for("g1");
         let mut receivers = Vec::with_capacity(n);
-        for i in 0..n {
+        let enqueue = |i: usize| {
             let (done, rx) = oneshot::channel();
             shard
                 .tx
@@ -6045,8 +6104,22 @@ mod tests {
                     done,
                 })
                 .expect("redb writer thread alive");
-            receivers.push(rx);
+            rx
+        };
+        receivers.push(enqueue(0));
+        tokio::task::spawn_blocking(move || {
+            entered_rx
+                .recv()
+                .expect("redb writer must enter the injected linger gate");
+        })
+        .await
+        .expect("linger gate waiter must complete");
+        for i in 1..n {
+            receivers.push(enqueue(i));
         }
+        release_tx
+            .send(())
+            .expect("redb writer must still be held at the linger gate");
         for rx in receivers {
             rx.await
                 .expect("redb writer dropped completion")
