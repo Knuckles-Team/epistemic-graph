@@ -3,8 +3,10 @@
 //! A PURE-RUST RustCrypto AEAD (`chacha20poly1305::ChaCha20Poly1305`) — NO ring,
 //! NO openssl, NO C — so the Pi crypto contract holds. The data key is derived from
 //! `EPISTEMIC_GRAPH_ENCRYPTION_KEY` (a KMS hook seam is provided via
-//! [`resolve_key`]). Encryption is **opt-in / default OFF**: it changes the on-disk
-//! value format, so a cipher is installed only when the env key is present.
+//! [`resolve_key_config`]). The non-secret ID/version from
+//! `EPISTEMIC_GRAPH_ENCRYPTION_KEY_ID` / `_VERSION` is pinned by the durable canary.
+//! Encryption is **opt-in / default OFF**: it changes the on-disk value format, so a
+//! cipher is installed only when the env key is present.
 //!
 //! On-disk value wrapping (when encryption is active):
 //! ```text
@@ -28,6 +30,26 @@ use std::sync::Arc;
 
 /// Env var holding the raw encryption key material (any length; hashed to 32 bytes).
 pub const ENCRYPTION_KEY_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_KEY";
+
+/// Stable, non-secret identifier for the configured encryption key.  The identifier
+/// is persisted with the durable canary so an operator cannot accidentally point a
+/// store at a different KMS object while reusing an otherwise plausible secret.
+pub const ENCRYPTION_KEY_ID_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_KEY_ID";
+
+/// Monotonic, non-secret version for the configured encryption key.  Changing either
+/// this value or [`ENCRYPTION_KEY_ID_ENV`] is an explicit rotation boundary; the
+/// durable store refuses to open until the offline re-encryption ceremony has been
+/// completed.
+pub const ENCRYPTION_KEY_VERSION_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_KEY_VERSION";
+
+/// Default key metadata used for stores created before key identity/version pinning
+/// was introduced.  Keeping this legacy reference preserves compatibility while
+/// upgrading the old canary to the authenticated metadata form on first open.
+pub const LEGACY_ENCRYPTION_KEY_ID: &str = "legacy";
+pub const LEGACY_ENCRYPTION_KEY_VERSION: &str = "1";
+
+const MAX_KEY_ID_BYTES: usize = 128;
+const MAX_KEY_VERSION_BYTES: usize = 64;
 
 /// Env var holding the raw key material for the transaction-recovery-plan channel
 /// ONLY (D-ORC-50 encryption-bootstrap decoupling). This key seals the private
@@ -62,6 +84,68 @@ pub const TXN_RECOVERY_KEY_ENV: &str = "EPISTEMIC_GRAPH_TXN_RECOVERY_KEY";
 /// before a genuine production deployment goes live unencrypted; `on` fails
 /// closed. See [`EncryptionRequiredMode`].
 pub const ENCRYPTION_REQUIRED_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_REQUIRED";
+
+/// A stable, non-secret reference for one encryption key.
+///
+/// This value is safe to persist in a backup manifest and operational diagnostics;
+/// it never contains key material.  Components are deliberately bounded and reject
+/// control characters so a malformed deployment cannot inject unbounded or multiline
+/// content into a startup diagnostic.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EncryptionKeyRef {
+    pub id: String,
+    pub version: String,
+}
+
+impl EncryptionKeyRef {
+    pub fn new(id: impl Into<String>, version: impl Into<String>) -> Result<Self, String> {
+        let id = id.into();
+        let version = version.into();
+        validate_key_component(ENCRYPTION_KEY_ID_ENV, &id, MAX_KEY_ID_BYTES)?;
+        validate_key_component(ENCRYPTION_KEY_VERSION_ENV, &version, MAX_KEY_VERSION_BYTES)?;
+        Ok(Self { id, version })
+    }
+
+    pub fn legacy() -> Self {
+        // These constants are validated at compile time by their fixed ASCII values.
+        Self {
+            id: LEGACY_ENCRYPTION_KEY_ID.to_string(),
+            version: LEGACY_ENCRYPTION_KEY_VERSION.to_string(),
+        }
+    }
+}
+
+fn validate_key_component(name: &str, value: &str, max_bytes: usize) -> Result<(), String> {
+    if value.is_empty() || value.len() > max_bytes || value.chars().any(char::is_control) {
+        return Err(format!(
+            "{name} must be non-empty, at most {max_bytes} bytes, and contain no control characters"
+        ));
+    }
+    Ok(())
+}
+
+/// The resolved key configuration.  `Debug` intentionally omits `material`; the
+/// secret remains private to the cipher construction path and is never included in
+/// logs, diagnostics, manifests, or persisted metadata.
+pub struct EncryptionKeyConfig {
+    key_ref: EncryptionKeyRef,
+    material: Vec<u8>,
+}
+
+impl std::fmt::Debug for EncryptionKeyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EncryptionKeyConfig")
+            .field("key_ref", &self.key_ref)
+            .field("material", &"<redacted>")
+            .finish()
+    }
+}
+
+impl EncryptionKeyConfig {
+    pub fn key_ref(&self) -> &EncryptionKeyRef {
+        &self.key_ref
+    }
+}
 
 /// Rollout posture for [`ENCRYPTION_REQUIRED_ENV`]. A PRESENT
 /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` always installs a cipher in every mode — only
@@ -118,6 +202,7 @@ const NONCE_LEN: usize = 12;
 #[derive(Clone)]
 pub struct ValueCipher {
     aead: Arc<ChaCha20Poly1305>,
+    key_ref: EncryptionKeyRef,
 }
 
 impl std::fmt::Debug for ValueCipher {
@@ -130,18 +215,46 @@ impl ValueCipher {
     /// Build a cipher from raw key material (hashed to a 32-byte ChaCha20 key, so any
     /// length env value works). A KMS hook can call this with key bytes it fetched.
     pub fn from_key_material(material: &[u8]) -> Self {
+        Self::from_key_material_with_ref(material, EncryptionKeyRef::legacy())
+    }
+
+    /// Build a cipher from raw key material and its stable, non-secret reference.
+    ///
+    /// The reference is retained on the cipher so persistence can bind its durable
+    /// canary to the same identity/version that the operator supplied.  The material
+    /// is hashed immediately and is never retained or exposed by this type.
+    pub fn from_key_material_with_ref(material: &[u8], key_ref: EncryptionKeyRef) -> Self {
         let key_bytes = Sha256::digest(material);
         let key = Key::from_slice(&key_bytes);
         ValueCipher {
             aead: Arc::new(ChaCha20Poly1305::new(key)),
+            key_ref,
         }
+    }
+
+    /// Construct a cipher from a resolved environment/KMS configuration.
+    pub fn from_key_config(config: &EncryptionKeyConfig) -> Self {
+        Self::from_key_material_with_ref(&config.material, config.key_ref.clone())
+    }
+
+    /// Stable, non-secret identity/version of the key this cipher uses.
+    pub fn key_ref(&self) -> &EncryptionKeyRef {
+        &self.key_ref
     }
 
     /// Resolve the cipher from the environment (the KMS seam — today it reads the env
     /// key; a future KMS provider would fetch the data key here). Returns `None` when
     /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` is unset/empty ⇒ encryption stays OFF.
     pub fn from_env() -> Option<Self> {
-        resolve_key().map(|m| ValueCipher::from_key_material(&m))
+        Self::from_env_checked().ok().flatten()
+    }
+
+    /// Resolve the configured data key and fail closed on malformed key metadata.
+    /// This is the startup path used by the authoritative redb backend; the legacy
+    /// [`from_env`](Self::from_env) wrapper remains for compatibility with embedded
+    /// callers that cannot propagate a configuration error at this boundary.
+    pub fn from_env_checked() -> Result<Option<Self>, String> {
+        Ok(resolve_key_config()?.map(|config| ValueCipher::from_key_config(&config)))
     }
 
     /// Resolve the transaction-recovery-plan cipher (D-ORC-50): reads
@@ -188,6 +301,18 @@ impl ValueCipher {
             .decrypt(nonce, ct)
             .map_err(|_| "decryption failed (wrong key or tampered ciphertext)".to_string())
     }
+
+    /// Re-encrypt one already-sealed value under a replacement cipher.
+    ///
+    /// This deliberately has no persistence side effects: a rotation controller
+    /// must write the replacement blob through its own crash-safe transaction and
+    /// only publish the new key binding after every durable value has been handled.
+    /// Keeping this primitive explicit prevents an accidental in-place key swap
+    /// from leaving a store half old-key/half new-key after a crash.
+    pub fn rewrap(&self, stored: &[u8], replacement: &Self) -> Result<Vec<u8>, String> {
+        let plaintext = self.unseal(stored)?;
+        Ok(replacement.seal(&plaintext))
+    }
 }
 
 /// Is a stored value blob an encrypted (sealed) blob? (Begins with the magic byte and
@@ -206,6 +331,137 @@ pub fn resolve_key() -> Option<Vec<u8>> {
     }
 }
 
+/// Resolve the data key together with its stable identity/version metadata.
+///
+/// The legacy single-secret environment remains accepted and maps to
+/// `legacy@1`.  Once an operator supplies either metadata variable, the values are
+/// validated and a malformed or contradictory configuration fails closed instead of
+/// silently disabling encryption.  This function is intentionally called once at
+/// startup; it is not on a read/write hot path.
+pub fn resolve_key_config() -> Result<Option<EncryptionKeyConfig>, String> {
+    let material = match std::env::var(ENCRYPTION_KEY_ENV) {
+        Ok(value) if !value.is_empty() => value.into_bytes(),
+        Ok(_) => {
+            if std::env::var_os(ENCRYPTION_KEY_ID_ENV).is_some()
+                || std::env::var_os(ENCRYPTION_KEY_VERSION_ENV).is_some()
+            {
+                return Err(format!(
+                    "{} and {} require non-empty {}",
+                    ENCRYPTION_KEY_ID_ENV,
+                    ENCRYPTION_KEY_VERSION_ENV,
+                    ENCRYPTION_KEY_ENV,
+                ));
+            }
+            return Ok(None);
+        }
+        Err(std::env::VarError::NotPresent) => {
+            if std::env::var_os(ENCRYPTION_KEY_ID_ENV).is_some()
+                || std::env::var_os(ENCRYPTION_KEY_VERSION_ENV).is_some()
+            {
+                return Err(format!(
+                    "{} and {} require {}",
+                    ENCRYPTION_KEY_ID_ENV,
+                    ENCRYPTION_KEY_VERSION_ENV,
+                    ENCRYPTION_KEY_ENV,
+                ));
+            }
+            return Ok(None);
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(format!(
+                "{} contains invalid environment encoding",
+                ENCRYPTION_KEY_ENV
+            ));
+        }
+    };
+
+    let id = match std::env::var(ENCRYPTION_KEY_ID_ENV) {
+        Ok(value) => {
+            validate_key_component(ENCRYPTION_KEY_ID_ENV, &value, MAX_KEY_ID_BYTES)?;
+            value
+        }
+        Err(std::env::VarError::NotPresent) => LEGACY_ENCRYPTION_KEY_ID.to_string(),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(format!(
+                "{} contains invalid environment encoding",
+                ENCRYPTION_KEY_ID_ENV
+            ));
+        }
+    };
+    let version = match std::env::var(ENCRYPTION_KEY_VERSION_ENV) {
+        Ok(value) => {
+            validate_key_component(ENCRYPTION_KEY_VERSION_ENV, &value, MAX_KEY_VERSION_BYTES)?;
+            value
+        }
+        Err(std::env::VarError::NotPresent) => LEGACY_ENCRYPTION_KEY_VERSION.to_string(),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(format!(
+                "{} contains invalid environment encoding",
+                ENCRYPTION_KEY_VERSION_ENV
+            ));
+        }
+    };
+    let key_ref = EncryptionKeyRef::new(id, version)?;
+    Ok(Some(EncryptionKeyConfig { key_ref, material }))
+}
+
+/// Version of the authenticated, non-secret key-binding record stored beside the
+/// encrypted canary.  Bump only when the record encoding changes incompatibly.
+pub const ENCRYPTION_KEY_BINDING_FORMAT_VERSION: u32 = 1;
+
+/// Construct the canary plaintext for a key reference.  The canary is AEAD-sealed,
+/// so this binds the persisted identity/version to the actual key material rather
+/// than trusting a mutable plaintext metadata row on its own.
+pub fn encryption_canary_plaintext(key_ref: &EncryptionKeyRef) -> Vec<u8> {
+    format!(
+        "epistemic-graph-encryption-canary|format={}|id={}|version={}",
+        ENCRYPTION_KEY_BINDING_FORMAT_VERSION, key_ref.id, key_ref.version
+    )
+    .into_bytes()
+}
+
+/// Persisted key binding metadata.  It contains no secret material and is also
+/// duplicated in backup manifests as an operator-visible DR reference.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EncryptionKeyBinding {
+    pub format_version: u32,
+    pub key_id: String,
+    pub key_version: String,
+}
+
+impl EncryptionKeyBinding {
+    pub fn from_key_ref(key_ref: &EncryptionKeyRef) -> Self {
+        Self {
+            format_version: ENCRYPTION_KEY_BINDING_FORMAT_VERSION,
+            key_id: key_ref.id.clone(),
+            key_version: key_ref.version.clone(),
+        }
+    }
+
+    pub fn key_ref(&self) -> Result<EncryptionKeyRef, String> {
+        if self.format_version != ENCRYPTION_KEY_BINDING_FORMAT_VERSION {
+            return Err(format!(
+                "unsupported encryption key-binding format version {}",
+                self.format_version
+            ));
+        }
+        EncryptionKeyRef::new(self.key_id.clone(), self.key_version.clone())
+    }
+
+    pub fn encode(&self) -> Result<Vec<u8>, String> {
+        serde_json::to_vec(self).map_err(|_| "encode encryption key binding failed".to_string())
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let binding: Self = serde_json::from_slice(bytes)
+            .map_err(|_| "stored encryption key binding is invalid".to_string())?;
+        // Validate both the version and bounded metadata before any diagnostic uses it.
+        binding.key_ref()?;
+        Ok(binding)
+    }
+}
+
 /// Resolve raw key material for the transaction-recovery-plan channel (D-ORC-50):
 /// `TXN_RECOVERY_KEY_ENV` if set, else fall back to the shared `ENCRYPTION_KEY_ENV` (so
 /// deployments that already run with full at-rest encryption see no behavior change).
@@ -220,6 +476,7 @@ pub fn resolve_txn_recovery_key() -> Option<Vec<u8>> {
 
 /// Crate-wide mutual exclusion for every test that reads OR mutates the
 /// process-global encryption-key env vars (`ENCRYPTION_KEY_ENV`,
+/// `ENCRYPTION_KEY_ID_ENV`, `ENCRYPTION_KEY_VERSION_ENV`, and
 /// `TXN_RECOVERY_KEY_ENV`).
 ///
 /// `cargo test` runs every `#[test]`/`#[tokio::test]` function on a pool of OS
@@ -371,6 +628,8 @@ mod tests {
     /// bug: this lock existing but not being crate-visible).
     struct EnvGuard {
         prev_data_key: Option<String>,
+        prev_key_id: Option<String>,
+        prev_key_version: Option<String>,
         prev_recovery_key: Option<String>,
         prev_required_mode: Option<String>,
         _lock: tokio::sync::MutexGuard<'static, ()>,
@@ -384,13 +643,19 @@ mod tests {
             // elsewhere in the crate.
             let lock = super::acquire_test_env_lock_blocking();
             let prev_data_key = std::env::var(ENCRYPTION_KEY_ENV).ok();
+            let prev_key_id = std::env::var(ENCRYPTION_KEY_ID_ENV).ok();
+            let prev_key_version = std::env::var(ENCRYPTION_KEY_VERSION_ENV).ok();
             let prev_recovery_key = std::env::var(TXN_RECOVERY_KEY_ENV).ok();
             let prev_required_mode = std::env::var(ENCRYPTION_REQUIRED_ENV).ok();
             std::env::remove_var(ENCRYPTION_KEY_ENV);
+            std::env::remove_var(ENCRYPTION_KEY_ID_ENV);
+            std::env::remove_var(ENCRYPTION_KEY_VERSION_ENV);
             std::env::remove_var(TXN_RECOVERY_KEY_ENV);
             std::env::remove_var(ENCRYPTION_REQUIRED_ENV);
             EnvGuard {
                 prev_data_key,
+                prev_key_id,
+                prev_key_version,
                 prev_recovery_key,
                 prev_required_mode,
                 _lock: lock,
@@ -403,6 +668,14 @@ mod tests {
             match self.prev_data_key.take() {
                 Some(v) => std::env::set_var(ENCRYPTION_KEY_ENV, v),
                 None => std::env::remove_var(ENCRYPTION_KEY_ENV),
+            }
+            match self.prev_key_id.take() {
+                Some(v) => std::env::set_var(ENCRYPTION_KEY_ID_ENV, v),
+                None => std::env::remove_var(ENCRYPTION_KEY_ID_ENV),
+            }
+            match self.prev_key_version.take() {
+                Some(v) => std::env::set_var(ENCRYPTION_KEY_VERSION_ENV, v),
+                None => std::env::remove_var(ENCRYPTION_KEY_VERSION_ENV),
             }
             match self.prev_recovery_key.take() {
                 Some(v) => std::env::set_var(TXN_RECOVERY_KEY_ENV, v),
@@ -526,5 +799,60 @@ mod tests {
         let _guard = EnvGuard::acquire();
         std::env::set_var(ENCRYPTION_REQUIRED_ENV, "enforce-please");
         assert_eq!(encryption_required_mode(), EncryptionRequiredMode::Warn);
+    }
+
+    /// NE-028: the legacy single-secret configuration remains readable, but the
+    /// resolved reference is stable and non-secret.
+    #[test]
+    fn legacy_key_configuration_gets_stable_reference() {
+        let _guard = EnvGuard::acquire();
+        std::env::set_var(ENCRYPTION_KEY_ENV, "legacy-material");
+        let config = resolve_key_config()
+            .expect("legacy configuration must resolve")
+            .expect("key material is present");
+        assert_eq!(config.key_ref(), &EncryptionKeyRef::legacy());
+        assert_eq!(format!("{config:?}").contains("legacy-material"), false);
+    }
+
+    /// NE-028: an operator-supplied identity/version is retained on the cipher and
+    /// appears only as non-secret metadata; malformed values fail closed.
+    #[test]
+    fn explicit_key_reference_is_pinned_and_validated() {
+        let _guard = EnvGuard::acquire();
+        std::env::set_var(ENCRYPTION_KEY_ENV, "key-material");
+        std::env::set_var(ENCRYPTION_KEY_ID_ENV, "kms/graph-prod");
+        std::env::set_var(ENCRYPTION_KEY_VERSION_ENV, "7");
+        let cipher = ValueCipher::from_env_checked()
+            .expect("explicit key metadata must validate")
+            .expect("key material is present");
+        assert_eq!(cipher.key_ref().id, "kms/graph-prod");
+        assert_eq!(cipher.key_ref().version, "7");
+
+        std::env::set_var(ENCRYPTION_KEY_ID_ENV, "bad\nkey");
+        let error = ValueCipher::from_env_checked().expect_err("control chars must fail closed");
+        assert!(error.contains(ENCRYPTION_KEY_ID_ENV));
+        assert!(!error.contains("key-material"));
+    }
+
+    #[test]
+    fn key_binding_round_trips_without_secret_material() {
+        let key_ref = EncryptionKeyRef::new("kms/graph-prod", "7").expect("valid ref");
+        let binding = EncryptionKeyBinding::from_key_ref(&key_ref);
+        let encoded = binding.encode().expect("binding encoding");
+        let decoded = EncryptionKeyBinding::decode(&encoded).expect("binding decoding");
+        assert_eq!(decoded.key_ref().expect("binding ref"), key_ref);
+        assert!(!encoded.windows(b"key-material".len()).any(|w| w == b"key-material"));
+    }
+
+    #[test]
+    fn rewrap_requires_old_key_and_seals_with_replacement_key() {
+        let old_ref = EncryptionKeyRef::new("kms/graph-prod", "1").expect("old ref");
+        let new_ref = EncryptionKeyRef::new("kms/graph-prod", "2").expect("new ref");
+        let old = ValueCipher::from_key_material_with_ref(b"old-material", old_ref);
+        let new = ValueCipher::from_key_material_with_ref(b"new-material", new_ref);
+        let sealed = old.seal(b"payload");
+        let rotated = old.rewrap(&sealed, &new).expect("rewrap");
+        assert_eq!(new.unseal(&rotated).expect("new key decrypt"), b"payload");
+        assert!(old.unseal(&rotated).is_err());
     }
 }

@@ -17,7 +17,9 @@
 //! then streamed **verbatim** into a fresh bundle shard file, reusing EG-030's raw-row
 //! copy: value blobs are copied byte-for-byte, so
 //!
-//! * encryption-at-rest blobs survive WITHOUT the key (no decrypt), and
+//! * encryption-at-rest blobs survive WITHOUT the key (no decrypt), while the
+//!   per-shard key-binding/canary metadata is retained so restore cannot silently
+//!   accept a different key identity/version, and
 //! * MutationBatch replay/outbox/fence and governed ChangeEnvelope material remain
 //!   recoverable with the same typed content versions and cursors, and
 //! * the tamper-evident hash-chained `AUDIT` log (CONCEPT:EG-KG.sharding.row-level-security) stays verifiable
@@ -79,6 +81,8 @@ use crate::redb_store::{
     SEMANTIC, XSHARD_DECISION, XSHARD_PREPARE,
 };
 use crate::server::persistence::redb_backend::RAFT_META;
+#[cfg(feature = "security")]
+use crate::server::persistence::redb_backend::ENCRYPTION_CANARY;
 use crate::server::persistence::shard_migrate;
 
 /// The bundle manifest file name.
@@ -191,6 +195,10 @@ pub struct BackupReport {
     pub xshard_prepares: u64,
     pub xshard_decisions: u64,
     pub admin_mutations: eg_mutation_store::RecoveryStoreCounts,
+    /// Stable, non-secret encryption key identity captured from the live store.
+    /// Material is never included in a report or bundle manifest.
+    pub encryption_key_id: Option<String>,
+    pub encryption_key_version: Option<String>,
 }
 
 impl BackupReport {
@@ -247,6 +255,13 @@ pub struct BackupManifest {
     pub xshard_decisions: u64,
     /// Integrity totals for the separate admin coordinator ledger.
     pub admin_mutations: eg_mutation_store::RecoveryStoreCounts,
+    /// Stable, non-secret encryption key identity required to open this bundle.
+    /// `None` means the source store used plaintext values; no key material is ever
+    /// written to the manifest.
+    #[serde(default)]
+    pub encryption_key_id: Option<String>,
+    #[serde(default)]
+    pub encryption_key_version: Option<String>,
     /// Exact SHA-256 for every portable graph shard and coordinator store.
     /// Keys are bundle-local generic file names, never host paths.
     pub file_digests: BTreeMap<String, String>,
@@ -277,6 +292,8 @@ impl BackupManifest {
             xshard_prepares: report.xshard_prepares,
             xshard_decisions: report.xshard_decisions,
             admin_mutations: report.admin_mutations,
+            encryption_key_id: report.encryption_key_id.clone(),
+            encryption_key_version: report.encryption_key_version.clone(),
             file_digests,
         }
     }
@@ -299,6 +316,10 @@ fn is_sha256_ref(value: &str) -> bool {
         && value[7..]
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn valid_key_metadata_component(value: &str, max_bytes: usize) -> bool {
+    !value.is_empty() && value.len() <= max_bytes && !value.chars().any(char::is_control)
 }
 
 fn file_sha256(path: &Path) -> Result<String, String> {
@@ -419,6 +440,22 @@ pub(crate) fn copy_snapshot_verbatim(
                 .insert(k.value(), v.value())
                 .map_err(|e| e.to_string())?;
             counts.audit += 1;
+        }
+    }
+
+    // The canary + stable key binding are per-shard DR metadata, not graph rows.
+    // Copy them verbatim so a restore retains the original key identity/version
+    // boundary and cannot silently establish a new canary under a different key.
+    #[cfg(feature = "security")]
+    {
+        let mut d_encryption_canary = wtx.open_table(ENCRYPTION_CANARY).map_err(|e| e.to_string())?;
+        if let Ok(t) = rtx.open_table(ENCRYPTION_CANARY) {
+            for row in t.iter().map_err(|e| e.to_string())? {
+                let (k, v) = row.map_err(|e| e.to_string())?;
+                d_encryption_canary
+                    .insert(k.value(), v.value())
+                    .map_err(|e| e.to_string())?;
+            }
         }
     }
 
@@ -635,6 +672,16 @@ pub fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
     {
         return Err("backup manifest engine version is invalid".to_string());
     }
+    match (
+        manifest.encryption_key_id.as_deref(),
+        manifest.encryption_key_version.as_deref(),
+    ) {
+        (Some(id), Some(version))
+            if valid_key_metadata_component(id, 128)
+                && valid_key_metadata_component(version, 64) => {}
+        (None, None) => {}
+        _ => return Err("backup manifest encryption key reference is invalid".to_string()),
+    }
     if manifest.file_digests.len() != manifest.shard_count + 1
         || manifest
             .file_digests
@@ -703,6 +750,33 @@ pub fn restore_bundle(
     target_shards: usize,
 ) -> Result<RestoreReport, String> {
     let manifest = read_manifest(bundle_dir)?;
+    #[cfg(feature = "security")]
+    if let Some(configured) = crate::crypto::resolve_key_config()? {
+        match (
+            manifest.encryption_key_id.as_deref(),
+            manifest.encryption_key_version.as_deref(),
+        ) {
+            (Some(id), Some(version))
+                if id == configured.key_ref().id.as_str()
+                    && version == configured.key_ref().version.as_str() => {}
+            (Some(_), Some(_)) => {
+                return Err(
+                    "restore key reference does not match the backup; configure the original \
+                     key identity/version or complete an explicit offline re-encryption \
+                     rotation before restore"
+                        .to_string(),
+                );
+            }
+            (None, None) => {
+                return Err(
+                    "restore bundle has no encryption key reference but the current \
+                     deployment supplied an encryption key; refuse ambiguous restore"
+                        .to_string(),
+                );
+            }
+            _ => return Err("restore bundle encryption key reference is incomplete".to_string()),
+        }
+    }
     if !(1..=64).contains(&target_shards) {
         return Err("restore target shard count is outside bounds".to_string());
     }

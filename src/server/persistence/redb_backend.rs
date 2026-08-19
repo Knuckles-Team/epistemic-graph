@@ -107,18 +107,17 @@ fn decode_durable_semantic(
 // stays here with the Raft helpers rather than in the shared graph store.
 pub(crate) const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinition::new("raft_meta");
 
-/// Encryption-at-rest key-mismatch canary (GOC-16 / BUG-248). A single
-/// fixed-key row whose value is the CURRENT cipher's sealed encoding of a
-/// well-known plaintext. `Shard::open` writes it the first time a shard opens
-/// with a configured `EPISTEMIC_GRAPH_ENCRYPTION_KEY`, and verifies (never
-/// rewrites) it on every later open — see [`verify_or_establish_encryption_canary`].
-/// This closes ONLY the "process starts with the wrong key" gap: it does not
-/// pin a key ID/version, does not support rotation, and — because backup/
-/// restore (`persistence::backup`) and shard-migration
-/// (`persistence::shard_migrate`) do not copy this table — a restored or
-/// migrated store re-establishes the canary against whatever key is present
-/// at that time rather than verifying it against the original. Those remain
-/// the still-open parts of BUG-248's key-governance-lifecycle finding.
+/// Encryption-at-rest key-mismatch canary (GOC-16 / BUG-248). The table carries one
+/// AEAD-sealed canary row plus one non-secret, versioned key-binding row. The sealed
+/// plaintext includes the binding, so changing the plaintext metadata alone cannot
+/// make a different key reference appear valid. `Shard::open` verifies both before
+/// spawning a writer thread or binding a listener.
+///
+/// The table is copied verbatim by online backup, offline shard migration, and
+/// restore. A backup therefore preserves the key identity/version boundary; restore
+/// never silently re-establishes a canary under whatever key happens to be present.
+/// A changed key reference is an explicit rotation boundary and fails closed until
+/// the documented offline re-encryption ceremony has completed.
 #[cfg(feature = "security")]
 pub(crate) const ENCRYPTION_CANARY: TableDefinition<&str, &[u8]> =
     TableDefinition::new("encryption_canary");
@@ -126,44 +125,94 @@ pub(crate) const ENCRYPTION_CANARY: TableDefinition<&str, &[u8]> =
 #[cfg(feature = "security")]
 const ENCRYPTION_CANARY_KEY: &str = "v1";
 #[cfg(feature = "security")]
+pub(crate) const ENCRYPTION_KEY_BINDING_KEY: &str = "key-binding-v1";
+#[cfg(feature = "security")]
 const ENCRYPTION_CANARY_PLAINTEXT: &[u8] = b"epistemic-graph-encryption-canary";
 
-/// Verify (or, on first use, establish) that `cipher` is the SAME key that
-/// sealed this shard's previous data, called from `Shard::open` before any
-/// writer thread spawns or any listener binds. `Ok(())` covers both "first
-/// time a key was configured for this store" (the canary row is written) and
-/// "the configured key still matches" (the stored canary decrypts cleanly).
-/// `Err` is a genuine key mismatch — fails closed with a bounded diagnostic
-/// that never includes key material, rather than letting the engine open
-/// successfully and only fail later on whichever value a caller happens to
-/// read first.
+/// Verify (or, on first use, establish) that `cipher` is the SAME key and stable
+/// identity/version that sealed this shard's previous data. Called from `Shard::open`
+/// before any writer thread spawns or any listener binds.
+///
+/// A pre-key-lifecycle store may have only the original fixed plaintext canary. That
+/// legacy row is verified and upgraded atomically with the new binding record. A
+/// store with a binding row but no canary (or vice versa) is treated as tampered and
+/// fails closed; neither half is ever silently recreated.
 #[cfg(feature = "security")]
 fn verify_or_establish_encryption_canary(
     db: &Database,
     cipher: &crate::crypto::ValueCipher,
 ) -> Result<(), String> {
-    let existing = {
+    let (existing_canary, existing_binding) = {
         let rtx = db.begin_read().map_err(|e| e.to_string())?;
         let table = rtx
             .open_table(ENCRYPTION_CANARY)
             .map_err(|e| e.to_string())?;
-        table
+        let canary = table
             .get(ENCRYPTION_CANARY_KEY)
             .map_err(|e| e.to_string())?
-            .map(|v| v.value().to_vec())
+            .map(|v| v.value().to_vec());
+        let binding = table
+            .get(ENCRYPTION_KEY_BINDING_KEY)
+            .map_err(|e| e.to_string())?
+            .map(|v| v.value().to_vec());
+        (canary, binding)
     };
-    match existing {
-        Some(sealed) => cipher.unseal(&sealed).map(|_| ()).map_err(|_| {
-            format!(
-                "refusing to open the durable graph store: {} does not match the key \
-                 that previously encrypted this store (canary decryption failed) — \
-                 configure the correct key, or run the documented re-encryption/rotation \
-                 procedure before changing it",
-                crate::crypto::ENCRYPTION_KEY_ENV,
-            )
-        }),
-        None => {
-            let sealed = cipher.seal(ENCRYPTION_CANARY_PLAINTEXT);
+
+    let configured_ref = cipher.key_ref();
+    let expected_plaintext = crate::crypto::encryption_canary_plaintext(configured_ref);
+    match (existing_canary, existing_binding) {
+        (Some(sealed), Some(binding_bytes)) => {
+            let binding = crate::crypto::EncryptionKeyBinding::decode(&binding_bytes)?;
+            let persisted_ref = binding.key_ref()?;
+            if &persisted_ref != configured_ref {
+                return Err(format!(
+                    "refusing to open the durable graph store: configured encryption key \
+                     reference {}@{} does not match persisted reference {}@{}; complete \
+                     the documented offline key-rotation procedure before changing it",
+                    configured_ref.id,
+                    configured_ref.version,
+                    persisted_ref.id,
+                    persisted_ref.version,
+                ));
+            }
+            let plaintext = cipher.unseal(&sealed).map_err(|_| {
+                format!(
+                    "refusing to open the durable graph store: {} does not match the key \
+                     that previously encrypted this store (canary decryption failed)",
+                    crate::crypto::ENCRYPTION_KEY_ENV,
+                )
+            })?;
+            if plaintext != expected_plaintext {
+                return Err(
+                    "refusing to open the durable graph store: encryption canary binding \
+                     is invalid or tampered"
+                        .to_string(),
+                );
+            }
+            Ok(())
+        }
+        (Some(sealed), None) => {
+            // Upgrade the pre-NE-028 fixed canary only after proving the configured
+            // key can decrypt it. The binding is then written in the SAME transaction
+            // as the new authenticated canary, so a crash leaves either the legacy
+            // row (safe to retry) or the complete new pair.
+            let plaintext = cipher.unseal(&sealed).map_err(|_| {
+                format!(
+                    "refusing to open the durable graph store: {} does not match the key \
+                     that previously encrypted this store (legacy canary decryption failed)",
+                    crate::crypto::ENCRYPTION_KEY_ENV,
+                )
+            })?;
+            if plaintext != ENCRYPTION_CANARY_PLAINTEXT {
+                return Err(
+                    "refusing to open the durable graph store: legacy encryption canary is \
+                     invalid or tampered"
+                        .to_string(),
+                );
+            }
+            let binding = crate::crypto::EncryptionKeyBinding::from_key_ref(configured_ref);
+            let binding_bytes = binding.encode()?;
+            let sealed = cipher.seal(&expected_plaintext);
             let wtx = db.begin_write().map_err(|e| e.to_string())?;
             {
                 let mut table = wtx
@@ -171,6 +220,33 @@ fn verify_or_establish_encryption_canary(
                     .map_err(|e| e.to_string())?;
                 table
                     .insert(ENCRYPTION_CANARY_KEY, sealed.as_slice())
+                    .map_err(|e| e.to_string())?;
+                table
+                    .insert(ENCRYPTION_KEY_BINDING_KEY, binding_bytes.as_slice())
+                    .map_err(|e| e.to_string())?;
+            }
+            wtx.commit().map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        (None, Some(_)) => Err(
+            "refusing to open the durable graph store: encryption key binding exists but \
+             its canary is missing"
+                .to_string(),
+        ),
+        (None, None) => {
+            let binding = crate::crypto::EncryptionKeyBinding::from_key_ref(configured_ref);
+            let binding_bytes = binding.encode()?;
+            let sealed = cipher.seal(&expected_plaintext);
+            let wtx = db.begin_write().map_err(|e| e.to_string())?;
+            {
+                let mut table = wtx
+                    .open_table(ENCRYPTION_CANARY)
+                    .map_err(|e| e.to_string())?;
+                table
+                    .insert(ENCRYPTION_CANARY_KEY, sealed.as_slice())
+                    .map_err(|e| e.to_string())?;
+                table
+                    .insert(ENCRYPTION_KEY_BINDING_KEY, binding_bytes.as_slice())
                     .map_err(|e| e.to_string())?;
             }
             wtx.commit().map_err(|e| e.to_string())?;
@@ -959,7 +1035,7 @@ impl Shard {
         // open from EPISTEMIC_GRAPH_ENCRYPTION_KEY (the KMS seam). `None` ⇒ encryption
         // OFF ⇒ the durable format + write/read paths are byte-for-byte unchanged.
         #[cfg(feature = "security")]
-        let cipher = crate::crypto::ValueCipher::from_env();
+        let cipher = crate::crypto::ValueCipher::from_env_checked()?;
         // GOC-16: encryption-at-rest readiness posture (EPISTEMIC_GRAPH_ENCRYPTION_
         // REQUIRED). Previously the `None` branch here logged NOTHING at all — a
         // production deployment could run fully unencrypted with zero signal to the
@@ -1559,6 +1635,32 @@ impl RedbBackend {
             shards: k,
             ..Default::default()
         };
+        #[cfg(feature = "security")]
+        {
+            // Every shard in one persist-dir must be bound to the same stable key
+            // reference.  Capture only the non-secret identity in the manifest; raw
+            // key material never crosses this boundary.
+            let key_ref = self
+                .shards
+                .iter()
+                .find_map(|shard| shard.cipher.as_ref().map(|cipher| cipher.key_ref().clone()));
+            if self.shards.iter().any(|shard| {
+                shard
+                    .cipher
+                    .as_ref()
+                    .map(|cipher| Some(cipher.key_ref()) != key_ref.as_ref())
+                    .unwrap_or(false)
+            }) {
+                return Err(
+                    "encryption key reference differs between durable shards; refusing to publish backup"
+                        .to_string(),
+                );
+            }
+            if let Some(key_ref) = key_ref {
+                report.encryption_key_id = Some(key_ref.id);
+                report.encryption_key_version = Some(key_ref.version);
+            }
+        }
         for (i, shard) in self.shards.iter().enumerate() {
             // Upgrade the `Weak` to the writer's shared `Database` (CONCEPT:EG-KG.storage.snapshot-read-off-writer).
             // `None` only after shutdown dropped the writer's strong Arc.
@@ -4874,7 +4976,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// GOC-16: save/restore-on-drop for the two GOC-16 env vars, held under the SAME
+    /// GOC-16/NE-028: save/restore-on-drop for the encryption env vars, held under the SAME
     /// crate-wide [`crate::crypto::acquire_test_env_lock`] every other encryption-key
     /// test in this file and in `crypto.rs` contends on. Unlike
     /// `txn_commit_persists_to_redb`'s `std::sync::Once` (which only ever SETS
@@ -4885,6 +4987,8 @@ mod tests {
     #[cfg(feature = "security")]
     struct EncryptionRequiredEnvGuard {
         prev_key: Option<String>,
+        prev_key_id: Option<String>,
+        prev_key_version: Option<String>,
         prev_required: Option<String>,
     }
 
@@ -4892,16 +4996,29 @@ mod tests {
     impl EncryptionRequiredEnvGuard {
         fn set(key: Option<&str>, required_mode: &str) -> Self {
             let prev_key = std::env::var(crate::crypto::ENCRYPTION_KEY_ENV).ok();
+            let prev_key_id = std::env::var(crate::crypto::ENCRYPTION_KEY_ID_ENV).ok();
+            let prev_key_version = std::env::var(crate::crypto::ENCRYPTION_KEY_VERSION_ENV).ok();
             let prev_required = std::env::var(crate::crypto::ENCRYPTION_REQUIRED_ENV).ok();
             match key {
                 Some(k) => std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, k),
                 None => std::env::remove_var(crate::crypto::ENCRYPTION_KEY_ENV),
             }
+            std::env::remove_var(crate::crypto::ENCRYPTION_KEY_ID_ENV);
+            std::env::remove_var(crate::crypto::ENCRYPTION_KEY_VERSION_ENV);
             std::env::set_var(crate::crypto::ENCRYPTION_REQUIRED_ENV, required_mode);
             Self {
                 prev_key,
+                prev_key_id,
+                prev_key_version,
                 prev_required,
             }
+        }
+
+        fn set_with_ref(key: &str, key_id: &str, key_version: &str) -> Self {
+            let guard = Self::set(Some(key), "warn");
+            std::env::set_var(crate::crypto::ENCRYPTION_KEY_ID_ENV, key_id);
+            std::env::set_var(crate::crypto::ENCRYPTION_KEY_VERSION_ENV, key_version);
+            guard
         }
     }
 
@@ -4911,6 +5028,14 @@ mod tests {
             match self.prev_key.take() {
                 Some(v) => std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, v),
                 None => std::env::remove_var(crate::crypto::ENCRYPTION_KEY_ENV),
+            }
+            match self.prev_key_id.take() {
+                Some(v) => std::env::set_var(crate::crypto::ENCRYPTION_KEY_ID_ENV, v),
+                None => std::env::remove_var(crate::crypto::ENCRYPTION_KEY_ID_ENV),
+            }
+            match self.prev_key_version.take() {
+                Some(v) => std::env::set_var(crate::crypto::ENCRYPTION_KEY_VERSION_ENV, v),
+                None => std::env::remove_var(crate::crypto::ENCRYPTION_KEY_VERSION_ENV),
             }
             match self.prev_required.take() {
                 Some(v) => std::env::set_var(crate::crypto::ENCRYPTION_REQUIRED_ENV, v),
@@ -5005,6 +5130,48 @@ mod tests {
                 && message.contains("does not match"),
             "diagnostic must be bounded and name the mismatch, got: {message}"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// NE-028: changing only the non-secret key reference is still a rotation
+    /// boundary.  Even when the material happens to be unchanged, startup refuses
+    /// the ambiguous configuration instead of silently moving the pin.
+    #[cfg(feature = "security")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn encryption_key_reference_mismatch_refuses_to_reopen() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let dir = std::env::temp_dir().join(format!(
+            "eg-redb-enc-key-ref-mismatch-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        {
+            let _guard = EncryptionRequiredEnvGuard::set_with_ref(
+                "stable-key-material",
+                "kms/graph",
+                "1",
+            );
+            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+                .expect("first open must establish the pinned reference");
+            backend.shutdown();
+        }
+
+        let result = {
+            let _guard = EncryptionRequiredEnvGuard::set_with_ref(
+                "stable-key-material",
+                "kms/graph",
+                "2",
+            );
+            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+        };
+        let message = match result {
+            Ok(_) => panic!("changing key version must fail closed before writer startup"),
+            Err(message) => message,
+        };
+        assert!(message.contains("reference") && message.contains("does not match"));
+        assert!(!message.contains("stable-key-material"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
