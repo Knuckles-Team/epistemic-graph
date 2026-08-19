@@ -122,6 +122,22 @@ impl CommitIntent {
         uuid::Uuid::parse_str(&self.operation_id).unwrap_or_else(|_| uuid::Uuid::nil())
     }
 
+    /// Stable payload-free descriptor for the exact table-side replay recipe.
+    ///
+    /// The SQL MutationBatch stores only the digest of this descriptor, never
+    /// the statements themselves. Recovery can therefore prove that an
+    /// already-committed batch belongs to this exact owner-scoped intent before
+    /// repairing CREATE ownership, rather than trusting a generic idempotency
+    /// conflict or the mere existence of a same-named table.
+    pub(crate) fn table_operation_descriptor(&self) -> Result<String, String> {
+        let encoded = rmp_serde::to_vec_named(&self.table_steps)
+            .map_err(|_| "commit-intent table replay recipe encode failed".to_string())?;
+        Ok(format!(
+            "transaction:sha256:{}",
+            hex::encode(Sha256::digest(encoded))
+        ))
+    }
+
     /// A DETERMINISTIC child id for the compensating write, derived from
     /// this intent's own `operation_id` — so a retried/crashed compensation
     /// attempt keys onto the SAME idempotent coordinator id every time,

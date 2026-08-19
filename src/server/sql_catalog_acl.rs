@@ -73,17 +73,11 @@
 //!
 //! ## What this module deliberately does NOT do
 //!
-//! It is not wired into any live request path. `src/server/handlers/query.rs`
-//! (and the pgwire/mysql-wire/mssql-wire/sqlite-wire/sqlite-file/RDF-OBDA
-//! surfaces) still resolve tables exclusively through
-//! [`crate::server::sql_tables::user_table_store`] — untouched, still
-//! per-(tenant, agent_id), still zero intra-tenant visibility by default. Wiring
-//! a live surface to call [`open_authorized_table`] per parsed
-//! table+privilege instead requires editing those handler files, which sit
-//! outside this track's owned-file list (NE-003 owns `sql_tables.rs`, the
-//! SQL/user-table paths of `access.rs`, and new modules/tests only). See the
-//! track report for the full reasoning; until that wiring lands this module is a
-//! complete, independently tested, currently-unreachable-from-any-wire capability.
+//! The shared wire-neutral SQL path in `src/server/wire/mod.rs` enforces this
+//! authority for pgwire and the other adapters that delegate to `WireSession`.
+//! Non-wire query surfaces must still opt into the same parsed-table checks;
+//! callers must never infer that opening the tenant-shared physical store alone
+//! grants access.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -123,6 +117,29 @@ pub(crate) enum SqlPrivilege {
     Update,
     Delete,
     Alter,
+}
+
+/// Batch-local proof that `authority` may operate on exactly one table that an
+/// earlier `CREATE TABLE` in the same atomic [`eg_query::TableTxn`] will create.
+///
+/// The fields stay private so callers cannot manufacture or retarget this
+/// capability. It is issued only when the physical table and ACL owner are both
+/// absent and the create is not `IF NOT EXISTS`; the underlying redb transaction
+/// therefore remains the final first-writer-wins collision fence.
+#[derive(Debug, Clone)]
+pub(crate) struct ProvisionalCreateAuthority {
+    tenant_scope: String,
+    actor: String,
+    table: String,
+}
+
+impl ProvisionalCreateAuthority {
+    /// True only for the exact verified carrier and table this capability binds.
+    pub(crate) fn permits(&self, authority: &CarrierAuthority, table: &str) -> bool {
+        self.tenant_scope == authority.tenant_scope()
+            && self.actor == authority.agent_id()
+            && self.table == table
+    }
 }
 
 impl SqlPrivilege {
@@ -218,6 +235,34 @@ fn owner_of(acl: &TableStore, table: &str) -> Result<Option<String>, String> {
         }
     }
     Ok(None)
+}
+
+/// Issue a non-persisted capability for a table an earlier op in the same
+/// all-or-nothing batch will create. The caller must first prove the physical
+/// table is absent and that the create is not `IF NOT EXISTS`; this function
+/// independently proves that no different ACL owner is already retained.
+///
+/// `Ok(None)` means normal ACL authorization already suffices (admin or the same
+/// retained owner). A different owner always receives the generic denial.
+pub(crate) fn begin_provisional_create(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table: &str,
+) -> Result<Option<ProvisionalCreateAuthority>, String> {
+    ensure_migrated(authority.tenant_scope(), persist_dir, authority)?;
+    let acl = open_acl(authority.tenant_scope(), persist_dir)?;
+    if authority.is_admin() {
+        return Ok(None);
+    }
+    match owner_of(&acl, table)? {
+        None => Ok(Some(ProvisionalCreateAuthority {
+            tenant_scope: authority.tenant_scope().to_string(),
+            actor: authority.agent_id().to_string(),
+            table: table.to_string(),
+        })),
+        Some(owner) if owner == authority.agent_id() => Ok(None),
+        Some(_) => Err(ACCESS_DENIED.to_string()),
+    }
 }
 
 /// First-writer-wins ownership registration. A no-op (never overwrites) once the
@@ -1151,6 +1196,31 @@ mod tests {
     /// rejects anything else, so the notice fixture cannot use `text_col` here.
     fn timestamp_col(name: &str) -> Column {
         Column::new(name, ColumnType::Timestamp, false, false)
+    }
+
+    #[test]
+    fn provisional_create_capability_is_exact_and_existing_owner_fails_closed() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-provisional");
+        let bob = authority("bob", "tenant-provisional");
+        let other_tenant_alice = authority("alice", "tenant-provisional-other");
+
+        let capability = begin_provisional_create(&alice, &dir, "fresh")
+            .unwrap()
+            .expect("unowned table receives a batch-local capability");
+        assert!(capability.permits(&alice, "fresh"));
+        assert!(!capability.permits(&bob, "fresh"));
+        assert!(!capability.permits(&alice, "other"));
+        assert!(!capability.permits(&other_tenant_alice, "fresh"));
+
+        register_owner_after_create(&alice, &dir, "owned").unwrap();
+        assert_eq!(
+            begin_provisional_create(&bob, &dir, "owned").unwrap_err(),
+            ACCESS_DENIED
+        );
+        assert!(begin_provisional_create(&alice, &dir, "owned")
+            .unwrap()
+            .is_none());
     }
 
     // ── two actors in one tenant share a granted table ──────────────────────
