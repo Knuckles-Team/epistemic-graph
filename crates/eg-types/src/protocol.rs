@@ -18,6 +18,14 @@ where
     Option::<T>::deserialize(deserializer)
 }
 
+/// Default page size for the bounded ResourceStats extension.  The legacy
+/// unit variant remains a compatibility entry point, but it now has this same
+/// finite page bound rather than silently materializing every resident graph.
+#[cfg(feature = "cost")]
+fn default_resource_stats_limit() -> usize {
+    128
+}
+
 /// `skip_serializing_if` predicate for a `bool` field whose default is
 /// `false` (serde requires `fn(&T) -> bool`, so `std::ops::Not::not`'s
 /// by-value signature doesn't fit). Omitting a still-`false` field from the
@@ -1632,10 +1640,28 @@ pub enum Method {
     /// resident memory, node/edge counts, queue depth / in-flight, hibernated-vs-
     /// resident counts, eviction rate, plus a process-wide aggregate. The signals an
     /// external autoscaler (agent-utilities OS-5.27) consumes to scale shards. Read
-    /// via `ResultPayload::Json` (a `ResourceSnapshot`). Gated by `cost`; a build
-    /// without it falls to the dispatch "not available" catch-all.
+    /// via `ResultPayload::Json` (a `ResourceSnapshot`). The response is always
+    /// bounded to the protocol's default page size; use `ResourceStatsPage` for an
+    /// explicit keyset cursor, finite limit, or summary-only response. Gated by
+    /// `cost`; a build without it falls to the dispatch "not available" catch-all.
     #[cfg(feature = "cost")]
     ResourceStats,
+    /// Return one bounded, ACL-filtered ResourceStats page. `cursor` is an opaque
+    /// exclusive graph-name key from the previous response's `next_cursor`; `limit`
+    /// must be between one and the server's finite maximum; `summary` suppresses all
+    /// per-graph/per-tenant arrays while retaining aggregate counters.  The body is
+    /// deliberately separate from the legacy unit `ResourceStats` variant so older
+    /// clients keep their exact request/MAC wire shape while receiving the bounded
+    /// default rather than an unbounded result.
+    #[cfg(feature = "cost")]
+    ResourceStatsPage {
+        #[serde(default)]
+        cursor: Option<String>,
+        #[serde(default = "default_resource_stats_limit")]
+        limit: usize,
+        #[serde(default)]
+        summary: bool,
+    },
     Reconcile {
         graph_name: String,
         #[serde(with = "serde_bytes")]

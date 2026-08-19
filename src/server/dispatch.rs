@@ -2496,6 +2496,38 @@ async fn dispatch_with_context(
     resp
 }
 
+#[cfg(feature = "cost")]
+async fn dispatch_resource_stats(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified_context: &VerifiedRequestContext,
+    request: crate::cost::ResourceStatsRequest,
+) -> Response {
+    // ResourceStats is service-scoped, so construct the same verified graph
+    // read authority used by graph reads before scanning the registry.  The
+    // cost collector filters tenant + ACL before it increments any aggregate,
+    // cursor, or candidate state.
+    let isolation = timed_read(state).await.isolation.clone();
+    let authority = match GraphReadAuthority::from_verified(verified_context, &isolation) {
+        Ok(authority) => authority,
+        Err(error) => return Response::err(req_id, error),
+    };
+    match crate::cost::collect_resource_stats_authorized(
+        state,
+        &authority,
+        verified_context.tenant(),
+        request,
+    )
+    .await
+    {
+        Ok(snapshot) => match serde_json::to_value(&snapshot) {
+            Ok(value) => Response::ok(req_id, ResultPayload::Json(value)),
+            Err(error) => Response::err(req_id, format!("ResourceStats serialization: {error}")),
+        },
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
 async fn dispatch_inner(
     state: &Arc<RwLock<ServerState>>,
     mut req: Request,
@@ -2815,7 +2847,7 @@ async fn dispatch_inner(
             };
             let uptime_s = 0; // you can capture start time in ServerState
             let mem_bytes = 0;
-            let served_ops = vec![
+            let mut served_ops = vec![
                 "ParseFiles",
                 "IndexRepository",
                 "ObserveScreen",
@@ -2827,7 +2859,8 @@ async fn dispatch_inner(
                 "GetChangeCursor",
                 "KnowledgeStream",
             ];
-            let mut served_ops = served_ops;
+            #[cfg(feature = "cost")]
+            served_ops.extend(["ResourceStats", "ResourceStatsPage"]);
             append_native_resource_ops(&mut served_ops, native_resource_ops_available);
             #[cfg(feature = "modality-serving")]
             let served_ops = {
@@ -2975,13 +3008,31 @@ async fn dispatch_inner(
         // ── Cost / efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────
         #[cfg(feature = "cost")]
         Method::ResourceStats => {
-            match crate::cost::collect_resource_stats(state).await {
-                Ok(snapshot) => match serde_json::to_value(&snapshot) {
-                    Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
-                    Err(e) => Response::err(req.id, format!("ResourceStats serialization: {e}")),
+            dispatch_resource_stats(
+                state,
+                req.id,
+                &verified_context,
+                crate::cost::ResourceStatsRequest::bounded_default(),
+            )
+            .await
+        }
+        #[cfg(feature = "cost")]
+        Method::ResourceStatsPage {
+            cursor,
+            limit,
+            summary,
+        } => {
+            dispatch_resource_stats(
+                state,
+                req.id,
+                &verified_context,
+                crate::cost::ResourceStatsRequest {
+                    cursor,
+                    limit,
+                    summary,
                 },
-                Err(error) => Response::err(req.id, error),
-            }
+            )
+            .await
         }
 
         // ── Multi-tenant graph management ────────────────────────────

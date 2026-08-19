@@ -1331,6 +1331,16 @@ impl GraphRegistry {
     pub fn all_entries(&self) -> Vec<&GraphEntry> {
         self.graphs.values().collect()
     }
+
+    /// Visit resident entries without materializing a second collection.  Callers
+    /// that need to inspect a large resident population (for example bounded
+    /// autoscale telemetry) can keep their own working set capped instead of
+    /// turning this registry's DashMap into an O(N) temporary `Vec`.
+    pub fn for_each_entry(&self, mut visit: impl FnMut(&GraphEntry)) {
+        for entry in self.graphs.iter() {
+            visit(entry.value());
+        }
+    }
 }
 
 /// Replay one [`MaterialPage`] into `core` via the SAME `add_node`/`add_edge`/

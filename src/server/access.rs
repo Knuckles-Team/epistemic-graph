@@ -2151,6 +2151,7 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("Metrics", REASON_SERVER_LIFECYCLE),
     ("Ping", REASON_SERVER_LIFECYCLE),
     ("ResourceStats", REASON_SERVER_LIFECYCLE),
+    ("ResourceStatsPage", REASON_SERVER_LIFECYCLE),
     // REASON_AUDIT_CHAIN_ADMIN_GATED
     ("AuditVerify", REASON_AUDIT_CHAIN_ADMIN_GATED),
     ("AuditProveInclusion", REASON_AUDIT_CHAIN_ADMIN_GATED),
