@@ -38,12 +38,15 @@ use openraft::Config;
 use tokio::sync::RwLock;
 
 use super::network::{self, GroupRpcReply, RaftFrame, RaftFrameReply};
+use super::membership_shrink::{
+    MembershipShrinkEvidence, MembershipShrinkJournal, MembershipShrinkPhase,
+};
 use super::placement::{self, PlacementCatalog, PlacementRoute};
 use super::store::EgStore;
 use super::{
     AppCtx, EgRaft, GroupId, NodeId, RaftHandle, RaftRequest, RaftResponse, DEFAULT_GROUP,
 };
-use crate::protocol::Method;
+use crate::protocol::{Method, ResultPayload};
 
 /// Routes a graph name to the Raft group that owns it (CONCEPT:EG-KG.sharding.raft-resharding +
 /// KG-2.266). One graph belongs to exactly one group. Resolution order:
@@ -334,6 +337,13 @@ impl ConnectionTaskSet {
 /// settled before the balancer would consider another — no flapping.
 const TRANSFER_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(10);
 const MAX_RAFT_INBOUND_CONNECTIONS: usize = 64;
+const MAX_PLACEMENT_EPOCH_RETRIES: usize = 8;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PlacementCommitOutcome {
+    Committed,
+    EpochConflict,
+}
 
 fn loopback_endpoint(endpoint: &str) -> bool {
     if let Ok(addr) = endpoint.parse::<std::net::SocketAddr>() {
@@ -963,10 +973,28 @@ impl MultiRaft {
         self.change_group_voters(gid, voters).await
     }
 
-    /// Remove `node` from group `gid`'s voter set (CONCEPT:EG-KG.storage.kg-kg-2). MUST be called on
-    /// the LEADER. Idempotent (a no-op if `node` is not a voter); refuses to remove the
-    /// LAST voter (that would make the group leaderless / unrecoverable).
+    /// Legacy removal entry point. A bare `change_membership` cannot prove
+    /// drain, learner catch-up, leadership transfer, or topology safety, so it
+    /// is deliberately fail-closed. Use
+    /// [`remove_group_member_with_evidence`](Self::remove_group_member_with_evidence)
+    /// with the durable shrink contract instead.
     pub async fn remove_group_member(&self, gid: GroupId, node: NodeId) -> Result<(), String> {
+        Err(format!(
+            "refusing unsafe membership shrink of node {node} from group {gid}; "
+                "submit a drain/learner/quorum evidence journal first"
+        ))
+    }
+
+    /// Remove one voter only through the durable drain/safety state machine.
+    /// Every phase is retained in the placement graph before the next side
+    /// effect. A crash after `change_membership` therefore leaves enough state
+    /// for restart reconciliation to complete or abort deterministically.
+    pub async fn remove_group_member_with_evidence(
+        &self,
+        gid: GroupId,
+        node: NodeId,
+        evidence: MembershipShrinkEvidence,
+    ) -> Result<(), String> {
         let raft = self
             .groups
             .read()
@@ -974,14 +1002,36 @@ impl MultiRaft {
             .get(&gid)
             .cloned()
             .ok_or_else(|| format!("group {gid} not running on node {}", self.node_id))?;
-        let mut voters: BTreeSet<NodeId> = {
+        let (mut voters, current_term, current_leader, learners, learner_caught_up_live) = {
             let metrics = raft.metrics();
-            let v = metrics
-                .borrow_watched()
+            let watched = metrics.borrow_watched();
+            let v: BTreeSet<NodeId> = watched
                 .membership_config
                 .voter_ids()
                 .collect();
-            v
+            let learners: BTreeSet<NodeId> = watched
+                .membership_config
+                .membership()
+                .learner_ids()
+                .collect();
+            let learner_caught_up_live = evidence
+                .observed_learner
+                .and_then(|learner| {
+                    watched.replication.as_ref().and_then(|progress| {
+                        progress
+                            .get(&learner)
+                            .and_then(|log_id| log_id.as_ref().map(|log_id| log_id.index))
+                    })
+                })
+                .zip(watched.last_log_index)
+                .is_some_and(|(learner_index, leader_index)| learner_index >= leader_index);
+            (
+                v,
+                watched.current_term,
+                watched.current_leader,
+                learners,
+                learner_caught_up_live,
+            )
         };
         if !voters.remove(&node) {
             return Ok(());
@@ -991,9 +1041,105 @@ impl MultiRaft {
                 "refusing to remove the last voter {node} from group {gid}"
             ));
         }
-        raft.change_membership(voters, false)
+        if voters.len() < 2 {
+            return Err(format!(
+                "refusing to shrink group {gid} below two retained voters"
+            ));
+        }
+        let learner = evidence
+            .observed_learner
+            .ok_or_else(|| "membership shrink requires a caught-up learner".to_string())?;
+        if !learners.contains(&learner) {
+            return Err("membership shrink learner is not in the committed learner set".to_string());
+        }
+        if current_leader != Some(self.node_id) {
+            return Err("membership shrink must be proposed by the current group leader".to_string());
+        }
+        if current_leader == Some(node) {
+            return Err("membership shrink requires leadership transfer before removal".to_string());
+        }
+        if !learner_caught_up_live {
+            return Err("membership shrink learner has not caught up to the leader log".to_string());
+        }
+        let expected_voters: Vec<NodeId> = {
+            let mut current: Vec<NodeId> = voters.iter().copied().collect();
+            current.push(node);
+            current.sort_unstable();
+            current
+        };
+        if evidence.observed_term != current_term
+            || evidence.observed_voters != expected_voters
+            || evidence.observed_leader != current_leader
+        {
+            return Err("membership shrink evidence does not match live term or voter set".to_string());
+        }
+        let mut journal = MembershipShrinkJournal::new(
+            gid,
+            node,
+            learner,
+            current_term,
+            expected_voters,
+        )?;
+        if let Some(existing) = self
+            .placement
+            .membership_shrink_journal(&journal.operation_id)
+            .await?
+        {
+            if existing.phase.terminal() {
+                return if existing.phase == MembershipShrinkPhase::Completed {
+                    Ok(())
+                } else {
+                    Err("membership shrink has a retained terminal abort".to_string())
+                };
+            }
+            return Err("membership shrink already has an active recovery journal".to_string());
+        }
+        self.persist_membership_shrink_journal(&journal).await?;
+
+        for phase in [
+            MembershipShrinkPhase::DrainRequested,
+            MembershipShrinkPhase::Drained,
+            MembershipShrinkPhase::LearnerCaughtUp,
+            MembershipShrinkPhase::LeadershipTransferred,
+            MembershipShrinkPhase::SafetyChecked,
+        ] {
+            journal = journal.advance(phase, evidence.clone())?;
+            self.persist_membership_shrink_journal(&journal).await?;
+        }
+        if !journal.ready_for_removal() {
+            return Err("membership shrink did not reach its durable safety gate".to_string());
+        }
+
+        raft.change_membership(voters.clone(), false)
             .await
             .map_err(|e| format!("change_membership group {gid} remove {node}: {e}"))?;
+
+        let (observed_voters, observed_leader) = {
+            let metrics = raft.metrics();
+            let watched = metrics.borrow_watched();
+            let mut observed: Vec<NodeId> = watched
+                .membership_config
+                .voter_ids()
+                .collect();
+            observed.sort_unstable();
+            (observed, watched.current_leader)
+        };
+        if observed_voters != voters.iter().copied().collect::<Vec<_>>() || observed_leader == Some(node)
+        {
+            return Err("membership shrink commit did not produce the expected voter fence".to_string());
+        }
+        let mut committed_evidence = evidence;
+        committed_evidence.observed_voters = observed_voters;
+        committed_evidence.observed_leader = observed_leader;
+        committed_evidence.membership_change_committed = true;
+        committed_evidence.target_absent = true;
+        journal = journal.advance(
+            MembershipShrinkPhase::RemovalCommitted,
+            committed_evidence.clone(),
+        )?;
+        self.persist_membership_shrink_journal(&journal).await?;
+        journal = journal.advance(MembershipShrinkPhase::Completed, committed_evidence)?;
+        self.persist_membership_shrink_journal(&journal).await?;
         Ok(())
     }
 
@@ -1137,36 +1283,126 @@ impl MultiRaft {
             .await
     }
 
+    /// Build one internal placement request. Placement mutations are ordinary
+    /// graph methods, but they always use the DEFAULT group's replicated log;
+    /// no local shortcut is permitted.
+    async fn placement_method_request(&self, method: &Method) -> Result<RaftRequest, String> {
+        self.ensure_group(DEFAULT_GROUP).await?;
+        let server_secret = self.ctx.state.read().await.auth_secret.clone();
+        Ok(RaftRequest {
+            graph_fname: crate::persist::sanitize(placement::PLACEMENT_GRAPH),
+            graph_name: placement::PLACEMENT_GRAPH.to_string(),
+            graph_type: crate::protocol::GraphType::Commons,
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-placement",
+                placement::PLACEMENT_GRAPH,
+                &crate::server::mutation_batch::opaque_request_key(
+                    "placement-operation",
+                    placement::PLACEMENT_GRAPH,
+                    0,
+                    method,
+                ),
+                0,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(method.clone(), &server_secret)?,
+        })
+    }
+
+    async fn commit_placement_method(&self, method: &Method) -> Result<RaftResponse, String> {
+        let req = self.placement_method_request(method).await?;
+        self.client_write_group(DEFAULT_GROUP, req).await
+    }
+
     /// Commit a batch of placement-catalog mutations through the DEFAULT group's Raft
     /// consensus (CONCEPT:EG-KG.sharding.placement-catalog — the replication seam). Ensures the default
     /// group is running (idempotent) so the catalog is usable even on a fresh
     /// single-group deployment that never called [`configure_group_ring`](Self::configure_group_ring).
     async fn commit_placement(&self, methods: &[Method]) -> Result<(), String> {
-        self.ensure_group(DEFAULT_GROUP).await?;
-        let server_secret = self.ctx.state.read().await.auth_secret.clone();
         for method in methods {
-            let req = RaftRequest {
-                graph_fname: crate::persist::sanitize(placement::PLACEMENT_GRAPH),
-                graph_name: placement::PLACEMENT_GRAPH.to_string(),
-                graph_type: crate::protocol::GraphType::Commons,
-                committed_at_ms: 0,
-                mutation: super::RaftMutationContext::internal(
-                    "raft-placement",
-                    placement::PLACEMENT_GRAPH,
-                    &crate::server::mutation_batch::opaque_request_key(
-                        "placement-operation",
-                        placement::PLACEMENT_GRAPH,
-                        0,
-                        method,
-                    ),
-                    0,
-                    0,
-                ),
-                command: super::ReplicatedMutation::graph(method.clone(), &server_secret)?,
-            };
-            self.client_write_group(DEFAULT_GROUP, req).await?;
+            let response = self.commit_placement_method(method).await?;
+            if let Some(error) = response.native_error {
+                return Err(error);
+            }
         }
         Ok(())
+    }
+
+    /// Complete a [`placement::PendingWrite`] in two fenced parts: first reserve
+    /// an epoch through the replicated counter CAS, then apply the placement row
+    /// CAS/add/remove methods. The counter CAS result is surfaced instead of
+    /// being discarded; callers re-plan on contention before any placement row
+    /// is written.
+    async fn commit_placement_plan(
+        &self,
+        plan: &placement::PendingWrite<'_>,
+    ) -> Result<PlacementCommitOutcome, String> {
+        if let Some(allocation) = plan.epoch_allocation {
+            if allocation.seed_if_absent {
+                let seed = placement::PlacementCatalog::epoch_seed_method(allocation.floor);
+                let response = self.commit_placement_method(&seed).await?;
+                if let Some(error) = response.native_error {
+                    return Err(error);
+                }
+            }
+            if allocation.expected != allocation.floor {
+                let reconcile = placement::PlacementCatalog::epoch_reconcile_method(
+                    allocation.expected,
+                    allocation.floor,
+                );
+                let response = self.commit_placement_method(&reconcile).await?;
+                if let Some(error) = response.native_error {
+                    return Err(error);
+                }
+                if !matches!(response.native_result, Some(ResultPayload::Bool(true))) {
+                    return Ok(PlacementCommitOutcome::EpochConflict);
+                }
+            }
+            let reserve = placement::PlacementCatalog::epoch_cas_method(
+                allocation.floor,
+                allocation.allocated,
+            );
+            let response = self.commit_placement_method(&reserve).await?;
+            if let Some(error) = response.native_error {
+                return Err(error);
+            }
+            if !matches!(response.native_result, Some(ResultPayload::Bool(true))) {
+                return Ok(PlacementCommitOutcome::EpochConflict);
+            }
+        }
+
+        for method in &plan.methods {
+            let response = self.commit_placement_method(method).await?;
+            if let Some(error) = response.native_error {
+                return Err(error);
+            }
+            if plan.require_success
+                && !matches!(response.native_result, Some(ResultPayload::Bool(true)))
+            {
+                return Err("placement row CAS fence rejected the stale proposal".to_string());
+            }
+        }
+        Ok(PlacementCommitOutcome::Committed)
+    }
+
+    /// Placement plans must be built on the current DEFAULT-group leader. A
+    /// follower's catalog can legitimately lag the leader, so silently planning
+    /// from its local image would make the CAS retry loop unable to reconstruct
+    /// the right placement pre-image. Callers must retry through the leader.
+    async fn require_placement_leader(&self) -> Result<(), String> {
+        self.ensure_group(DEFAULT_GROUP).await?;
+        let group = self
+            .group(DEFAULT_GROUP)
+            .await
+            .ok_or_else(|| "placement group is not running on this node".to_string())?;
+        match group.current_leader().await {
+            Some(leader) if leader == self.node_id => Ok(()),
+            Some(leader) => Err(format!(
+                "placement mutation must be issued to current leader {leader}"
+            )),
+            None => Err("placement group has no current leader".to_string()),
+        }
     }
 
     /// Commit this node's [`super::node_info_store::NodeInfo`][ni] self-report
@@ -1236,6 +1472,23 @@ impl MultiRaft {
         self.commit_placement(&[method]).await
     }
 
+    async fn persist_membership_shrink_journal(
+        &self,
+        journal: &MembershipShrinkJournal,
+    ) -> Result<(), String> {
+        if let Some(current) = self
+            .placement
+            .membership_shrink_journal(&journal.operation_id)
+            .await?
+        {
+            if !current.permits_successor(journal) {
+                return Err("membership shrink journal transition is not monotonic".to_string());
+            }
+        }
+        let method = PlacementCatalog::membership_shrink_method(journal)?;
+        self.commit_placement(&[method]).await
+    }
+
     /// Assign the WHOLE keyspace of `tenant` to `group` (CONCEPT:EG-KG.sharding.placement-catalog admin
     /// API). Collapses any prior split. Returns the new routing epoch.
     pub async fn placement_assign(&self, tenant: &str, group: GroupId) -> Result<u64, String> {
@@ -1243,9 +1496,16 @@ impl MultiRaft {
         if crate::server::txn::consensus_tenant_is_prepared(tenant) {
             return Err("placement change conflicts with a prepared transaction".to_string());
         }
-        let plan = self.placement.plan_assign(tenant, group).await;
-        self.commit_placement(&plan.methods).await?;
-        Ok(plan.epoch)
+        self.require_placement_leader().await?;
+        for _ in 0..MAX_PLACEMENT_EPOCH_RETRIES {
+            let plan = self.placement.plan_assign(tenant, group).await?;
+            let epoch = plan.epoch;
+            match self.commit_placement_plan(&plan).await? {
+                PlacementCommitOutcome::Committed => return Ok(epoch),
+                PlacementCommitOutcome::EpochConflict => continue,
+            }
+        }
+        Err("placement epoch CAS contention exceeded retry bound".to_string())
     }
 
     /// Split `tenant`'s partition covering `at` into `[.., at) → group_a` and
@@ -1262,12 +1522,19 @@ impl MultiRaft {
         if crate::server::txn::consensus_tenant_is_prepared(tenant) {
             return Err("placement change conflicts with a prepared transaction".to_string());
         }
-        let plan = self
-            .placement
-            .plan_split(tenant, at, group_a, group_b)
-            .await?;
-        self.commit_placement(&plan.methods).await?;
-        Ok(plan.epoch)
+        self.require_placement_leader().await?;
+        for _ in 0..MAX_PLACEMENT_EPOCH_RETRIES {
+            let plan = self
+                .placement
+                .plan_split(tenant, at, group_a, group_b)
+                .await?;
+            let epoch = plan.epoch;
+            match self.commit_placement_plan(&plan).await? {
+                PlacementCommitOutcome::Committed => return Ok(epoch),
+                PlacementCommitOutcome::EpochConflict => continue,
+            }
+        }
+        Err("placement epoch CAS contention exceeded retry bound".to_string())
     }
 
     /// Merge every one of `tenant`'s ranged partitions back onto `group` (CONCEPT:EG-KG.sharding.placement-catalog
@@ -1278,9 +1545,16 @@ impl MultiRaft {
         if crate::server::txn::consensus_tenant_is_prepared(tenant) {
             return Err("placement change conflicts with a prepared transaction".to_string());
         }
-        let plan = self.placement.plan_merge(tenant, group).await;
-        self.commit_placement(&plan.methods).await?;
-        Ok(plan.epoch)
+        self.require_placement_leader().await?;
+        for _ in 0..MAX_PLACEMENT_EPOCH_RETRIES {
+            let plan = self.placement.plan_merge(tenant, group).await?;
+            let epoch = plan.epoch;
+            match self.commit_placement_plan(&plan).await? {
+                PlacementCommitOutcome::Committed => return Ok(epoch),
+                PlacementCommitOutcome::EpochConflict => continue,
+            }
+        }
+        Err("placement epoch CAS contention exceeded retry bound".to_string())
     }
 
     /// Mark `(tenant, range)` mid-move to `target` (CONCEPT:EG-KG.sharding.placement-catalog admin API —
@@ -1298,11 +1572,13 @@ impl MultiRaft {
         if crate::server::txn::consensus_tenant_is_prepared(tenant) {
             return Err("placement change conflicts with a prepared transaction".to_string());
         }
+        self.require_placement_leader().await?;
         let plan = self
             .placement
             .plan_start_move(tenant, range, target)
             .await?;
-        self.commit_placement(&plan.methods).await
+        self.commit_placement_plan(&plan).await?;
+        Ok(())
     }
 
     /// Fence the cutover of `(tenant, range)` to `target` (CONCEPT:EG-KG.sharding.placement-catalog admin API
@@ -1318,12 +1594,19 @@ impl MultiRaft {
         if crate::server::txn::consensus_tenant_is_prepared(tenant) {
             return Err("placement change conflicts with a prepared transaction".to_string());
         }
-        let plan = self
-            .placement
-            .plan_fence_cutover(tenant, range, target)
-            .await?;
-        self.commit_placement(&plan.methods).await?;
-        Ok(plan.epoch)
+        self.require_placement_leader().await?;
+        for _ in 0..MAX_PLACEMENT_EPOCH_RETRIES {
+            let plan = self
+                .placement
+                .plan_fence_cutover(tenant, range, target)
+                .await?;
+            let epoch = plan.epoch;
+            match self.commit_placement_plan(&plan).await? {
+                PlacementCommitOutcome::Committed => return Ok(epoch),
+                PlacementCommitOutcome::EpochConflict => continue,
+            }
+        }
+        Err("placement epoch CAS contention exceeded retry bound".to_string())
     }
 
     /// Roll a move back only while the placement entry is still behind the cutover
@@ -1340,11 +1623,13 @@ impl MultiRaft {
         if crate::server::txn::consensus_tenant_is_prepared(tenant) {
             return Err("placement change conflicts with a prepared transaction".to_string());
         }
+        self.require_placement_leader().await?;
         let plan = self
             .placement
             .plan_abort_move(tenant, range, source, target, original_epoch)
             .await?;
-        self.commit_placement(&plan.methods).await
+        self.commit_placement_plan(&plan).await?;
+        Ok(())
     }
 
     /// Close (shut down + drop) a group on this node — group lifecycle, the elastic
