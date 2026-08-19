@@ -307,7 +307,11 @@ fn paged_lazy_open_advertises_spatial_only_after_final_page_backfill() {
         .all(|(_, manifest)| {
             manifest.validity == epistemic_graph::index::IndexValidity::Valid
                 && manifest.completeness.complete
-                && manifest.covers(core.version())
+                && manifest.covers_source(
+                    core.version(),
+                    core.node_count() as u64,
+                    core.edge_count() as u64,
+                )
         }));
     let mut hits = eg_plan::SpatialSource::query_bbox(&served, "City", [0.0, 0.0, 10.0, 10.0]);
     hits.sort();
