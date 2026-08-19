@@ -32,8 +32,8 @@ fn node_props(k: i64) -> Vec<u8> {
 /// Fan `n` AddNode writes from `producers` concurrent tasks into ONE graph through
 /// the coalescer at `max_batch`. Producers PIPELINE (fire without blocking on each
 /// reply, as a real ingestion firehose does) so the worker sees a deep queue and
-/// batches it; replies are drained after the burst. Mirrors the dispatch fallback:
-/// inline-apply when the bounded queue is full.
+/// batches it; replies are drained after the burst. A full bounded queue is
+/// retried after draining a reply; no unordered inline path is used.
 async fn fan_in(n: usize, producers: usize, max_batch: usize) {
     let core = Arc::new(GraphCore::new());
     let cfg = CoalescerConfig {
@@ -52,7 +52,6 @@ async fn fan_in(n: usize, producers: usize, max_batch: usize) {
     let mut tasks = Vec::with_capacity(producers);
     for p in 0..producers {
         let w = writer.clone();
-        let c = core.clone();
         tasks.push(tokio::spawn(async move {
             let mut pending = Vec::new();
             for i in (p..n).step_by(producers) {
@@ -62,11 +61,21 @@ async fn fan_in(n: usize, producers: usize, max_batch: usize) {
                     properties_msgpack: node_props(i as i64),
                     reply,
                 };
-                match w.try_enqueue(op) {
-                    Ok(()) => pending.push(rx),
-                    Err(op) => {
-                        w.apply_one_inline(&c, GRAPH, op);
-                        pending.push(rx);
+                let mut op = op;
+                loop {
+                    match w.try_enqueue(op) {
+                        Ok(()) => {
+                            pending.push(rx);
+                            break;
+                        }
+                        Err(returned) => {
+                            op = returned;
+                            if let Some(front) = pending.pop() {
+                                let _ = front.await;
+                            } else {
+                                tokio::task::yield_now().await;
+                            }
+                        }
                     }
                 }
             }

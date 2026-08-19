@@ -320,7 +320,7 @@ pub mod registry_reaper;
 // the GATEWAY_ROUTED mutation set from ONE call site. See its module docs for scope.
 pub(crate) mod mutation;
 pub(crate) mod mutation_batch;
-// Per-graph batching worker for the four coalescable GATEWAY_ROUTED structural
+// Per-graph batching worker for the five coalescable GATEWAY_ROUTED structural
 // writes (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18 rewrite). See its module
 // docs and `mutation::commit_coalescable_mutation` for why the durable commit, not
 // just the RAM publish, must run inside the worker's ONE `lock_graph` hold per batch.
@@ -3512,53 +3512,43 @@ mod tests {
     /// CONCEPT:EG-KG.sharding.per-graph-write-coalescer — per-graph write coalescer, end-to-end through dispatch.
     ///
     /// Many concurrent writers to ONE hot graph (the `__commons__` firehose) must ALL
-    /// land via the dispatch path — no lost writes, the coalescer is not a drop
-    /// point — and every dispatched op must be accounted for in the writer's stats,
-    /// REGARDLESS of which path applied it (the worker's batch, or the
-    /// backpressure/inline fallback in `mutation::commit_via_coalescer`).
+    /// land via the dispatch path — no lost writes among admitted requests — and
+    /// every admitted op must be accounted for in the writer's stats. A saturated
+    /// bounded queue rejects new requests with BUSY before they can mutate RAM or
+    /// durable state; it never uses an unordered inline fallback.
     ///
     /// L18 rewrite (2026-08-11): `mutation::commit_coalescable_mutation` no longer
     /// holds `mutation_batch::lock_graph` itself around the enqueue+await for the
-    /// four coalescable structural writes — it hands the WHOLE prepare→durable-
+    /// five coalescable structural writes — it hands the WHOLE prepare→durable-
     /// commit→RAM-publish sequence to `server::routed_write_coalescer`'s per-graph
     /// worker, which acquires `lock_graph` ONCE per flushed batch and runs every
     /// queued job's sequence inside that one hold (see that module's docs and
     /// `commit_coalescable_mutation`'s doc for why batching the RAM publish ALONE,
     /// the previous attempt, was unsafe). So the worker's queue genuinely CAN hold
-    /// more than one job at a time now: 400 concurrent dispatches race to enqueue
+    /// more than one job at a time now: 200 concurrent dispatches race to enqueue
     /// onto the SAME per-graph worker without each needing its own `lock_graph`
     /// acquisition first, so this proves a REAL batching win, not just a 1:1
     /// accounting identity.
     ///
     /// Portability fix (2026-08-13, D-EG-CI-2core): this test used to spawn its
-    /// 400 dispatches and just hope enough of them piled up concurrently for a
+    /// 200 dispatches and just hope enough of them piled up concurrently for a
     /// meaningful batching win to occur AND for all of them to land via the
     /// worker's queue. That is exactly what a small CI runner breaks:
     /// `write_coalescer::CoalescerConfig::auto` sizes `queue_capacity` from
     /// the cgroup-aware `Capacity::writer_queue()` floor of 256 at constrained
-    /// CPU budgets — well under N=400 — so on a 2-core box a real fraction of the 400 writers
-    /// overflow the bounded channel and take `commit_via_coalescer`'s inline
-    /// backpressure fallback instead of the worker's batch path. That in turn
-    /// exposed a genuine PRODUCT accounting bug (now fixed, not a test bug on its
-    /// own): the inline fallback never called `writer.stats().record(..)`, so
-    /// `ops` undercounted `N` by however many writers fell back — reproduced
-    /// locally with `taskset -c 0,1` (`left: 274, right: 400`, the exact CI
-    /// panic). `commit_via_coalescer` now records the inline fallback into the
-    /// SAME `BatchStats` the worker does (one lock acquisition applying one op —
-    /// a size-1 batch), so `ops == N` is a true invariant on ANY host, coalesced
-    /// or not.
-    ///
+    /// CPU budgets. N=200 stays within that bounded admission window on
+    /// constrained runners, so this test proves accepted FIFO work rather than
+    /// relying on a scheduler-dependent mixture of BUSY responses.
     /// The remaining assertion — that batching actually happened — is a
     /// genuinely timing-dependent property (it requires real concurrent pile-up
     /// against the worker), so instead of trusting the scheduler to provide that
     /// pile-up on whatever host runs this, this test now FORCES it
     /// deterministically: it holds `mutation_batch::lock_graph("__commons__")` —
-    /// the exact lock the worker's `flush_batch` (and the inline fallback) must
-    /// acquire to make ANY progress — before firing off all 400 dispatches, and
-    /// only releases it once every spawned task has actually started running (an
-    /// atomic barrier, not a sleep). Every writer is thus forced to queue up
-    /// (in the coalescer's channel, non-blocking, or — once that overflows —
-    /// blocked on this SAME lock via the inline fallback) before ANY of them can
+    /// the exact lock the worker's `flush_batch` must acquire to make ANY
+    /// progress — before firing off all 200 dispatches, and only releases it
+    /// once every spawned task has actually started running (an atomic barrier,
+    /// not a sleep). Every writer is thus forced to queue up in the coalescer's
+    /// channel before ANY of them can
     /// be applied, on any host, at any core count. This does not just make the
     /// win "more likely" — see the assertion's own message for why it fails
     /// loudly, with a diagnosis, if the environment somehow still could not
@@ -3568,7 +3558,7 @@ mod tests {
     async fn dispatch_coalesces_concurrent_writes_to_one_graph() {
         let state = test_state();
 
-        const N: u64 = 400;
+        const N: u64 = 200;
 
         // Force genuine contention deterministically (see doc above): hold the
         // per-graph lock every landing path needs before any of the N writers
@@ -3597,8 +3587,8 @@ mod tests {
             tokio::task::yield_now().await;
         }
         // A few more yields so tasks that have started get to actually reach
-        // their first await point (enqueue, or block on `hold` via the inline
-        // fallback) while we still hold the lock, maximizing genuine pile-up.
+        // their first await point (enqueue, or block behind `hold`) while we
+        // still hold the lock, maximizing genuine pile-up.
         for _ in 0..64 {
             tokio::task::yield_now().await;
         }
@@ -3625,14 +3615,13 @@ mod tests {
             let w = s.routed_write_coalescer.writer_for("__commons__");
             (w.stats().batches(), w.stats().ops())
         };
-        // INVARIANT — true on any host, any core count: every dispatched write
-        // is accounted for, whichever path (worker batch or inline fallback)
-        // applied it. If this regresses, some path stopped calling
-        // `BatchStats::record` — an accounting bug, not an environment issue.
+        // INVARIANT — true on any host, any core count: every admitted write is
+        // accounted for by the ordered worker. If this regresses, the drain
+        // stopped recording a committed job — an accounting bug, not an
+        // environment issue.
         assert_eq!(
             ops, N,
-            "stats account for every dispatched write on whichever path \
-             (coalesced or inline-fallback) it took"
+            "stats account for every admitted dispatched write"
         );
         // TIMING-DEPENDENT, but FORCED deterministic above: the coalescer
         // applied them in fewer lock acquisitions than ops. Because every

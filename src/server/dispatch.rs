@@ -5948,7 +5948,7 @@ async fn dispatch_graph_op_inner(
     let cdc = s.cdc.clone();
     // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): clone the registry handle.
     // `write_coalescer` backs `dispatch::try_coalesce_write`'s pre-gateway
-    // fallback (unreachable for the four coalescable methods since the
+    // fallback (unreachable for the five coalescable methods since the
     // mutation gateway intercepts them first — see below); `routed_write_coalescer`
     // is the LIVE registry the gateway actually batches through
     // (`mutation::commit_coalescable_mutation`), which queues the WHOLE
@@ -6993,8 +6993,8 @@ async fn dispatch_graph_op_inner(
         // writers cost ⌈M/batch⌉ topology-lock acquisitions instead of M. The shell
         // below still owns dirty/durability/gauge off the returned Response, so durability
         // and checkpoint semantics are unchanged — only WHERE the lock is taken
-        // moved. On a full queue / disabled coalescer the method is handed back and
-        // flows through the inline path unchanged.
+        // moved. On a full queue the coalescer returns BUSY before any RAM or
+        // durable side effect, preserving the queue's declared order.
         let method =
             match try_coalesce_write(req_id, &write_coalescer, graph_name, &core, method).await {
                 Ok(resp) => break 'dispatch resp,
@@ -7365,9 +7365,8 @@ async fn dispatch_graph_op_inner(
 /// handler would have produced (so the dispatch shell's dirty/durability/gauge logic runs
 /// identically against it). Returns `Err(method)` — handing the method back
 /// untouched — for any method that isn't coalescable, or when the coalescer is
-/// disabled / its bounded queue is full (backpressure → inline fallback) / the
-/// worker is gone, so behavior is never lost, only the lock-acquisition path
-/// changes.
+/// disabled. A saturated bounded queue returns an explicit `BUSY` response; it
+/// never falls through to an unordered inline write.
 async fn try_coalesce_write(
     req_id: u64,
     coalescer: &crate::write_coalescer::WriteCoalescerRegistry,
@@ -7378,8 +7377,8 @@ async fn try_coalesce_write(
     use crate::write_coalescer::{WriteOp, WriteOutcome};
     use tokio::sync::oneshot;
 
-    // Build this op's reply channel; the op carries the sender, we await the receiver
-    // regardless of whether it was batched or applied inline on fallback.
+    // Build this op's reply channel; the op carries the sender and the ordered
+    // worker replies once its ticket reaches the drain.
     let (reply, reply_rx) = oneshot::channel::<WriteOutcome>();
 
     // Map the method → a WriteOp (consuming its args). For CompareAndSetNodeFields,
@@ -7441,15 +7440,19 @@ async fn try_coalesce_write(
     // Lazily get/create this graph's writer (automatic per new graph/connector).
     let writer = coalescer.writer_for(graph_name, core);
 
-    // Enqueue; on a full/closed queue (backpressure) apply this single op inline
-    // under its own txn — same engine effect, just not batched — so a saturated
-    // worker never drops or stalls a write.
+    // Enqueue; on a full/closed queue shed this request with explicit BUSY. The
+    // queue's admission ticket is the ordering authority, so applying the
+    // returned op inline could overtake a write already accepted ahead of it.
     if let Err(op) = writer.try_enqueue(op) {
-        writer.apply_one_inline(core, graph_name, op);
+        drop(op);
+        return Ok(Response::err(
+            req_id,
+            "BUSY: write coalescer queue is full; retry with backoff",
+        ));
     }
 
-    // Await the outcome (from the batch worker or the inline fallback) and rebuild
-    // the exact Response the inline handler would have returned.
+    // Await the outcome from the ordered batch worker and rebuild the exact
+    // Response the inline handler would have returned.
     let outcome = reply_rx.await.unwrap_or(WriteOutcome::WriterGone);
     let resp = match outcome {
         WriteOutcome::Ok => Response::ok(req_id, ResultPayload::String("ok".to_string())),

@@ -1,5 +1,6 @@
-//! Per-graph batching worker for the four coalescable `GATEWAY_ROUTED`
-//! structural writes (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) —
+//! Per-graph batching worker for the five coalescable `GATEWAY_ROUTED`
+//! structural writes (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/
+//! `CompareAndSetNodeFields`) —
 //! CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18 rewrite.
 //!
 //! ## Why this exists (and why it replaces the old design)
@@ -28,16 +29,19 @@
 //! [`RoutedWriteCoalescerRegistry`] queues a [`RoutedCommitJob`] per coalescable
 //! op — a boxed `'static` future that runs `mutation::commit_mutation_body`'s
 //! FULL prepare→durable-commit→RAM-publish sequence for that ONE op — onto a
-//! per-graph [`RoutedGraphWriter`]. [`run_worker`] drains up to `max_batch`
+//! per-graph [`RoutedGraphWriter`]. Admission assigns a monotonic ticket while
+//! linearizing the bounded `try_send`; [`run_worker`] drains up to `max_batch`
 //! queued jobs (with the same greedy-drain + short linger shape as
 //! `write_coalescer::run_worker`), acquires `mutation_batch::lock_graph` for the
-//! WHOLE flushed batch, and runs each job's sequence to completion, in FIFO
-//! order, one at a time, before releasing the lock once. Durable commits are
-//! NOT merged across ops (each job's own `commit_mutation_batch` call keeps its
-//! own principal/tenant/idempotency-key/audit/CDC — merging those across
-//! different callers would misattribute provenance and is deliberately never
-//! done here); the batching win is `lock_graph` ACQUISITIONS (⌈N / max_batch⌉
-//! instead of N), not durable writes.
+//! WHOLE flushed batch, and runs each job's sequence to completion, in ticket
+//! order, one at a time, before releasing the lock once. A full/closed queue
+//! rejects the new request with explicit `BUSY`; it never executes that request
+//! inline, because an inline overflow path could overtake an already accepted
+//! ticket. Durable commits are NOT merged across ops (each job's own
+//! `commit_mutation_batch` call keeps its own principal/tenant/idempotency-key/
+//! audit/CDC — merging those across different callers would misattribute
+//! provenance and is deliberately never done here); the batching win is
+//! `lock_graph` ACQUISITIONS (⌈N / max_batch⌉ instead of N), not durable writes.
 //!
 //! Because jobs run sequentially inside the SAME lock hold, and each job's own
 //! `commit_mutation_body` call reads/writes `core` synchronously before the
@@ -54,6 +58,7 @@
 //! long-deleted graph's queue/worker task doesn't linger forever), not
 //! correctness.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -64,6 +69,50 @@ use tracing::Instrument;
 use crate::protocol::Response;
 use crate::write_coalescer::{BatchStats, CoalescerConfig};
 
+/// Keep a panic-isolating child future from outliving the graph worker if the
+/// worker is canceled (for example during shutdown). Dropping a bare Tokio
+/// `JoinHandle` detaches its task; detaching a commit sequence could let it
+/// mutate RAM after the worker released `lock_graph`.
+struct AbortOnDrop<T> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T> AbortOnDrop<T> {
+    fn new(handle: tokio::task::JoinHandle<T>) -> Self {
+        Self {
+            handle: Some(handle),
+        }
+    }
+}
+
+impl<T> Future for AbortOnDrop<T> {
+    type Output = Result<T, tokio::task::JoinError>;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let this = self.get_mut();
+        let handle = this
+            .handle
+            .as_mut()
+            .expect("abort-on-drop join handle polled after completion");
+        let polled = std::pin::Pin::new(handle).poll(cx);
+        if polled.is_ready() {
+            this.handle.take();
+        }
+        polled
+    }
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
+    }
+}
+
 /// One queued unit of work: a boxed `'static` future that, when polled, runs
 /// the WHOLE `mutation::commit_mutation_body` sequence for one coalescable op
 /// (detached from the original request's borrowed `MutationCtx` — see
@@ -72,6 +121,7 @@ use crate::write_coalescer::{BatchStats, CoalescerConfig};
 pub struct RoutedCommitJob {
     run: std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>>,
     reply: oneshot::Sender<Response>,
+    request_id: u64,
 }
 
 impl RoutedCommitJob {
@@ -79,23 +129,36 @@ impl RoutedCommitJob {
         run: std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>>,
         reply: oneshot::Sender<Response>,
     ) -> Self {
-        Self { run, reply }
+        Self {
+            run,
+            reply,
+            request_id: 0,
+        }
     }
 
-    /// Consume this job and run its sequence directly, WITHOUT sending on its
-    /// reply channel — used by the backpressure/closed-worker fallback, whose
-    /// caller awaits the returned `Response` itself instead of a oneshot.
-    pub async fn into_future(self) -> Response {
-        self.run.await
+    /// Bind the request id used if the worker catches a panic in this job. The
+    /// default constructor remains useful for source-level/unit tests that only
+    /// care about ordering.
+    pub fn with_request_id(mut self, request_id: u64) -> Self {
+        self.request_id = request_id;
+        self
     }
 }
 
 /// Per-graph queue + single worker task for coalescable routed-write jobs.
 /// Cloneable via `Arc`; held in [`RoutedWriteCoalescerRegistry`].
 pub struct RoutedGraphWriter {
-    tx: mpsc::Sender<RoutedCommitJob>,
+    tx: mpsc::Sender<(u64, RoutedCommitJob)>,
+    /// Serializes ticket assignment with `try_send`, making the channel's FIFO
+    /// order an explicit linearization order across concurrent producers.
+    admission: std::sync::Mutex<AdmissionState>,
     config: CoalescerConfig,
     stats: Arc<BatchStats>,
+}
+
+#[derive(Debug, Default)]
+struct AdmissionState {
+    next_ticket: u64,
 }
 
 impl RoutedGraphWriter {
@@ -103,10 +166,15 @@ impl RoutedGraphWriter {
     /// receiver and is the sole taker of `lock_graph(graph_name)` on behalf of
     /// every job it flushes).
     pub fn spawn(graph_name: String, config: CoalescerConfig) -> Arc<Self> {
-        let (tx, rx) = mpsc::channel::<RoutedCommitJob>(config.queue_capacity);
+        let (tx, rx) = mpsc::channel::<(u64, RoutedCommitJob)>(config.queue_capacity);
         let stats = Arc::new(BatchStats::default());
         tokio::spawn(run_worker(graph_name, rx, config, stats.clone()));
-        Arc::new(Self { tx, config, stats })
+        Arc::new(Self {
+            tx,
+            admission: std::sync::Mutex::new(AdmissionState::default()),
+            config,
+            stats,
+        })
     }
 
     /// Coalescing counters for this graph (batches vs ops). Mainly for tests /
@@ -120,14 +188,25 @@ impl RoutedGraphWriter {
     /// * `Ok(())` — accepted; the worker will run its sequence (as part of a
     ///   batch) and reply on its own oneshot.
     /// * `Err(job)` — the bounded queue is full (backpressure) OR the worker is
-    ///   gone: the job is handed BACK so the caller runs it inline itself
-    ///   (`RoutedCommitJob::into_future`, under its own `lock_graph`
-    ///   acquisition). Coalescing is an optimization, never a stall.
+    ///   gone. The caller must drop the job and return explicit `BUSY`; it must
+    ///   not execute the job inline. Accepted tickets are the sole ordering
+    ///   authority for this graph, so rejected work can never overtake them.
     pub fn try_enqueue(&self, job: RoutedCommitJob) -> Result<(), RoutedCommitJob> {
-        match self.tx.try_send(job) {
-            Ok(()) => Ok(()),
-            Err(mpsc::error::TrySendError::Full(job))
-            | Err(mpsc::error::TrySendError::Closed(job)) => Err(job),
+        let mut admission = self
+            .admission
+            .lock()
+            .expect("routed write coalescer admission mutex poisoned");
+        if admission.next_ticket == u64::MAX {
+            return Err(job);
+        }
+        let ticket = admission.next_ticket;
+        match self.tx.try_send((ticket, job)) {
+            Ok(()) => {
+                admission.next_ticket = ticket + 1;
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Full((_, job)))
+            | Err(mpsc::error::TrySendError::Closed((_, job))) => Err(job),
         }
     }
 
@@ -141,19 +220,36 @@ impl RoutedGraphWriter {
 /// back-to-back inside ONE `mutation_batch::lock_graph` acquisition.
 async fn run_worker(
     graph_name: String,
-    mut rx: mpsc::Receiver<RoutedCommitJob>,
+    mut rx: mpsc::Receiver<(u64, RoutedCommitJob)>,
     config: CoalescerConfig,
     stats: Arc<BatchStats>,
 ) {
     let mut batch: Vec<RoutedCommitJob> = Vec::with_capacity(config.max_batch);
-    while let Some(first) = rx.recv().await {
+    let mut next_ticket = 0u64;
+    while let Some((ticket, first)) = rx.recv().await {
+        assert_eq!(
+            ticket, next_ticket,
+            "routed write coalescer admission order must be contiguous"
+        );
+        next_ticket = next_ticket
+            .checked_add(1)
+            .expect("routed write coalescer ticket overflow");
         batch.push(first);
 
         // Greedily pull everything already queued (no await) up to max_batch —
         // the common firehose case where producers are ahead of the worker.
         while batch.len() < config.max_batch {
             match rx.try_recv() {
-                Ok(job) => batch.push(job),
+                Ok((ticket, job)) => {
+                    assert_eq!(
+                        ticket, next_ticket,
+                        "routed write coalescer admission order must be contiguous"
+                    );
+                    next_ticket = next_ticket
+                        .checked_add(1)
+                        .expect("routed write coalescer ticket overflow");
+                    batch.push(job);
+                }
                 Err(_) => break,
             }
         }
@@ -162,11 +258,29 @@ async fn run_worker(
         // land in the same lock acquisition — but never longer than
         // max_linger, so a lone write is essentially undelayed.
         if batch.len() == 1 && config.max_linger > Duration::ZERO {
-            if let Ok(Some(job)) = tokio::time::timeout(config.max_linger, rx.recv()).await {
+            if let Ok(Some((ticket, job))) =
+                tokio::time::timeout(config.max_linger, rx.recv()).await
+            {
+                assert_eq!(
+                    ticket, next_ticket,
+                    "routed write coalescer admission order must be contiguous"
+                );
+                next_ticket = next_ticket
+                    .checked_add(1)
+                    .expect("routed write coalescer ticket overflow");
                 batch.push(job);
                 while batch.len() < config.max_batch {
                     match rx.try_recv() {
-                        Ok(job) => batch.push(job),
+                        Ok((ticket, job)) => {
+                            assert_eq!(
+                                ticket, next_ticket,
+                                "routed write coalescer admission order must be contiguous"
+                            );
+                            next_ticket = next_ticket
+                                .checked_add(1)
+                                .expect("routed write coalescer ticket overflow");
+                            batch.push(job);
+                        }
                         Err(_) => break,
                     }
                 }
@@ -191,6 +305,15 @@ async fn run_worker(
 ///     ANY of its own durable-commit-then-RAM-publish sequence with this
 ///     batch's, because the lock is held continuously for the whole batch.
 async fn flush_batch(graph_name: &str, batch: Vec<RoutedCommitJob>, stats: &BatchStats) {
+    // A caller that cancels before the worker starts has not crossed the durable
+    // admission boundary. Drop that job without polling it; later tickets still
+    // drain in order. Cancellation after this check is deliberately not
+    // interruptible: once the job starts, commit-before-ack requires completing
+    // the durable+RAM sequence even if its response receiver disappears.
+    let batch: Vec<RoutedCommitJob> = batch
+        .into_iter()
+        .filter(|job| !job.reply.is_closed())
+        .collect();
     if batch.is_empty() {
         return;
     }
@@ -203,8 +326,24 @@ async fn flush_batch(graph_name: &str, batch: Vec<RoutedCommitJob>, stats: &Batc
     async move {
         let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
         for job in batch {
-            let RoutedCommitJob { run, reply } = job;
-            let response = run.await;
+            let RoutedCommitJob {
+                run,
+                reply,
+                request_id,
+            } = job;
+            // Isolate a malformed/test job panic at this worker boundary. A
+            // panic must produce an error response (and release this batch's
+            // lock), not kill the sole graph drain and strand later tickets.
+            let response = match AbortOnDrop::new(tokio::spawn(run)).await {
+                Ok(response) => response,
+                Err(error) => {
+                    tracing::error!(?error, "routed write coalescer job panicked");
+                    Response::err(
+                        request_id,
+                        "routed write worker crashed before acknowledging the write",
+                    )
+                }
+            };
             let _ = reply.send(response);
         }
         // One lock ACQUISITION covered `n` ops' durable-commit-then-RAM-publish
@@ -274,5 +413,199 @@ impl RoutedWriteCoalescerRegistry {
 impl Default for RoutedWriteCoalescerRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn job(
+        id: u64,
+        seen: &Arc<std::sync::Mutex<Vec<u64>>>,
+    ) -> (RoutedCommitJob, oneshot::Receiver<Response>) {
+        let (reply, response) = oneshot::channel();
+        let seen = seen.clone();
+        let run: std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>> =
+            Box::pin(async move {
+                seen.lock().expect("test order mutex poisoned").push(id);
+                Response::err(id, "test-complete")
+            });
+        (
+            RoutedCommitJob::new(run, reply).with_request_id(id),
+            response,
+        )
+    }
+
+    /// A full bounded queue rejects the new ticket. The rejected future is never
+    /// run inline, so it cannot overtake the two tickets already admitted ahead of
+    /// it; their execution order remains the declared FIFO order.
+    #[tokio::test(flavor = "current_thread")]
+    async fn saturated_queue_rejects_without_scheduled_overtaking() {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let writer = RoutedGraphWriter::spawn(
+            "ne-169-saturated-order".into(),
+            CoalescerConfig {
+                max_batch: 1,
+                queue_capacity: 2,
+                max_linger: Duration::ZERO,
+            },
+        );
+
+        let (first, first_rx) = job(1, &seen);
+        let (second, second_rx) = job(2, &seen);
+        let (third, third_rx) = job(3, &seen);
+        assert!(writer.try_enqueue(first).is_ok());
+        assert!(writer.try_enqueue(second).is_ok());
+        let rejected = writer.try_enqueue(third);
+        assert!(rejected.is_err(), "third ticket must receive BUSY/backpressure");
+        drop(rejected);
+        assert!(third_rx.await.is_err(), "rejected job must never be acknowledged");
+
+        assert_eq!(first_rx.await.unwrap().id, 1);
+        assert_eq!(second_rx.await.unwrap().id, 2);
+        assert_eq!(
+            *seen.lock().expect("test order mutex poisoned"),
+            vec![1, 2],
+            "only accepted tickets run, in admission order"
+        );
+    }
+
+    /// A caller may cancel a queued request before the worker starts it. That ticket
+    /// is dropped without polling its future, while a later accepted ticket still
+    /// drains. This is the cancellation boundary before durable admission.
+    #[tokio::test(flavor = "current_thread")]
+    async fn canceled_queued_job_does_not_run_and_later_ticket_drains() {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let writer = RoutedGraphWriter::spawn(
+            "ne-169-cancel-boundary".into(),
+            CoalescerConfig {
+                max_batch: 3,
+                queue_capacity: 3,
+                max_linger: Duration::ZERO,
+            },
+        );
+        let (first, first_rx) = job(1, &seen);
+        let (canceled, canceled_rx) = job(2, &seen);
+        let (barrier, barrier_rx) = job(3, &seen);
+        assert!(writer.try_enqueue(first).is_ok());
+        assert!(writer.try_enqueue(canceled).is_ok());
+        assert!(writer.try_enqueue(barrier).is_ok());
+        drop(canceled_rx);
+
+        assert_eq!(first_rx.await.unwrap().id, 1);
+        assert_eq!(barrier_rx.await.unwrap().id, 3);
+        assert_eq!(
+            *seen.lock().expect("test order mutex poisoned"),
+            vec![1, 3],
+            "a canceled pre-start ticket must not mutate RAM or durable state"
+        );
+    }
+
+    /// A panic in one accepted job is converted into an error response and does not
+    /// kill the sole graph worker. The next ticket remains executable, which is the
+    /// worker-crash boundary required for forward progress.
+    #[tokio::test]
+    async fn panicked_job_releases_worker_for_later_ticket() {
+        let writer = RoutedGraphWriter::spawn(
+            "ne-169-crash-boundary".into(),
+            CoalescerConfig {
+                max_batch: 1,
+                queue_capacity: 2,
+                max_linger: Duration::ZERO,
+            },
+        );
+        let (panic_reply, panic_rx) = oneshot::channel();
+        let panic_run: std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>> =
+            Box::pin(async { panic!("adversarial routed job panic") });
+        assert!(writer
+            .try_enqueue(
+                RoutedCommitJob::new(panic_run, panic_reply).with_request_id(11)
+            )
+            .is_ok());
+        let (next, next_rx) = job(12, &Arc::new(std::sync::Mutex::new(Vec::new())));
+        assert!(writer.try_enqueue(next).is_ok());
+
+        let panic_response = panic_rx.await.expect("panic must be converted to a response");
+        assert_eq!(panic_response.id, 11);
+        assert!(panic_response
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("crashed")));
+        assert_eq!(next_rx.await.unwrap().id, 12);
+    }
+
+    /// Once an accepted job starts, cancellation of its response receiver cannot
+    /// interrupt the durable-before-ack sequence. Reopening a fresh graph writer
+    /// then sees the same durable marker and can continue the ordered stream.
+    #[tokio::test]
+    async fn accepted_job_commits_before_ack_and_reopened_writer_continues() {
+        let graph = "ne-169-restart-boundary";
+        let durable = Arc::new(std::sync::Mutex::new(Vec::<u64>::new()));
+        let started = Arc::new(tokio::sync::Notify::new());
+        let finished = Arc::new(tokio::sync::Notify::new());
+        let writer = RoutedGraphWriter::spawn(
+            graph.into(),
+            CoalescerConfig {
+                max_batch: 1,
+                queue_capacity: 2,
+                max_linger: Duration::ZERO,
+            },
+        );
+        let (reply, response) = oneshot::channel();
+        let durable_for_job = durable.clone();
+        let started_for_job = started.clone();
+        let finished_for_job = finished.clone();
+        let run: std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>> =
+            Box::pin(async move {
+                durable_for_job
+                    .lock()
+                    .expect("test durable mutex poisoned")
+                    .push(1);
+                started_for_job.notify_one();
+                tokio::task::yield_now().await;
+                finished_for_job.notify_one();
+                Response::err(21, "test-complete")
+            });
+        assert!(writer
+            .try_enqueue(RoutedCommitJob::new(run, reply).with_request_id(21))
+            .is_ok());
+        started.notified().await;
+        drop(response);
+        finished.notified().await;
+        assert_eq!(
+            *durable.lock().expect("test durable mutex poisoned"),
+            vec![1],
+            "accepted work commits even when its response receiver is canceled"
+        );
+        drop(writer);
+
+        let reopened = RoutedGraphWriter::spawn(
+            graph.into(),
+            CoalescerConfig {
+                max_batch: 1,
+                queue_capacity: 1,
+                max_linger: Duration::ZERO,
+            },
+        );
+        let durable_for_reopen = durable.clone();
+        let (reply, response) = oneshot::channel();
+        let run: std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>> =
+            Box::pin(async move {
+                durable_for_reopen
+                    .lock()
+                    .expect("test durable mutex poisoned")
+                    .push(2);
+                Response::err(22, "test-complete")
+            });
+        assert!(reopened
+            .try_enqueue(RoutedCommitJob::new(run, reply).with_request_id(22))
+            .is_ok());
+        assert_eq!(response.await.unwrap().id, 22);
+        assert_eq!(
+            *durable.lock().expect("test durable mutex poisoned"),
+            vec![1, 2],
+            "a reopened worker must continue from the durable commit stream"
+        );
     }
 }
