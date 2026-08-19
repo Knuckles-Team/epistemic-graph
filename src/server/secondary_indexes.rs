@@ -222,10 +222,15 @@ impl ServedTextIndex {
     /// (a graph created before the factory installed, or a test harness with no
     /// `ServerIndexFactory` wired at all).
     pub fn available(&self) -> bool {
+        let source_snapshot_version = self.core.version();
+        let nodes = self.core.node_count() as u64;
+        let edges = self.core.edge_count() as u64;
         self.core
             .indexes()
             .with_server_index(crate::index::IndexKind::Text, |index| {
-                index.manifest().covers(self.core.version())
+                index
+                    .manifest()
+                    .covers_source(source_snapshot_version, nodes, edges)
             })
             .unwrap_or(false)
     }
@@ -234,10 +239,16 @@ impl ServedTextIndex {
 #[cfg(feature = "text")]
 impl eg_plan::TextSource for ServedTextIndex {
     fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit> {
+        let source_snapshot_version = self.core.version();
+        let nodes = self.core.node_count() as u64;
+        let edges = self.core.edge_count() as u64;
         self.core
             .indexes()
             .with_server_index(crate::index::IndexKind::Text, |idx| {
-                if !idx.manifest().covers(self.core.version()) {
+                if !idx
+                    .manifest()
+                    .covers_source(source_snapshot_version, nodes, edges)
+                {
                     return Vec::new();
                 }
                 idx.as_any()
@@ -631,11 +642,11 @@ impl GraphSpatialIndex {
     /// Whether the maintained item set covers the graph material from which it
     /// was registered. Planner pushdown is legal only in this state; otherwise
     /// the served path keeps its snapshot-derived fallback.
-    pub fn is_complete(&self) -> bool {
+    pub fn is_complete(&self, source_snapshot_version: u64, nodes: u64, edges: u64) -> bool {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state
             .manifest
-            .covers(state.manifest.source_snapshot_version)
+            .covers_source(source_snapshot_version, nodes, edges)
     }
 }
 
@@ -782,14 +793,15 @@ impl ServedSpatialIndex {
     /// between pushdown and the snapshot-derived fallback; merely registering an
     /// empty/incomplete recovery or paged-lazy-open index is never sufficient.
     pub fn available(&self) -> bool {
+        let source_snapshot_version = self.core.version();
+        let nodes = self.core.node_count() as u64;
+        let edges = self.core.edge_count() as u64;
         self.core
             .indexes()
             .with_server_index(crate::index::IndexKind::Spatial, |idx| {
                 idx.as_any()
                     .downcast_ref::<GraphSpatialIndex>()
-                    .is_some_and(|index| {
-                        index.is_complete() && idx.manifest().covers(self.core.version())
-                    })
+                    .is_some_and(|index| index.is_complete(source_snapshot_version, nodes, edges))
             })
             .unwrap_or(false)
     }
@@ -798,12 +810,15 @@ impl ServedSpatialIndex {
 #[cfg(feature = "geo")]
 impl eg_plan::SpatialSource for ServedSpatialIndex {
     fn query_bbox(&self, layer: &str, bbox: [f64; 4]) -> Vec<String> {
+        let source_snapshot_version = self.core.version();
+        let nodes = self.core.node_count() as u64;
+        let edges = self.core.edge_count() as u64;
         self.core
             .indexes()
             .with_server_index(crate::index::IndexKind::Spatial, |idx| {
                 idx.as_any()
                     .downcast_ref::<GraphSpatialIndex>()
-                    .filter(|gsi| gsi.is_complete() && idx.manifest().covers(self.core.version()))
+                    .filter(|gsi| gsi.is_complete(source_snapshot_version, nodes, edges))
                     .map(|gsi| gsi.query_bbox(layer, bbox))
                     .unwrap_or_default()
             })
@@ -1010,7 +1025,13 @@ mod batch_update_tests {
             .indexes()
             .server_manifests()
             .iter()
-            .all(|(_, manifest)| manifest.covers(core.version())));
+            .all(|(_, manifest)| {
+                manifest.covers_source(
+                    core.version(),
+                    core.node_count() as u64,
+                    core.edge_count() as u64,
+                )
+            }));
     }
 }
 
