@@ -76,52 +76,22 @@
 //! operator can abort and restore the source route; after the fence recovery is
 //! deliberately roll-forward only.
 //!
-//! ## What this increment does NOT do (documented follow-ups)
+//! ## Replicated epoch allocation and fencing
 //!
-//! * **Concurrent admin ops on a live multi-writer cluster (GOC-13, open).**
-//!   `next_epoch` reads the catalog then writes the incremented value under a LOCAL
-//!   (this-node) lock; two placement admin calls issued concurrently on the SAME
-//!   node serialize correctly, but the actual safety against two DIFFERENT nodes (or
-//!   two leadership epochs straddling a view change) allocating the SAME next epoch
-//!   rests on Raft's single-leader-writer property holding at the exact instant
-//!   BOTH read `max_epoch` and BOTH propose — true for the common case, but not a
-//!   linearizable CAS: a deposed leader that read `max_epoch` before losing
-//!   leadership, and the newly-elected leader that also read it before the old
-//!   leader's write is known to have failed, can each independently compute and
-//!   commit an `AddNode` carrying the SAME epoch for two DIFFERENT partitions (they
-//!   are ordinary, non-conflicting Raft log entries — nothing at APPLY time checks
-//!   epoch uniqueness). GOC-13 verified this gap is real and scoped a fix but did
-//!   NOT implement it (touches every `plan_*` call site's write contract and needs
-//!   a live multi-node CAS-race drill to prove, both too large for that lane's
-//!   session budget) — concrete plan for the next session:
-//!   1. A durable epoch-counter control-graph node (`__epoch_counter__`,
-//!      `{"epoch": N}`) seeded once via `Method::CreateNodeIfAbsent` (idempotent —
-//!      safe under a race).
-//!   2. Epoch allocation becomes `Method::CompareAndSetNodeFields` on that node
-//!      (`conditions={"epoch": current}`, `updates={"epoch": current+1}`) — this
-//!      primitive ALREADY EXISTS and is ALREADY Raft-applied deterministically
-//!      (`crate::mutation_apply::apply`'s `Method::CompareAndSetNodeFields` arm;
-//!      see `crates/eg-core/src/graph.rs`'s `compare_and_set_fields`), so this is
-//!      reuse, not new consensus machinery. Two racing proposals for the same
-//!      starting `current` value can both be REPLICATED, but only the FIRST to
-//!      apply (in the log's total order) sees the matching condition — the second
-//!      deterministically observes the already-updated node and gets `false` back,
-//!      which is exactly the linearizable CAS the lane doc's "Design" section
-//!      calls for.
-//!   3. A `false` result means "lost the race" — re-read the counter's current
-//!      value and retry with the new expected value (bounded retry, same shape as
-//!      any optimistic CAS loop) BEFORE building/committing the final
-//!      `PlacementEntry` write(s); a `true` result means this call exclusively
-//!      owns that epoch number and may proceed exactly as today.
-//!   4. `PendingWrite`'s contract changes from "the caller pre-holds a computed
-//!      epoch" to "the caller drives an allocate-then-write two-step" — touches
-//!      `plan_assign`/`plan_split`/`plan_start_move`/`plan_fence_cutover` and
-//!      `MultiRaft::commit_placement`'s per-method loop (which would need to
-//!      surface the CAS's `ResultPayload::Bool` instead of discarding it).
-//!   5. Proof: a 9-node stress test that fires N concurrent `placement_assign`/
-//!      `placement_split` calls with an OVERLAPPING starting epoch and asserts
-//!      every committed `PlacementEntry` has a UNIQUE epoch — the exit evidence
-//!      the lane doc's "CAS contention benchmark" row calls for.
+//! Placement epochs are allocated from a durable control-graph node rather than
+//! from a process-local high-water mark. A plan carries an optimistic
+//! [`EpochAllocation`]; [`super::multi::MultiRaft::commit_placement_plan`] first
+//! seeds the counter idempotently (when absent), then commits a replicated
+//! `CompareAndSetNodeFields` from the observed value to the reserved epoch. A
+//! false CAS result is a lost race and the caller must re-plan from the durable
+//! catalog before it can write a placement entry. This keeps a deposed leader's
+//! stale plan from claiming an epoch that a new leader already owns.
+//!
+//! Move start, cutover, and abort use the same property-level CAS fence on the
+//! placement row. Their expected `(key, group, epoch, state)` pre-image is part
+//! of the committed method, so a stale or concurrent move proposal is a no-op
+//! and fails closed instead of overwriting a newer route.
+//!
 //! External clients consume this authority through `PlacementRoute`. An absent
 //! catalog row returns the engine-owned unplaced policy; it never delegates a
 //! placement decision to the caller.
@@ -143,13 +113,27 @@ use crate::server::ServerState;
 /// mutation uses — so it rides the engine's existing persistence + replication with
 /// no new storage code.
 pub const PLACEMENT_GRAPH: &str = "__placement_catalog__";
+/// Durable replicated sequence node used to reserve routing epochs. It lives in
+/// [`PLACEMENT_GRAPH`] so epoch allocation and placement rows share one Raft
+/// authority and one persistence boundary.
+pub const PLACEMENT_EPOCH_COUNTER_NODE: &str = "__placement_epoch_counter__";
+const PLACEMENT_EPOCH_FIELD: &str = "epoch";
 pub const MAX_PARTITION_MOVE_GRAPHS: usize = 16_384;
 const MAX_PARTITION_MOVE_GRAPH_BYTES: usize = 4 * 1024 * 1024;
 const MOVE_JOURNAL_NODE_PREFIX: &str = "partition-move:";
+const MEMBERSHIP_SHRINK_NODE_PREFIX: &str = "membership-shrink:";
 
 fn is_move_journal_node_id(node_id: &str) -> bool {
     node_id
         .strip_prefix(MOVE_JOURNAL_NODE_PREFIX)
+        .is_some_and(|digest| {
+            digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+}
+
+fn is_membership_shrink_node_id(node_id: &str) -> bool {
+    node_id
+        .strip_prefix(MEMBERSHIP_SHRINK_NODE_PREFIX)
         .is_some_and(|digest| {
             digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
         })
@@ -216,6 +200,18 @@ pub struct PlacementEntry {
     pub group: GroupId,
     pub epoch: u64,
     pub state: PartitionState,
+}
+
+/// An optimistic reservation to be completed by the placement Raft leader.
+/// `expected` is the counter value observed in the durable control graph;
+/// `floor` folds in legacy placement rows so a migrated catalog can never move
+/// the counter backwards; `allocated` is the sole epoch this plan may publish.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EpochAllocation {
+    pub(crate) expected: u64,
+    pub(crate) floor: u64,
+    pub(crate) allocated: u64,
+    pub(crate) seed_if_absent: bool,
 }
 
 /// Crash-recovery stages for an online partition move.  Every transition is stored
@@ -457,17 +453,24 @@ pub fn split_tenant_key(graph_name: &str) -> (&str, &str) {
 
 /// A batch of durable control-graph writes plus the local write-serialization guard
 /// (CONCEPT:EG-KG.sharding.placement-catalog). Held by the caller across the ACTUAL Raft commit (see
-/// [`super::multi::MultiRaft::commit_placement`]) so a second placement admin call on
-/// THIS node cannot compute the same "next epoch" concurrently. Dropping it (after the
-/// commit resolves) releases the lock.
+/// [`super::multi::MultiRaft::commit_placement_plan`]) so a second placement admin call on
+/// THIS node cannot prepare the same placement pre-image concurrently. The
+/// durable epoch CAS remains the authority across nodes and leadership terms.
+/// Dropping it (after the commit resolves) releases the lock.
 pub struct PendingWrite<'a> {
     _guard: MutexGuard<'a, ()>,
     /// The `Method::AddNode`/`Method::RemoveNode` mutations to commit, in order, to
     /// [`PLACEMENT_GRAPH`].
     pub methods: Vec<Method>,
-    /// The epoch this plan settles on (unchanged from the pre-op max for a
-    /// `start_move`, which does not bump it).
+    /// The epoch this plan settles on (unchanged for a `start_move`, which does
+    /// not bump the routing epoch).
     pub epoch: u64,
+    /// The replicated counter reservation. `None` is used for mutations that
+    /// do not change the routing epoch (for example entering `Moving`).
+    pub(crate) epoch_allocation: Option<EpochAllocation>,
+    /// Property-level CAS methods must return `Bool(true)` before the plan is
+    /// considered committed. A missing/false result is fail-closed.
+    pub(crate) require_success: bool,
 }
 
 /// W0.3 in-memory routing index snapshot: the [`PLACEMENT_GRAPH`] core version
@@ -499,11 +502,11 @@ pub struct PlacementCatalog {
     /// write regardless of which path applied it), so it is the correct
     /// invalidation signal for either case. `None` until first access.
     index: RwLock<Option<PlacementIndexSnapshot>>,
-    /// Monotonic high-water mark of every epoch this index has ever observed, so
-    /// `plan_assign`/`plan_split`/`plan_fence_cutover` allocate `max_epoch + 1` in
-    /// O(1) instead of a full-catalog `max()` scan. Recomputed from scratch on
-    /// every index rebuild (see [`Self::ensure_index_fresh`]), which is always
-    /// correct because a full rescan reflects the graph's true current state.
+    /// Maximum epoch observed in placement rows. This is only a migration floor
+    /// for the replicated counter; it is never an authority for allocation.
+    /// Recomputed from scratch on every index rebuild (see
+    /// [`Self::ensure_index_fresh`]) so a legacy catalog can safely seed or
+    /// repair the durable counter without moving it backwards.
     max_epoch: AtomicU64,
 }
 
@@ -592,12 +595,46 @@ impl PlacementCatalog {
         *guard = Some((current_version, by_tenant));
     }
 
-    /// Allocate the next cluster-wide routing epoch (CONCEPT:EG-KG.sharding.placement-catalog epoch allocation,
-    /// W0.3): O(1) off the maintained high-water mark instead of a full-catalog
-    /// `max()` scan.
-    async fn next_epoch(&self) -> u64 {
+    /// Read the durable replicated epoch counter. A present but malformed
+    /// counter is corruption, not an invitation to fall back to local state;
+    /// falling back would re-open the duplicate-epoch defect during recovery.
+    async fn durable_epoch_counter(&self) -> Result<Option<u64>, String> {
+        let blob = {
+            let state = self.state.read().await;
+            state
+                .registry
+                .get(PLACEMENT_GRAPH)
+                .and_then(|entry| entry.core.get_node_properties(PLACEMENT_EPOCH_COUNTER_NODE))
+        };
+        let Some(blob) = blob else {
+            return Ok(None);
+        };
+        let properties = eg_types::msgpack::decode_property_object(&blob)
+            .map_err(|_| "placement epoch counter is corrupt".to_string())?;
+        let value = properties
+            .get(PLACEMENT_EPOCH_FIELD)
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| "placement epoch counter has no bounded epoch value".to_string())?;
+        Ok(Some(value))
+    }
+
+    /// Prepare the next cluster-wide routing epoch. The returned reservation is
+    /// only a hint until the placement leader commits the replicated CAS in
+    /// [`super::multi::MultiRaft::commit_placement_plan`].
+    async fn next_epoch(&self) -> Result<EpochAllocation, String> {
         self.ensure_index_fresh().await;
-        self.max_epoch.load(Ordering::Acquire) + 1
+        let observed_entries = self.max_epoch.load(Ordering::Acquire);
+        let durable = self.durable_epoch_counter().await?;
+        let floor = durable.unwrap_or(observed_entries).max(observed_entries);
+        let allocated = floor
+            .checked_add(1)
+            .ok_or_else(|| "placement epoch counter exhausted".to_string())?;
+        Ok(EpochAllocation {
+            expected: durable.unwrap_or(floor),
+            floor,
+            allocated,
+            seed_if_absent: durable.is_none(),
+        })
     }
 
     /// Every durably-recorded placement entry (CONCEPT:EG-KG.sharding.placement-catalog). Index-backed (W0.3):
@@ -685,6 +722,91 @@ impl PlacementCatalog {
         .map_err(|_| "partition move journal is corrupt".to_string())?;
         if !journal.validate() || journal.node_id() != node_id {
             return Err("partition move journal failed its integrity fence".to_string());
+        }
+        Ok(Some(journal))
+    }
+
+    /// Encode one membership-shrink transition as a retained placement-graph
+    /// record. Terminal records are intentionally never deleted: restart
+    /// reconciliation needs the exact operation identity and final evidence.
+    pub(crate) fn membership_shrink_method(
+        journal: &super::membership_shrink::MembershipShrinkJournal,
+    ) -> Result<Method, String> {
+        if !journal.validate() {
+            return Err("invalid membership shrink journal".to_string());
+        }
+        Ok(Method::AddNode {
+            node_id: journal.node_id(),
+            properties_msgpack: rmp_serde::to_vec_named(journal)
+                .map_err(|_| "unable to encode membership shrink journal".to_string())?,
+        })
+    }
+
+    /// Return all retained membership-shrink journals in deterministic order.
+    /// A corrupt journal-shaped row fails closed rather than being treated as
+    /// an absent recovery record.
+    pub async fn membership_shrink_journals(
+        &self,
+    ) -> Result<Vec<super::membership_shrink::MembershipShrinkJournal>, String> {
+        let core = {
+            let state = self.state.read().await;
+            state
+                .registry
+                .get(PLACEMENT_GRAPH)
+                .map(|entry| entry.core.clone())
+        };
+        let mut journals = Vec::new();
+        if let Some(core) = core {
+            for (node_id, blob) in core.get_nodes() {
+                if !is_membership_shrink_node_id(&node_id) {
+                    continue;
+                }
+                let journal = eg_types::msgpack::decode_bounded::<
+                    super::membership_shrink::MembershipShrinkJournal,
+                >(
+                    &blob,
+                    eg_types::msgpack::MsgpackLimits::new(256 * 1024, 4_096, 32),
+                )
+                .map_err(|_| "membership shrink journal is corrupt".to_string())?;
+                if !journal.validate() || journal.node_id() != node_id {
+                    return Err("membership shrink journal failed its integrity fence".to_string());
+                }
+                journals.push(journal);
+            }
+        }
+        journals.sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
+        Ok(journals)
+    }
+
+    pub async fn membership_shrink_journal(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<super::membership_shrink::MembershipShrinkJournal>, String> {
+        if operation_id.len() != 64
+            || !operation_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Ok(None);
+        }
+        let node_id = format!("{MEMBERSHIP_SHRINK_NODE_PREFIX}{operation_id}");
+        let core = {
+            let state = self.state.read().await;
+            state
+                .registry
+                .get(PLACEMENT_GRAPH)
+                .map(|entry| entry.core.clone())
+        };
+        let Some(blob) = core.and_then(|core| core.get_node_properties(&node_id)) else {
+            return Ok(None);
+        };
+        let journal = eg_types::msgpack::decode_bounded::<
+            super::membership_shrink::MembershipShrinkJournal,
+        >(
+            &blob,
+            eg_types::msgpack::MsgpackLimits::new(256 * 1024, 4_096, 32),
+        )
+        .map_err(|_| "membership shrink journal is corrupt".to_string())?;
+        if !journal.validate() || journal.node_id() != node_id {
+            return Err("membership shrink journal failed its integrity fence".to_string());
         }
         Ok(Some(journal))
     }
@@ -835,6 +957,63 @@ impl PlacementCatalog {
         }
     }
 
+    /// Compare the complete placement pre-image while updating only the fields
+    /// that changed. The node id and key are included in the predicate so a
+    /// delete/recreate or a stale range cannot satisfy a move fence by accident.
+    fn entry_cas_method(expected: &PlacementEntry, updated: &PlacementEntry) -> Method {
+        let mut conditions = serde_json::Map::new();
+        conditions.insert(
+            "key".to_string(),
+            serde_json::to_value(&expected.key).expect("PartitionKey always serializes"),
+        );
+        conditions.insert("group".to_string(), serde_json::json!(expected.group));
+        conditions.insert("epoch".to_string(), serde_json::json!(expected.epoch));
+        conditions.insert(
+            "state".to_string(),
+            serde_json::to_value(expected.state).expect("PartitionState always serializes"),
+        );
+        let mut updates = serde_json::Map::new();
+        updates.insert("group".to_string(), serde_json::json!(updated.group));
+        updates.insert("epoch".to_string(), serde_json::json!(updated.epoch));
+        updates.insert(
+            "state".to_string(),
+            serde_json::to_value(updated.state).expect("PartitionState always serializes"),
+        );
+        Method::CompareAndSetNodeFields {
+            node_id: expected.key.node_id(),
+            conditions_msgpack: rmp_serde::to_vec_named(&conditions)
+                .expect("placement CAS conditions always encode"),
+            updates_msgpack: rmp_serde::to_vec_named(&updates)
+                .expect("placement CAS updates always encode"),
+        }
+    }
+
+    pub(crate) fn epoch_seed_method(epoch: u64) -> Method {
+        Method::CreateNodeIfAbsent {
+            node_id: PLACEMENT_EPOCH_COUNTER_NODE.to_string(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                PLACEMENT_EPOCH_FIELD: epoch,
+            }))
+            .expect("placement epoch seed always encodes"),
+        }
+    }
+
+    pub(crate) fn epoch_cas_method(expected: u64, allocated: u64) -> Method {
+        let conditions = serde_json::json!({ PLACEMENT_EPOCH_FIELD: expected });
+        let updates = serde_json::json!({ PLACEMENT_EPOCH_FIELD: allocated });
+        Method::CompareAndSetNodeFields {
+            node_id: PLACEMENT_EPOCH_COUNTER_NODE.to_string(),
+            conditions_msgpack: rmp_serde::to_vec_named(&conditions)
+                .expect("placement epoch CAS conditions always encode"),
+            updates_msgpack: rmp_serde::to_vec_named(&updates)
+                .expect("placement epoch CAS updates always encode"),
+        }
+    }
+
+    pub(crate) fn epoch_reconcile_method(expected: u64, floor: u64) -> Method {
+        Self::epoch_cas_method(expected, floor)
+    }
+
     fn remove_method(key: &PartitionKey) -> Method {
         Method::RemoveNode {
             node_id: key.node_id(),
@@ -856,9 +1035,13 @@ impl PlacementCatalog {
     /// prior split/ranged entries for this tenant back to one whole-keyspace entry —
     /// also used by `merge` (assigning to the merge target is the same operation).
     /// Bumps the cluster-wide epoch (the authoritative group changed).
-    pub async fn plan_assign(&self, tenant: &str, group: GroupId) -> PendingWrite<'_> {
+    pub async fn plan_assign(
+        &self,
+        tenant: &str,
+        group: GroupId,
+    ) -> Result<PendingWrite<'_>, String> {
         let guard = self.write_lock.lock().await;
-        let epoch = self.next_epoch().await;
+        let allocation = self.next_epoch().await?;
         let mut methods: Vec<Method> = self
             .tenant_entries(tenant)
             .await
@@ -868,20 +1051,26 @@ impl PlacementCatalog {
         let entry = PlacementEntry {
             key: PartitionKey::whole(tenant),
             group,
-            epoch,
+            epoch: allocation.allocated,
             state: PartitionState::Active,
         };
         methods.push(Self::entry_method(&entry));
-        PendingWrite {
+        Ok(PendingWrite {
             _guard: guard,
             methods,
-            epoch,
-        }
+            epoch: allocation.allocated,
+            epoch_allocation: Some(allocation),
+            require_success: false,
+        })
     }
 
     /// Merge every one of `tenant`'s ranged partitions back onto a single group
     /// (CONCEPT:EG-KG.sharding.placement-catalog) — the inverse of `split`. Same operation as `assign`.
-    pub async fn plan_merge(&self, tenant: &str, group: GroupId) -> PendingWrite<'_> {
+    pub async fn plan_merge(
+        &self,
+        tenant: &str,
+        group: GroupId,
+    ) -> Result<PendingWrite<'_>, String> {
         self.plan_assign(tenant, group).await
     }
 
@@ -897,7 +1086,8 @@ impl PlacementCatalog {
         group_b: GroupId,
     ) -> Result<PendingWrite<'_>, String> {
         let guard = self.write_lock.lock().await;
-        let epoch = self.next_epoch().await;
+        let allocation = self.next_epoch().await?;
+        let epoch = allocation.allocated;
         let tenant_entries = self.tenant_entries(tenant).await;
         let covering = tenant_entries
             .iter()
@@ -946,6 +1136,8 @@ impl PlacementCatalog {
             _guard: guard,
             methods,
             epoch,
+            epoch_allocation: Some(allocation),
+            require_success: false,
         })
     }
 
@@ -976,6 +1168,8 @@ impl PlacementCatalog {
                     _guard: guard,
                     methods: Vec::new(),
                     epoch: entry.epoch,
+                    epoch_allocation: None,
+                    require_success: false,
                 });
             }
             PartitionState::Moving { .. } => {
@@ -987,13 +1181,15 @@ impl PlacementCatalog {
         }
         let moving = PlacementEntry {
             state: PartitionState::Moving { target },
-            ..entry
+            ..entry.clone()
         };
         let epoch = moving.epoch;
         Ok(PendingWrite {
             _guard: guard,
-            methods: vec![Self::entry_method(&moving)],
+            methods: vec![Self::entry_cas_method(&entry, &moving)],
             epoch,
+            epoch_allocation: None,
+            require_success: true,
         })
     }
 
@@ -1009,7 +1205,8 @@ impl PlacementCatalog {
         target: GroupId,
     ) -> Result<PendingWrite<'_>, String> {
         let guard = self.write_lock.lock().await;
-        let epoch = self.next_epoch().await;
+        let allocation = self.next_epoch().await?;
+        let epoch = allocation.allocated;
         let entry = self
             .tenant_entries(tenant)
             .await
@@ -1022,15 +1219,17 @@ impl PlacementCatalog {
             return Err("partition is not moving to the requested target".to_string());
         }
         let cut = PlacementEntry {
-            key: entry.key,
+            key: entry.key.clone(),
             group: target,
             epoch,
             state: PartitionState::Active,
         };
         Ok(PendingWrite {
             _guard: guard,
-            methods: vec![Self::entry_method(&cut)],
+            methods: vec![Self::entry_cas_method(&entry, &cut)],
             epoch,
+            epoch_allocation: Some(allocation),
+            require_success: true,
         })
     }
 
@@ -1060,12 +1259,14 @@ impl PlacementCatalog {
         }
         let active = PlacementEntry {
             state: PartitionState::Active,
-            ..entry
+            ..entry.clone()
         };
         Ok(PendingWrite {
             _guard: guard,
-            methods: vec![Self::entry_method(&active)],
+            methods: vec![Self::entry_cas_method(&entry, &active)],
             epoch: active.epoch,
+            epoch_allocation: None,
+            require_success: true,
         })
     }
 }
