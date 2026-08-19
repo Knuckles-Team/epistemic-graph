@@ -191,9 +191,11 @@ def start_server(
 
 
 async def add_node(conn: Any, graph: str, node_id: str, props: dict[str, Any]) -> None:
+    from epistemic_graph.client import _pack_binary_msgpack
+
     await conn._send(
         "AddNode",
-        {"node_id": node_id, "properties_msgpack": list(msgpack.packb(props))},
+        {"node_id": node_id, "properties_msgpack": _pack_binary_msgpack(props)},
         graph=graph,
     )
 
@@ -210,9 +212,11 @@ async def get_node_properties(conn: Any, graph: str, node_id: str) -> dict[str, 
 async def claim_next(
     conn: Any, graph: str, label: str, updates: dict[str, Any]
 ) -> tuple[str, dict[str, Any]] | None:
+    from epistemic_graph.client import _pack_binary_msgpack
+
     raw = await conn._send(
         "ClaimNext",
-        {"label": label, "updates_msgpack": list(msgpack.packb(updates))},
+        {"label": label, "updates_msgpack": _pack_binary_msgpack(updates)},
         graph=graph,
     )
     if isinstance(raw, bytes):
@@ -232,12 +236,14 @@ async def create_graph(conn: Any, graph: str, graph_type: str = "Agent") -> None
 async def compare_and_set(
     conn: Any, graph: str, node_id: str, conditions: dict[str, Any], updates: dict[str, Any]
 ) -> bool:
+    from epistemic_graph.client import _pack_binary_msgpack
+
     return await conn._send(
         "CompareAndSetNodeFields",
         {
             "node_id": node_id,
-            "conditions_msgpack": list(msgpack.packb(conditions)),
-            "updates_msgpack": list(msgpack.packb(updates)),
+            "conditions_msgpack": _pack_binary_msgpack(conditions),
+            "updates_msgpack": _pack_binary_msgpack(updates),
         },
         graph=graph,
     )

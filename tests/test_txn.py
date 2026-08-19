@@ -63,7 +63,7 @@ async def test_txn_stage_commit_round_trip() -> None:
     for method, params in fake.sent[1:]:
         assert params is not None and params["txn_id"] == txn_id, method
 
-    # Property blobs are msgpack-packed lists.
+    # Property blobs are native binary MessagePack payloads.
     _, add_a = fake.sent[1]
     assert add_a is not None
     assert add_a["graph"] is None
