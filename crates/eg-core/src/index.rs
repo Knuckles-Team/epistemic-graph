@@ -278,6 +278,8 @@ pub struct IndexCompletenessCursor {
 
 /// Manifest published by every server-maintained index.  `build_version` is the
 /// manifest schema/algorithm generation, not a filesystem or host identifier.
+/// The source snapshot version and row counts are one tuple: a manifest is not
+/// authoritative merely because it is marked `Valid`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndexManifest {
     pub source_snapshot_version: u64,
@@ -311,10 +313,46 @@ impl IndexManifest {
         }
     }
 
-    pub fn covers(&self, source_snapshot_version: u64) -> bool {
-        self.validity == IndexValidity::Valid
+    /// Whether the manifest is a safe base for an incremental delta.
+    ///
+    /// This is deliberately weaker than [`Self::covers_source`]: the write
+    /// maintainer calls it while the caller still owns the graph transaction,
+    /// before it can observe the post-mutation source row counts. Readiness and
+    /// planner admission must always use `covers_source` instead.
+    pub fn covers_version(&self, source_snapshot_version: u64) -> bool {
+        self.build_version == Self::BUILD_VERSION
+            && self.validity == IndexValidity::Valid
             && self.completeness.complete
-            && self.source_snapshot_version >= source_snapshot_version
+            && self.source_snapshot_version == source_snapshot_version
+    }
+
+    /// Legacy version-only spelling retained for downstream callers. New
+    /// readiness/reconciliation code must pass source row counts through
+    /// [`Self::covers_source`].
+    #[deprecated(note = "use covers_source for readiness/reconciliation")]
+    pub fn covers(&self, source_snapshot_version: u64) -> bool {
+        self.covers_version(source_snapshot_version)
+    }
+
+    /// Whether the manifest exactly describes the current source graph.
+    ///
+    /// Version-only checks were insufficient for recovered/catalog-only graphs:
+    /// a stale node/edge cursor could still be `Valid` and advertise an index
+    /// whose source coverage disagreed with the graph. Every readiness,
+    /// reconciliation, and served-query decision must use this exact tuple so
+    /// mismatches fail closed.
+    pub fn covers_source(
+        &self,
+        source_snapshot_version: u64,
+        nodes: u64,
+        edges: u64,
+    ) -> bool {
+        self.build_version == Self::BUILD_VERSION
+            && self.validity == IndexValidity::Valid
+            && self.completeness.complete
+            && self.source_snapshot_version == source_snapshot_version
+            && self.completeness.nodes == nodes
+            && self.completeness.edges == edges
     }
 }
 
@@ -911,7 +949,19 @@ impl IndexManager {
             // A delta is safe only over an index that completely covers the
             // pre-mutation source. Never let one later delta bless a stale or
             // partially materialized index as complete.
-            if idx.maintains_manifest() && !prior.covers(core.version()) {
+            let source_coverage_valid = if change.is_empty() {
+                // With no topology delta, the supplied post-mutation counts
+                // are also the pre-mutation source counts, so the exact
+                // reconciliation predicate is available even under the held
+                // topology guard.
+                prior.covers_source(core.version(), node_count, edge_count)
+            } else {
+                // Structural callers currently provide post-mutation counts;
+                // retain the version gate for the pre-mutation delta base and
+                // let the registry/read surfaces perform the exact tuple check.
+                prior.covers_version(core.version())
+            };
+            if idx.maintains_manifest() && !source_coverage_valid {
                 let mut stale = prior;
                 stale.validity = IndexValidity::Stale;
                 stale.completeness.complete = false;
@@ -1004,6 +1054,93 @@ mod tests {
         g.add_node("b".into(), props(json!({"type": "Task", "team": "red"})));
         g.add_node("c".into(), props(json!({"type": "Person", "team": "blue"})));
         g
+    }
+
+    /// A manifest is authoritative only when its validity, snapshot version,
+    /// and both source row counts agree exactly with the graph being served.
+    /// This fixture locks the fail-closed boundary that the catalog/recovery
+    /// path and served adapters share.
+    #[test]
+    fn manifest_source_coverage_requires_the_exact_source_tuple() {
+        let valid = IndexManifest::valid(7, 3, 2);
+        assert!(valid.covers_source(7, 3, 2));
+        assert!(!valid.covers_source(8, 3, 2), "future snapshot is not current");
+        assert!(!valid.covers_source(6, 3, 2), "older snapshot is stale");
+        assert!(!valid.covers_source(7, 4, 2), "node cursor mismatch fails closed");
+        assert!(!valid.covers_source(7, 3, 1), "edge cursor mismatch fails closed");
+
+        let mut incomplete = valid;
+        incomplete.completeness.complete = false;
+        assert!(!incomplete.covers_source(7, 3, 2));
+    }
+
+    struct ManifestProbe {
+        manifest: std::sync::Mutex<IndexManifest>,
+    }
+
+    impl SecondaryIndex for ManifestProbe {
+        fn kind(&self) -> IndexKind {
+            IndexKind::Text
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
+        fn descriptor(&self) -> IndexDescriptor {
+            IndexDescriptor {
+                kind: IndexKind::Text,
+                columns: IndexColumns::NonColumnar,
+                serves_lookup: false,
+            }
+        }
+
+        fn covers(&self, _predicate: &Predicate) -> bool {
+            false
+        }
+
+        fn lookup(&self, _core: &GraphCore, _predicate: &Predicate) -> Option<Vec<String>> {
+            None
+        }
+
+        fn manifest(&self) -> IndexManifest {
+            *self.manifest.lock().unwrap()
+        }
+
+        fn publish_manifest(&self, manifest: IndexManifest) {
+            *self.manifest.lock().unwrap() = manifest;
+        }
+
+        fn maintains_manifest(&self) -> bool {
+            true
+        }
+
+        fn apply_delta(
+            &self,
+            _core: &GraphCore,
+            _change: &ChangeSet,
+        ) -> Result<(), IndexError> {
+            Ok(())
+        }
+    }
+
+    /// A mismatched source cursor must block even a vector-only/no-op delta;
+    /// the manager must not bless stale metadata by publishing a new version.
+    #[test]
+    fn stale_manifest_cursor_blocks_noop_maintenance() {
+        let g = GraphCore::new();
+        g.register_index(Box::new(ManifestProbe {
+            manifest: std::sync::Mutex::new(IndexManifest::valid(0, 1, 0)),
+        }));
+
+        let tally = g
+            .indexes()
+            .commit_batch_at(&g, &ChangeSet::new(), 1, 0, 0);
+        assert_eq!(tally.deltas_applied, 0);
+        assert_eq!(tally.failures, 1);
+        let manifest = g.indexes().server_manifests()[0].1;
+        assert_eq!(manifest.validity, IndexValidity::Stale);
+        assert!(!manifest.completeness.complete);
     }
 
     /// `index_for` routes a label predicate to the LABEL index and a property

@@ -1407,10 +1407,30 @@ fn rebuild_secondary_indexes(core: &Arc<GraphCore>) {
 }
 
 fn secondary_indexes_valid(core: &Arc<GraphCore>) -> bool {
+    let source_snapshot_version = core.version();
+    let nodes = core.node_count() as u64;
+    let edges = core.edge_count() as u64;
     core.indexes()
         .server_manifests()
         .into_iter()
-        .all(|(_, manifest)| manifest.covers(core.version()))
+        .all(|(kind, manifest)| {
+            let valid = manifest.covers_source(source_snapshot_version, nodes, edges);
+            if !valid {
+                tracing::warn!(
+                    ?kind,
+                    manifest_source_snapshot_version = manifest.source_snapshot_version,
+                    manifest_build_version = manifest.build_version,
+                    manifest_nodes = manifest.completeness.nodes,
+                    manifest_edges = manifest.completeness.edges,
+                    manifest_complete = manifest.completeness.complete,
+                    source_snapshot_version,
+                    source_nodes = nodes,
+                    source_edges = edges,
+                    "server index manifest does not exactly cover its source graph"
+                );
+            }
+            valid
+        })
 }
 
 #[cfg(test)]
