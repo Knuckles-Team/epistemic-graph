@@ -6,9 +6,10 @@ ambient CA variables belonging to unrelated HTTP libraries (``SSL_CERT_FILE``,
 material once TLS is already selected by explicit precedence.
 
 W02: ``close()`` is an idempotent state transition that always awaits final
-writer shutdown, regardless of reader-EOF ordering, partial connect failure,
-or concurrent close; reconnect allocates a new lifecycle generation so a stale
-reader callback can never mark a newer connection dead.
+writer shutdown, regardless of reader-EOF ordering, transport error, caller
+cancellation, partial connect failure, or concurrent close; reconnect allocates
+a new lifecycle generation so a stale reader callback can never mark a newer
+connection dead.
 
 All tests here are self-contained (they run their own in-process TCP
 listeners) and never require the shared native engine.
@@ -243,11 +244,13 @@ def test_named_profile_env_off_disables_even_with_generic_ca_vars(monkeypatch):
 
 def test_generic_ca_vars_alone_never_select_tls_mode(monkeypatch):
     """THE core GOC-81 W01 acceptance gate: bare presence of `SSL_CERT_FILE` /
-    `REQUESTS_CA_BUNDLE` (ambient vars belonging to unrelated HTTP libraries)
+    `SSL_CERT_DIR` / `REQUESTS_CA_BUNDLE` (ambient vars belonging to unrelated
+    HTTP libraries)
     must never flip the mode to TLS when nothing else selected it.
     """
     _clear_tls_env(monkeypatch)
     monkeypatch.setenv("SSL_CERT_FILE", "/some/unrelated/http/library/ca.pem")
+    monkeypatch.setenv("SSL_CERT_DIR", "/some/unrelated/http/library/ca.d")
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/another/unrelated/bundle.pem")
     decision = EpistemicGraphClient._resolve_tls_decision(
         None, client_cert=None, client_key=None, server_hostname=None
@@ -272,6 +275,23 @@ def test_service_specific_ca_var_does_select_tls(monkeypatch):
     assert decision.enabled is True
     assert decision.profile == "named-profile"
     assert decision.trust_source == "ca_bundle"
+
+
+def test_service_specific_ca_directory_selects_tls(monkeypatch):
+    """The graph-service CA directory is a named profile input, unlike the
+    generic `SSL_CERT_DIR` trust source, so it selects TLS even without a
+    separate `GRAPH_SERVICE_TLS=on` switch.
+    """
+    _clear_tls_env(monkeypatch)
+    monkeypatch.setenv(
+        "GRAPH_SERVICE_TLS_CA_DIRECTORY", "/etc/epistemic-graph/ca.d"
+    )
+    decision = EpistemicGraphClient._resolve_tls_decision(
+        None, client_cert=None, client_key=None, server_hostname=None
+    )
+    assert decision == _TlsDecision(
+        True, "named-profile", None, "ca_directory"
+    )
 
 
 def test_conflicting_tls_disabled_with_client_cert_is_rejected(monkeypatch):
@@ -524,6 +544,51 @@ async def test_close_is_idempotent_repeated_calls():
 
 
 @pytest.mark.asyncio
+async def test_cancelled_close_finishes_shared_writer_shutdown():
+    """Canceling one close waiter must not strand the shared teardown task;
+    the caller observes cancellation only after the writer has been joined.
+    """
+    server = _EchoHealthServer()
+    await server.start()
+    try:
+        client = await EpistemicGraphClient.connect(
+            tcp_addr=f"127.0.0.1:{server.port}",
+            auth_secret="s",
+            verified_context=request_context(),
+            timeout=2.0,
+        )
+        writer = client._writer
+        wait_started = asyncio.Event()
+        release_wait = asyncio.Event()
+        wait_closed_calls = {"n": 0}
+        original_wait_closed = writer.wait_closed
+
+        async def _controlled_wait_closed():
+            wait_closed_calls["n"] += 1
+            wait_started.set()
+            await release_wait.wait()
+            return await original_wait_closed()
+
+        writer.wait_closed = _controlled_wait_closed
+        close_task = asyncio.ensure_future(client.close())
+        await asyncio.wait_for(wait_started.wait(), timeout=2.0)
+        close_task.cancel()
+        await asyncio.sleep(0)
+        assert not close_task.done(), "canceled waiter must await shared teardown"
+
+        release_wait.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(close_task, timeout=2.0)
+
+        # A later close joins the already-completed shared task and does not
+        # issue another writer wait.
+        await client.close()
+        assert wait_closed_calls["n"] == 1
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
 async def test_close_after_peer_eof_still_tears_down_writer():
     """THE core GOC-81 W02 regression: the reader loop observing EOF first
     must NOT make a later `close()` a silent no-op that skips
@@ -591,6 +656,49 @@ async def test_close_preserves_first_terminal_error():
         client._mark_dead(original)
         await client.close()
         assert client._terminal_error is original
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_close_after_transport_error_closes_writer_once():
+    """An error path may close the poisoned stream before the owner calls
+    `close()`; the final close must still await it without issuing a duplicate
+    writer-close request.
+    """
+    server = _EchoHealthServer()
+    await server.start()
+    try:
+        client = await EpistemicGraphClient.connect(
+            tcp_addr=f"127.0.0.1:{server.port}",
+            auth_secret="s",
+            verified_context=request_context(),
+            timeout=2.0,
+        )
+        assert await client.ping() == "pong"
+
+        writer = client._writer
+        close_calls = {"n": 0}
+        wait_closed_calls = {"n": 0}
+        original_close = writer.close
+        original_wait_closed = writer.wait_closed
+
+        def _counting_close():
+            close_calls["n"] += 1
+            return original_close()
+
+        async def _counting_wait_closed():
+            wait_closed_calls["n"] += 1
+            return await original_wait_closed()
+
+        writer.close = _counting_close
+        writer.wait_closed = _counting_wait_closed
+        client._mark_dead(ConnectionError("transport failed"))
+        await client.close()
+
+        assert close_calls["n"] == 1
+        assert wait_closed_calls["n"] == 1
+        assert client._terminal_error is not None
     finally:
         await server.stop()
 
@@ -666,6 +774,54 @@ async def test_close_during_in_flight_request_fails_it_cleanly():
 
         with pytest.raises((ConnectionError, asyncio.CancelledError)):
             await asyncio.wait_for(pending, timeout=2.0)
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_request_releases_pending_and_close_is_clean():
+    """Caller cancellation removes only that request from the demux map;
+    the shared stream remains usable until the explicit owner close, which
+    still performs one complete writer shutdown.
+    """
+    server = _EchoHealthServer()
+    await server.start()
+    try:
+        client = await EpistemicGraphClient.connect(
+            tcp_addr=f"127.0.0.1:{server.port}",
+            auth_secret="s",
+            verified_context=request_context(),
+            timeout=5.0,
+        )
+        writer = client._writer
+        close_calls = {"n": 0}
+        wait_closed_calls = {"n": 0}
+        original_close = writer.close
+        original_wait_closed = writer.wait_closed
+
+        def _counting_close():
+            close_calls["n"] += 1
+            return original_close()
+
+        async def _counting_wait_closed():
+            wait_closed_calls["n"] += 1
+            return await original_wait_closed()
+
+        writer.close = _counting_close
+        writer.wait_closed = _counting_wait_closed
+
+        pending = asyncio.ensure_future(client._send("Hang"))
+        await asyncio.sleep(0.05)
+        assert not pending.done()
+
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        assert client._pending == {}, "cancelled request must not remain in demux state"
+
+        await client.close()
+        assert close_calls["n"] == 1
+        assert wait_closed_calls["n"] == 1
     finally:
         await server.stop()
 
