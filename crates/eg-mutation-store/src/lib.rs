@@ -646,6 +646,174 @@ pub fn commit(wtx: WriteTransaction, batch: &MutationBatch) -> Result<(), String
     )
 }
 
+/// Remove every mutation-authority row owned by one exact `(tenant, graph)`
+/// scope from an already-open native-store write transaction.
+///
+/// Native stores keep their domain rows and these coordinator rows in the same
+/// redb file, so a graph-scoped owner can call this helper before it writes its
+/// tombstone in that *same* transaction.  The helper deliberately does not
+/// commit `wtx`; the caller owns the commit point and can therefore make the
+/// domain-row deletion, authority purge, and tombstone one atomic durable
+/// transition.  Repeating it after a crash/retry is a no-op.
+///
+/// `BATCHES`/`PRIVATE_PAYLOADS` are keyed only by batch id, while idempotency,
+/// version, and fence rows carry the scope.  We discover batch ids from both
+/// the scoped idempotency index and the batch records themselves.  The latter
+/// matters for a repaired/legacy store whose batch record survived without its
+/// index row.  Any broken cross-scope link or malformed record fails closed;
+/// silently deleting an unknown batch could erase another tenant's authority.
+pub fn purge_scope(
+    wtx: &WriteTransaction,
+    tenant: &str,
+    graph: &str,
+) -> Result<(), String> {
+    if tenant.trim().is_empty() || graph.trim().is_empty() {
+        return Err("mutation scope requires non-empty tenant and graph".to_string());
+    }
+
+    let mut batch_ids = std::collections::BTreeSet::new();
+    {
+        let batches = wtx.open_table(BATCHES).map_err(|error| error.to_string())?;
+        for row in batches.iter().map_err(|error| error.to_string())? {
+            let (key, value) = row.map_err(|error| error.to_string())?;
+            let batch_id = key.value();
+            let record = decode_batch_record(value.value())?;
+            if record.batch.batch_id != batch_id {
+                return Err("mutation batch key does not match its receipt".to_string());
+            }
+            if record.batch.tenant == tenant && record.batch.graph == graph {
+                batch_ids.insert(batch_id.to_string());
+            }
+        }
+    }
+
+    let idempotency_keys = {
+        let table = wtx
+            .open_table(IDEMPOTENCY)
+            .map_err(|error| error.to_string())?;
+        let mut keys = Vec::new();
+        for row in table.iter().map_err(|error| error.to_string())? {
+            let (key, value) = row.map_err(|error| error.to_string())?;
+            let (row_tenant, row_graph, idempotency_key) = key.value();
+            if row_tenant == tenant && row_graph == graph {
+                let batch_id = value.value();
+                if batch_id.is_empty() {
+                    return Err("mutation idempotency row has an empty batch id".to_string());
+                }
+                batch_ids.insert(batch_id.to_string());
+                keys.push((idempotency_key.to_string(), batch_id.to_string()));
+            }
+        }
+        keys
+    };
+
+    // Every idempotency reference must resolve to a batch in the same scope.
+    // This is checked before any deletion so a corrupt store leaves the
+    // transaction untouched and can be repaired by an operator.
+    {
+        let batches = wtx.open_table(BATCHES).map_err(|error| error.to_string())?;
+        for batch_id in &batch_ids {
+            let value = batches
+                .get(batch_id.as_str())
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| {
+                    format!(
+                        "mutation idempotency scope points to missing batch '{batch_id}'"
+                    )
+                })?;
+            let record = decode_batch_record(value.value())?;
+            if record.batch.batch_id != batch_id.as_str()
+                || record.batch.tenant != tenant
+                || record.batch.graph != graph
+            {
+                return Err(format!(
+                    "mutation authority batch '{batch_id}' does not belong to scope"
+                ));
+            }
+        }
+        for (idempotency_key, batch_id) in &idempotency_keys {
+            let value = batches
+                .get(batch_id.as_str())
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| {
+                    format!(
+                        "mutation idempotency scope points to missing batch '{batch_id}'"
+                    )
+                })?;
+            let record = decode_batch_record(value.value())?;
+            if record.batch.idempotency_key != *idempotency_key {
+                return Err(format!(
+                    "mutation idempotency key does not match batch '{batch_id}'"
+                ));
+            }
+        }
+    }
+
+    {
+        let mut table = wtx
+            .open_table(IDEMPOTENCY)
+            .map_err(|error| error.to_string())?;
+        for (idempotency_key, _) in idempotency_keys {
+            table
+                .remove((tenant, graph, idempotency_key.as_str()))
+                .map_err(|error| error.to_string())?;
+        }
+    }
+
+    for batch_id in &batch_ids {
+        {
+            let mut table = wtx
+                .open_table(BATCHES)
+                .map_err(|error| error.to_string())?;
+            table
+                .remove(batch_id.as_str())
+                .map_err(|error| error.to_string())?;
+        }
+        {
+            let mut table = wtx
+                .open_table(OUTBOX)
+                .map_err(|error| error.to_string())?;
+            let ordinals: Vec<u32> = table
+                .range((batch_id.as_str(), 0u32)..=(batch_id.as_str(), u32::MAX))
+                .map_err(|error| error.to_string())?
+                .map(|row| {
+                    row.map(|(key, _)| key.value().1)
+                        .map_err(|error| error.to_string())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            for ordinal in ordinals {
+                table
+                    .remove((batch_id.as_str(), ordinal))
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        {
+            let mut table = wtx
+                .open_table(PRIVATE_PAYLOADS)
+                .map_err(|error| error.to_string())?;
+            table
+                .remove(batch_id.as_str())
+                .map_err(|error| error.to_string())?;
+        }
+    }
+
+    {
+        let mut table = wtx
+            .open_table(VERSIONS)
+            .map_err(|error| error.to_string())?;
+        table
+            .remove((tenant, graph))
+            .map_err(|error| error.to_string())?;
+    }
+    {
+        let mut table = wtx.open_table(FENCES).map_err(|error| error.to_string())?;
+        table
+            .remove((tenant, graph))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 pub fn version(db: &Database, tenant: &str, graph: &str) -> Result<u64, String> {
     let rtx = db.begin_read().map_err(|error| error.to_string())?;
     let table = rtx
@@ -974,6 +1142,20 @@ mod tests {
         }
     }
 
+    fn scoped_saga_batch(
+        tenant: &str,
+        graph: &str,
+        batch_id: &str,
+        idempotency_key: &str,
+    ) -> MutationBatch {
+        let mut batch = saga_batch();
+        batch.tenant = tenant.to_string();
+        batch.graph = graph.to_string();
+        batch.batch_id = batch_id.to_string();
+        batch.idempotency_key = idempotency_key.to_string();
+        batch
+    }
+
     #[test]
     fn private_payload_survives_prepare_resume_and_is_erased_with_terminal_result() {
         let dir = tempfile::tempdir().unwrap();
@@ -1043,5 +1225,82 @@ mod tests {
         let wtx = db.begin_write().unwrap();
         let error = begin(&wtx, &batch).unwrap_err();
         assert!(error.contains("authoritative version is 0"));
+    }
+
+    #[test]
+    fn purge_scope_removes_authority_and_preserves_other_scopes() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::create(dir.path().join("native.redb")).unwrap();
+        initialize(&db).unwrap();
+
+        let prepared = scoped_saga_batch(
+            "tenant-a",
+            "graph-a",
+            "prepared-a",
+            "prepared-a-key",
+        );
+        assert!(matches!(
+            prepare_saga_with_private_payload(&db, &prepared, 1, Some(b"encrypted-plan"))
+                .unwrap(),
+            SagaBegin::Execute
+        ));
+
+        let mut committed = scoped_saga_batch(
+            "tenant-a",
+            "graph-a",
+            "committed-a",
+            "committed-a-key",
+        );
+        committed.outbox.push(eg_types::MutationOutboxIntent {
+            topic: "native.committed".to_string(),
+            key: committed.batch_id.clone(),
+            payload: Vec::new(),
+            headers: std::collections::BTreeMap::new(),
+        });
+        prepare_saga(&db, &committed, 2).unwrap();
+        commit_saga(&db, &committed, vec![0x01], 3).unwrap();
+
+        let mut other = scoped_saga_batch(
+            "tenant-a",
+            "graph-b",
+            "committed-b",
+            "committed-b-key",
+        );
+        other.outbox.push(eg_types::MutationOutboxIntent {
+            topic: "native.other".to_string(),
+            key: other.batch_id.clone(),
+            payload: Vec::new(),
+            headers: std::collections::BTreeMap::new(),
+        });
+        prepare_saga(&db, &other, 4).unwrap();
+        commit_saga(&db, &other, vec![0x02], 5).unwrap();
+
+        let mut wtx = db.begin_write().unwrap();
+        wtx.set_durability(redb::Durability::Immediate).unwrap();
+        purge_scope(&wtx, "tenant-a", "graph-a").unwrap();
+        wtx.commit().unwrap();
+
+        assert!(read_record(&db, &prepared.batch_id).unwrap().is_none());
+        assert!(read_record(&db, &committed.batch_id).unwrap().is_none());
+        assert_eq!(read_private_payload(&db, &prepared.batch_id).unwrap(), None);
+        assert!(read_outbox(&db, &committed.batch_id).unwrap().is_empty());
+        assert_eq!(version(&db, "tenant-a", "graph-a").unwrap(), 0);
+
+        assert!(read_record(&db, &other.batch_id).unwrap().is_some());
+        assert_eq!(read_outbox(&db, &other.batch_id).unwrap().len(), 1);
+        assert_eq!(version(&db, "tenant-a", "graph-b").unwrap(), 1);
+
+        // Reusing the exact batch/idempotency identity after the purge starts a
+        // fresh native mutation rather than replaying the deleted incarnation.
+        assert!(matches!(
+            prepare_saga(&db, &committed, 6).unwrap(),
+            SagaBegin::Execute
+        ));
+
+        // A retry after a crash/replay boundary is deliberately idempotent.
+        let mut wtx = db.begin_write().unwrap();
+        wtx.set_durability(redb::Durability::Immediate).unwrap();
+        purge_scope(&wtx, "tenant-a", "graph-a").unwrap();
+        wtx.commit().unwrap();
     }
 }
