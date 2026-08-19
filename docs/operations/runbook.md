@@ -44,6 +44,10 @@ one main build now. Only `raft`/`compute-dist` (the `cluster` layer) and `gpu-cu
 | `GRAPH_SERVICE_TLS_CERT` / `GRAPH_SERVICE_TLS_KEY` | PEM server identity for native TCP TLS. Both are required together. | (none) |
 | `GRAPH_SERVICE_TLS_CLIENT_CA` | Optional client CA bundle; setting it requires mTLS. | (none) |
 | `GRAPH_SERVICE_AUTH_SECRET` | Non-empty HMAC secret for `eg2.` plus protocol-specific credential derivation. **Required.** | (none) |
+| `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | Encryption-at-rest key material for redb value blobs (feature `security`). Keep it in the deployment secret/KMS boundary; it is never persisted or logged. | (none) |
+| `EPISTEMIC_GRAPH_ENCRYPTION_KEY_ID` | Stable, non-secret KMS object identifier pinned into each encrypted shard and backup manifest. Existing single-secret deployments default to `legacy`; changing it is an explicit offline rotation boundary. | `legacy` |
+| `EPISTEMIC_GRAPH_ENCRYPTION_KEY_VERSION` | Stable, non-secret key version pinned beside the encryption canary. Existing single-secret deployments default to `1`; changing it is an explicit offline rotation boundary. | `1` |
+| `EPISTEMIC_GRAPH_ENCRYPTION_REQUIRED` | Missing-key posture: `off` / `warn` / `on`. Unset/unrecognized ⇒ `warn`; `on` refuses startup before writer/listener admission. | `warn` |
 | `EPISTEMIC_GRAPH_REQUIRE_OIDC` | MANDATORY-OIDC posture (since 2026-07-22). Unset/unrecognized ⇒ **required**: refuses to start without a configured OIDC verifier. `false`/`0`/`no`/`off` is the explicit, deliberate local/dev opt-out. See [deployment.md § Migrating to OIDC-required](../deployment.md#migrating-to-oidc-required). | **required** |
 | `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` / `_AUDIENCE` / `EPISTEMIC_GRAPH_OIDC_JWKS_URL` | Keycloak realm issuer / audience / JWKS URL. **Required unless `EPISTEMIC_GRAPH_REQUIRE_OIDC` is explicitly opted out.** | (none) |
 | `EPISTEMIC_GRAPH_AUDIENCE` | Exact non-empty request audience. **Required.** | (none) |
@@ -193,6 +197,55 @@ administration requires the normal durable admin policy.
 | Row-Level Security (per-agent read/plan-path view filter) | always in served mode | strict/default-deny across every wire; no runtime toggle |
 | Encryption-at-rest (redb value blobs) | `security` + `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | ChaCha20-Poly1305 (RustCrypto — no ring/openssl); rides the redb tier |
 | Hash-chained tamper-evident audit log | `security` | over the durable ledger (sha2/hmac) |
+
+### Encryption key lifecycle (NE-028 / BUG-248)
+
+Each encrypted shard stores an AEAD-sealed canary whose plaintext binds the configured
+key identity and version, plus a non-secret copy of that reference.  Startup verifies
+both before the redb writer thread or any listener is admitted.  The old
+single-secret configuration remains compatible as `legacy@1`; new deployments should
+set `EPISTEMIC_GRAPH_ENCRYPTION_KEY_ID` and
+`EPISTEMIC_GRAPH_ENCRYPTION_KEY_VERSION` from the KMS record.
+
+The key reference is a pin, not a secret.  A changed ID/version is deliberately a
+rotation boundary: the engine refuses to open with a bounded diagnostic and never
+auto-rekeys a live store.  This prevents a crash halfway through a rewrite from
+leaving a mixture that is unreadable after restart.  Do not delete or overwrite the
+old key until the replacement store has been independently opened, read-verified,
+backed up, and the rollback window has expired.
+
+Safe rotation ceremony:
+
+1. Keep the engine on the current key reference and take an online backup.  Retain
+   the immutable bundle and its manifest; the manifest records only the key ID and
+   version, never key material.
+2. Stop writes and build a fresh destination persist directory.  Run the approved
+   offline re-encryption/export procedure for the deployment, reading the source
+   with the old key and writing every durable value through the normal authoritative
+   commit path under a new key and incremented version.  Raw `migrate-shards` and
+   `restore` are **verbatim** operations and therefore do not rotate ciphertext.
+3. Open the destination with the new `EPISTEMIC_GRAPH_ENCRYPTION_KEY`, matching ID,
+   and matching version.  Verify representative graph reads, audit verification,
+   mutation replay/outbox state, and a fresh backup before switching the service
+   path.  Keep the old source and key available until this verification passes.
+4. Atomically switch the deployment to the verified destination.  If any startup
+   or read check fails, stop the destination and roll back to the old path/key;
+   never change the canary by hand and never suppress the mismatch error.
+
+DR rules:
+
+- Online backups copy encrypted values and key-binding metadata byte-for-byte, so
+  they can be captured without the key but can only be opened with the matching
+  key reference and material.
+- Restore with a configured key refuses a manifest whose key ID/version differs or
+  is absent.  Restoring without a key is allowed only as a staged offline copy; the
+  engine must still receive the original key before serving encrypted data.
+- A different shard count preserves the same binding on every destination shard;
+  a shard migration is not a re-encryption operation.  PITR replays the ledger on
+  top of a restored bundle only after the key reference check succeeds.
+- Diagnostics expose environment variable names and bounded key IDs/versions only;
+  raw secrets, ciphertext, graph content, and host paths are never logged or put in
+  manifests.
 
 `security` is part of the one main build (and therefore the `cluster` layer) and
 is mandatory for any served binary. Startup fails if it is absent.

@@ -47,6 +47,8 @@ use std::path::{Path, PathBuf};
 use redb::{Database, Durability, ReadableDatabase, ReadableTable};
 
 use super::redb_backend::{shard_index, RAFT_META};
+#[cfg(feature = "security")]
+use super::redb_backend::ENCRYPTION_CANARY;
 use crate::redb_layout::{
     discover_indexed_shards, retired_single_shard, shard_filename, validate_shard_count,
 };
@@ -559,6 +561,48 @@ fn copy_global_tables(
                     .insert((g, s), v.value())
                     .map_err(|e| e.to_string())?;
                 count += 1;
+            }
+        }
+    }
+
+    // Key-binding/canary metadata is per-shard, but it is not graph-addressed.  A
+    // K-changing migration therefore copies one consistent source record into every
+    // destination shard so each `Shard::open` can enforce the same key identity and
+    // version.  Do not count these rows as graph/global data: duplicating metadata
+    // across a changed K must not make restore totals appear to change.
+    #[cfg(feature = "security")]
+    {
+        let mut d_encryption_canary = wtx.open_table(ENCRYPTION_CANARY).map_err(|e| e.to_string())?;
+        let mut source_binding: Option<Vec<(String, Vec<u8>)>> = None;
+        for src in src_dbs {
+            let rtx = src.begin_read().map_err(|e| e.to_string())?;
+            let Some(table) = rtx.open_table(ENCRYPTION_CANARY).ok() else {
+                continue;
+            };
+            let mut rows = Vec::new();
+            for row in table.iter().map_err(|e| e.to_string())? {
+                let (key, value) = row.map_err(|e| e.to_string())?;
+                rows.push((key.value().to_string(), value.value().to_vec()));
+            }
+            if rows.is_empty() {
+                continue;
+            }
+            if let Some(existing) = &source_binding {
+                if existing != &rows {
+                    return Err(
+                        "encryption key-binding metadata differs between source shards"
+                            .to_string(),
+                    );
+                }
+            } else {
+                source_binding = Some(rows);
+            }
+        }
+        if let Some(rows) = source_binding {
+            for (key, value) in rows {
+                d_encryption_canary
+                    .insert(key.as_str(), value.as_slice())
+                    .map_err(|e| e.to_string())?;
             }
         }
     }

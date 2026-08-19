@@ -63,7 +63,7 @@ impl EmbeddedRedbStore {
         Ok(Self {
             db,
             #[cfg(feature = "security")]
-            cipher: crate::crypto::ValueCipher::from_env(),
+            cipher: crate::crypto::ValueCipher::from_env_checked()?,
         })
     }
 
