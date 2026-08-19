@@ -11350,6 +11350,9 @@ class EpistemicGraphClient:
         self._write_lock = asyncio.Lock()
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._reader_task: asyncio.Task[None] | None = None
+        # One shared teardown task gives concurrent callers (and a caller that
+        # is itself cancelled) the same idempotent writer-shutdown boundary.
+        self._close_task: asyncio.Task[None] | None = None
         # How we connected — remembered so a dropped connection can be
         # transparently re-established on the next call (see _reconnect).
         # Populated by connect(); a directly-constructed client cannot self-heal.
@@ -11418,13 +11421,14 @@ class EpistemicGraphClient:
         Precedence: explicit client argument (the ``tls`` parameter, or an
         explicit ``client_cert``/``client_key`` call argument) > named
         graph-service endpoint profile (``GRAPH_SERVICE_TLS``,
-        ``GRAPH_SERVICE_TLS_CA``, ``GRAPH_SERVICE_TLS_CLIENT_CERT/_KEY``) >
-        product default (plaintext). Ambient CA variables belonging to
-        unrelated HTTP libraries (``SSL_CERT_FILE``, ``REQUESTS_CA_BUNDLE``)
-        never appear in this decision -- their bare presence must never flip
-        the protocol mode. Contradictory inputs (TLS explicitly disabled
-        while a client certificate is supplied) are rejected here, not
-        silently resolved.
+        ``GRAPH_SERVICE_TLS_CA[_DIRECTORY]``,
+        ``GRAPH_SERVICE_TLS_CLIENT_CERT/_KEY``) > product default (plaintext).
+        Ambient CA variables belonging to unrelated HTTP libraries
+        (``SSL_CERT_FILE``, ``SSL_CERT_DIR``, ``REQUESTS_CA_BUNDLE``) never
+        appear in this decision -- their bare presence must never flip the
+        protocol mode.
+        Contradictory inputs (TLS explicitly disabled while a client
+        certificate is supplied) are rejected here, not silently resolved.
         """
         env_client_cert = str(
             os.environ.get("GRAPH_SERVICE_TLS_CLIENT_CERT", "") or ""
@@ -11437,8 +11441,12 @@ class EpistemicGraphClient:
 
         configured = str(os.environ.get("GRAPH_SERVICE_TLS", "")).strip().lower()
         profile_ca = str(os.environ.get("GRAPH_SERVICE_TLS_CA", "") or "").strip()
+        profile_ca_directory = str(
+            os.environ.get("GRAPH_SERVICE_TLS_CA_DIRECTORY", "") or ""
+        ).strip()
         profile_selects_tls = bool(
             profile_ca
+            or profile_ca_directory
             or env_client_cert
             or env_client_key
             or configured in {"1", "true", "yes", "on"}
@@ -11499,9 +11507,9 @@ class EpistemicGraphClient:
 
         The protocol MODE is decided exclusively by :meth:`_resolve_tls_decision`.
         Ambient CA variables belonging to unrelated HTTP libraries
-        (``SSL_CERT_FILE``, ``REQUESTS_CA_BUNDLE``) are consulted only below,
-        to supply TRUST MATERIAL for a connection whose mode is already
-        final -- never to select the mode itself.
+        (``SSL_CERT_FILE``, ``SSL_CERT_DIR``, ``REQUESTS_CA_BUNDLE``) are
+        consulted only below, to supply TRUST MATERIAL for a connection whose
+        mode is already final -- never to select the mode itself.
         """
         if isinstance(tls, ssl.SSLContext):
             if client_cert or client_key:
@@ -11744,8 +11752,7 @@ class EpistemicGraphClient:
             # never make reconnection itself hang forever.
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await asyncio.wait_for(old_task, _CLOSE_TIMEOUT)
-        with contextlib.suppress(Exception):  # discard the poisoned stream
-            self._writer.close()
+        self._close_writer_once()  # discard the poisoned stream
         self._reader, self._writer, _ = await self._open_streams(
             self._socket_path,
             self._tcp_addr,
@@ -12086,6 +12093,22 @@ class EpistemicGraphClient:
         if self._terminal_error is None:
             self._terminal_error = exc
 
+    def _close_writer_once(self) -> None:
+        """Request shutdown of the current writer at most once.
+
+        Error/reconnect paths may mark a stream dead before the eventual
+        explicit ``close()`` joins it.  ``StreamWriter.close()`` is itself
+        idempotent, but avoiding the duplicate call keeps ownership explicit
+        and lets the close path's single ``wait_closed()`` remain the durable
+        shutdown boundary.  Small writer doubles used by engine-free tests do
+        not necessarily expose ``is_closing()``, so absence means "not yet".
+        """
+        with contextlib.suppress(Exception):
+            is_closing = getattr(self._writer, "is_closing", None)
+            if callable(is_closing) and is_closing():
+                return
+            self._writer.close()
+
     def _mark_dead(self, exc: BaseException) -> None:
         """Tear the connection down: stop the reader, fail all in-flight calls.
 
@@ -12104,8 +12127,7 @@ class EpistemicGraphClient:
         self._reader_task = None
         if task is not None and not task.done():
             task.cancel()
-        with contextlib.suppress(Exception):  # best-effort transport teardown
-            self._writer.close()
+        self._close_writer_once()
         self._fail_pending(exc)
 
     def _on_reader_terminated(self, generation: int, exc: BaseException) -> None:
@@ -12250,6 +12272,13 @@ class EpistemicGraphClient:
                 await asyncio.wait_for(self._writer.drain(), write_timeout)
             # Await ONLY our own response; per-caller ordering is automatic.
             resp = await asyncio.wait_for(fut, timeout)
+        except asyncio.CancelledError:
+            # Caller cancellation is not a transport failure: keep the shared
+            # connection reusable, but do not leave a cancelled request future
+            # in the demux map until a late response happens to arrive.  A
+            # late response is still safely dropped by the reader loop.
+            self._pending.pop(req_id, None)
+            raise
         except (asyncio.TimeoutError, TimeoutError) as e:
             # Bounded per-call timeout. Connection-fatal (parity with the pre-pipeline
             # contract): a wedged engine that stops replying must not strand the
@@ -12339,6 +12368,24 @@ class EpistemicGraphClient:
 
     # ── Connection Management ─────────────────────────────────────────────
 
+    async def _finish_close(self, reader_task: asyncio.Task[None] | None) -> None:
+        """Complete the one owned transport teardown for :meth:`close`.
+
+        This runs in a task separate from the caller so cancellation of one
+        close waiter cannot strand a writer after ``_closing`` is set.  The
+        task is shared by all later close callers and every wait is bounded.
+        """
+        if reader_task is not None and not reader_task.done():
+            reader_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await asyncio.wait_for(reader_task, _CLOSE_TIMEOUT)
+        self._fail_pending(
+            self._terminal_error or ConnectionError("client closed")
+        )
+        self._close_writer_once()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await asyncio.wait_for(self._writer.wait_closed(), _CLOSE_TIMEOUT)
+
     async def close(self) -> None:
         """Idempotent shutdown (GOC-81 W02).
 
@@ -12359,23 +12406,28 @@ class EpistemicGraphClient:
         separate close/reconnect coordination.
         """
         async with self._lock:
-            if self._closing:
-                return
-            self._closing = True
-            self._closed = True  # stop admitting new requests immediately
-            exc = ConnectionError("client closed")
-            self._set_terminal_error(exc)
-            task = self._reader_task
-            self._reader_task = None
-            if task is not None and not task.done():
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await asyncio.wait_for(task, _CLOSE_TIMEOUT)
-            self._fail_pending(self._terminal_error or exc)
-            with contextlib.suppress(Exception):
-                self._writer.close()
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(self._writer.wait_closed(), _CLOSE_TIMEOUT)
+            if self._close_task is None:
+                self._closing = True
+                self._closed = True  # stop admitting new requests immediately
+                exc = ConnectionError("client closed")
+                self._set_terminal_error(exc)
+                reader_task = self._reader_task
+                self._reader_task = None
+                self._close_task = asyncio.create_task(
+                    self._finish_close(reader_task)
+                )
+            close_task = self._close_task
+
+        assert close_task is not None
+        try:
+            await asyncio.shield(close_task)
+        except asyncio.CancelledError:
+            # Keep ownership of teardown in the shared task.  Finish it before
+            # honoring the caller's cancellation so a canceled close cannot
+            # leave `_closing=True` with an unjoined writer.
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(close_task)
+            raise
 
     async def __aenter__(self) -> EpistemicGraphClient:
         return self
