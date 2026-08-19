@@ -98,7 +98,10 @@ numeric = []
 # reference readers live in `tests/lake-parity-requirements.txt` and are installed
 # only in an isolated validation environment: uv resolves every workspace member's
 # extras together, and PyIceberg's Rich ceiling conflicts with the production Rich
-# floor even when no workspace package requests this extra.
+# floor even when no workspace package requests this extra. Use
+# `python tests/run_lake_parity.py` for the strict, exact-artifact gate; keeping
+# this extra empty prevents the workspace resolver from reintroducing that
+# conflict into production/test environments.
 lake-parity = []
 # The bare install already provides every runtime capability.  Keep `all` as a
 # compatibility alias rather than quietly adding test frameworks or the external
