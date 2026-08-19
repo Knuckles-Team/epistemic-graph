@@ -53,8 +53,9 @@ use eg_types::wire::{JsonPathOp, Pred};
 use serde_json::{Map, Value};
 
 use crate::tables::schema::{
-    CheckExpr, CmpOp, ColCheck, FunctionArg as CatalogArg, FunctionLanguage, FunctionReturns,
-    RefAction, StoredFunction, TableConstraint,
+    CheckExpr, CmpOp, ColCheck, ColumnType, FunctionArg as CatalogArg, FunctionLanguage,
+    FunctionReturns, RefAction, StoredFunction, TableConstraint, MAX_TABLE_COLUMNS,
+    MAX_TABLE_CONSTRAINTS,
 };
 
 /// How a single parsed SQL statement should be routed by the wire shim.
@@ -1551,15 +1552,35 @@ fn classify_create_table(ct: &CreateTable) -> Result<CreateTablePlan, String> {
     if ct.columns.is_empty() {
         return Err("CREATE TABLE requires at least one column".to_string());
     }
+    if ct.columns.len() > MAX_TABLE_COLUMNS {
+        return Err(format!(
+            "CREATE TABLE declares {} columns; maximum is {MAX_TABLE_COLUMNS}",
+            ct.columns.len()
+        ));
+    }
     let mut columns = Vec::with_capacity(ct.columns.len());
     let mut constraints = Vec::new();
     for c in &ct.columns {
         let (col, inline_fk) = decode_column_def(c)?;
+        // Parse the type at the classifier boundary as well as at the store
+        // boundary. This rejects malformed NUMERIC precision/scale and unknown
+        // array element types before a plan can be queued for a tenant.
+        ColumnType::parse(&col.type_name)?;
         columns.push(col);
         constraints.extend(inline_fk);
     }
     for tc in &ct.constraints {
-        constraints.push(decode_table_constraint(tc)?);
+        let constraint = decode_table_constraint(tc)?;
+        if let TableConstraint::Check { expr, .. } = &constraint {
+            expr.validate_limits(0)?;
+        }
+        constraints.push(constraint);
+    }
+    if constraints.len() > MAX_TABLE_CONSTRAINTS {
+        return Err(format!(
+            "CREATE TABLE declares {} constraints; maximum is {MAX_TABLE_CONSTRAINTS}",
+            constraints.len()
+        ));
     }
     Ok(CreateTablePlan {
         name,

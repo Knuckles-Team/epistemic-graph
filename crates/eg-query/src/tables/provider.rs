@@ -14,10 +14,11 @@
 use std::sync::{Arc, RwLock};
 
 use arrow::array::{
-    ArrayRef, BinaryBuilder, BooleanBuilder, Float32Builder, Float64Builder, Int64Builder,
-    ListBuilder, StringBuilder,
+    ArrayRef, BinaryBuilder, BooleanBuilder, Decimal128Builder, FixedSizeBinaryBuilder,
+    Float32Builder, Float64Builder, Int64Builder, ListBuilder, StringBuilder,
+    TimestampMicrosecondBuilder,
 };
-use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
+use arrow::datatypes::{DataType, Field, Schema, SchemaRef, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider};
@@ -27,31 +28,33 @@ use datafusion::error::Result as DfResult;
 use datafusion::logical_expr::{Expr, Operator, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
 
-use super::schema::{Cell, ColumnType, TableSchema};
+use super::schema::{ArrayElemType, Cell, ColumnType, TableSchema};
 use super::store::TableStore;
 use crate::sql::providers::NodesTableProvider;
 
-/// The Arrow `DataType` a [`ColumnType`] materializes as. Coarse + pg-mappable: every
-/// type lands on one of `Int64`/`Float64`/`Utf8`/`Boolean`/`Binary`, which the exec
-/// path's `PgColType` mapping already covers, so a user-table column is never
-/// lossy-dropped over the wire.
+/// The Arrow `DataType` a [`ColumnType`] materializes as. Scalar legacy types keep
+/// their existing shapes; NE-002 types retain native UUID/Decimal128/timestamp/List
+/// identity in the Arrow schema so downstream adapters can choose a lossless wire
+/// representation instead of inferring everything as text.
 pub fn arrow_type(ty: ColumnType) -> DataType {
     match ty {
-        // CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — `TimestampTz` shares `Timestamp`'s i64-micros Arrow
-        // shape (the calendar/zone semantics are enforced only on the write path, in
-        // `Cell::coerce`); `Numeric`/`Uuid`/`Array` share `Text`/`Json`'s Utf8 shape
-        // (each stores its canonical text/JSON form losslessly — see their doc
-        // comments on `ColumnType`), so `materialize`'s existing Utf8 fallback arm
-        // (matching `Cell::Text`/`Cell::Json` verbatim) needs no change of its own.
-        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp | ColumnType::TimestampTz => {
-            DataType::Int64
-        }
+        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => DataType::Int64,
+        // Preserve timezone identity in the Arrow schema. Values are normalized
+        // to UTC at the DML boundary, so this is a metadata-only timezone.
+        ColumnType::TimestampTz => DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
         ColumnType::Float | ColumnType::Double => DataType::Float64,
-        ColumnType::Text
-        | ColumnType::Json
-        | ColumnType::Uuid
-        | ColumnType::Numeric(_)
-        | ColumnType::Array(_) => DataType::Utf8,
+        ColumnType::Text | ColumnType::Json => DataType::Utf8,
+        ColumnType::Uuid => DataType::FixedSizeBinary(16),
+        // A bare NUMERIC has no fixed scale, so it remains an exact canonical
+        // decimal string in Utf8 while retaining Numeric(None) in the catalog.
+        // Declared NUMERIC(p,s) has a fixed Arrow Decimal128 shape.
+        ColumnType::Numeric(Some((precision, scale))) => {
+            DataType::Decimal128(precision as u8, scale as i8)
+        }
+        ColumnType::Numeric(None) => DataType::Utf8,
+        ColumnType::Array(elem) => {
+            DataType::List(Arc::new(Field::new("item", array_arrow_type(elem), true)))
+        }
         ColumnType::Bool => DataType::Boolean,
         ColumnType::Bytes => DataType::Binary,
         // CONCEPT:EG-KG.query.pgvector-binary-wire — a pgvector column materializes as `List<Float32>`; the exec
@@ -83,8 +86,8 @@ pub fn materialize(
     let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.columns().len());
 
     for (ci, col) in schema.columns().iter().enumerate() {
-        let array: ArrayRef = match arrow_type(col.ty) {
-            DataType::Int64 => {
+        let array: ArrayRef = match col.ty {
+            ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => {
                 let mut b = Int64Builder::new();
                 for row in rows {
                     match row.get(ci) {
@@ -94,7 +97,19 @@ pub fn materialize(
                 }
                 Arc::new(b.finish())
             }
-            DataType::Float64 => {
+            ColumnType::TimestampTz => {
+                let mut b = TimestampMicrosecondBuilder::new().with_timezone("UTC");
+                for row in rows {
+                    match row.get(ci) {
+                        Some(Cell::Timestamp(value)) | Some(Cell::Int(value)) => {
+                            b.append_value(*value)
+                        }
+                        _ => b.append_null(),
+                    }
+                }
+                Arc::new(b.finish())
+            }
+            ColumnType::Float | ColumnType::Double => {
                 let mut b = Float64Builder::new();
                 for row in rows {
                     match row.get(ci) {
@@ -105,7 +120,7 @@ pub fn materialize(
                 }
                 Arc::new(b.finish())
             }
-            DataType::Boolean => {
+            ColumnType::Bool => {
                 let mut b = BooleanBuilder::new();
                 for row in rows {
                     match row.get(ci) {
@@ -115,7 +130,7 @@ pub fn materialize(
                 }
                 Arc::new(b.finish())
             }
-            DataType::Binary => {
+            ColumnType::Bytes => {
                 let mut b = BinaryBuilder::new();
                 for row in rows {
                     match row.get(ci) {
@@ -125,8 +140,80 @@ pub fn materialize(
                 }
                 Arc::new(b.finish())
             }
-            // CONCEPT:EG-KG.query.pgvector-binary-wire — a vector column → a `List<Float32>` array (one list per row).
-            DataType::List(_) => {
+            ColumnType::Uuid => {
+                let mut b = FixedSizeBinaryBuilder::new(16);
+                for row in rows {
+                    match row.get(ci) {
+                        Some(Cell::Bytes(bytes)) if bytes.len() == 16 => b
+                            .append_value(bytes)
+                            .map_err(|e| format!("UUID Arrow value: {e}"))?,
+                        // Legacy WIP rows used canonical UUID text. Decode them
+                        // on read so persisted rows survive the representation fix.
+                        Some(Cell::Text(text)) => {
+                            let bytes = super::schema::uuid_bytes(text)?;
+                            b.append_value(&bytes)
+                                .map_err(|e| format!("UUID Arrow value: {e}"))?;
+                        }
+                        Some(Cell::Null) | None => b.append_null(),
+                        _ => return Err("invalid persisted UUID cell".to_string()),
+                    }
+                }
+                Arc::new(b.finish())
+            }
+            ColumnType::Numeric(Some((precision, scale))) => {
+                let mut b = Decimal128Builder::new()
+                    .with_precision_and_scale(precision as u8, scale as i8)
+                    .map_err(|e| format!("NUMERIC Arrow type: {e}"))?;
+                for row in rows {
+                    match row.get(ci) {
+                        Some(Cell::Null) | None => b.append_null(),
+                        Some(cell) => {
+                            let value = cell.to_typed_json(col.ty);
+                            let scaled = decimal_scaled_value(&value, scale)
+                                .ok_or_else(|| "invalid persisted NUMERIC cell".to_string())?;
+                            b.append_value(scaled);
+                        }
+                    }
+                }
+                Arc::new(b.finish())
+            }
+            ColumnType::Numeric(None) | ColumnType::Text => {
+                let mut b = StringBuilder::new();
+                for row in rows {
+                    match row.get(ci) {
+                        Some(Cell::Null) | None => b.append_null(),
+                        Some(cell) => {
+                            let value = cell.to_typed_json(col.ty);
+                            if value.is_null() {
+                                b.append_null();
+                            } else if let Some(text) = value.as_str() {
+                                b.append_value(text);
+                            } else {
+                                b.append_value(value.to_string());
+                            }
+                        }
+                    }
+                }
+                Arc::new(b.finish())
+            }
+            ColumnType::Json => {
+                let mut b = StringBuilder::new();
+                for row in rows {
+                    match row.get(ci) {
+                        Some(Cell::Null) | None => b.append_null(),
+                        Some(cell) => {
+                            let value = cell.to_typed_json(col.ty);
+                            if value.is_null() {
+                                b.append_null();
+                            } else {
+                                b.append_value(value.to_string());
+                            }
+                        }
+                    }
+                }
+                Arc::new(b.finish())
+            }
+            ColumnType::Vector(_) => {
                 let mut b = ListBuilder::new(Float32Builder::new());
                 for row in rows {
                     match row.get(ci) {
@@ -141,21 +228,7 @@ pub fn materialize(
                 }
                 Arc::new(b.finish())
             }
-            // Utf8 (Text + Json). Json cells render as their canonical JSON text.
-            _ => {
-                let mut b = StringBuilder::new();
-                for row in rows {
-                    match row.get(ci) {
-                        Some(Cell::Text(s)) => b.append_value(s),
-                        Some(Cell::Json(v)) => b.append_value(v.to_string()),
-                        Some(Cell::Null) | None => b.append_null(),
-                        // A scalar in a text column (shouldn't happen post-coerce) →
-                        // its JSON rendering, never a hard error.
-                        Some(other) => b.append_value(other.to_json().to_string()),
-                    }
-                }
-                Arc::new(b.finish())
-            }
+            ColumnType::Array(elem) => materialize_array(rows, ci, elem)?,
         };
         columns.push(array);
     }
@@ -163,6 +236,148 @@ pub fn materialize(
     let batch = RecordBatch::try_new(arrow.clone(), columns)
         .map_err(|e| format!("user table batch: {e}"))?;
     Ok((arrow, batch))
+}
+
+fn array_arrow_type(elem: ArrayElemType) -> DataType {
+    match elem {
+        ArrayElemType::Text | ArrayElemType::Uuid => DataType::Utf8,
+        ArrayElemType::Int | ArrayElemType::BigInt => DataType::Int64,
+        ArrayElemType::Bool => DataType::Boolean,
+        ArrayElemType::Double => DataType::Float64,
+    }
+}
+
+fn array_values_for_row(
+    row: Option<&Vec<Cell>>,
+    column: ColumnType,
+    ci: usize,
+) -> Result<Option<Vec<serde_json::Value>>, String> {
+    let Some(cell) = row.and_then(|row| row.get(ci)) else {
+        return Ok(None);
+    };
+    if matches!(cell, Cell::Null) {
+        return Ok(None);
+    }
+    match cell.to_typed_json(column) {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::Array(values) => Ok(Some(values)),
+        _ => Err("invalid persisted ARRAY cell".to_string()),
+    }
+}
+
+fn materialize_array(
+    rows: &[Vec<Cell>],
+    ci: usize,
+    elem: ArrayElemType,
+) -> Result<ArrayRef, String> {
+    let column = ColumnType::Array(elem);
+    match elem {
+        ArrayElemType::Text | ArrayElemType::Uuid => {
+            let mut b = ListBuilder::new(StringBuilder::new());
+            for row in rows {
+                match array_values_for_row(Some(row), column, ci)? {
+                    Some(values) => {
+                        for value in values {
+                            if value.is_null() {
+                                b.values().append_null();
+                            } else if let Some(text) = value.as_str() {
+                                b.values().append_value(text);
+                            } else {
+                                b.values().append_value(value.to_string());
+                            }
+                        }
+                        b.append(true);
+                    }
+                    None => b.append(false),
+                }
+            }
+            Ok(Arc::new(b.finish()))
+        }
+        ArrayElemType::Int | ArrayElemType::BigInt => {
+            let mut b = ListBuilder::new(Int64Builder::new());
+            for row in rows {
+                match array_values_for_row(Some(row), column, ci)? {
+                    Some(values) => {
+                        for value in values {
+                            match value.as_i64() {
+                                Some(number) => b.values().append_value(number),
+                                None if value.is_null() => b.values().append_null(),
+                                None => return Err("invalid integer ARRAY element".to_string()),
+                            }
+                        }
+                        b.append(true);
+                    }
+                    None => b.append(false),
+                }
+            }
+            Ok(Arc::new(b.finish()))
+        }
+        ArrayElemType::Bool => {
+            let mut b = ListBuilder::new(BooleanBuilder::new());
+            for row in rows {
+                match array_values_for_row(Some(row), column, ci)? {
+                    Some(values) => {
+                        for value in values {
+                            match value.as_bool() {
+                                Some(boolean) => b.values().append_value(boolean),
+                                None if value.is_null() => b.values().append_null(),
+                                None => return Err("invalid boolean ARRAY element".to_string()),
+                            }
+                        }
+                        b.append(true);
+                    }
+                    None => b.append(false),
+                }
+            }
+            Ok(Arc::new(b.finish()))
+        }
+        ArrayElemType::Double => {
+            let mut b = ListBuilder::new(Float64Builder::new());
+            for row in rows {
+                match array_values_for_row(Some(row), column, ci)? {
+                    Some(values) => {
+                        for value in values {
+                            match value.as_f64() {
+                                Some(number) => b.values().append_value(number),
+                                None if value.is_null() => b.values().append_null(),
+                                None => return Err("invalid floating-point ARRAY element".to_string()),
+                            }
+                        }
+                        b.append(true);
+                    }
+                    None => b.append(false),
+                }
+            }
+            Ok(Arc::new(b.finish()))
+        }
+    }
+}
+
+/// Convert a canonical decimal spelling into the integer payload Arrow's fixed
+/// scale Decimal128 expects. New writes always produce this shape; the parser is
+/// intentionally strict so a corrupt/legacy row cannot be silently rounded.
+fn decimal_scaled_value(value: &serde_json::Value, scale: u32) -> Option<i128> {
+    let text = value.as_str()?;
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
+    };
+    let (integer, fraction) = digits.split_once('.').unwrap_or((digits, ""));
+    if integer.is_empty()
+        || !integer.chars().all(|c| c.is_ascii_digit())
+        || !fraction.chars().all(|c| c.is_ascii_digit())
+        || fraction.len() > scale as usize
+    {
+        return None;
+    }
+    let mut combined = String::with_capacity(integer.len() + scale as usize);
+    combined.push_str(integer);
+    combined.push_str(fraction);
+    for _ in fraction.len()..scale as usize {
+        combined.push('0');
+    }
+    let magnitude = combined.parse::<i128>().ok()?;
+    Some(if negative { -magnitude } else { magnitude })
 }
 
 // ── user-table TableProvider: SERIAL-column point-get pushdown (CONCEPT:EG-KG.query.register-each-user-table) ──
@@ -401,9 +616,29 @@ impl TableProvider for UserTableProvider {
 #[cfg(test)]
 mod user_table_provider_tests {
     use super::*;
-    use crate::tables::schema::Column;
+    use crate::tables::schema::{ArrayElemType, Column};
     use eg_core::graph::GraphView;
     use serde_json::json;
+
+    #[test]
+    fn ne002_schema_types_keep_native_arrow_identity() {
+        assert_eq!(
+            arrow_type(ColumnType::Uuid),
+            arrow::datatypes::DataType::FixedSizeBinary(16)
+        );
+        assert_eq!(
+            arrow_type(ColumnType::Numeric(Some((12, 4)))),
+            arrow::datatypes::DataType::Decimal128(12, 4)
+        );
+        assert!(matches!(
+            arrow_type(ColumnType::TimestampTz),
+            arrow::datatypes::DataType::Timestamp(_, Some(_))
+        ));
+        assert!(matches!(
+            arrow_type(ColumnType::Array(ArrayElemType::Int)),
+            arrow::datatypes::DataType::List(_)
+        ));
+    }
 
     /// `id BIGINT SERIAL PRIMARY KEY, symbol TEXT` — the idiomatic auto-increment
     /// shape this provider's point-get pushdown targets.

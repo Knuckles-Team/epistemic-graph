@@ -1698,23 +1698,40 @@ fn ne002_column_types_round_trip_through_insert_select_arrow() {
         "INSERT INTO typed (id, amount, seen, tags) VALUES \
          ('A1A2A3A4-B1B2-C1C2-D1D2-E1E2E3E4E5E6', '123.40', '2024-01-01T00:00:00Z', '{a,b}')",
     );
+    // Exercise the SQL read path, then assert the durable and Arrow contracts
+    // directly. UUID/NUMERIC/ARRAY are no longer flattened to a text field.
     let res = run(&store, &view, "SELECT id, amount, seen, tags FROM typed").unwrap();
     assert_eq!(res.rows.len(), 1);
-    // UUID: normalized to canonical lowercase, round-tripped through Arrow Utf8.
-    assert_eq!(
-        res.rows[0][0],
-        json!("a1a2a3a4-b1b2-c1c2-d1d2-e1e2e3e4e5e6")
-    );
-    // NUMERIC(10,2): rounded/validated to the declared scale (Arrow Utf8 renders the
-    // stored `Cell::Float`'s canonical text — the documented precision ceiling on
-    // `ColumnType::Numeric`'s doc comment).
-    assert_eq!(res.rows[0][1], json!("123.4"));
-    // TIMESTAMPTZ: normalized to UTC epoch micros (Arrow Int64, same shape as `Timestamp`).
-    assert_eq!(res.rows[0][2], json!(1_704_067_200_000_000i64));
-    // TEXT[]: a genuine JSON array round-trips as its canonical JSON text (Arrow Utf8).
-    assert_eq!(res.rows[0][3], json!(r#"["a","b"]"#));
 
     let schema = store.get_schema("typed").unwrap().unwrap();
+    let rows = store.scan("typed").unwrap();
+    assert!(matches!(rows[0][0], Cell::Bytes(ref bytes) if bytes.len() == 16));
+    assert_eq!(
+        rows[0][1],
+        Cell::Json(Value::String("123.40".to_string()))
+    );
+    assert_eq!(rows[0][2], Cell::Timestamp(1_704_067_200_000_000i64));
+    assert_eq!(
+        rows[0][3],
+        Cell::Json(Value::Array(vec![json!("a"), json!("b")]))
+    );
+    let arrow = eg_query::tables::provider::arrow_schema(&schema);
+    assert!(matches!(
+        arrow.field(0).data_type(),
+        arrow::datatypes::DataType::FixedSizeBinary(16)
+    ));
+    assert_eq!(
+        arrow.field(1).data_type(),
+        &arrow::datatypes::DataType::Decimal128(10, 2)
+    );
+    assert!(matches!(
+        arrow.field(2).data_type(),
+        arrow::datatypes::DataType::Timestamp(_, Some(_))
+    ));
+    assert!(matches!(
+        arrow.field(3).data_type(),
+        arrow::datatypes::DataType::List(_)
+    ));
     assert_eq!(schema.column("id").unwrap().ty, ColumnType::Uuid);
     assert_eq!(
         schema.column("amount").unwrap().ty,
