@@ -2,6 +2,7 @@
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,3 +25,18 @@ def test_unmarked_secret_assignment_is_not_a_placeholder() -> None:
     sanitizer = _sanitizer()
     value = "production" + "-secret-value"
     assert not sanitizer.is_placeholder(f'auth_secret="{value}"')
+
+
+def test_transient_baseline_notes_are_rejected(tmp_path, monkeypatch) -> None:
+    sanitizer = _sanitizer()
+    note = tmp_path / "GOC-40-BASELINE-NOTES.md"
+    note.write_text("temporary branch marker\n", encoding="utf-8")
+    monkeypatch.setattr(
+        sanitizer.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(stdout=f"{note.name}\n"),
+    )
+
+    violations = sanitizer.scan_repository(tmp_path)
+
+    assert any("Transient agent note detected" in item for item in violations)

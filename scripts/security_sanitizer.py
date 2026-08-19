@@ -33,6 +33,12 @@ TRANSIENT_PY_PATTERNS = [
     re.compile(r"^scratch_.*\.py$"),
     re.compile(r"^temp_.*\.py$"),
 ]
+TRANSIENT_NOTE_PATTERNS = [
+    re.compile(r".*[-_ ]BASELINE[-_ ]NOTES\.md$", re.IGNORECASE),
+    re.compile(r".*[-_ ]WORKING[-_ ]NOTES\.md$", re.IGNORECASE),
+    re.compile(r".*[-_ ]HANDOFF[-_ ]NOTES\.md$", re.IGNORECASE),
+    re.compile(r".*[-_ ]SCRATCHPAD\.md$", re.IGNORECASE),
+]
 
 SECRET_PATTERNS = [
     ("GitHub PAT", re.compile(r"ghp_[A-Za-z0-9_]{36,255}")),
@@ -223,6 +229,15 @@ def scan_repository(repo_path: Path):
             # Git tracks the link target text, not the target contents. Never
             # follow a repository symlink into machine-local material.
             continue
+
+        for pattern in TRANSIENT_NOTE_PATTERNS:
+            if pattern.fullmatch(file_path.name):
+                violations.append(
+                    "Transient agent note detected: "
+                    f"'{file_path.relative_to(repo_path)}'. Keep durable decisions "
+                    "in canonical documentation and scratch notes outside the repository."
+                )
+                break
 
         # 1. Check root level naming constraints
         if file_path.parent == repo_path:
