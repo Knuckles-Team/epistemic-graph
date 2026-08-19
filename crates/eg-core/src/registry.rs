@@ -797,7 +797,11 @@ impl GraphRegistry {
             && self
                 .graphs
                 .get(&handle.name)
-                .is_some_and(|entry| entry.incarnation_id == handle.incarnation_id)
+                .is_some_and(|entry| {
+                    entry.incarnation_id.as_str() == handle.incarnation_id.as_str()
+                        && Arc::ptr_eq(&entry.core, &handle.core)
+                        && Arc::ptr_eq(&entry.cancellation, &handle.cancellation)
+                })
     }
 
     /// Current completeness/freshness watermark for lifecycle responses/health.
@@ -1225,6 +1229,10 @@ impl GraphRegistry {
     /// still known and `open_lazy` re-materializes it on the next access. The
     /// CALLER is responsible for the durability gate (confirm durable first —
     /// the same discipline `hibernate`/cold-offload use) before calling this.
+    /// The name-only form is for callers already holding the lifecycle lane;
+    /// asynchronous sweeps must retain a [`GraphHandle`] and use
+    /// [`Self::evict_resident_if_current`] so delete/recreate cannot redirect
+    /// the eviction to a new incarnation.
     /// `__commons__` is pinned and always a no-op here.
     pub fn evict_resident(&mut self, name: &str) -> bool {
         if name == "__commons__" {
@@ -1246,6 +1254,32 @@ impl GraphRegistry {
             }
         }
         true
+    }
+
+    /// Evict a resident graph only when the caller still owns the exact
+    /// incarnation it captured before doing work outside the registry lock.
+    ///
+    /// Cold-offload and budget sweeps deliberately perform their durable
+    /// presence check without holding the registry lock.  A delete/recreate
+    /// can therefore replace `name` while that check is in flight.  The old
+    /// name-only [`Self::evict_resident`] API would then remove the new
+    /// incarnation.  Requiring both the immutable incarnation id and the
+    /// shared cancellation/core identities makes that stale publication
+    /// fail closed; a caller can retry against a newly captured handle.
+    pub fn evict_resident_if_current(&mut self, handle: &GraphHandle) -> bool {
+        if handle.name == "__commons__" || handle.is_cancelled() {
+            return false;
+        }
+        let Some(entry) = self.graphs.get(&handle.name) else {
+            return false;
+        };
+        if entry.incarnation_id.as_str() != handle.incarnation_id.as_str()
+            || !Arc::ptr_eq(&entry.core, &handle.core)
+            || !Arc::ptr_eq(&entry.cancellation, &handle.cancellation)
+        {
+            return false;
+        }
+        self.evict_resident(&handle.name)
     }
 
     /// Number of graphs with a resident `GraphCore` (the bounded hot-context
@@ -1869,6 +1903,38 @@ mod tests {
             core.get_node_properties("x"),
             Some(props(serde_json::json!({"payload": "hello"})))
         );
+    }
+
+    /// A stale cold/budget sweep handle must not evict a same-name replacement.
+    /// The registry's cancellation token and core pointer make the race
+    /// fail-closed even when a caller has not yet observed the new catalog row.
+    #[test]
+    fn stale_eviction_handle_cannot_remove_recreated_incarnation() {
+        let mut reg = GraphRegistry::new();
+        reg.create_graph_with_incarnation(
+            "tenant:recreate",
+            GraphType::Agent,
+            None,
+            "incarnation:old".to_string(),
+            0,
+        )
+        .unwrap();
+        let stale = reg.handle("tenant:recreate").unwrap();
+        reg.delete_graph("tenant:recreate").unwrap();
+        reg.create_graph_with_incarnation(
+            "tenant:recreate",
+            GraphType::Agent,
+            None,
+            "incarnation:new".to_string(),
+            0,
+        )
+        .unwrap();
+
+        assert!(!reg.evict_resident_if_current(&stale));
+        let current = reg.handle("tenant:recreate").unwrap();
+        assert_eq!(current.incarnation_id, "incarnation:new");
+        assert!(!current.is_cancelled());
+        assert!(reg.is_resident("tenant:recreate"));
     }
 
     /// `__commons__` can never be evicted, even if a caller tries.

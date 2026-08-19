@@ -28,19 +28,31 @@ use parking_lot::Mutex;
 use tokio::sync::RwLock;
 
 use crate::graph::GraphCore;
+use crate::registry::GraphHandle;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
 
-/// Per-graph last-access tracker + offload bookkeeping (CONCEPT:EG-KG.sharding.eg-r6). The engine calls
-/// [`touch`](ColdTenantTracker::touch) on every read/write of a graph; the periodic
-/// [`offload_cold_tenants`] sweep reads it to pick idle graphs. Cheap relaxed atomics +
-/// one mutex-guarded map, off the per-op hot path (a `touch` is one map upsert).
+/// Identity for one access/offload tracker entry.  The name is only a routing
+/// key; the incarnation is the authority boundary.  A same-name recreate must
+/// never inherit the prior incarnation's recency or offloaded mark.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TrackerKey {
+    graph: String,
+    incarnation_id: Option<String>,
+}
+
+/// Per-incarnation last-access tracker + offload bookkeeping
+/// (CONCEPT:EG-KG.sharding.eg-r6). The engine calls
+/// [`touch_with_incarnation`](ColdTenantTracker::touch_with_incarnation) on every
+/// read/write of a graph; the periodic [`offload_cold_tenants`] sweep reads it
+/// to pick idle graphs. Cheap relaxed atomics + two mutex-guarded maps stay off
+/// the per-op graph hot path (a touch is one map upsert).
 #[derive(Default)]
 pub struct ColdTenantTracker {
-    last_access: Mutex<HashMap<String, Instant>>,
+    last_access: Mutex<HashMap<TrackerKey, Instant>>,
     /// Graphs currently offloaded (drives the offloaded-vs-resident split + avoids
     /// re-offloading a still-cold graph every sweep).
-    offloaded: Mutex<HashSet<String>>,
+    offloaded: Mutex<HashSet<TrackerKey>>,
     offloaded_total: AtomicU64,
 }
 
@@ -52,36 +64,89 @@ impl ColdTenantTracker {
     /// Record that `graph` was just accessed (read or write). Clears any offloaded mark —
     /// a graph that is touched again has rehydrated and is resident.
     pub fn touch(&self, graph: &str) {
-        self.last_access
-            .lock()
-            .insert(graph.to_string(), Instant::now());
+        self.touch_key(graph, None);
+    }
+
+    /// Record an access for an exact registry incarnation.  Served dispatches
+    /// use this form; the name-only [`Self::touch`] remains as a compatibility
+    /// adapter for embedded/test callers that do not expose lifecycle ids.
+    pub fn touch_with_incarnation(&self, graph: &str, incarnation_id: &str) {
+        self.touch_key(graph, Some(incarnation_id.to_string()));
+    }
+
+    fn touch_key(&self, graph: &str, incarnation_id: Option<String>) {
+        let key = TrackerKey {
+            graph: graph.to_string(),
+            incarnation_id,
+        };
+        let mut access = self.last_access.lock();
+        // One name has at most one current registry incarnation.  Drop any
+        // retired access clocks before recording the new one so a recreate
+        // cannot inherit or expose stale recency through the name-only view.
+        access.retain(|entry, _| entry.graph.as_str() != graph);
+        access.insert(key, Instant::now());
+        drop(access);
         let mut off = self.offloaded.lock();
-        if !off.is_empty() {
-            off.remove(graph);
-        }
+        // A touch rehydrates the current identity; retired offload marks are
+        // never meaningful for the same name after that transition.
+        off.retain(|entry| entry.graph.as_str() != graph);
     }
 
     /// Graphs whose last access is older than `idle_window` (the offload candidates). A
     /// graph never touched is NOT a candidate (no access timestamp = nothing tracked yet).
     pub fn cold_graphs(&self, idle_window: Duration) -> Vec<String> {
         let now = Instant::now();
-        self.last_access
-            .lock()
-            .iter()
-            .filter(|(_, t)| now.duration_since(**t) >= idle_window)
-            .map(|(g, _)| g.clone())
-            .collect()
+        let mut cold = HashSet::new();
+        for (key, timestamp) in self.last_access.lock().iter() {
+            if now.duration_since(*timestamp) >= idle_window {
+                cold.insert(key.graph.clone());
+            }
+        }
+        cold.into_iter().collect()
     }
 
-    fn mark_offloaded(&self, graph: &str) {
-        if self.offloaded.lock().insert(graph.to_string()) {
+    fn mark_offloaded(&self, handle: &GraphHandle) {
+        let key = TrackerKey {
+            graph: handle.name.clone(),
+            incarnation_id: Some(handle.incarnation_id.clone()),
+        };
+        if self.offloaded.lock().insert(key) {
             self.offloaded_total.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     /// Is this graph currently marked offloaded?
     pub fn is_offloaded(&self, graph: &str) -> bool {
-        self.offloaded.lock().contains(graph)
+        self.offloaded
+            .lock()
+            .iter()
+            .any(|entry| entry.graph.as_str() == graph)
+    }
+
+    /// Is this exact graph incarnation currently marked offloaded?
+    pub fn is_offloaded_for(&self, graph: &str, incarnation_id: &str) -> bool {
+        self.offloaded.lock().contains(&TrackerKey {
+            graph: graph.to_string(),
+            incarnation_id: Some(incarnation_id.to_string()),
+        })
+    }
+
+    /// Is this exact graph incarnation older than the idle window?  A legacy
+    /// wildcard touch is accepted only as a compatibility fallback when no
+    /// exact touch exists for the incarnation.
+    fn is_cold_for(&self, graph: &str, incarnation_id: &str, idle_window: Duration) -> bool {
+        let now = Instant::now();
+        let access = self.last_access.lock();
+        let exact = access.get(&TrackerKey {
+            graph: graph.to_string(),
+            incarnation_id: Some(incarnation_id.to_string()),
+        });
+        let legacy = access.get(&TrackerKey {
+            graph: graph.to_string(),
+            incarnation_id: None,
+        });
+        exact.or(legacy)
+            .is_some_and(|timestamp| now.duration_since(*timestamp) >= idle_window)
     }
 
     /// Cumulative graphs offloaded by the cold sweep.
@@ -92,8 +157,27 @@ impl ColdTenantTracker {
     /// Forget a graph entirely (e.g. on `DeleteGraph`) so its access timestamp + offload
     /// mark don't leak across a same-name recreate.
     pub fn forget(&self, graph: &str) {
-        self.last_access.lock().remove(graph);
-        self.offloaded.lock().remove(graph);
+        self.last_access
+            .lock()
+            .retain(|key, _| key.graph.as_str() != graph);
+        self.offloaded
+            .lock()
+            .retain(|key| key.graph.as_str() != graph);
+        #[cfg(feature = "cost")]
+        crate::cost::forget_graph(graph);
+    }
+
+    /// Forget only one incarnation, preserving access state for a concurrently
+    /// recreated graph with the same name.
+    pub fn forget_incarnation(&self, graph: &str, incarnation_id: &str) {
+        let matches = |key: &TrackerKey| {
+            key.graph.as_str() == graph
+                && key.incarnation_id.as_deref() == Some(incarnation_id)
+        };
+        self.last_access.lock().retain(|key, _| !matches(key));
+        self.offloaded.lock().retain(|key| !matches(key));
+        #[cfg(feature = "cost")]
+        crate::cost::forget_graph_incarnation(graph, incarnation_id);
     }
 
     /// Pick the COLDEST (least-recently-touched) graph among `candidates`
@@ -104,7 +188,16 @@ impl ColdTenantTracker {
     /// active. `None` when `candidates` is empty.
     pub fn coldest(&self, candidates: impl Iterator<Item = String>) -> Option<String> {
         let last_access = self.last_access.lock();
-        candidates.min_by_key(|g| last_access.get(g).copied())
+        candidates.min_by_key(|graph| {
+            // Use the newest touch for the currently named graph.  Older
+            // incarnations can remain in the map briefly during a lifecycle
+            // race, but must not make a freshly active recreate look cold.
+            last_access
+                .iter()
+                .filter(|(key, _)| key.graph.as_str() == graph.as_str())
+                .map(|(_, timestamp)| *timestamp)
+                .max()
+        })
     }
 }
 
@@ -148,14 +241,16 @@ pub async fn offload_cold_tenants(
         return 0;
     }
 
-    // Snapshot the resident cores + durable authority under a read lock.
+    // Snapshot generation-safe resident handles + durable authority under a
+    // read lock.  The handle, rather than only `(name, Arc<GraphCore>)`, is the
+    // fence used when the durable check publishes its eviction.
     let (entries, persistence) = {
         let s = state.read().await;
-        let entries: Vec<(String, Arc<GraphCore>)> = s
+        let entries: Vec<GraphHandle> = s
             .registry
             .all_entries()
             .iter()
-            .map(|e| (e.name.clone(), e.core.clone()))
+            .filter_map(|e| s.registry.handle(&e.name))
             .collect();
         (entries, s.persistence.clone())
     };
@@ -164,14 +259,33 @@ pub async fn offload_cold_tenants(
     };
 
     let mut offloaded = 0u64;
-    for (name, core) in entries {
-        if name == "__commons__" || !cold.contains(&name) || tracker.is_offloaded(&name) {
+    for handle in entries {
+        let name = &handle.name;
+        if name.as_str() == "__commons__"
+            || !cold.contains(name)
+            || !tracker.is_cold_for(name, &handle.incarnation_id, idle_window)
+            || tracker.is_offloaded_for(name, &handle.incarnation_id)
+        {
             continue;
         }
-        if core.node_count() == 0 {
+        // Lifecycle work and ordinary writes share this lane.  This prevents
+        // a delete/recreate or concurrent write from changing the durable
+        // authority between the presence check and hibernation.
+        let _lifecycle_guard = crate::server::mutation_batch::lock_graph(name).await;
+        let persistence = {
+            let s = state.read().await;
+            if !s.registry.is_current_handle(&handle) {
+                continue;
+            }
+            s.persistence.clone()
+        };
+        let Some(persistence) = persistence else {
+            continue;
+        };
+        if handle.core.node_count() == 0 {
             continue; // nothing resident to drop
         }
-        if let Some(freed) = offload_graph_core(&core, &persistence, &name) {
+        if let Some(freed) = offload_graph_core(&handle.core, &persistence, name) {
             if freed > 0 {
                 // U-148 / BUG-130: `offload_graph_core` only drops this graph's RAM
                 // (`GraphCore::hibernate`) — it never removes the registry's residency
@@ -182,9 +296,11 @@ pub async fn offload_cold_tenants(
                 // pattern: transition the now durability-confirmed-empty entry to
                 // catalog-only so the NEXT access takes the existing bounded durable
                 // lazy-open instead.
-                state.write().await.registry.evict_resident(&name);
-                tracker.mark_offloaded(&name);
-                offloaded += 1;
+                let mut s = state.write().await;
+                if s.registry.evict_resident_if_current(&handle) {
+                    tracker.mark_offloaded(&handle);
+                    offloaded += 1;
+                }
             }
         }
     }
@@ -246,14 +362,16 @@ pub fn admit_capacity(
             Some(v) => v,
             None => return, // nothing evictable (only __commons__/incoming resident)
         };
-        let core = match s.registry.get(&victim) {
-            Some(e) => e.core.clone(),
+        let handle = match s.registry.handle(&victim) {
+            Some(handle) => handle,
             None => return, // race: victim already gone
         };
-        if offload_graph_core(&core, &persistence, &victim).is_none() {
+        if offload_graph_core(&handle.core, &persistence, &victim).is_none() {
             return;
         }
-        s.registry.evict_resident(&victim);
+        if !s.registry.evict_resident_if_current(&handle) {
+            return;
+        }
         tracker.forget(&victim);
     }
 }
@@ -402,11 +520,41 @@ async fn page_in_remaining(
                         manifest.phase == crate::registry::MaterializationPhase::Failed
                     })
                 {
-                    s.registry.evict_resident(ticket.name());
+                    s.registry.evict_resident_if_current(&handle);
                 }
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tracker_tests {
+    use super::ColdTenantTracker;
+    use std::time::Duration;
+
+    /// A same-name recreate gets an independent access clock; the retired
+    /// identity is removed before the new touch is recorded.
+    #[test]
+    fn access_recency_is_fenced_by_incarnation() {
+        let tracker = ColdTenantTracker::new();
+        tracker.touch_with_incarnation("tenant:recreate", "incarnation:old");
+        assert!(tracker.is_cold_for(
+            "tenant:recreate",
+            "incarnation:old",
+            Duration::ZERO
+        ));
+
+        tracker.touch_with_incarnation("tenant:recreate", "incarnation:new");
+        assert!(!tracker.is_cold_for(
+            "tenant:recreate",
+            "incarnation:new",
+            Duration::from_secs(3600)
+        ));
+        tracker.forget_incarnation("tenant:recreate", "incarnation:old");
+        assert!(tracker
+            .cold_graphs(Duration::from_secs(3600))
+            .is_empty());
     }
 }
 
