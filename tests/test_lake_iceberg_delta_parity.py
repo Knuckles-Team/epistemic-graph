@@ -11,8 +11,12 @@ the bytes, the reference readers open them.
 
 `pyiceberg[pyarrow]`/`deltalake` are TEST-ONLY dependencies (installed from
 ``tests/lake-parity-requirements.txt`` in an isolated environment; the project extra
-is intentionally empty because uv resolves all workspace extras together). Every test
-below is SKIPPED, not failed, when they are not installed.
+is intentionally empty because uv resolves all workspace extras together). An ordinary
+developer pytest run may still SKIP the reference-reader cases when those test-only
+dependencies are absent. The dedicated ``tests/run_lake_parity.py`` harness enables
+strict mode, where missing readers, OAuth fixture dependencies, or pre-built engine
+artifacts fail collection instead of silently producing a green run with no parity
+proof.
 
 Run standalone (bypass the slow shared-engine conftest fixture, matching
 `test_kvcache_connector.py`'s documented pattern)::
@@ -61,6 +65,7 @@ pytestmark = pytest.mark.no_engine
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CARGO_BUILD_TIMEOUT_S = 900
+STRICT_PARITY = os.environ.get("EPISTEMIC_GRAPH_LAKE_PARITY_STRICT") == "1"
 
 try:
     from pyiceberg.table import StaticTable
@@ -93,6 +98,54 @@ _SKIP_DELTALAKE = pytest.mark.skipif(
 )
 
 
+def _configured_executable(variable: str) -> str | None:
+    """Return a configured executable path, or ``None`` when it is invalid.
+
+    The strict parity harness supplies both engine binaries explicitly. Keeping
+    this check in the test module as well means invoking pytest directly with
+    ``EPISTEMIC_GRAPH_LAKE_PARITY_STRICT=1`` cannot accidentally fall back to a
+    source rebuild or run against an unrelated artifact.
+    """
+
+    configured = str(os.environ.get(variable, "") or "").strip()
+    if not configured:
+        return None
+    path = Path(configured).expanduser().resolve()
+    if not path.is_file() or not os.access(path, os.X_OK):
+        return None
+    return str(path)
+
+
+def _require_strict_parity_prerequisites() -> None:
+    """Fail closed before collection when the dedicated gate is incomplete."""
+
+    if not STRICT_PARITY:
+        return
+
+    missing = []
+    if not PYICEBERG_AVAILABLE:
+        missing.append("pyiceberg[pyarrow]")
+    if not DELTALAKE_AVAILABLE:
+        missing.append("deltalake")
+    if not PANDAS_AVAILABLE:
+        missing.append("pandas")
+    if not _OAUTH_DEPS_AVAILABLE:
+        missing.append("pyjwt + cryptography")
+    if _configured_executable("EPISTEMIC_GRAPH_TEST_BINARY") is None:
+        missing.append("EPISTEMIC_GRAPH_TEST_BINARY (executable full server)")
+    if _configured_executable("EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY") is None:
+        missing.append(
+            "EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY (executable lake-fixture-export)"
+        )
+    if missing:
+        raise RuntimeError(
+            "strict lake parity prerequisites are missing: "
+            + ", ".join(missing)
+            + "; use tests/run_lake_parity.py with the isolated requirements and "
+            "exact full-featured engine binaries"
+        )
+
+
 # --------------------------------------------------------------------------------- #
 # Fixture-scale expected data — mirrors src/bin/lake_fixture_export.rs's BATCH_1/
 # BATCH_2 constants exactly (two commits: CREATE 3 rows, APPEND 2 rows). The binary's
@@ -103,9 +156,24 @@ EXPECTED_ROW_COUNT = 5
 
 
 def _run_lake_fixture_export(out_dir: Path) -> dict:
-    """Build+run the real `lake-fixture-export` binary; return its parsed JSON summary."""
-    proc = subprocess.run(
-        [
+    """Run the real fixture exporter; return its parsed JSON summary.
+
+    The normal developer invocation retains the historical Cargo fallback. The
+    dedicated strict harness requires the caller to provide an already-built
+    binary so parity validation never hides a second compiler workload or
+    accidentally exercises a different artifact than the one being certified.
+    """
+
+    prebuilt = _configured_executable("EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY")
+    if prebuilt is not None:
+        command = [prebuilt, str(out_dir)]
+    else:
+        if STRICT_PARITY:
+            pytest.fail(
+                "strict lake parity requires an executable "
+                "EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY"
+            )
+        command = [
             "cargo",
             "run",
             "--quiet",
@@ -115,7 +183,9 @@ def _run_lake_fixture_export(out_dir: Path) -> dict:
             "lake-fixture-export",
             "--",
             str(out_dir),
-        ],
+        ]
+    proc = subprocess.run(
+        command,
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
@@ -308,6 +378,10 @@ try:
 except ImportError:
     _OAUTH_DEPS_AVAILABLE = False
 
+
+_require_strict_parity_prerequisites()
+
+
 _SKIP_OAUTH_DEPS = pytest.mark.skipif(
     not _OAUTH_DEPS_AVAILABLE,
     reason="pyjwt/cryptography are not installed (see tests/lake-parity-requirements.txt)",
@@ -423,6 +497,11 @@ def iceberg_server(tmp_path_factory, iceberg_oauth_fixture):
     # binary the shared session fixture uses, just launched on a private
     # socket/port so `--iceberg-addr` can be exercised in isolation.
     prebuilt = _prebuilt_test_binary()
+    if STRICT_PARITY and prebuilt is None:
+        pytest.fail(
+            "strict lake parity requires an executable "
+            "EPISTEMIC_GRAPH_TEST_BINARY"
+        )
     if prebuilt is not None:
         command = [prebuilt, "--socket-path", socket_path]
     else:
