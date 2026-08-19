@@ -1,11 +1,16 @@
-# M3 — Catalog-driven resharding (handoff: DONE vs REMAINING)
+# M3 — Catalog-driven resharding (current-main status handoff)
+
+> **Evidence status:** source paths are labelled `IMPLEMENTED` when present on
+> current `main`; focused fixtures are labelled `UNIT-PROVEN`; bounded throwaway
+> runs are `LAB-PROVEN`; deployed observations are `LIVE`; and exact one-million
+> workload reports are `1M-CERTIFIED`. This handoff contains no `LIVE` or
+> `1M-CERTIFIED` claim. Historical branch names below identify provenance only.
 
 > **Scope.** M3 is the "horizontal scale spine" wave from
 > `reports/epistemic-graph-master-engine-gaps-2026-06-23.md` (see workspace/reports/)
 > — the two **P0** gaps "Elastic sharding / resharding-rebalancing with live data
-> migration" and "Scalable tenant catalog". This document is a DONE-vs-REMAINING handoff:
-> the two building blocks that landed on `feat/m3-catalog-migration`, then every remaining
-> piece as an independent, pick-up-able task.
+> migration" and "Scalable tenant catalog". This document reconciles current
+> source paths, focused repository evidence, and the remaining cross-node/object-tier work.
 >
 > **Concept IDs:** `CONCEPT:EG-KG.sharding.atomic-shard-swap` (offline K-shard migration tool), `CONCEPT:EG-KG.sharding.empty-catalog-routing`
 > (tenant catalog routing-override seam), `CONCEPT:EG-KG.backend.catalog-shard-resolve` (online single-node resharding,
@@ -13,22 +18,19 @@
 > whole-graph offload, R6), `CONCEPT:EG-KG.sharding.even-load-rebalance` (R3 rebalancing planner), `CONCEPT:EG-KG.sharding.m3-r4`
 > (R4 in-process BLOB streaming facade). Registered in [`docs/concepts.md`](../concepts.md).
 
-> **Update — M3 keystone (R1/R5/R6) AND modules (R3/R4) landed.** Keystone on
-> `feat/m3-r1-r5-r6`: `online_reshard.rs` + `RedbBackend::reshard_graph` (R1), the catalog
-> auto-attach gate in `RedbBackend::open` (R5), and `cold_offload.rs` (R6). Tests:
-> `online_reshard_moves_graph_live_no_loss`, `catalog_auto_attach_gate_and_empty_is_fnv1a`,
-> `cold_offload_evicts_then_serves_on_access`. Modules on `feat/m3-r3-r4`: `rebalance.rs`
-> (R3 planner, EG-035) and `blob/stream.rs` (R4 bounded-memory BLOB streaming, EG-KG.sharding.m3-r4), both
-> lib-tested. All built + green under `--features "full,cluster"`.
+> **Current-main reconciliation — `IMPLEMENTED` / `UNIT-PROVEN` where named.**
+> `online_reshard.rs`, the catalog gate, `cold_offload.rs`, `rebalance.rs`, and
+> `blob/stream.rs` are present on current `main`; the focused tests named in the
+> sections below are the repository evidence. Historical feature branches are
+> retained only as provenance.
 >
-> **Update — the engine-side FINISHING wires landed (roadmap F + admin RPC + R3 exec + R6
-> touch + R1 delta), on `feat/engine-finishing`.** Parallel cross-shard read fan-out
+> **Current-main finishing wires — `IMPLEMENTED` / `UNIT-PROVEN` where named.**
+> Parallel cross-shard read fan-out
 > (`AU-KG.backend.roadmap-f-parallel-cross` — `load_into` off concurrent `begin_read()` snapshots, off the writer), the M3
 > admin RPC (`EG-038` — `Reshard`/`Catalog*`/`RebalancePlan`/`RebalanceExecute` +
 > `handlers/admin.rs` + `ReshardingClient`), rebalance plan EXECUTION (`EG-KG.backend.r3-plan-execution`
 > `RedbBackend::rebalance_execute`), the R6 `touch()` wiring + interval offload sweep
-> (`EG-KG.backend.r6-feature`), and the R1 snapshot+delta copy (`EG-KG.backend.flush-pending-first` `bulk_copy`/`delta_flip_purge`). All
-> built + green under `--features "full,cluster"` (32 persistence tests pass). **Still
+> (`EG-KG.backend.r6-feature`), and the R1 snapshot+delta copy (`EG-KG.backend.flush-pending-first` `bulk_copy`/`delta_flip_purge`). These are current source paths; focused tests are repository evidence, not a deployment or scale certification. **Still
 > REMAINING:** R2 (cross-node, needs M2), and the original R4-gated object-store arm of R6
 > (cold tenants colder than redb spilled to `cold-tier-s3`/`blob-s3`).
 
@@ -40,10 +42,10 @@ immutable per persist-dir without a migration — which is exactly what M3 remov
 
 ---
 
-## DONE — landed on `feat/m3-catalog-migration`
+## `UNIT-PROVEN` — offline migration and catalog core (historical `feat/m3-catalog-migration`)
 
-Both deliverables build clean under `--features "full,cluster"` and their unit/integration
-tests pass.
+The cited deliverables have focused unit/integration evidence. That evidence is
+repository-scoped and does not assert a live deployment or 1M certification.
 
 ### 1. Offline K-shard migration tool (`CONCEPT:EG-KG.sharding.atomic-shard-swap`)
 
@@ -127,25 +129,28 @@ guarantee — matches `shard_index` for every graph at K∈{1,2,4,8,16}),
 `assign_overrides_then_falls_back`, `reassign_moves_route_and_clamps`,
 `remove_reverts_to_hash`, `durable_catalog_survives_reopen`.
 
-> **The safety invariant.** The catalog is a *read-only seam* until something is assigned, and
-> `with_catalog` is never called on the default open path. The running engine's routing is
-> therefore unchanged by this branch. Do NOT add an auto-attach until online execution
-> (below) is built and tested, or routes will flip without the rows having moved.
+> **The current safety invariant.** An empty/unattached catalog preserves FNV-1a
+> routing. `RedbBackend::open` auto-attaches only when explicitly enabled or when
+> an existing durable `catalog.redb` must be honoured; the online move orders
+> destination import, durable catalog flip, and source purge. The explicit-K test
+> constructor remains unattached. This is `IMPLEMENTED`/`UNIT-PROVEN` source
+> behavior, not a claim that an operator has enabled it in production.
 
 ---
 
-## REMAINING — the larger M3, as independent pick-up-able tasks
+## M3 status matrix — remaining cross-node/object-tier work is `DESIGNED`
 
 Each task below is self-contained: module/I/O, dependencies & ordering, and whether it can run
 in parallel or must sequence behind M2 (the sibling's multi-Raft work in `src/raft/`,
 `CONCEPT:EG-KG.sharding.raft-resharding/2.207`). The catalog (EG-031) and migration tool (EG-030) are the substrate
 all of these compose.
 
-### R1 — Online per-tenant resharding execution (single node) **[P0, no M2 dep] — ✅ DONE (CONCEPT:EG-KG.backend.catalog-shard-resolve)**
-Move ONE graph's rows between shards on the same node with no downtime, then flip the catalog
-route. The hard part the offline tool skips.
+### R1 — Online per-tenant resharding execution (single node) **[P0, no M2 dep] — `UNIT-PROVEN` (CONCEPT:EG-KG.backend.catalog-shard-resolve)**
+Move ONE graph's rows between shards on the same node without stopping the
+engine, then flip the catalog route. The moved graph has a bounded quiesce; the
+offline tool has no online write path.
 
-> **DONE.** `src/server/persistence/online_reshard.rs` (`export_graph_raw`/`import_graph_raw`
+> **Current implementation.** `src/server/persistence/online_reshard.rs` (`export_graph_raw`/`import_graph_raw`
 > verbatim raw-blob copy — encryption + EG-KG.sharding.row-level-security audit chain preserved — + `execute_online_reshard`)
 > driven by `RedbBackend::reshard_graph` (`redb_backend.rs`). New `Cmd::ExportGraphRaw`/
 > `ImportGraphRaw` run on the two shard writer threads. **Quiesce:** a backend `routing_epoch`
@@ -154,13 +159,12 @@ route. The hard part the offline tool skips.
 > misroute a write. **Ordering** is `import(dst) committed → catalog flip durable → purge(src)`
 > (crash-consistent). Test `online_reshard_moves_graph_live_no_loss` hammers concurrent writes to
 > `g` across the flip (20 nodes incl. 10 concurrent), asserts all nodes/edge survive on the new
-> shard, audit verifies, and an unrelated graph is untouched. **Scope note vs the algorithm below:**
-> the move copies the graph FULLY under the quiesce rather than snapshot+delta, so the *moved*
-> graph is briefly paused for its own copy — OTHER graphs are never paused (per-graph routing is
-> independent and the no-catalog path is byte-for-byte). The snapshot+delta optimization (to
-> minimize even the moved graph's pause) is the remaining refinement.
+> shard, audit verifies, and an unrelated graph is untouched. The current path
+> uses snapshot-plus-delta copying: bulk work runs while writes continue, then
+> `delta_flip_purge` performs only the bounded quiesced delta and preserves the
+> durable ordering `import(dst) → catalog flip → purge(src)`.
 
-Original design (for the delta-copy refinement):
+Original design sketch (superseded by the current snapshot-plus-delta implementation):
 - **Module:** new `src/server/persistence/online_reshard.rs`. Composes the EG-030 verbatim
   row-copy (extract the per-graph copy loop in `shard_migrate.rs` into a reusable
   `copy_graph_rows(src_shard, dst_shard, graph_fname)` helper) with the EG-031 catalog.
@@ -171,12 +175,14 @@ Original design (for the delta-copy refinement):
   (4) copy the delta; (5) atomically flip `catalog.reassign(g, dst)` and resume; (6) GC the old
   rows from the source shard.
 - **I/O:** redb read/write txns on two shards in the same `RedbBackend`; the catalog write.
-- **Ordering / parallel:** independent of M2 (single node). Must land AFTER the catalog auto-
-  attach decision (R5). Parallel-safe with R3/R4. **This is the keystone remaining item.**
-- **Risk:** the quiesce/flip window is the correctness crux — needs a test that hammers writes
+- **Ordering / parallel:** independent of M2 (single node). The design sketch
+  predates the current R5 gate and is retained only to explain the evolution of
+  the contract; it is not an open implementation task.
+- **Historical risk covered by the focused fixture:** the quiesce/flip window is
+  the correctness crux; `online_reshard_moves_graph_live_no_loss` hammers writes
   to `g` across the flip and asserts zero lost/misrouted rows.
 
-### R2 — Cross-NODE tenant distribution **[P0, MUST sequence behind M2]**
+### R2 — Cross-NODE tenant distribution **[P0, MUST sequence behind M2] — `DESIGNED`**
 Make `ShardAssignment.node` real: move a tenant to a shard owned by a *different* cluster node.
 - **Module:** `online_reshard.rs` (cross-node arm) + a transport for shipping rows.
 - **Deps:** REQUIRES M2 multi-Raft landed (`src/raft/multi.rs` `MultiRaft`, `CONCEPT:EG-KG.sharding.raft-resharding`;
@@ -186,7 +192,7 @@ Make `ShardAssignment.node` real: move a tenant to a shard owned by a *different
 - **Ordering:** strictly after R1 (reuses its copy/quiesce/flip) AND after M2. Do NOT start the
   cross-node arm until `src/raft/` stabilizes (sibling-owned — coordinate).
 
-### R3 — Rebalancing planner **[DONE — `CONCEPT:EG-KG.sharding.even-load-rebalance`]**
+### R3 — Rebalancing planner **[`UNIT-PROVEN` — `CONCEPT:EG-KG.sharding.even-load-rebalance`]**
 Decide *which* tenants to move and *where*, from live shard load — the policy layer over R1/R2.
 - **Module:** `src/server/persistence/rebalance.rs` (NEW, landed). A PURE, deterministic
   `plan_rebalance(&[ShardLoad], RebalanceOptions) -> RebalancePlan` emitting an ordered
@@ -194,15 +200,18 @@ Decide *which* tenants to move and *where*, from live shard load — the policy 
   the ONE graph off the most-loaded shard onto the least-loaded that most shrinks the
   hottest-coldest gap WITHOUT overshooting (new gap `|gap − 2·load|`), stopping at
   `tolerance·mean`, on non-improvement (an indivisible hot graph ⇒ no thrash), or `max_moves`.
-- **Inputs / integration hook:** decoupled from any live source for testability.
+- **Inputs / integration hook:** the pure planner is decoupled from live sources
+  for testability. The current admin surface supplies a bounded live
+  `(sanitized graph, resident node count)` view through `live_graph_loads`; that
+  is a resident-size signal, not a complete multi-axis workload model.
   `shard_loads_from_graph_loads(&[(graph, shard, load)], k)` is the pure grouping half;
   `shard_loads_from_catalog(&TenantCatalog, &[(graph, load)], k)` routes each graph through the
   EG-031 catalog (explicit assignment wins, else EG-KG.backend.sharded-k-way-durable FNV-1a). The remaining wiring line —
-  sourcing the live `(graph, load)` stats from the EG-KG.backend.sharded-k-way-durable sharded writer + the `CONCEPT:EG-KG.txn.per-graph-write-isolation`
-  per-graph size gauges in a backend/admin surface — is an **integration follow-up**, NOT in the
-  pure planner.
-- **Execution stays R1/R2:** the planner only EMITS the plan; applying a move (snapshot-copy the
-  rows, then `catalog.reassign(graph, to_shard)`) is R1 online-reshard (sibling-owned).
+  sourcing richer queue/CPU/fsync workload axes remains an **integration follow-up**,
+  not part of the pure planner.
+- **Execution stays R1/R2:** the planner only EMITS the plan; the current admin
+  execution path applies a move through R1 online resharding, while R2 remains
+  cross-node design work.
 - **Tests** (`rebalance::tests`): `balances_a_skewed_shard_set_deterministically` (skewed K=4 →
   imbalance strictly reduced, floored by the largest indivisible graph, deterministic re-plan),
   `divisible_load_reaches_tolerance` (12×25 over K=4 → within the 10% band),
@@ -210,7 +219,7 @@ Decide *which* tenants to move and *where*, from live shard load — the policy 
   `indivisible_hot_graph_does_not_thrash`, `grouping_routes_and_fills_empty_shards`,
   `catalog_routing_feeds_the_planner`.
 
-### R4 — BLOB streaming substrate (`CONCEPT:EG-KG.storage.blob-namespace` + `CONCEPT:EG-KG.sharding.m3-r4`) **[DONE]**
+### R4 — BLOB streaming substrate (`CONCEPT:EG-KG.storage.blob-namespace` + `CONCEPT:EG-KG.sharding.m3-r4`) **[`UNIT-PROVEN`]**
 Content-addressed, chunked, streamed large-object store off the inline KV path (a 650 MB inline
 property blob is wrong). Listed as its own P0 in the gaps report (Wave 5).
 - **Substrate (`CONCEPT:EG-KG.storage.blob-namespace`, landed on `main` — commit `6734607`):** the `blob` feature
@@ -221,12 +230,14 @@ property blob is wrong). Listed as its own P0 in the gaps report (Wave 5).
   `Blob*` dispatch routing in `src/server/dispatch.rs`. Bounded-memory proven by
   `store::tests::bounded_memory_large_blob_group_commit` and the dispatch-level streamed-blob
   test. `blob-s3` fronts the SAME `ChunkStore` trait with an object-store backend.
-- **In-process streaming facade (`CONCEPT:EG-KG.sharding.m3-r4`, NEW this branch):**
+- **In-process streaming facade (`CONCEPT:EG-KG.sharding.m3-r4`, current `main`):**
   `src/server/blob/stream.rs` — `stream_blob_put<R: Read>` / `stream_blob_get<W: Write>` stream
   a multi-GB blob between an arbitrary byte source/sink (a local media file, a decompressor, an
   embedding writer) and the CAS WITHOUT buffering the whole blob (one chunk resident). The
   in-process twin of the wire upload/fetch cursor; composes `ChunkStore` verbatim, so it is the
-  same dedup'd/refcount-GC'd store. Used by file import/export and the cold-tier offload (R6).
+  same dedup'd/refcount-GC'd store. Available to file import/export and to a
+  future cold-tier offload (R6); its presence does not mean the R6 object-tier
+  integration is complete.
   Test `stream::tests::bounded_memory_streams_large_blob` round-trips a 256 MB blob
   (`EG_BLOB_RSS_MB` → 1 GB+) through a generating `Read` and a hashing `Write`, asserting peak
   RSS growth stays bounded by the capped page cache + one chunk, NOT the blob size.
@@ -234,33 +245,26 @@ property blob is wrong). Listed as its own P0 in the gaps report (Wave 5).
   verbatim copy must learn the `blob.redb` tables (extend `copy_global_tables` / per-graph copy)
   and the catalog must route blob refs alongside graph rows. Sequences after both this and R1 land.
 
-### R5 — Catalog auto-attach + admin surface **[P1, gate before R1 goes live] — ✅ DONE (gate; CONCEPT:EG-KG.sharding.r5-feature)**
+### R5 — Catalog auto-attach + admin surface **[P1 — `IMPLEMENTED` / `UNIT-PROVEN`; CONCEPT:EG-KG.sharding.r5-feature]**
 Wire the catalog into the live open path and expose assign/reassign over the protocol.
 
-> **DONE (the gate + programmatic API).** `RedbBackend::open` now calls
+> **Current implementation.** `RedbBackend::open` calls
 > `maybe_attach_catalog_from_env`: it attaches `TenantCatalog::open(dir)` when
 > `EPISTEMIC_GRAPH_TENANT_CATALOG=1` OR a durable `catalog.redb` already exists (a populated
 > catalog from a prior run is honored); otherwise NO catalog — pure EG-026. Empty/absent = byte-
 > for-byte FNV-1a, verified by `catalog_auto_attach_gate_and_empty_is_fnv1a`. `RedbBackend::catalog()`
 > exposes the catalog for the admin/API to populate/persist (`assign`/`reassign`/`remove` are durable).
-> The explicit-K test constructor `open_with_shards` deliberately never auto-attaches.
-> **REMAINING:** the wire `Method::Reshard{...}` admin RPC over the protocol (dispatch/protocol —
-> out of the persistence-only scope here; today driven programmatically via `reshard_graph` +
-> `catalog()`).
-- **Module:** `RedbBackend::open` decides whether to `with_catalog(TenantCatalog::open(dir))`
-  based on a flag (`EPISTEMIC_GRAPH_TENANT_CATALOG=1`, default off); a new `Method::Reshard{...}`
-  / admin RPC drives `assign`/`reassign`/`remove`/`entries`.
-- **Deps:** the catalog core (DONE). MUST NOT auto-attach until R1 exists, or a route flip
-  strands rows. This is the controlled on-ramp: ship behind a default-off flag, attach, then
-  enable R1.
-- **Parallel:** the admin RPC can be built in parallel with R1; the auto-attach flip is the
-  sequencing gate.
+> The current protocol surface includes `Reshard`, `Catalog*`, `RebalancePlan`,
+> and `RebalanceExecute`; the explicit-K test constructor `open_with_shards`
+> deliberately never auto-attaches. Empty/absent catalog routing remains FNV-1a.
+> This is source/repository evidence, not a claim that the gate is enabled in a
+> live deployment.
 
-### R6 — Cold-tenant hibernation / object-store offload **[P1] — ✅ DONE (whole-graph offload; CONCEPT:EG-KG.sharding.eg-r6)**
-The other half of the "scalable tenant catalog" P0: 100M graphs can't all be resident; cold
-tenants offload to an object tier and rehydrate on access.
+### R6 — Cold-tenant hibernation / object-store offload **[P1 — `UNIT-PROVEN` for redb hibernation; `DESIGNED` for object tier; CONCEPT:EG-KG.sharding.eg-r6]**
+The RAM-bounding half of the "scalable tenant catalog" is implemented in the
+redb tier; colder-than-redb object storage remains a separate design.
 
-> **DONE (the RAM-bounding whole-graph offload, no object tier dep).** `src/server/persistence/cold_offload.rs`:
+> **Current implementation (no object tier dependency).** `src/server/persistence/cold_offload.rs`:
 > a `ColdTenantTracker` (`touch`/`cold_graphs(window)`/offload bookkeeping) + `offload_cold_tenants`
 > which hibernates every graph idle longer than a window via `GraphCore::hibernate` (EG-KG.storage.100m-tenant),
 > retaining the durable redb rows so reads serve through the EG-KG.storage.read-through-seam-exercised node read-through (extends
@@ -268,29 +272,32 @@ tenants offload to an object tier and rehydrate on access.
 > `__commons__` never offloaded. Complements the EG-KG.compute.lane-v budget enforcer (idle-driven vs budget-
 > driven). Test `cold_offload_evicts_then_serves_on_access` proves evict-then-serve. This needed
 > **no R4 dep** — it bounds RAM by dropping in-RAM state, not by spilling to an object store.
-> **REMAINING:** the dispatch-side `tracker.touch()` wiring on the read/write path (a one-liner
-> outside `persistence/`), an interval scheduler to drive the sweep, and (the original R4-gated
-> arm) actual object-store offload via `cold-tier-s3`/`blob-s3` for tenants colder than redb.
-- **Module:** reuse `cold-tier` / `cold-tier-s3` features (`Cargo.toml`) + the `blob-s3` CAS
-  seam (R4). The catalog grows a `cold: bool` / location field on `ShardAssignment`.
-- **Deps:** R4 (BLOB/object substrate). Independent of R1–R3 routing once the schema field
-  lands. Sequence after R4.
+> The current dispatch `touch()` wiring and interval scheduler are present on
+> `main`; the remaining arm is actual object-store offload via
+> `cold-tier-s3`/`blob-s3` for tenants colder than redb.
+- **Designed follow-on:** reuse the `cold-tier` / `cold-tier-s3` features and the
+  `blob-s3` CAS seam (R4) only after a versioned location/retention contract is
+  implemented. It remains `DESIGNED`, not an available deployment capability.
 
 ---
 
-## Suggested order for a fresh agent
+## Current status and follow-ons
 
-1. ~~**R3** (planner) and **R4** (BLOB)~~ — **DONE** (`EG-035` planner; `KG-2.206` substrate +
-   `EG-KG.sharding.m3-r4` streaming facade). Both independent, no M2 dep.
-2. **R1** (online single-node execution) — highest leverage, unblocks real resharding, no M2 dep.
-   Consumes the R3 plan (`plan_rebalance`) and flips `catalog.reassign`.
-3. **R5** (auto-attach gate) once R1 is proven.
-4. **R2** (cross-node) only after M2 lands in `src/raft/`.
-5. **R6** after R4 (reuses the `EG-KG.sharding.m3-r4` streaming facade for object-store offload).
+1. **`UNIT-PROVEN`:** R3 (planner) and R4 (BLOB substrate/facade) are on current
+   `main` with focused fixtures.
+2. **`UNIT-PROVEN`:** R1 (online single-node execution) and R5 (auto-attach/admin)
+   are wired on current `main`; the gate remains default-off unless explicitly
+   enabled or an existing durable catalog is present.
+3. **`UNIT-PROVEN`:** R6 redb whole-graph hibernation, dispatch touch, and interval
+   sweep are present; object-store spill is still `DESIGNED`.
+4. **`DESIGNED`:** R2 cross-node movement must use the destination Raft group and
+   a consensus-durable transfer, not a raw file copy.
 
-**Integration follow-ups (not started):** (a) source live `(graph, load)` stats into
-`rebalance::shard_loads_from_catalog` from the EG-KG.backend.sharded-k-way-durable writer + KG-2.51 gauges in a backend/admin
-surface; (b) teach EG-030's verbatim copy the `blob.redb` tables so blobs ride resharding.
+**Integration follow-ups:** (a) expand the current resident-node load signal to
+the queue/CPU/fsync axes needed for a production placement policy; (b) teach
+EG-030's verbatim copy the `blob.redb` tables so blobs ride resharding; and (c)
+record lab/live/1M evidence against exact promoted artifacts. These are not
+claims that the current source has been deployed or certified.
 
 Ground every change in `reports/epistemic-graph-master-engine-gaps-2026-06-23.md` (Wave 4/5
 P0s) and the EG-KG.backend.sharded-k-way-durable sharding contract in [`engine.md`](engine.md).

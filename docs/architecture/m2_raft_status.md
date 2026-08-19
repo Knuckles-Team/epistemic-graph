@@ -1,18 +1,24 @@
 # M2 Raft Hardening — Status & Handoff
 
-> Branch `feat/m2-raft-hardening` (off `main`, which carries the full M1 stack).
-> Scope: the multi-Raft follow-ups documented on `CONCEPT:EG-KG.sharding.raft-resharding` —
-> pooled per-peer connections, group-per-tenant-range routing, per-group snapshot
-> scoping, leader balancing across groups, heartbeat coalescing.
+> **Current-main status:** `IMPLEMENTED` with focused `UNIT-PROVEN` fixtures for
+> the source paths described below. The branch names retained in this document
+> are historical provenance, not current deployment selectors. The loopback
+> validator is a bounded lab mechanism, but this page does not claim that it was
+> run for the current artifact. There is no `LIVE` or `1M-CERTIFIED` evidence in
+> this handoff.
 >
-> This branch is **NOT pushed, NOT deployed**. Single-group behavior is byte-for-byte
-> unchanged; every addition activates only under a multi-group / multi-node config.
+> Scope: the multi-Raft follow-ups documented on
+> `CONCEPT:EG-KG.sharding.raft-resharding` — pooled per-peer connections,
+> group-per-tenant-range routing, per-group snapshot scoping, leader balancing
+> across groups, heartbeat coalescing, and the openraft 0.10 storage/network
+> migration.
 
-All file:line references are against this branch's tree.
+File/line references identify the implementation path on current `main` unless a
+section explicitly says it is historical provenance.
 
 ---
 
-## DONE — implemented + lib-tested
+## `UNIT-PROVEN` — implemented + focused-lib-tested
 
 ### 1. Pooled per-peer Raft connections — `CONCEPT:AU-KG.ontology.manage-arbitrary`
 - **What:** the scaffold opened a fresh `TcpStream` per append/vote/snapshot RPC and
@@ -87,13 +93,13 @@ All file:line references are against this branch's tree.
   (0) carries ONLY the un-pinned bootstrap `__commons__` (no bleed or cold-graph loss);
   a router-less store dumps the WHOLE catalog (`__commons__` + both graphs).
 
-**Build:** `cargo build --release --features "full,cluster" -j8` → clean (exit 0).
-**Tests:** `cargo test --release --features "full,cluster" --lib raft` → see REPORT
-(all single-group raft tests stay green; the 4 new M2 tests pass).
+**Historical repository evidence:** the cited release build and focused Raft
+tests passed for the implementation record. This is `UNIT-PROVEN` source
+evidence, not a current live deployment, multi-host soak, or 1M certification.
 
 ---
 
-## DONE (R1/R2/R3) — branch `feat/m2-r1r3-completion` (off the base above)
+## `UNIT-PROVEN` R1/R2/R3 — historical branch `feat/m2-r1r3-completion`
 
 > All three remaining M2 items are now **implemented + lib-tested** on top of the base.
 > Single-group default behavior is unchanged — the full pre-existing `--lib raft` suite
@@ -164,14 +170,13 @@ All file:line references are against this branch's tree.
   `coalesced_batch_round_trips_on_one_connection` (a 3-heartbeat batch demuxes to 3
   ordered replies over EXACTLY ONE TCP connect on a live listener).
 
-**Build:** `cargo build --features "full,cluster" --lib` → clean. **Tests:**
-`cargo test --features "full,cluster" --lib raft` → **23 passed, 0 failed**. My three
-changed files are `cargo fmt` + `cargo clippy` clean (the remaining workspace clippy
-warnings pre-date this branch in M1 `redb_backend.rs` / query handlers / `eg-query`).
+**Historical repository evidence:** the cited build and focused Raft suite
+reported 23 passing tests for that implementation record. This remains
+`UNIT-PROVEN` evidence only; it is not a live or 1M result.
 
 ---
 
-## DONE — openraft 0.9 → 0.10 migration + native handoff (CONCEPT:AU-KG.backend.authority-has-already-acked)
+## `IMPLEMENTED` / `UNIT-PROVEN` — openraft 0.9 → 0.10 migration + native handoff (CONCEPT:AU-KG.backend.authority-has-already-acked)
 
 > Branch `feat/openraft-010-cluster`. Bumped openraft to **0.10** (pinned
 > `=0.10.0-alpha.26`, the line that carries `transfer_leader`) and migrated the whole
@@ -200,11 +205,12 @@ warnings pre-date this branch in M1 `redb_backend.rs` / query handlers / `eg-que
   openraft hands a fresh term + the leader vote to the target and notifies it to campaign
   at once). `RebalanceReport.{elected,yielded}` collapse to `transferred`. Rate-limited
   per group by `TRANSFER_COOLDOWN` so it never spams transfers.
-- **Tests green.** `cargo test --features "full,cluster" --lib raft` — the full pre-existing
-  suite (incl. the 3-node failover + join-then-rebalance, now asserting the native
-  transfer) passes against the 0.10 API. Validate with `scripts/validate-raft-cluster.sh`.
+- **Focused tests:** the cited `cargo test --features "full,cluster" --lib raft`
+  result is repository `UNIT-PROVEN` evidence for the 0.10 API and native
+  transfer. `scripts/validate-raft-cluster.sh` is the bounded lab route; a run
+  against a specific artifact must be recorded separately as `LAB-PROVEN`.
 
-## STILL REMAINING — needs real multi-node hardware (not in-process testable)
+## `DESIGNED` / STILL REMAINING — needs real multi-node hardware (not in-process testable)
 - **R2 under-openraft wiring.** The coalescer + batch wire are complete and tested, but
   hooking them under openraft's per-group heartbeat *cadence* (an enqueue + short flush
   timer that fans each batched reply back to its awaiting `append_entries` caller, so the
