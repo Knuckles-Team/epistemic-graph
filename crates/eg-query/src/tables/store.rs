@@ -30,9 +30,9 @@
 //! ## Constraints (CONCEPT:EG-KG.query.register-each-user-table)
 //! `NOT NULL` (rejected at coerce time), column `DEFAULT` (filled when a column is
 //! omitted), `SERIAL`/`DEFAULT nextval` (auto-assigned from the per-table sequence),
-//! `PRIMARY KEY`/`UNIQUE` uniqueness, and a simple `CHECK (col OP literal)` are all
-//! enforced on the write path; a violation aborts the (one-shot or multi-statement)
-//! transaction.
+//! `PRIMARY KEY`/`UNIQUE` uniqueness, column-level and rich table-level `CHECK`
+//! expressions, and explicit FOREIGN KEY referential actions are all enforced on
+//! the write path; a violation aborts the (one-shot or multi-statement) transaction.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -49,7 +49,7 @@ use redb::{
 use serde_json::Value;
 
 use super::schema::{
-    Cell, Column, ColumnType, RefAction, StoredFunction, TableConstraint, TableSchema,
+    Cell, CheckExpr, Column, ColumnType, RefAction, StoredFunction, TableConstraint, TableSchema,
 };
 // CONCEPT:EG-KG.query.real-ann-top-k/EG-313 — the durable pgvector ANN index registration the exec
 // pushdown consults to choose a real eg-ann index over the brute-force scan.
@@ -1453,8 +1453,15 @@ fn list_tables_in(wtx: &WriteTransaction) -> Result<Vec<String>, String> {
         Err(_) => return Ok(Vec::new()),
     };
     let mut names = Vec::new();
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
     for row in cat.iter().map_err(map_err)? {
-        let (key, _) = row.map_err(map_err)?;
+        let (key, value) = row.map_err(map_err)?;
+        account_collection(
+            &mut scanned_rows,
+            &mut scanned_bytes,
+            key.value().len().saturating_add(value.value().len()),
+        )?;
         names.push(key.value().to_string());
     }
     Ok(names)
@@ -1627,9 +1634,9 @@ fn drop_ann_indexes_for_column_in(
 // ── table-level constraints: FK cross-table validation + write-path enforcement ───
 // (CONCEPT:EG-KG.query.table-schema-constraints/NE-001)
 
-/// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — a table-level `PRIMARY KEY (a, b, …)` implies NOT NULL on
-/// every participating column (mirrors Postgres), regardless of how the column's own
-/// `ColumnDef` declared nullability.
+/// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — a table-level `PRIMARY KEY (a, b, …)`
+/// (and every column-level primary-key flag) implies NOT NULL on every participating
+/// column (mirrors Postgres), regardless of how the input `ColumnDef` declared nullability.
 fn force_pk_not_null(schema: &mut TableSchema) {
     let pk_cols: Vec<String> = schema
         .constraints()
@@ -1641,10 +1648,18 @@ fn force_pk_not_null(schema: &mut TableSchema) {
         .flatten()
         .collect();
     if pk_cols.is_empty() {
+        // A caller may construct a schema directly with a column-level PRIMARY
+        // KEY flag. Keep that path equivalent to SQL DDL: PK members are always
+        // NOT NULL even when the input Column accidentally marked them nullable.
+        for col in schema.columns_mut() {
+            if col.primary_key {
+                col.nullable = false;
+            }
+        }
         return;
     }
     for col in schema.columns_mut() {
-        if pk_cols.iter().any(|c| c == &col.name) {
+        if col.primary_key || pk_cols.iter().any(|c| c == &col.name) {
             col.nullable = false;
         }
     }
@@ -1685,6 +1700,8 @@ fn validate_fk_target_in(
     columns: &[String],
     ref_table: &str,
     ref_columns: &[String],
+    on_delete: RefAction,
+    on_update: RefAction,
 ) -> Result<(), String> {
     let ref_schema = if ref_table == schema.name {
         schema.clone()
@@ -1714,6 +1731,16 @@ fn validate_fk_target_in(
                 "FOREIGN KEY on table `{}`: column `{local_col}` type does not match referenced column `{ref_table}.{ref_col}`",
                 schema.name
             ));
+        }
+        if matches!(on_delete, RefAction::SetNull)
+            || matches!(on_update, RefAction::SetNull)
+        {
+            if !local.nullable {
+                return Err(format!(
+                    "FOREIGN KEY on table `{}`: SET NULL requires nullable column `{local_col}`",
+                    schema.name
+                ));
+            }
         }
     }
     if !schema_has_unique_over(&ref_schema, ref_columns) {
@@ -1768,20 +1795,35 @@ fn row_exists_with_key_in(
         Ok(t) => t,
         Err(_) => return Ok(false),
     };
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
     for r in rows_t
         .range((table, 0u64)..=(table, u64::MAX))
         .map_err(map_err)?
     {
         let (_, v) = r.map_err(map_err)?;
+        account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
         let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
         if cells.len() < width {
             cells.resize(width, Cell::Null);
         }
-        if idxs.iter().zip(key).all(|(&i, k)| cells.get(i) == Some(k)) {
+        if idxs.iter().zip(key).all(|(&i, k)| {
+            cells
+                .get(i)
+                .is_some_and(|cell| typed_cells_equal(cell, k, schema.columns()[i].ty))
+        }) {
             return Ok(true);
         }
     }
     Ok(false)
+}
+
+/// Compare two persisted cells through their declared schema type. UUID and
+/// NUMERIC deliberately have legacy Cell representations from before NE-002;
+/// comparing the raw enum would make an old row fail a new FK/UNIQUE lookup even
+/// though the logical value is identical.
+fn typed_cells_equal(left: &Cell, right: &Cell, ty: ColumnType) -> bool {
+    left.to_typed_json(ty) == right.to_typed_json(ty)
 }
 
 /// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — verify every OUTGOING `FOREIGN KEY` on `schema` for ONE
@@ -1848,6 +1890,7 @@ fn validate_row_constraints_in(
     schema: &TableSchema,
     cells: &[Cell],
 ) -> Result<(), String> {
+    validate_column_checks_in(schema, cells)?;
     let checks: Vec<&TableConstraint> = schema
         .constraints()
         .iter()
@@ -1857,6 +1900,25 @@ fn validate_row_constraints_in(
         eval_table_checks(&schema.name, &checks, &row_map(schema, cells))?;
     }
     validate_fk_out_for_row_in(wtx, schema, cells)
+}
+
+fn validate_column_checks_in(schema: &TableSchema, cells: &[Cell]) -> Result<(), String> {
+    for (ci, column) in schema.columns().iter().enumerate() {
+        if let Some(check) = &column.check {
+            let value = cells
+                .get(ci)
+                .cloned()
+                .unwrap_or(Cell::Null)
+                .to_typed_json(column.ty);
+            if !check.holds(&value) {
+                return Err(format!(
+                    "new row violates CHECK constraint on column `{}`",
+                    column.name
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — enforce every OTHER table's `FOREIGN KEY` that references
@@ -1917,7 +1979,13 @@ fn enforce_fk_on_parent_change_in(
                     .collect()
             });
             if let Some(nk) = &new_key {
-                if nk == &old_key {
+                if nk.iter().zip(&old_key).enumerate().all(|(offset, (new, old))| {
+                    typed_cells_equal(
+                        new,
+                        old,
+                        parent_schema.columns()[ref_idxs[offset]].ty,
+                    )
+                }) {
                     continue;
                 }
             }
@@ -1938,11 +2006,14 @@ fn enforce_fk_on_parent_change_in(
             let matches: Vec<(u64, Vec<Cell>)> = {
                 let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
                 let mut out = Vec::new();
+                let mut scanned_rows = 0usize;
+                let mut scanned_bytes = 0usize;
                 for r in rows_t
                     .range((child_table.as_str(), 0u64)..=(child_table.as_str(), u64::MAX))
                     .map_err(map_err)?
                 {
                     let (k, v) = r.map_err(map_err)?;
+                    account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
                     let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
                     if cells.len() < width {
                         cells.resize(width, Cell::Null);
@@ -1953,10 +2024,11 @@ fn enforce_fk_on_parent_change_in(
                     if any_null {
                         continue;
                     }
-                    if child_idxs
-                        .iter()
-                        .zip(&old_key)
-                        .all(|(&i, k)| cells.get(i) == Some(k))
+                    if child_idxs.iter().zip(&old_key).all(|(&i, k)| {
+                        cells.get(i).is_some_and(|cell| {
+                            typed_cells_equal(cell, k, child_schema.columns()[i].ty)
+                        })
+                    })
                     {
                         out.push((k.value().1, cells));
                     }
@@ -1980,15 +2052,19 @@ fn enforce_fk_on_parent_change_in(
                             for (&i, v) in child_idxs.iter().zip(nk) {
                                 updated[i] = v.clone();
                             }
-                            validate_fk_out_for_row_in(wtx, &child_schema, &updated)?;
+                            validate_row_constraints_in(wtx, &child_schema, &updated)?;
                             let blob = rmp_serde::to_vec_named(&updated)
                                 .map_err(|e| format!("encode row: {e}"))?;
+                            if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
+                                return Err("encoded SQL row exceeds storage value limit".to_string());
+                            }
                             {
                                 let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
                                 rows_t
                                     .insert((child_table.as_str(), child_rowid), blob.as_slice())
                                     .map_err(map_err)?;
                             }
+                            validate_uniqueness_in(wtx, &child_table, &child_schema)?;
                             enforce_fk_on_parent_change_in(
                                 wtx,
                                 &child_table,
@@ -2030,12 +2106,19 @@ fn enforce_fk_on_parent_change_in(
                         for &i in &child_idxs {
                             updated[i] = Cell::Null;
                         }
+                        validate_row_constraints_in(wtx, &child_schema, &updated)?;
                         let blob = rmp_serde::to_vec_named(&updated)
                             .map_err(|e| format!("encode row: {e}"))?;
-                        let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
-                        rows_t
-                            .insert((child_table.as_str(), child_rowid), blob.as_slice())
-                            .map_err(map_err)?;
+                        if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
+                            return Err("encoded SQL row exceeds storage value limit".to_string());
+                        }
+                        {
+                            let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+                            rows_t
+                                .insert((child_table.as_str(), child_rowid), blob.as_slice())
+                                .map_err(map_err)?;
+                        }
+                        validate_uniqueness_in(wtx, &child_table, &child_schema)?;
                     }
                 }
             }
@@ -2064,11 +2147,14 @@ fn validate_not_null_in(
     }
     let width = schema.columns().len();
     let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
     for r in rows_t
         .range((table, 0u64)..=(table, u64::MAX))
         .map_err(map_err)?
     {
         let (_, v) = r.map_err(map_err)?;
+        account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
         let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
         if cells.len() < width {
             cells.resize(width, Cell::Null);
@@ -2099,11 +2185,14 @@ fn validate_table_checks_over_existing_in(
     }
     let width = schema.columns().len();
     let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
     for r in rows_t
         .range((table, 0u64)..=(table, u64::MAX))
         .map_err(map_err)?
     {
         let (_, v) = r.map_err(map_err)?;
+        account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
         let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
         if cells.len() < width {
             cells.resize(width, Cell::Null);
@@ -2124,11 +2213,14 @@ fn validate_existing_fk_children_in(
 ) -> Result<(), String> {
     let width = schema.columns().len();
     let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
     let rows: Vec<Vec<Cell>> = rows_t
         .range((table, 0u64)..=(table, u64::MAX))
         .map_err(map_err)?
         .map(|r| {
             let (_, v) = r.map_err(map_err)?;
+            account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
             let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
             if cells.len() < width {
                 cells.resize(width, Cell::Null);
@@ -2163,14 +2255,27 @@ fn create_in(
             columns,
             ref_table,
             ref_columns,
+            on_delete,
+            on_update,
             ..
         } = &c
         {
-            validate_fk_target_in(wtx, &schema, columns, ref_table, ref_columns)?;
+            validate_fk_target_in(
+                wtx,
+                &schema,
+                columns,
+                ref_table,
+                ref_columns,
+                *on_delete,
+                *on_update,
+            )?;
         }
     }
     let schema = &schema;
     let blob = rmp_serde::to_vec_named(schema).map_err(|e| format!("encode schema: {e}"))?;
+    if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
+        return Err("encoded SQL schema exceeds storage value limit".to_string());
+    }
     {
         let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
         cat.insert(schema.name.as_str(), blob.as_slice())
@@ -2190,6 +2295,27 @@ fn drop_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, 
         }
         return Err(format!("table `{name}` does not exist"));
     }
+    // Keep the catalog graph closed: dropping a referenced parent while a child
+    // FK remains would leave a durable constraint that can no longer be checked.
+    // The check is schema-only (no tenant row values are surfaced) and runs in
+    // this same write transaction, so a failure cannot partially remove metadata.
+    for child_table in list_tables_in(wtx)? {
+        if child_table == name {
+            continue;
+        }
+        if let Some(child_schema) = get_schema_in(wtx, &child_table)? {
+            for constraint in child_schema.constraints() {
+                if let TableConstraint::ForeignKey { ref_table, .. } = constraint {
+                    if ref_table == name {
+                        let cname = TableSchema::constraint_display_name(&child_table, constraint);
+                        return Err(format!(
+                            "cannot drop table `{name}` because foreign key `{cname}` on table `{child_table}` references it"
+                        ));
+                    }
+                }
+            }
+        }
+    }
     {
         let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
         cat.remove(name).map_err(map_err)?;
@@ -2200,12 +2326,17 @@ fn drop_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, 
     }
     {
         let mut rows = wtx.open_table(ROWS).map_err(map_err)?;
+        let mut scanned_rows = 0usize;
+        let mut scanned_bytes = 0usize;
         let keys: Vec<u64> = rows
             .range((name, 0u64)..=(name, u64::MAX))
             .map_err(map_err)?
-            .map(|r| r.map(|(k, _)| k.value().1))
-            .collect::<Result<_, _>>()
-            .map_err(map_err)?;
+            .map(|r| {
+                let (k, v) = r.map_err(map_err)?;
+                account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
+                Ok::<u64, String>(k.value().1)
+            })
+            .collect::<Result<_, _>>()?;
         for rowid in keys {
             rows.remove((name, rowid)).map_err(map_err)?;
         }
@@ -2235,6 +2366,9 @@ fn add_column_in(wtx: &WriteTransaction, table: &str, column: &Column) -> Result
 fn put_schema_in(wtx: &WriteTransaction, schema: &TableSchema) -> Result<(), String> {
     schema.validate()?;
     let blob = rmp_serde::to_vec_named(schema).map_err(|e| format!("encode schema: {e}"))?;
+    if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
+        return Err("encoded SQL schema exceeds storage value limit".to_string());
+    }
     let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
     cat.insert(schema.name.as_str(), blob.as_slice())
         .map_err(map_err)?;
@@ -2253,17 +2387,23 @@ fn migrate_rows_in(
     let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
     // Decode every (rowid, cells) first; the range borrow ends before we mutate.
     let mut items: Vec<(u64, Vec<Cell>)> = Vec::new();
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
     for r in rows_t
         .range((table, 0u64)..=(table, u64::MAX))
         .map_err(map_err)?
     {
         let (k, v) = r.map_err(map_err)?;
+        account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
         let cells: Vec<Cell> = decode_stored(v.value(), "row")?;
         items.push((k.value().1, cells));
     }
     for (rowid, mut cells) in items {
         f(&mut cells)?;
         let blob = rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?;
+        if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
+            return Err("encoded SQL row exceeds storage value limit".to_string());
+        }
         rows_t
             .insert((table, rowid), blob.as_slice())
             .map_err(map_err)?;
@@ -2309,6 +2449,46 @@ fn drop_column_in(
             "cannot drop the only column `{column}` of table `{table}`"
         ));
     }
+    for constraint in schema.constraints() {
+        if let TableConstraint::ForeignKey {
+            columns,
+            ref_table,
+            ref_columns,
+            ..
+        } = constraint
+        {
+            if columns.iter().any(|name| name == column)
+                || (ref_table == table && ref_columns.iter().any(|name| name == column))
+            {
+                return Err(format!(
+                    "cannot drop column `{table}.{column}` while foreign key `{}` uses it",
+                    TableSchema::constraint_display_name(table, constraint)
+                ));
+            }
+        }
+    }
+    for child_table in list_tables_in(wtx)? {
+        if child_table == table {
+            continue;
+        }
+        if let Some(child_schema) = get_schema_in(wtx, &child_table)? {
+            for constraint in child_schema.constraints() {
+                if let TableConstraint::ForeignKey {
+                    ref_table,
+                    ref_columns,
+                    ..
+                } = constraint
+                {
+                    if ref_table == table && ref_columns.iter().any(|name| name == column) {
+                        return Err(format!(
+                            "cannot drop column `{table}.{column}` because foreign key `{}` on table `{child_table}` references it",
+                            TableSchema::constraint_display_name(&child_table, constraint)
+                        ));
+                    }
+                }
+            }
+        }
+    }
     schema.columns_mut().remove(idx);
     put_schema_in(wtx, &schema)?;
     // Splice the dropped cell out of each stored row (rows may be short if written before
@@ -2337,6 +2517,59 @@ fn rename_column_in(
     let idx = schema
         .column_index(from)
         .ok_or_else(|| format!("column `{from}` does not exist in table `{table}`"))?;
+    let mut dependents = Vec::new();
+    for child_table in list_tables_in(wtx)? {
+        if child_table == table {
+            continue;
+        }
+        let Some(mut child_schema) = get_schema_in(wtx, &child_table)? else {
+            continue;
+        };
+        let mut changed = false;
+        for constraint in child_schema.constraints_mut() {
+            if let TableConstraint::ForeignKey {
+                ref_table,
+                ref_columns,
+                ..
+            } = constraint
+            {
+                if ref_table == table {
+                    for column in ref_columns {
+                        if column == from {
+                            *column = to.to_string();
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        if changed {
+            dependents.push(child_schema);
+        }
+    }
+    for child_schema in &dependents {
+        put_schema_in(wtx, child_schema)?;
+    }
+    for constraint in schema.constraints_mut() {
+        match constraint {
+            TableConstraint::PrimaryKey { columns, .. }
+            | TableConstraint::Unique { columns, .. } => {
+                rename_constraint_column_list(columns, from, to);
+            }
+            TableConstraint::ForeignKey {
+                columns,
+                ref_table,
+                ref_columns,
+                ..
+            } => {
+                rename_constraint_column_list(columns, from, to);
+                if ref_table == table {
+                    rename_constraint_column_list(ref_columns, from, to);
+                }
+            }
+            TableConstraint::Check { expr, .. } => rename_check_column(expr, from, to),
+        }
+    }
     schema.columns_mut()[idx].name = to.to_string();
     put_schema_in(wtx, &schema)?;
     let replacement = {
@@ -2361,6 +2594,38 @@ fn rename_column_in(
     Ok(())
 }
 
+fn rename_constraint_column_list(columns: &mut [String], from: &str, to: &str) {
+    for column in columns {
+        if column == from {
+            *column = to.to_string();
+        }
+    }
+}
+
+fn rename_check_column(expr: &mut CheckExpr, from: &str, to: &str) {
+    match expr {
+        CheckExpr::Cmp { column, .. }
+        | CheckExpr::In { column, .. }
+        | CheckExpr::IsNull { column, .. } => {
+            if column == from {
+                *column = to.to_string();
+            }
+        }
+        CheckExpr::ColCmp { left, right, .. } => {
+            if left == from {
+                *left = to.to_string();
+            }
+            if right == from {
+                *right = to.to_string();
+            }
+        }
+        CheckExpr::And(left, right) | CheckExpr::Or(left, right) => {
+            rename_check_column(left, from, to);
+            rename_check_column(right, from, to);
+        }
+    }
+}
+
 /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME TO newtable`: move the catalog entry, the sequence, and
 /// every stored row's key from `table` to `new_name`. Errors if the table is absent or
 /// `new_name` already exists.
@@ -2372,6 +2637,40 @@ fn rename_table_in(wtx: &WriteTransaction, table: &str, new_name: &str) -> Resul
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     if get_schema_in(wtx, new_name)?.is_some() {
         return Err(format!("table `{new_name}` already exists"));
+    }
+    // Update every inbound/self FK in the same redb transaction. Leaving a
+    // child constraint pointing at the old catalog key would make a successful
+    // rename create a permanently unenforceable relationship.
+    let mut dependents = Vec::new();
+    for child_table in list_tables_in(wtx)? {
+        if child_table == table {
+            continue;
+        }
+        let Some(mut child_schema) = get_schema_in(wtx, &child_table)? else {
+            continue;
+        };
+        let mut changed = false;
+        for constraint in child_schema.constraints_mut() {
+            if let TableConstraint::ForeignKey { ref_table, .. } = constraint {
+                if ref_table == table {
+                    *ref_table = new_name.to_string();
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            dependents.push(child_schema);
+        }
+    }
+    for child_schema in &dependents {
+        put_schema_in(wtx, child_schema)?;
+    }
+    for constraint in schema.constraints_mut() {
+        if let TableConstraint::ForeignKey { ref_table, .. } = constraint {
+            if ref_table == table {
+                *ref_table = new_name.to_string();
+            }
+        }
     }
     // Catalog: drop the old key, write the schema under the new name.
     schema.name = new_name.to_string();
@@ -2393,11 +2692,14 @@ fn rename_table_in(wtx: &WriteTransaction, table: &str, new_name: &str) -> Resul
     {
         let mut rows = wtx.open_table(ROWS).map_err(map_err)?;
         let mut items: Vec<(u64, Vec<u8>)> = Vec::new();
+        let mut scanned_rows = 0usize;
+        let mut scanned_bytes = 0usize;
         for r in rows
             .range((table, 0u64)..=(table, u64::MAX))
             .map_err(map_err)?
         {
             let (k, v) = r.map_err(map_err)?;
+            account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
             items.push((k.value().1, v.value().to_vec()));
         }
         for (rowid, blob) in &items {
@@ -2522,17 +2824,27 @@ fn add_constraint_in(
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     let mut trial = schema.clone();
     trial.push_constraint(constraint.clone());
+    force_pk_not_null(&mut trial);
     trial.validate()?;
     if let TableConstraint::ForeignKey {
         columns,
         ref_table,
         ref_columns,
+        on_delete,
+        on_update,
         ..
     } = &constraint
     {
-        validate_fk_target_in(wtx, &trial, columns, ref_table, ref_columns)?;
+        validate_fk_target_in(
+            wtx,
+            &trial,
+            columns,
+            ref_table,
+            ref_columns,
+            *on_delete,
+            *on_update,
+        )?;
     }
-    force_pk_not_null(&mut trial);
     match &constraint {
         TableConstraint::PrimaryKey { .. } => {
             validate_not_null_in(wtx, table, &trial)?;
@@ -2633,6 +2945,10 @@ fn coercion_value(old: &Cell, ty: ColumnType) -> Value {
                 .unwrap_or_else(|| Value::String(s.clone())),
             other => other.to_json(),
         },
+        ColumnType::Uuid
+        | ColumnType::Numeric(_)
+        | ColumnType::TimestampTz
+        | ColumnType::Array(_) => old.to_typed_json(ty),
         // Text / Json / Bytes / Vector reuse the cell's plain JSON form; `Cell::coerce`
         // renders a scalar into text, parses a string into bytes, etc.
         _ => old.to_json(),
@@ -2663,12 +2979,31 @@ fn alloc_rowids(wtx: &WriteTransaction, table: &str, count: u64) -> Result<u64, 
     Ok(first)
 }
 
+/// Bound caller-controlled JSON before it reaches a Cell or a redb write. This
+/// is intentionally checked at every DML boundary (INSERT defaults/supplied
+/// values and UPDATE assignments), not only by the eventual MessagePack decoder;
+/// a tenant cannot make an unbounded value transiently occupy the write txn.
+fn validate_mutation_value(value: &Value) -> Result<(), String> {
+    let encoded = serde_json::to_vec(value)
+        .map_err(|error| format!("SQL mutation value is not serializable: {error}"))?;
+    if encoded.len() > MAX_SQL_STORED_VALUE_BYTES {
+        return Err("SQL mutation value exceeds storage value limit".to_string());
+    }
+    Ok(())
+}
+
 fn insert_in(
     wtx: &WriteTransaction,
     table: &str,
     col_order: &[String],
     rows: &[Vec<Value>],
 ) -> Result<Vec<Vec<Cell>>, String> {
+    if rows.len() > MAX_SQL_SCAN_ROWS {
+        return Err(format!(
+            "INSERT contains {} rows; maximum is {MAX_SQL_SCAN_ROWS}",
+            rows.len()
+        ));
+    }
     let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
 
@@ -2685,10 +3020,11 @@ fn insert_in(
     for (ri, row) in rows.iter().enumerate() {
         let rowid = first_rowid + ri as u64;
         let cells = build_insert_cells(&schema, col_order, &targets, row, rowid)?;
-        encoded.push((
-            rowid,
-            rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?,
-        ));
+        let blob = rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?;
+        if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
+            return Err("encoded SQL row exceeds storage value limit".to_string());
+        }
+        encoded.push((rowid, blob));
         inserted.push(cells);
     }
 
@@ -2748,6 +3084,7 @@ fn build_insert_cells(
     let mut cells: Vec<Cell> = vec![Cell::Null; width];
     let mut supplied = vec![false; width];
     for (val, &idx) in row.iter().zip(targets.iter()) {
+        validate_mutation_value(val)?;
         let col = &schema.columns()[idx];
         cells[idx] = Cell::coerce(val, col.ty, col.nullable)?;
         supplied[idx] = true;
@@ -2759,6 +3096,7 @@ fn build_insert_cells(
         if col.serial {
             cells[ci] = Cell::coerce(&Value::Number((rowid as i64 + 1).into()), col.ty, false)?;
         } else if let Some(def) = &col.default {
+            validate_mutation_value(def)?;
             cells[ci] = Cell::coerce(def, col.ty, col.nullable)?;
         } else if !col.nullable {
             return Err(format!(
@@ -2769,7 +3107,7 @@ fn build_insert_cells(
     }
     for (ci, col) in schema.columns().iter().enumerate() {
         if let Some(check) = &col.check {
-            if !check.holds(&cells[ci].to_json()) {
+            if !check.holds(&cells[ci].to_typed_json(col.ty)) {
                 return Err(format!(
                     "new row violates CHECK constraint on column `{}`",
                     col.name
@@ -2793,6 +3131,12 @@ fn insert_on_conflict_in(
     rows: &[Vec<Value>],
     action: &ConflictAction,
 ) -> Result<Vec<Vec<Cell>>, String> {
+    if rows.len() > MAX_SQL_SCAN_ROWS {
+        return Err(format!(
+            "INSERT contains {} rows; maximum is {MAX_SQL_SCAN_ROWS}",
+            rows.len()
+        ));
+    }
     let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     let width = schema.columns().len();
@@ -2814,16 +3158,41 @@ fn insert_on_conflict_in(
 
     // Current unique-value snapshot (committed + staged), rebuilt from the store. When
     // the physical row table does not exist yet there are simply no existing rows.
+    // Keep the existing per-column directory and add one bounded directory for each
+    // composite table-level key; this lets ON CONFLICT honor NE-001 keys without
+    // turning the final authoritative uniqueness scan into a second authority.
+    let composite_cols: Vec<Vec<usize>> = schema
+        .constraints()
+        .iter()
+        .filter_map(|constraint| match constraint {
+            TableConstraint::PrimaryKey { columns, .. }
+            | TableConstraint::Unique { columns, .. } if columns.len() > 1 => Some(
+                columns
+                    .iter()
+                    .map(|name| {
+                        schema
+                            .column_index(name)
+                            .expect("constraint column existence validated at DDL time")
+                    })
+                    .collect(),
+            _ => None,
+        })
+        .collect();
     let mut existing: Vec<(u64, Vec<Cell>)> = Vec::new();
     let mut row_slot: HashMap<u64, usize> = HashMap::new();
     let mut unique_rows: Vec<HashMap<String, u64>> =
         (0..unique_cols.len()).map(|_| HashMap::new()).collect();
+    let mut composite_rows: Vec<HashMap<String, u64>> =
+        (0..composite_cols.len()).map(|_| HashMap::new()).collect();
     if let Ok(rows_t) = wtx.open_table(ROWS) {
+        let mut scanned_rows = 0usize;
+        let mut scanned_bytes = 0usize;
         for r in rows_t
             .range((table, 0u64)..=(table, u64::MAX))
             .map_err(map_err)?
         {
             let (k, v) = r.map_err(map_err)?;
+            account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
             let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
             if cells.len() < width {
                 cells.resize(width, Cell::Null);
@@ -2831,10 +3200,15 @@ fn insert_on_conflict_in(
             let rowid = k.value().1;
             row_slot.insert(rowid, existing.len());
             for (slot, &column) in unique_cols.iter().enumerate() {
-                if let Some(key) = unique_cell_key(&cells[column]) {
+                if let Some(key) = unique_cell_key(&cells[column], schema.columns()[column].ty) {
                     // Existing corruption is still rejected by the authoritative
                     // final validation. Keeping the first row mirrors the old scan.
                     unique_rows[slot].entry(key).or_insert(rowid);
+                }
+            }
+            for (slot, columns) in composite_cols.iter().enumerate() {
+                if let Some(key) = composite_cell_key(&cells, columns, &schema) {
+                    composite_rows[slot].entry(key).or_insert(rowid);
                 }
             }
             existing.push((rowid, cells));
@@ -2844,6 +3218,9 @@ fn insert_on_conflict_in(
     let mut affected: Vec<Vec<Cell>> = Vec::new();
     let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
     for row in rows {
+        for value in row {
+            validate_mutation_value(value)?;
+        }
         // Coerce the supplied unique-column values to detect a conflict.
         let mut conflict_rowid: Option<u64> = None;
         for (slot, &uci) in unique_cols.iter().enumerate() {
@@ -2853,10 +3230,40 @@ fn insert_on_conflict_in(
             };
             let col = &schema.columns()[uci];
             let supplied = Cell::coerce(&row[pos], col.ty, col.nullable)?;
-            if let Some(key) = unique_cell_key(&supplied) {
+            if let Some(key) = unique_cell_key(&supplied, col.ty) {
                 if let Some(&rowid) = unique_rows[slot].get(&key) {
                     conflict_rowid = Some(rowid);
                     break;
+                }
+            }
+        }
+        if conflict_rowid.is_none() {
+            // Composite conflict detection is possible when all key columns are
+            // explicitly supplied. Omitted columns are left to build_insert_cells
+            // and the final uniqueness pass, preserving DEFAULT/SERIAL behavior.
+            for (slot, columns) in composite_cols.iter().enumerate() {
+                let mut supplied = Vec::with_capacity(columns.len());
+                let mut complete = true;
+                for &column in columns {
+                    let Some(pos) = target_position_by_col[column] else {
+                        complete = false;
+                        break;
+                    };
+                    let col = &schema.columns()[column];
+                    let value = Cell::coerce(&row[pos], col.ty, col.nullable)?;
+                    let Some(key) = unique_cell_key(&value, col.ty) else {
+                        complete = false;
+                        break;
+                    };
+                    supplied.push(key);
+                }
+                if complete {
+                    let key = serde_json::to_string(&supplied)
+                        .expect("Vec<String> is serializable");
+                    if let Some(&rowid) = composite_rows[slot].get(&key) {
+                        conflict_rowid = Some(rowid);
+                        break;
+                    }
                 }
             }
         }
@@ -2868,13 +3275,23 @@ fn insert_on_conflict_in(
                 let index = *row_slot.get(&rid).expect("conflict rowid present");
                 let slot = &mut existing[index];
                 for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
-                    if let Some(key) = unique_cell_key(&slot.1[column]) {
+                    if let Some(key) =
+                        unique_cell_key(&slot.1[column], schema.columns()[column].ty)
+                    {
+                        if map.get(&key) == Some(&rid) {
+                            map.remove(&key);
+                        }
+                    }
+                }
+                for (map, columns) in composite_rows.iter_mut().zip(&composite_cols) {
+                    if let Some(key) = composite_cell_key(&slot.1, columns, &schema) {
                         if map.get(&key) == Some(&rid) {
                             map.remove(&key);
                         }
                     }
                 }
                 for (col, val) in set {
+                    validate_mutation_value(val)?;
                     let idx = schema.column_index(col).ok_or_else(|| {
                         format!("column `{col}` does not exist in table `{table}`")
                     })?;
@@ -2884,7 +3301,7 @@ fn insert_on_conflict_in(
                 // Re-check CHECK constraints on the updated row.
                 for (ci, col) in schema.columns().iter().enumerate() {
                     if let Some(check) = &col.check {
-                        if !check.holds(&slot.1[ci].to_json()) {
+                        if !check.holds(&slot.1[ci].to_typed_json(col.ty)) {
                             return Err(format!(
                                 "updated row violates CHECK constraint on column `{}`",
                                 col.name
@@ -2893,12 +3310,22 @@ fn insert_on_conflict_in(
                     }
                 }
                 for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
-                    if let Some(key) = unique_cell_key(&slot.1[column]) {
+                    if let Some(key) =
+                        unique_cell_key(&slot.1[column], schema.columns()[column].ty)
+                    {
+                        map.entry(key).or_insert(rid);
+                    }
+                }
+                for (map, columns) in composite_rows.iter_mut().zip(&composite_cols) {
+                    if let Some(key) = composite_cell_key(&slot.1, columns, &schema) {
                         map.entry(key).or_insert(rid);
                     }
                 }
                 let blob =
                     rmp_serde::to_vec_named(&slot.1).map_err(|e| format!("encode row: {e}"))?;
+                if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
+                    return Err("encoded SQL row exceeds storage value limit".to_string());
+                }
                 rows_t
                     .insert((table, rid), blob.as_slice())
                     .map_err(map_err)?;
@@ -2910,12 +3337,20 @@ fn insert_on_conflict_in(
                 let cells = build_insert_cells(&schema, col_order, &targets, row, rowid)?;
                 let blob =
                     rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?;
+                if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
+                    return Err("encoded SQL row exceeds storage value limit".to_string());
+                }
                 rows_t
                     .insert((table, rowid), blob.as_slice())
                     .map_err(map_err)?;
                 row_slot.insert(rowid, existing.len());
                 for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
-                    if let Some(key) = unique_cell_key(&cells[column]) {
+                    if let Some(key) = unique_cell_key(&cells[column], schema.columns()[column].ty) {
+                        map.entry(key).or_insert(rowid);
+                    }
+                }
+                for (map, columns) in composite_rows.iter_mut().zip(&composite_cols) {
+                    if let Some(key) = composite_cell_key(&cells, columns, &schema) {
                         map.entry(key).or_insert(rowid);
                     }
                 }
@@ -2937,9 +3372,20 @@ fn insert_on_conflict_in(
 /// Canonical key used by the existing uniqueness validator, factored so the
 /// ON-CONFLICT lookup directory and the final integrity pass cannot drift. SQL
 /// NULL is deliberately absent because UNIQUE permits multiple NULL values.
-fn unique_cell_key(cell: &Cell) -> Option<String> {
-    let value = cell.to_json();
+fn unique_cell_key(cell: &Cell, ty: ColumnType) -> Option<String> {
+    let value = cell.to_typed_json(ty);
     (!value.is_null()).then(|| value.to_string())
+}
+
+/// Canonical key for a composite PK/UNIQUE tuple used by the bounded ON CONFLICT
+/// directory. JSON tuple encoding keeps tenant-provided delimiters from changing
+/// key boundaries; NULL in any member preserves SQL's NULL-exempt uniqueness rule.
+fn composite_cell_key(cells: &[Cell], columns: &[usize], schema: &TableSchema) -> Option<String> {
+    let parts = columns
+        .iter()
+        .map(|&column| unique_cell_key(&cells[column], schema.columns()[column].ty))
+        .collect::<Option<Vec<_>>>()?;
+    serde_json::to_string(&parts).ok()
 }
 
 /// Build a `col -> json` row map for predicate evaluation (CONCEPT:EG-KG.query.compound-predicate-decode): one
@@ -2949,7 +3395,7 @@ fn row_map(schema: &TableSchema, cells: &[Cell]) -> serde_json::Map<String, Valu
     let mut map = serde_json::Map::with_capacity(schema.columns().len());
     for (ci, col) in schema.columns().iter().enumerate() {
         let cell = cells.get(ci).cloned().unwrap_or(Cell::Null);
-        map.insert(col.name.clone(), cell.to_json());
+        map.insert(col.name.clone(), cell.to_typed_json(col.ty));
     }
     map
 }
@@ -2964,6 +3410,7 @@ fn update_in(
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     let mut assigns: Vec<(usize, Cell)> = Vec::with_capacity(set.len());
     for (col, val) in set {
+        validate_mutation_value(val)?;
         let idx = schema
             .column_index(col)
             .ok_or_else(|| format!("column `{col}` does not exist in table `{table}`"))?;
@@ -2978,11 +3425,14 @@ fn update_in(
     {
         let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
         let mut hits: Vec<(u64, Vec<Cell>)> = Vec::new();
+        let mut scanned_rows = 0usize;
+        let mut scanned_bytes = 0usize;
         for r in rows_t
             .range((table, 0u64)..=(table, u64::MAX))
             .map_err(map_err)?
         {
             let (k, v) = r.map_err(map_err)?;
+            account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
             let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
             if cells.len() < width {
                 cells.resize(width, Cell::Null);
@@ -3001,7 +3451,7 @@ fn update_in(
             // CHECK constraints on the updated row.
             for (ci, col) in schema.columns().iter().enumerate() {
                 if let Some(check) = &col.check {
-                    if !check.holds(&cells[ci].to_json()) {
+                    if !check.holds(&cells[ci].to_typed_json(col.ty)) {
                         return Err(format!(
                             "updated row violates CHECK constraint on column `{}`",
                             col.name
@@ -3010,6 +3460,9 @@ fn update_in(
                 }
             }
             let blob = rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?;
+            if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
+                return Err("encoded SQL row exceeds storage value limit".to_string());
+            }
             rows_t
                 .insert((table, rowid), blob.as_slice())
                 .map_err(map_err)?;
@@ -3049,11 +3502,14 @@ fn delete_in(
     let mut removed: Vec<Vec<Cell>> = Vec::new();
     let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
     let mut victims: Vec<(u64, Vec<Cell>)> = Vec::new();
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
     for r in rows_t
         .range((table, 0u64)..=(table, u64::MAX))
         .map_err(map_err)?
     {
         let (k, v) = r.map_err(map_err)?;
+        account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
         let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
         if cells.len() < width {
             cells.resize(width, Cell::Null);
@@ -3122,11 +3578,14 @@ fn validate_uniqueness_in(
     let width = schema.columns().len();
     let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
     let mut seen: Vec<HashSet<String>> = vec![HashSet::new(); groups.len()];
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
     for r in rows_t
         .range((table, 0u64)..=(table, u64::MAX))
         .map_err(map_err)?
     {
         let (_, v) = r.map_err(map_err)?;
+        account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
         let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
         if cells.len() < width {
             cells.resize(width, Cell::Null);
@@ -3135,7 +3594,7 @@ fn validate_uniqueness_in(
             let mut parts: Vec<String> = Vec::with_capacity(idxs.len());
             let mut any_null = false;
             for &ci in idxs {
-                match unique_cell_key(&cells[ci]) {
+                match unique_cell_key(&cells[ci], schema.columns()[ci].ty) {
                     Some(k) => parts.push(k),
                     None => {
                         any_null = true;
@@ -3146,7 +3605,10 @@ fn validate_uniqueness_in(
             if any_null {
                 continue;
             }
-            let key = parts.join("\u{1}");
+            // Encode the tuple boundary structurally; concatenating with a
+            // delimiter lets a tenant value containing that delimiter collide
+            // with a different composite key.
+            let key = serde_json::to_string(&parts).expect("Vec<String> is serializable");
             if !seen[slot].insert(key) {
                 return Err(format!(
                     "duplicate key value violates unique constraint on {label}"
