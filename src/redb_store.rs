@@ -76,12 +76,12 @@ fn durable_msgpack_limits() -> eg_types::msgpack::MsgpackLimits {
     )
 }
 
-/// Return a native resource mutation with only the authority-owned lifecycle
-/// timestamp normalized.  All other request fields remain serialized and
-/// therefore participate in exact idempotency comparison.  This is
-/// intentionally a dedicated native replay seam, not a generic byte-comparison
-/// relaxation for MutationBatch.
-fn native_resource_retry_method(method: &Method) -> Option<Method> {
+/// Return a native WorkItem/resource mutation with only authority-owned
+/// lifecycle fields normalized. All other request fields remain serialized and
+/// therefore participate in exact idempotency comparison. This is intentionally
+/// a dedicated native replay seam, not a generic byte-comparison relaxation for
+/// MutationBatch.
+fn native_retry_method(method: &Method) -> Option<Method> {
     match method {
         Method::ReserveWorkItemResources { request } => {
             let mut request = request.clone();
@@ -103,29 +103,56 @@ fn native_resource_retry_method(method: &Method) -> Option<Method> {
             request.now_ms = 0;
             Some(Method::UpdateResourceHost { request })
         }
+        Method::SubmitWorkItem { request } => {
+            let mut request = request.clone();
+            normalize_submit_context(&mut request.context);
+            Some(Method::SubmitWorkItem { request })
+        }
+        Method::SubmitWorkItems { request } => {
+            let mut request = request.clone();
+            normalize_submit_context(&mut request.context);
+            for child in &mut request.requests {
+                normalize_submit_context(&mut child.context);
+            }
+            Some(Method::SubmitWorkItems { request })
+        }
         _ => None,
     }
 }
 
-fn native_resource_retry_method_key(method: &Method) -> Result<Option<Vec<u8>>, String> {
-    native_resource_retry_method(method)
+/// The transport/request context is provenance, but a retry may legitimately
+/// carry a fresh request/trace/expiry window. Keep the security-bearing scope
+/// and subject fields in the idempotency comparison while normalizing only the
+/// authority-issued temporal/correlation fields.
+fn normalize_submit_context(
+    context: &mut crate::epistemic_operations::RequestContext,
+) {
+    context.request_id.clear();
+    context.trace_id.clear();
+    context.issued_at_ms = 0;
+    context.expires_at_ms = 0;
+    context.placement_epoch = None;
+}
+
+fn native_retry_method_key(method: &Method) -> Result<Option<Vec<u8>>, String> {
+    native_retry_method(method)
         .map(|method| rmp_serde::to_vec_named(&method).map_err(|error| error.to_string()))
         .transpose()
 }
 
-fn native_resource_retry_operations(
+fn native_retry_operations(
     operations: &[MutationOperation],
 ) -> Option<Vec<MutationOperation>> {
     if operations.is_empty()
         || operations
             .iter()
-            .any(|operation| !is_native_resource_retry_method(&operation.method))
+            .any(|operation| !is_native_retry_method(&operation.method))
     {
         return None;
     }
     let methods = operations
         .iter()
-        .map(|operation| native_resource_retry_method(&operation.method))
+        .map(|operation| native_retry_method(&operation.method))
         .collect::<Option<Vec<_>>>()?;
     Some(
         operations
@@ -147,17 +174,17 @@ fn native_resource_retry_operations(
 /// immutable operation is identical.  Rebuild the digest from the same
 /// normalized operation list used by the operation comparator, while keeping
 /// topic/key/header metadata exact and rejecting arbitrary payload changes.
-fn native_resource_retry_outbox_match(
+fn native_retry_outbox_match(
     stored_operations: &[MutationOperation],
     proposed_operations: &[MutationOperation],
     stored_outbox: &[MutationOutboxIntent],
     proposed_outbox: &[MutationOutboxIntent],
     operations_match: bool,
 ) -> Result<bool, String> {
-    let Some(stored_normalized) = native_resource_retry_operations(stored_operations) else {
+    let Some(stored_normalized) = native_retry_operations(stored_operations) else {
         return Ok(stored_outbox == proposed_outbox);
     };
-    let Some(proposed_normalized) = native_resource_retry_operations(proposed_operations) else {
+    let Some(proposed_normalized) = native_retry_operations(proposed_operations) else {
         return Ok(false);
     };
     if !operations_match || stored_outbox.len() != proposed_outbox.len() {
@@ -190,13 +217,15 @@ fn native_resource_retry_outbox_match(
         }))
 }
 
-fn is_native_resource_retry_method(method: &Method) -> bool {
+fn is_native_retry_method(method: &Method) -> bool {
     matches!(
         method,
         Method::ReserveWorkItemResources { .. }
             | Method::ReleaseWorkItemResources { .. }
             | Method::ReclaimWorkItemResources { .. }
             | Method::UpdateResourceHost { .. }
+            | Method::SubmitWorkItem { .. }
+            | Method::SubmitWorkItems { .. }
     )
 }
 
@@ -212,8 +241,8 @@ fn native_resource_placement_replay_match(
     if !operations_match
         || stored.operations.len() != 1
         || proposed.operations.len() != 1
-        || !is_native_resource_retry_method(&stored.operations[0].method)
-        || !is_native_resource_retry_method(&proposed.operations[0].method)
+        || !is_native_retry_method(&stored.operations[0].method)
+        || !is_native_retry_method(&proposed.operations[0].method)
     {
         return false;
     }
@@ -244,8 +273,8 @@ fn mutation_operations_retry_match(
             return Ok(false);
         }
         match (
-            native_resource_retry_method_key(&stored.method)?,
-            native_resource_retry_method_key(&proposed.method)?,
+            native_retry_method_key(&stored.method)?,
+            native_retry_method_key(&proposed.method)?,
         ) {
             (Some(stored), Some(proposed)) if stored == proposed => {}
             (Some(_), Some(_)) => return Ok(false),
@@ -269,6 +298,8 @@ mod resource_reservation_tests;
 
 #[cfg(feature = "redb")]
 pub(crate) mod development_lane;
+#[cfg(feature = "redb")]
+pub(crate) mod capacity_lease;
 pub(crate) mod work_item_capability;
 
 fn decode_durable<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
@@ -533,6 +564,11 @@ pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::n
 pub(crate) const PROVENANCE_ANCHOR_MEMBERS: TableDefinition<(&str, u64), &[u8]> =
     TableDefinition::new("provenance_anchor_members");
 pub(crate) const GRAPH_META: TableDefinition<&str, &[u8]> = TableDefinition::new("graph_meta");
+/// Monotonic native WorkItem command sequence, scoped by graph.  The sequence
+/// is allocated in the same transaction as the submitted WorkItem row and its
+/// mutation/outbox record, so replay never allocates a second command number.
+pub(crate) const WORK_ITEM_COMMAND_SEQUENCE: TableDefinition<&str, u64> =
+    TableDefinition::new("work_item_command_sequence");
 /// Authoritative mutation-batch status/result rows, keyed by stable `batch_id`.
 /// The complete batch is retained so a retry can prove that the idempotency key
 /// names byte-identical work rather than silently accepting key reuse.
@@ -680,6 +716,8 @@ pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Resul
         .map_err(|error| error.to_string())?;
     wtx.open_table(GRAPH_META)
         .map_err(|error| error.to_string())?;
+    wtx.open_table(WORK_ITEM_COMMAND_SEQUENCE)
+        .map_err(|error| error.to_string())?;
     wtx.open_table(MUTATION_BATCHES)
         .map_err(|error| error.to_string())?;
     wtx.open_table(MUTATION_IDEMPOTENCY)
@@ -713,6 +751,7 @@ pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Resul
     wtx.open_table(RESOURCE_DISK_POLICIES)
         .map_err(|error| error.to_string())?;
     development_lane::initialize_tables(wtx)?;
+    capacity_lease::initialize_tables(wtx)?;
     work_item_capability::initialize_tables(wtx)?;
     wtx.open_table(CHANGE_ENVELOPES)
         .map_err(|error| error.to_string())?;
@@ -934,12 +973,18 @@ pub(crate) fn commit_ops(
         let mut resource_disk_policies = wtx
             .open_table(RESOURCE_DISK_POLICIES)
             .map_err(|e| e.to_string())?;
+        let mut command_sequences = wtx
+            .open_table(WORK_ITEM_COMMAND_SEQUENCE)
+            .map_err(|e| e.to_string())?;
         #[cfg(feature = "security")]
         let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
         for (graph, method) in ops.drain(..) {
             touched.insert(graph.clone());
             lane_validation_graphs.insert(graph.clone());
             if matches!(&method, Method::ClearGraph | Method::DeleteGraph { .. }) {
+                command_sequences
+                    .remove(graph.as_str())
+                    .map_err(|e| e.to_string())?;
                 clear_resource_rows(
                     &graph,
                     &mut resource_reservations,
@@ -954,6 +999,7 @@ pub(crate) fn commit_ops(
                     crypto,
                 )?;
                 development_lane::clear_native_graph_rows_in_wtx(&wtx, &graph, crypto)?;
+                capacity_lease::clear_graph_rows(&wtx, &graph)?;
                 work_item_capability::clear_graph_rows_in_wtx_with_native(
                     &wtx,
                     &graph,
@@ -977,6 +1023,7 @@ pub(crate) fn commit_ops(
         drop(edges);
         drop(ledger);
         drop(semantic);
+        drop(command_sequences);
         for graph in &lane_validation_graphs {
             development_lane::validate_current_lane_links_in_wtx(&wtx, graph, crypto)?;
         }
@@ -1491,6 +1538,8 @@ fn apply_mutation_batch_in_wtx(
                             | Method::ReleaseWorkItemResources { .. }
                             | Method::ReclaimWorkItemResources { .. }
                             | Method::UpdateResourceHost { .. }
+                            | Method::SubmitWorkItem { .. }
+                            | Method::SubmitWorkItems { .. }
                     )
             }
             None => false,
@@ -1633,7 +1682,7 @@ fn apply_mutation_batch_in_wtx(
                 && record.batch.fencing_token == batch.fencing_token;
             let placement_replay =
                 native_resource_placement_replay_match(&record.batch, batch, operations_match);
-            let outbox_match = native_resource_retry_outbox_match(
+            let outbox_match = native_retry_outbox_match(
                 &record.batch.operations,
                 &batch.operations,
                 &record.batch.outbox,
@@ -2090,6 +2139,9 @@ fn apply_mutation_batch_in_wtx(
         let mut lane_policies = wtx
             .open_table(development_lane::POLICIES)
             .map_err(|e| e.to_string())?;
+        let mut command_sequences = wtx
+            .open_table(WORK_ITEM_COMMAND_SEQUENCE)
+            .map_err(|e| e.to_string())?;
         #[cfg(feature = "security")]
         let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
         // GOC-19/GOC-20 (BUG-015 "B9"): a `CommitWorkItemResult` batch may
@@ -2134,6 +2186,7 @@ fn apply_mutation_batch_in_wtx(
                 Method::CreateGraph { .. } => {}
                 Method::DeleteGraph { .. } => {
                     clear_graph_rows(graph_fname, &mut nodes, &mut edges, &mut ledger)?;
+                    command_sequences.remove(graph_fname).map_err(|e| e.to_string())?;
                     clear_resource_rows(
                         graph_fname,
                         &mut resource_reservations,
@@ -2157,6 +2210,7 @@ fn apply_mutation_batch_in_wtx(
                         &mut lane_policies,
                         crypto,
                     )?;
+                    capacity_lease::clear_graph_rows(wtx, graph_fname)?;
                     work_item_capability::clear_graph_rows_in_wtx_with_native(
                         wtx,
                         graph_fname,
@@ -2165,6 +2219,7 @@ fn apply_mutation_batch_in_wtx(
                 }
                 Method::ClearGraph => {
                     clear_graph_rows(graph_fname, &mut nodes, &mut edges, &mut ledger)?;
+                    command_sequences.remove(graph_fname).map_err(|e| e.to_string())?;
                     clear_resource_rows(
                         graph_fname,
                         &mut resource_reservations,
@@ -2188,6 +2243,7 @@ fn apply_mutation_batch_in_wtx(
                         &mut lane_policies,
                         crypto,
                     )?;
+                    capacity_lease::clear_graph_rows(wtx, graph_fname)?;
                     work_item_capability::clear_graph_rows_in_wtx_with_native(
                         wtx,
                         graph_fname,
@@ -2196,6 +2252,46 @@ fn apply_mutation_batch_in_wtx(
                 }
                 Method::ClearLedger => {
                     clear_ledger_rows(graph_fname, &mut ledger)?;
+                }
+                Method::SubmitWorkItem { request } => {
+                    let result = apply_submit_work_item_rows(
+                        graph_fname,
+                        request,
+                        &mut nodes,
+                        &mut edges,
+                        &mut command_sequences,
+                        crypto,
+                        committed_at_ms,
+                        &batch.batch_id,
+                    )?;
+                    if generated_result.is_some() || batch.operations.len() != 1 {
+                        return Err(
+                            "SubmitWorkItem MutationBatch must contain exactly one result-producing operation"
+                                .to_string(),
+                        );
+                    }
+                    let payload = crate::protocol::ResultPayload::raw(&result);
+                    generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
+                }
+                Method::SubmitWorkItems { request } => {
+                    let result = apply_submit_work_items_rows(
+                        graph_fname,
+                        request,
+                        &mut nodes,
+                        &mut edges,
+                        &mut command_sequences,
+                        crypto,
+                        committed_at_ms,
+                        &batch.batch_id,
+                    )?;
+                    if generated_result.is_some() || batch.operations.len() != 1 {
+                        return Err(
+                            "SubmitWorkItems MutationBatch must contain exactly one result-producing operation"
+                                .to_string(),
+                        );
+                    }
+                    let payload = crate::protocol::ResultPayload::raw(&result);
+                    generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
                 }
                 method @ (Method::ClaimWorkItem { .. }
                 | Method::RenewWorkItemLease { .. }
@@ -2314,6 +2410,7 @@ fn apply_mutation_batch_in_wtx(
         drop(edges);
         drop(ledger);
         drop(semantic);
+        drop(command_sequences);
         drop(native_work_items);
         drop(lane_holds);
         drop(lane_work_item_index);
@@ -2377,6 +2474,7 @@ fn apply_mutation_batch_in_wtx(
                     crypto,
                 )?;
                 development_lane::clear_native_graph_rows_in_wtx(wtx, graph_fname, crypto)?;
+                capacity_lease::clear_graph_rows(wtx, graph_fname)?;
                 work_item_capability::clear_graph_rows_in_wtx_with_native(
                     wtx,
                     graph_fname,
@@ -2831,6 +2929,8 @@ fn supports_atomic_batch_rows(method: &Method) -> bool {
             | Method::CreateGraph { .. }
             | Method::DeleteGraph { .. }
             | Method::ClaimWorkItem { .. }
+            | Method::SubmitWorkItem { .. }
+            | Method::SubmitWorkItems { .. }
             | Method::RenewWorkItemLease { .. }
             | Method::CommitWorkItemResult { .. }
             | Method::CancelWorkItem { .. }
@@ -5707,6 +5807,379 @@ pub(crate) fn read_resource_reservation_status(
 /// transaction is held. The returned payload is persisted as the batch result in
 /// that same transaction, so a retry observes the exact original claim/commit
 /// outcome rather than running selection twice.
+fn apply_submit_work_item_rows(
+    graph: &str,
+    request: &crate::native_control::SubmitWorkItemRequest,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    command_sequences: &mut redb::Table<&str, u64>,
+    crypto: DurableCrypto<'_>,
+    authoritative_now_ms: u64,
+    outbox_id: &str,
+) -> Result<crate::native_control::SubmitWorkItemResult, String> {
+    use sha2::{Digest, Sha256};
+    use crate::native_control::{
+        NativeControlSchemaVersion, MAX_SUBMIT_DEPENDENCIES,
+        MAX_SUBMIT_METADATA_BYTES, MAX_SUBMIT_PROVENANCE_REFS, MAX_SUBMIT_REF_BYTES,
+    };
+    if request.schema_version != NativeControlSchemaVersion::V1 {
+        return Err("SubmitWorkItem schema_version must be 1".to_string());
+    }
+    let context_tenant = request.context.tenant_id.as_str();
+    let context_graph = request.context.graph.as_str();
+    if context_tenant.trim().is_empty() || crate::persist::sanitize(context_graph) != graph {
+        return Err("SubmitWorkItem context graph/tenant is invalid".to_string());
+    }
+    for (field, value) in [
+        ("idempotency_key", request.idempotency_key.as_str()),
+        ("command_digest", request.command_digest.as_str()),
+        ("kind", request.kind.as_str()),
+        ("policy_digest", request.policy_digest.as_str()),
+        ("catalog_digest", request.catalog_digest.as_str()),
+        ("model_digest", request.model_digest.as_str()),
+    ] {
+        if value.trim().is_empty() || value.len() > MAX_SUBMIT_REF_BYTES {
+            return Err(format!("SubmitWorkItem {field} is outside native bounds"));
+        }
+    }
+    if request.command_digest.len() != 64
+        || !request.command_digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("SubmitWorkItem command_digest must be a SHA-256 hex value".to_string());
+    }
+    if request.input_ref.len() > MAX_SUBMIT_REF_BYTES {
+        return Err("SubmitWorkItem input_ref exceeds native payload bound".to_string());
+    }
+    if request.depends_on.len() > MAX_SUBMIT_DEPENDENCIES {
+        return Err("SubmitWorkItem dependency count exceeds native bound".to_string());
+    }
+    let max_inflight = if request.max_tenant_in_flight == 0 {
+        4096
+    } else {
+        request.max_tenant_in_flight
+    };
+    if !(1..=4096).contains(&max_inflight)
+        || request.max_attempts == 0
+        || request.max_attempts > 4096
+        || !(-1024..=1024).contains(&request.priority)
+    {
+        return Err("SubmitWorkItem admission/max_attempts/priority is outside native bounds".to_string());
+    }
+    if request
+        .deadline_unix
+        .is_some_and(|deadline| !deadline.is_finite() || deadline < 0.0)
+    {
+        return Err("SubmitWorkItem deadline_unix is invalid".to_string());
+    }
+    if request.provenance_refs.len() > MAX_SUBMIT_PROVENANCE_REFS
+        || request
+            .provenance_refs
+            .iter()
+            .any(|reference| reference.trim().is_empty() || reference.len() > MAX_SUBMIT_REF_BYTES)
+    {
+        return Err("SubmitWorkItem provenance_refs exceed native bounds".to_string());
+    }
+    let metadata_bytes = rmp_serde::to_vec_named(&request.metadata).map_err(|e| e.to_string())?;
+    if metadata_bytes.len() > MAX_SUBMIT_METADATA_BYTES {
+        return Err("SubmitWorkItem metadata exceeds native bound".to_string());
+    }
+    let mut dependencies = request.depends_on.clone();
+    dependencies.sort();
+    dependencies.dedup();
+    if dependencies.len() != request.depends_on.len() {
+        return Err("SubmitWorkItem dependencies must be unique".to_string());
+    }
+
+    // Resolve the dependency state in this same write snapshot.  A successful
+    // parent is already satisfied; every other existing WorkItem remains a
+    // counted dependency and receives a downstream index entry below.  The
+    // index is what the existing terminal WorkItem transition uses for atomic
+    // push-release, so native submit must populate it rather than relying on a
+    // later graph scan.
+    let mut dependency_rows = Vec::with_capacity(dependencies.len());
+    for dependency in &dependencies {
+        if dependency.trim().is_empty() || dependency.len() > 512 {
+            return Err("SubmitWorkItem dependency id is outside native bounds".to_string());
+        }
+        let value = nodes
+            .get((graph, dependency.as_str()))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("SubmitWorkItem dependency '{dependency}' was not found"))?;
+        let props: serde_json::Map<String, serde_json::Value> =
+            decode_durable(&crypto.unseal(value.value())?)?;
+        if property_string(&props, "node_type") != "WorkItem" {
+            return Err(format!(
+                "SubmitWorkItem dependency '{dependency}' is not a WorkItem"
+            ));
+        }
+        if property_string(&props, "tenant") != context_tenant {
+            return Err("ACCESS_DENIED: WorkItem dependency tenant mismatch".to_string());
+        }
+        let pending = property_string(&props, "status") != "succeeded";
+        dependency_rows.push((dependency.clone(), pending));
+    }
+
+    let mut inflight = 0u64;
+    let mut scanned = 0usize;
+    for row in nodes.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (key, value) = row.map_err(|e| e.to_string())?;
+        if key.value().0 != graph {
+            break;
+        }
+        scanned += 1;
+        if scanned > 50_000 {
+            return Err("ADMISSION_BACKPRESSURE: WorkItem quota scan exceeds native bound".to_string());
+        }
+        let props: serde_json::Map<String, serde_json::Value> =
+            decode_durable(&crypto.unseal(value.value())?)?;
+        if property_string(&props, "node_type") == "WorkItem"
+            && property_string(&props, "tenant") == context_tenant
+            && !matches!(
+                property_string(&props, "status"),
+                "succeeded" | "failed" | "cancelled" | "dead_letter" | "completed"
+            )
+        {
+            inflight = inflight.saturating_add(1);
+        }
+    }
+    if inflight >= max_inflight {
+        return Err(format!(
+            "TENANT_QUOTA: tenant has {inflight} in-flight WorkItems (limit {max_inflight})"
+        ));
+    }
+
+    let work_item_id = request.work_item_id.clone().unwrap_or_else(|| {
+        let mut digest = Sha256::new();
+        digest.update(graph.as_bytes());
+        digest.update([0]);
+        digest.update(context_tenant.as_bytes());
+        digest.update([0]);
+        digest.update(request.idempotency_key.as_bytes());
+        format!("work-item:{}", hex::encode(digest.finalize()))
+    });
+    if work_item_id.trim().is_empty() || work_item_id.len() > 512 {
+        return Err("SubmitWorkItem work_item_id is outside native bounds".to_string());
+    }
+    if nodes
+        .get((graph, work_item_id.as_str()))
+        .map_err(|e| e.to_string())?
+        .is_some()
+    {
+        return Err("IDEMPOTENCY_CONFLICT: work_item_id is already present".to_string());
+    }
+
+    let command_sequence = command_sequences
+        .get(graph)
+        .map_err(|e| e.to_string())?
+        .unwrap_or(0)
+        .checked_add(1)
+        .ok_or_else(|| "WorkItem command sequence exhausted".to_string())?;
+    command_sequences
+        .insert(graph, command_sequence)
+        .map_err(|e| e.to_string())?;
+    let now_s = authoritative_now_ms as f64 / 1000.0;
+    let pending_dependencies = dependency_rows.iter().filter(|(_, pending)| *pending).count();
+    let status = if pending_dependencies == 0 { "ready" } else { "submitted" };
+    let mut props = serde_json::Map::new();
+    props.insert("node_type".into(), serde_json::Value::String("WorkItem".into()));
+    props.insert(
+        "name".into(),
+        serde_json::Value::String(format!("WorkItem: {}", request.kind)),
+    );
+    props.insert("tenant".into(), serde_json::Value::String(context_tenant.to_string()));
+    props.insert("kind".into(), serde_json::Value::String(request.kind.clone()));
+    props.insert("queue".into(), serde_json::Value::String(request.kind.clone()));
+    props.insert("status".into(), serde_json::Value::String(status.into()));
+    props.insert("state".into(), serde_json::Value::String(status.into()));
+    props.insert("priority".into(), serde_json::Value::from(request.priority));
+    props.insert("prio_bucket".into(), serde_json::Value::from(request.priority));
+    props.insert(
+        "depends_on".into(),
+        serde_json::Value::Array(
+            dependencies
+                .iter()
+                .cloned()
+                .map(serde_json::Value::String)
+                .collect(),
+        ),
+    );
+    props.insert("dep_count".into(), serde_json::Value::from(pending_dependencies as u64));
+    props.insert("downstream_ids".into(), serde_json::Value::Array(Vec::new()));
+    props.insert("next_retry_at".into(), serde_json::Value::from(0.0));
+    props.insert("backoff_base_s".into(), serde_json::Value::from(1.0));
+    props.insert("resource_class".into(), serde_json::Value::String(String::new()));
+    props.insert("fairness_group".into(), serde_json::Value::String(String::new()));
+    props.insert("lease_owner".into(), serde_json::Value::Null);
+    props.insert("last_lease_owner".into(), serde_json::Value::Null);
+    props.insert("lease_epoch".into(), serde_json::Value::from(0u64));
+    props.insert("fencing_token".into(), serde_json::Value::from(0u64));
+    props.insert("lease_expires_at".into(), serde_json::Value::Null);
+    props.insert("work_item_fence".into(), serde_json::Value::String(String::new()));
+    props.insert("defer_count".into(), serde_json::Value::from(0u64));
+    props.insert("input_artifact_refs".into(), serde_json::json!([request.input_ref]));
+    props.insert("output_artifact_refs".into(), serde_json::Value::Array(Vec::new()));
+    props.insert("payload_ref".into(), serde_json::Value::String(request.input_ref.clone()));
+    props.insert("attempt".into(), serde_json::Value::from(0u64));
+    props.insert("max_attempts".into(), serde_json::Value::from(request.max_attempts));
+    props.insert("created_at".into(), serde_json::Value::from(now_s));
+    props.insert("updated_at".into(), serde_json::Value::from(now_s));
+    props.insert("idempotency_key".into(), serde_json::Value::String(request.idempotency_key.clone()));
+    props.insert("command_digest".into(), serde_json::Value::String(request.command_digest.to_ascii_lowercase()));
+    props.insert("policy_digest".into(), serde_json::Value::String(request.policy_digest.clone()));
+    props.insert("catalog_digest".into(), serde_json::Value::String(request.catalog_digest.clone()));
+    props.insert("model_digest".into(), serde_json::Value::String(request.model_digest.clone()));
+    props.insert("metadata".into(), serde_json::Value::Object(request.metadata.clone().into_iter().collect()));
+    props.insert(
+        "provenance_refs".into(),
+        serde_json::Value::Array(
+            request
+                .provenance_refs
+                .iter()
+                .cloned()
+                .map(serde_json::Value::String)
+                .collect(),
+        ),
+    );
+    props.insert("context".into(), serde_json::to_value(&request.context).map_err(|e| e.to_string())?);
+    props.insert("command_sequence".into(), serde_json::Value::from(command_sequence));
+    if let Some(deadline) = request.deadline_unix {
+        props.insert("deadline_unix".into(), serde_json::Value::from(deadline));
+    }
+    write_work_item_props(nodes, graph, &work_item_id, &props, crypto)?;
+    for dependency in &dependencies {
+        let edge_props = rmp_serde::to_vec_named(&serde_json::json!({
+            "relationship": "DEPENDS_ON",
+            "tenant": context_tenant,
+        }))
+        .map_err(|e| e.to_string())?;
+        let sealed = crypto.seal(&edge_props);
+        let ordinal = next_edge_ordinal(edges, graph, &work_item_id, dependency)?;
+        edges
+            .insert((graph, work_item_id.as_str(), dependency.as_str(), ordinal), sealed.as_ref())
+            .map_err(|e| e.to_string())?;
+    }
+    for (dependency, pending) in &dependency_rows {
+        if !pending {
+            continue;
+        }
+        let value = nodes
+            .get((graph, dependency.as_str()))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("SubmitWorkItem dependency '{dependency}' disappeared"))?;
+        let mut parent: serde_json::Map<String, serde_json::Value> =
+            decode_durable(&crypto.unseal(value.value())?)?;
+        let insert_downstream = {
+            let downstream = parent
+                .entry("downstream_ids".to_string())
+                .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+            let ids = downstream.as_array_mut().ok_or_else(|| {
+                format!(
+                    "SubmitWorkItem dependency '{dependency}' has invalid downstream index"
+                )
+            })?;
+            if ids.iter().any(|id| id.as_str() == Some(work_item_id.as_str())) {
+                false
+            } else {
+                ids.push(serde_json::Value::String(work_item_id.clone()));
+                true
+            }
+        };
+        if insert_downstream {
+            write_work_item_props(nodes, graph, dependency, &parent, crypto)?;
+        }
+    }
+    let mut changed_work_item_ids = Vec::with_capacity(1 + dependency_rows.len());
+    changed_work_item_ids.push(work_item_id.clone());
+    changed_work_item_ids.extend(
+        dependency_rows
+            .iter()
+            .filter(|(_, pending)| *pending)
+            .map(|(dependency, _)| dependency.clone()),
+    );
+    Ok(crate::native_control::SubmitWorkItemResult {
+        schema_version: NativeControlSchemaVersion::V1,
+        work_item_id: work_item_id.clone(),
+        status: status.to_string(),
+        created: true,
+        replayed: false,
+        command_sequence,
+        idempotency_key: request.idempotency_key.clone(),
+        dependency_count: dependencies.len() as u32,
+        admitted_count: inflight.saturating_add(1),
+        max_tenant_in_flight: max_inflight,
+        outbox_id: outbox_id.to_string(),
+        command_digest: request.command_digest.to_ascii_lowercase(),
+        provenance_refs: request.provenance_refs.clone(),
+        changed_work_item_ids,
+    })
+}
+
+fn apply_submit_work_items_rows(
+    graph: &str,
+    request: &crate::native_control::SubmitWorkItemsRequest,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    command_sequences: &mut redb::Table<&str, u64>,
+    crypto: DurableCrypto<'_>,
+    authoritative_now_ms: u64,
+    outbox_id: &str,
+) -> Result<crate::native_control::SubmitWorkItemsResult, String> {
+    use crate::native_control::{
+        NativeControlSchemaVersion, MAX_SUBMIT_BATCH, MAX_SUBMIT_BATCH_CHANGED_IDS,
+    };
+    if request.schema_version != NativeControlSchemaVersion::V1
+        || request.requests.is_empty()
+        || request.requests.len() > MAX_SUBMIT_BATCH
+    {
+        return Err("SubmitWorkItems batch is outside native bounds".to_string());
+    }
+    if request.idempotency_key.trim().is_empty()
+        || crate::persist::sanitize(&request.context.graph) != graph
+    {
+        return Err("SubmitWorkItems context/idempotency is invalid".to_string());
+    }
+    let changed_bound = request
+        .requests
+        .iter()
+        .try_fold(0usize, |total, child| {
+            total
+                .checked_add(child.depends_on.len().saturating_add(1))
+                .ok_or(())
+        })
+        .map_err(|_| "SubmitWorkItems result cardinality overflow".to_string())?;
+    if changed_bound > MAX_SUBMIT_BATCH_CHANGED_IDS {
+        return Err("SubmitWorkItems changed-row result exceeds native bound".to_string());
+    }
+    let mut results = Vec::with_capacity(request.requests.len());
+    let mut changed = Vec::with_capacity(request.requests.len());
+    for child in &request.requests {
+        if child.context.tenant_id != request.context.tenant_id
+            || crate::persist::sanitize(&child.context.graph) != graph
+        {
+            return Err("SubmitWorkItems child context scope mismatch".to_string());
+        }
+        let result = apply_submit_work_item_rows(
+            graph,
+            child,
+            nodes,
+            edges,
+            command_sequences,
+            crypto,
+            authoritative_now_ms,
+            outbox_id,
+        )?;
+        changed.extend(result.changed_work_item_ids.clone());
+        results.push(result);
+    }
+    Ok(crate::native_control::SubmitWorkItemsResult {
+        schema_version: NativeControlSchemaVersion::V1,
+        results,
+        replayed: false,
+        outbox_id: outbox_id.to_string(),
+        changed_work_item_ids: changed,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_work_item_rows(
     graph: &str,
@@ -7325,6 +7798,7 @@ pub(crate) fn commit_crossmodal(
         .any(|method| matches!(method, Method::ClearGraph | Method::DeleteGraph { .. }))
     {
         development_lane::clear_native_graph_rows_in_wtx(&wtx, graph, crypto)?;
+        capacity_lease::clear_graph_rows(&wtx, graph)?;
     }
     {
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
@@ -9365,6 +9839,12 @@ pub(crate) fn purge_graph_rows(
         let _ = semantic.remove(graph).map_err(|e| e.to_string())?;
         let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
         let _ = meta.remove(graph).map_err(|e| e.to_string())?;
+        let mut command_sequences = wtx
+            .open_table(WORK_ITEM_COMMAND_SEQUENCE)
+            .map_err(|e| e.to_string())?;
+        command_sequences
+            .remove(graph)
+            .map_err(|e| e.to_string())?;
 
         clear_change_material_rows(&wtx, graph)?;
         let mut reservations = wtx
@@ -9406,6 +9886,7 @@ pub(crate) fn purge_graph_rows(
             crypto,
         )?;
         development_lane::clear_native_graph_rows_in_wtx(&wtx, graph, crypto)?;
+        capacity_lease::clear_graph_rows(&wtx, graph)?;
         work_item_capability::clear_graph_rows_in_wtx(&wtx, graph)?;
     }
     wtx.commit().map_err(|e| e.to_string())?;
@@ -9884,6 +10365,7 @@ pub(crate) fn apply_checkpoint(
                     crypto,
                 )?;
                 development_lane::clear_native_graph_rows_in_wtx(&wtx, graph, crypto)?;
+                capacity_lease::clear_graph_rows(&wtx, graph)?;
                 work_item_capability::clear_graph_rows_in_wtx_with_native(
                     &wtx,
                     graph,

@@ -34,6 +34,15 @@
 | `BrokerAck` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
 | `BrokerReject` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
 | `ClaimWorkItem` | true | GraphRedb | `work:claim` | false | true | false | Atomic | engine-native tenant/fair WorkItem lease claim |
+| `AcquireCapacity` | true | GraphRedb | `capacity:lease` | true | true | false | Atomic | atomic multi-dimensional capacity admission with epoch/fence ownership |
+| `RenewCapacity` | true | GraphRedb | `capacity:lease` | true | true | false | Atomic | bounded all-or-nothing lease renewal |
+| `ReleaseCapacity` | true | GraphRedb | `capacity:lease` | true | true | false | Atomic | bounded all-or-nothing lease release |
+| `ReclaimExpiredCapacity` | true | GraphRedb | `capacity:lease` | true | true | false | Atomic | bounded expiry reclaim with native aggregate accounting |
+| `ReconcileCapacity` | false | None | `capacity:read` | true | false | false | Snapshot | bounded native cells/leases reconciliation page |
+| `CapacityStatus` | false | None | `capacity:read` | true | false | false | Snapshot | exact tenant-scoped native capacity status |
+| `UpdateCapacityCell` | true | GraphRedb | `capacity:admin` | true | true | false | Atomic | controller epoch CAS for resource dimension/capacity policy |
+| `SubmitWorkItem` | true | GraphRedb | `work:submit` | true | true | false | Atomic | native tenant-scoped WorkItem command-log admission and outbox commit |
+| `SubmitWorkItems` | true | GraphRedb | `work:submit` | true | true | false | Atomic | bounded all-or-nothing WorkItem admission batch |
 | `MintWorkItemClaimCapability` | true | GraphRedb | `work:claim-capability` | true | false | false | Atomic | opaque native capability is retained in a private ledger and never projected |
 | `VerifyWorkItemClaimCapability` | false | GraphRedb | `work:claim-capability` | true | false | false | Snapshot | linearizable live-lease check precedes private capability lookup |
 | `RenewWorkItemLease` | true | GraphRedb | `work:write` | true | true | false | Atomic | lease epoch and fencing token are validated atomically |

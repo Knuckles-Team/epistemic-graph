@@ -26,6 +26,7 @@ use crate::mutation_batch::{
     MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationOutboxLease,
     MutationOutboxRecord, MutationProjectionCursor,
 };
+use crate::native_control::CapacityStatusResult;
 use crate::protocol::Method;
 use crate::server::ServerState;
 
@@ -119,6 +120,40 @@ pub trait PersistenceBackend: Send + Sync {
     /// do not implement the native tables.
     fn supports_native_resource_reservations(&self) -> bool {
         false
+    }
+
+    /// Whether this backend owns the native capacity-cell/lease authority.
+    /// Test and memory backends remain fail-closed until they implement the
+    /// same atomic lease tables.
+    fn supports_native_capacity_leases(&self) -> bool {
+        false
+    }
+
+    /// Whether this backend owns the native WorkItem command-log admission
+    /// transaction (dedupe, dependency validation, quota, sequence, rows, and
+    /// outbox). Non-authoritative test/memory backends fail closed.
+    fn supports_native_work_item_submission(&self) -> bool {
+        false
+    }
+
+    /// Commit one native capacity lease mutation in the writer-owned durable
+    /// transaction. The returned bytes are already MessagePack encoded.
+    async fn commit_capacity_lease(
+        &self,
+        _graph_fname: &str,
+        _method: Method,
+    ) -> Result<Vec<u8>, String> {
+        Err("persistence backend does not support native capacity leases".to_string())
+    }
+
+    /// Read a bounded native capacity status/reconciliation page from an MVCC
+    /// snapshot. The default fails closed for non-authoritative backends.
+    async fn read_capacity_status(
+        &self,
+        _graph_fname: &str,
+        _request: &crate::native_control::CapacityStatusRequest,
+    ) -> Result<CapacityStatusResult, String> {
+        Err("persistence backend does not support native capacity status".to_string())
     }
 
     /// Reconstruct the registry from durable storage at boot. Returns the number

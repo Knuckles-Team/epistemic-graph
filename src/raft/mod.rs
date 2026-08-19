@@ -791,6 +791,8 @@ pub const NATIVE_CONSENSUS_METHODS: &[&str] = &[
     "Commit",
     "Rollback",
     "ClaimWorkItem",
+    "SubmitWorkItem",
+    "SubmitWorkItems",
     "MintWorkItemClaimCapability",
     "RenewWorkItemLease",
     "CommitWorkItemResult",
@@ -801,6 +803,11 @@ pub const NATIVE_CONSENSUS_METHODS: &[&str] = &[
     "ReleaseWorkItemResources",
     "ReclaimWorkItemResources",
     "UpdateResourceHost",
+    "AcquireCapacity",
+    "RenewCapacity",
+    "ReleaseCapacity",
+    "ReclaimExpiredCapacity",
+    "UpdateCapacityCell",
     "BlobBegin",
     "BlobChunkPut",
     "BlobCommit",
@@ -940,7 +947,10 @@ fn native_domain(method: &Method) -> Option<NativeMutationDomain> {
         #[cfg(feature = "epistemic")]
         Method::TxnMaterializeBelief { .. } => Some(NativeMutationDomain::Transaction),
 
-        Method::ClaimWorkItem { .. } | Method::MintWorkItemClaimCapability { .. }
+        Method::ClaimWorkItem { .. }
+        | Method::SubmitWorkItem { .. }
+        | Method::SubmitWorkItems { .. }
+        | Method::MintWorkItemClaimCapability { .. }
         | Method::RenewWorkItemLease { .. }
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
@@ -949,7 +959,12 @@ fn native_domain(method: &Method) -> Option<NativeMutationDomain> {
         | Method::ReserveWorkItemResources { .. }
         | Method::ReleaseWorkItemResources { .. }
         | Method::ReclaimWorkItemResources { .. }
-        | Method::UpdateResourceHost { .. } => Some(NativeMutationDomain::WorkItem),
+        | Method::UpdateResourceHost { .. }
+        | Method::AcquireCapacity { .. }
+        | Method::RenewCapacity { .. }
+        | Method::ReleaseCapacity { .. }
+        | Method::ReclaimExpiredCapacity { .. }
+        | Method::UpdateCapacityCell { .. } => Some(NativeMutationDomain::WorkItem),
 
         #[cfg(feature = "blob")]
         Method::BlobBegin { .. }
