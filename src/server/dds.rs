@@ -25,8 +25,8 @@
 //! discoverable/subscribable by a real `ros2` daemon with **zero config** — see
 //! [`mangle_topic_name`] / [`mangle_type_name`]. A ROS topic `/chatter` is put on the DDS
 //! wire as `rt/chatter`, and the ROS type `std_msgs/String` as
-//! `std_msgs::msg::dds_::String_`; Dust DDS emits exactly the 4-byte
-//! CDR encapsulation header ([`CDR_LE_ENCAPSULATION_HEADER`]) `ros2 topic echo` decodes.
+//! `std_msgs::msg::dds_::String_`; Dust DDS emits the CDR encapsulation that
+//! `ros2 topic echo` decodes.
 //! The `DdsTransport` interface stays ROS-topic-oriented (callers pass `/chatter`); the
 //! mangling is applied internally at DDS-`Topic` creation, so the writer/reader map keys and
 //! [`poll_inbound`](DdsTransport::poll_inbound) still surface the un-mangled ROS name.
@@ -55,6 +55,9 @@
 //! (a `pi`/`full` build links no Dust DDS/CycloneDDS).
 
 use serde_json::Value;
+
+#[cfg(test)]
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::ros2_bridge::{cdc_to_publish, publish_to_method, RosbridgeOp};
 use crate::protocol::Method;
@@ -117,12 +120,43 @@ pub fn inbound_to_method(msg: &Value) -> Option<Method> {
 /// topic name, so the ROS topic `/chatter` becomes the DDS topic `rt/chatter`.
 pub const RMW_ROS_TOPIC_PREFIX: &str = "rt";
 
-/// The 4-byte CDR **encapsulation header** ROS 2 (rmw) prepends to every serialized sample
-/// (CONCEPT:EG-KG.ingest.rmw-topic-prefix): representation id `CDR_LE` (`0x00 0x01`, little-endian — the rmw
-/// default on little-endian hosts) followed by two zero options bytes. Dust DDS's
-/// XCDR1 little-endian serializer frames its RTPS payload with exactly these bytes, so a sample written
-/// by this leg is byte-compatible with what `ros2 topic echo` decodes.
-pub const CDR_LE_ENCAPSULATION_HEADER: [u8; 4] = [0x00, 0x01, 0x00, 0x00];
+/// The CDR **representation identifier** for ROS 2's little-endian XCDR1
+/// payloads (CONCEPT:EG-KG.ingest.rmw-topic-prefix). The identifier is the
+/// first two bytes of every CDR-LE sample; the final two encapsulation bytes
+/// are serializer metadata and are not a fixed header across payloads.
+pub const CDR_LE_REPRESENTATION_ID: [u8; 2] = [0x00, 0x01];
+
+/// The four-byte CDR encapsulation observed for the EG-349 `std_msgs/String`
+/// golden sample (`data = "eg349"`). Dust DDS stores the trailing alignment
+/// padding length in the fourth byte, so this value is intentionally not a
+/// universal header: a payload with a different length may end in `0`, `1`,
+/// `2`, or `3` there.
+pub const CDR_LE_ENCAPSULATION_HEADER: [u8; 4] = [0x00, 0x01, 0x00, 0x02];
+
+#[cfg(test)]
+const DDS_TEST_DOMAIN_BASE: u32 = 64;
+#[cfg(test)]
+const DDS_TEST_DOMAIN_SLOTS: u32 = 128;
+
+/// Allocate a bounded, process-local DDS identity for lifecycle fixtures.
+///
+/// The slot is deliberately recycled rather than embedding a timestamp or
+/// process id in the wire identity. Tests must release their participant before
+/// a recycled slot is used again; the topic suffix still prevents collisions
+/// between concurrently active fixtures.
+#[cfg(test)]
+fn next_isolated_dds_identity(prefix: &str) -> (u32, String) {
+    static NEXT_SLOT: AtomicU32 = AtomicU32::new(0);
+    let slot = NEXT_SLOT
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            Some((current + 1) % DDS_TEST_DOMAIN_SLOTS)
+        })
+        .unwrap_or(0);
+    (
+        DDS_TEST_DOMAIN_BASE + slot,
+        format!("/{prefix}_{slot:03}"),
+    )
+}
 
 /// Mangle a ROS 2 topic name to the DDS topic name a live `ros2` daemon uses
 /// (CONCEPT:EG-KG.ingest.rmw-topic-prefix). rmw first fully-qualifies the ROS name (a leading `/`), then prepends
@@ -161,7 +195,7 @@ pub fn mangle_type_name(ros_type: &str) -> String {
 mod native {
     use super::*;
     use std::collections::HashMap;
-    use std::sync::Mutex;
+    use std::sync::{atomic::{AtomicBool, Ordering}, Mutex};
 
     use dust_dds::{
         domain::{
@@ -199,16 +233,21 @@ mod native {
     type Reader = DataReader<Ros2String>;
 
     /// Native DDS/RTPS [`DdsTransport`] (CONCEPT:EG-KG.ingest.dds-transport) over pure-Rust Dust DDS. Owns one
-    /// DDS `DomainParticipant` + a publisher/subscriber pair, and a per-topic writer/reader
-    /// map. NO CycloneDDS/rmw/C toolchain — 100% Rust on the wire.
+    /// DDS `DomainParticipant` + a publisher/subscriber pair, and per-topic
+    /// writer/reader maps. Topic creation is serialized and reuses the local
+    /// topic description, so subscribe-then-advertise cannot create two DDS
+    /// topics with the same mangled name. NO CycloneDDS/rmw/C toolchain —
+    /// 100% Rust on the wire.
     pub struct NativeDdsTransport {
-        participant: DomainParticipant,
+        writers: Mutex<HashMap<String, Writer>>,
+        readers: Mutex<HashMap<String, Reader>>,
+        topic_creation: Mutex<()>,
         publisher: Publisher,
         subscriber: Subscriber,
         writer_qos: DataWriterQos,
         reader_qos: DataReaderQos,
-        writers: Mutex<HashMap<String, Writer>>,
-        readers: Mutex<HashMap<String, Reader>>,
+        closed: AtomicBool,
+        participant: DomainParticipant,
     }
 
     impl NativeDdsTransport {
@@ -219,12 +258,28 @@ mod native {
             let participant = DomainParticipantFactory::get_instance()
                 .create_participant(domain_id.into(), QosKind::Default, NO_LISTENER, NO_STATUS)
                 .map_err(|e| format!("dds participant: {e}"))?;
-            let publisher = participant
+            let publisher = match participant
                 .create_publisher(QosKind::Default, NO_LISTENER, NO_STATUS)
-                .map_err(|e| format!("dds publisher: {e}"))?;
-            let subscriber = participant
+            {
+                Ok(publisher) => publisher,
+                Err(e) => {
+                    let _ = participant.delete_contained_entities();
+                    let _ = DomainParticipantFactory::get_instance()
+                        .delete_participant(&participant);
+                    return Err(format!("dds publisher: {e}"));
+                }
+            };
+            let subscriber = match participant
                 .create_subscriber(QosKind::Default, NO_LISTENER, NO_STATUS)
-                .map_err(|e| format!("dds subscriber: {e}"))?;
+            {
+                Ok(subscriber) => subscriber,
+                Err(e) => {
+                    let _ = participant.delete_contained_entities();
+                    let _ = DomainParticipantFactory::get_instance()
+                        .delete_participant(&participant);
+                    return Err(format!("dds subscriber: {e}"));
+                }
+            };
             let reliability = ReliabilityQosPolicy {
                 kind: ReliabilityQosPolicyKind::Reliable,
                 max_blocking_time: DurationKind::Finite(Duration::new(0, 100_000_000)),
@@ -233,7 +288,9 @@ mod native {
                 kind: HistoryQosPolicyKind::KeepLast(16),
             };
             Ok(Self {
-                participant,
+                writers: Mutex::new(HashMap::new()),
+                readers: Mutex::new(HashMap::new()),
+                topic_creation: Mutex::new(()),
                 publisher,
                 subscriber,
                 writer_qos: DataWriterQos {
@@ -246,9 +303,45 @@ mod native {
                     history,
                     ..Default::default()
                 },
-                writers: Mutex::new(HashMap::new()),
-                readers: Mutex::new(HashMap::new()),
+                closed: AtomicBool::new(false),
+                participant,
             })
+        }
+
+        /// Release all locally-created DDS entities and then delete the
+        /// participant. Consuming the transport makes the lifecycle explicit;
+        /// [`Drop`] invokes the same cleanup for timeout/panic/early-return
+        /// paths.
+        pub fn close(mut self) -> Result<(), String> {
+            self.close_inner()
+        }
+
+        fn close_inner(&mut self) -> Result<(), String> {
+            if self.closed.swap(true, Ordering::AcqRel) {
+                return Ok(());
+            }
+            if let Ok(writers) = self.writers.get_mut() {
+                writers.clear();
+            }
+            if let Ok(readers) = self.readers.get_mut() {
+                readers.clear();
+            }
+            let factory = DomainParticipantFactory::get_instance();
+            let contained = self
+                .participant
+                .delete_contained_entities()
+                .map_err(|e| format!("dds contained entities: {e}"));
+            let participant = factory
+                .delete_participant(&self.participant)
+                .map_err(|e| format!("dds participant delete: {e}"));
+            let result = match contained {
+                Err(error) => Err(error),
+                Ok(()) => participant,
+            };
+            if result.is_err() {
+                self.closed.store(false, Ordering::Release);
+            }
+            result
         }
 
         /// Read the DDS domain id from `EPISTEMIC_GRAPH_ROS_DDS_DOMAIN` (default `0`).
@@ -265,8 +358,28 @@ mod native {
         /// ROS type `type_name` as [`mangle_type_name`] (`<pkg>::<ns>::dds_::<Msg>_`). The
         /// caller-facing writer/reader map still keys on the un-mangled ROS `name`.
         fn topic(&self, name: &str, type_name: &str) -> Result<TopicDescription, String> {
+            // Dust DDS rejects (and some versions hang on) a second local topic
+            // with the same name. Serialize lookup/create and reuse the local
+            // topic proxy for both the reader and writer.
+            let _topic_guard = self
+                .topic_creation
+                .lock()
+                .map_err(|_| "dds topic registry poisoned".to_string())?;
             let dds_name = mangle_topic_name(name);
             let dds_type = mangle_type_name(type_name);
+            if let Some(topic) = self
+                .participant
+                .lookup_topicdescription(&dds_name)
+                .map_err(|e| format!("dds topic lookup {name}: {e}"))?
+            {
+                if topic.get_type_name() != dds_type {
+                    return Err(format!(
+                        "dds topic {name}: type mismatch (existing {}, requested {dds_type})",
+                        topic.get_type_name()
+                    ));
+                }
+                return Ok(topic);
+            }
             self.participant
                 .create_topic::<Ros2String>(
                     &dds_name,
@@ -282,7 +395,11 @@ mod native {
     #[async_trait::async_trait]
     impl DdsTransport for NativeDdsTransport {
         async fn advertise(&self, topic: &str, msg_type: &str) -> Result<(), String> {
-            if self.writers.lock().unwrap().contains_key(topic) {
+            let mut writers = self
+                .writers
+                .lock()
+                .map_err(|_| "dds writer registry poisoned".to_string())?;
+            if writers.contains_key(topic) {
                 return Ok(());
             }
             let t = self.topic(topic, msg_type)?;
@@ -295,10 +412,7 @@ mod native {
                     NO_STATUS,
                 )
                 .map_err(|e| format!("dds writer {topic}: {e}"))?;
-            self.writers
-                .lock()
-                .unwrap()
-                .insert(topic.to_string(), writer);
+            writers.insert(topic.to_string(), writer);
             Ok(())
         }
 
@@ -319,7 +433,11 @@ mod native {
         }
 
         async fn subscribe(&self, topic: &str) -> Result<(), String> {
-            if self.readers.lock().unwrap().contains_key(topic) {
+            let mut readers = self
+                .readers
+                .lock()
+                .map_err(|_| "dds reader registry poisoned".to_string())?;
+            if readers.contains_key(topic) {
                 return Ok(());
             }
             let t = self.topic(topic, ROS_STRING_TYPE)?;
@@ -332,10 +450,7 @@ mod native {
                     NO_STATUS,
                 )
                 .map_err(|e| format!("dds reader {topic}: {e}"))?;
-            self.readers
-                .lock()
-                .unwrap()
-                .insert(topic.to_string(), reader);
+            readers.insert(topic.to_string(), reader);
             Ok(())
         }
 
@@ -357,6 +472,12 @@ mod native {
         }
     }
 
+    impl Drop for NativeDdsTransport {
+        fn drop(&mut self) {
+            let _ = self.close_inner();
+        }
+    }
+
     #[cfg(test)]
     mod cdr_tests {
         use super::*;
@@ -365,10 +486,11 @@ mod native {
         };
 
         /// EG-349: prove the native leg serializes a `std_msgs/String`-shaped sample with
-        /// EXACTLY the CDR encapsulation `ros2 topic echo` expects — the RTPS
-        /// `SerializedPayload` framed by Dust DDS must begin with the
-        /// 4-byte `CDR_LE` header (`00 01 00 00`). No live daemon needed: this checks the
-        /// on-wire encapsulation bytes against the rmw/CDR spec directly.
+        /// the exact CDR-LE golden vector emitted by the pinned Dust DDS serializer.
+        /// The fourth encapsulation byte is the trailing alignment-padding count;
+        /// for `eg349` the string occupies two padding bytes, hence `00 01 00 02`.
+        /// No live daemon is needed: this checks the on-wire bytes against the
+        /// serializer's XCDR1 representation-id and padding contract directly.
         #[test]
         fn eg349_ros2_cdr_le_encapsulation_header() {
             let dynamic = Ros2String {
@@ -379,7 +501,22 @@ mod native {
             assert_eq!(
                 &payload[..4],
                 &CDR_LE_ENCAPSULATION_HEADER,
-                "EG-349: on-wire CDR encapsulation header must match what ros2 decodes",
+                "EG-349: on-wire CDR encapsulation must match the XCDR1 golden vector",
+            );
+            assert_eq!(
+                &payload[..2],
+                &CDR_LE_REPRESENTATION_ID,
+                "EG-349: representation id must be CDR little-endian",
+            );
+            assert_eq!(
+                payload,
+                vec![
+                    0x00, 0x01, 0x00, 0x02, // CDR_LE + two bytes trailing padding
+                    6, 0, 0, 0, // string length including the terminating NUL
+                    b'e', b'g', b'3', b'4', b'9', 0, // std_msgs/String data
+                    0, 0, // complete the 4-byte XCDR1 alignment
+                ],
+                "EG-349: serialized std_msgs/String bytes must remain interoperable",
             );
         }
     }
@@ -497,14 +634,14 @@ mod cyclone {
     /// would make this struct `!Send`/`!Sync` too. [`Self::build_qos`] builds a fresh,
     /// cheap, short-lived `Qos` wherever one is needed instead.
     pub struct CycloneDdsTransport {
-        participant: DomainParticipant,
-        publisher: Publisher,
-        subscriber: Subscriber,
+        writers: Mutex<HashMap<String, Writer>>,
+        readers: Mutex<HashMap<String, Reader>>,
         /// ROS topic name → the shared underlying DDS `Topic` entity id (`dds_entity_t`,
         /// an `i32`), created at most ONCE per name (see the struct doc).
         topics: Mutex<HashMap<String, i32>>,
-        writers: Mutex<HashMap<String, Writer>>,
-        readers: Mutex<HashMap<String, Reader>>,
+        publisher: Publisher,
+        subscriber: Subscriber,
+        participant: DomainParticipant,
     }
 
     impl CycloneDdsTransport {
@@ -529,13 +666,28 @@ mod cyclone {
             let subscriber = Subscriber::with_qos(participant.entity(), Some(&qos))
                 .map_err(|e| format!("dds subscriber: {e:?}"))?;
             Ok(Self {
-                participant,
-                publisher,
-                subscriber,
-                topics: Mutex::new(HashMap::new()),
                 writers: Mutex::new(HashMap::new()),
                 readers: Mutex::new(HashMap::new()),
+                topics: Mutex::new(HashMap::new()),
+                publisher,
+                subscriber,
+                participant,
             })
+        }
+
+        /// Consume the transport so readers/writers, publisher/subscriber, and
+        /// participant are dropped in DDS containment order. Scope-drop on an
+        /// error or panic follows the same field order.
+        pub fn close(mut self) {
+            if let Ok(writers) = self.writers.get_mut() {
+                writers.clear();
+            }
+            if let Ok(readers) = self.readers.get_mut() {
+                readers.clear();
+            }
+            if let Ok(topics) = self.topics.get_mut() {
+                topics.clear();
+            }
         }
 
         /// Read the DDS domain id from `EPISTEMIC_GRAPH_ROS_DDS_DOMAIN` (default `0`) — the
@@ -668,17 +820,17 @@ mod cyclone {
         /// exercised identically.
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn eg347_cyclone_dds_loopback_pub_sub_roundtrip() {
-            let topic = "/epistemic_graph/eg347_cyclone_test";
+            let (domain, topic) = next_isolated_dds_identity("eg129_cyclone_loopback");
 
             assert_eq!(
-                mangle_topic_name(topic),
-                "rt/epistemic_graph/eg347_cyclone_test"
+                mangle_topic_name(&topic),
+                format!("rt{topic}")
             );
 
-            let transport = CycloneDdsTransport::new(0).expect("dds transport");
-            transport.subscribe(topic).await.expect("subscribe");
+            let transport = CycloneDdsTransport::new(domain).expect("dds transport");
+            transport.subscribe(&topic).await.expect("subscribe");
             transport
-                .advertise(topic, ROS_STRING_TYPE)
+                .advertise(&topic, ROS_STRING_TYPE)
                 .await
                 .expect("advertise");
 
@@ -687,7 +839,7 @@ mod cyclone {
 
             let payload = serde_json::json!({ "node_id": "robot_1", "properties": { "x": 1.5 } });
             let msg = serde_json::json!({ "data": payload.to_string() });
-            transport.publish(topic, &msg).await.expect("publish");
+            transport.publish(&topic, &msg).await.expect("publish");
 
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
             loop {
@@ -698,7 +850,7 @@ mod cyclone {
                         Method::AddNode { node_id, .. } => assert_eq!(node_id, "robot_1"),
                         _ => panic!("expected AddNode from the DDS round-trip"),
                     }
-                    return;
+                    break;
                 }
                 assert!(
                     std::time::Instant::now() < deadline,
@@ -706,6 +858,7 @@ mod cyclone {
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
+            transport.close();
         }
     }
 }
@@ -768,18 +921,18 @@ mod tests {
     /// (asserted here) so the same publish is discoverable by a live `ros2` daemon.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn eg347_native_dds_loopback_pub_sub_roundtrip() {
-        let topic = "/epistemic_graph/eg349_test";
+        let (domain, topic) = next_isolated_dds_identity("eg129_native_loopback");
 
         // The transport puts these rmw-mangled names on the DDS wire (what `ros2` matches).
-        assert_eq!(mangle_topic_name(topic), "rt/epistemic_graph/eg349_test");
+        assert_eq!(mangle_topic_name(&topic), format!("rt{topic}"));
         assert_eq!(
             mangle_type_name(ROS_STRING_TYPE),
             "std_msgs::msg::dds_::String_"
         );
-        let transport = NativeDdsTransport::new(0).expect("dds transport");
-        transport.subscribe(topic).await.expect("subscribe");
+        let transport = NativeDdsTransport::new(domain as u16).expect("dds transport");
+        transport.subscribe(&topic).await.expect("subscribe");
         transport
-            .advertise(topic, ROS_STRING_TYPE)
+            .advertise(&topic, ROS_STRING_TYPE)
             .await
             .expect("advertise");
 
@@ -790,7 +943,7 @@ mod tests {
         // JSON describing a node — exactly the rosbridge shape.
         let payload = serde_json::json!({ "node_id": "robot_1", "properties": { "x": 1.5 } });
         let msg = serde_json::json!({ "data": payload.to_string() });
-        transport.publish(topic, &msg).await.expect("publish");
+        transport.publish(&topic, &msg).await.expect("publish");
 
         // Poll for delivery over the RTPS wire.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
@@ -803,13 +956,42 @@ mod tests {
                     Method::AddNode { node_id, .. } => assert_eq!(node_id, "robot_1"),
                     _ => panic!("expected AddNode from the DDS round-trip"),
                 }
-                return;
+                break;
             }
             assert!(
                 std::time::Instant::now() < deadline,
                 "EG-347: timed out waiting for the DDS/RTPS loopback sample"
             );
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        transport.close().expect("close dds transport");
+    }
+
+    async fn native_lifecycle_once(prefix: &str) -> Result<(), String> {
+        let (domain, topic) = next_isolated_dds_identity(prefix);
+        let transport = NativeDdsTransport::new(domain as u16)?;
+        transport.subscribe(&topic).await?;
+        transport.advertise(&topic, ROS_STRING_TYPE).await?;
+        transport.close()
+    }
+
+    /// EG-129: lifecycle fixtures use bounded, unique identities and release
+    /// participants on both concurrent and repeated paths. The subscribe-first
+    /// ordering exercises the single-topic creation guard that prevents the
+    /// process-global collision seen in the original loopback fixture.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn eg129_native_dds_lifecycle_isolated_repeat_and_parallel() {
+        let (parallel_a, parallel_b) = tokio::join!(
+            native_lifecycle_once("eg129_native_parallel_a"),
+            native_lifecycle_once("eg129_native_parallel_b"),
+        );
+        parallel_a.expect("parallel DDS lifecycle A");
+        parallel_b.expect("parallel DDS lifecycle B");
+
+        for _ in 0..4 {
+            native_lifecycle_once("eg129_native_repeat")
+                .await
+                .expect("repeated DDS lifecycle");
         }
     }
 }
