@@ -192,6 +192,12 @@ byte-for-byte the single-node path.
   group-per-tenant-range routing ring, per-group snapshot scoping, multi-node membership
   join, leader balancing (now the native `trigger().transfer_leader(target)` handoff),
   and heartbeat coalescing — all done + lib-tested.
+- **Bounded shard/Raft drain contract (NE-167)** — a typed drain operation stops
+  admission, waits for an explicit zero-work observation, preserves the
+  authoritative writer and quorum/PDB-equivalent health floor, then commits the
+  fenced voter shrink. Stale acknowledgements are denied and restart recovery
+  fails closed; a post-shrink failure enters an explicit rollback state. See
+  [`shard_drain.md`](shard_drain.md).
 
 !!! note "K=N under Raft"
     Under an active Raft node the durable writer count is **K=N groups** (one group
