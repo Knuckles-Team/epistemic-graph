@@ -14,6 +14,10 @@
 //!   * `__sql_seq__`      `table_name              -> next rowid (u64)`
 //!     A per-table monotonic rowid allocator — the internal row identity AND the
 //!     surface exposed as `SERIAL`/`DEFAULT nextval` (CONCEPT:EG-KG.query.register-each-user-table).
+//!   * `__sql_secondary_indexes__` / `__sql_secondary_index_entries__`
+//!     owner-scoped scalar index definitions and schema-bound B-tree directory
+//!     entries. These are optional row-reduction structures; a digest/version
+//!     mismatch always falls back to the authoritative rows.
 //!   * `__sql_mutation_*` batch/status, idempotency, SQL-domain version/fence,
 //!     and immutable outbox tables. These are committed in the same transaction as
 //!     table/catalog mutations, enabling exact retry and restart reconciliation.
@@ -44,12 +48,20 @@ use eg_types::mutation_batch::{
     NON_GRAPH_SOURCE_VERSION,
 };
 use redb::{
-    Database, Durability, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction,
+    Database, Durability, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition,
+    WriteTransaction,
 };
 use serde_json::Value;
 
 use super::schema::{
     Cell, Column, ColumnType, RefAction, StoredFunction, TableConstraint, TableSchema,
+};
+use super::index::{
+    catalog_key as secondary_catalog_key, entry_key as secondary_entry_key,
+    entry_prefix as secondary_entry_prefix, entry_range as secondary_entry_range,
+    rowid_from_entry_key, validate_spec as validate_secondary_spec, SecondaryIndexLookup,
+    SecondaryIndexOrder, SecondaryIndexSpec, MAX_SECONDARY_INDEX_BUILD_ROWS,
+    MAX_SECONDARY_INDEX_CANDIDATES, MAX_SECONDARY_INDEXES_PER_TABLE,
 };
 // CONCEPT:EG-KG.query.real-ann-top-k/EG-313 — the durable pgvector ANN index registration the exec
 // pushdown consults to choose a real eg-ann index over the brute-force scan.
@@ -80,6 +92,14 @@ const FUNCTIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_func
 /// (lower-cased) so one column can carry an index per metric; the value is the durable
 /// [`AnnIndexPlan`] the exec pushdown consults.
 const ANN_INDEXES: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_ann_indexes__");
+/// Ordinary scalar secondary-index catalog: `scope\0table\0name -> MessagePack(SecondaryIndexSpec)`.
+const SECONDARY_INDEXES: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("__sql_secondary_indexes__");
+/// Ordinary scalar secondary-index directory: `catalog_key\0hex(value)\0rowid -> empty`.
+/// Keeping the directory separate from the schema catalog lets a stale definition
+/// fail closed without ever changing the authoritative row store.
+const SECONDARY_INDEX_ENTRIES: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("__sql_secondary_index_entries__");
 /// Timescale-compatible hypertable catalog: `table_name -> MessagePack(HypertablePlan)`.
 const HYPERTABLES: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_hypertables__");
 /// Universal SQL-domain mutation status/result rows.
@@ -307,13 +327,35 @@ impl TableTxn {
 #[derive(Debug, Clone)]
 pub struct TableStore {
     db: Arc<Database>,
+    /// Owner/tenant namespace for secondary-index catalog keys. `open()` keeps
+    /// legacy callers isolated to one stable default; multiplexed services use
+    /// `open_scoped()` and must provide the authenticated tenant scope.
+    index_scope: Arc<String>,
 }
 
 impl TableStore {
     /// Open (creating if absent) the user-table store at `path`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
+        Self::open_scoped(path, "__legacy_store__")
+    }
+
+    /// Open a store with an explicit owner scope for its secondary-index
+    /// catalog. The scope is persisted in every index identity and is checked
+    /// on CREATE/read/drop, preventing a cross-tenant name collision when a
+    /// physical redb file is shared by more than one owner.
+    pub fn open_scoped(
+        path: impl AsRef<Path>,
+        tenant_scope: impl Into<String>,
+    ) -> Result<Self, String> {
+        let tenant_scope = tenant_scope.into();
+        if tenant_scope.is_empty() || tenant_scope.contains('\0') {
+            return Err("SQL table-store tenant scope must be non-empty and NUL-free".to_string());
+        }
         let db = Database::create(path).map_err(|e| format!("open sql table store: {e}"))?;
-        Ok(Self { db: Arc::new(db) })
+        Ok(Self {
+            db: Arc::new(db),
+            index_scope: Arc::new(tenant_scope),
+        })
     }
 
     /// Open a fresh store at a unique temp path — for tests and ephemeral use.
@@ -332,6 +374,12 @@ impl TableStore {
         Ok((Self::open(&path)?, path))
     }
 
+    /// The authenticated owner namespace used by secondary-index DDL. This is
+    /// intentionally not derived from an untrusted SQL identifier.
+    pub fn index_scope(&self) -> &str {
+        self.index_scope.as_str()
+    }
+
     // ── one-shot DDL (each opens + commits its own txn) ───────────────────────
 
     /// `CREATE TABLE`: record `schema` in the catalog. `Ok(true)` when created,
@@ -346,7 +394,7 @@ impl TableStore {
     /// `DROP TABLE`: remove the catalog entry, the sequence, and EVERY row.
     pub fn drop_table(&self, name: &str, if_exists: bool) -> Result<bool, String> {
         let wtx = self.begin()?;
-        let dropped = drop_in(&wtx, name, if_exists)?;
+        let dropped = drop_in(&wtx, self.index_scope(), name, if_exists)?;
         wtx.commit().map_err(map_err)?;
         Ok(dropped)
     }
@@ -354,7 +402,7 @@ impl TableStore {
     /// `ALTER TABLE ADD COLUMN`: append `column` to the table's schema.
     pub fn add_column(&self, table: &str, column: Column) -> Result<(), String> {
         let wtx = self.begin()?;
-        add_column_in(&wtx, table, &column)?;
+        add_column_in(&wtx, self.index_scope(), table, &column)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -364,7 +412,7 @@ impl TableStore {
     /// column (or table) does not exist unless `if_exists`.
     pub fn drop_column(&self, table: &str, column: &str, if_exists: bool) -> Result<(), String> {
         let wtx = self.begin()?;
-        drop_column_in(&wtx, table, column, if_exists)?;
+        drop_column_in(&wtx, self.index_scope(), table, column, if_exists)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -374,7 +422,7 @@ impl TableStore {
     /// or `to` already exists.
     pub fn rename_column(&self, table: &str, from: &str, to: &str) -> Result<(), String> {
         let wtx = self.begin()?;
-        rename_column_in(&wtx, table, from, to)?;
+        rename_column_in(&wtx, self.index_scope(), table, from, to)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -384,7 +432,7 @@ impl TableStore {
     /// table is absent or `new_name` already exists.
     pub fn rename_table(&self, table: &str, new_name: &str) -> Result<(), String> {
         let wtx = self.begin()?;
-        rename_table_in(&wtx, table, new_name)?;
+        rename_table_in(&wtx, self.index_scope(), table, new_name)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -399,7 +447,7 @@ impl TableStore {
         new_type: ColumnType,
     ) -> Result<(), String> {
         let wtx = self.begin()?;
-        alter_column_type_in(&wtx, table, column, new_type)?;
+        alter_column_type_in(&wtx, self.index_scope(), table, column, new_type)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -415,7 +463,7 @@ impl TableStore {
         if_exists: bool,
     ) -> Result<(), String> {
         let wtx = self.begin()?;
-        drop_constraint_in(&wtx, table, constraint, if_exists)?;
+        drop_constraint_in(&wtx, self.index_scope(), table, constraint, if_exists)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -429,7 +477,7 @@ impl TableStore {
     /// behavior of refusing to add a constraint the current data already violates.
     pub fn add_constraint(&self, table: &str, constraint: TableConstraint) -> Result<(), String> {
         let wtx = self.begin()?;
-        add_constraint_in(&wtx, table, constraint)?;
+        add_constraint_in(&wtx, self.index_scope(), table, constraint)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -567,7 +615,7 @@ impl TableStore {
         rows: &[Vec<Value>],
     ) -> Result<Vec<Vec<Cell>>, String> {
         let wtx = self.begin()?;
-        let out = insert_in(&wtx, table, col_order, rows)?;
+        let out = insert_in(&wtx, self.index_scope(), table, col_order, rows)?;
         wtx.commit().map_err(map_err)?;
         Ok(out)
     }
@@ -582,7 +630,7 @@ impl TableStore {
         action: &ConflictAction,
     ) -> Result<Vec<Vec<Cell>>, String> {
         let wtx = self.begin()?;
-        let out = insert_on_conflict_in(&wtx, table, col_order, rows, action)?;
+        let out = insert_on_conflict_in(&wtx, self.index_scope(), table, col_order, rows, action)?;
         wtx.commit().map_err(map_err)?;
         Ok(out)
     }
@@ -606,7 +654,7 @@ impl TableStore {
         selector: &eg_types::RowPredicate,
     ) -> Result<Vec<Vec<Cell>>, String> {
         let wtx = self.begin()?;
-        let out = update_in(&wtx, table, set, selector)?;
+        let out = update_in(&wtx, self.index_scope(), table, set, selector)?;
         wtx.commit().map_err(map_err)?;
         Ok(out)
     }
@@ -628,7 +676,7 @@ impl TableStore {
         selector: &eg_types::RowPredicate,
     ) -> Result<Vec<Vec<Cell>>, String> {
         let wtx = self.begin()?;
-        let out = delete_in(&wtx, table, selector)?;
+        let out = delete_in(&wtx, self.index_scope(), table, selector)?;
         wtx.commit().map_err(map_err)?;
         Ok(out)
     }
@@ -868,6 +916,105 @@ impl TableStore {
         Ok(pairs.into_iter().map(|(_, p)| p).collect())
     }
 
+    // ── ordinary scalar secondary-index catalog ─────────────────────────────
+
+    /// Build a schema-bound definition in the store's authenticated owner
+    /// scope. SQL adapters should use this helper rather than accepting a scope
+    /// from the request body.
+    pub fn secondary_index_spec(
+        &self,
+        table: &str,
+        name: &str,
+        columns: Vec<super::index::SecondaryIndexColumn>,
+        schema: &TableSchema,
+    ) -> Result<SecondaryIndexSpec, String> {
+        SecondaryIndexSpec::btree(self.index_scope(), table, name, columns, schema)
+    }
+
+    /// `CREATE INDEX` for ordinary scalar equality/range/order support. The
+    /// catalog entry and all initial directory rows are committed atomically;
+    /// a request exceeding the bounded build budget is rejected rather than
+    /// silently creating a partial index. `Ok(false)` is the deterministic
+    /// `IF NOT EXISTS` result.
+    pub fn create_secondary_index(
+        &self,
+        spec: &SecondaryIndexSpec,
+        if_not_exists: bool,
+    ) -> Result<bool, String> {
+        let wtx = self.begin()?;
+        let created = create_secondary_index_in(
+            &wtx,
+            self.index_scope(),
+            spec,
+            if_not_exists,
+        )?;
+        wtx.commit().map_err(map_err)?;
+        Ok(created)
+    }
+
+    /// `DROP INDEX` by owner scope, table, and index name. The physical entry
+    /// directory is removed in the same transaction as the catalog row.
+    pub fn drop_secondary_index(
+        &self,
+        table: &str,
+        name: &str,
+        if_exists: bool,
+    ) -> Result<bool, String> {
+        let wtx = self.begin()?;
+        let removed = drop_secondary_index_in(&wtx, self.index_scope(), table, name, if_exists)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(removed)
+    }
+
+    /// List ordinary indexes in deterministic catalog order. A table filter is
+    /// useful to providers and prevents exposing another table's definitions to
+    /// an index-planning request.
+    pub fn list_secondary_indexes(
+        &self,
+        table: Option<&str>,
+    ) -> Result<Vec<SecondaryIndexSpec>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        list_secondary_indexes_in(&rtx, self.index_scope(), table)
+    }
+
+    /// Resolve a simple first-column equality/range lookup through the durable
+    /// directory and fetch rows in ONE redb read transaction. Returning `None`
+    /// means no current, schema-valid index can prove a narrowing; callers must
+    /// use the ordinary scan. `Some(empty)` is a valid indexed result.
+    pub fn secondary_index_rows(
+        &self,
+        table: &str,
+        lookup: &SecondaryIndexLookup,
+    ) -> Result<Option<Vec<Vec<Cell>>>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        secondary_index_rows_in(&rtx, self.index_scope(), table, lookup)
+    }
+
+    /// Deterministic ordered/paginated read over a named ordinary index. This
+    /// is the explicit planner seam for callers that know an ORDER BY and
+    /// LIMIT/OFFSET; DataFusion's generic `TableProvider::scan` does not carry
+    /// those expressions, so it intentionally does not guess here. A stale or
+    /// missing index returns `None` and the caller must plan a scan+sort.
+    pub fn secondary_index_ordered_rows(
+        &self,
+        table: &str,
+        index_name: &str,
+        order: SecondaryIndexOrder,
+        offset: usize,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<Vec<Cell>>>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        secondary_index_ordered_rows_in(
+            &rtx,
+            self.index_scope(),
+            table,
+            index_name,
+            order,
+            offset,
+            limit,
+        )
+    }
+
     // ── Timescale-compatible hypertable catalog ──────────────────────────────
 
     /// Persist a hypertable declaration after validating its table and time
@@ -920,7 +1067,7 @@ impl TableStore {
         let wtx = self.begin()?;
         let mut affected = 0usize;
         for op in &txn.ops {
-            affected = affected.saturating_add(apply_txn_op(&wtx, op)?);
+            affected = affected.saturating_add(apply_txn_op(&wtx, self.index_scope(), op)?);
         }
         wtx.commit().map_err(map_err)?;
         Ok(affected)
@@ -1070,7 +1217,7 @@ impl TableStore {
 
         let mut affected = 0usize;
         for op in &txn.ops {
-            affected = affected.saturating_add(apply_txn_op(&wtx, op)?);
+            affected = affected.saturating_add(apply_txn_op(&wtx, self.index_scope(), op)?);
         }
         if crashpoint == Some(SqlMutationCrashpoint::AfterRowsBeforeMetadata) {
             return Err("injected crash after SQL mutation rows".to_string());
@@ -1276,7 +1423,11 @@ impl TableStore {
 // the catalog/rows THROUGH the same `wtx` (read-your-writes) is what lets a later op
 // in a multi-statement transaction see an earlier op's staged writes.
 
-fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
+fn apply_txn_op(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    op: &TxnOp,
+) -> Result<usize, String> {
     match op {
         TxnOp::CreateTable {
             schema,
@@ -1286,11 +1437,11 @@ fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
             Ok(0)
         }
         TxnOp::DropTable { name, if_exists } => {
-            drop_in(wtx, name, *if_exists)?;
+            drop_in(wtx, tenant_scope, name, *if_exists)?;
             Ok(0)
         }
         TxnOp::AddColumn { table, column } => {
-            add_column_in(wtx, table, column)?;
+            add_column_in(wtx, tenant_scope, table, column)?;
             Ok(0)
         }
         TxnOp::DropColumn {
@@ -1298,15 +1449,15 @@ fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
             column,
             if_exists,
         } => {
-            drop_column_in(wtx, table, column, *if_exists)?;
+            drop_column_in(wtx, tenant_scope, table, column, *if_exists)?;
             Ok(0)
         }
         TxnOp::RenameColumn { table, from, to } => {
-            rename_column_in(wtx, table, from, to)?;
+            rename_column_in(wtx, tenant_scope, table, from, to)?;
             Ok(0)
         }
         TxnOp::RenameTable { table, new_name } => {
-            rename_table_in(wtx, table, new_name)?;
+            rename_table_in(wtx, tenant_scope, table, new_name)?;
             Ok(0)
         }
         TxnOp::AlterColumnType {
@@ -1314,7 +1465,7 @@ fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
             column,
             new_type,
         } => {
-            alter_column_type_in(wtx, table, column, *new_type)?;
+            alter_column_type_in(wtx, tenant_scope, table, column, *new_type)?;
             Ok(0)
         }
         TxnOp::DropConstraint {
@@ -1322,24 +1473,24 @@ fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
             constraint,
             if_exists,
         } => {
-            drop_constraint_in(wtx, table, constraint, *if_exists)?;
+            drop_constraint_in(wtx, tenant_scope, table, constraint, *if_exists)?;
             Ok(0)
         }
         TxnOp::AddConstraint { table, constraint } => {
-            add_constraint_in(wtx, table, constraint.clone())?;
+            add_constraint_in(wtx, tenant_scope, table, constraint.clone())?;
             Ok(0)
         }
         TxnOp::Insert {
             table,
             col_order,
             rows,
-        } => Ok(insert_in(wtx, table, col_order, rows)?.len()),
+        } => Ok(insert_in(wtx, tenant_scope, table, col_order, rows)?.len()),
         TxnOp::Update {
             table,
             set,
             selector,
-        } => Ok(update_in(wtx, table, set, selector)?.len()),
-        TxnOp::Delete { table, selector } => Ok(delete_in(wtx, table, selector)?.len()),
+        } => Ok(update_in(wtx, tenant_scope, table, set, selector)?.len()),
+        TxnOp::Delete { table, selector } => Ok(delete_in(wtx, tenant_scope, table, selector)?.len()),
         TxnOp::CreateView {
             name,
             select_sql,
@@ -1624,6 +1775,435 @@ fn drop_ann_indexes_for_column_in(
     Ok(keys.len())
 }
 
+// ── ordinary scalar secondary-index catalog and directory ───────────────────
+
+fn get_schema_read(
+    rtx: &ReadTransaction,
+    name: &str,
+) -> Result<Option<TableSchema>, String> {
+    let cat = match rtx.open_table(CATALOG) {
+        Ok(table) => table,
+        Err(_) => return Ok(None),
+    };
+    let Some(value) = cat.get(name).map_err(map_err)? else {
+        return Ok(None);
+    };
+    let schema = decode_stored::<TableSchema>(value.value(), "schema")?;
+    schema.validate()?;
+    Ok(Some(schema))
+}
+
+fn list_secondary_indexes_in(
+    rtx: &ReadTransaction,
+    tenant_scope: &str,
+    table: Option<&str>,
+) -> Result<Vec<SecondaryIndexSpec>, String> {
+    let indexes = match rtx.open_table(SECONDARY_INDEXES) {
+        Ok(table) => table,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let mut out = Vec::new();
+    let mut count = 0usize;
+    let mut bytes = 0usize;
+    for row in indexes.iter().map_err(map_err)? {
+        let (key, value) = row.map_err(map_err)?;
+        // A malformed optional index definition is never allowed to make the
+        // authoritative table unreadable. Skip it here so callers deterministically
+        // fall back to a scan; the catalog remains inspectable through redb repair
+        // tooling rather than being trusted by the planner.
+        let Ok(spec) = decode_stored::<SecondaryIndexSpec>(value.value(), "secondary index")
+        else {
+            continue;
+        };
+        if spec.tenant_scope != tenant_scope
+            || table.is_some_and(|requested| requested != spec.table.as_str())
+        {
+            continue;
+        }
+        account_collection(
+            &mut count,
+            &mut bytes,
+            key.value().len().saturating_add(value.value().len()),
+        )?;
+        out.push(spec);
+    }
+    out.sort_by(|a, b| {
+        (&a.table, &a.name, &a.schema_digest).cmp(&(&b.table, &b.name, &b.schema_digest))
+    });
+    Ok(out)
+}
+
+fn list_secondary_indexes_write(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+) -> Result<Vec<SecondaryIndexSpec>, String> {
+    let indexes = match wtx.open_table(SECONDARY_INDEXES) {
+        Ok(table) => table,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let mut out = Vec::new();
+    for row in indexes.iter().map_err(map_err)? {
+        let (_, value) = row.map_err(map_err)?;
+        let Ok(spec) = decode_stored::<SecondaryIndexSpec>(value.value(), "secondary index")
+        else {
+            continue;
+        };
+        if spec.tenant_scope == tenant_scope && spec.table == table {
+            out.push(spec);
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+fn create_secondary_index_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    spec: &SecondaryIndexSpec,
+    if_not_exists: bool,
+) -> Result<bool, String> {
+    let schema = get_schema_in(wtx, &spec.table)?
+        .ok_or_else(|| format!("table `{}` does not exist", spec.table))?;
+    if spec.tenant_scope != tenant_scope {
+        return Err(format!(
+            "secondary index `{}` belongs to a different tenant scope",
+            spec.name
+        ));
+    }
+    validate_secondary_spec(spec, &schema)?;
+    let key = secondary_catalog_key(spec);
+    {
+        let indexes = wtx.open_table(SECONDARY_INDEXES).map_err(map_err)?;
+        if indexes.get(key.as_str()).map_err(map_err)?.is_some() {
+            if if_not_exists {
+                return Ok(false);
+            }
+            return Err(format!("secondary index `{}` already exists", spec.name));
+        }
+    }
+    let existing = list_secondary_indexes_write(wtx, tenant_scope, &spec.table)?;
+    if existing.len() >= MAX_SECONDARY_INDEXES_PER_TABLE {
+        return Err(format!(
+            "table `{}` exceeds the {} secondary-index bound",
+            spec.table, MAX_SECONDARY_INDEXES_PER_TABLE
+        ));
+    }
+
+    let bytes = rmp_serde::to_vec_named(spec)
+        .map_err(|error| format!("encode secondary index: {error}"))?;
+    let mut indexes = wtx.open_table(SECONDARY_INDEXES).map_err(map_err)?;
+    indexes
+        .insert(key.as_str(), bytes.as_slice())
+        .map_err(map_err)?;
+    drop(indexes);
+
+    // Initial directory construction is intentionally bounded and atomic. A
+    // large table asks its owner to build/partition it explicitly rather than
+    // leaving a silently partial index behind.
+    let rows = match wtx.open_table(ROWS) {
+        Ok(table) => table,
+        Err(_) => return Ok(true),
+    };
+    let mut row_items = Vec::new();
+    let mut row_count = 0usize;
+    let mut row_bytes = 0usize;
+    for row in rows
+        .range((spec.table.as_str(), 0u64)..=(spec.table.as_str(), u64::MAX))
+        .map_err(map_err)?
+    {
+        let (row_key, value) = row.map_err(map_err)?;
+        if row_items.len() >= MAX_SECONDARY_INDEX_BUILD_ROWS
+            || account_collection(&mut row_count, &mut row_bytes, value.value().len()).is_err()
+        {
+            return Err(format!(
+                "secondary index `{}` build exceeds {} rows",
+                spec.name, MAX_SECONDARY_INDEX_BUILD_ROWS
+            ));
+        }
+        row_items.push((
+            row_key.value().1,
+            decode_stored::<Vec<Cell>>(value.value(), "row")?,
+        ));
+    }
+    drop(rows);
+    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+    for (rowid, cells) in row_items {
+        let entry = secondary_entry_key(spec, &schema, &cells, rowid)?;
+        entries
+            .insert(entry.as_str(), &[][..])
+            .map_err(map_err)?;
+    }
+    Ok(true)
+}
+
+fn drop_secondary_index_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    name: &str,
+    if_exists: bool,
+) -> Result<bool, String> {
+    let key = format!("{tenant_scope}\0{table}\0{name}");
+    let exists = {
+        let indexes = wtx.open_table(SECONDARY_INDEXES).map_err(map_err)?;
+        indexes.get(key.as_str()).map_err(map_err)?.is_some()
+    };
+    if !exists {
+        if if_exists {
+            return Ok(false);
+        }
+        return Err(format!("secondary index `{name}` does not exist"));
+    }
+    {
+        let mut indexes = wtx.open_table(SECONDARY_INDEXES).map_err(map_err)?;
+        indexes.remove(key.as_str()).map_err(map_err)?;
+    }
+    let prefix = format!("{key}\0");
+    let high = format!("{prefix}\u{10ffff}");
+    let entry_keys = {
+        let entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+        let mut keys = Vec::new();
+        for row in entries
+            .range(prefix.as_str()..high.as_str())
+            .map_err(map_err)?
+        {
+            let (entry, _) = row.map_err(map_err)?;
+            if keys.len() >= MAX_SECONDARY_INDEX_CANDIDATES {
+                return Err("secondary index drop exceeds the bounded entry limit".to_string());
+            }
+            keys.push(entry.value().to_string());
+        }
+        keys
+    };
+    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+    for entry in entry_keys {
+        entries.remove(entry.as_str()).map_err(map_err)?;
+    }
+    Ok(true)
+}
+
+/// Remove definitions and physical rows for a table whose schema or name is
+/// changing.  A schema digest mismatch would already force a scan, but removing
+/// the stale catalog also makes a later CREATE INDEX deterministic and bounds
+/// orphan growth across repeated ALTER/DROP operations.
+fn drop_secondary_indexes_for_table_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+) -> Result<usize, String> {
+    let specs = list_secondary_indexes_write(wtx, tenant_scope, table)?;
+    if specs.is_empty() {
+        return Ok(0);
+    }
+    let keys: Vec<String> = specs.iter().map(secondary_catalog_key).collect();
+    {
+        let mut indexes = wtx.open_table(SECONDARY_INDEXES).map_err(map_err)?;
+        for key in &keys {
+            indexes.remove(key.as_str()).map_err(map_err)?;
+        }
+    }
+    let prefixes: Vec<String> = specs.iter().map(secondary_entry_prefix).collect();
+    let entry_keys = {
+        let entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+        let mut keys = Vec::new();
+        for prefix in &prefixes {
+            let high = format!("{prefix}\u{10ffff}");
+            for row in entries
+                .range(prefix.as_str()..high.as_str())
+                .map_err(map_err)?
+            {
+                let (entry, _) = row.map_err(map_err)?;
+                if keys.len() >= MAX_SECONDARY_INDEX_CANDIDATES {
+                    return Err(
+                        "secondary table-index drop exceeds the bounded entry limit".to_string(),
+                    );
+                }
+                keys.push(entry.value().to_string());
+            }
+        }
+        keys
+    };
+    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+    for entry in entry_keys {
+        entries.remove(entry.as_str()).map_err(map_err)?;
+    }
+    Ok(specs.len())
+}
+
+fn maintain_secondary_row_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    schema: &TableSchema,
+    rowid: u64,
+    old: Option<&[Cell]>,
+    new: Option<&[Cell]>,
+) -> Result<(), String> {
+    let specs = list_secondary_indexes_write(wtx, tenant_scope, table)?;
+    if specs.is_empty() {
+        return Ok(());
+    }
+    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+    for spec in specs {
+        // A stale definition is deliberately ignored. Its reader returns None
+        // and scans; it must never block ordinary DML after a schema migration.
+        if validate_secondary_spec(&spec, schema).is_err() {
+            continue;
+        }
+        if let Some(old) = old {
+            let key = secondary_entry_key(&spec, schema, old, rowid)?;
+            entries.remove(key.as_str()).map_err(map_err)?;
+        }
+        if let Some(new) = new {
+            let key = secondary_entry_key(&spec, schema, new, rowid)?;
+            entries
+                .insert(key.as_str(), &[][..])
+                .map_err(map_err)?;
+        }
+    }
+    Ok(())
+}
+
+fn secondary_index_rows_in(
+    rtx: &ReadTransaction,
+    tenant_scope: &str,
+    table: &str,
+    lookup: &SecondaryIndexLookup,
+) -> Result<Option<Vec<Vec<Cell>>>, String> {
+    let Some(schema) = get_schema_read(rtx, table)? else {
+        return Err(format!("table `{table}` does not exist"));
+    };
+    let specs = list_secondary_indexes_in(rtx, tenant_scope, Some(table))?;
+    let Some(spec) = specs.into_iter().find(|spec| {
+        spec.columns
+            .first()
+            .map(|column| column.name.as_str())
+            == Some(lookup.column())
+            && validate_secondary_spec(spec, &schema).is_ok()
+    }) else {
+        return Ok(None);
+    };
+    let Some((low, high)) = secondary_entry_range(&spec, &schema, lookup)? else {
+        return Ok(None);
+    };
+    let entries = match rtx.open_table(SECONDARY_INDEX_ENTRIES) {
+        Ok(table) => table,
+        Err(_) => return Ok(None),
+    };
+    let rows = match rtx.open_table(ROWS) {
+        Ok(table) => table,
+        Err(_) => return Ok(None),
+    };
+    let mut rowids = Vec::new();
+    for item in entries
+        .range(low.as_str()..high.as_str())
+        .map_err(map_err)?
+    {
+        let (key, _) = item.map_err(map_err)?;
+        let Some(rowid) = rowid_from_entry_key(key.value()) else {
+            return Ok(None);
+        };
+        if rowids.len() >= MAX_SECONDARY_INDEX_CANDIDATES {
+            return Ok(None);
+        }
+        rowids.push(rowid);
+    }
+    let width = schema.columns().len();
+    let mut out = Vec::with_capacity(rowids.len());
+    let mut row_count = 0usize;
+    let mut row_bytes = 0usize;
+    for rowid in rowids {
+        let Some(value) = rows.get((table, rowid)).map_err(map_err)? else {
+            // An orphaned/missing directory entry is not a reason to return a
+            // partial result.  Revert to the authoritative row scan.
+            return Ok(None);
+        };
+        if account_collection(&mut row_count, &mut row_bytes, value.value().len()).is_err() {
+            return Ok(None);
+        }
+        let mut cells = decode_stored::<Vec<Cell>>(value.value(), "row")?;
+        if cells.len() < width {
+            cells.resize(width, Cell::Null);
+        }
+        out.push(cells);
+    }
+    Ok(Some(out))
+}
+
+fn secondary_index_ordered_rows_in(
+    rtx: &ReadTransaction,
+    tenant_scope: &str,
+    table: &str,
+    index_name: &str,
+    order: SecondaryIndexOrder,
+    offset: usize,
+    limit: Option<usize>,
+) -> Result<Option<Vec<Vec<Cell>>>, String> {
+    let Some(schema) = get_schema_read(rtx, table)? else {
+        return Err(format!("table `{table}` does not exist"));
+    };
+    let Some(spec) = list_secondary_indexes_in(rtx, tenant_scope, Some(table))?
+        .into_iter()
+        .find(|spec| spec.name == index_name)
+    else {
+        return Ok(None);
+    };
+    if validate_secondary_spec(&spec, &schema).is_err() {
+        return Ok(None);
+    }
+    let entries = match rtx.open_table(SECONDARY_INDEX_ENTRIES) {
+        Ok(table) => table,
+        Err(_) => return Ok(None),
+    };
+    let rows = match rtx.open_table(ROWS) {
+        Ok(table) => table,
+        Err(_) => return Ok(None),
+    };
+    let prefix = secondary_entry_prefix(&spec);
+    let high = format!("{prefix}\u{10ffff}");
+    let mut rowids = Vec::new();
+    for item in entries
+        .range(prefix.as_str()..high.as_str())
+        .map_err(map_err)?
+    {
+        let (key, _) = item.map_err(map_err)?;
+        let Some(rowid) = rowid_from_entry_key(key.value()) else {
+            return Ok(None);
+        };
+        if rowids.len() >= MAX_SECONDARY_INDEX_CANDIDATES {
+            return Ok(None);
+        }
+        rowids.push(rowid);
+    }
+    if matches!(order, SecondaryIndexOrder::Desc) {
+        rowids.reverse();
+    }
+    let start = offset.min(rowids.len());
+    let end = limit
+        .and_then(|count| start.checked_add(count))
+        .unwrap_or(rowids.len())
+        .min(rowids.len());
+    let width = schema.columns().len();
+    let mut out = Vec::with_capacity(end.saturating_sub(start));
+    let mut row_count = 0usize;
+    let mut row_bytes = 0usize;
+    for rowid in &rowids[start..end] {
+        let Some(value) = rows.get((table, *rowid)).map_err(map_err)? else {
+            return Ok(None);
+        };
+        if account_collection(&mut row_count, &mut row_bytes, value.value().len()).is_err() {
+            return Ok(None);
+        }
+        let mut cells = decode_stored::<Vec<Cell>>(value.value(), "row")?;
+        if cells.len() < width {
+            cells.resize(width, Cell::Null);
+        }
+        out.push(cells);
+    }
+    Ok(Some(out))
+}
+
 // ── table-level constraints: FK cross-table validation + write-path enforcement ───
 // (CONCEPT:EG-KG.query.table-schema-constraints/NE-001)
 
@@ -1867,6 +2447,7 @@ fn validate_row_constraints_in(
 /// rowid)` twice, which is what makes an unbounded recursive cascade impossible.
 fn enforce_fk_on_parent_change_in(
     wtx: &WriteTransaction,
+    tenant_scope: &str,
     table: &str,
     rowid: u64,
     old_row: &[Cell],
@@ -1989,8 +2570,18 @@ fn enforce_fk_on_parent_change_in(
                                     .insert((child_table.as_str(), child_rowid), blob.as_slice())
                                     .map_err(map_err)?;
                             }
+                            maintain_secondary_row_in(
+                                wtx,
+                                tenant_scope,
+                                &child_table,
+                                &child_schema,
+                                child_rowid,
+                                Some(&child_cells),
+                                Some(&updated),
+                            )?;
                             enforce_fk_on_parent_change_in(
                                 wtx,
+                                tenant_scope,
                                 &child_table,
                                 child_rowid,
                                 &child_cells,
@@ -2004,8 +2595,18 @@ fn enforce_fk_on_parent_change_in(
                                     .remove((child_table.as_str(), child_rowid))
                                     .map_err(map_err)?;
                             }
+                            maintain_secondary_row_in(
+                                wtx,
+                                tenant_scope,
+                                &child_table,
+                                &child_schema,
+                                child_rowid,
+                                Some(&child_cells),
+                                None,
+                            )?;
                             enforce_fk_on_parent_change_in(
                                 wtx,
+                                tenant_scope,
                                 &child_table,
                                 child_rowid,
                                 &child_cells,
@@ -2032,10 +2633,21 @@ fn enforce_fk_on_parent_change_in(
                         }
                         let blob = rmp_serde::to_vec_named(&updated)
                             .map_err(|e| format!("encode row: {e}"))?;
-                        let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
-                        rows_t
-                            .insert((child_table.as_str(), child_rowid), blob.as_slice())
-                            .map_err(map_err)?;
+                        {
+                            let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+                            rows_t
+                                .insert((child_table.as_str(), child_rowid), blob.as_slice())
+                                .map_err(map_err)?;
+                        }
+                        maintain_secondary_row_in(
+                            wtx,
+                            tenant_scope,
+                            &child_table,
+                            &child_schema,
+                            child_rowid,
+                            Some(&child_cells),
+                            Some(&updated),
+                        )?;
                     }
                 }
             }
@@ -2183,7 +2795,12 @@ fn create_in(
     Ok(true)
 }
 
-fn drop_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, String> {
+fn drop_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    name: &str,
+    if_exists: bool,
+) -> Result<bool, String> {
     if get_schema_in(wtx, name)?.is_none() {
         if if_exists {
             return Ok(false);
@@ -2210,6 +2827,7 @@ fn drop_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, 
             rows.remove((name, rowid)).map_err(map_err)?;
         }
     }
+    drop_secondary_indexes_for_table_in(wtx, tenant_scope, name)?;
     {
         let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
         hypertables.remove(name).map_err(map_err)?;
@@ -2217,7 +2835,12 @@ fn drop_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, 
     Ok(true)
 }
 
-fn add_column_in(wtx: &WriteTransaction, table: &str, column: &Column) -> Result<(), String> {
+fn add_column_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    column: &Column,
+) -> Result<(), String> {
     let mut schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     if schema.column(&column.name).is_some() {
@@ -2227,13 +2850,18 @@ fn add_column_in(wtx: &WriteTransaction, table: &str, column: &Column) -> Result
         ));
     }
     schema.columns_mut().push(column.clone());
-    put_schema_in(wtx, &schema)
+    put_schema_in(wtx, tenant_scope, &schema)
 }
 
 /// Persist a (possibly renamed) schema back into the catalog under its `name` key.
 /// The single place an ALTER rewrites the catalog entry (CONCEPT:EG-KG.query.rename-table-moves-catalog).
-fn put_schema_in(wtx: &WriteTransaction, schema: &TableSchema) -> Result<(), String> {
+fn put_schema_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    schema: &TableSchema,
+) -> Result<(), String> {
     schema.validate()?;
+    drop_secondary_indexes_for_table_in(wtx, tenant_scope, &schema.name)?;
     let blob = rmp_serde::to_vec_named(schema).map_err(|e| format!("encode schema: {e}"))?;
     let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
     cat.insert(schema.name.as_str(), blob.as_slice())
@@ -2276,6 +2904,7 @@ fn migrate_rows_in(
 /// only column of a table. `if_exists` turns an absent-column error into a no-op.
 fn drop_column_in(
     wtx: &WriteTransaction,
+    tenant_scope: &str,
     table: &str,
     column: &str,
     if_exists: bool,
@@ -2310,7 +2939,7 @@ fn drop_column_in(
         ));
     }
     schema.columns_mut().remove(idx);
-    put_schema_in(wtx, &schema)?;
+    put_schema_in(wtx, tenant_scope, &schema)?;
     // Splice the dropped cell out of each stored row (rows may be short if written before
     // a later ADD COLUMN — guard the index).
     migrate_rows_in(wtx, table, |cells| {
@@ -2325,6 +2954,7 @@ fn drop_column_in(
 /// positional). Errors if `from` is absent or `to` already exists.
 fn rename_column_in(
     wtx: &WriteTransaction,
+    tenant_scope: &str,
     table: &str,
     from: &str,
     to: &str,
@@ -2338,7 +2968,7 @@ fn rename_column_in(
         .column_index(from)
         .ok_or_else(|| format!("column `{from}` does not exist in table `{table}`"))?;
     schema.columns_mut()[idx].name = to.to_string();
-    put_schema_in(wtx, &schema)?;
+    put_schema_in(wtx, tenant_scope, &schema)?;
     let replacement = {
         let hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
         let plan = hypertables
@@ -2364,7 +2994,12 @@ fn rename_column_in(
 /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME TO newtable`: move the catalog entry, the sequence, and
 /// every stored row's key from `table` to `new_name`. Errors if the table is absent or
 /// `new_name` already exists.
-fn rename_table_in(wtx: &WriteTransaction, table: &str, new_name: &str) -> Result<(), String> {
+fn rename_table_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    new_name: &str,
+) -> Result<(), String> {
     if table == new_name {
         return Ok(());
     }
@@ -2373,13 +3008,14 @@ fn rename_table_in(wtx: &WriteTransaction, table: &str, new_name: &str) -> Resul
     if get_schema_in(wtx, new_name)?.is_some() {
         return Err(format!("table `{new_name}` already exists"));
     }
+    drop_secondary_indexes_for_table_in(wtx, tenant_scope, table)?;
     // Catalog: drop the old key, write the schema under the new name.
     schema.name = new_name.to_string();
     {
         let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
         cat.remove(table).map_err(map_err)?;
     }
-    put_schema_in(wtx, &schema)?;
+    put_schema_in(wtx, tenant_scope, &schema)?;
     // Sequence: carry the rowid allocator forward so SERIAL ids never collide/reuse.
     {
         let mut seq = wtx.open_table(SEQ).map_err(map_err)?;
@@ -2433,6 +3069,7 @@ fn rename_table_in(wtx: &WriteTransaction, table: &str, new_name: &str) -> Resul
 /// cannot be coerced returns `Err` so the whole ALTER rolls back (no partial migration).
 fn alter_column_type_in(
     wtx: &WriteTransaction,
+    tenant_scope: &str,
     table: &str,
     column: &str,
     new_type: ColumnType,
@@ -2452,7 +3089,7 @@ fn alter_column_type_in(
         Ok(())
     })?;
     schema.columns_mut()[idx].ty = new_type;
-    put_schema_in(wtx, &schema)
+    put_schema_in(wtx, tenant_scope, &schema)
 }
 
 /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `DROP CONSTRAINT name`: this catalog stores constraints per column
@@ -2462,6 +3099,7 @@ fn alter_column_type_in(
 /// matches unless `if_exists`.
 fn drop_constraint_in(
     wtx: &WriteTransaction,
+    tenant_scope: &str,
     table: &str,
     constraint: &str,
     if_exists: bool,
@@ -2504,7 +3142,7 @@ fn drop_constraint_in(
             "constraint `{constraint}` does not exist on table `{table}`"
         ));
     }
-    put_schema_in(wtx, &schema)
+    put_schema_in(wtx, tenant_scope, &schema)
 }
 
 /// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — `ALTER TABLE … ADD CONSTRAINT`: validate `constraint`
@@ -2515,6 +3153,7 @@ fn drop_constraint_in(
 /// matching Postgres.
 fn add_constraint_in(
     wtx: &WriteTransaction,
+    tenant_scope: &str,
     table: &str,
     constraint: TableConstraint,
 ) -> Result<(), String> {
@@ -2548,7 +3187,7 @@ fn add_constraint_in(
             validate_existing_fk_children_in(wtx, table, &trial, &constraint)?;
         }
     }
-    put_schema_in(wtx, &trial)
+    put_schema_in(wtx, tenant_scope, &trial)
 }
 
 /// Best-effort coerce an already-stored [`Cell`] to `ty` for an `ALTER COLUMN … TYPE`
@@ -2665,6 +3304,7 @@ fn alloc_rowids(wtx: &WriteTransaction, table: &str, count: u64) -> Result<u64, 
 
 fn insert_in(
     wtx: &WriteTransaction,
+    tenant_scope: &str,
     table: &str,
     col_order: &[String],
     rows: &[Vec<Value>],
@@ -2699,6 +3339,17 @@ fn insert_in(
                 .insert((table, *rowid), blob.as_slice())
                 .map_err(map_err)?;
         }
+    }
+    for (offset, cells) in inserted.iter().enumerate() {
+        maintain_secondary_row_in(
+            wtx,
+            tenant_scope,
+            table,
+            &schema,
+            first_rowid + offset as u64,
+            None,
+            Some(cells),
+        )?;
     }
     // Uniqueness over the post-insert state (reads staged writes through `wtx`).
     validate_uniqueness_in(wtx, table, &schema)?;
@@ -2788,6 +3439,7 @@ fn build_insert_cells(
 /// integrity gate so a DO UPDATE that itself introduces a duplicate still aborts.
 fn insert_on_conflict_in(
     wtx: &WriteTransaction,
+    tenant_scope: &str,
     table: &str,
     col_order: &[String],
     rows: &[Vec<Value>],
@@ -2842,6 +3494,7 @@ fn insert_on_conflict_in(
     }
 
     let mut affected: Vec<Vec<Cell>> = Vec::new();
+    let mut index_changes: Vec<(u64, Option<Vec<Cell>>, Option<Vec<Cell>>)> = Vec::new();
     let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
     for row in rows {
         // Coerce the supplied unique-column values to detect a conflict.
@@ -2867,6 +3520,7 @@ fn insert_on_conflict_in(
                 // Merge the SET assignments into the conflicting row.
                 let index = *row_slot.get(&rid).expect("conflict rowid present");
                 let slot = &mut existing[index];
+                let old_cells = slot.1.clone();
                 for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
                     if let Some(key) = unique_cell_key(&slot.1[column]) {
                         if map.get(&key) == Some(&rid) {
@@ -2902,7 +3556,9 @@ fn insert_on_conflict_in(
                 rows_t
                     .insert((table, rid), blob.as_slice())
                     .map_err(map_err)?;
-                affected.push(slot.1.clone());
+                let new_cells = slot.1.clone();
+                affected.push(new_cells.clone());
+                index_changes.push((rid, Some(old_cells), Some(new_cells)));
             }
             (None, _) => {
                 // A fresh insert: allocate one rowid, build + write the row.
@@ -2920,11 +3576,23 @@ fn insert_on_conflict_in(
                     }
                 }
                 existing.push((rowid, cells.clone()));
-                affected.push(cells);
+                affected.push(cells.clone());
+                index_changes.push((rowid, None, Some(cells)));
             }
         }
     }
     drop(rows_t);
+    for (rowid, old, new) in &index_changes {
+        maintain_secondary_row_in(
+            wtx,
+            tenant_scope,
+            table,
+            &schema,
+            *rowid,
+            old.as_deref(),
+            new.as_deref(),
+        )?;
+    }
     validate_uniqueness_in(wtx, table, &schema)?;
     // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — table-level CHECK + outgoing FOREIGN KEY per
     // inserted-or-updated row (fresh insert AND a DO UPDATE merge both land in `affected`).
@@ -2956,6 +3624,7 @@ fn row_map(schema: &TableSchema, cells: &[Cell]) -> serde_json::Map<String, Valu
 
 fn update_in(
     wtx: &WriteTransaction,
+    tenant_scope: &str,
     table: &str,
     set: &serde_json::Map<String, Value>,
     selector: &eg_types::RowPredicate,
@@ -3017,6 +3686,17 @@ fn update_in(
             updated.push(cells);
         }
     }
+    for (rowid, old_cells, new_cells) in &changed {
+        maintain_secondary_row_in(
+            wtx,
+            tenant_scope,
+            table,
+            &schema,
+            *rowid,
+            Some(old_cells),
+            Some(new_cells),
+        )?;
+    }
     validate_uniqueness_in(wtx, table, &schema)?;
     // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — table-level CHECK + outgoing FOREIGN KEY, then the
     // parent-side referential action for every OTHER table whose FK references a
@@ -3026,6 +3706,7 @@ fn update_in(
         validate_row_constraints_in(wtx, &schema, new_cells)?;
         enforce_fk_on_parent_change_in(
             wtx,
+            tenant_scope,
             table,
             *rowid,
             old_cells,
@@ -3038,6 +3719,7 @@ fn update_in(
 
 fn delete_in(
     wtx: &WriteTransaction,
+    tenant_scope: &str,
     table: &str,
     selector: &eg_types::RowPredicate,
 ) -> Result<Vec<Vec<Cell>>, String> {
@@ -3068,11 +3750,30 @@ fn delete_in(
         removed.push(cells.clone());
     }
     drop(rows_t);
+    for (rowid, cells) in &victims {
+        maintain_secondary_row_in(
+            wtx,
+            tenant_scope,
+            table,
+            &schema,
+            *rowid,
+            Some(cells),
+            None,
+        )?;
+    }
     // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — the parent-side referential action for every OTHER
     // table whose FK references a column of a row this DELETE removed.
     let mut visited = HashSet::new();
     for (rowid, cells) in &victims {
-        enforce_fk_on_parent_change_in(wtx, table, *rowid, cells, None, &mut visited)?;
+        enforce_fk_on_parent_change_in(
+            wtx,
+            tenant_scope,
+            table,
+            *rowid,
+            cells,
+            None,
+            &mut visited,
+        )?;
     }
     Ok(removed)
 }
