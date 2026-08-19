@@ -28,6 +28,58 @@ use super::state::ServerState;
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Request, Response, ResultPayload};
 
+/// Stable, privacy-safe rejection for a graph lifecycle type that this binary
+/// does not support.  The wire decoder normally rejects unknown enum strings
+/// before dispatch; keeping this code at the authenticated dispatch boundary
+/// is defense in depth for in-process callers and future enum extensions.
+const UNSUPPORTED_GRAPH_TYPE: &str = "INVALID_ARGUMENT: unsupported graph type";
+
+/// Validate the graph lifecycle type before any placement, persistence, or
+/// registry work begins.  `GraphType` is intentionally a closed wire enum
+/// today, but the explicit allowlist means a future enum variant cannot be
+/// accepted by this boundary accidentally until its lifecycle contract is
+/// deliberately reviewed.
+fn validate_graph_create_type(graph_type: crate::protocol::GraphType) -> Result<(), &'static str> {
+    if matches!(
+        graph_type,
+        crate::protocol::GraphType::Agent
+            | crate::protocol::GraphType::Team
+            | crate::protocol::GraphType::Global
+            | crate::protocol::GraphType::Commons
+    ) {
+        Ok(())
+    } else {
+        Err(UNSUPPORTED_GRAPH_TYPE)
+    }
+}
+
+#[cfg(test)]
+mod graph_create_type_validation_tests {
+    use super::{validate_graph_create_type, UNSUPPORTED_GRAPH_TYPE};
+    use crate::protocol::GraphType;
+
+    #[test]
+    fn accepts_every_supported_graph_lifecycle_type() {
+        for graph_type in [
+            GraphType::Agent,
+            GraphType::Team,
+            GraphType::Global,
+            GraphType::Commons,
+        ] {
+            assert!(validate_graph_create_type(graph_type).is_ok());
+        }
+    }
+
+    #[test]
+    fn unsupported_type_error_is_stable_and_secret_free() {
+        assert_eq!(
+            UNSUPPORTED_GRAPH_TYPE,
+            "INVALID_ARGUMENT: unsupported graph type"
+        );
+        assert!(!UNSUPPORTED_GRAPH_TYPE.contains("secret"));
+    }
+}
+
 // ── D-EIMG-2: the process-wide dispatch lock, instrumented at its chokepoint ──
 //
 // Every dispatched method acquires this one `Arc<RwLock<ServerState>>` before it can do
@@ -2651,6 +2703,19 @@ async fn dispatch_inner(
 
     if let Err(error) = preflight_request_msgpack(&req.method) {
         return Response::err(req.id, error);
+    }
+
+    // BUG-254 / NE-023: reject an unsupported lifecycle type at the first
+    // authenticated, authoritative dispatch boundary.  This runs before
+    // placement routing, consensus proposal, session-control saga creation,
+    // persistence, or registry publication, so a bad CreateGraph request can
+    // never enter the multi-minute retry path or leave partial state behind.
+    // The transport decoder has a matching closed-enum guard for raw wire
+    // callers; this check protects in-process and future-variant callers too.
+    if let Method::CreateGraph { graph_type, .. } = &req.method {
+        if let Err(error) = validate_graph_create_type(*graph_type) {
+            return Response::err(req.id, error);
+        }
     }
 
     // Cluster writes cross consensus at the authenticated request boundary. The
