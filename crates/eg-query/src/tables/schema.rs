@@ -15,13 +15,28 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
+/// Hard limits for user-table declarations and values. These limits are part of
+/// the catalog contract: they are checked while decoding DDL and again while
+/// coercing mutation values, so a caller cannot bypass them by constructing a
+/// `TableSchema` directly or by replaying a prepared statement.
+pub const MAX_TABLE_COLUMNS: usize = 1024;
+pub const MAX_TABLE_CONSTRAINTS: usize = 256;
+pub const MAX_CONSTRAINT_COLUMNS: usize = 64;
+pub const MAX_SCHEMA_NAME_BYTES: usize = 256;
+pub const MAX_CHECK_IN_VALUES: usize = 1024;
+pub const MAX_CHECK_DEPTH: usize = 32;
+pub const MAX_CHECK_NODES: usize = 4096;
+pub const MAX_ARRAY_ELEMENTS: usize = 4096;
+pub const MAX_ARRAY_VALUE_BYTES: usize = 256 * 1024;
+pub const MAX_NUMERIC_PRECISION: u32 = 38;
+
 /// The set of column types a user table column may declare (CONCEPT:EG-KG.query.register-user-tables-alongside). Chosen
 /// to cover the connector / ETL / time-series workloads the engine ingests —
 /// Prometheus samples (`timestamp`, `double`), Langfuse spans (`text`, `json`,
 /// `timestamp`), stock bars (`bigint`, `double`), and raw connector mirrors
-/// (`bytes`, `json`). Kept deliberately small and coarse: every variant maps cleanly
-/// to ONE Arrow type and ONE Postgres wire OID, so a SELECT result is never
-/// lossy-dropped and a `psql`/ORM client always resolves a sane column type.
+/// (`bytes`, `json`). Kept deliberately small and closed: every variant maps to
+/// one stable Arrow shape and carries its own catalog identity, so adapters can
+/// select a lossless wire representation without collapsing distinct types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ColumnType {
     /// 32-bit-range integer — stored as i64 (Arrow `Int64`).
@@ -47,31 +62,28 @@ pub enum ColumnType {
     /// a `Vec<f32>` (Arrow `List<Float32>`). `Some(n)` is the declared dimension (row
     /// length enforced on insert); `None` is an unconstrained-dimension vector.
     Vector(Option<usize>),
-    /// RFC 4122 UUID (CONCEPT:EG-KG.query.table-schema-constraints/NE-002). Validated + normalized to canonical
-    /// lowercase-hyphenated form on write, stored as `Cell::Text` (Arrow `Utf8` — same
-    /// wire shape `Text` already uses, so no lossy drop). Distinct from `Text` purely
-    /// for catalog/OID identity and format validation; a bad literal is rejected at
-    /// the write path rather than silently accepted as opaque text.
+    /// RFC 4122 UUID (CONCEPT:EG-KG.query.table-schema-constraints/NE-002). Validated
+    /// on write and stored as sixteen binary octets (Arrow `FixedSizeBinary(16)`).
+    /// The schema, rather than a text encoding, carries the UUID type identity.
     Uuid,
     /// `NUMERIC`/`DECIMAL[(p,s)]` exact fixed-point (CONCEPT:EG-KG.query.table-schema-constraints/NE-002).
     /// `Some((precision, scale))` is enforced on write (digit-count overflow and
-    /// excess-scale are REJECTED rather than silently truncated/rounded); `None` is an
-    /// unconstrained-precision numeric. Stored as `Cell::Float` (Arrow `Float64`,
-    /// matching `Double`) — an inherited precision ceiling documented on
-    /// [`Cell::coerce`]'s NUMERIC arm; the scale/precision CHECK is real even though the
-    /// underlying storage is not arbitrary-precision decimal.
+    /// excess-scale are rejected rather than silently truncated/rounded). The
+    /// canonical decimal spelling is retained in a JSON string cell so no binary
+    /// floating-point rounding occurs; declared precision is materialized as an
+    /// Arrow `Decimal128` column.
     Numeric(Option<(u32, u32)>),
     /// `TIMESTAMPTZ`/`TIMESTAMP WITH TIME ZONE` (CONCEPT:EG-KG.query.table-schema-constraints/NE-002) — unlike bare
     /// `Timestamp`, a string literal MUST carry an explicit UTC offset (`Z` or
     /// `±HH[:MM]`); a zone-less literal is rejected rather than silently treated as
-    /// local time. Normalized to UTC and stored as `Cell::Timestamp` (i64 micros —
-    /// same wire shape as `Timestamp`; the calendar/zone semantics are enforced only
-    /// on the way IN).
+    /// local time. Normalized to UTC and stored as `Cell::Timestamp` (i64 micros),
+    /// then materialized as Arrow `Timestamp(Microsecond, Some("UTC"))`; the
+    /// calendar/zone semantics are enforced on the way in.
     TimestampTz,
     /// `TEXT[]`/`UUID[]`/… (CONCEPT:EG-KG.query.table-schema-constraints/NE-002) — an array of a scalar element type
     /// (distinct from [`ColumnType::Vector`], which is a dense f32 embedding). Stored
-    /// as `Cell::Json` (a genuine JSON array — Arrow `Utf8`, its canonical JSON text),
-    /// so element-wise round-trip through SELECT is exact.
+    /// as a bounded JSON array of already-coerced scalar values and materialized as
+    /// an Arrow `List` whose child type is determined by `ArrayElemType`.
     Array(ArrayElemType),
 }
 
@@ -126,8 +138,9 @@ impl ColumnType {
     /// Parse a SQL type name (case-insensitive, e.g. from `CREATE TABLE`) into a
     /// [`ColumnType`]. Accepts the common Postgres/standard spellings plus the
     /// engine's canonical names so `int4`/`integer`/`int` all land on `Int`, etc.
-    /// Length/precision suffixes (`varchar(255)`, `numeric(10,2)`) are ignored — the
-    /// base type is what the store needs. Returns `Err` for an unknown type.
+    /// Length suffixes (`varchar(255)`) are ignored; precision-bearing types such
+    /// as `numeric(10,2)` and `vector(3)` retain their declared shape. Returns
+    /// `Err` for an unknown type.
     pub fn parse(name: &str) -> Result<ColumnType, String> {
         let trimmed = name.trim();
         // CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — `<base>[]` (postgres array syntax) or the internal
@@ -190,6 +203,9 @@ fn parse_numeric_precision_scale(name: &str) -> Result<Option<(u32, u32)>, Strin
     let Some(end_rel) = name[start + 1..].find(')') else {
         return Err(format!("unterminated precision in NUMERIC type `{name}`"));
     };
+    if !name[start + 1 + end_rel + 1..].trim().is_empty() {
+        return Err(format!("invalid NUMERIC type spelling `{name}`"));
+    }
     let inner = name[start + 1..start + 1 + end_rel].trim();
     if inner.is_empty() {
         return Ok(None);
@@ -210,6 +226,11 @@ fn parse_numeric_precision_scale(name: &str) -> Result<Option<(u32, u32)>, Strin
     };
     if parts.next().is_some() {
         return Err(format!("invalid NUMERIC type spelling `{name}`"));
+    }
+    if precision == 0 || precision > MAX_NUMERIC_PRECISION {
+        return Err(format!(
+            "NUMERIC precision must be between 1 and {MAX_NUMERIC_PRECISION} in `{name}`"
+        ));
     }
     if scale > precision {
         return Err(format!(
@@ -245,8 +266,8 @@ pub enum CmpOp {
 }
 
 /// A simple single-column `CHECK` predicate (`CHECK (col OP literal)`) enforced on
-/// insert/update (CONCEPT:EG-KG.query.register-each-user-table). Only the column-vs-literal comparison shape is
-/// modeled; a complex CHECK expression is not stored (the classifier rejects it).
+/// insert/update (CONCEPT:EG-KG.query.register-each-user-table). Table-level
+/// [`CheckExpr`] carries richer cross-column and boolean-expression shapes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColCheck {
     pub op: CmpOp,
@@ -259,23 +280,92 @@ impl ColCheck {
         if actual.is_null() {
             return true;
         }
-        let ord = match (actual.as_f64(), self.value.as_f64()) {
-            (Some(a), Some(b)) => a.partial_cmp(&b),
-            _ => match (actual.as_str(), self.value.as_str()) {
-                (Some(a), Some(b)) => Some(a.cmp(b)),
-                _ => return matches!(self.op, CmpOp::Eq) && actual == &self.value,
-            },
+        let numeric_ord = if actual.is_number() || self.value.is_number() {
+            match (numeric_check_text(actual), numeric_check_text(&self.value)) {
+                (Some(a), Some(b)) => Some(compare_numeric_text(&a, &b)),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let ord = if numeric_ord.is_some() {
+            numeric_ord
+        } else {
+            match (actual.as_f64(), self.value.as_f64()) {
+                (Some(a), Some(b)) => a.partial_cmp(&b),
+                _ => match (actual.as_str(), self.value.as_str()) {
+                    (Some(a), Some(b)) => Some(a.cmp(b)),
+                    _ => return matches!(self.op, CmpOp::Eq) && actual == &self.value,
+                },
+            }
         };
         use std::cmp::Ordering::*;
         match (self.op, ord) {
-            (CmpOp::Eq, _) => actual == &self.value,
-            (CmpOp::Ne, _) => actual != &self.value,
+            (CmpOp::Eq, Some(o)) => o == Equal,
+            (CmpOp::Eq, None) => actual == &self.value,
+            (CmpOp::Ne, Some(o)) => o != Equal,
+            (CmpOp::Ne, None) => actual != &self.value,
             (CmpOp::Lt, Some(o)) => o == Less,
             (CmpOp::Le, Some(o)) => o != Greater,
             (CmpOp::Gt, Some(o)) => o == Greater,
             (CmpOp::Ge, Some(o)) => o != Less,
             (_, None) => false,
         }
+    }
+}
+
+fn numeric_check_text(value: &Value) -> Option<String> {
+    let raw = match value {
+        Value::Number(number) => number.to_string(),
+        Value::String(text) => text.clone(),
+        _ => return None,
+    };
+    if raw.len() > MAX_ARRAY_VALUE_BYTES {
+        return None;
+    }
+    normalize_numeric_literal(&raw, None).ok()
+}
+
+fn compare_numeric_text(left: &str, right: &str) -> std::cmp::Ordering {
+    let (left_negative, left_digits) = left
+        .strip_prefix('-')
+        .map(|digits| (true, digits))
+        .unwrap_or((false, left));
+    let (right_negative, right_digits) = right
+        .strip_prefix('-')
+        .map(|digits| (true, digits))
+        .unwrap_or((false, right));
+    if left_negative != right_negative {
+        return if left_negative {
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        };
+    }
+    let (left_int, left_frac) = left_digits.split_once('.').unwrap_or((left_digits, ""));
+    let (right_int, right_frac) = right_digits.split_once('.').unwrap_or((right_digits, ""));
+    let magnitude = left_int
+        .len()
+        .cmp(&right_int.len())
+        .then_with(|| left_int.cmp(right_int))
+        .then_with(|| {
+            let width = left_frac.len().max(right_frac.len());
+            (0..width)
+                .map(|index| {
+                    (
+                        left_frac.as_bytes().get(index).copied().unwrap_or(b'0'),
+                        right_frac.as_bytes().get(index).copied().unwrap_or(b'0'),
+                    )
+                })
+                .find_map(|(left_digit, right_digit)| {
+                    (left_digit != right_digit).then(|| left_digit.cmp(&right_digit))
+                })
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    if left_negative {
+        magnitude.reverse()
+    } else {
+        magnitude
     }
 }
 
@@ -364,7 +454,19 @@ impl CheckExpr {
                 if actual.is_null() {
                     return true;
                 }
-                let contains = values.iter().any(|v| v == &actual);
+                let contains = values.iter().any(|value| {
+                    if actual.is_number() || value.is_number() {
+                        match (numeric_check_text(&actual), numeric_check_text(value)) {
+                            (Some(left), Some(right)) => {
+                                compare_numeric_text(&left, &right)
+                                    == std::cmp::Ordering::Equal
+                            }
+                            _ => false,
+                        }
+                    } else {
+                        value == &actual
+                    }
+                });
                 contains != *negated
             }
             CheckExpr::IsNull { column, negated } => {
@@ -394,6 +496,55 @@ impl CheckExpr {
                 b.referenced_columns(out);
             }
         }
+    }
+
+    /// Validate the bounded shape persisted in a catalog. The classifier already
+    /// rejects unsupported SQL expressions; this second boundary also protects
+    /// callers that construct a `TableConstraint` directly.
+    pub(crate) fn validate_limits(&self, depth: usize) -> Result<(), String> {
+        let mut nodes = 0;
+        self.validate_limits_inner(depth, &mut nodes)
+    }
+
+    fn validate_limits_inner(&self, depth: usize, nodes: &mut usize) -> Result<(), String> {
+        if depth > MAX_CHECK_DEPTH {
+            return Err(format!(
+                "CHECK expression exceeds maximum depth {MAX_CHECK_DEPTH}"
+            ));
+        }
+        *nodes = (*nodes)
+            .checked_add(1)
+            .filter(|nodes| *nodes <= MAX_CHECK_NODES)
+            .ok_or_else(|| format!("CHECK expression exceeds maximum of {MAX_CHECK_NODES} nodes"))?;
+        match self {
+            CheckExpr::In { values, .. } => {
+                if values.len() > MAX_CHECK_IN_VALUES {
+                    return Err(format!(
+                        "CHECK IN list exceeds maximum of {MAX_CHECK_IN_VALUES} values"
+                    ));
+                }
+                for value in values {
+                    let encoded = serde_json::to_vec(value)
+                        .map_err(|error| format!("CHECK literal is not serializable: {error}"))?;
+                    if encoded.len() > MAX_ARRAY_VALUE_BYTES {
+                        return Err("CHECK literal exceeds SQL value size limit".to_string());
+                    }
+                }
+            }
+            CheckExpr::Cmp { value, .. } => {
+                let encoded = serde_json::to_vec(value)
+                    .map_err(|error| format!("CHECK literal is not serializable: {error}"))?;
+                if encoded.len() > MAX_ARRAY_VALUE_BYTES {
+                    return Err("CHECK literal exceeds SQL value size limit".to_string());
+                }
+            }
+            CheckExpr::And(left, right) | CheckExpr::Or(left, right) => {
+                left.validate_limits_inner(depth + 1, nodes)?;
+                right.validate_limits_inner(depth + 1, nodes)?;
+            }
+            CheckExpr::ColCmp { .. } | CheckExpr::IsNull { .. } => {}
+        }
+        Ok(())
     }
 }
 
@@ -544,6 +695,14 @@ impl TableSchema {
         &self.constraints
     }
 
+    /// Mutably borrow table-level constraints, invalidating derived schema state.
+    /// Used by the atomic table-rename migration to keep inbound/self FKs
+    /// pointing at the renamed catalog key.
+    pub fn constraints_mut(&mut self) -> &mut Vec<TableConstraint> {
+        self.column_offsets.take();
+        &mut self.constraints
+    }
+
     /// Append one table-level constraint (`ALTER TABLE … ADD CONSTRAINT`, CONCEPT:EG-KG.query.table-schema-constraints/NE-001).
     pub fn push_constraint(&mut self, constraint: TableConstraint) {
         self.constraints.push(constraint);
@@ -593,6 +752,29 @@ impl TableSchema {
                 self.name
             ));
         }
+        if self.columns.len() > MAX_TABLE_COLUMNS {
+            return Err(format!(
+                "table `{}` declares {} columns; maximum is {MAX_TABLE_COLUMNS}",
+                self.name,
+                self.columns.len()
+            ));
+        }
+        if self.constraints.len() > MAX_TABLE_CONSTRAINTS {
+            return Err(format!(
+                "table `{}` declares {} constraints; maximum is {MAX_TABLE_CONSTRAINTS}",
+                self.name,
+                self.constraints.len()
+            ));
+        }
+        for column in &self.columns {
+            validate_column_type(column.ty)?;
+            if let Some(default) = &column.default {
+                validate_schema_value_size(default, "column DEFAULT")?;
+            }
+            if let Some(check) = &column.check {
+                validate_schema_value_size(&check.value, "column CHECK literal")?;
+            }
+        }
         self.column_offsets()
             .map(|_| ())
             .map_err(|error| error.to_string())?;
@@ -607,21 +789,37 @@ impl TableSchema {
     /// `CREATE TABLE`/`ADD CONSTRAINT` time, where the catalog is reachable.
     fn validate_constraints(&self) -> Result<(), String> {
         let mut pk_count = self.columns.iter().filter(|c| c.primary_key).count();
+        let mut names = std::collections::HashSet::new();
         for c in &self.constraints {
+            if let Some(name) = c.name() {
+                validate_schema_name(name, "constraint")?;
+                if !names.insert(name) {
+                    return Err(format!(
+                        "table `{}` declares duplicate constraint `{name}`",
+                        self.name
+                    ));
+                }
+            }
             match c {
                 TableConstraint::PrimaryKey { columns, .. } => {
+                    validate_constraint_width(columns, "PRIMARY KEY")?;
                     pk_count += 1;
-                    self.validate_constraint_columns(columns, "PRIMARY KEY")?;
+                    self.validate_constraint_columns(columns, "PRIMARY KEY", true)?;
                 }
                 TableConstraint::Unique { columns, .. } => {
-                    self.validate_constraint_columns(columns, "UNIQUE")?;
+                    validate_constraint_width(columns, "UNIQUE")?;
+                    self.validate_constraint_columns(columns, "UNIQUE", true)?;
                 }
                 TableConstraint::ForeignKey {
                     columns,
+                    ref_table,
                     ref_columns,
                     ..
                 } => {
-                    self.validate_constraint_columns(columns, "FOREIGN KEY")?;
+                    validate_constraint_width(columns, "FOREIGN KEY")?;
+                    validate_constraint_width(ref_columns, "FOREIGN KEY REFERENCES")?;
+                    self.validate_constraint_columns(columns, "FOREIGN KEY", true)?;
+                    validate_schema_name(ref_table, "referenced table")?;
                     if ref_columns.is_empty() {
                         return Err(format!(
                             "table `{}`: FOREIGN KEY REFERENCES must name at least one column",
@@ -636,11 +834,22 @@ impl TableSchema {
                             ref_columns.len()
                         ));
                     }
+                    let mut seen_ref = std::collections::HashSet::new();
+                    for ref_column in ref_columns {
+                        validate_schema_name(ref_column, "referenced column")?;
+                        if !seen_ref.insert(ref_column) {
+                            return Err(format!(
+                                "table `{}`: FOREIGN KEY REFERENCES repeats column `{ref_column}`",
+                                self.name
+                            ));
+                        }
+                    }
                 }
                 TableConstraint::Check { expr, .. } => {
+                    expr.validate_limits(0)?;
                     let mut referenced = Vec::new();
                     expr.referenced_columns(&mut referenced);
-                    self.validate_constraint_columns(&referenced, "CHECK")?;
+                    self.validate_constraint_columns(&referenced, "CHECK", false)?;
                 }
             }
         }
@@ -657,6 +866,7 @@ impl TableSchema {
         &self,
         columns: &[impl AsRef<str>],
         kind: &str,
+        reject_duplicates: bool,
     ) -> Result<(), String> {
         if columns.is_empty() {
             return Err(format!(
@@ -664,8 +874,15 @@ impl TableSchema {
                 self.name
             ));
         }
+        let mut seen = std::collections::HashSet::new();
         for name in columns {
             let name = name.as_ref();
+            if reject_duplicates && !seen.insert(name) {
+                return Err(format!(
+                    "table `{}`: {kind} repeats column `{name}`",
+                    self.name
+                ));
+            }
             if self.columns.iter().all(|c| c.name != name) {
                 return Err(format!(
                     "table `{}`: {kind} references unknown column `{name}`",
@@ -736,9 +953,51 @@ impl TableSchema {
     }
 }
 
+fn validate_constraint_width<T>(columns: &[T], kind: &str) -> Result<(), String> {
+    if columns.len() > MAX_CONSTRAINT_COLUMNS {
+        return Err(format!(
+            "{kind} references {} columns; maximum is {MAX_CONSTRAINT_COLUMNS}",
+            columns.len()
+        ));
+    }
+    Ok(())
+}
+
+fn validate_column_type(ty: ColumnType) -> Result<(), String> {
+    if let ColumnType::Numeric(Some((precision, scale))) = ty {
+        if precision == 0 || precision > MAX_NUMERIC_PRECISION {
+            return Err(format!(
+                "NUMERIC precision must be between 1 and {MAX_NUMERIC_PRECISION}"
+            ));
+        }
+        if scale > precision {
+            return Err(format!(
+                "NUMERIC scale {scale} exceeds precision {precision}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_schema_name(value: &str, kind: &str) -> Result<(), String> {
     if value.is_empty() || value.contains('\0') {
         return Err(format!("{kind} name is empty or contains NUL"));
+    }
+    if value.len() > MAX_SCHEMA_NAME_BYTES {
+        return Err(format!(
+            "{kind} name exceeds maximum of {MAX_SCHEMA_NAME_BYTES} bytes"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_schema_value_size(value: &Value, kind: &str) -> Result<(), String> {
+    let encoded = serde_json::to_vec(value)
+        .map_err(|error| format!("{kind} is not serializable: {error}"))?;
+    if encoded.len() > MAX_ARRAY_VALUE_BYTES {
+        return Err(format!(
+            "{kind} exceeds maximum of {MAX_ARRAY_VALUE_BYTES} bytes"
+        ));
     }
     Ok(())
 }
@@ -1091,7 +1350,10 @@ mod table_schema_tests {
         .unwrap();
         assert_eq!(
             cell,
-            Cell::Text("a1a2a3a4-b1b2-c1c2-d1d2-e1e2e3e4e5e6".into())
+            Cell::Bytes(vec![
+                0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xe1, 0xe2,
+                0xe3, 0xe4, 0xe5, 0xe6,
+            ])
         );
         // A bare 32-hex-digit form normalizes to the SAME hyphenated canonical form.
         let cell2 = Cell::coerce(
@@ -1114,7 +1376,7 @@ mod table_schema_tests {
             false,
         )
         .unwrap();
-        assert_eq!(cell, Cell::Float(123.40));
+        assert_eq!(cell, Cell::Json(Value::String("123.40".into())));
         // Too many fractional digits ⇒ rejected (never silently rounded away).
         assert!(Cell::coerce(
             &Value::String("1.234".into()),
@@ -1188,12 +1450,77 @@ mod table_schema_tests {
         )
         .unwrap();
         assert_eq!(from_text, cell);
+        let ints = Cell::coerce(
+            &Value::String("{1,2,NULL}".into()),
+            ColumnType::Array(ArrayElemType::Int),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            ints,
+            Cell::Json(Value::Array(vec![
+                Value::Number(1.into()),
+                Value::Number(2.into()),
+                Value::Null,
+            ]))
+        );
+    }
+
+    #[test]
+    fn new_cells_use_lossless_compatible_shapes() {
+        let uuid = Cell::coerce(
+            &Value::String("a1a2a3a4-b1b2-c1c2-d1d2-e1e2e3e4e5e6".into()),
+            ColumnType::Uuid,
+            false,
+        )
+        .unwrap();
+        assert!(matches!(uuid, Cell::Bytes(bytes) if bytes.len() == 16));
+        assert_eq!(
+            uuid.to_typed_json(ColumnType::Uuid),
+            Value::String("a1a2a3a4-b1b2-c1c2-d1d2-e1e2e3e4e5e6".into())
+        );
+
+        let numeric_text = format!("{}.99", "9".repeat(36));
+        let numeric = Cell::coerce(
+            &Value::String(numeric_text.clone()),
+            ColumnType::Numeric(Some((38, 2))),
+            false,
+        )
+        .unwrap();
+        assert_eq!(numeric, Cell::Json(Value::String(numeric_text)));
+    }
+
+    #[test]
+    fn declaration_and_array_limits_are_rejected_at_schema_and_write_boundaries() {
+        let too_many_columns = TableSchema::new(
+            "wide",
+            (0..=MAX_TABLE_COLUMNS)
+                .map(|i| column(&format!("c{i}")))
+                .collect(),
+        );
+        assert!(too_many_columns.validate().is_err());
+
+        let too_many_array_values = Value::Array(
+            (0..=MAX_ARRAY_ELEMENTS)
+                .map(|_| Value::String("x".into()))
+                .collect(),
+        );
+        assert!(Cell::coerce(
+            &too_many_array_values,
+            ColumnType::Array(ArrayElemType::Text),
+            false
+        )
+        .is_err());
+        assert!(ColumnType::parse("numeric(39,2)").is_err());
     }
 }
 
 /// One typed cell value of a stored row (CONCEPT:EG-KG.query.register-user-tables-alongside). A row is a `Vec<Cell>`
 /// aligned to the table's column order. `serde`-serializable so the redb store
 /// persists rows verbatim and they round-trip exactly across a restart.
+/// NE-002 deliberately reuses the existing enum variants (`Bytes`, `Json`, and
+/// `Timestamp`) rather than adding a new wire tag; the schema-aware readers accept
+/// both the legacy WIP payloads and the lossless canonical payloads below.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Cell {
     Null,
@@ -1286,7 +1613,7 @@ impl Cell {
             // CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — a UUID literal is validated (32 hex digits,
             // optionally 8-4-4-4-12 hyphenated) and normalized to canonical lowercase.
             ColumnType::Uuid => match value {
-                Value::String(s) => Cell::Text(normalize_uuid(s)?),
+                Value::String(s) => Cell::Bytes(uuid_bytes(s)?),
                 other => return Err(format!("expected a UUID string, got `{other}`")),
             },
             // A TIMESTAMPTZ literal is either already-UTC integer microseconds, or an
@@ -1306,15 +1633,13 @@ impl Cell {
             },
             // CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — a NUMERIC/DECIMAL(p,s) literal is validated
             // (digit-count overflow / excess scale REJECTED, never silently truncated)
-            // and rounded to the declared scale; storage is `Cell::Float` (documented
-            // precision ceiling on the type's doc comment).
+            // and canonicalized to the declared scale. Storage deliberately uses a
+            // JSON string cell: `Cell::Float` cannot represent exact decimal values,
+            // and adding a new Cell variant would break the on-disk/wire enum contract.
             ColumnType::Numeric(precision_scale) => {
                 let raw = numeric_literal_text(value)?;
                 let canon = normalize_numeric_literal(&raw, precision_scale)?;
-                let f: f64 = canon
-                    .parse()
-                    .map_err(|_| format!("invalid NUMERIC literal `{raw}`"))?;
-                Cell::Float(f)
+                Cell::Json(Value::String(canon))
             }
             // CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — an array literal (a JSON array, or the postgres
             // text form `{a,b,c}`); every element is coerced through the scalar
@@ -1325,23 +1650,45 @@ impl Cell {
             ColumnType::Array(elem) => {
                 let items = match value {
                     Value::Array(items) => items.clone(),
-                    Value::String(s) => parse_pg_array_text(s)?,
+                    Value::String(s) => {
+                        if s.len() > MAX_ARRAY_VALUE_BYTES {
+                            return Err(format!(
+                                "array literal exceeds maximum of {MAX_ARRAY_VALUE_BYTES} bytes"
+                            ));
+                        }
+                        parse_pg_array_text(s)?
+                    }
                     other => return Err(format!("expected an array literal, got `{other}`")),
                 };
+                if items.len() > MAX_ARRAY_ELEMENTS {
+                    return Err(format!(
+                        "array has {} elements; maximum is {MAX_ARRAY_ELEMENTS}",
+                        items.len()
+                    ));
+                }
                 let mut out = Vec::with_capacity(items.len());
                 for item in &items {
-                    let cell = Cell::coerce(item, elem.as_column_type(), true)?;
-                    out.push(cell.to_json());
+                    let scalar = array_item_literal(item, elem)?;
+                    let cell = Cell::coerce(&scalar, elem.as_column_type(), true)?;
+                    out.push(cell.to_typed_json(elem.as_column_type()));
                 }
-                Cell::Json(Value::Array(out))
+                let array = Value::Array(out);
+                let encoded = serde_json::to_vec(&array)
+                    .map_err(|error| format!("array value is not serializable: {error}"))?;
+                if encoded.len() > MAX_ARRAY_VALUE_BYTES {
+                    return Err(format!(
+                        "array value exceeds maximum of {MAX_ARRAY_VALUE_BYTES} bytes"
+                    ));
+                }
+                Cell::Json(array)
             }
         };
         Ok(cell)
     }
 
-    /// Render a cell back to a [`serde_json::Value`] — the inverse of [`Cell::coerce`]
-    /// for the cases where it is exact (used by the WHERE-equality matcher so a
-    /// `col = literal` predicate compares against the stored value).
+    /// Render a cell back to a generic [`serde_json::Value`] — the inverse of
+    /// [`Cell::coerce`] for the legacy storage shapes. Schema-aware callers should
+    /// use [`Cell::to_typed_json`] so UUID/NUMERIC/ARRAY values are canonicalized.
     pub fn to_json(&self) -> Value {
         match self {
             Cell::Null => Value::Null,
@@ -1364,6 +1711,50 @@ impl Cell {
                     })
                     .collect(),
             ),
+        }
+    }
+
+    /// Render a cell according to its declared column type. The generic
+    /// [`Cell::to_json`] representation is intentionally retained for old callers
+    /// and for opaque `BYTES`; constraint evaluation, key comparison, and typed
+    /// materialization use this schema-aware form so UUID/NUMERIC/ARRAY values do
+    /// not silently change identity when their persisted representation evolves.
+    pub fn to_typed_json(&self, ty: ColumnType) -> Value {
+        match (self, ty) {
+            (Cell::Null, _) => Value::Null,
+            (Cell::Bytes(bytes), ColumnType::Uuid) => uuid_string_from_bytes(bytes)
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+            (Cell::Text(value), ColumnType::Uuid) => normalize_uuid(value)
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+            (Cell::Json(Value::String(value)), ColumnType::Numeric(precision_scale)) => {
+                typed_numeric_value(value, precision_scale)
+            }
+            (Cell::Json(Value::Number(value)), ColumnType::Numeric(precision_scale)) => {
+                typed_numeric_value(&value.to_string(), precision_scale)
+            }
+            // Legacy rows written by the WIP implementation used f64. Preserve
+            // their readable value while ensuring new writes never take this path.
+            (Cell::Float(value), ColumnType::Numeric(precision_scale)) if value.is_finite() => {
+                typed_numeric_value(&value.to_string(), precision_scale)
+            }
+            (Cell::Int(value) | Cell::Timestamp(value), ColumnType::Numeric(precision_scale)) => {
+                typed_numeric_value(&value.to_string(), precision_scale)
+            }
+            (Cell::Text(value), ColumnType::Numeric(precision_scale)) => {
+                typed_numeric_value(value, precision_scale)
+            }
+            (Cell::Json(Value::Array(values)), ColumnType::Array(elem)) => {
+                Value::Array(
+                    values
+                        .iter()
+                        .map(|value| typed_array_value(value, elem))
+                        .collect(),
+                )
+            }
+            (Cell::Json(value), ColumnType::Json) => value.clone(),
+            _ => self.to_json(),
         }
     }
 }
@@ -1439,17 +1830,88 @@ fn normalize_uuid(s: &str) -> Result<String, String> {
     ))
 }
 
+/// Decode a UUID into its canonical sixteen-byte representation. This helper is
+/// deliberately dependency-free so the schema module keeps compiling in the
+/// non-DataFusion feature set as well.
+pub(crate) fn uuid_bytes(s: &str) -> Result<Vec<u8>, String> {
+    let canonical = normalize_uuid(s)?;
+    let compact: String = canonical.chars().filter(|c| *c != '-').collect();
+    let mut bytes = Vec::with_capacity(16);
+    for pair in compact.as_bytes().chunks_exact(2) {
+        let hi = (pair[0] as char)
+            .to_digit(16)
+            .ok_or_else(|| format!("invalid UUID literal `{s}`"))?;
+        let lo = (pair[1] as char)
+            .to_digit(16)
+            .ok_or_else(|| format!("invalid UUID literal `{s}`"))?;
+        bytes.push(((hi << 4) | lo) as u8);
+    }
+    Ok(bytes)
+}
+
+/// Render sixteen UUID bytes as the canonical lowercase hyphenated spelling.
+pub(crate) fn uuid_string_from_bytes(bytes: &[u8]) -> Option<String> {
+    if bytes.len() != 16 {
+        return None;
+    }
+    Some(format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+    ))
+}
+
+/// Convert an array element from its canonical JSON representation into the
+/// schema-aware result representation. UUID arrays need special handling because
+/// legacy rows could contain a sixteen-number byte array for an element; current
+/// rows contain the canonical UUID string.
+fn typed_array_value(value: &Value, elem: ArrayElemType) -> Value {
+    if matches!(elem, ArrayElemType::Uuid) {
+        if let Value::Array(bytes) = value {
+            let decoded = bytes
+                .iter()
+                .map(|value| value.as_u64())
+                .collect::<Option<Vec<_>>>()
+                .filter(|values| values.len() == 16 && values.iter().all(|n| *n <= 255));
+            if let Some(values) = decoded {
+                let bytes = values.into_iter().map(|n| n as u8).collect::<Vec<_>>();
+                if let Some(uuid) = uuid_string_from_bytes(&bytes) {
+                    return Value::String(uuid);
+                }
+            }
+        }
+        if let Value::String(s) = value {
+            return normalize_uuid(s)
+                .map(Value::String)
+                .unwrap_or(Value::Null);
+        }
+    }
+    value.clone()
+}
+
 /// Render a JSON value into the decimal TEXT a NUMERIC literal parser accepts (CONCEPT:EG-KG.query.table-schema-constraints/NE-002).
 /// A `Value::String` passes through verbatim (the lossless path — a caller that wants
 /// exact NUMERIC precision beyond what a JSON number can hold should supply a string
 /// literal). A `Value::Number` renders via its own `Display`, which is only as precise
 /// as whatever precision already survived the caller's own JSON encoding.
 fn numeric_literal_text(value: &Value) -> Result<String, String> {
-    match value {
-        Value::String(s) => Ok(s.trim().to_string()),
-        Value::Number(n) => Ok(n.to_string()),
-        other => Err(format!("expected a NUMERIC literal, got `{other}`")),
+    let literal = match value {
+        Value::String(s) => s.trim().to_string(),
+        Value::Number(n) => n.to_string(),
+        other => return Err(format!("expected a NUMERIC literal, got `{other}`")),
+    };
+    if literal.len() > MAX_ARRAY_VALUE_BYTES {
+        return Err(format!(
+            "NUMERIC literal exceeds maximum of {MAX_ARRAY_VALUE_BYTES} bytes"
+        ));
     }
+    Ok(literal)
+}
+
+fn typed_numeric_value(raw: &str, precision_scale: Option<(u32, u32)>) -> Value {
+    normalize_numeric_literal(raw, precision_scale)
+        .map(Value::String)
+        .unwrap_or(Value::Null)
 }
 
 /// Parse + validate a decimal-text NUMERIC literal against an optional declared
@@ -1466,13 +1928,15 @@ fn normalize_numeric_literal(
         Some(rest) => ("-", rest),
         None => ("", s.strip_prefix('+').unwrap_or(s)),
     };
-    let (int_part, frac_part) = match digits.split_once('.') {
+    let (raw_int_part, frac_part) = match digits.split_once('.') {
         Some((i, f)) => (i, f),
         None => (digits, ""),
     };
-    let int_part = if int_part.is_empty() { "0" } else { int_part };
-    if int_part.is_empty()
-        || !int_part.chars().all(|c| c.is_ascii_digit())
+    if raw_int_part.is_empty() && frac_part.is_empty() {
+        return Err(format!("invalid NUMERIC literal `{raw}`"));
+    }
+    let int_part = if raw_int_part.is_empty() { "0" } else { raw_int_part };
+    if !int_part.chars().all(|c| c.is_ascii_digit())
         || !frac_part.chars().all(|c| c.is_ascii_digit())
     {
         return Err(format!("invalid NUMERIC literal `{raw}`"));
@@ -1484,15 +1948,21 @@ fn normalize_numeric_literal(
         int_trimmed.len()
     };
     let Some((precision, scale)) = precision_scale else {
-        let frac = if frac_part.is_empty() {
+        let trimmed_frac = frac_part.trim_end_matches('0');
+        let frac = if trimmed_frac.is_empty() {
             String::new()
         } else {
-            format!(".{frac_part}")
+            format!(".{trimmed_frac}")
         };
         let int_out = if int_trimmed.is_empty() {
             "0"
         } else {
             int_trimmed
+        };
+        let sign = if int_trimmed.is_empty() && trimmed_frac.is_empty() {
+            ""
+        } else {
+            sign
         };
         return Ok(format!("{sign}{int_out}{frac}"));
     };
@@ -1516,6 +1986,11 @@ fn normalize_numeric_literal(
         "0"
     } else {
         int_trimmed
+    };
+    let sign = if int_trimmed.is_empty() && padded_frac.chars().all(|c| c == '0') {
+        ""
+    } else {
+        sign
     };
     if scale == 0 {
         Ok(format!("{sign}{int_out}"))
@@ -1572,6 +2047,9 @@ fn parse_timestamptz(s: &str) -> Result<i64, String> {
             };
             let oh: i64 = oh.parse().map_err(|_| bad())?;
             let om: i64 = om.parse().map_err(|_| bad())?;
+            if oh > 23 || om > 59 {
+                return Err(bad());
+            }
             (t, sign * (oh * 60 + om))
         } else {
             return Err(bad());
@@ -1630,6 +2108,37 @@ fn parse_pg_array_text(s: &str) -> Result<Vec<Value>, String> {
             }
         })
         .collect()
+}
+
+/// Convert a Postgres text-protocol array token into the JSON scalar expected by
+/// the normal scalar coercer. JSON arrays already carry native numbers/bools;
+/// only `{1,2}`/`{true,false}` need this bridge.
+fn array_item_literal(value: &Value, elem: ArrayElemType) -> Result<Value, String> {
+    let Value::String(text) = value else {
+        return Ok(value.clone());
+    };
+    match elem {
+        ArrayElemType::Int | ArrayElemType::BigInt => text
+            .parse::<i64>()
+            .map(|number| Value::Number(number.into()))
+            .map_err(|_| format!("invalid integer ARRAY element `{text}`")),
+        ArrayElemType::Double => text
+            .parse::<f64>()
+            .ok()
+            .and_then(serde_json::Number::from_f64)
+            .map(Value::Number)
+            .ok_or_else(|| format!("invalid floating-point ARRAY element `{text}`")),
+        ArrayElemType::Bool => match text.trim().to_ascii_lowercase().as_str() {
+            "true" | "t" | "yes" | "y" | "on" | "1" => Ok(Value::Bool(true)),
+            "false" | "f" | "no" | "n" | "off" | "0" => Ok(Value::Bool(false)),
+            _ => Err(format!("invalid boolean ARRAY element `{text}`")),
+        },
+        ArrayElemType::Text => match value {
+            Value::String(_) | Value::Number(_) | Value::Bool(_) | Value::Null => Ok(value.clone()),
+            other => Err(format!("invalid TEXT ARRAY element `{other}`")),
+        },
+        ArrayElemType::Uuid => Ok(value.clone()),
+    }
 }
 
 // ── SQL stored functions (CONCEPT:EG-KG.query.create-drop-function) ─────────────────────────────────────
