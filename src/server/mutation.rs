@@ -599,6 +599,7 @@ pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
     }
     if crate::mutation_apply::is_durable_mutation(method)
         && !crate::server::mutation_batch::is_work_item_mutation_method(method)
+        && !crate::server::mutation_batch::is_capacity_method(method)
     {
         ClusterMutationRoute::ConsensusGraph
     } else {
@@ -3791,6 +3792,13 @@ mod tests {
         ("Commit", "named control-plane receipt coordinates graph/cross-modal/2PC child MutationBatches"),
         ("Rollback", "replicated removal of encrypted OCC staging authority"),
         ("ClaimWorkItem", "dedicated engine-native MutationBatch lease transition in mutation_batch.rs/redb_store.rs"),
+        ("SubmitWorkItem", "dedicated engine-native atomic WorkItem command-log admission in mutation_batch.rs/redb_store.rs"),
+        ("SubmitWorkItems", "dedicated engine-native bounded atomic WorkItem admission batch in mutation_batch.rs/redb_store.rs"),
+        ("AcquireCapacity", "dedicated engine-native capacity-cell CAS/lease transaction in dispatch.rs/redb_store/capacity_lease.rs"),
+        ("RenewCapacity", "dedicated engine-native fenced capacity renewal transaction in dispatch.rs/redb_store/capacity_lease.rs"),
+        ("ReleaseCapacity", "dedicated engine-native fenced capacity release transaction in dispatch.rs/redb_store/capacity_lease.rs"),
+        ("ReclaimExpiredCapacity", "dedicated engine-native bounded expiry reclaim transaction in dispatch.rs/redb_store/capacity_lease.rs"),
+        ("UpdateCapacityCell", "dedicated engine-native controller epoch-CAS transaction in dispatch.rs/redb_store/capacity_lease.rs"),
         ("RenewWorkItemLease", "dedicated engine-native MutationBatch lease-fence transition in mutation_batch.rs/redb_store.rs"),
         ("CommitWorkItemResult", "dedicated engine-native MutationBatch result/dependency transition in mutation_batch.rs/redb_store.rs"),
         ("CancelWorkItem", "dedicated engine-native MutationBatch pending-cancellation transition in mutation_batch.rs/redb_store.rs"),

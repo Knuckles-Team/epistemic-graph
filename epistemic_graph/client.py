@@ -46,6 +46,18 @@ class NativeResourceReservationUnavailable(RuntimeError):
     code = "native_resource_reservation_unavailable"
 
 
+class NativeCapacityLeaseUnavailable(RuntimeError):
+    """The connected engine predates the native capacity lease authority."""
+
+    code = "native_capacity_lease_unavailable"
+
+
+class NativeWorkItemSubmissionUnavailable(RuntimeError):
+    """The connected engine does not expose native SubmitWorkItem admission."""
+
+    code = "native_work_item_submission_unavailable"
+
+
 _SYNC_CALL_DEADLINE: contextvars.ContextVar[float | None] = contextvars.ContextVar(
     "epistemic_graph_sync_call_deadline", default=None
 )
@@ -3176,11 +3188,250 @@ class QuantumClient:
         )
 
 
+_CAPACITY_DECISIONS = frozenset(
+    {
+        "accepted",
+        "replayed",
+        "released",
+        "renewed",
+        "reclaimed",
+        "exhausted",
+        "stale_epoch",
+        "stale_fence",
+        "expired",
+        "not_found",
+        "idempotency_conflict",
+        "invalid",
+        "backpressure",
+    }
+)
+
+
+def _submit_work_item_request_shape(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise TypeError("SubmitWorkItems child must be a mapping")
+    allowed = frozenset(
+        {
+            "schema_version",
+            "context",
+            "work_item_id",
+            "idempotency_key",
+            "command_digest",
+            "kind",
+            "priority",
+            "depends_on",
+            "input_ref",
+            "policy_digest",
+            "catalog_digest",
+            "model_digest",
+            "max_attempts",
+            "deadline_unix",
+            "metadata",
+            "provenance_refs",
+            "max_tenant_in_flight",
+        }
+    )
+    return _exact_mapping("SubmitWorkItems child", value, allowed)
+
+
+def _submit_work_item_result(value: Any) -> dict[str, Any]:
+    result = _exact_mapping(
+        "SubmitWorkItem result",
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "work_item_id",
+                "status",
+                "created",
+                "replayed",
+                "command_sequence",
+                "idempotency_key",
+                "dependency_count",
+                "admitted_count",
+                "max_tenant_in_flight",
+                "outbox_id",
+                "command_digest",
+                "provenance_refs",
+                "changed_work_item_ids",
+            }
+        ),
+    )
+    if result["schema_version"] != "1":
+        raise ValueError("SubmitWorkItem result schema_version must be 1")
+    for field in ("work_item_id", "status", "idempotency_key", "outbox_id", "command_digest"):
+        _string(f"SubmitWorkItem result.{field}", result[field])
+    for field in (
+        "command_sequence",
+        "dependency_count",
+        "admitted_count",
+        "max_tenant_in_flight",
+    ):
+        _integer(f"SubmitWorkItem result.{field}", result[field])
+    _boolean("SubmitWorkItem result.created", result["created"])
+    _boolean("SubmitWorkItem result.replayed", result["replayed"])
+    if result["created"] == result["replayed"]:
+        raise ValueError("SubmitWorkItem result must be created xor replayed")
+    if not isinstance(result["provenance_refs"], list) or len(result["provenance_refs"]) > 64:
+        raise ValueError("SubmitWorkItem result provenance refs are invalid")
+    if not isinstance(result["changed_work_item_ids"], list) or not 1 <= len(
+        result["changed_work_item_ids"]
+    ) <= 1025:
+        raise ValueError("SubmitWorkItem result list fields are invalid")
+    for reference in result["provenance_refs"]:
+        _string("SubmitWorkItem result.provenance_refs[]", reference)
+        if len(reference.encode("utf-8")) > 1_048_576:
+            raise ValueError("SubmitWorkItem result.provenance_refs[] exceeds 1 MiB")
+    for reference in result["changed_work_item_ids"]:
+        _string("SubmitWorkItem result.changed_work_item_ids[]", reference)
+        if len(reference.encode("utf-8")) > 512:
+            raise ValueError("SubmitWorkItem result.changed_work_item_ids[] exceeds 512 bytes")
+    if result["work_item_id"] not in result["changed_work_item_ids"]:
+        raise ValueError("SubmitWorkItem result does not identify its changed row")
+    return result
+
+
+def _submit_work_items_result(value: Any) -> dict[str, Any]:
+    result = _exact_mapping(
+        "SubmitWorkItems result",
+        value,
+        frozenset({"schema_version", "results", "replayed", "outbox_id", "changed_work_item_ids"}),
+    )
+    if result["schema_version"] != "1":
+        raise ValueError("SubmitWorkItems result schema_version must be 1")
+    if not isinstance(result["results"], list) or not 1 <= len(result["results"]) <= 128:
+        raise ValueError("SubmitWorkItems result count is invalid")
+    for child in result["results"]:
+        _submit_work_item_result(child)
+    _boolean("SubmitWorkItems result.replayed", result["replayed"])
+    _string("SubmitWorkItems result.outbox_id", result["outbox_id"])
+    if not isinstance(result["changed_work_item_ids"], list) or len(
+        result["changed_work_item_ids"]
+    ) > 4096:
+        raise ValueError("SubmitWorkItems result changed ids are invalid")
+    for reference in result["changed_work_item_ids"]:
+        _string("SubmitWorkItems result.changed_work_item_ids[]", reference)
+        if len(reference.encode("utf-8")) > 512:
+            raise ValueError("SubmitWorkItems result.changed_work_item_ids[] exceeds 512 bytes")
+    return result
+
+
 class WorkItemClient:
     """Engine-native durable WorkItem claim, lease, and result namespace."""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
+
+    async def _require_submit_method(self, method: str) -> None:
+        supports = getattr(self._client, "supports", None)
+        if supports is None or await supports(method) is not True:
+            raise NativeWorkItemSubmissionUnavailable(
+                NativeWorkItemSubmissionUnavailable.code
+            )
+
+    async def submit(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Admit one WorkItem through the engine-native command log.
+
+        The engine owns tenant-scoped dedupe, dependency checks, admission
+        quota, command sequencing, graph-row creation, and the transactional
+        outbox. A replay returns the original explicit result; reusing a key
+        with a different command digest is an error.
+        """
+        value = _exact_mapping(
+            "SubmitWorkItem request",
+            request,
+            frozenset(
+                {
+                    "schema_version",
+                    "context",
+                    "work_item_id",
+                    "idempotency_key",
+                    "command_digest",
+                    "kind",
+                    "priority",
+                    "depends_on",
+                    "input_ref",
+                    "policy_digest",
+                    "catalog_digest",
+                    "model_digest",
+                    "max_attempts",
+                    "deadline_unix",
+                    "metadata",
+                    "provenance_refs",
+                    "max_tenant_in_flight",
+                },
+            ),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("SubmitWorkItem schema_version must be 1")
+        if not isinstance(value["context"], dict):
+            raise TypeError("SubmitWorkItem.context must be a mapping")
+        for field in (
+            "idempotency_key",
+            "kind",
+            "input_ref",
+            "policy_digest",
+            "catalog_digest",
+            "model_digest",
+        ):
+            _string(f"SubmitWorkItem.{field}", value[field])
+        digest = _string("SubmitWorkItem.command_digest", value["command_digest"])
+        if len(digest) != 64 or any(char not in "0123456789abcdefABCDEF" for char in digest):
+            raise ValueError("SubmitWorkItem.command_digest must be a SHA-256 hex value")
+        if value["work_item_id"] is not None:
+            _string("SubmitWorkItem.work_item_id", value["work_item_id"])
+        _integer("SubmitWorkItem.priority", value["priority"], minimum=-1024, maximum=1024)
+        dependencies = value["depends_on"]
+        if not isinstance(dependencies, list) or len(dependencies) > 1024:
+            raise ValueError("SubmitWorkItem.depends_on must contain at most 1024 ids")
+        for dependency in dependencies:
+            _string("SubmitWorkItem.depends_on[]", dependency)
+        _integer("SubmitWorkItem.max_attempts", value["max_attempts"], minimum=1)
+        if value["deadline_unix"] is not None and (
+            not isinstance(value["deadline_unix"], (int, float))
+            or not math.isfinite(float(value["deadline_unix"]))
+            or float(value["deadline_unix"]) < 0
+        ):
+            raise ValueError("SubmitWorkItem.deadline_unix is invalid")
+        if not isinstance(value["metadata"], dict):
+            raise TypeError("SubmitWorkItem.metadata must be a mapping")
+        if len(msgpack.packb(value["metadata"], use_bin_type=True)) > 64 * 1024:
+            raise ValueError("SubmitWorkItem.metadata exceeds 64 KiB")
+        provenance = value["provenance_refs"]
+        if not isinstance(provenance, list) or len(provenance) > 64:
+            raise ValueError("SubmitWorkItem.provenance_refs exceeds 64 references")
+        for reference in provenance:
+            _string("SubmitWorkItem.provenance_refs[]", reference)
+        quota = _integer(
+            "SubmitWorkItem.max_tenant_in_flight", value["max_tenant_in_flight"]
+        )
+        if quota < 0 or quota > 4096:
+            raise ValueError("SubmitWorkItem.max_tenant_in_flight must be 0..4096")
+        await self._require_submit_method("SubmitWorkItem")
+        result = await self._client._send("SubmitWorkItem", {"request": value})
+        return _submit_work_item_result(result)
+
+    async def submit_batch(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Admit a bounded all-or-nothing SubmitWorkItems request."""
+        value = _exact_mapping(
+            "SubmitWorkItems request",
+            request,
+            frozenset({"schema_version", "context", "idempotency_key", "requests"}),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("SubmitWorkItems schema_version must be 1")
+        if not isinstance(value["context"], dict):
+            raise TypeError("SubmitWorkItems.context must be a mapping")
+        _string("SubmitWorkItems.idempotency_key", value["idempotency_key"])
+        requests = value["requests"]
+        if not isinstance(requests, list) or not 1 <= len(requests) <= 128:
+            raise ValueError("SubmitWorkItems.requests must contain 1..128 items")
+        # Reuse the single-item validator before sending the parent envelope.
+        for child in requests:
+            _submit_work_item_request_shape(child)
+        await self._require_submit_method("SubmitWorkItems")
+        result = await self._client._send("SubmitWorkItems", {"request": value})
+        return _submit_work_items_result(result)
 
     async def claim(self, request: dict[str, Any]) -> dict[str, Any]:
         """Return the authoritative claim result.
@@ -3646,6 +3897,257 @@ class WorkItemClient:
         await self._require_resource_method("UpdateResourceHost")
         value = await self._client._send("UpdateResourceHost", {"request": update})
         return _resource_host_update_result(value)
+
+
+class CapacityLeaseClient:
+    """Engine-native bounded CapacityCell/CapacityLease namespace."""
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def _require_method(self, method: str) -> None:
+        supports = getattr(self._client, "supports", None)
+        if supports is None or await supports(method) is not True:
+            raise NativeCapacityLeaseUnavailable(NativeCapacityLeaseUnavailable.code)
+
+    @staticmethod
+    def _lease_result(value: Any, name: str) -> dict[str, Any]:
+        result = _exact_mapping(
+            f"{name} result",
+            value,
+            frozenset({"schema_version", "decision", "leases", "message"}),
+        )
+        if result["schema_version"] != "1" or result["decision"] not in _CAPACITY_DECISIONS:
+            raise ValueError(f"{name} result schema/decision is invalid")
+        if not isinstance(result["leases"], list) or len(result["leases"]) > 16:
+            raise ValueError(f"{name} result leases must contain at most 16 entries")
+        if result["message"] is not None:
+            _string(f"{name} result.message", result["message"])
+        return result
+
+    async def acquire(self, request: dict[str, Any]) -> dict[str, Any]:
+        value = _exact_mapping(
+            "AcquireCapacity request",
+            request,
+            frozenset(
+                {
+                    "schema_version",
+                    "tenant_ref",
+                    "work_item_id",
+                    "owner_digest",
+                    "idempotency_key",
+                    "priority",
+                    "demands",
+                    "lease_id",
+                    "ttl_ms",
+                    "now_ms",
+                    "cost_budget_micros",
+                    "token_budget",
+                }
+            ),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("AcquireCapacity schema_version must be 1")
+        for field in ("tenant_ref", "work_item_id", "owner_digest", "idempotency_key"):
+            _string(f"AcquireCapacity.{field}", value[field])
+            if len(value[field].encode("utf-8")) > 512:
+                raise ValueError(f"AcquireCapacity.{field} exceeds 512 bytes")
+        if value["lease_id"] is not None:
+            _string("AcquireCapacity.lease_id", value["lease_id"])
+            if len(value["lease_id"].encode("utf-8")) > 512:
+                raise ValueError("AcquireCapacity.lease_id exceeds 512 bytes")
+        if value["priority"] not in {
+            "interactive",
+            "orchestration",
+            "hydration",
+            "background_ingestion",
+        }:
+            raise ValueError("AcquireCapacity.priority is invalid")
+        demands = value["demands"]
+        if not isinstance(demands, list) or not 1 <= len(demands) <= 16:
+            raise ValueError("AcquireCapacity.demands must contain 1..16 entries")
+        for demand in demands:
+            row = _exact_mapping(
+                "AcquireCapacity demand",
+                demand,
+                frozenset({"cell_id", "resource_class", "amount"}),
+            )
+            _string("AcquireCapacity demand.cell_id", row["cell_id"])
+            if row["resource_class"] not in {
+                "llm_generator",
+                "llm_embedding",
+                "gpu",
+                "worker",
+                "cpu",
+                "broker",
+            }:
+                raise ValueError("AcquireCapacity demand.resource_class is invalid")
+            _integer("AcquireCapacity demand.amount", row["amount"], minimum=1)
+            if row["amount"] > 1_000_000_000:
+                raise ValueError("AcquireCapacity demand.amount exceeds 1e9")
+        _integer("AcquireCapacity.ttl_ms", value["ttl_ms"], minimum=1)
+        if value["ttl_ms"] > 24 * 60 * 60 * 1000:
+            raise ValueError("AcquireCapacity.ttl_ms exceeds 24h")
+        _integer("AcquireCapacity.now_ms", value["now_ms"])
+        for field in ("cost_budget_micros", "token_budget"):
+            if value[field] is not None:
+                _integer(f"AcquireCapacity.{field}", value[field])
+                if value[field] > 1_000_000_000_000:
+                    raise ValueError(f"AcquireCapacity.{field} exceeds native bound")
+        await self._require_method("AcquireCapacity")
+        result = await self._client._send("AcquireCapacity", {"request": value})
+        answer = _exact_mapping(
+            "AcquireCapacity result",
+            result,
+            frozenset({"schema_version", "decision", "leases", "available", "message"}),
+        )
+        if answer["schema_version"] != "1" or answer["decision"] not in _CAPACITY_DECISIONS:
+            raise ValueError("AcquireCapacity result schema/decision is invalid")
+        if (
+            not isinstance(answer["leases"], list)
+            or len(answer["leases"]) > 16
+            or not isinstance(answer["available"], list)
+            or len(answer["available"]) > 16
+        ):
+            raise ValueError("AcquireCapacity result list fields are invalid")
+        return answer
+
+    async def renew(self, request: dict[str, Any]) -> dict[str, Any]:
+        return await self._mutate("RenewCapacity", request, renew=True)
+
+    async def release(self, request: dict[str, Any]) -> dict[str, Any]:
+        return await self._mutate("ReleaseCapacity", request, renew=False)
+
+    async def _mutate(self, method: str, request: dict[str, Any], *, renew: bool) -> dict[str, Any]:
+        value = _exact_mapping(
+            f"{method} request",
+            request,
+            frozenset(
+                {
+                    "schema_version",
+                    "tenant_ref",
+                    "owner_digest",
+                    "leases",
+                    "now_ms",
+                    "ttl_ms",
+                    "idempotency_key",
+                }
+            ),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError(f"{method} schema_version must be 1")
+        _string(f"{method}.tenant_ref", value["tenant_ref"])
+        _string(f"{method}.owner_digest", value["owner_digest"])
+        if any(
+            len(value[field].encode("utf-8")) > 512
+            for field in ("tenant_ref", "owner_digest")
+        ):
+            raise ValueError(f"{method} identity field exceeds 512 bytes")
+        leases = value["leases"]
+        if not isinstance(leases, list) or not 1 <= len(leases) <= 16:
+            raise ValueError(f"{method}.leases must contain 1..16 entries")
+        for fence in leases:
+            row = _exact_mapping(
+                f"{method} lease fence",
+                fence,
+                frozenset({"lease_id", "lease_epoch", "fence_token"}),
+            )
+            _string(f"{method}.lease_id", row["lease_id"])
+            if len(row["lease_id"].encode("utf-8")) > 512:
+                raise ValueError(f"{method}.lease_id exceeds 512 bytes")
+            _integer(f"{method}.lease_epoch", row["lease_epoch"], minimum=1)
+            _integer(f"{method}.fence_token", row["fence_token"], minimum=1)
+        _integer(f"{method}.now_ms", value["now_ms"])
+        if value["ttl_ms"] is not None:
+            _integer(f"{method}.ttl_ms", value["ttl_ms"], minimum=1)
+            if value["ttl_ms"] > 24 * 60 * 60 * 1000:
+                raise ValueError(f"{method}.ttl_ms exceeds 24h")
+        if value["idempotency_key"] is not None:
+            _string(f"{method}.idempotency_key", value["idempotency_key"])
+        await self._require_method(method)
+        return self._lease_result(
+            await self._client._send(method, {"request": value}), method
+        )
+
+    async def reclaim(self, request: dict[str, Any]) -> dict[str, Any]:
+        return await self._reclaim_or_status("ReclaimExpiredCapacity", request, reclaim=True)
+
+    async def status(self, request: dict[str, Any]) -> dict[str, Any]:
+        return await self._reclaim_or_status("CapacityStatus", request, reclaim=False)
+
+    async def reconcile(self, request: dict[str, Any]) -> dict[str, Any]:
+        return await self._reclaim_or_status("ReconcileCapacity", request, reclaim=False)
+
+    async def _reclaim_or_status(
+        self, method: str, request: dict[str, Any], *, reclaim: bool
+    ) -> dict[str, Any]:
+        allowed = {"schema_version", "tenant_ref", "cell_id", "max_count", "cursor"}
+        if not reclaim:
+            allowed.add("lease_id")
+        value = _exact_mapping(f"{method} request", request, frozenset(allowed))
+        if value["schema_version"] != "1":
+            raise ValueError(f"{method} schema_version must be 1")
+        _string(f"{method}.tenant_ref", value["tenant_ref"])
+        if value["cell_id"] is not None:
+            _string(f"{method}.cell_id", value["cell_id"])
+        if not reclaim and value["lease_id"] is not None:
+            _string(f"{method}.lease_id", value["lease_id"])
+        if value["cursor"] is not None:
+            _string(f"{method}.cursor", value["cursor"])
+        _integer(f"{method}.max_count", value["max_count"], minimum=1)
+        if value["max_count"] > 128:
+            raise ValueError(f"{method}.max_count exceeds 128")
+        await self._require_method(method)
+        result = await self._client._send(method, {"request": value})
+        if reclaim:
+            answer = _exact_mapping(
+                f"{method} result",
+                result,
+                frozenset({"schema_version", "decision", "reclaimed_lease_ids", "next_cursor"}),
+            )
+            if answer["schema_version"] != "1" or answer["decision"] not in _CAPACITY_DECISIONS:
+                raise ValueError(f"{method} result schema/decision is invalid")
+            if not isinstance(answer["reclaimed_lease_ids"], list) or len(
+                answer["reclaimed_lease_ids"]
+            ) > 128:
+                raise ValueError(f"{method} result lease ids are invalid")
+            return answer
+        answer = _exact_mapping(
+            f"{method} result",
+            result,
+            frozenset({"schema_version", "cells", "leases", "next_cursor"}),
+        )
+        if (
+            answer["schema_version"] != "1"
+            or not isinstance(answer["cells"], list)
+            or len(answer["cells"]) > 128
+            or not isinstance(answer["leases"], list)
+            or len(answer["leases"]) > 128
+        ):
+            raise ValueError(f"{method} result shape is invalid")
+        return answer
+
+    async def update_cell(self, request: dict[str, Any]) -> dict[str, Any]:
+        value = _exact_mapping(
+            "UpdateCapacityCell request",
+            request,
+            frozenset({"schema_version", "cell", "expected_epoch", "now_ms"}),
+        )
+        if value["schema_version"] != "1" or not isinstance(value["cell"], dict):
+            raise ValueError("UpdateCapacityCell request shape is invalid")
+        _integer("UpdateCapacityCell.now_ms", value["now_ms"])
+        if value["expected_epoch"] is not None:
+            _integer("UpdateCapacityCell.expected_epoch", value["expected_epoch"], minimum=0)
+        await self._require_method("UpdateCapacityCell")
+        result = await self._client._send("UpdateCapacityCell", {"request": value})
+        answer = _exact_mapping(
+            "UpdateCapacityCell result",
+            result,
+            frozenset({"schema_version", "decision", "cell", "message"}),
+        )
+        if answer["schema_version"] != "1" or answer["decision"] not in _CAPACITY_DECISIONS:
+            raise ValueError("UpdateCapacityCell result schema/decision is invalid")
+        return answer
 
 
 # CONCEPT:EG-KG.txn.per-graph-write-isolation — RMDD-28 native development-lane hold
@@ -11721,6 +12223,7 @@ class EpistemicGraphClient:
         # Namespaced Sub-Clients (Composition)
         self.nodes = NodeClient(self)
         self.work_items = WorkItemClient(self)
+        self.capacity_leases = CapacityLeaseClient(self)
         self.development_lanes = DevelopmentLaneClient(self)
         self.changes = ChangeEnvelopeClient(self)
         self.edges = EdgeClient(self)
@@ -12901,6 +13404,9 @@ class SyncEpistemicGraphClient:
         # We need to wrap the namespaces synchronously as well
         self.nodes = self._SyncWrapper(self._client.nodes, self._loop)
         self.work_items = self._SyncWrapper(self._client.work_items, self._loop)
+        self.capacity_leases = self._SyncWrapper(
+            self._client.capacity_leases, self._loop
+        )
         self.development_lanes = self._SyncWrapper(
             self._client.development_lanes, self._loop
         )

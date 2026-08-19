@@ -404,7 +404,9 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> MutationD
         Method::TsAppend { .. } => MutationDomain::TimeSeries,
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => MutationDomain::AnalyticsJob,
-        Method::ClaimWorkItem { .. }
+        Method::SubmitWorkItem { .. }
+        | Method::SubmitWorkItems { .. }
+        | Method::ClaimWorkItem { .. }
         | Method::RenewWorkItemLease { .. }
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
@@ -413,7 +415,12 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> MutationD
         | Method::ReserveWorkItemResources { .. }
         | Method::ReleaseWorkItemResources { .. }
         | Method::ReclaimWorkItemResources { .. }
-        | Method::UpdateResourceHost { .. } => MutationDomain::ControlPlane,
+        | Method::UpdateResourceHost { .. }
+        | Method::AcquireCapacity { .. }
+        | Method::RenewCapacity { .. }
+        | Method::ReleaseCapacity { .. }
+        | Method::ReclaimExpiredCapacity { .. }
+        | Method::UpdateCapacityCell { .. } => MutationDomain::ControlPlane,
         #[cfg(feature = "query")]
         Method::Sql { .. } => MutationDomain::SqlCatalog,
         #[cfg(feature = "rdf")]
@@ -473,10 +480,17 @@ fn surface_for(method: &Method) -> Option<MutationSurface> {
             Some(MutationSurface::Rdf)
         }
         Method::CreateGraph { .. } | Method::DeleteGraph { .. } => Some(MutationSurface::Lifecycle),
-        Method::ReserveWorkItemResources { .. }
+        Method::SubmitWorkItem { .. }
+        | Method::SubmitWorkItems { .. }
+        | Method::ReserveWorkItemResources { .. }
         | Method::ReleaseWorkItemResources { .. }
         | Method::ReclaimWorkItemResources { .. }
-        | Method::UpdateResourceHost { .. } => Some(MutationSurface::Job),
+        | Method::UpdateResourceHost { .. }
+        | Method::AcquireCapacity { .. }
+        | Method::RenewCapacity { .. }
+        | Method::ReleaseCapacity { .. }
+        | Method::ReclaimExpiredCapacity { .. }
+        | Method::UpdateCapacityCell { .. } => Some(MutationSurface::Job),
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => Some(MutationSurface::Job),
         Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. } => {
@@ -539,12 +553,31 @@ pub(crate) fn lifecycle_batch_id(action: &str, graph: &str, request_id: u64) -> 
 pub(crate) fn is_work_item_method(method: &Method) -> bool {
     matches!(
         method,
-        Method::ClaimWorkItem { .. }
+        Method::SubmitWorkItem { .. }
+            | Method::SubmitWorkItems { .. }
+            | Method::ClaimWorkItem { .. }
             | Method::RenewWorkItemLease { .. }
             | Method::CommitWorkItemResult { .. }
             | Method::CancelWorkItem { .. }
             | Method::DeferWorkItem { .. }
             | Method::CasWorkItemMetadata { .. }
+    )
+}
+
+/// Native capacity-cell/lease operations are served by the dedicated redb
+/// ledger, not lowered into graph-node mutations.  Keeping the classifier
+/// beside the existing WorkItem/resource families prevents a generic gateway
+/// from accidentally treating lease authority as ordinary graph data.
+pub(crate) fn is_capacity_method(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::AcquireCapacity { .. }
+            | Method::RenewCapacity { .. }
+            | Method::ReleaseCapacity { .. }
+            | Method::ReclaimExpiredCapacity { .. }
+            | Method::ReconcileCapacity { .. }
+            | Method::CapacityStatus { .. }
+            | Method::UpdateCapacityCell { .. }
     )
 }
 
@@ -638,6 +671,8 @@ pub(crate) fn work_item_batch_identity(
     method: &Method,
 ) -> Result<WorkItemBatchIdentity, String> {
     let terminal_key = match method {
+        Method::SubmitWorkItem { request } => Some(request.idempotency_key.clone()),
+        Method::SubmitWorkItems { request } => Some(request.idempotency_key.clone()),
         Method::CommitWorkItemResult {
             idempotency_key, ..
         }
@@ -682,6 +717,11 @@ pub(crate) fn work_item_batch_identity(
             batch_id: format!("work:{digest}"),
             idempotency_key: format!("work-idem:{digest}"),
             durable_request_id,
+            // SubmitWorkItem is a native transaction: its command sequence,
+            // dependency edges, and graph version advance are serialized by the
+            // same redb writer as the row-local fenced transitions. Keeping the
+            // stable command-key replay on the native-CAS path means a retry
+            // does not manufacture a new graph-version expectation.
             uses_native_row_cas: true,
         });
     }
@@ -948,6 +988,8 @@ pub(crate) async fn commit_work_item(
         "WorkItem mutation requires an authoritative persistence backend".to_string()
     })?;
     let tenant = match &method {
+        Method::SubmitWorkItem { request } => request.context.tenant_id.clone(),
+        Method::SubmitWorkItems { request } => request.context.tenant_id.clone(),
         Method::ClaimWorkItem { request } => request.tenant_ref.clone(),
         Method::CasWorkItemMetadata { request } => request.tenant_ref.clone(),
         Method::RenewWorkItemLease { tenant, .. }
@@ -970,6 +1012,8 @@ pub(crate) async fn commit_work_item(
     // a background claim/renew/result transition (or vice versa).
     let _mutation_guard = lock_graph(graph).await;
     let identity = work_item_batch_identity(graph, &tenant, request_id, &method)?;
+    let submit_batch = matches!(&method, Method::SubmitWorkItems { .. });
+    let submit = submit_batch || matches!(&method, Method::SubmitWorkItem { .. });
     // Resource-host inventory is committed through the same native WorkItem
     // mutation lane so it receives the same durability, ordering, and audit
     // guarantees. Unlike claims and reservations, however, it has no graph-node
@@ -1014,15 +1058,18 @@ pub(crate) async fn commit_work_item(
     // read-only until it is re-materialized. Repair the projection from the same
     // authoritative image every replay path installs, then surface the original error
     // — never swallowed, and never by equalizing a version counter.
-    match publish_committed_work_item(
+    let result = publish_committed_work_item(
         persistence,
         &fname,
         core,
         &committed,
         publishes_work_item_rows,
     )
-    .await
-    {
+    .await;
+    match result {
+        Ok(result) if committed.replayed && submit => {
+            mark_submit_replayed(result, submit_batch)
+        }
         Ok(result) => Ok(result),
         Err(error) => match reconcile_projection_from_authority(persistence, &fname, core).await {
             Ok(()) => Err(error),
@@ -1030,6 +1077,69 @@ pub(crate) async fn commit_work_item(
                 "{error}; serving projection repair from authority also failed: {repair}"
             )),
         },
+    }
+}
+
+/// The durable MutationBatch record retains the original successful submit
+/// result so a replay can prove the exact command it deduplicated.  The wire
+/// result, however, must tell the caller that this invocation replayed that
+/// record rather than creating a second WorkItem.  Rewrite only this response
+/// bit after the authoritative replay; never write the rewritten bytes back to
+/// redb.
+fn mark_submit_replayed(result: ResultPayload, batch: bool) -> Result<ResultPayload, String> {
+    fn set_flags(
+        value: &mut serde_json::Value,
+        batch: bool,
+    ) -> Result<(), String> {
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| "replayed SubmitWorkItem result is not an object".to_string())?;
+        if batch {
+            object.insert("replayed".to_string(), serde_json::Value::Bool(true));
+            let children = object
+                .get_mut("results")
+                .and_then(serde_json::Value::as_array_mut)
+                .ok_or_else(|| "replayed SubmitWorkItems result has no results".to_string())?;
+            for child in children {
+                let child = child.as_object_mut().ok_or_else(|| {
+                    "replayed SubmitWorkItems child result is not an object".to_string()
+                })?;
+                child.insert("created".to_string(), serde_json::Value::Bool(false));
+                child.insert("replayed".to_string(), serde_json::Value::Bool(true));
+            }
+        } else {
+            object.insert("created".to_string(), serde_json::Value::Bool(false));
+            object.insert("replayed".to_string(), serde_json::Value::Bool(true));
+        }
+        Ok(())
+    }
+
+    match result {
+        ResultPayload::Raw(bytes) => {
+            let mut value: serde_json::Value = eg_types::msgpack::decode_bounded(
+                &bytes,
+                eg_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
+            )
+            .map_err(|_| "replayed SubmitWorkItem result is corrupt".to_string())?;
+            set_flags(&mut value, batch)?;
+            let bytes = rmp_serde::to_vec_named(&value).map_err(|e| e.to_string())?;
+            Ok(ResultPayload::Raw(bytes))
+        }
+        ResultPayload::PropertiesMsgpack(bytes) => {
+            let mut value: serde_json::Value = eg_types::msgpack::decode_bounded(
+                &bytes,
+                eg_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
+            )
+            .map_err(|_| "replayed SubmitWorkItem result is corrupt".to_string())?;
+            set_flags(&mut value, batch)?;
+            let bytes = rmp_serde::to_vec_named(&value).map_err(|e| e.to_string())?;
+            Ok(ResultPayload::PropertiesMsgpack(bytes))
+        }
+        ResultPayload::Json(mut value) => {
+            set_flags(&mut value, batch)?;
+            Ok(ResultPayload::Json(value))
+        }
+        _ => Err("replayed SubmitWorkItem result has an invalid payload shape".to_string()),
     }
 }
 

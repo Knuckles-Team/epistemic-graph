@@ -507,6 +507,44 @@ pub enum Method {
     ClaimWorkItem {
         request: crate::epistemic_operations::ClaimWorkItemRequest,
     },
+    /// Atomically acquire one bounded multi-dimensional capacity lease set.
+    /// The native engine owns the cell epoch, fence, expiry, and idempotency
+    /// rows; the request's owner digest is only an authenticated assertion.
+    AcquireCapacity {
+        request: crate::native_control::CapacityAcquireRequest,
+    },
+    /// Renew every named capacity lease in one all-or-nothing transaction.
+    RenewCapacity {
+        request: crate::native_control::CapacityLeaseMutationRequest,
+    },
+    /// Release every named capacity lease in one all-or-nothing transaction.
+    ReleaseCapacity {
+        request: crate::native_control::CapacityLeaseMutationRequest,
+    },
+    /// Reclaim a bounded page of expired capacity leases.
+    ReclaimExpiredCapacity {
+        request: crate::native_control::CapacityReclaimRequest,
+    },
+    /// Return bounded native cells/leases for reconciliation and status.
+    ReconcileCapacity {
+        request: crate::native_control::CapacityStatusRequest,
+    },
+    /// Exact bounded native capacity read.
+    CapacityStatus {
+        request: crate::native_control::CapacityStatusRequest,
+    },
+    /// Controller/admin CAS for a capacity cell epoch and resource dimension.
+    UpdateCapacityCell {
+        request: crate::native_control::CapacityCellUpdateRequest,
+    },
+    /// Idempotent WorkItem admission and command-log append.
+    SubmitWorkItem {
+        request: crate::native_control::SubmitWorkItemRequest,
+    },
+    /// Bounded all-or-nothing WorkItem admission batch.
+    SubmitWorkItems {
+        request: crate::native_control::SubmitWorkItemsRequest,
+    },
     /// Mint an opaque native capability for the caller's currently-live
     /// WorkItem lease.  All authority bindings are derived in the engine from
     /// the verified request context and the authoritative WorkItem row.

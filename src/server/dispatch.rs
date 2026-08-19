@@ -1990,6 +1990,42 @@ fn preflight_optional_nested_msgpack(bytes: &[u8]) -> Result<(), &'static str> {
     }
 }
 
+/// Bind the generated WorkItem command context to the already verified carrier.
+/// The command carries a full GOC-15 `RequestContext` for durable provenance,
+/// but it is not a second authority: tenant, graph, agent, audience, policy,
+/// and every downstream scope must be derived from (or narrower than) the
+/// authenticated envelope before the command can be proposed or committed.
+fn validate_submit_context(
+    graph: &str,
+    context: &crate::epistemic_operations::RequestContext,
+    verified_context: &VerifiedRequestContext,
+) -> Result<(), String> {
+    if context.schema_version != crate::epistemic_operations::RequestContextSchemaVersion::V2 {
+        return Err("SubmitWorkItem context schema_version is unsupported".to_string());
+    }
+    if context.graph != graph {
+        return Err("SubmitWorkItem context graph does not match request graph".to_string());
+    }
+    if context.tenant_id != verified_context.tenant()
+        || context.agent_id != verified_context.agent_id()
+        || context.audience != verified_context.claims().audience
+        || context.policy_version != verified_context.claims().policy_version
+    {
+        return Err("SubmitWorkItem context does not match verified request authority".to_string());
+    }
+    if context.request_id.trim().is_empty()
+        || context.subject_id.trim().is_empty()
+        || context.trace_id.trim().is_empty()
+        || context.scopes.iter().any(|scope| {
+            scope.trim().is_empty() || !verified_context.allows_action(scope)
+        })
+        || context.expires_at_ms < context.issued_at_ms
+    {
+        return Err("SubmitWorkItem context violates the verified carrier bounds".to_string());
+    }
+    Ok(())
+}
+
 /// Validate every MessagePack-typed binary field reachable from a request before
 /// routing. Raw source/blob/KV/broker/WASM bytes are intentionally excluded: they
 /// are opaque binary, not nested MessagePack. Operation handlers still enforce
@@ -2447,6 +2483,26 @@ fn append_native_resource_ops(ops: &mut Vec<&'static str>, available: bool) {
     }
 }
 
+fn append_native_capacity_ops(ops: &mut Vec<&'static str>, available: bool) {
+    if available {
+        ops.extend([
+            "AcquireCapacity",
+            "RenewCapacity",
+            "ReleaseCapacity",
+            "ReclaimExpiredCapacity",
+            "ReconcileCapacity",
+            "CapacityStatus",
+            "UpdateCapacityCell",
+        ]);
+    }
+}
+
+fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available: bool) {
+    if available {
+        ops.extend(["SubmitWorkItem", "SubmitWorkItems"]);
+    }
+}
+
 #[cfg(test)]
 mod native_resource_capability_tests {
     use super::append_native_resource_ops;
@@ -2681,6 +2737,27 @@ async fn dispatch_inner(
                 );
             }
         }
+        let required_capacity_scope = match &req.method {
+            Method::AcquireCapacity { .. }
+            | Method::RenewCapacity { .. }
+            | Method::ReleaseCapacity { .. }
+            | Method::ReclaimExpiredCapacity { .. } => Some("capacity:lease"),
+            Method::UpdateCapacityCell { .. } => Some("capacity:admin"),
+            _ => None,
+        };
+        if let Some(required_scope) = required_capacity_scope {
+            let authorized = verified_context.allows_action(required_scope)
+                || verified_context.allows_action("kg:admin");
+            if !authorized {
+                crate::metrics::access_denied();
+                return Response::err(
+                    req.id,
+                    format!(
+                        "ACCESS_DENIED: capacity authority requires controller scope '{required_scope}'"
+                    ),
+                );
+            }
+        }
     }
     // The tenant in a resource body is a correlation, not an authority claim.
     // Bind ordinary callers to the verified request tenant before the native
@@ -2694,6 +2771,16 @@ async fn dispatch_inner(
             Method::QueryWorkItemReservation { request }
             | Method::ResourceReservationStatus { request } => Some(request.tenant_ref.as_str()),
             Method::UpdateResourceHost { request } => Some(request.tenant_ref.as_str()),
+            Method::AcquireCapacity { request } => Some(request.tenant_ref.as_str()),
+            Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
+                Some(request.tenant_ref.as_str())
+            }
+            Method::ReclaimExpiredCapacity { request } => Some(request.tenant_ref.as_str()),
+            Method::ReconcileCapacity { request } | Method::CapacityStatus { request } => {
+                Some(request.tenant_ref.as_str())
+            }
+            Method::SubmitWorkItem { request } => Some(request.context.tenant_id.as_str()),
+            Method::SubmitWorkItems { request } => Some(request.context.tenant_id.as_str()),
             _ => None,
         };
         if requested_tenant.is_some_and(|tenant| tenant != verified_context.tenant()) {
@@ -2702,7 +2789,11 @@ async fn dispatch_inner(
                     &req.method,
                     Method::QueryWorkItemReservation { .. }
                         | Method::ResourceReservationStatus { .. }
-                ) && verified_context.allows_action("resource:read:aggregate"));
+                ) && verified_context.allows_action("resource:read:aggregate"))
+                || (matches!(
+                    &req.method,
+                    Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. }
+                ) && verified_context.allows_action("capacity:read:aggregate"));
             if !cross_tenant_allowed {
                 crate::metrics::access_denied();
                 return Response::err(
@@ -2760,6 +2851,39 @@ async fn dispatch_inner(
             req.id,
             "ACCESS_DENIED: NodeInfoUpsert is reserved for the engine Raft self-report path",
         );
+    }
+
+    if !state_machine_authorized && !identity_bootstrap {
+        match &req.method {
+            Method::SubmitWorkItem { request } => {
+                if let Err(error) = validate_submit_context(
+                    &req.graph,
+                    &request.context,
+                    &verified_context,
+                ) {
+                    return Response::err(req.id, error);
+                }
+            }
+            Method::SubmitWorkItems { request } => {
+                if let Err(error) = validate_submit_context(
+                    &req.graph,
+                    &request.context,
+                    &verified_context,
+                ) {
+                    return Response::err(req.id, error);
+                }
+                for child in &request.requests {
+                    if let Err(error) = validate_submit_context(
+                        &req.graph,
+                        &child.context,
+                        &verified_context,
+                    ) {
+                        return Response::err(req.id, error);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     // Cluster writes cross consensus at the authenticated request boundary. The
@@ -2889,7 +3013,12 @@ async fn dispatch_inner(
         Method::Ping => Response::ok(req.id, ResultPayload::String("pong".to_string())),
 
         Method::Health => {
-            let (lifecycle, native_resource_ops_available) = {
+            let (
+                lifecycle,
+                native_resource_ops_available,
+                native_capacity_ops_available,
+                native_work_item_ops_available,
+            ) = {
                 let state = timed_read(state).await;
                 let manifests = state.registry.materialization_manifests();
                 let complete = manifests
@@ -2920,6 +3049,12 @@ async fn dispatch_inner(
                     state.persistence.as_ref().is_some_and(|backend| {
                         backend.supports_native_resource_reservations()
                     }),
+                    state.persistence.as_ref().is_some_and(|backend| {
+                        backend.supports_native_capacity_leases()
+                    }),
+                    state.persistence.as_ref().is_some_and(|backend| {
+                        backend.supports_native_work_item_submission()
+                    }),
                 )
             };
             let uptime_s = 0; // you can capture start time in ServerState
@@ -2939,6 +3074,8 @@ async fn dispatch_inner(
             #[cfg(feature = "cost")]
             served_ops.extend(["ResourceStats", "ResourceStatsPage"]);
             append_native_resource_ops(&mut served_ops, native_resource_ops_available);
+            append_native_capacity_ops(&mut served_ops, native_capacity_ops_available);
+            append_native_work_item_ops(&mut served_ops, native_work_item_ops_available);
             #[cfg(feature = "modality-serving")]
             let served_ops = {
                 let mut served_ops = served_ops;
@@ -6258,6 +6395,19 @@ async fn dispatch_graph_op_inner(
             _ => unreachable!("resource method classifier and timestamp binding diverged"),
         }
     }
+    if crate::server::mutation_batch::is_capacity_method(&method) {
+        let now_ms = authoritative_now_ms();
+        match &mut method {
+            Method::AcquireCapacity { request } => request.now_ms = now_ms,
+            Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
+                request.now_ms = now_ms
+            }
+            Method::ReclaimExpiredCapacity { request } => request.now_ms = now_ms,
+            Method::UpdateCapacityCell { request } => request.now_ms = now_ms,
+            Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. } => {}
+            _ => unreachable!("capacity method classifier and timestamp binding diverged"),
+        }
+    }
 
     // ChangeEnvelope is a first-class persistence operation, not a sequence of
     // direct graph calls. It executes only after graph ACL and placement
@@ -6638,6 +6788,80 @@ async fn dispatch_graph_op_inner(
         return match backend.read_resource_reservation(&fname, request).await {
             Ok(result) => Response::ok(req_id, ResultPayload::raw(&result)),
             Err(error) => Response::err(req_id, format!("native reservation read failed: {error}")),
+        };
+    }
+
+    // Capacity leases are a separate native authority from repository/resource
+    // reservations.  They still share the same authenticated graph/tenant
+    // boundary, current-placement leader check, and writer backpressure.  No
+    // caller can renew/release on behalf of another owner: the opaque owner
+    // digest is compared to the verified principal before redb sees the row.
+    if crate::server::mutation_batch::is_capacity_method(&method) {
+        #[cfg(feature = "raft")]
+        if let Some(routed) = routed_raft.as_ref() {
+            let leader = routed.handle.current_leader().await;
+            if leader != Some(routed.handle.node_id) {
+                return Response::stale_route(
+                    req_id,
+                    graph_name,
+                    routed.group_id,
+                    routed.epoch,
+                    leader,
+                    "native capacity operations require the current placement leader",
+                );
+            }
+            if let Some(multi) = multi_raft.as_ref() {
+                if let Err(error) = multi.read_barrier_group(routed.group_id).await {
+                    return Response::err(
+                        req_id,
+                        format!("native capacity linearizability barrier failed: {error:?}"),
+                    );
+                }
+            }
+        }
+        let Some(backend) = persistence.as_ref() else {
+            return Response::err(req_id, "native capacity persistence is unavailable");
+        };
+        if !backend.supports_native_capacity_leases() {
+            return Response::err(req_id, "native capacity persistence is unavailable");
+        }
+        if !state_machine_authorized {
+            let verified_owner = verified_context.principal_persistence_id();
+            let owner_matches = match &method {
+                Method::AcquireCapacity { request } => request.owner_digest == verified_owner,
+                Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
+                    request.owner_digest == verified_owner
+                }
+                _ => true,
+            };
+            if !owner_matches {
+                return Response::err(req_id, "ACCESS_DENIED: capacity owner digest mismatch");
+            }
+        }
+        let fname = crate::persist::sanitize(graph_name);
+        let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+        return match method {
+            Method::CapacityStatus { ref request } | Method::ReconcileCapacity { ref request } => {
+                backend
+                    .read_capacity_status(&fname, request)
+                    .await
+                    .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
+                    .unwrap_or_else(|error| {
+                        Response::err(req_id, format!("native capacity status read failed: {error}"))
+                    })
+            }
+            method @ (Method::AcquireCapacity { .. }
+            | Method::RenewCapacity { .. }
+            | Method::ReleaseCapacity { .. }
+            | Method::ReclaimExpiredCapacity { .. }
+            | Method::UpdateCapacityCell { .. }) => backend
+                .commit_capacity_lease(&fname, method)
+                .await
+                .map(|bytes| Response::ok(req_id, ResultPayload::Raw(bytes)))
+                .unwrap_or_else(|error| {
+                    Response::err(req_id, format!("native capacity commit failed: {error}"))
+                }),
+            _ => unreachable!("capacity classifier and dispatch diverged"),
         };
     }
 

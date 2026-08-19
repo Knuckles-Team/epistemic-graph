@@ -37,15 +37,16 @@
 //! ## Scope
 //!
 //! Pure data + pure algorithm, no I/O — this crate is the bottom of the engine
-//! DAG (see `lib.rs`). The server-side dispatch/mutation/state-machine wiring
-//! (durable persistence of `CapacityCell`/`CapacityLease` rows, the actual
-//! fence-token minting counter, RPC handlers) is GOC-21-W04/W05 scope in
-//! `eg-server`/`eg-core`, deliberately NOT implemented here; what IS here is
-//! the admission/fairness/expiry algorithm those handlers must call so there is
-//! exactly one implementation to audit, plus the unit tests that are this
-//! lane's "known-bad proof": an expired or wrong-fenced holder is rejected, and
-//! a background flood cannot push a reserved-floor request's wait past this
-//! module's declared bound (see `try_acquire`'s doc for the exact bound).
+//! DAG (see `lib.rs`). The authoritative server-side dispatch/mutation/
+//! state-machine wiring (durable persistence of `CapacityCell`/`CapacityLease`
+//! rows, fence-token minting, and RPC handlers) lives in
+//! `src/redb_store/capacity_lease.rs`; what IS here is the reusable
+//! admission/fairness/expiry algorithm those handlers must call so there is
+//! exactly one policy implementation to audit, plus the unit tests that are
+//! this lane's "known-bad proof": an expired or wrong-fenced holder is
+//! rejected, and a background flood cannot push a reserved-floor request's
+//! wait past this module's declared bound (see `try_acquire`'s doc for the
+//! exact bound).
 
 use std::collections::BTreeMap;
 
