@@ -233,14 +233,31 @@ mod tests {
         (0..32).map(|_| format!("{byte:02x}")).collect()
     }
 
+    #[derive(Clone, Copy)]
+    struct CommandPosition {
+        authority_epoch: u64,
+        commit_seq: u64,
+        fencing_token: u64,
+    }
+
+    const fn position(
+        authority_epoch: u64,
+        commit_seq: u64,
+        fencing_token: u64,
+    ) -> CommandPosition {
+        CommandPosition {
+            authority_epoch,
+            commit_seq,
+            fencing_token,
+        }
+    }
+
     fn descriptor(
         commit_id: &str,
         idempotency_key: &str,
         tenant_ref: &str,
         authority_ref: &str,
-        authority_epoch: u64,
-        commit_seq: u64,
-        fencing_token: u64,
+        position: CommandPosition,
         mutation_digest_byte: u8,
     ) -> CommitDescriptorV1 {
         let mut participants = BTreeMap::new();
@@ -252,11 +269,11 @@ mod tests {
             tenant_ref: tenant_ref.to_string(),
             principal_ref: format!("principal:sha256:{}", hex_digest(0x11)),
             authority_ref: authority_ref.to_string(),
-            authority_epoch,
+            authority_epoch: position.authority_epoch,
             source_graph_version: 10,
             target_graph_version: 11,
-            commit_seq,
-            fencing_token,
+            commit_seq: position.commit_seq,
+            fencing_token: position.fencing_token,
             mutation_digest: hex_digest(mutation_digest_byte),
             idempotency_key: idempotency_key.to_string(),
             participant_digests: participants,
@@ -273,7 +290,14 @@ mod tests {
     #[test]
     fn submit_admits_a_new_command() {
         let mut log = WorkItemCommandLog::new();
-        let d = descriptor("commit-A", "idem-1", "tenant-1", "shard-0", 1, 1, 100, 0x22);
+        let d = descriptor(
+            "commit-A",
+            "idem-1",
+            "tenant-1",
+            "shard-0",
+            position(1, 1, 100),
+            0x22,
+        );
         let outcome = log.submit(d, "wi-1".to_string());
         assert!(outcome.created(), "expected Created, got {outcome:?}");
         assert_eq!(log.len(), 1);
@@ -284,7 +308,14 @@ mod tests {
     #[test]
     fn replay_same_key_same_digest_returns_original_without_double_apply() {
         let mut log = WorkItemCommandLog::new();
-        let first = descriptor("commit-A", "idem-1", "tenant-1", "shard-0", 1, 1, 100, 0x22);
+        let first = descriptor(
+            "commit-A",
+            "idem-1",
+            "tenant-1",
+            "shard-0",
+            position(1, 1, 100),
+            0x22,
+        );
         let outcome1 = log.submit(first, "wi-1".to_string());
         assert!(outcome1.created());
         assert_eq!(log.len(), 1);
@@ -292,7 +323,14 @@ mod tests {
         // Retry proposes a DIFFERENT commit_id / work_item_id (as a caller
         // that lost the original response and re-submitted might) but the
         // same (tenant_ref, idempotency_key, mutation_digest).
-        let retry = descriptor("commit-B", "idem-1", "tenant-1", "shard-0", 1, 1, 100, 0x22);
+        let retry = descriptor(
+            "commit-B",
+            "idem-1",
+            "tenant-1",
+            "shard-0",
+            position(1, 1, 100),
+            0x22,
+        );
         let outcome2 = log.submit(retry, "wi-2-should-not-exist".to_string());
 
         assert_eq!(log.len(), 1, "a replay must not create a second command");
@@ -316,10 +354,24 @@ mod tests {
     #[test]
     fn same_key_different_digest_is_an_explicit_conflict_not_a_replay() {
         let mut log = WorkItemCommandLog::new();
-        let first = descriptor("commit-A", "idem-1", "tenant-1", "shard-0", 1, 1, 100, 0x22);
+        let first = descriptor(
+            "commit-A",
+            "idem-1",
+            "tenant-1",
+            "shard-0",
+            position(1, 1, 100),
+            0x22,
+        );
         log.submit(first, "wi-1".to_string());
 
-        let different = descriptor("commit-C", "idem-1", "tenant-1", "shard-0", 1, 2, 200, 0x99);
+        let different = descriptor(
+            "commit-C",
+            "idem-1",
+            "tenant-1",
+            "shard-0",
+            position(1, 2, 200),
+            0x99,
+        );
         let outcome = log.submit(different, "wi-3".to_string());
 
         assert_eq!(
@@ -340,11 +392,25 @@ mod tests {
     #[test]
     fn stale_authority_epoch_is_rejected() {
         let mut log = WorkItemCommandLog::new();
-        let first = descriptor("commit-A", "idem-1", "tenant-1", "shard-0", 2, 5, 500, 0x22);
+        let first = descriptor(
+            "commit-A",
+            "idem-1",
+            "tenant-1",
+            "shard-0",
+            position(2, 5, 500),
+            0x22,
+        );
         assert!(log.submit(first, "wi-1".to_string()).created());
 
         // A different idempotency key so this is not merely the replay path.
-        let stale = descriptor("commit-D", "idem-2", "tenant-1", "shard-0", 1, 6, 600, 0x33);
+        let stale = descriptor(
+            "commit-D",
+            "idem-2",
+            "tenant-1",
+            "shard-0",
+            position(1, 6, 600),
+            0x33,
+        );
         let outcome = log.submit(stale, "wi-4".to_string());
 
         assert_eq!(
@@ -365,10 +431,24 @@ mod tests {
     #[test]
     fn non_advancing_commit_seq_is_rejected() {
         let mut log = WorkItemCommandLog::new();
-        let first = descriptor("commit-A", "idem-1", "tenant-1", "shard-0", 2, 5, 500, 0x22);
+        let first = descriptor(
+            "commit-A",
+            "idem-1",
+            "tenant-1",
+            "shard-0",
+            position(2, 5, 500),
+            0x22,
+        );
         assert!(log.submit(first, "wi-1".to_string()).created());
 
-        let replayed_seq = descriptor("commit-E", "idem-2", "tenant-1", "shard-0", 2, 5, 600, 0x33);
+        let replayed_seq = descriptor(
+            "commit-E",
+            "idem-2",
+            "tenant-1",
+            "shard-0",
+            position(2, 5, 600),
+            0x33,
+        );
         let outcome = log.submit(replayed_seq, "wi-5".to_string());
 
         assert_eq!(log.len(), 1);
@@ -387,12 +467,26 @@ mod tests {
     #[test]
     fn stale_fencing_token_on_newer_sequence_is_rejected() {
         let mut log = WorkItemCommandLog::new();
-        let first = descriptor("commit-A", "idem-1", "tenant-1", "shard-0", 2, 5, 500, 0x22);
+        let first = descriptor(
+            "commit-A",
+            "idem-1",
+            "tenant-1",
+            "shard-0",
+            position(2, 5, 500),
+            0x22,
+        );
         assert!(log.submit(first, "wi-1".to_string()).created());
 
         // commit_seq strictly advances (6 > 5) but fencing_token does not
         // (400 <= 500) — a stale writer that only knows an old fencing token.
-        let stale_fence = descriptor("commit-F", "idem-2", "tenant-1", "shard-0", 2, 6, 400, 0x33);
+        let stale_fence = descriptor(
+            "commit-F",
+            "idem-2",
+            "tenant-1",
+            "shard-0",
+            position(2, 6, 400),
+            0x33,
+        );
         let outcome = log.submit(stale_fence, "wi-6".to_string());
 
         assert_eq!(log.len(), 1);
@@ -411,15 +505,36 @@ mod tests {
     #[test]
     fn forward_progress_is_admitted_and_advances_the_watermark() {
         let mut log = WorkItemCommandLog::new();
-        let first = descriptor("commit-A", "idem-1", "tenant-1", "shard-0", 2, 5, 500, 0x22);
+        let first = descriptor(
+            "commit-A",
+            "idem-1",
+            "tenant-1",
+            "shard-0",
+            position(2, 5, 500),
+            0x22,
+        );
         assert!(log.submit(first, "wi-1".to_string()).created());
 
-        let second = descriptor("commit-G", "idem-2", "tenant-1", "shard-0", 2, 6, 600, 0x33);
+        let second = descriptor(
+            "commit-G",
+            "idem-2",
+            "tenant-1",
+            "shard-0",
+            position(2, 6, 600),
+            0x33,
+        );
         let outcome = log.submit(second, "wi-2".to_string());
         assert!(outcome.created(), "expected Created, got {outcome:?}");
         assert_eq!(log.len(), 2);
 
-        let third = descriptor("commit-H", "idem-3", "tenant-1", "shard-0", 3, 7, 700, 0x44);
+        let third = descriptor(
+            "commit-H",
+            "idem-3",
+            "tenant-1",
+            "shard-0",
+            position(3, 7, 700),
+            0x44,
+        );
         let outcome3 = log.submit(third, "wi-3".to_string());
         assert!(
             outcome3.created(),
@@ -438,9 +553,7 @@ mod tests {
             "shared-key",
             "tenant-a",
             "shard-0",
-            1,
-            1,
-            100,
+            position(1, 1, 100),
             0x22,
         );
         let tenant_b = descriptor(
@@ -448,9 +561,7 @@ mod tests {
             "shared-key",
             "tenant-b",
             "shard-0",
-            1,
-            2,
-            200,
+            position(1, 2, 200),
             0x22,
         );
 
@@ -478,7 +589,14 @@ mod tests {
     #[test]
     fn structurally_invalid_descriptor_is_rejected() {
         let mut log = WorkItemCommandLog::new();
-        let mut invalid = descriptor("commit-A", "idem-1", "tenant-1", "shard-0", 1, 1, 100, 0x22);
+        let mut invalid = descriptor(
+            "commit-A",
+            "idem-1",
+            "tenant-1",
+            "shard-0",
+            position(1, 1, 100),
+            0x22,
+        );
         invalid.commit_seq = 0; // CommitDescriptorV1::validate() rejects this
         let outcome = log.submit(invalid, "wi-1".to_string());
         assert!(log.is_empty());

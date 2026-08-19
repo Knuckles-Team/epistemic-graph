@@ -390,9 +390,9 @@ impl ProjectionCursorV1 {
                     .to_string(),
             );
         }
-        let state = if next_applied_seq == next_committed_seq && next_applied_digest.is_some() {
-            ProjectionState::Ready
-        } else if next_applied_seq == 0 && next_committed_seq == 0 {
+        let state = if next_applied_seq == next_committed_seq
+            && (next_applied_seq == 0 || next_applied_digest.is_some())
+        {
             ProjectionState::Ready
         } else {
             ProjectionState::CatchingUp
@@ -718,6 +718,17 @@ mod tests {
 
         let catching_up = c.advance(12, 10, 5, None, 250).unwrap();
         assert_eq!(catching_up.state, ProjectionState::CatchingUp);
+    }
+
+    #[test]
+    fn projection_cursor_advance_distinguishes_empty_ready_from_missing_digest() {
+        let empty = cursor(0, 0, 0, ProjectionState::Ready);
+        let still_empty = empty.advance(0, 0, 0, None, 200).unwrap();
+        assert_eq!(still_empty.state, ProjectionState::Ready);
+
+        let applied = cursor(10, 10, 5, ProjectionState::Ready);
+        let missing_digest = applied.advance(10, 10, 5, None, 200).unwrap();
+        assert_eq!(missing_digest.state, ProjectionState::CatchingUp);
     }
 
     // ---- Barrier: PROJECTION_NOT_READY / POLICY_DENIED are typed, never stale success ----
