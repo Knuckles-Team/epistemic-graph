@@ -47,6 +47,12 @@ assert kernel.mean([[1, 2], [3, 4]], axis=0) == [2.0, 3.0]
 assert kernel.sqrt([1, 4, 9]) == [1.0, 2.0, 3.0]
 assert kernel.solve([[3, 2], [1, 2]], [7, 5]) == [1.0, 2.0]
 assert kernel.isnan([1.0, float("nan")]) == [False, True]
+assert kernel.nan_to_num(
+    [[1.0, float("nan")], [float("inf"), float("-inf")]],
+    nan=0.0,
+    posinf=9.0,
+    neginf=-9.0,
+) == [[1.0, 0.0], [9.0, -9.0]]
 """
     env = dict(os.environ)
     env["PYTHONPATH"] = module_dir

@@ -3,7 +3,7 @@
 //! Pure Rust, ndarray-backed; parity-tested vs numpy.
 
 use crate::error::{NumericError, Result};
-use ndarray::{Array1, ArrayView1};
+use ndarray::{Array1, ArrayD, ArrayView1, ArrayViewD};
 
 pub fn sqrt(a: ArrayView1<f64>) -> Array1<f64> {
     a.mapv(f64::sqrt)
@@ -38,7 +38,7 @@ pub fn clip(a: ArrayView1<f64>, lo: f64, hi: f64) -> Array1<f64> {
 }
 
 /// numpy `nan_to_num(a, nan=, posinf=, neginf=)`.
-pub fn nan_to_num(a: ArrayView1<f64>, nan: f64, posinf: f64, neginf: f64) -> Array1<f64> {
+pub fn nan_to_num(a: ArrayViewD<f64>, nan: f64, posinf: f64, neginf: f64) -> ArrayD<f64> {
     a.mapv(|x| {
         if x.is_nan() {
             nan
