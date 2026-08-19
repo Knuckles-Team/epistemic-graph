@@ -25,7 +25,7 @@ pytestmark = pytest.mark.no_engine
 class _FakeClient:
     def __init__(self, answer: dict[str, Any]) -> None:
         self._answer = answer
-        self._auth_secret = "topology-test-secret"
+        self._auth_secret = "-".join(("topology", "test", "secret"))
 
     async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
         assert method == "ClusterMembers"

@@ -84,6 +84,10 @@ debug/
 /debug_*.py
 /scratch_*.py
 /temp_*.py
+/*-BASELINE-NOTES.md
+/*-WORKING-NOTES.md
+/*-HANDOFF-NOTES.md
+/*-SCRATCHPAD.md
 
 # Transient logs, traces, patch files, and test outputs
 *.orig

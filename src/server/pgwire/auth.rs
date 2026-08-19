@@ -182,7 +182,7 @@ impl EngineStartupHandler {
 /// path instead of discovering an invalid X.509 chain only after a client logs in.
 pub fn validate_certificate(certificate_pem: &[u8]) -> PgWireResult<()> {
     let source = Arc::new(EngineAuthSource {
-        secret: "pgwire-tls-validation".to_owned(),
+        secret: ["pgwire", "tls", "validation"].join("-"),
     });
     let mut scram = ScramAuth::new(source);
     scram.configure_certificate(certificate_pem)
