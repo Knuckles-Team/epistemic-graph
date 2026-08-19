@@ -57,5 +57,25 @@ def test_resource_stats_reports_accurate_counts():
         assert t is not None
         assert t["nodes"] == 7
         assert t["graphs"] == 1
+
+        # Explicit detail pages are finite and keyset-advanceable.  The
+        # transport/client must never fall back to the old unbounded export for
+        # a caller-provided limit.
+        page = c.resource_stats(limit=1)
+        assert page["limit"] == 1
+        assert len(page["graphs"]) <= 1
+        if page["has_more"]:
+            assert page["next_cursor"]
+            following = c.resource_stats(cursor=page["next_cursor"], limit=1)
+            assert following["cursor"] == page["next_cursor"]
+            assert len(following["graphs"]) <= 1
+
+        summary = c.resource_stats(summary=True)
+        assert summary["summary"] is True
+        assert summary["graphs"] == []
+        assert summary["tenants"] == []
+        assert "effective_cpu_cores" in summary
+        assert "effective_memory_limit_bytes" in summary
+        assert "coalescer_queue_depth" in summary
     finally:
         c.close()

@@ -260,6 +260,16 @@ _MAX_RESPONSE_BYTES = _bounded_env_int(
     _HARD_MAX_RESPONSE_BYTES,
 )
 
+# ResourceStats is deliberately bounded independently of the generic transport
+# frame limit.  The Rust server enforces the same finite page/tenant ceilings;
+# the client repeats them before sending and validates the returned shape so an
+# older or misconfigured peer cannot turn a telemetry call into an unbounded
+# local object graph.
+_DEFAULT_RESOURCE_STATS_LIMIT = 128
+_MAX_RESOURCE_STATS_LIMIT = 1024
+_MAX_RESOURCE_STATS_CURSOR_BYTES = 1024
+_MAX_RESOURCE_STATS_TENANTS = 4096
+
 
 _CANONICAL_BINARY_FIELDS = frozenset(
     {
@@ -12407,17 +12417,89 @@ class EpistemicGraphClient:
         connection)."""
         return await self._send("CancelRequest", {"target_req_id": target_req_id})
 
-    async def resource_stats(self) -> dict[str, Any]:
+    @staticmethod
+    def _validate_resource_stats_response(
+        snapshot: Any, *, limit: int, summary: bool
+    ) -> dict[str, Any]:
+        if not isinstance(snapshot, dict):
+            raise RuntimeError("ResourceStats response must be an object")
+        graphs = snapshot.get("graphs", [])
+        tenants = snapshot.get("tenants", [])
+        if not isinstance(graphs, list) or not isinstance(tenants, list):
+            raise RuntimeError("ResourceStats response arrays are malformed")
+        if len(graphs) > limit:
+            raise RuntimeError("ResourceStats response exceeded its bounded graph page")
+        if len(tenants) > _MAX_RESOURCE_STATS_TENANTS:
+            raise RuntimeError("ResourceStats response exceeded its bounded tenant page")
+        if summary and (graphs or tenants):
+            raise RuntimeError("summary ResourceStats response must omit detail arrays")
+        next_cursor = snapshot.get("next_cursor")
+        if next_cursor is not None and (
+            not isinstance(next_cursor, str)
+            or not next_cursor
+            or len(next_cursor.encode("utf-8")) > _MAX_RESOURCE_STATS_CURSOR_BYTES
+        ):
+            raise RuntimeError("ResourceStats response carried an invalid next_cursor")
+        if not isinstance(snapshot.get("has_more", False), bool):
+            raise RuntimeError("ResourceStats response has_more must be boolean")
+        return snapshot
+
+    async def resource_stats(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int = _DEFAULT_RESOURCE_STATS_LIMIT,
+        summary: bool = False,
+    ) -> dict[str, Any]:
         """Return the per-tenant / per-graph resource snapshot (CONCEPT:EG-KG.compute.lane-v).
 
         The autoscale signals an external autoscaler (agent-utilities OS-5.27)
         consumes in ONE round-trip: per-graph + per-tenant resident memory, node/edge
-        counts, in-flight admission depth, hibernated-vs-resident counts, and the
-        cumulative budget eviction/hibernation totals, plus a process aggregate.
+        counts, in-flight admission depth, hibernated-vs-resident counts, effective
+        cgroup capacity, coalescer queue gauges, and cumulative budget totals, plus a
+        process aggregate.  The legacy no-argument call is intentionally preserved,
+        but now receives the same finite default page as ``ResourceStatsPage``.
+
+        ``cursor`` is the exclusive ``next_cursor`` from a prior page.  ``summary``
+        suppresses both detail arrays while retaining aggregate signals; it cannot be
+        combined with a cursor.
         The ``cost`` feature is part of the mandatory main build and remains present in
         the source-built ``cluster`` and ``full-extras`` layers.
         """
-        return await self._send("ResourceStats")
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise TypeError("ResourceStats limit must be an integer")
+        if not isinstance(summary, bool):
+            raise TypeError("ResourceStats summary must be a boolean")
+        if limit < 1 or limit > _MAX_RESOURCE_STATS_LIMIT:
+            raise ValueError(
+                f"ResourceStats limit must be between 1 and {_MAX_RESOURCE_STATS_LIMIT}"
+            )
+        if cursor is not None:
+            if not isinstance(cursor, str):
+                raise TypeError("ResourceStats cursor must be a string or None")
+            cursor_bytes = cursor.encode("utf-8")
+            if not cursor or len(cursor_bytes) > _MAX_RESOURCE_STATS_CURSOR_BYTES:
+                raise ValueError(
+                    "ResourceStats cursor must be non-empty and at most "
+                    f"{_MAX_RESOURCE_STATS_CURSOR_BYTES} bytes"
+                )
+            if "\x00" in cursor:
+                raise ValueError("ResourceStats cursor must not contain NUL")
+        if summary and cursor is not None:
+            raise ValueError("summary ResourceStats cannot be combined with cursor")
+
+        # Keep the exact legacy unit request/MAC shape for the default call.  A
+        # caller asking for any non-default behavior uses the typed page variant.
+        if cursor is None and not summary and limit == _DEFAULT_RESOURCE_STATS_LIMIT:
+            result = await self._send("ResourceStats")
+        else:
+            result = await self._send(
+                "ResourceStatsPage",
+                {"cursor": cursor, "limit": limit, "summary": summary},
+            )
+        return self._validate_resource_stats_response(
+            result, limit=limit, summary=summary
+        )
 
     async def supports(self, op: str) -> bool:
         """True if the connected engine advertises protocol op ``op``.

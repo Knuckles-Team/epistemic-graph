@@ -62,7 +62,9 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
 
 use crate::protocol::Response;
-use crate::write_coalescer::{BatchStats, CoalescerConfig};
+use crate::write_coalescer::{
+    operations_applied, queue_admitted, queue_released, BatchStats, CoalescerConfig,
+};
 
 /// One queued unit of work: a boxed `'static` future that, when polled, runs
 /// the WHOLE `mutation::commit_mutation_body` sequence for one coalescable op
@@ -86,7 +88,19 @@ impl RoutedCommitJob {
     /// reply channel — used by the backpressure/closed-worker fallback, whose
     /// caller awaits the returned `Response` itself instead of a oneshot.
     pub async fn into_future(self) -> Response {
-        self.run.await
+        let response = self.run.await;
+        // The fallback never enters `flush_batch`, so account for it on the
+        // same process-wide operation signal as a queued job.
+        operations_applied(1);
+        response
+    }
+
+    /// Conservative queue footprint for aggregate telemetry.  The future's
+    /// captured payload is intentionally opaque to this layer; counting the
+    /// job envelope still gives a bounded lower-bound signal without walking
+    /// arbitrary request data or allocating per-job metadata.
+    fn approx_bytes(&self) -> u64 {
+        std::mem::size_of::<Self>() as u64
     }
 }
 
@@ -124,10 +138,15 @@ impl RoutedGraphWriter {
     ///   (`RoutedCommitJob::into_future`, under its own `lock_graph`
     ///   acquisition). Coalescing is an optimization, never a stall.
     pub fn try_enqueue(&self, job: RoutedCommitJob) -> Result<(), RoutedCommitJob> {
+        let queued_bytes = job.approx_bytes();
+        queue_admitted(queued_bytes);
         match self.tx.try_send(job) {
             Ok(()) => Ok(()),
             Err(mpsc::error::TrySendError::Full(job))
-            | Err(mpsc::error::TrySendError::Closed(job)) => Err(job),
+            | Err(mpsc::error::TrySendError::Closed(job)) => {
+                queue_released(queued_bytes);
+                Err(job)
+            }
         }
     }
 
@@ -147,13 +166,17 @@ async fn run_worker(
 ) {
     let mut batch: Vec<RoutedCommitJob> = Vec::with_capacity(config.max_batch);
     while let Some(first) = rx.recv().await {
+        queue_released(first.approx_bytes());
         batch.push(first);
 
         // Greedily pull everything already queued (no await) up to max_batch —
         // the common firehose case where producers are ahead of the worker.
         while batch.len() < config.max_batch {
             match rx.try_recv() {
-                Ok(job) => batch.push(job),
+                Ok(job) => {
+                    queue_released(job.approx_bytes());
+                    batch.push(job);
+                }
                 Err(_) => break,
             }
         }
@@ -163,10 +186,14 @@ async fn run_worker(
         // max_linger, so a lone write is essentially undelayed.
         if batch.len() == 1 && config.max_linger > Duration::ZERO {
             if let Ok(Some(job)) = tokio::time::timeout(config.max_linger, rx.recv()).await {
+                queue_released(job.approx_bytes());
                 batch.push(job);
                 while batch.len() < config.max_batch {
                     match rx.try_recv() {
-                        Ok(job) => batch.push(job),
+                        Ok(job) => {
+                            queue_released(job.approx_bytes());
+                            batch.push(job);
+                        }
                         Err(_) => break,
                     }
                 }
@@ -212,6 +239,7 @@ async fn flush_batch(graph_name: &str, batch: Vec<RoutedCommitJob>, stats: &Batc
         // stats().ops()` under concurrent load), even though each op still issued
         // its own separate durable commit.
         stats.record(n);
+        operations_applied(n);
     }
     .instrument(tracing::debug_span!(
         "routed_write_coalescer.flush_batch",

@@ -31,7 +31,8 @@
 //! Pure-Rust: the enforcer is a periodic sweep over the registry reusing existing
 //! evict/hibernate ops — no DataFusion / openraft / object_store. Pi-safe.
 
-use std::collections::HashMap;
+use std::cmp::Ordering as CmpOrdering;
+use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -218,6 +219,69 @@ fn parse_bytes(s: &str) -> Option<u64> {
 
 // ── Resource snapshot (autoscale signals) ───────────────────────────────────
 
+/// ResourceStats is a control-plane endpoint, not a whole-registry export.  Keep
+/// both the default and the hard page bound finite so a legacy unit request can
+/// never turn into an O(number-of-graphs) response allocation.
+pub const DEFAULT_RESOURCE_STATS_LIMIT: usize = 128;
+pub const MAX_RESOURCE_STATS_LIMIT: usize = 1024;
+pub const MAX_RESOURCE_STATS_CURSOR_BYTES: usize = 1024;
+/// A bounded rollup working set keeps a million-graph resident scan from
+/// becoming a million-entry tenant map.  The response says when this cap was
+/// reached instead of presenting a partial rollup as exact.
+pub const MAX_RESOURCE_STATS_TENANTS: usize = 4096;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourceStatsRequest {
+    pub cursor: Option<String>,
+    pub limit: usize,
+    pub summary: bool,
+}
+
+impl ResourceStatsRequest {
+    pub fn bounded_default() -> Self {
+        Self {
+            cursor: None,
+            limit: DEFAULT_RESOURCE_STATS_LIMIT,
+            summary: false,
+        }
+    }
+
+    fn validate(self) -> Result<Self, String> {
+        if self.limit == 0 || self.limit > MAX_RESOURCE_STATS_LIMIT {
+            return Err(format!(
+                "ResourceStats limit must be between 1 and {MAX_RESOURCE_STATS_LIMIT}"
+            ));
+        }
+        if let Some(cursor) = &self.cursor {
+            if cursor.is_empty()
+                || cursor.len() > MAX_RESOURCE_STATS_CURSOR_BYTES
+                || cursor.bytes().any(|byte| byte == 0)
+            {
+                return Err(format!(
+                    "ResourceStats cursor must be non-empty, NUL-free, and at most {MAX_RESOURCE_STATS_CURSOR_BYTES} bytes"
+                ));
+            }
+        }
+        if self.summary {
+            // A cursor has no meaning when no detail page is emitted.  Rejecting
+            // the combination also prevents callers from mistaking a summary's
+            // aggregate counts for the page after a cursor.
+            if self.cursor.is_some() {
+                return Err("ResourceStats summary cannot be combined with cursor".to_string());
+            }
+            // Summary mode intentionally does not need a page-sized candidate
+            // heap. Keep the validated finite limit in the response metadata.
+        }
+        Ok(self)
+    }
+}
+
+impl Default for ResourceStatsRequest {
+    fn default() -> Self {
+        Self::bounded_default()
+    }
+}
+
 /// Per-graph resource snapshot (CONCEPT:EG-KG.compute.lane-v).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GraphResourceStats {
@@ -251,6 +315,17 @@ pub struct TenantResourceStats {
 /// scraped into Prometheus. The signals an autoscaler (OS-5.27) needs in ONE round-trip.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceSnapshot {
+    /// Finite page size applied to the detail arrays (or the explicit request
+    /// limit in summary mode).
+    pub limit: u64,
+    /// Exclusive keyset cursor accepted for this page, if any.
+    pub cursor: Option<String>,
+    /// Exclusive cursor for the next visible page.  `None` means this page was
+    /// the final page after ACL/tenant filtering.
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+    /// `true` when this response intentionally omits detail arrays.
+    pub summary: bool,
     /// Total resident RAM across all graphs (sum of `memory_bytes`).
     pub total_memory_bytes: u64,
     /// Current process RSS (falling back to peak RSS), bytes — the OS-observed
@@ -265,6 +340,13 @@ pub struct ResourceSnapshot {
     pub tenant_count: u64,
     pub resident_graphs: u64,
     pub hibernated_graphs: u64,
+    /// Effective cgroup-aware CPU lanes after the shared headroom policy.
+    pub effective_cpu_cores: u64,
+    /// Effective cgroup-aware RAM after the shared headroom policy.
+    pub effective_memory_limit_bytes: u64,
+    /// True when the bounded tenant rollup reached its cap. In that case
+    /// `tenant_count` is a lower bound and the returned tenant array is partial.
+    pub tenant_count_truncated: bool,
     /// Requests currently holding an admission permit (in-flight depth).
     pub in_flight: u64,
     /// Admission permits still available (`max_inflight - in_flight`); a small value
@@ -274,6 +356,13 @@ pub struct ResourceSnapshot {
     pub budget_evictions_total: u64,
     /// Cumulative graphs hibernated by the budget enforcer.
     pub budget_hibernations_total: u64,
+    /// Number of structural writes waiting in all per-graph coalescer queues.
+    pub coalescer_queue_depth: u64,
+    /// Approximate bytes held by those queued writes.
+    pub coalescer_queue_bytes: u64,
+    /// Cumulative structural operations applied by the coalescer, including
+    /// operations that used the bounded inline fallback.
+    pub coalescer_operations_total: u64,
     pub tenants: Vec<TenantResourceStats>,
     pub graphs: Vec<GraphResourceStats>,
 }
@@ -299,22 +388,139 @@ fn process_rss_bytes() -> u64 {
     0
 }
 
-/// Gather a [`ResourceSnapshot`] across the registry (CONCEPT:EG-KG.compute.lane-v). Reads node/edge
-/// counts + the memory estimate per graph, rolls them up per tenant, and pulls the live
-/// in-flight admission state — the structured signal an autoscaler scales on. Off the hot
-/// path (a `ResourceStats` request / the metrics scrape).
+/// A page candidate carries only the bounded response fields.  Ordering the
+/// heap by graph name lets the registry scan retain the lexicographically first
+/// `limit` visible names without ever materializing an N-graph vector.
+#[derive(Debug, Eq, PartialEq)]
+struct ResourceStatsCandidate {
+    graph: String,
+    tenant: String,
+    nodes: u64,
+    edges: u64,
+    memory_bytes: u64,
+    hibernated: bool,
+}
+
+impl Ord for ResourceStatsCandidate {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        // BinaryHeap is a max-heap; the largest retained name is the item that
+        // should be evicted when a smaller name arrives.
+        self.graph.cmp(&other.graph)
+    }
+}
+
+impl PartialOrd for ResourceStatsCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl ResourceStatsCandidate {
+    fn into_stats(self) -> GraphResourceStats {
+        GraphResourceStats {
+            graph: self.graph,
+            tenant: self.tenant,
+            nodes: self.nodes,
+            edges: self.edges,
+            memory_bytes: self.memory_bytes,
+            hibernated: self.hibernated,
+        }
+    }
+}
+
+fn canonical_tenant_slug(tenant: &str) -> String {
+    let mut slug = String::with_capacity(tenant.len());
+    for ch in tenant.trim().chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-') {
+            slug.push(ch.to_ascii_lowercase());
+        } else {
+            slug.push('_');
+        }
+    }
+    slug.trim_matches('_').to_string()
+}
+
+struct TenantMatcher {
+    tenant: String,
+    prefix: String,
+}
+
+impl TenantMatcher {
+    fn new(tenant: &str) -> Self {
+        let tenant = tenant.trim().to_string();
+        let slug = canonical_tenant_slug(&tenant);
+        Self {
+            prefix: format!("tenant__{slug}__"),
+            tenant,
+        }
+    }
+
+    fn matches(&self, graph_name: &str) -> bool {
+        if self.tenant.is_empty() {
+            return false;
+        }
+        if graph_name == "__commons__" || graph_name == self.tenant {
+            return true;
+        }
+
+        // Preserve the legacy `tenant:scope` convention used by engine-owned
+        // graphs, while also recognizing the agent-utilities tenant graph
+        // convention (`tenant__<slug>__<base>`).  Only the two bases that the
+        // engine's authoritative tenant auto-grant recognizes are admitted
+        // here; a guessed custom suffix must still prove access through ACL.
+        tenant_of(graph_name) == self.tenant
+            || (graph_name.starts_with(&self.prefix)
+                && (graph_name.ends_with("__default")
+                    || graph_name.ends_with("____commons__")))
+    }
+}
+
+fn graph_matches_tenant(graph_name: &str, verified_tenant: &str) -> bool {
+    TenantMatcher::new(verified_tenant).matches(graph_name)
+}
+
+/// Gather a [`ResourceSnapshot`] for an already-verified caller.  Tenant and
+/// graph ACL checks happen before a graph contributes to *any* count, cursor,
+/// candidate heap, or metric.  The raw two-argument function below remains only
+/// as a bounded in-process compatibility helper for existing Rust callers/tests;
+/// the served RPC always uses this authority-bearing path.
+pub(crate) async fn collect_resource_stats_authorized(
+    state: &Arc<RwLock<ServerState>>,
+    authority: &crate::server::access::GraphReadAuthority,
+    verified_tenant: &str,
+    request: ResourceStatsRequest,
+) -> Result<ResourceSnapshot, String> {
+    let actor = authority.verified_actor()?.to_string();
+    let admin = authority
+        .carrier()
+        .is_some_and(|carrier| carrier.is_admin());
+    collect_resource_stats_inner(
+        state,
+        Some((actor.as_str(), verified_tenant, admin)),
+        request,
+    )
+    .await
+}
+
+/// Backward-compatible in-process helper.  It has an explicit finite default
+/// and is not used by the authenticated RPC dispatcher; callers serving a
+/// request must use [`collect_resource_stats_authorized`].
 pub async fn collect_resource_stats(
     state: &Arc<RwLock<ServerState>>,
 ) -> Result<ResourceSnapshot, String> {
+    collect_resource_stats_inner(state, None, ResourceStatsRequest::bounded_default()).await
+}
+
+async fn collect_resource_stats_inner(
+    state: &Arc<RwLock<ServerState>>,
+    authorization: Option<(&str, &str, bool)>,
+    request: ResourceStatsRequest,
+) -> Result<ResourceSnapshot, String> {
+    let request = request.validate()?;
     let config = CostConfig::from_env()?;
-    let (entries, configured_max_inflight, permits_available) = {
+    let capacity = crate::autosize::detect_capacity();
+    let (configured_max_inflight, permits_available) = {
         let s = state.read().await;
-        let entries: Vec<(String, Arc<GraphCore>)> = s
-            .registry
-            .all_entries()
-            .iter()
-            .map(|e| (e.name.clone(), e.core.clone()))
-            .collect();
         let permits = s.max_in_flight.available_permits();
         // The global admission semaphore was constructed with the configured max; recover
         // it from the env so `in_flight = max - available` is exact. The UNSET default
@@ -322,75 +528,144 @@ pub async fn collect_resource_stats(
         // (CONCEPT:AU-KG.backend.b-auto-size) — the SAME derivation
         // `main.rs` used to build the semaphore, so the gauge stays exact on a Pi and a
         // big box alike (previously hard-coded 1024).
-        let automatic_max = crate::autosize::detect_capacity().max_inflight();
+        let automatic_max = capacity.max_inflight();
         let max = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
             .map(|value| crate::autosize::bound_explicit(value, automatic_max))
             .unwrap_or(automatic_max);
-        (entries, max, permits)
+        (max, permits)
     };
     let in_flight = configured_max_inflight.saturating_sub(permits_available) as u64;
 
-    let mut graphs = Vec::with_capacity(entries.len());
+    let mut page_candidates = BinaryHeap::with_capacity(request.limit);
     let mut tenant_rollup: HashMap<String, TenantResourceStats> = HashMap::new();
     let mut total_memory_bytes = 0u64;
     let mut total_nodes = 0u64;
     let mut total_edges = 0u64;
     let mut resident_graphs = 0u64;
     let mut hibernated_graphs = 0u64;
+    let mut visible_after_cursor = 0u64;
+    let mut tenant_count_truncated = false;
+    let mut oversized_graph_name = false;
 
-    for (name, core) in &entries {
-        let tenant = tenant_of(name).to_string();
-        let nodes = core.node_count() as u64;
-        let edges = core.edge_count() as u64;
-        let mem = core.memory_estimate();
-        let hibernated = is_hibernated(name);
+    {
+        let s = state.read().await;
+        let isolation = s.isolation.clone();
+        let actor = authorization.map(|(actor, _, _)| actor);
+        let tenant_matcher = authorization.map(|(_, tenant, _)| TenantMatcher::new(tenant));
+        let admin = authorization.is_some_and(|(_, _, admin)| admin);
+        s.registry.for_each_entry(|entry| {
+            // Do not inspect or count a graph until both the verified tenant
+            // boundary and graph ACL have admitted it.  The unverified helper
+            // intentionally has no filter because it is not a wire path.
+            if let Some(tenant_matcher) = tenant_matcher.as_ref() {
+                if !admin && !tenant_matcher.matches(&entry.name) {
+                    return;
+                }
+                if !admin
+                    && crate::server::access::check_graph_access(
+                        &isolation,
+                        actor,
+                        &entry.name,
+                        entry.graph_type,
+                        entry.owner.as_deref(),
+                        crate::isolation::AccessLevel::Read,
+                    )
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            if entry.name.len() > MAX_RESOURCE_STATS_CURSOR_BYTES
+                || entry.name.bytes().any(|byte| byte == 0)
+            {
+                // Returning an error is fail-closed: silently omitting an
+                // authorized graph would make keyset pagination impossible to
+                // complete and could turn a private name into a cursor oracle.
+                oversized_graph_name = true;
+                return;
+            }
 
-        total_memory_bytes += mem;
-        total_nodes += nodes;
-        total_edges += edges;
-        if hibernated {
-            hibernated_graphs += 1;
-        } else {
-            resident_graphs += 1;
-        }
+            let after_cursor = request
+                .cursor
+                .as_deref()
+                .is_none_or(|cursor| entry.name.as_str() > cursor);
+            if after_cursor {
+                visible_after_cursor = visible_after_cursor.saturating_add(1);
+            }
 
-        // Keep the per-graph metric gauges fresh on every snapshot.
-        crate::metrics::set_graph_memory(name, mem as i64);
+            let tenant_name = tenant_of(&entry.name);
+            let nodes = entry.core.node_count() as u64;
+            let edges = entry.core.edge_count() as u64;
+            let memory_bytes = entry.core.memory_estimate();
+            let hibernated = is_hibernated(&entry.name);
 
-        let t = tenant_rollup
-            .entry(tenant.clone())
-            .or_insert_with(|| TenantResourceStats {
-                tenant: tenant.clone(),
-                graphs: 0,
-                resident_graphs: 0,
-                hibernated_graphs: 0,
-                nodes: 0,
-                edges: 0,
-                memory_bytes: 0,
-                budget_bytes: config.per_tenant_budget_bytes,
-                over_budget: false,
-            });
-        t.graphs += 1;
-        if hibernated {
-            t.hibernated_graphs += 1;
-        } else {
-            t.resident_graphs += 1;
-        }
-        t.nodes += nodes;
-        t.edges += edges;
-        t.memory_bytes += mem;
+            total_memory_bytes = total_memory_bytes.saturating_add(memory_bytes);
+            total_nodes = total_nodes.saturating_add(nodes);
+            total_edges = total_edges.saturating_add(edges);
+            if hibernated {
+                hibernated_graphs = hibernated_graphs.saturating_add(1);
+            } else {
+                resident_graphs = resident_graphs.saturating_add(1);
+            }
 
-        graphs.push(GraphResourceStats {
-            graph: name.clone(),
-            tenant,
-            nodes,
-            edges,
-            memory_bytes: mem,
-            hibernated,
+            if let Some(rollup) = tenant_rollup.get_mut(tenant_name) {
+                rollup.graphs = rollup.graphs.saturating_add(1);
+                if hibernated {
+                    rollup.hibernated_graphs = rollup.hibernated_graphs.saturating_add(1);
+                } else {
+                    rollup.resident_graphs = rollup.resident_graphs.saturating_add(1);
+                }
+                rollup.nodes = rollup.nodes.saturating_add(nodes);
+                rollup.edges = rollup.edges.saturating_add(edges);
+                rollup.memory_bytes = rollup.memory_bytes.saturating_add(memory_bytes);
+            } else if tenant_rollup.len() < MAX_RESOURCE_STATS_TENANTS {
+                tenant_rollup.insert(
+                    tenant_name.to_string(),
+                    TenantResourceStats {
+                        tenant: tenant_name.to_string(),
+                        graphs: 1,
+                        resident_graphs: u64::from(!hibernated),
+                        hibernated_graphs: u64::from(hibernated),
+                        nodes,
+                        edges,
+                        memory_bytes,
+                        budget_bytes: config.per_tenant_budget_bytes,
+                        over_budget: false,
+                    },
+                );
+            } else {
+                tenant_count_truncated = true;
+            }
+
+            if !request.summary && after_cursor {
+                let candidate = ResourceStatsCandidate {
+                    graph: entry.name.clone(),
+                    tenant: tenant_name.to_string(),
+                    nodes,
+                    edges,
+                    memory_bytes,
+                    hibernated,
+                };
+                if page_candidates.len() < request.limit {
+                    page_candidates.push(candidate);
+                } else if page_candidates
+                    .peek()
+                    .is_some_and(|worst| candidate.graph < worst.graph)
+                {
+                    let _ = page_candidates.pop();
+                    page_candidates.push(candidate);
+                }
+            }
         });
+    }
+
+    if oversized_graph_name {
+        return Err(format!(
+            "ResourceStats contains a graph name that is not a valid bounded cursor key (maximum {MAX_RESOURCE_STATS_CURSOR_BYTES} bytes, NUL-free)"
+        ));
     }
 
     for t in tenant_rollup.values_mut() {
@@ -398,28 +673,66 @@ pub async fn collect_resource_stats(
     }
 
     let mut tenants: Vec<TenantResourceStats> = tenant_rollup.into_values().collect();
-    tenants.sort_by_key(|t| std::cmp::Reverse(t.memory_bytes));
-    graphs.sort_by_key(|g| std::cmp::Reverse(g.memory_bytes));
+    tenants.sort_by(|left, right| {
+        right
+            .memory_bytes
+            .cmp(&left.memory_bytes)
+            .then_with(|| left.tenant.cmp(&right.tenant))
+    });
+
+    let mut graphs: Vec<GraphResourceStats> = page_candidates
+        .into_vec()
+        .into_iter()
+        .map(ResourceStatsCandidate::into_stats)
+        .collect();
+    graphs.sort_by(|left, right| left.graph.cmp(&right.graph));
+    let has_more = !request.summary && visible_after_cursor > graphs.len() as u64;
+    let next_cursor = has_more
+        .then(|| graphs.last().map(|graph| graph.graph.clone()))
+        .flatten();
+
+    let rss = process_rss_bytes();
+    let (coalescer_queue_depth, coalescer_queue_bytes, coalescer_operations_total) =
+        crate::write_coalescer::global_stats();
+    crate::metrics::set_resource_stats(
+        capacity.reserved_cpus().min(i64::MAX as usize) as i64,
+        capacity.reserved_ram_bytes().min(i64::MAX as u64) as i64,
+        rss.min(i64::MAX as u64) as i64,
+        coalescer_queue_depth.min(i64::MAX as u64) as i64,
+        coalescer_queue_bytes.min(i64::MAX as u64) as i64,
+        coalescer_operations_total.min(i64::MAX as u64) as i64,
+    );
 
     let st = cost_state();
     Ok(ResourceSnapshot {
+        limit: request.limit as u64,
+        cursor: request.cursor,
+        next_cursor,
+        has_more,
+        summary: request.summary,
         total_memory_bytes,
-        process_rss_bytes: process_rss_bytes(),
+        process_rss_bytes: rss,
         global_ceiling_bytes: config.global_ceiling_bytes,
         total_nodes,
         total_edges,
-        graph_count: entries.len() as u64,
+        graph_count: resident_graphs.saturating_add(hibernated_graphs),
         tenant_count: tenants.len() as u64,
         resident_graphs,
         hibernated_graphs,
+        effective_cpu_cores: capacity.reserved_cpus() as u64,
+        effective_memory_limit_bytes: capacity.reserved_ram_bytes(),
+        tenant_count_truncated,
         in_flight,
         inflight_permits_available: permits_available as u64,
         budget_evictions_total: st.evicted_total.load(std::sync::atomic::Ordering::Relaxed),
         budget_hibernations_total: st
             .hibernated_total
             .load(std::sync::atomic::Ordering::Relaxed),
-        tenants,
-        graphs,
+        coalescer_queue_depth,
+        coalescer_queue_bytes,
+        coalescer_operations_total,
+        tenants: if request.summary { Vec::new() } else { tenants },
+        graphs: if request.summary { Vec::new() } else { graphs },
     })
 }
 
@@ -683,6 +996,20 @@ mod tests {
     }
 
     #[test]
+    fn resource_stats_tenant_filter_matches_only_canonical_graph_names() {
+        assert!(graph_matches_tenant(
+            "tenant__homelab____commons__",
+            "homelab"
+        ));
+        assert!(graph_matches_tenant("tenant__homelab__default", "homelab"));
+        assert!(graph_matches_tenant("agent:planner", "agent"));
+        assert!(graph_matches_tenant("__commons__", "homelab"));
+        assert!(!graph_matches_tenant("tenant__other__default", "homelab"));
+        assert!(!graph_matches_tenant("tenant__homelab__private", "homelab"));
+        assert!(!graph_matches_tenant("homelab__private", "homelab"));
+    }
+
+    #[test]
     fn parse_bytes_handles_suffixes() {
         assert_eq!(parse_bytes("1024"), Some(1024));
         assert_eq!(parse_bytes("512k"), Some(512 * 1024));
@@ -691,6 +1018,69 @@ mod tests {
         assert_eq!(parse_bytes("4G"), Some(4 * 1024 * 1024 * 1024));
         assert_eq!(parse_bytes(""), None);
         assert_eq!(parse_bytes("notanumber"), None);
+    }
+
+    #[test]
+    fn resource_stats_request_rejects_zero_and_unbounded_limits() {
+        assert!(ResourceStatsRequest {
+            cursor: None,
+            limit: 0,
+            summary: false,
+        }
+        .validate()
+        .is_err());
+        assert!(ResourceStatsRequest {
+            cursor: None,
+            limit: MAX_RESOURCE_STATS_LIMIT + 1,
+            summary: false,
+        }
+        .validate()
+        .is_err());
+        assert!(ResourceStatsRequest {
+            cursor: Some("cursor".into()),
+            limit: 1,
+            summary: true,
+        }
+        .validate()
+        .is_err());
+        assert!(ResourceStatsRequest {
+            cursor: Some("x".repeat(MAX_RESOURCE_STATS_CURSOR_BYTES + 1)),
+            limit: 1,
+            summary: false,
+        }
+        .validate()
+        .is_err());
+    }
+
+    #[test]
+    fn resource_stats_candidate_heap_retains_only_the_bounded_prefix() {
+        let mut candidates = BinaryHeap::new();
+        for name in ["z", "b", "a", "m", "c"] {
+            let candidate = ResourceStatsCandidate {
+                graph: name.to_string(),
+                tenant: "tenant".to_string(),
+                nodes: 0,
+                edges: 0,
+                memory_bytes: 0,
+                hibernated: false,
+            };
+            if candidates.len() < 2 {
+                candidates.push(candidate);
+            } else if candidates
+                .peek()
+                .is_some_and(|worst: &ResourceStatsCandidate| name < worst.graph.as_str())
+            {
+                candidates.pop();
+                candidates.push(candidate);
+            }
+        }
+        let mut names: Vec<_> = candidates
+            .into_vec()
+            .into_iter()
+            .map(|candidate| candidate.graph)
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["a", "b"]);
     }
 
     // ── Budget-enforcement integration proofs (CONCEPT:EG-KG.compute.lane-v) ────────────
