@@ -236,11 +236,49 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # ci-gate-replica: the individual hooks above were hand-derived mirrors of
+  # release.yml's `gates` job, one at a time, over several lanes — real but
+  # not provably complete, and drift-prone (the eg-numeric kernel build +
+  # numpy-parity gate steps were never wired into ANY local hook until this
+  # one; that gap is exactly what shipped 2.14.0-2.23.0 with no numeric
+  # kernel, invisible to every gate above). This hook instead PARSES EVERY
+  # workflow file under .github/workflows/ at run time
+  # (scripts/ci_gate_replica.py) and executes every step of every job it has
+  # classified as executable (release.yml's `gates`; advisory.yml's
+  # `lint-and-architecture`/`feature-matrix`/`benchmarks`, matrix-expanded
+  # per leg) verbatim — a step added there is run here with NO change to
+  # this file. advisory.yml failures are reported loudly but never fail this
+  # hook (matching that workflow's own `continue-on-error: true` contract);
+  # release.yml failures do. Its own --consistency-check fails loudly if any
+  # workflow file grows a job this script doesn't know how to classify, or
+  # gains an unregistered workflow file entirely, or if .cargo/config.toml
+  # comes to depend on a binary no workflow installs (see the meta-tests in
+  # tests/test_ci_gate_replica_consistency_check.py). release.yml's `build`/
+  # `docker-image`/`publish-*` jobs and advisory.yml's `pages` job are NOT
+  # executable locally (5-platform native matrix; tag-gated registry/PyPI
+  # publish; a reusable-workflow call with no local steps) and are reported
+  # "NOT VALIDATED LOCALLY" with a reason in the run's summary rather than
+  # omitted — run `scripts/ci_gate_replica.sh --dry-run` to see the full
+  # plan without executing anything.
+  #
+  # The workflow-derived gate is the single producer for the heavy selections
+  # below. It records signed, source/configuration-bound results before any
+  # consumer hook runs; a missing or non-identical record always executes the
+  # consumer command normally. Keeping this producer ahead of the consumers is
+  # what makes the cache an execution plan rather than a best-effort hint.
+  - id: ci-gate-replica
+    name: CI gate replica — parses every workflow file, runs executable jobs, reports NOT VALIDATED LOCALLY for the rest (HEAVY — pre-push/manual)
+    entry: bash -c 'bash scripts/ci_gate_replica.sh'
+    language: system
+    pass_filenames: false
+    always_run: true
+    require_serial: true
+    stages: [pre-push, manual]
   # perf/gate-dedup (2026-08-15): the standalone `protocol-parity` hook that used
   # to live here ran `python3 -m pytest tests/test_protocol_parity.py --noconftest
   # -q` on every push — byte-for-byte the SAME command release.yml's `gates` job
   # runs as its "Protocol parity (Python client ⇄ Rust Method enum)" step, which
-  # `ci-gate-replica` (below) executes verbatim by parsing release.yml at run
+  # `ci-gate-replica` (above) executes verbatim by parsing release.yml at run
   # time. Verified via `scripts/ci_gate_replica.py --dry-run`. Removed from the
   # automatic pre-push stage so the check runs once per push, not twice; the
   # commit-stage `protocol-parity`-equivalent coverage is unaffected (this hook
@@ -270,10 +308,14 @@ repos:
   # subset of the lints CI/pre-push still enforce (rust-ci.yml gate 1 is unchanged).
   - id: cargo-clippy
     name: cargo clippy -D warnings (shipped `full` build — the slimmest profile, incl. Raspberry Pi)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo clippy --no-default-features --features full --all-targets -- -D warnings; fi'
+    # The preceding ci-gate-replica produces the broader advisory all-features
+    # selection. The consumer accepts it only through the versioned, explicit
+    # subset proof; absent or failed evidence runs this command normally.
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then python3 scripts/push_gate_evidence.py consume --selection cargo-clippy-full --kind cargo -- cargo clippy --no-default-features --features full --all-targets -- -D warnings; fi'
     language: system
     pass_filenames: false
     always_run: true
+    require_serial: true
     stages: [pre-push, manual]
   # Exhaustive clippy across EVERY feature incl. the opt-in `cluster` (raft/harness) and
   # `full-extras` (GPU/ROS2) layers — the heaviest compile in the repo (openraft, cudarc,
@@ -302,6 +344,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    require_serial: true
     stages: [pre-push, manual]
   # rust-ci gates 5 + 7 — the FAST test legs (lower crates all-features, then the
   # slim-server feature-gating guard row). Replaces the old weak `cargo test
@@ -311,7 +354,7 @@ repos:
   # eg-compute --all-features --no-fail-fast` on every push — the same crate/
   # feature/test scope as release.yml's `gates` job "Test (lower crates, all
   # features)" step (`cargo test -p eg-types -p eg-core -p eg-compute
-  # --all-features --no-fail-fast`), which `ci-gate-replica` (below) executes
+  # --all-features --no-fail-fast`), which `ci-gate-replica` (above) executes
   # verbatim. nextest vs plain `cargo test` is a harness swap, not a different
   # test selection (D-PERF-1's own rationale: "nothing downstream parses its
   # output"), so this was the same tests running twice per push. Verified via
@@ -356,7 +399,7 @@ repos:
   # perf/gate-dedup (2026-08-15): the `cargo-test-full` hook that lived here ran
   # the EXACT command above (`cargo test -p epistemic-graph --features full
   # --no-fail-fast`) on every push — byte-for-byte release.yml's `gates` job
-  # "Test (facade full)" step, which `ci-gate-replica` (below) executes
+  # "Test (facade full)" step, which `ci-gate-replica` (above) executes
   # verbatim. This was the confirmed root cause of a 70+-minute eg push running
   # this ~9-min (warm) / much longer (cold) command TWICE. Verified via
   # `scripts/ci_gate_replica.py --dry-run`. Removed from the automatic pre-push
@@ -404,7 +447,7 @@ repos:
   # scope as release.yml's `gates` job "Test (replay-determinism —
   # eg-jobs/eg-statechart crash-replay proofs, DE7)" step (`cargo test -p
   # eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast`), which
-  # `ci-gate-replica` (below) executes verbatim. Same nextest-vs-cargo-test
+  # `ci-gate-replica` (above) executes verbatim. Same nextest-vs-cargo-test
   # harness swap as the `cargo-test` hook above, not a different test
   # selection. Verified via `scripts/ci_gate_replica.py --dry-run`. Removed
   # from the automatic pre-push stage. To run it standalone:
@@ -469,37 +512,6 @@ repos:
   - id: wheel-smoke
     name: wheel smoke + privacy/completeness audit — maturin build + fold + normalize + audit (HEAVY — pre-push/manual)
     entry: bash -c 'if [ -f "pyproject.toml" ] && grep -q "tool.maturin" pyproject.toml; then bash scripts/wheel_privacy_gate.sh; fi'
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [pre-push, manual]
-  # ci-gate-replica: the individual hooks above were hand-derived mirrors of
-  # release.yml's `gates` job, one at a time, over several lanes — real but
-  # not provably complete, and drift-prone (the eg-numeric kernel build +
-  # numpy-parity gate steps were never wired into ANY local hook until this
-  # one; that gap is exactly what shipped 2.14.0-2.23.0 with no numeric
-  # kernel, invisible to every gate above). This hook instead PARSES EVERY
-  # workflow file under .github/workflows/ at run time
-  # (scripts/ci_gate_replica.py) and executes every step of every job it has
-  # classified as executable (release.yml's `gates`; advisory.yml's
-  # `lint-and-architecture`/`feature-matrix`/`benchmarks`, matrix-expanded
-  # per leg) verbatim — a step added there is run here with NO change to
-  # this file. advisory.yml failures are reported loudly but never fail this
-  # hook (matching that workflow's own `continue-on-error: true` contract);
-  # release.yml failures do. Its own --consistency-check fails loudly if any
-  # workflow file grows a job this script doesn't know how to classify, or
-  # gains an unregistered workflow file entirely, or if .cargo/config.toml
-  # comes to depend on a binary no workflow installs (see the meta-tests in
-  # tests/test_ci_gate_replica_consistency_check.py). release.yml's `build`/
-  # `docker-image`/`publish-*` jobs and advisory.yml's `pages` job are NOT
-  # executable locally (5-platform native matrix; tag-gated registry/PyPI
-  # publish; a reusable-workflow call with no local steps) and are reported
-  # "NOT VALIDATED LOCALLY" with a reason in the run's summary rather than
-  # omitted — run `scripts/ci_gate_replica.sh --dry-run` to see the full
-  # plan without executing anything.
-  - id: ci-gate-replica
-    name: CI gate replica — parses every workflow file, runs its executable jobs, reports NOT VALIDATED LOCALLY for the rest (HEAVY — pre-push/manual)
-    entry: bash -c 'bash scripts/ci_gate_replica.sh'
     language: system
     pass_filenames: false
     always_run: true

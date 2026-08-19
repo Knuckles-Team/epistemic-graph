@@ -92,6 +92,15 @@ must be a strict positive decimal integer, and values above the hard local
 maximum of 8 are clamped to 8. The ordinary `CARGO_BUILD_JOBS` environment
 variable is deliberately ignored as an operator override. This changes only
 the local build resource bound; each workflow step's shell text is preserved.
+
+SAME-INVOCATION EXECUTION EVIDENCE: when running as a hook, this process is
+the single producer for a private, HMAC-protected evidence ledger. Exact
+selection duplicates in one derived plan execute once. Later hooks can reuse
+only a successful, source/dirty-diff/lockfile/toolchain/effective-environment
+identical record, or a versioned subset proof declared by
+``scripts/push_gate_evidence.py``. Missing, partial, failed, stale, or
+unverifiable evidence never changes the command plan and falls through to
+normal execution.
 """
 
 from __future__ import annotations
@@ -118,6 +127,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 CARGO_CONFIG_PATH = REPO_ROOT / ".cargo" / "config.toml"
 CARGO_TOML_PATH = REPO_ROOT / "Cargo.toml"
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts import push_gate_evidence  # noqa: E402
 
 # ─────────────────────────────────────────────────────────────────────────
 # Per-repo configuration. This is the ONLY hand-maintained classification
@@ -1223,6 +1236,20 @@ def main() -> int:
     if not args.dry_run:
         _local_hygiene()
 
+    evidence_store = None
+    prior_evidence = None
+    if not args.dry_run:
+        try:
+            evidence_store = push_gate_evidence.EvidenceStore.begin_or_resume()
+            prior_evidence = evidence_store.begin_execution()
+        except (push_gate_evidence.EvidenceError, OSError) as exc:
+            # The gate remains authoritative when its private optimization
+            # ledger is unavailable.  A missing/unverifiable ledger can only
+            # remove reuse; it can never turn a required step into a pass.
+            print(f"push-gate-evidence: unavailable ({type(exc).__name__}); executing normally")
+            evidence_store = None
+            prior_evidence = None
+
     # job_envs keyed by (workflow, base job id — pre-matrix-suffix) so every
     # matrix leg of one job still threads $GITHUB_ENV/$GITHUB_PATH state
     # independently is not required here (GH Actions env is per-job-run,
@@ -1238,6 +1265,7 @@ def main() -> int:
         return job_envs[key]
 
     results: list[dict] = []
+    in_invocation: dict[str, tuple[object, float]] = {}
     for item in all_plan:
         mode = item["mode"]
         if mode == "RUN":
@@ -1247,6 +1275,45 @@ def main() -> int:
                 )
                 results.append({**item, "status": "DRY_RUN", "elapsed": 0.0})
                 continue
+            selection = push_gate_evidence.selection_for_workflow_item(
+                item,
+                environment={
+                    **env_for(item),
+                    # _run_step replaces any inherited value with the same
+                    # bounded local policy. Include that effective value in
+                    # the evidence key instead of the pre-step environment.
+                    "CARGO_BUILD_JOBS": str(cargo_build_jobs),
+                },
+            )
+            selection_key = selection.selection_digest
+            if selection_key in in_invocation:
+                status, elapsed = in_invocation[selection_key]
+                print(
+                    f"push-gate-evidence: reused identical plan selection "
+                    f"{selection.label}"
+                )
+                results.append(
+                    {**item, "status": status, "elapsed": elapsed, "cached": True}
+                )
+                continue
+            try:
+                reusable_prior = (
+                    evidence_store is not None
+                    and prior_evidence is not None
+                    and evidence_store.consume_from(prior_evidence, selection)
+                )
+            except (push_gate_evidence.EvidenceError, OSError):
+                reusable_prior = False
+            if reusable_prior:
+                print(
+                    f"push-gate-evidence: reused prior successful selection "
+                    f"{selection.label}"
+                )
+                in_invocation[selection_key] = (0, 0.0)
+                results.append(
+                    {**item, "status": 0, "elapsed": 0.0, "cached": True}
+                )
+                continue
             print(
                 f"\n############### STEP [{item['workflow']}:{item['job']}] {item['name']} ###############"
             )
@@ -1254,6 +1321,21 @@ def main() -> int:
             print(
                 f"### STEP_RESULT job={item['job']} name={item['name']!r} exit={status} secs={elapsed:.1f}"
             )
+            in_invocation[selection_key] = (status, elapsed)
+            if evidence_store is not None:
+                try:
+                    evidence_store.record(
+                        selection,
+                        exit_code=status if isinstance(status, int) else 1,
+                        elapsed=elapsed,
+                    )
+                except (push_gate_evidence.EvidenceError, OSError) as exc:
+                    print(
+                        f"push-gate-evidence: write unavailable ({type(exc).__name__}); "
+                        "continuing without reuse"
+                    )
+                    evidence_store = None
+                    prior_evidence = None
             results.append({**item, "status": status, "elapsed": elapsed})
         elif mode == "ENV_SETUP":
             results.append({**item, "status": "ENV_SETUP", "elapsed": 0.0})
@@ -1269,6 +1351,15 @@ def main() -> int:
                 f"\n### {tag} [{item['workflow']}:{item['job']}] {item['name']}\n    reason: {item['detail']}"
             )
             results.append({**item, "status": "NOT_VALIDATED_LOCALLY", "elapsed": 0.0})
+
+    if evidence_store is not None:
+        try:
+            evidence_store.finalize("complete")
+        except (push_gate_evidence.EvidenceError, OSError) as exc:
+            print(
+                f"push-gate-evidence: finalization unavailable ({type(exc).__name__}); "
+                "results remain non-consumable"
+            )
 
     print("\n################ SUMMARY ################")
     blocking_fail = False
