@@ -35,6 +35,11 @@
   XChaCha20-Poly1305, and rejects replayed/out-of-order sequence numbers. A routable
   or multi-member cluster refuses to start without key material; plaintext is limited
   to one-member loopback development.
+* `EPISTEMIC_GRAPH_RAFT_FAILURE_DOMAINS` is an optional complete map such as
+  `1=az-a,2=az-b,3=az-b,4=az-c`. It defines the failure boundary used by the
+  automatic leader balancer. If omitted, the host portion of each advertised Raft
+  endpoint is used. Equal or unknown domains fail closed: the balancer will not
+  move a leader merely because node ids differ.
 
 ### Writer model — K=N under an active Raft node
 
@@ -42,9 +47,23 @@ With Raft active, **all durable writes for a graph route through that graph's gr
 LEADER** before they are acked (consensus is the replication barrier). The configured
 multi-Raft groups own matching redb shards (`K=N`), so the cluster retains HA while
 independent graph ranges can write in parallel. `EPISTEMIC_GRAPH_RAFT_GROUPS` controls
-N and defaults from effective cgroup-aware CPU capacity. A 4-node cluster still buys
-survivability of a node loss; write throughput scales with the configured groups, not
-with the number of nodes alone.
+N and defaults from effective cgroup-aware CPU capacity for a fresh store. On restart,
+the existing on-disk shard count is authoritative: node startup adopts that durable K
+before creating the default group or tenant ring, and changing K requires the offline
+shard migration path. A 4-node cluster still buys survivability of a node loss;
+write throughput scales with the configured groups, not with the number of nodes alone.
+
+### Bounded automatic leader balance
+
+Each live `MultiRaft` manager observes committed leader assignments every 15 seconds.
+The deterministic round-robin target remains the desired placement, but an automatic
+handoff is issued only when all safety gates pass: the local node is the current leader,
+the target is a voter in a different declared failure domain, the target reduces the
+leader-slot load by at least one, and the per-group 10-second cooldown has elapsed.
+At most one automatic transfer is issued per pass, allowing terms and replication to
+settle before another decision. Single-voter groups and equal/unknown domains are
+no-ops. This is a bounded source-level control loop; cross-host availability and
+performance still require the operator's multi-node soak.
 
 ---
 
@@ -153,10 +172,11 @@ so quorum is never at risk:
 * Read a known key back **on a follower** (e.g. node 3) — it must match node 1.
 * Write a new key through the leader — it must appear on every follower within a
   heartbeat.
-* Leadership starts entirely on node 1 (it bootstrapped). If you want it spread, the
-  leader balancer issues the **native** `trigger().transfer_leader(target)` per group
-  (graceful, near-instant) toward the deterministic round-robin target. With one group
-  this is a no-op worth skipping; it matters once multi-group sharding is enabled.
+* Leadership starts entirely on node 1 (it bootstrapped). The manager's bounded leader
+  scheduler automatically issues the **native** `trigger().transfer_leader(target)` per
+  eligible group (graceful, near-instant) toward the deterministic round-robin target.
+  With one group this is normally a no-op; it matters once multi-group sharding is
+  enabled. Set explicit failure domains before relying on this across hosts.
 
 The cluster is now 4-node HA with node 1's data fully replicated. **No data was lost and
 no node was wiped.**
