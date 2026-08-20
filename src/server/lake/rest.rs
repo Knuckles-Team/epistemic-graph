@@ -144,6 +144,12 @@ fn verify_bearer(
 /// disagrees with this deployment's own configured tenant, both deny through the
 /// SAME shared `access::unauthenticated_carrier_denied` gate every other auxiliary
 /// surface uses; a bearer that both verifies AND matches yields `Some(carrier)`.
+///
+/// Iceberg carrier has no verified tenant/table ownership until this OAuth2 bearer
+/// verification succeeds — mirrors the S3 (`mint_fixed_service_carrier`) and
+/// KV-cache surfaces' identical "no ownership before the carrier is minted"
+/// invariant, so `visibility_for`/`scope_authorized` below only ever see a carrier
+/// that already carries a verified, correctly-tenanted owner scope.
 fn resolve_carrier(
     state: Option<&Arc<RwLock<ServerState>>>,
     credential: Option<&IcebergCredential>,
