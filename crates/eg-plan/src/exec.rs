@@ -1729,20 +1729,24 @@ fn sort_by_score_desc(mut scored: Vec<(String, f32)>) -> Vec<(String, f32)> {
 /// DataFusion (`sql_filter_ids`), preserving the input order + candidate-set pushdown.
 /// Spatial preds (`SpatialWithin`/`SpatialDWithin`, CONCEPT:EG-KG.ontology.singles-concept) are split OUT and
 /// applied per-row by eg-geo against each row's stored geometry — DataFusion has no
-/// spatial. A non-geo build has no spatial Pred variants, so every pred is relational
-/// and this is byte-for-byte the original SQL path.
+/// spatial. A build without eg-plan's own `geo` feature has no REAL eg-geo executor, but
+/// (NE-216) `Pred::Spatial*` variants can still be present on the wire (`eg-types/geo` is
+/// requested unconditionally now — see `Cargo.toml`), so such a build errors explicitly on
+/// a spatial predicate instead of silently treating it as relational.
 fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, String> {
     // Partition per-row preds (spatial via eg-geo, JSON via eg-core::jsonpath —
-    // CONCEPT:EG-KG.compute.json-deep-indexing) from relational preds lowered to SQL. DataFusion has neither
-    // spatial nor JSONPath, so each is split out and applied per-row against the stored
-    // blob. A non-geo build has no spatial variants; JSONPath is always present under
-    // `query`, so `relational` is every remaining pred.
+    // CONCEPT:EG-KG.compute.json-deep-indexing) from relational preds lowered to SQL.
+    // DataFusion has neither spatial nor JSONPath, so each is split out and applied
+    // per-row against the stored blob. This partition is UNCONDITIONAL (NE-216):
+    // `Pred::Spatial*` variants always exist now (see `Cargo.toml`'s `eg-types`
+    // dependency comment), regardless of whether eg-plan's own `geo` feature — the REAL
+    // eg-geo executor — is enabled, so a spatial predicate must always be recognized and
+    // pulled out of `relational` here; whether it can actually be EVALUATED is decided
+    // below, at the point it would be applied, not at partition time.
     let mut relational: Vec<Pred> = Vec::with_capacity(preds.len());
-    #[cfg(feature = "geo")]
     let mut spatial: Vec<Pred> = Vec::new();
     let mut jsonpath: Vec<Pred> = Vec::new();
     for p in preds {
-        #[cfg(feature = "geo")]
         if is_spatial_pred(p) {
             spatial.push(p.clone());
             continue;
@@ -1786,9 +1790,20 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
     };
 
     // Apply each spatial predicate against the stored per-row geometry (order-preserving).
+    // A build without eg-plan's own `geo` feature has no eg-geo executor even though the
+    // `Pred::Spatial*` variant may exist on the wire (NE-216, see the partition comment
+    // above) — reject explicitly rather than silently letting `where_clause`'s "1=1"
+    // NO-OP stand in as the filtering decision (it never is; this is).
     #[cfg(feature = "geo")]
     for p in &spatial {
         out = spatial_filter(ctx.view, out, p)?;
+    }
+    #[cfg(not(feature = "geo"))]
+    if !spatial.is_empty() {
+        return Err(
+            "filter predicate requires the geo modality feature, not enabled in this build"
+                .into(),
+        );
     }
     // Apply each JSONPath predicate against the stored per-row JSON (CONCEPT:EG-KG.compute.json-deep-indexing),
     // order- and score-preserving — exactly the spatial leg's shape.
@@ -1883,7 +1898,13 @@ fn spatial_scan(ctx: &PlanCtx, layer: &str, bbox: [f64; 4]) -> RowSet {
 
 /// Is `pred` a spatial predicate (evaluated per-row by eg-geo, NOT lowered to SQL)?
 /// Covers EG-083's within/dwithin plus the EG-258 DE-9IM relation set.
-#[cfg(feature = "geo")]
+///
+/// NE-216: UNCONDITIONAL (no `#[cfg(feature = "geo")]`) — `Pred::Spatial*` now always
+/// exists (see the `[dependencies] eg-types` comment in `Cargo.toml`), so `filter_op`
+/// must always be able to recognize and split these out, even in a build where eg-plan's
+/// own `geo` feature (the REAL eg-geo executor) is off; it turns that case into an
+/// explicit error instead of silently folding a spatial predicate into `relational` and
+/// letting `where_clause`'s "1=1" NO-OP arm match every row.
 fn is_spatial_pred(pred: &Pred) -> bool {
     matches!(
         pred,
@@ -2686,14 +2707,23 @@ pub(crate) fn where_clause(preds: &[Pred]) -> Result<String, String> {
                 }
                 // JSONPath predicates are evaluated per row and never reach SQL.
                 Pred::JsonPath { .. } => "1=1".into(),
-                // Spatial predicates are likewise evaluated outside this SQL leg. Every
-                // `Pred::Spatial*` variant is `#[cfg(feature = "geo")]`-gated in
-                // `eg-types/src/wire.rs`, so this arm MUST carry the same gate — without it a
-                // `query`-but-not-`geo` build (E0599: no variant named SpatialWithin, …) fails
-                // to compile. The non-geo `Pred` set is {Eq, GtNum, LtNum, JsonPath}, so the
-                // match stays exhaustive when this arm is compiled out. The "1=1" passthrough
-                // needs no eg-geo executor; spatial preds are split out and evaluated per-row.
-                #[cfg(feature = "geo")]
+                // Spatial predicates are likewise evaluated outside this SQL leg — `filter_op`
+                // always splits every `Pred::Spatial*` out into its `spatial` bucket before
+                // `relational` (and hence this function) ever sees one, so this "1=1" is a pure
+                // NO-OP placeholder, never the real filtering decision (that happens in
+                // `spatial_filter`, or the explicit "not enabled in this build" error `filter_op`
+                // returns when eg-plan's own `geo` feature is off — see its comment).
+                //
+                // NE-216: this arm is UNCONDITIONAL (no `#[cfg(feature = "geo")]`), unlike the
+                // eg-geo-calling code below, because `Pred::Spatial*` are no longer conditioned
+                // on eg-plan's own `geo` feature at all — eg-plan's `[dependencies] eg-types`
+                // line now ALWAYS requests `eg-types/geo` (it is pure serde: eg-types' `geo =
+                // ["query"]`), precisely because `eg-types/geo` can already be on in the build
+                // graph without eg-plan's `geo` feature (eg-capabilities force-enables it
+                // independently for its own exhaustive `Method` policy match — see that Cargo.toml
+                // dependency comment). So the variants ALWAYS exist here, and gating this arm on
+                // eg-plan's `geo` feature would silently reintroduce the E0004 this fixes the
+                // moment `eg-types/geo` is on without it — do not restore that gate.
                 Pred::SpatialWithin { .. }
                 | Pred::SpatialDWithin { .. }
                 | Pred::SpatialContains { .. }
