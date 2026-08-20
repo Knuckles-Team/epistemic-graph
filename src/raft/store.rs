@@ -736,20 +736,51 @@ impl EgStore {
                     .await;
                 }
             }
+            // Steady-state fast path: the overwhelming majority of applies land on a
+            // graph that already exists (created by an earlier entry, possibly in a
+            // DIFFERENT Raft group — `ctx.state` is the ONE `ServerState` shared by
+            // every group's `EgStore` on this node, see `MultiRaft::create_group`).
+            // Resolving `core`/`persistence` under a WRITE lock unconditionally would
+            // force every group's apply loop through one exclusive lock for every
+            // entry, serializing N groups down to the throughput of one regardless of
+            // how many independent redb shard writer threads back them. Take a READ
+            // lock first (readers run concurrently across groups); only escalate to a
+            // WRITE lock, with a re-check, when the graph is genuinely missing. This
+            // is a pure lock-scope narrowing — `create_graph` still runs at most once
+            // per graph, under exclusive access, identically to before.
             let (core, persistence) = {
-                let mut s = self.ctx.state.write().await;
-                if !s.registry.exists(&req.graph_name) {
+                let fast = {
+                    let s = self.ctx.state.read().await;
                     s.registry
-                        .create_graph(&req.graph_name, req.graph_type, None)
-                        .map_err(|e| {
-                            format!("graph '{}' create failed on replay: {e}", req.graph_name)
-                        })?;
-                }
-                let core = match s.registry.get(&req.graph_name).map(|e| e.core.clone()) {
-                    Some(c) => c,
-                    None => return Err(format!("graph '{}' missing after create", req.graph_name)),
+                        .get(&req.graph_name)
+                        .map(|e| (e.core.clone(), s.persistence.clone()))
                 };
-                (core, s.persistence.clone())
+                match fast {
+                    Some(pair) => pair,
+                    None => {
+                        let mut s = self.ctx.state.write().await;
+                        if !s.registry.exists(&req.graph_name) {
+                            s.registry
+                                .create_graph(&req.graph_name, req.graph_type, None)
+                                .map_err(|e| {
+                                    format!(
+                                        "graph '{}' create failed on replay: {e}",
+                                        req.graph_name
+                                    )
+                                })?;
+                        }
+                        let core = match s.registry.get(&req.graph_name).map(|e| e.core.clone()) {
+                            Some(c) => c,
+                            None => {
+                                return Err(format!(
+                                    "graph '{}' missing after create",
+                                    req.graph_name
+                                ));
+                            }
+                        };
+                        (core, s.persistence.clone())
+                    }
+                }
             };
 
             let graph_method = req.command.open_graph(&server_secret)?;
