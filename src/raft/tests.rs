@@ -3124,16 +3124,62 @@ async fn map_group_leaders(
     map
 }
 
+/// Median of an ALREADY-SORTED (ascending) sample slice. Robust to a single noisy
+/// outlier round in a way a mean is not -- exactly the property an admissible perf
+/// comparison across a noisy shared host needs.
+fn median(sorted: &[f64]) -> f64 {
+    let n = sorted.len();
+    assert!(n > 0, "median of an empty sample set");
+    if n % 2 == 1 {
+        sorted[n / 2]
+    } else {
+        (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+    }
+}
+
+/// Nearest-rank percentile of an ALREADY-SORTED (ascending) sample slice.
+fn percentile(sorted: &[f64], p: f64) -> f64 {
+    let n = sorted.len();
+    assert!(n > 0, "percentile of an empty sample set");
+    let rank = ((p / 100.0) * (n as f64 - 1.0)).round() as usize;
+    sorted[rank.min(n - 1)]
+}
+
+/// (p50, p95, min, max) of an ALREADY-SORTED (ascending) sample slice, for the
+/// diagnostic block on an admissibility-test failure.
+fn arm_stats(sorted: &[f64]) -> (f64, f64, f64, f64) {
+    (
+        median(sorted),
+        percentile(sorted, 95.0),
+        sorted[0],
+        sorted[sorted.len() - 1],
+    )
+}
+
+/// One measured sample of a [`run_group_write_workload`] round: aggregate throughput
+/// plus cheap group-commit instrumentation for the admissibility diagnostic block.
+struct WorkloadSample {
+    wps: f64,
+    /// Per-shard `(commits, ops, lingered)` from [`RedbCommitStats`], SUMMED across
+    /// all 3 cluster nodes -- every member (leader AND follower) applies every
+    /// committed entry of every group it belongs to, so this is the real per-group
+    /// durable-commit fan-out, not just the leader's view. A genuine cross-group
+    /// serialization bottleneck shows up here as lopsided or starved shard counts
+    /// even when the aggregate ratio alone looks merely "a bit low".
+    shard_commits: Vec<(u64, u64, u64)>,
+}
+
 /// Start a 3-node cluster with `n_groups` groups AND `n_groups` durable shards (K == N,
 /// ADR-2), run a fixed concurrent write workload spread across `n_graphs` graphs, and
-/// return `(writes_per_second, total_writes)`. `open_with_shards` forces K == N because
-/// `resolve_shard_count()` returns 1 under `cfg(test)` (the raft env var is unset in tests).
+/// return the measured throughput plus per-shard commit instrumentation.
+/// `open_with_shards` forces K == N because `resolve_shard_count()` returns 1 under
+/// `cfg(test)` (the raft env var is unset in tests).
 async fn run_group_write_workload(
     tag: &str,
     n_groups: u64,
     n_graphs: usize,
     writes_per_graph: u64,
-) -> (f64, u64) {
+) -> WorkloadSample {
     let root = std::env::temp_dir().join(format!("eg-w12-scale-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let ports = free_ports(3);
@@ -3174,7 +3220,9 @@ async fn run_group_write_workload(
     }
 
     // Timed section: one task per graph, all concurrent, each doing `writes_per_graph`
-    // durable replicated writes through its group's leader.
+    // durable replicated writes through its group's leader. Same deterministic payload
+    // and write count every round (`scale_add_node_req` has no randomness), so rounds
+    // are directly comparable.
     let t0 = std::time::Instant::now();
     let mut handles = Vec::new();
     for (graph, group) in assignments {
@@ -3197,47 +3245,161 @@ async fn run_group_write_workload(
     let total = n_graphs as u64 * writes_per_graph;
     let wps = total as f64 / elapsed.as_secs_f64();
 
+    // Cheap group-commit instrumentation (CONCEPT:EG-KG.backend.adaptive-linger-coalesce
+    // `RedbCommitStats`, already tracked per shard by every redb writer thread -- no new
+    // production counters needed). Read BEFORE shutdown while the backends are alive.
+    let mut shard_commits = vec![(0u64, 0u64, 0u64); n_groups as usize];
+    for n in nodes.values() {
+        if let Some(redb) = n.multi.backend().as_redb() {
+            for (idx, stats) in redb.commit_stats_all().iter().enumerate() {
+                if idx < shard_commits.len() {
+                    let entry = &mut shard_commits[idx];
+                    entry.0 += stats.commits();
+                    entry.1 += stats.ops();
+                    entry.2 += stats.lingered();
+                }
+            }
+        }
+    }
+
     for (_, n) in nodes {
         n.multi.stop_listener();
         let _ = n.handle.raft.shutdown().await;
     }
     let _ = std::fs::remove_dir_all(&root);
-    (wps, total)
+    WorkloadSample { wps, shard_commits }
 }
 
 /// ACCEPTANCE (ADR-2 §Acceptance): a 3-node cluster with N groups (== N durable shards)
-/// sustains aggregate write throughput ≥ 2.5× the single-group (K=1) baseline — N parallel
-/// per-node durable writers vs one. Both runs execute the SAME workload in ONE test; the
-/// ratio is asserted and the absolute writes/sec logged.
+/// sustains aggregate write throughput >=2.5x the single-group (K=1) baseline -- N
+/// parallel per-node durable writers vs one.
+///
+/// ADMISSIBILITY (2026-08-20): the previous one-sample-per-arm harness could not tell
+/// a real MultiRaft serialization bottleneck apart from R820 host-load noise -- a
+/// full-suite run measured 1.08x and an isolated single-threaded rerun of the SAME
+/// code measured 1.19x, a >30% swing from host contention alone with exactly one
+/// sample per arm. This version fixes that:
+///   * takes `SAMPLE_ROUNDS` repeated samples per arm (after `WARMUP_ROUNDS`
+///     discarded warm-up rounds to absorb first-run allocator/page-cache effects);
+///   * interleaves multi/single EVERY round (never all-multi-then-all-single), so
+///     any drift across the run's wall-clock duration affects both arms equally
+///     instead of biasing whichever arm happens to run first or last;
+///   * compares MEDIANS, which are robust to one noisy round in a way a mean or a
+///     single sample is not;
+///   * pins the workload identically across every round and every arm: same
+///     N_GRAPHS graphs, same WRITES_PER_GRAPH writes/graph, same deterministic
+///     payload, same fixed `worker_threads = 8` tokio runtime, no dependency on any
+///     other test's timing (each round opens its own temp dir + free ports);
+///   * on failure, prints every raw sample plus p50/p95/min/max for BOTH arms and the
+///     per-shard group-commit counters (summed across all 3 cluster nodes) so a real
+///     bottleneck shows up as lopsided/starved shard commit counts, not a bare ratio.
+///
+/// The floor stays 2.5x (NOT relaxed to the previously observed ~1.1-1.2x): ADR-2's
+/// mechanism claim is that K independent per-shard redb writer threads commit in
+/// parallel, so N=8 groups have no structural reason to cap out near 1x -- a
+/// shortfall is a defect to fix (see the `ctx.state` read/write-lock-scope fix in
+/// `raft::store::apply_request`), not a benchmark to relabel.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn multi_group_write_throughput_scales_vs_single_group() {
     const N_GROUPS: u64 = 8;
     const N_GRAPHS: usize = 24;
     const WRITES_PER_GRAPH: u64 = 10;
+    const WARMUP_ROUNDS: usize = 1;
+    const SAMPLE_ROUNDS: usize = 5;
 
-    // Multi-group (K == N == 6): 6 parallel durable shard writers.
-    let (multi_wps, total) =
-        run_group_write_workload("multi", N_GROUPS, N_GRAPHS, WRITES_PER_GRAPH).await;
-    // Single-group baseline (K == 1): one serialized durable writer, SAME workload.
-    let (single_wps, _) = run_group_write_workload("single", 1, N_GRAPHS, WRITES_PER_GRAPH).await;
+    let mut multi_samples: Vec<f64> = Vec::with_capacity(SAMPLE_ROUNDS);
+    let mut single_samples: Vec<f64> = Vec::with_capacity(SAMPLE_ROUNDS);
+    let mut last_multi: Option<WorkloadSample> = None;
+    let mut last_single: Option<WorkloadSample> = None;
 
-    let ratio = multi_wps / single_wps;
+    for round in 0..(WARMUP_ROUNDS + SAMPLE_ROUNDS) {
+        // Interleaved: multi then single EVERY round, so a warm host at round 0 and a
+        // loaded host at round 5 each see one sample of BOTH arms.
+        let multi = run_group_write_workload(
+            &format!("multi-r{round}"),
+            N_GROUPS,
+            N_GRAPHS,
+            WRITES_PER_GRAPH,
+        )
+        .await;
+        let single =
+            run_group_write_workload(&format!("single-r{round}"), 1, N_GRAPHS, WRITES_PER_GRAPH)
+                .await;
+
+        println!(
+            "ADR-2 W1.2 write-scaling: round {round}{} multi={:.0} w/s, single={:.0} w/s",
+            if round < WARMUP_ROUNDS { " (warm-up, discarded)" } else { "" },
+            multi.wps,
+            single.wps,
+        );
+
+        if round < WARMUP_ROUNDS {
+            continue;
+        }
+        multi_samples.push(multi.wps);
+        single_samples.push(single.wps);
+        last_multi = Some(multi);
+        last_single = Some(single);
+    }
+
+    multi_samples.sort_by(|a, b| a.partial_cmp(b).expect("wps is never NaN"));
+    single_samples.sort_by(|a, b| a.partial_cmp(b).expect("wps is never NaN"));
+
+    let (multi_p50, multi_p95, multi_min, multi_max) = arm_stats(&multi_samples);
+    let (single_p50, single_p95, single_min, single_max) = arm_stats(&single_samples);
+    let ratio = multi_p50 / single_p50;
+
+    println!(
+        "ADR-2 W1.2 write-scaling: {SAMPLE_ROUNDS} samples/arm ({WARMUP_ROUNDS} warm-up \
+         discarded): multi(K={N_GROUPS}) p50={multi_p50:.0} w/s, single(K=1) \
+         p50={single_p50:.0} w/s, ratio={ratio:.2}x"
+    );
     tracing::info!(
         n_groups = N_GROUPS,
-        total_writes = total,
-        multi_writes_per_sec = multi_wps,
-        single_writes_per_sec = single_wps,
+        sample_rounds = SAMPLE_ROUNDS,
+        multi_p50,
+        single_p50,
         ratio,
-        "ADR-2 W1.2 write-scaling: N-group vs single-group aggregate throughput"
+        "ADR-2 W1.2 write-scaling: N-group vs single-group aggregate throughput (median of samples)"
     );
-    println!(
-        "ADR-2 W1.2 write-scaling: multi(K={N_GROUPS})={multi_wps:.0} w/s, single(K=1)={single_wps:.0} w/s, ratio={ratio:.2}x ({total} writes each)"
-    );
-    assert!(
-        ratio >= 2.5,
-        "N={N_GROUPS}-group aggregate write throughput ({multi_wps:.0} w/s) must be ≥2.5× the \
-         single-group baseline ({single_wps:.0} w/s); measured {ratio:.2}×"
-    );
+
+    if ratio < 2.5 {
+        let per_group_multi = N_GRAPHS as u64 / N_GROUPS;
+        let shard_diag = |label: &str, sample: &Option<WorkloadSample>| -> String {
+            match sample {
+                Some(s) => s
+                    .shard_commits
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, stats)| {
+                        let (commits, ops, lingered) = *stats;
+                        format!(
+                            "    {label} shard {idx}: {commits} commits, {ops} ops, {lingered} lingered"
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                None => format!("    {label}: no sample captured"),
+            }
+        };
+        panic!(
+            "N={N_GROUPS}-group aggregate write throughput must be >=2.5x the single-group \
+             baseline (median of {SAMPLE_ROUNDS} interleaved samples/arm, {WARMUP_ROUNDS} \
+             warm-up round discarded); measured {ratio:.2}x\n\
+             multi(K={N_GROUPS}) samples w/s:  {multi_samples:?}\n\
+             multi(K={N_GROUPS}) p50={multi_p50:.0} p95={multi_p95:.0} min={multi_min:.0} max={multi_max:.0}\n\
+             single(K=1) samples w/s: {single_samples:?}\n\
+             single(K=1) p50={single_p50:.0} p95={single_p95:.0} min={single_min:.0} max={single_max:.0}\n\
+             per-shard group-commit counters (summed across all 3 cluster nodes, last measured round):\n\
+             {}\n\
+             {}\n\
+             workload: {N_GRAPHS} graphs x {WRITES_PER_GRAPH} writes/graph = {} writes/arm/round \
+             ({per_group_multi} graphs/group under K={N_GROUPS}, {N_GRAPHS} graphs/group under K=1)",
+            shard_diag("multi", &last_multi),
+            shard_diag("single", &last_single),
+            N_GRAPHS as u64 * WRITES_PER_GRAPH,
+        );
+    }
 }
 
 /// ACCEPTANCE (ADR-2 §Acceptance): per-group failover independence — killing ONE group's
