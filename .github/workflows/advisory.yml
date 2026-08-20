@@ -150,6 +150,19 @@ jobs:
           - { name: 'full',             flags: '--no-default-features --features full' }
           - { name: 'cluster',          flags: '--no-default-features --features cluster' }
           - { name: 'full-extras',      flags: '--no-default-features --features full-extras' }
+          # NE-216: a feature-unification gap between eg-types/geo (turned on
+          # unconditionally by eg-capabilities, a leaf crate with no eg-plan dep, for its
+          # own exhaustive Method-policy match) and eg-plan's OWN geo feature (which used
+          # to gate the eg-types/geo request too) meant this exact combo compiled the
+          # `Pred::Spatial*` wire variants into eg-plan without compiling the exhaustive
+          # `where_clause` match arm that has to cover them -- E0004. These three combos
+          # pin the profile that broke plus its immediate neighbors (no server/security,
+          # and the same profile with `geo` explicitly on) so a future regression of that
+          # class fails fast here instead of only surfacing when someone happens to build
+          # this exact non-default combo.
+          - { name: 'query-only',              flags: '--no-default-features --features query' }
+          - { name: 'server-redb-query-security', flags: '--no-default-features --features "server,redb,query,security"' }
+          - { name: 'server-redb-query-security-geo', flags: '--no-default-features --features "server,redb,query,security,geo"' }
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
