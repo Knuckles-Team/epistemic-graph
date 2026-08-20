@@ -1184,6 +1184,7 @@ mod tests {
     /// ordinary non-System actor, and confirm they survive (schema-exempt).
     /// Then unmark and confirm they revert to ABox default-deny on the NEXT
     /// snapshot, with no separate "clear" step.
+    #[cfg(feature = "security")]
     #[test]
     fn schema_ref_marked_node_survives_filter_view_then_reverts_on_unmark() {
         let mut layer = IsolationLayer::new();

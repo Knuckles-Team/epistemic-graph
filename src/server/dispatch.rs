@@ -6053,7 +6053,7 @@ mod modality_replay_receipt_tests {
             &single_wire(),
         )
         .unwrap();
-        let ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes) = payload else {
+        let (ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) = payload else {
             panic!("typed replay receipt must remain a compact byte payload");
         };
         let outcome: eg_modality::ApplyOutcome = rmp_serde::from_slice(&bytes).unwrap();
@@ -6069,7 +6069,7 @@ mod modality_replay_receipt_tests {
             &stream_wire(),
         )
         .unwrap();
-        let ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes) = payload else {
+        let (ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) = payload else {
             panic!("typed replay receipt must remain a compact byte payload");
         };
         let outcomes: Vec<eg_modality::ApplyOutcome> = rmp_serde::from_slice(&bytes).unwrap();
