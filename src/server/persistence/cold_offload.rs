@@ -254,7 +254,7 @@ pub async fn offload_cold_tenants(
             .collect();
         (entries, s.persistence.clone())
     };
-    let Some(persistence) = persistence else {
+    let Some(_persistence) = persistence else {
         return 0;
     };
 

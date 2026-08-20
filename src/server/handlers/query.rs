@@ -204,8 +204,28 @@ pub(crate) async fn try_handle(
                     // `analysis_snapshot`) so the OCC version used to key the served
                     // context cache below is taken ATOMICALLY with the snapshot it
                     // describes — they can never drift apart.
-                    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-                    let (mut snap, graph_version) = core.analysis_snapshot_versioned();
+                    let (snap, graph_version) = {
+                        #[cfg(feature = "result-cache")]
+                        {
+                            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+                            let (mut snap, version) = core.analysis_snapshot_versioned();
+                            #[cfg(feature = "security")]
+                            rls.filter_view(caller, &mut snap);
+                            (snap, version)
+                        }
+                        #[cfg(not(feature = "result-cache"))]
+                        {
+                            let snap = rls_snapshot(
+                                &core,
+                                #[cfg(feature = "security")]
+                                caller,
+                                #[cfg(feature = "security")]
+                                rls,
+                            );
+                            let version = core.version();
+                            (snap, version)
+                        }
+                    };
                     // W1.6/P7 site 3: the node epoch gates the SQL-context node-batch sub-cache so a
                     // pure-edge / catalog-only write reuses the O(V) node scan. The dependency clock
                     // folds the coarse floor into it, keeping it sound for bypass writes; without
@@ -214,8 +234,6 @@ pub(crate) async fn try_handle(
                     let node_epoch = core.dep_clock().node_epoch();
                     #[cfg(not(feature = "result-cache"))]
                     let node_epoch = graph_version;
-                    #[cfg(feature = "security")]
-                    rls.filter_view(caller, &mut snap);
                     // CONCEPT:EG-KG.query.served-context-cache — the whole-`SessionContext` cache (UDFs,
                     // durable views, synthesized system catalogs), amortized across every
                     // served SQL read for this owner. One instance PER owner-scoped SQL
@@ -2213,7 +2231,7 @@ fn explain_provenance_by_ids(
 fn explain_provenance_result(
     request_id: u64,
     ks: &eg_plan::KnowledgeSet,
-    ctx: &eg_plan::PlanCtx<'_>,
+    _ctx: &eg_plan::PlanCtx<'_>,
 ) -> crate::epistemic_operations::EvidenceBundle {
     use crate::epistemic_operations::{
         EvidenceBundle, EvidenceBundleSchemaVersion, EvidenceClaim, EvidenceTimeRange,
@@ -2229,7 +2247,7 @@ fn explain_provenance_result(
             let evidence_plan = eg_plan::Plan::new(vec![eg_plan::Op::EvidenceFor {
                 claim_id: row.id.clone(),
             }]);
-            let source_refs = eg_plan::execute(&evidence_plan, ctx)
+            let source_refs = eg_plan::execute(&evidence_plan, _ctx)
                 .map(|r| r.ids())
                 .unwrap_or_default();
             // X1: the row's own located evidence, already resolved by
@@ -3181,7 +3199,7 @@ async fn run_unified_overlaid(
     // / served-text-index-binding: the committed `SemanticStore`/text index are pushed
     // down via a guard taken INSIDE the off-lock closure below (not cloned here), so
     // `committed_semantic` is no longer materialized eagerly — see the closure.
-    let (mut view, write_set, vectors, core, tsdb_graph) = {
+    let (mut view, write_set, vectors, core, _tsdb_graph) = {
         let s = state.read().await;
         let entry = match s.open_txns.get(txn_id) {
             Some(e) => e,
@@ -3226,7 +3244,7 @@ async fn run_unified_overlaid(
         // `guard` + `s` drop here — no lock held across the compute below.
     };
     #[cfg(feature = "tsdb")]
-    let tsdb_scope = match served_tsdb_scope(&plan, &tsdb_graph, read_authority) {
+    let tsdb_scope = match served_tsdb_scope(&plan, &_tsdb_graph, read_authority) {
         Ok(scope) => scope,
         Err(denied) => return Response::err(req_id, denied),
     };

@@ -109,7 +109,7 @@ fn valid_host_port(value: &str, scheme: Option<&str>) -> bool {
     } else {
         value
     };
-    let (host, port) = if let Some(rest) = address.strip_prefix('[') {
+    let (_host, port) = if let Some(rest) = address.strip_prefix('[') {
         let Some((host, port)) = rest.split_once("]:") else {
             return false;
         };

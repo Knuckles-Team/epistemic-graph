@@ -1264,8 +1264,8 @@ pub(crate) fn sparql_update_to_methods(
 
 /// Resolve the txn's DEFAULT-graph core, enforcing that `target_graph` (if given) is the
 /// default (the cross-modal barrier is per-graph). Returns the core clone, or an error
-/// `Response` to return directly. Shared by the axiom + CONSTRUCT stagers.
-#[cfg(feature = "sparql")]
+/// `Response` to return directly. Shared by the axiom + CONSTRUCT + plan-writeback stagers.
+#[cfg(any(feature = "sparql", feature = "owl", feature = "query"))]
 fn resolve_txn_default_core(
     s: &ServerState,
     req_id: u64,

@@ -2937,8 +2937,8 @@ impl PersistenceBackend for RedbBackend {
     async fn read_capacity_status(
         &self,
         graph_fname: &str,
-        request: &crate::native_control::CapacityStatusRequest,
-    ) -> Result<crate::native_control::CapacityStatusResult, String> {
+        request: &eg_types::native_control::CapacityStatusRequest,
+    ) -> Result<eg_types::native_control::CapacityStatusResult, String> {
         let shard = self.shard_for(graph_fname);
         let db = shard
             .db

@@ -71,7 +71,7 @@ pub(crate) fn clear_graph_rows(wtx: &WriteTransaction, graph: &str) -> Result<()
             let (key, _) = row.map_err(|e| e.to_string())?;
             let (row_graph, cell_id) = key.value();
             if row_graph != graph {
-                return Ok(None);
+                return Ok::<_, String>(None);
             }
             Ok(Some(cell_id.to_string()))
         })
@@ -88,7 +88,7 @@ pub(crate) fn clear_graph_rows(wtx: &WriteTransaction, graph: &str) -> Result<()
             let (key, _) = row.map_err(|e| e.to_string())?;
             let (row_graph, lease_id) = key.value();
             if row_graph != graph {
-                return Ok(None);
+                return Ok::<_, String>(None);
             }
             Ok(Some(lease_id.to_string()))
         })
@@ -105,7 +105,7 @@ pub(crate) fn clear_graph_rows(wtx: &WriteTransaction, graph: &str) -> Result<()
             let (key, _) = row.map_err(|e| e.to_string())?;
             let (row_graph, cell_id) = key.value();
             if row_graph != graph {
-                return Ok(None);
+                return Ok::<_, String>(None);
             }
             Ok(Some(cell_id.to_string()))
         })
@@ -157,7 +157,9 @@ pub(crate) fn commit(
     }
     wtx.commit().map_err(|e| e.to_string())?;
     #[cfg(feature = "security")]
-    *audit_tail = staged_audit_tail;
+    {
+        *audit_tail = staged_audit_tail;
+    }
     Ok(bytes)
 }
 
@@ -410,11 +412,13 @@ fn acquire(
             .leased_amount
             .checked_add(demand.amount)
             .ok_or_else(|| "capacity usage overflow".to_string())?;
-        let sealed_lease = crypto.seal(&rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?);
+        let sealed_lease_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
+        let sealed_lease = crypto.seal(&sealed_lease_bytes);
         leases
             .insert((graph, lease.lease_id.as_str()), sealed_lease.as_ref())
             .map_err(|e| e.to_string())?;
-        let sealed_usage = crypto.seal(&rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?);
+        let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
+        let sealed_usage = crypto.seal(&sealed_usage_bytes);
         usage
             .insert((graph, demand.cell_id.as_str()), sealed_usage.as_ref())
             .map_err(|e| e.to_string())?;
@@ -512,13 +516,15 @@ fn mutate_leases(
                 .leased_amount
                 .checked_sub(lease.amount)
                 .ok_or_else(|| "capacity usage underflow; ledger requires reconciliation".to_string())?;
-            let sealed_usage = crypto.seal(&rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?);
+            let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
+            let sealed_usage = crypto.seal(&sealed_usage_bytes);
             usage
                 .insert((graph, lease.cell_id.as_str()), sealed_usage.as_ref())
                 .map_err(|e| e.to_string())?;
         }
         lease.validate().map_err(|error| format!("invalid capacity lease: {error:?}"))?;
-        let sealed = crypto.seal(&rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?);
+        let sealed_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
+        let sealed = crypto.seal(&sealed_bytes);
         leases_table
             .insert((graph, lease.lease_id.as_str()), sealed.as_ref())
             .map_err(|e| e.to_string())?;
@@ -615,11 +621,13 @@ fn reclaim_expired_inner(
             .leased_amount
             .checked_sub(lease.amount)
             .ok_or_else(|| "capacity usage underflow; ledger requires reconciliation".to_string())?;
-        let sealed_usage = crypto.seal(&rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?);
+        let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
+        let sealed_usage = crypto.seal(&sealed_usage_bytes);
         usage
             .insert((graph, lease.cell_id.as_str()), sealed_usage.as_ref())
             .map_err(|e| e.to_string())?;
-        let sealed_lease = crypto.seal(&rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?);
+        let sealed_lease_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
+        let sealed_lease = crypto.seal(&sealed_lease_bytes);
         leases
             .insert((graph, lease_id.as_str()), sealed_lease.as_ref())
             .map_err(|e| e.to_string())?;
@@ -667,7 +675,8 @@ fn update_cell(
     if leased > next_cell.capacity {
         return Err("capacity cell update would place capacity below active usage".to_string());
     }
-    let sealed = crypto.seal(&rmp_serde::to_vec_named(&next_cell).map_err(|e| e.to_string())?);
+    let sealed_bytes = rmp_serde::to_vec_named(&next_cell).map_err(|e| e.to_string())?;
+    let sealed = crypto.seal(&sealed_bytes);
     cells
         .insert((graph, next_cell.cell_id.as_str()), sealed.as_ref())
         .map_err(|e| e.to_string())?;
@@ -826,9 +835,8 @@ fn read_replay(
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<DurableReplay>, String> {
     let table = wtx.open_table(IDEMPOTENCY).map_err(|e| e.to_string())?;
-    table
-        .get((graph, tenant, key))
-        .map_err(|e| e.to_string())?
+    let found = table.get((graph, tenant, key)).map_err(|e| e.to_string())?;
+    found
         .map(|value| decode_durable(&crypto.unseal(value.value())?))
         .transpose()
 }
@@ -849,7 +857,8 @@ fn write_replay<T: Serialize>(
         operation: operation.to_string(),
         result,
     };
-    let sealed = crypto.seal(&rmp_serde::to_vec_named(&replay).map_err(|e| e.to_string())?);
+    let sealed_bytes = rmp_serde::to_vec_named(&replay).map_err(|e| e.to_string())?;
+    let sealed = crypto.seal(&sealed_bytes);
     let mut table = wtx.open_table(IDEMPOTENCY).map_err(|e| e.to_string())?;
     table
         .insert((graph, tenant, key), sealed.as_ref())

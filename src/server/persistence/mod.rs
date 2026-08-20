@@ -26,7 +26,7 @@ use crate::mutation_batch::{
     MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationOutboxLease,
     MutationOutboxRecord, MutationProjectionCursor,
 };
-use crate::native_control::CapacityStatusResult;
+use eg_types::native_control::CapacityStatusResult;
 use crate::protocol::Method;
 use crate::server::ServerState;
 
@@ -151,7 +151,7 @@ pub trait PersistenceBackend: Send + Sync {
     async fn read_capacity_status(
         &self,
         _graph_fname: &str,
-        _request: &crate::native_control::CapacityStatusRequest,
+        _request: &eg_types::native_control::CapacityStatusRequest,
     ) -> Result<CapacityStatusResult, String> {
         Err("persistence backend does not support native capacity status".to_string())
     }

@@ -233,7 +233,7 @@ fn validate_startup_policy_with_tls(
 /// SCRAM channel-binding implementation share one certificate source without
 /// adding a second TLS dependency or an OpenSSL path.
 fn build_tls_material(config: &PgWireTlsConfig) -> std::io::Result<PgWireTlsMaterial> {
-    use pgwire::tokio_rustls::rustls::pki_types::{
+    use pgwire::tokio::tokio_rustls::rustls::pki_types::{
         pem::PemObject, CertificateDer, PrivateKeyDer,
     };
 
@@ -275,13 +275,13 @@ fn build_tls_material(config: &PgWireTlsConfig) -> std::io::Result<PgWireTlsMate
     let key = PrivateKeyDer::from_pem_reader(BufReader::new(key_pem.as_slice()))
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS private key invalid"))?;
 
-    let _ = pgwire::tokio_rustls::rustls::crypto::ring::default_provider().install_default();
-    let builder = pgwire::tokio_rustls::rustls::ServerConfig::builder();
+    let _ = pgwire::tokio::tokio_rustls::rustls::crypto::ring::default_provider().install_default();
+    let builder = pgwire::tokio::tokio_rustls::rustls::ServerConfig::builder();
     let server_config = if let Some(client_ca_path) = &config.client_ca_path {
         let ca_pem = std::fs::read(client_ca_path).map_err(|_| {
             Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA unavailable")
         })?;
-        let mut roots = pgwire::tokio_rustls::rustls::RootCertStore::empty();
+        let mut roots = pgwire::tokio::tokio_rustls::rustls::RootCertStore::empty();
         for certificate in CertificateDer::pem_reader_iter(BufReader::new(ca_pem.as_slice())) {
             let certificate = certificate
                 .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA invalid"))?;
@@ -295,7 +295,7 @@ fn build_tls_material(config: &PgWireTlsConfig) -> std::io::Result<PgWireTlsMate
                 "pgwire TLS client CA invalid",
             ));
         }
-        let verifier = pgwire::tokio_rustls::rustls::server::WebPkiClientVerifier::builder(
+        let verifier = pgwire::tokio::tokio_rustls::rustls::server::WebPkiClientVerifier::builder(
             Arc::new(roots),
         )
         .build()
@@ -321,7 +321,7 @@ fn build_tls_material(config: &PgWireTlsConfig) -> std::io::Result<PgWireTlsMate
     })?;
 
     Ok(PgWireTlsMaterial {
-        acceptor: pgwire::tokio_rustls::TlsAcceptor::from(Arc::new(server_config)),
+        acceptor: pgwire::tokio::tokio_rustls::TlsAcceptor::from(Arc::new(server_config)),
         certificate_pem: Arc::new(certificate_pem),
     })
 }
