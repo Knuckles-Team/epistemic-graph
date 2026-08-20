@@ -89,11 +89,21 @@ federation-sql = [
 # eg-geo packed-Hilbert-R-tree bbox scan over a layer's geometries) + the spatial
 # `Pred::SpatialWithin`/`SpatialDWithin` FILTER predicates (evaluated per-row by eg-geo's
 # planar `within`/`distance`). Pulls the pure-Rust eg-geo leaf crate (only serde — NO
-# GEOS/PROJ/C dep) and turns on the `geo` wire variants in eg-types. IMPLIES `query`
-# (the ops live inside the `query`-gated `Op`/`Pred` enums, beside the DataFusion FILTER
-# leg). OFF by default; the facade folds it into node/full but NEVER `pi`. A default/Pi
-# build (neither feature) links no eg-geo and drops the spatial arm.
-geo = ["query", "dep:eg-geo", "eg-types/geo"]
+# GEOS/PROJ/C dep). IMPLIES `query` (the ops live inside the `query`-gated `Op`/`Pred`
+# enums, beside the DataFusion FILTER leg). OFF by default; the facade folds it into
+# node/full but NEVER `pi`. A default/Pi build (feature off) links no eg-geo, and
+# `exec.rs`'s `Op::SpatialScan`/`Reproject`/`SpatialOp` arms + the real per-row
+# `spatial_filter` evaluator are compiled out (see the `Op` dispatch's documented
+# feature-unification wildcard).
+#
+# NE-216: `eg-types/geo` (the `Pred`/`Op` WIRE VARIANTS) is *not* listed here anymore —
+# it is requested unconditionally by the `[dependencies] eg-types` line above instead,
+# because this crate's own `geo` feature is NOT the only thing that can turn
+# `eg-types/geo` on in the build graph (see that line's comment) and `exec.rs`'s
+# `where_clause` match needs the variants to exist regardless. This feature therefore
+# now gates ONLY the real eg-geo executor (`dep:eg-geo` + the geometry-evaluating
+# functions behind `#[cfg(feature = "geo")]` in `exec.rs`), not the wire shape.
+geo = ["query", "dep:eg-geo"]
 # Array / tensor modality (CONCEPT:EG-085): the `Op::TensorScan` SOURCE op (seed the
 # RowSet with a `layer`'s tensor-bearing nodes) + the `Op::TensorOp { kind }` TRANSFORM
 # op (apply eg-tensor's slice/reduce/elementwise to each row's stored tensor). Pulls the
@@ -227,7 +237,25 @@ knowledge-batch = ["query", "dep:arrow"]
 # `query` feature — but it is pure serde (NO DataFusion), so eg-plan ALWAYS enables
 # it: the algebra + cost model + IR compile dep-free in a default/Pi build. Only the
 # DataFusion FILTER leg (eg-query, below) is gated behind eg-plan's own `query`.
-eg-types = { path = "../eg-types", features = ["query"] }
+#
+# NE-216: `geo` is enabled here UNCONDITIONALLY for the SAME reason as `query` — it is
+# pure serde on eg-types' side (`eg-types/Cargo.toml`: `geo = ["query"]`, no eg-geo, no
+# heavy dep; it only adds the `Pred::Spatial*`/`Op::Spatial*` wire variants), so turning
+# it on here costs a default/Pi build nothing. It must NOT be conditioned on eg-plan's
+# OWN optional `geo` feature (below): Cargo features are additive/unified per resolved
+# crate, and `eg-capabilities` — a leaf crate that does NOT depend on eg-plan at all —
+# separately force-enables `eg-types/geo` (and several other eg-types wire features)
+# unconditionally whenever it is linked (any `server` build), so its OWN `policy()`
+# exhaustive `Method` match sees every variant. That means `eg-types/geo` can be ON in
+# the build graph with eg-plan's `geo` feature OFF (`server,redb,query,security`, no
+# `geo`, is exactly this case) — Cargo has no way to make a dependency's feature force a
+# feature on the crate depending on it, so the only sound fix is for eg-plan to request
+# the wire variant itself, always, exactly like `query`. `exec.rs`'s `where_clause`
+# match over `Pred` (and `filter_op`'s spatial/relational partition) rely on this: they
+# are written to be EXHAUSTIVE with no wildcard, so the variant's existence here must
+# never depend on eg-plan's own `geo` feature — only the REAL eg-geo executor (dep:eg-geo
+# below, gated by eg-plan's `geo`) does.
+eg-types = { path = "../eg-types", features = ["query", "geo"] }
 eg-core = { path = "../eg-core" }
 # The `ModalityContract` trait + the `EvidenceLocus` shape (CONCEPT:E4/X1). Sits at
 # the SAME DAG level as `eg-types` (its own deps = `eg-types` only, per its crate
