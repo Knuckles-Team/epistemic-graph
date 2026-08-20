@@ -173,7 +173,7 @@ impl std::ops::AddAssign for ShardCounts {
 }
 
 /// Outcome of a backup run (CONCEPT:EG-KG.sharding.reshard-on-restore) — the shard count + copied totals.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BackupReport {
     /// Number of shard files written into the bundle (= K).
     pub shards: usize,

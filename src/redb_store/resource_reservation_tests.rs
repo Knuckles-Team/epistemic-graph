@@ -2380,8 +2380,8 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
         request: later_request,
     };
     assert_eq!(
-        native_resource_retry_method_key(&first).unwrap(),
-        native_resource_retry_method_key(&later).unwrap()
+        native_retry_method_key(&first).unwrap(),
+        native_retry_method_key(&later).unwrap()
     );
 
     let mut changed_request = request();
@@ -2390,8 +2390,8 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
         request: changed_request,
     };
     assert_ne!(
-        native_resource_retry_method_key(&first).unwrap(),
-        native_resource_retry_method_key(&changed).unwrap()
+        native_retry_method_key(&first).unwrap(),
+        native_retry_method_key(&changed).unwrap()
     );
 
     let operation = |method| MutationOperation {
@@ -2499,7 +2499,7 @@ fn native_retry_rebuilds_projection_outbox_after_authoritative_time_changes() {
         payload: proposed_payload,
         headers: metadata,
     }];
-    assert!(native_resource_retry_outbox_match(
+    assert!(native_retry_outbox_match(
         &stored_operations,
         &proposed_operations,
         &stored_outbox,
@@ -2509,7 +2509,7 @@ fn native_retry_rebuilds_projection_outbox_after_authoritative_time_changes() {
     .unwrap());
     let mut tampered = proposed_outbox;
     tampered[0].payload[0] ^= 1;
-    assert!(!native_resource_retry_outbox_match(
+    assert!(!native_retry_outbox_match(
         &stored_operations,
         &proposed_operations,
         &stored_outbox,

@@ -1661,9 +1661,8 @@ fn apply_mutation_batch_in_wtx(
         let versions = wtx
             .open_table(MUTATION_GRAPH_VERSION)
             .map_err(|e| e.to_string())?;
-        versions
-            .get(graph_fname)
-            .map_err(|e| e.to_string())?
+        let found = versions.get(graph_fname).map_err(|e| e.to_string())?;
+        found
             .map(|value| value.value())
             .unwrap_or(INITIAL_GRAPH_VERSION)
     };
@@ -5826,16 +5825,16 @@ pub(crate) fn read_resource_reservation_status(
 /// outcome rather than running selection twice.
 fn apply_submit_work_item_rows(
     graph: &str,
-    request: &crate::native_control::SubmitWorkItemRequest,
+    request: &eg_types::native_control::SubmitWorkItemRequest,
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
     command_sequences: &mut redb::Table<&str, u64>,
     crypto: DurableCrypto<'_>,
     authoritative_now_ms: u64,
     outbox_id: &str,
-) -> Result<crate::native_control::SubmitWorkItemResult, String> {
+) -> Result<eg_types::native_control::SubmitWorkItemResult, String> {
     use sha2::{Digest, Sha256};
-    use crate::native_control::{
+    use eg_types::native_control::{
         NativeControlSchemaVersion, MAX_SUBMIT_DEPENDENCIES,
         MAX_SUBMIT_METADATA_BYTES, MAX_SUBMIT_PROVENANCE_REFS, MAX_SUBMIT_REF_BYTES,
     };
@@ -5985,9 +5984,9 @@ fn apply_submit_work_item_rows(
         return Err("IDEMPOTENCY_CONFLICT: work_item_id is already present".to_string());
     }
 
-    let command_sequence = command_sequences
-        .get(graph)
-        .map_err(|e| e.to_string())?
+    let found_command_sequence = command_sequences.get(graph).map_err(|e| e.to_string())?;
+    let command_sequence = found_command_sequence
+        .map(|v| v.value())
         .unwrap_or(0)
         .checked_add(1)
         .ok_or_else(|| "WorkItem command sequence exhausted".to_string())?;
@@ -6072,19 +6071,20 @@ fn apply_submit_work_item_rows(
         let sealed = crypto.seal(&edge_props);
         let ordinal = next_edge_ordinal(edges, graph, &work_item_id, dependency)?;
         edges
-            .insert((graph, work_item_id.as_str(), dependency.as_str(), ordinal), sealed.as_ref())
+            .insert((graph, work_item_id.as_str(), String::as_str(dependency), ordinal), sealed.as_ref())
             .map_err(|e| e.to_string())?;
     }
     for (dependency, pending) in &dependency_rows {
         if !pending {
             continue;
         }
-        let value = nodes
-            .get((graph, dependency.as_str()))
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("SubmitWorkItem dependency '{dependency}' disappeared"))?;
-        let mut parent: serde_json::Map<String, serde_json::Value> =
-            decode_durable(&crypto.unseal(value.value())?)?;
+        let mut parent: serde_json::Map<String, serde_json::Value> = {
+            let value = nodes
+                .get((graph, dependency.as_str()))
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("SubmitWorkItem dependency '{dependency}' disappeared"))?;
+            decode_durable(&crypto.unseal(value.value())?)?
+        };
         let insert_downstream = {
             let downstream = parent
                 .entry("downstream_ids".to_string())
@@ -6113,7 +6113,7 @@ fn apply_submit_work_item_rows(
             .filter(|(_, pending)| *pending)
             .map(|(dependency, _)| dependency.clone()),
     );
-    Ok(crate::native_control::SubmitWorkItemResult {
+    Ok(eg_types::native_control::SubmitWorkItemResult {
         schema_version: NativeControlSchemaVersion::V1,
         work_item_id: work_item_id.clone(),
         status: status.to_string(),
@@ -6133,15 +6133,15 @@ fn apply_submit_work_item_rows(
 
 fn apply_submit_work_items_rows(
     graph: &str,
-    request: &crate::native_control::SubmitWorkItemsRequest,
+    request: &eg_types::native_control::SubmitWorkItemsRequest,
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
     command_sequences: &mut redb::Table<&str, u64>,
     crypto: DurableCrypto<'_>,
     authoritative_now_ms: u64,
     outbox_id: &str,
-) -> Result<crate::native_control::SubmitWorkItemsResult, String> {
-    use crate::native_control::{
+) -> Result<eg_types::native_control::SubmitWorkItemsResult, String> {
+    use eg_types::native_control::{
         NativeControlSchemaVersion, MAX_SUBMIT_BATCH, MAX_SUBMIT_BATCH_CHANGED_IDS,
     };
     if request.schema_version != NativeControlSchemaVersion::V1
@@ -6188,7 +6188,7 @@ fn apply_submit_work_items_rows(
         changed.extend(result.changed_work_item_ids.clone());
         results.push(result);
     }
-    Ok(crate::native_control::SubmitWorkItemsResult {
+    Ok(eg_types::native_control::SubmitWorkItemsResult {
         schema_version: NativeControlSchemaVersion::V1,
         results,
         replayed: false,

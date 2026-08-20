@@ -952,15 +952,15 @@ impl ServerIndexFactory {
 }
 
 impl SecondaryIndexFactory for ServerIndexFactory {
-    fn for_graph(&self, name: &str) -> Vec<Box<dyn SecondaryIndex>> {
+    fn for_graph(&self, _name: &str) -> Vec<Box<dyn SecondaryIndex>> {
         let mut out: Vec<Box<dyn SecondaryIndex>> = Vec::new();
         #[cfg(feature = "text")]
-        if let Some(ix) = self.build_text(name) {
+        if let Some(ix) = self.build_text(_name) {
             out.push(ix);
         }
         #[cfg(feature = "tsdb")]
         if let Some(series) = &self.series {
-            out.push(Box::new(GraphTemporalIndex::new(series.clone(), name)));
+            out.push(Box::new(GraphTemporalIndex::new(series.clone(), _name)));
         }
         #[cfg(feature = "owl")]
         out.push(Box::new(DerivedOwlIndex::default()));
