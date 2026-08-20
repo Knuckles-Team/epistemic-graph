@@ -95,9 +95,6 @@ fn valid_host_port(value: &str, scheme: Option<&str>) -> bool {
     if value.is_empty()
         || value.len() > MAX_NODE_INFO_FIELD_BYTES
         || value.chars().any(|character| character.is_whitespace() || character.is_control())
-        || value
-            .chars()
-            .any(|character| matches!(character, '/' | '?' | '#' | '@'))
     {
         return false;
     }
@@ -109,6 +106,18 @@ fn valid_host_port(value: &str, scheme: Option<&str>) -> bool {
     } else {
         value
     };
+    // Reject path/query/fragment/userinfo AFTER the scheme is stripped. Running
+    // this on the raw value rejected every scheme-qualified address, because
+    // `tcp://` contains `/` -- so a perfectly valid `tcp://127.0.0.1:9999` never
+    // reached the host/port parse at all. The guard itself is still needed: it
+    // is what stops `tcp://host:1/path`, `tcp://user@host:1` and query/fragment
+    // smuggling from being accepted as a bare host:port.
+    if address
+        .chars()
+        .any(|character| matches!(character, '/' | '?' | '#' | '@'))
+    {
+        return false;
+    }
     let (_host, port) = if let Some(rest) = address.strip_prefix('[') {
         let Some((host, port)) = rest.split_once("]:") else {
             return false;
@@ -506,6 +515,25 @@ mod tests {
         assert!(store.all().is_empty());
         assert_eq!(store.get(1), None);
         assert_eq!(store.generation(), 0);
+    }
+
+    #[test]
+    fn valid_host_port_accepts_schemes_and_still_rejects_smuggling() {
+        // Regression: the forbidden-character guard ran on the RAW value, so
+        // `/` in `tcp://` rejected every scheme-qualified address before the
+        // host/port parse was ever reached.
+        assert!(valid_host_port("tcp://127.0.0.1:9999", Some("tcp://")));
+        assert!(valid_host_port("tls://node-1:7000", Some("tls://")));
+        assert!(valid_host_port("[::1]:7000", None));
+        assert!(valid_host_port("host:1", None));
+
+        // The guard is still load-bearing after the scheme is stripped.
+        assert!(!valid_host_port("tcp://host:1/path", Some("tcp://")));
+        assert!(!valid_host_port("tcp://user@host:1", Some("tcp://")));
+        assert!(!valid_host_port("tcp://host:1?q=1", Some("tcp://")));
+        assert!(!valid_host_port("tcp://host:1#f", Some("tcp://")));
+        assert!(!valid_host_port("tcp://host:0", Some("tcp://")));
+        assert!(!valid_host_port("http://host:1", Some("tcp://")));
     }
 
     #[test]
