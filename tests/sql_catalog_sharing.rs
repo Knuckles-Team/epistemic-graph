@@ -15,25 +15,40 @@
 //!
 //! What DOES belong here, and IS genuinely external: a source-level regression
 //! guard on the one hard invariant this track was told never to violate — that
-//! `check_graph_access` runs strictly before `handlers::query::try_handle` inside
-//! `dispatch_graph_op_inner`, so nothing this track adds can reach table access
-//! without passing that gate (this track adds no new dispatch-reachable code path
-//! at all — see the `sql_catalog_acl` module doc — so the guard below is really
-//! "prove the pre-existing ordering NE-003 was told to preserve is still there").
+//! `check_graph_access` runs strictly before every dispatch-reachable handler
+//! that can now reach `sql_catalog_acl`, inside `dispatch_graph_op_inner`, so
+//! nothing this track adds can reach table access without passing that gate.
+//!
+//! **Correction (this track's gap-closure pass):** NE-003 is no longer unwired.
+//! `sql_catalog_acl` now has THREE live callers — `src/server/wire/mod.rs`
+//! (pgwire/mysql/mssql/sqlite-wire and every other `WireSession` adapter),
+//! `src/server/handlers/sqlite_file.rs`, and `src/server/handlers/rdf.rs`
+//! (`Method::SparqlVirtual` → `handle_sparql_virtual` →
+//! `sql_catalog_acl::open_authorized_table`, per that file's own CONCEPT:NE-046
+//! comment). Of those, `Method::SparqlVirtual` is reached through
+//! `handlers::rdf::try_handle`, which — like `handlers::query::try_handle` — IS
+//! called directly from inside `dispatch_graph_op_inner`, so the guard below now
+//! checks ordering against BOTH. `handlers::sqlite_file::try_handle` is instead
+//! called from the sibling function `dispatch_inner` (not
+//! `dispatch_graph_op_inner`), so it falls outside this guard's single-function
+//! bound; extending the guard to cover it would mean generalizing the bounding
+//! logic to walk the whole file / multiple functions, which this track's owned
+//! files (`sql_catalog_acl.rs` and this file) leave as a known, disclosed gap
+//! rather than silently claiming coverage it does not have.
 
 use std::fs;
 
 const DISPATCH_SRC: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/server/dispatch.rs");
 
 /// `check_graph_access` inside `dispatch_graph_op_inner` must run strictly BEFORE
-/// every `handlers::query::try_handle` call in the same function — the ordering
-/// this track was explicitly told to preserve and never bypass. NE-003 adds no
-/// new dispatch-reachable path (its whole new capability is unwired, see the
-/// `sql_catalog_acl` module doc), so this guard's only job is to catch a FUTURE
-/// regression of the pre-existing ordering, not to prove NE-003 itself is gated
-/// (it has no gate to be, having no live entry point).
+/// every `handlers::query::try_handle` AND `handlers::rdf::try_handle` call in
+/// the same function — the ordering this track was explicitly told to preserve
+/// and never bypass, now covering NE-003's actual live dispatch-reachable entry
+/// point (`handlers::rdf::try_handle` → `Method::SparqlVirtual` →
+/// `sql_catalog_acl::open_authorized_table`) as well as the pre-existing
+/// `handlers::query::try_handle` path this guard originally covered.
 #[test]
-fn check_graph_access_precedes_query_try_handle_in_dispatch() {
+fn check_graph_access_precedes_query_and_rdf_try_handle_in_dispatch() {
     let source = fs::read_to_string(DISPATCH_SRC)
         .expect("src/server/dispatch.rs must exist and be readable");
 
@@ -55,22 +70,26 @@ fn check_graph_access_precedes_query_try_handle_in_dispatch() {
     let access_offset = body
         .find("check_graph_access(")
         .expect("dispatch_graph_op_inner must call check_graph_access");
-    let try_handle_offsets: Vec<usize> = body
-        .match_indices("handlers::query::try_handle(")
-        .map(|(offset, _)| offset)
-        .collect();
-    assert!(
-        !try_handle_offsets.is_empty(),
-        "dispatch_graph_op_inner must call handlers::query::try_handle at least once \
-         (this guard is meaningless if that call moved elsewhere)"
-    );
-    for try_handle_offset in try_handle_offsets {
+
+    for callee in ["handlers::query::try_handle(", "handlers::rdf::try_handle("] {
+        let callee_offsets: Vec<usize> = body
+            .match_indices(callee)
+            .map(|(offset, _)| offset)
+            .collect();
         assert!(
-            access_offset < try_handle_offset,
-            "check_graph_access must run BEFORE handlers::query::try_handle inside \
-             dispatch_graph_op_inner — this ordering is the gate every table access \
-             (SQL included) must pass through; NE-003 must never add a path around it"
+            !callee_offsets.is_empty(),
+            "dispatch_graph_op_inner must call {callee} at least once \
+             (this guard is meaningless if that call moved elsewhere)"
         );
+        for callee_offset in callee_offsets {
+            assert!(
+                access_offset < callee_offset,
+                "check_graph_access must run BEFORE {callee} inside \
+                 dispatch_graph_op_inner — this ordering is the gate every table \
+                 access (SQL included, via NE-003's sql_catalog_acl) must pass \
+                 through; nothing may add a path around it"
+            );
+        }
     }
 }
 

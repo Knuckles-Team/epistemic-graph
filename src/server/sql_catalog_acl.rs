@@ -265,6 +265,18 @@ pub(crate) fn begin_provisional_create(
     }
 }
 
+/// `true` only for the exact, deterministic message
+/// [`crate::server::sql_tables`]'s underlying `eg_query::TableStore` raises when
+/// an `INSERT` loses a UNIQUE-constraint race (`validate_uniqueness_in` in
+/// `eg-query/src/tables/store.rs`) — never for any other failure. Used to
+/// narrowly distinguish "someone else's concurrent insert already won" (a
+/// real, expected outcome to treat as success) from every other `insert_rows`
+/// error (storage I/O, a corrupt catalog, …), which must still propagate
+/// (item 1: no blanket error-swallowing).
+fn is_duplicate_key_error(error: &str) -> bool {
+    error.contains("duplicate key value violates unique constraint")
+}
+
 /// First-writer-wins ownership registration. A no-op (never overwrites) once the
 /// table already has ANY recorded owner — including a concurrent creator that won
 /// the UNIQUE-constraint race on `table_name` this call lost.
@@ -272,18 +284,23 @@ fn ensure_owner(acl: &TableStore, table: &str, principal: &str) -> Result<(), St
     if owner_of(acl, table)?.is_some() {
         return Ok(());
     }
-    // Losing the race here means `insert_rows` returns the UNIQUE-constraint
-    // violation; that is exactly "someone else already owns it", not a real
-    // error, so it is treated as success (matching `owner_of`'s subsequent read).
-    let _ = acl.insert_rows(
+    match acl.insert_rows(
         OWNERS_TABLE,
         &["table_name".to_string(), "owner".to_string()],
         &[vec![
             Value::String(table.to_string()),
             Value::String(principal.to_string()),
         ]],
-    );
-    Ok(())
+    ) {
+        Ok(_) => Ok(()),
+        // Losing the race here means `insert_rows` returns the UNIQUE-constraint
+        // violation on `table_name`; that is exactly "someone else already owns
+        // it", not a real error, so ONLY this specific error is treated as
+        // success (matching `owner_of`'s subsequent read). Any other error
+        // (item 1) propagates — it must never be assumed to be the benign race.
+        Err(error) if is_duplicate_key_error(&error) => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 fn grant_exists(
@@ -520,16 +537,25 @@ fn migration_lock(tenant_scope: &str, agent_id: &str) -> Arc<Mutex<()>> {
         .clone()
 }
 
+/// Mark `actor` migrated. Called only from [`ensure_migrated`] while its
+/// per-(tenant, agent_id) [`migration_lock`] is held, so a same-actor
+/// duplicate-key race on `MIGRATED_TABLE` cannot happen in practice; the
+/// `is_duplicate_key_error` arm below is defense-in-depth (e.g. a future
+/// caller outside that lock) rather than an expected hot path, and every
+/// OTHER `insert_rows` failure still propagates (item 1).
 fn mark_migrated(acl: &TableStore, actor: &str) -> Result<(), String> {
     if is_migrated(acl, actor)? {
         return Ok(());
     }
-    let _ = acl.insert_rows(
+    match acl.insert_rows(
         MIGRATED_TABLE,
         &["actor".to_string()],
         &[vec![Value::String(actor.to_string())]],
-    );
-    Ok(())
+    ) {
+        Ok(_) => Ok(()),
+        Err(error) if is_duplicate_key_error(&error) => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 /// Absorb `authority`'s legacy per-(tenant, agent_id) catalog (schema + rows,
@@ -1545,6 +1571,73 @@ mod tests {
         assert_eq!(denied, ACCESS_DENIED);
     }
 
+    // ── item 5: authorize_ddl is the SAME fail-closed gate the wire layer maps
+    //    ANN-index and hypertable DDL onto (`TxnOp::PutAnnIndex`/`PutHypertable`
+    //    both call `sql_catalog_acl::authorize_ddl(.., SqlPrivilege::Alter)` in
+    //    `src/server/wire/mod.rs::authorize_table_txn` — see that function's
+    //    doc comment). These class-specific tests prove the shared primitive
+    //    those two object classes are gated on is fail-closed and non-leaky,
+    //    without duplicating wire-layer plumbing this module does not own.
+    //    Stored functions are catalog-wide (no per-table owner in this ACL's
+    //    data model) and are instead gated to `authority.is_admin()` directly
+    //    in `wire/mod.rs`'s `authorize_table_txn` — that check never reaches
+    //    this module at all, so it has no addressable surface here; see this
+    //    track's final report for why that is not a gap in THIS file's scope.
+
+    #[test]
+    fn authorize_ddl_denies_ann_index_style_alter_to_a_non_owner_non_admin() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-ann-ddl");
+        let bob = authority("bob", "tenant-ann-ddl");
+
+        create_owned_table(
+            &alice,
+            &dir,
+            &schema("vectors", vec![text_col("id"), text_col("embedding")]),
+            false,
+        )
+        .unwrap();
+
+        // Bob has no grant at all — the exact shape `PutAnnIndex { plan }`
+        // authorization takes in the wire layer (SqlPrivilege::Alter on
+        // `plan.table`). Denied, and indistinguishable from a nonexistent
+        // table (same ACCESS_DENIED convention `authorize` documents).
+        let denied = authorize_ddl(&bob, &dir, "vectors", SqlPrivilege::Alter).unwrap_err();
+        assert_eq!(denied, ACCESS_DENIED);
+        let denied_nonexistent =
+            authorize_ddl(&bob, &dir, "no_such_table", SqlPrivilege::Alter).unwrap_err();
+        assert_eq!(denied_nonexistent, ACCESS_DENIED);
+    }
+
+    #[test]
+    fn authorize_ddl_permits_hypertable_style_alter_for_owner_and_admin_only() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-hypertable-ddl");
+        let admin = CarrierAuthority::from_verified(
+            &VerifiedRequestContext::verified_for_test_with_scopes(
+                "root",
+                "tenant-hypertable-ddl",
+                &["kg:admin"],
+            ),
+        )
+        .unwrap();
+
+        create_owned_table(
+            &alice,
+            &dir,
+            &schema("series", vec![text_col("id"), text_col("ts")]),
+            false,
+        )
+        .unwrap();
+
+        // The owner may Alter — the exact privilege `PutHypertable { plan }`
+        // is authorized under in the wire layer.
+        assert!(authorize_ddl(&alice, &dir, "series", SqlPrivilege::Alter).is_ok());
+        // An admin carrier may Alter ANY table, owned or not, same as every
+        // other `authorize`-gated entry point in this module.
+        assert!(authorize_ddl(&admin, &dir, "series", SqlPrivilege::Alter).is_ok());
+    }
+
     // ── grant()/revoke()/set_row_level_column() trigger migration themselves ─
 
     #[test]
@@ -1567,6 +1660,65 @@ mod tests {
         // The grant succeeded, which is only possible if alice was resolved as
         // owner — which is only possible if migration already ran.
         assert!(open_authorized_table(&bob, &dir, "legacy_only", SqlPrivilege::Select).is_ok());
+    }
+
+    #[test]
+    fn revoke_migrates_a_not_yet_touched_legacy_table_before_authorizing() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-revoke-migrate");
+
+        // Same shape as grant()'s equivalent test: legacy data exists but
+        // NOTHING has yet touched the tenant-shared path for this actor —
+        // revoke() itself must be the thing that runs the migration, since
+        // owner resolution (authorize_admin) depends on it having run.
+        let legacy = sql_tables::user_table_store(&alice, Some(&dir)).unwrap();
+        legacy
+            .create_table(&schema("legacy_only", vec![text_col("id")]), false)
+            .unwrap();
+
+        // revoke() takes the grantee as a plain principal string, so no second
+        // CarrierAuthority is needed here.
+        // revoke() must resolve alice as owner (which requires migration to
+        // have already run inside revoke() itself) to even reach the
+        // no-op delete; an unmigrated catalog would deny with ACCESS_DENIED
+        // because `owner_of` would find no row for "legacy_only" at all.
+        revoke(&dir, &alice, "legacy_only", "bob", &[SqlPrivilege::Select]).unwrap();
+
+        let acl = open_acl(alice.tenant_scope(), &dir).unwrap();
+        assert_eq!(
+            owner_of(&acl, "legacy_only").unwrap().as_deref(),
+            Some("alice"),
+            "revoke() must have triggered alice's migration for authorize_admin to succeed"
+        );
+    }
+
+    #[test]
+    fn set_row_level_column_migrates_a_not_yet_touched_legacy_table_before_authorizing() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-rls-migrate");
+
+        let legacy = sql_tables::user_table_store(&alice, Some(&dir)).unwrap();
+        legacy
+            .create_table(
+                &schema("legacy_only", vec![text_col("id"), text_col("owner_tag")]),
+                false,
+            )
+            .unwrap();
+
+        // set_row_level_column() must trigger the migration itself — the same
+        // owner resolution (authorize_admin) as grant()/revoke() depends on it.
+        set_row_level_column(&dir, &alice, "legacy_only", Some("owner_tag")).unwrap();
+
+        let acl = open_acl(alice.tenant_scope(), &dir).unwrap();
+        assert_eq!(
+            owner_of(&acl, "legacy_only").unwrap().as_deref(),
+            Some("alice"),
+            "set_row_level_column() must have triggered alice's migration for authorize_admin to succeed"
+        );
+        assert_eq!(
+            row_level_column(&acl, "legacy_only").unwrap().as_deref(),
+            Some("owner_tag")
+        );
     }
 
     // ── migration concurrency: two racing calls, no duplicate rows ─────────
@@ -1624,6 +1776,119 @@ mod tests {
             vec!["race_events".to_string()],
             "no partial/duplicate migrated table from the race"
         );
+    }
+
+    /// Directly races the PUBLIC wire-layer entry point
+    /// [`ensure_actor_migrated`] (rather than the private `ensure_migrated` it
+    /// wraps) across 3 threads for the SAME actor — the exact call the wire
+    /// commit path (`src/server/wire/mod.rs`) makes. Exactly-once semantics:
+    /// every racer succeeds, the legacy rows are never duplicated, and losing
+    /// the race is a silent no-op success, never an error.
+    #[test]
+    fn ensure_actor_migrated_races_exactly_once_across_three_threads() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-public-race");
+
+        let legacy = sql_tables::user_table_store(&alice, Some(&dir)).unwrap();
+        legacy
+            .create_table(&schema("racy", vec![text_col("id")]), false)
+            .unwrap();
+        for i in 0..3 {
+            legacy
+                .insert_rows(
+                    "racy",
+                    &["id".to_string()],
+                    &[vec![Value::String(format!("row-{i}"))]],
+                )
+                .unwrap();
+        }
+
+        const RACERS: usize = 3;
+        let barrier = Arc::new(std::sync::Barrier::new(RACERS));
+        let mut handles = Vec::new();
+        for _ in 0..RACERS {
+            let dir = dir.clone();
+            let barrier = barrier.clone();
+            handles.push(std::thread::spawn(move || {
+                let racer = authority("alice", "tenant-public-race");
+                barrier.wait();
+                ensure_actor_migrated(&racer, &dir)
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap().expect(
+                "losing the ensure_actor_migrated race must be a no-op success, never an error",
+            );
+        }
+
+        let tenant_store = sql_tables::tenant_table_store(alice.tenant_scope(), &dir).unwrap();
+        let rows = tenant_store.scan("racy").unwrap();
+        assert_eq!(
+            rows.len(),
+            3,
+            "concurrent ensure_actor_migrated calls must not duplicate legacy rows"
+        );
+        let matching: Vec<String> = tenant_store
+            .list_tables()
+            .unwrap()
+            .into_iter()
+            .filter(|name| name.starts_with("racy"))
+            .collect();
+        assert_eq!(
+            matching,
+            vec!["racy".to_string()],
+            "exactly one physical table, no collision-renamed duplicate from the race"
+        );
+    }
+
+    /// Two genuinely concurrent [`ensure_owner`] calls for the SAME table name
+    /// (simulating two different actors' migrations independently discovering
+    /// the same not-yet-owned tenant-catalog table) must both return `Ok(())`
+    /// — the loser's `insert_rows` hits the UNIQUE-constraint race handled by
+    /// [`is_duplicate_key_error`] (item 1: narrowly matched, not a blanket
+    /// swallow) — and exactly one principal ends up recorded as owner.
+    #[test]
+    fn ensure_owner_race_is_exactly_once_and_never_errors() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-owner-race");
+        let acl = open_acl(alice.tenant_scope(), &dir).unwrap();
+
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let mut handles = Vec::new();
+        for principal in ["alice", "bob"] {
+            let acl = acl.clone();
+            let barrier = barrier.clone();
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                ensure_owner(&acl, "contested", principal)
+            }));
+        }
+        for handle in handles {
+            handle
+                .join()
+                .unwrap()
+                .expect("losing ensure_owner's insert race must be Ok(()), never an error");
+        }
+
+        let owner = owner_of(&acl, "contested").unwrap();
+        assert!(
+            owner.as_deref() == Some("alice") || owner.as_deref() == Some("bob"),
+            "exactly one racer's principal must be recorded as owner; got {owner:?}"
+        );
+    }
+
+    /// [`is_duplicate_key_error`] must recognize ONLY the exact
+    /// `validate_uniqueness_in` race message — proving the item-1 fix
+    /// propagates every other `insert_rows` failure instead of blanket
+    /// treating any error as "lost the race, ignore it".
+    #[test]
+    fn duplicate_key_error_detection_is_narrow_not_a_blanket_swallow() {
+        assert!(is_duplicate_key_error(
+            "duplicate key value violates unique constraint on column `table_name`"
+        ));
+        assert!(!is_duplicate_key_error("table `t` does not exist"));
+        assert!(!is_duplicate_key_error("some unrelated storage failure"));
+        assert!(!is_duplicate_key_error(""));
     }
 
     // ── views collision-rename on migration (item 1) ────────────────────────
