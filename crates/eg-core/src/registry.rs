@@ -1369,10 +1369,10 @@ impl GraphRegistry {
     /// Visit resident entries without materializing a second collection.  Callers
     /// that need to inspect a large resident population (for example bounded
     /// autoscale telemetry) can keep their own working set capped instead of
-    /// turning this registry's DashMap into an O(N) temporary `Vec`.
+    /// turning this registry's resident map into an O(N) temporary `Vec`.
     pub fn for_each_entry(&self, mut visit: impl FnMut(&GraphEntry)) {
-        for entry in self.graphs.iter() {
-            visit(entry.value());
+        for entry in self.graphs.values() {
+            visit(entry);
         }
     }
 }
@@ -1955,6 +1955,44 @@ mod tests {
         assert!(!reg.is_resident("cold:x"));
         reg.delete_graph("cold:x").unwrap();
         assert!(!reg.exists("cold:x"));
+    }
+
+    /// `for_each_entry` is the allocation-free twin of `all_entries` and MUST
+    /// agree with it exactly: every RESIDENT entry visited exactly once, and a
+    /// catalog-only (evicted or never-opened) graph never visited at all. The
+    /// visitor previously used a DashMap guard API against this `HashMap`, so
+    /// this test also pins the resident-map iteration contract.
+    #[test]
+    fn for_each_entry_visits_each_resident_exactly_once_and_skips_catalog_only() {
+        let mut reg = GraphRegistry::new();
+        for i in 0..4 {
+            reg.create_graph(&format!("hot:{i}"), GraphType::Team, None)
+                .unwrap();
+        }
+        for i in 0..3 {
+            reg.register_catalog_only(&format!("cold:{i}"), GraphType::Team, None);
+        }
+
+        let mut visits: HashMap<String, usize> = HashMap::new();
+        reg.for_each_entry(|entry| {
+            *visits.entry(entry.name.clone()).or_insert(0) += 1;
+        });
+
+        // Exactly-once over the resident set, and the resident set only.
+        assert_eq!(visits.values().copied().sum::<usize>(), reg.resident_len());
+        assert!(visits.values().all(|&n| n == 1), "duplicate visit: {visits:?}");
+        for i in 0..4 {
+            assert_eq!(visits.get(&format!("hot:{i}")).copied(), Some(1));
+        }
+        for i in 0..3 {
+            assert!(
+                !visits.contains_key(&format!("cold:{i}")),
+                "catalog-only graph must not be visited"
+            );
+        }
+
+        // Same bounded telemetry as the allocating `all_entries()` caller.
+        assert_eq!(visits.len(), reg.all_entries().len());
     }
 
     /// `list`/`exists` report the FULL catalog (registered graphs), not just the

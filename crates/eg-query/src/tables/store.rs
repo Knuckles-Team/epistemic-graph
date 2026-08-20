@@ -53,19 +53,19 @@ use redb::{
 };
 use serde_json::Value;
 
-use super::schema::{
-    Cell, CheckExpr, Column, ColumnType, RefAction, StoredFunction, TableConstraint, TableSchema,
-};
 use super::index::{
     catalog_key as secondary_catalog_key, entry_key as secondary_entry_key,
     entry_prefix as secondary_entry_prefix, entry_range as secondary_entry_range,
     rowid_from_entry_key, validate_spec as validate_secondary_spec, SecondaryIndexLookup,
-    SecondaryIndexOrder, SecondaryIndexSpec, MAX_SECONDARY_INDEX_BUILD_ROWS,
-    MAX_SECONDARY_INDEX_CANDIDATES, MAX_SECONDARY_INDEXES_PER_TABLE,
+    SecondaryIndexOrder, SecondaryIndexSpec, MAX_SECONDARY_INDEXES_PER_TABLE,
+    MAX_SECONDARY_INDEX_BUILD_ROWS, MAX_SECONDARY_INDEX_CANDIDATES,
 };
 use super::migration::{
     MigrationState, SchemaMigration, SchemaMigrationApply, SchemaMigrationOperation,
     SchemaMigrationRecord, SecondaryIndexPolicy,
+};
+use super::schema::{
+    Cell, CheckExpr, Column, ColumnType, RefAction, StoredFunction, TableConstraint, TableSchema,
 };
 // CONCEPT:EG-KG.query.real-ann-top-k/EG-313 — the durable pgvector ANN index registration the exec
 // pushdown consults to choose a real eg-ann index over the brute-force scan.
@@ -620,10 +620,7 @@ impl TableStore {
     /// Return the durable ordered migration chain for `table`, oldest first.
     /// The records are immutable; callers can use the checksums as a compact
     /// audit/provenance proof without retrieving row data.
-    pub fn schema_migrations(
-        &self,
-        table: &str,
-    ) -> Result<Vec<SchemaMigrationRecord>, String> {
+    pub fn schema_migrations(&self, table: &str) -> Result<Vec<SchemaMigrationRecord>, String> {
         let rtx = self.db.begin_read().map_err(map_err)?;
         let order = match rtx.open_table(SCHEMA_MIGRATION_ORDER) {
             Ok(table) => table,
@@ -646,9 +643,7 @@ impl TableStore {
                 .get((self.scope.as_ref(), table, id))
                 .map_err(map_err)?
                 .ok_or_else(|| {
-                    format!(
-                        "schema migration order points to missing record `{table}/{id}`"
-                    )
+                    format!("schema migration order points to missing record `{table}/{id}`")
                 })?;
             out.push(decode_stored::<SchemaMigrationRecord>(
                 bytes.value(),
@@ -782,7 +777,11 @@ impl TableStore {
                     "schema migration record key `{migration_id}` does not match its immutable identity"
                 ));
             }
-            let record_key = (scope.to_string(), table.to_string(), migration_id.to_string());
+            let record_key = (
+                scope.to_string(),
+                table.to_string(),
+                migration_id.to_string(),
+            );
             if catalog_records
                 .insert(record_key.clone(), record.catalog_version)
                 .is_some()
@@ -809,12 +808,15 @@ impl TableStore {
             if scope.value() != self.scope.as_ref() {
                 return Err(format!(
                     "schema catalog version is bound to scope `{}`, not `{}`",
-                    scope.value(), self.scope
+                    scope.value(),
+                    self.scope
                 ));
             }
             let current_catalog_version = version.value();
             if current_catalog_version == 0
-                && catalog_records.keys().any(|(record_scope, _, _)| record_scope == scope.value())
+                && catalog_records
+                    .keys()
+                    .any(|(record_scope, _, _)| record_scope == scope.value())
             {
                 return Err(format!(
                     "schema catalog scope `{}` has records but remains at version zero",
@@ -830,10 +832,9 @@ impl TableStore {
                             "schema catalog version chain has a gap at {expected_catalog_version}"
                         )
                     })?;
-                let (table, migration_id) = identity
-                    .value()
-                    .split_once('\0')
-                    .ok_or_else(|| "schema catalog order contains an invalid identity".to_string())?;
+                let (table, migration_id) = identity.value().split_once('\0').ok_or_else(|| {
+                    "schema catalog order contains an invalid identity".to_string()
+                })?;
                 let record_key = (
                     scope.value().to_string(),
                     table.to_string(),
@@ -901,11 +902,15 @@ impl TableStore {
                 let first = order
                     .get((scope, table, 1u64))
                     .map_err(map_err)?
-                    .ok_or_else(|| format!("schema migration chain for `{table}` starts with a gap"))?;
+                    .ok_or_else(|| {
+                        format!("schema migration chain for `{table}` starts with a gap")
+                    })?;
                 let record = records
                     .get((scope, table, first.value()))
                     .map_err(map_err)?
-                    .ok_or_else(|| format!("schema migration chain for `{table}` has no first record"))?;
+                    .ok_or_else(|| {
+                        format!("schema migration chain for `{table}` has no first record")
+                    })?;
                 let first: SchemaMigrationRecord =
                     decode_stored(record.value(), "schema migration record")?;
                 if first.migration.expected_schema_version != 0 {
@@ -1359,12 +1364,7 @@ impl TableStore {
         if_not_exists: bool,
     ) -> Result<bool, String> {
         let wtx = self.begin()?;
-        let created = create_secondary_index_in(
-            &wtx,
-            self.index_scope(),
-            spec,
-            if_not_exists,
-        )?;
+        let created = create_secondary_index_in(&wtx, self.index_scope(), spec, if_not_exists)?;
         wtx.commit().map_err(map_err)?;
         Ok(created)
     }
@@ -1541,7 +1541,10 @@ impl TableStore {
         let version_key = (batch.tenant.as_str(), batch.graph.as_str());
         let current_version = {
             let versions = wtx.open_table(MUTATION_VERSION).map_err(map_err)?;
-            match versions.get(version_key).map_err(map_err)? {
+            // Bind the guard: as a tail expression its temporary would outlive
+            // `versions` and borrow a dropped table handle.
+            let found = versions.get(version_key).map_err(map_err)?;
+            match found {
                 Some(value) => value.value(),
                 None => INITIAL_SQL_DOMAIN_VERSION,
             }
@@ -1859,11 +1862,7 @@ impl TableStore {
 // the catalog/rows THROUGH the same `wtx` (read-your-writes) is what lets a later op
 // in a multi-statement transaction see an earlier op's staged writes.
 
-fn apply_txn_op(
-    wtx: &WriteTransaction,
-    tenant_scope: &str,
-    op: &TxnOp,
-) -> Result<usize, String> {
+fn apply_txn_op(wtx: &WriteTransaction, tenant_scope: &str, op: &TxnOp) -> Result<usize, String> {
     match op {
         TxnOp::CreateTable {
             schema,
@@ -1934,7 +1933,9 @@ fn apply_txn_op(
             set,
             selector,
         } => Ok(update_in(wtx, tenant_scope, table, set, selector)?.len()),
-        TxnOp::Delete { table, selector } => Ok(delete_in(wtx, tenant_scope, table, selector)?.len()),
+        TxnOp::Delete { table, selector } => {
+            Ok(delete_in(wtx, tenant_scope, table, selector)?.len())
+        }
         TxnOp::CreateView {
             name,
             select_sql,
@@ -2057,20 +2058,14 @@ fn schema_version_in(
     table: &str,
 ) -> Result<u64, String> {
     let versions = wtx.open_table(SCHEMA_VERSIONS).map_err(map_err)?;
-    Ok(versions
-        .get((tenant_scope, table))
-        .map_err(map_err)?
-        .map(|value| value.value())
-        .unwrap_or(0))
+    let found = versions.get((tenant_scope, table)).map_err(map_err)?;
+    Ok(found.map(|value| value.value()).unwrap_or(0))
 }
 
 fn schema_catalog_version_in(wtx: &WriteTransaction, tenant_scope: &str) -> Result<u64, String> {
     let versions = wtx.open_table(SCHEMA_CATALOG_VERSIONS).map_err(map_err)?;
-    Ok(versions
-        .get(tenant_scope)
-        .map_err(map_err)?
-        .map(|value| value.value())
-        .unwrap_or(0))
+    let found = versions.get(tenant_scope).map_err(map_err)?;
+    Ok(found.map(|value| value.value()).unwrap_or(0))
 }
 
 fn catalog_order_identity(table: &str, migration_id: &str) -> String {
@@ -2119,10 +2114,17 @@ fn apply_schema_migration_in(
     // resulting catalog state match exactly.
     let existing = {
         let records = wtx.open_table(SCHEMA_MIGRATIONS).map_err(map_err)?;
-        records
-            .get((tenant_scope, migration.table.as_str(), migration.migration_id.as_str()))
-            .map_err(map_err)?
-            .map(|value| decode_stored::<SchemaMigrationRecord>(value.value(), "schema migration record"))
+        let found = records
+            .get((
+                tenant_scope,
+                migration.table.as_str(),
+                migration.migration_id.as_str(),
+            ))
+            .map_err(map_err)?;
+        found
+            .map(|value| {
+                decode_stored::<SchemaMigrationRecord>(value.value(), "schema migration record")
+            })
             .transpose()?
     };
     if let Some(record) = existing {
@@ -2206,24 +2208,24 @@ fn apply_schema_migration_in(
                 if column.primary_key {
                     column.nullable = false;
                 }
-                add_column_in(wtx, &migration.table, &column)?;
+                add_column_in(wtx, tenant_scope, &migration.table, &column)?;
             }
             SchemaMigrationOperation::DropColumn { column } => {
-                drop_column_in(wtx, &migration.table, column, false)?;
+                drop_column_in(wtx, tenant_scope, &migration.table, column, false)?;
             }
             SchemaMigrationOperation::RenameColumn { from, to } => {
-                rename_column_in(wtx, &migration.table, from, to)?;
+                rename_column_in(wtx, tenant_scope, &migration.table, from, to)?;
             }
             SchemaMigrationOperation::AlterColumnType {
                 column, new_type, ..
             } => {
-                alter_column_type_in(wtx, &migration.table, column, *new_type)?;
+                alter_column_type_in(wtx, tenant_scope, &migration.table, column, *new_type)?;
             }
             SchemaMigrationOperation::AddConstraint { constraint } => {
-                add_constraint_in(wtx, &migration.table, constraint.clone())?;
+                add_constraint_in(wtx, tenant_scope, &migration.table, constraint.clone())?;
             }
             SchemaMigrationOperation::DropConstraint { constraint } => {
-                drop_constraint_in(wtx, &migration.table, constraint, false)?;
+                drop_constraint_in(wtx, tenant_scope, &migration.table, constraint, false)?;
             }
         }
     }
@@ -2255,9 +2257,7 @@ fn apply_schema_migration_in(
             .map_err(map_err)?;
     }
     {
-        let mut versions = wtx
-            .open_table(SCHEMA_CATALOG_VERSIONS)
-            .map_err(map_err)?;
+        let mut versions = wtx.open_table(SCHEMA_CATALOG_VERSIONS).map_err(map_err)?;
         versions
             .insert(tenant_scope, next_catalog_version)
             .map_err(map_err)?;
@@ -2379,14 +2379,19 @@ fn validate_migration_dependencies_in(
                 ..
             } = constraint
             {
-                if columns.iter().any(|column| affected.contains(column.as_str())) {
+                if columns
+                    .iter()
+                    .any(|column| affected.contains(column.as_str()))
+                {
                     return Err(format!(
                         "schema migration `{}` affects local FOREIGN KEY columns; drop/rebind the FK explicitly first",
                         migration.migration_id
                     ));
                 }
                 if ref_table == &current.name
-                    && ref_columns.iter().any(|column| affected.contains(column.as_str()))
+                    && ref_columns
+                        .iter()
+                        .any(|column| affected.contains(column.as_str()))
                 {
                     return Err(format!(
                         "schema migration `{}` affects referenced FOREIGN KEY columns; child constraints must be rebound explicitly first",
@@ -2407,7 +2412,9 @@ fn validate_migration_dependencies_in(
                 } = constraint
                 {
                     if ref_table == &current.name
-                        && ref_columns.iter().any(|column| affected.contains(column.as_str()))
+                        && ref_columns
+                            .iter()
+                            .any(|column| affected.contains(column.as_str()))
                     {
                         return Err(format!(
                             "schema migration `{}` affects `{}` columns referenced by child table `{child_table}`",
@@ -2444,9 +2451,7 @@ fn validate_migration_dependencies_in(
             }
         }
     }
-    if migration.policy.require_rls_revalidation
-        && migration.policy.rls_binding_digest.is_none()
-    {
+    if migration.policy.require_rls_revalidation && migration.policy.rls_binding_digest.is_none() {
         return Err(format!(
             "schema migration `{}` requires an RLS binding digest",
             migration.migration_id
@@ -2680,10 +2685,7 @@ fn drop_ann_indexes_for_column_in(
 
 // ── ordinary scalar secondary-index catalog and directory ───────────────────
 
-fn get_schema_read(
-    rtx: &ReadTransaction,
-    name: &str,
-) -> Result<Option<TableSchema>, String> {
+fn get_schema_read(rtx: &ReadTransaction, name: &str) -> Result<Option<TableSchema>, String> {
     let cat = match rtx.open_table(CATALOG) {
         Ok(table) => table,
         Err(_) => return Ok(None),
@@ -2714,8 +2716,7 @@ fn list_secondary_indexes_in(
         // authoritative table unreadable. Skip it here so callers deterministically
         // fall back to a scan; the catalog remains inspectable through redb repair
         // tooling rather than being trusted by the planner.
-        let Ok(spec) = decode_stored::<SecondaryIndexSpec>(value.value(), "secondary index")
-        else {
+        let Ok(spec) = decode_stored::<SecondaryIndexSpec>(value.value(), "secondary index") else {
             continue;
         };
         if spec.tenant_scope != tenant_scope
@@ -2748,8 +2749,7 @@ fn list_secondary_indexes_write(
     let mut out = Vec::new();
     for row in indexes.iter().map_err(map_err)? {
         let (_, value) = row.map_err(map_err)?;
-        let Ok(spec) = decode_stored::<SecondaryIndexSpec>(value.value(), "secondary index")
-        else {
+        let Ok(spec) = decode_stored::<SecondaryIndexSpec>(value.value(), "secondary index") else {
             continue;
         };
         if spec.tenant_scope == tenant_scope && spec.table == table {
@@ -2833,9 +2833,7 @@ fn create_secondary_index_in(
     let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
     for (rowid, cells) in row_items {
         let entry = secondary_entry_key(spec, &schema, &cells, rowid)?;
-        entries
-            .insert(entry.as_str(), &[][..])
-            .map_err(map_err)?;
+        entries.insert(entry.as_str(), &[][..]).map_err(map_err)?;
     }
     Ok(true)
 }
@@ -2850,7 +2848,8 @@ fn drop_secondary_index_in(
     let key = format!("{tenant_scope}\0{table}\0{name}");
     let exists = {
         let indexes = wtx.open_table(SECONDARY_INDEXES).map_err(map_err)?;
-        indexes.get(key.as_str()).map_err(map_err)?.is_some()
+        let found = indexes.get(key.as_str()).map_err(map_err)?;
+        found.is_some()
     };
     if !exists {
         if if_exists {
@@ -2919,7 +2918,7 @@ fn drop_secondary_indexes_for_table_in(
                 let (entry, _) = row.map_err(map_err)?;
                 if keys.len() >= MAX_SECONDARY_INDEX_CANDIDATES {
                     return Err(
-                        "secondary table-index drop exceeds the bounded entry limit".to_string(),
+                        "secondary table-index drop exceeds the bounded entry limit".to_string()
                     );
                 }
                 keys.push(entry.value().to_string());
@@ -2960,9 +2959,7 @@ fn maintain_secondary_row_in(
         }
         if let Some(new) = new {
             let key = secondary_entry_key(&spec, schema, new, rowid)?;
-            entries
-                .insert(key.as_str(), &[][..])
-                .map_err(map_err)?;
+            entries.insert(key.as_str(), &[][..]).map_err(map_err)?;
         }
     }
     Ok(())
@@ -2979,10 +2976,7 @@ fn secondary_index_rows_in(
     };
     let specs = list_secondary_indexes_in(rtx, tenant_scope, Some(table))?;
     let Some(spec) = specs.into_iter().find(|spec| {
-        spec.columns
-            .first()
-            .map(|column| column.name.as_str())
-            == Some(lookup.column())
+        spec.columns.first().map(|column| column.name.as_str()) == Some(lookup.column())
             && validate_secondary_spec(spec, &schema).is_ok()
     }) else {
         return Ok(None);
@@ -3208,9 +3202,7 @@ fn validate_fk_target_in(
                 schema.name
             ));
         }
-        if matches!(on_delete, RefAction::SetNull)
-            || matches!(on_update, RefAction::SetNull)
-        {
+        if matches!(on_delete, RefAction::SetNull) || matches!(on_update, RefAction::SetNull) {
             if !local.nullable {
                 return Err(format!(
                     "FOREIGN KEY on table `{}`: SET NULL requires nullable column `{local_col}`",
@@ -3456,13 +3448,14 @@ fn enforce_fk_on_parent_change_in(
                     .collect()
             });
             if let Some(nk) = &new_key {
-                if nk.iter().zip(&old_key).enumerate().all(|(offset, (new, old))| {
-                    typed_cells_equal(
-                        new,
-                        old,
-                        parent_schema.columns()[ref_idxs[offset]].ty,
-                    )
-                }) {
+                if nk
+                    .iter()
+                    .zip(&old_key)
+                    .enumerate()
+                    .all(|(offset, (new, old))| {
+                        typed_cells_equal(new, old, parent_schema.columns()[ref_idxs[offset]].ty)
+                    })
+                {
                     continue;
                 }
             }
@@ -3505,8 +3498,7 @@ fn enforce_fk_on_parent_change_in(
                         cells.get(i).is_some_and(|cell| {
                             typed_cells_equal(cell, k, child_schema.columns()[i].ty)
                         })
-                    })
-                    {
+                    }) {
                         out.push((k.value().1, cells));
                     }
                 }
@@ -3533,7 +3525,9 @@ fn enforce_fk_on_parent_change_in(
                             let blob = rmp_serde::to_vec_named(&updated)
                                 .map_err(|e| format!("encode row: {e}"))?;
                             if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
-                                return Err("encoded SQL row exceeds storage value limit".to_string());
+                                return Err(
+                                    "encoded SQL row exceeds storage value limit".to_string()
+                                );
                             }
                             {
                                 let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
@@ -4072,7 +4066,7 @@ fn rename_column_in(
         }
     }
     for child_schema in &dependents {
-        put_schema_in(wtx, child_schema)?;
+        put_schema_in(wtx, tenant_scope, child_schema)?;
     }
     for constraint in schema.constraints_mut() {
         match constraint {
@@ -4192,7 +4186,7 @@ fn rename_table_in(
         }
     }
     for child_schema in &dependents {
-        put_schema_in(wtx, child_schema)?;
+        put_schema_in(wtx, tenant_scope, child_schema)?;
     }
     for constraint in schema.constraints_mut() {
         if let TableConstraint::ForeignKey { ref_table, .. } = constraint {
@@ -4712,15 +4706,20 @@ fn insert_on_conflict_in(
         .iter()
         .filter_map(|constraint| match constraint {
             TableConstraint::PrimaryKey { columns, .. }
-            | TableConstraint::Unique { columns, .. } if columns.len() > 1 => Some(
-                columns
-                    .iter()
-                    .map(|name| {
-                        schema
-                            .column_index(name)
-                            .expect("constraint column existence validated at DDL time")
-                    })
-                    .collect(),
+            | TableConstraint::Unique { columns, .. }
+                if columns.len() > 1 =>
+            {
+                Some(
+                    columns
+                        .iter()
+                        .map(|name| {
+                            schema
+                                .column_index(name)
+                                .expect("constraint column existence validated at DDL time")
+                        })
+                        .collect(),
+                )
+            }
             _ => None,
         })
         .collect();
@@ -4805,8 +4804,8 @@ fn insert_on_conflict_in(
                     supplied.push(key);
                 }
                 if complete {
-                    let key = serde_json::to_string(&supplied)
-                        .expect("Vec<String> is serializable");
+                    let key =
+                        serde_json::to_string(&supplied).expect("Vec<String> is serializable");
                     if let Some(&rowid) = composite_rows[slot].get(&key) {
                         conflict_rowid = Some(rowid);
                         break;
@@ -4823,8 +4822,7 @@ fn insert_on_conflict_in(
                 let slot = &mut existing[index];
                 let old_cells = slot.1.clone();
                 for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
-                    if let Some(key) =
-                        unique_cell_key(&slot.1[column], schema.columns()[column].ty)
+                    if let Some(key) = unique_cell_key(&slot.1[column], schema.columns()[column].ty)
                     {
                         if map.get(&key) == Some(&rid) {
                             map.remove(&key);
@@ -4858,8 +4856,7 @@ fn insert_on_conflict_in(
                     }
                 }
                 for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
-                    if let Some(key) =
-                        unique_cell_key(&slot.1[column], schema.columns()[column].ty)
+                    if let Some(key) = unique_cell_key(&slot.1[column], schema.columns()[column].ty)
                     {
                         map.entry(key).or_insert(rid);
                     }
@@ -4895,7 +4892,8 @@ fn insert_on_conflict_in(
                     .map_err(map_err)?;
                 row_slot.insert(rowid, existing.len());
                 for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
-                    if let Some(key) = unique_cell_key(&cells[column], schema.columns()[column].ty) {
+                    if let Some(key) = unique_cell_key(&cells[column], schema.columns()[column].ty)
+                    {
                         map.entry(key).or_insert(rowid);
                     }
                 }
@@ -5101,15 +5099,7 @@ fn delete_in(
     }
     drop(rows_t);
     for (rowid, cells) in &victims {
-        maintain_secondary_row_in(
-            wtx,
-            tenant_scope,
-            table,
-            &schema,
-            *rowid,
-            Some(cells),
-            None,
-        )?;
+        maintain_secondary_row_in(wtx, tenant_scope, table, &schema, *rowid, Some(cells), None)?;
     }
     // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — the parent-side referential action for every OTHER
     // table whose FK references a column of a row this DELETE removed.
@@ -6032,9 +6022,8 @@ mod tests {
         let mut conflict = rederived.clone();
         conflict.operations[0].method = eg_types::protocol::Method::ApplyMutation {
             event_type: "sql_catalog_operation".to_string(),
-            query:
-                "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    .to_string(),
+            query: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                .to_string(),
         };
         let error = reopened
             .commit_txn_batch(&create_metrics_txn(), &conflict, 104)
