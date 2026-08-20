@@ -3286,7 +3286,13 @@ def _submit_work_item_result(value: Any) -> dict[str, Any]:
     )
     if result["schema_version"] != "1":
         raise ValueError("SubmitWorkItem result schema_version must be 1")
-    for field in ("work_item_id", "status", "idempotency_key", "outbox_id", "command_digest"):
+    for field in (
+        "work_item_id",
+        "status",
+        "idempotency_key",
+        "outbox_id",
+        "command_digest",
+    ):
         _string(f"SubmitWorkItem result.{field}", result[field])
     for field in (
         "command_sequence",
@@ -3299,11 +3305,15 @@ def _submit_work_item_result(value: Any) -> dict[str, Any]:
     _boolean("SubmitWorkItem result.replayed", result["replayed"])
     if result["created"] == result["replayed"]:
         raise ValueError("SubmitWorkItem result must be created xor replayed")
-    if not isinstance(result["provenance_refs"], list) or len(result["provenance_refs"]) > 64:
+    if (
+        not isinstance(result["provenance_refs"], list)
+        or len(result["provenance_refs"]) > 64
+    ):
         raise ValueError("SubmitWorkItem result provenance refs are invalid")
-    if not isinstance(result["changed_work_item_ids"], list) or not 1 <= len(
-        result["changed_work_item_ids"]
-    ) <= 1025:
+    if (
+        not isinstance(result["changed_work_item_ids"], list)
+        or not 1 <= len(result["changed_work_item_ids"]) <= 1025
+    ):
         raise ValueError("SubmitWorkItem result list fields are invalid")
     for reference in result["provenance_refs"]:
         _string("SubmitWorkItem result.provenance_refs[]", reference)
@@ -3312,7 +3322,9 @@ def _submit_work_item_result(value: Any) -> dict[str, Any]:
     for reference in result["changed_work_item_ids"]:
         _string("SubmitWorkItem result.changed_work_item_ids[]", reference)
         if len(reference.encode("utf-8")) > 512:
-            raise ValueError("SubmitWorkItem result.changed_work_item_ids[] exceeds 512 bytes")
+            raise ValueError(
+                "SubmitWorkItem result.changed_work_item_ids[] exceeds 512 bytes"
+            )
     if result["work_item_id"] not in result["changed_work_item_ids"]:
         raise ValueError("SubmitWorkItem result does not identify its changed row")
     return result
@@ -3322,24 +3334,38 @@ def _submit_work_items_result(value: Any) -> dict[str, Any]:
     result = _exact_mapping(
         "SubmitWorkItems result",
         value,
-        frozenset({"schema_version", "results", "replayed", "outbox_id", "changed_work_item_ids"}),
+        frozenset(
+            {
+                "schema_version",
+                "results",
+                "replayed",
+                "outbox_id",
+                "changed_work_item_ids",
+            }
+        ),
     )
     if result["schema_version"] != "1":
         raise ValueError("SubmitWorkItems result schema_version must be 1")
-    if not isinstance(result["results"], list) or not 1 <= len(result["results"]) <= 128:
+    if (
+        not isinstance(result["results"], list)
+        or not 1 <= len(result["results"]) <= 128
+    ):
         raise ValueError("SubmitWorkItems result count is invalid")
     for child in result["results"]:
         _submit_work_item_result(child)
     _boolean("SubmitWorkItems result.replayed", result["replayed"])
     _string("SubmitWorkItems result.outbox_id", result["outbox_id"])
-    if not isinstance(result["changed_work_item_ids"], list) or len(
-        result["changed_work_item_ids"]
-    ) > 4096:
+    if (
+        not isinstance(result["changed_work_item_ids"], list)
+        or len(result["changed_work_item_ids"]) > 4096
+    ):
         raise ValueError("SubmitWorkItems result changed ids are invalid")
     for reference in result["changed_work_item_ids"]:
         _string("SubmitWorkItems result.changed_work_item_ids[]", reference)
         if len(reference.encode("utf-8")) > 512:
-            raise ValueError("SubmitWorkItems result.changed_work_item_ids[] exceeds 512 bytes")
+            raise ValueError(
+                "SubmitWorkItems result.changed_work_item_ids[] exceeds 512 bytes"
+            )
     return result
 
 
@@ -3403,11 +3429,17 @@ class WorkItemClient:
         ):
             _string(f"SubmitWorkItem.{field}", value[field])
         digest = _string("SubmitWorkItem.command_digest", value["command_digest"])
-        if len(digest) != 64 or any(char not in "0123456789abcdefABCDEF" for char in digest):
-            raise ValueError("SubmitWorkItem.command_digest must be a SHA-256 hex value")
+        if len(digest) != 64 or any(
+            char not in "0123456789abcdefABCDEF" for char in digest
+        ):
+            raise ValueError(
+                "SubmitWorkItem.command_digest must be a SHA-256 hex value"
+            )
         if value["work_item_id"] is not None:
             _string("SubmitWorkItem.work_item_id", value["work_item_id"])
-        _integer("SubmitWorkItem.priority", value["priority"], minimum=-1024, maximum=1024)
+        _integer(
+            "SubmitWorkItem.priority", value["priority"], minimum=-1024, maximum=1024
+        )
         dependencies = value["depends_on"]
         if not isinstance(dependencies, list) or len(dependencies) > 1024:
             raise ValueError("SubmitWorkItem.depends_on must contain at most 1024 ids")
@@ -3820,9 +3852,7 @@ class WorkItemClient:
                 else None
             ),
             "set_metadata_msgpack": (
-                _pack_binary_msgpack(set_metadata)
-                if set_metadata is not None
-                else None
+                _pack_binary_msgpack(set_metadata) if set_metadata is not None else None
             ),
             "expected_prio_bucket": expected_prio_bucket,
             "set_prio_bucket": set_prio_bucket,
@@ -3946,7 +3976,10 @@ class CapacityLeaseClient:
             value,
             frozenset({"schema_version", "decision", "leases", "message"}),
         )
-        if result["schema_version"] != "1" or result["decision"] not in _CAPACITY_DECISIONS:
+        if (
+            result["schema_version"] != "1"
+            or result["decision"] not in _CAPACITY_DECISIONS
+        ):
             raise ValueError(f"{name} result schema/decision is invalid")
         if not isinstance(result["leases"], list) or len(result["leases"]) > 16:
             raise ValueError(f"{name} result leases must contain at most 16 entries")
@@ -4030,7 +4063,10 @@ class CapacityLeaseClient:
             result,
             frozenset({"schema_version", "decision", "leases", "available", "message"}),
         )
-        if answer["schema_version"] != "1" or answer["decision"] not in _CAPACITY_DECISIONS:
+        if (
+            answer["schema_version"] != "1"
+            or answer["decision"] not in _CAPACITY_DECISIONS
+        ):
             raise ValueError("AcquireCapacity result schema/decision is invalid")
         if (
             not isinstance(answer["leases"], list)
@@ -4047,7 +4083,9 @@ class CapacityLeaseClient:
     async def release(self, request: dict[str, Any]) -> dict[str, Any]:
         return await self._mutate("ReleaseCapacity", request, renew=False)
 
-    async def _mutate(self, method: str, request: dict[str, Any], *, renew: bool) -> dict[str, Any]:
+    async def _mutate(
+        self, method: str, request: dict[str, Any], *, renew: bool
+    ) -> dict[str, Any]:
         value = _exact_mapping(
             f"{method} request",
             request,
@@ -4087,7 +4125,14 @@ class CapacityLeaseClient:
             _integer(f"{method}.lease_epoch", row["lease_epoch"], minimum=1)
             _integer(f"{method}.fence_token", row["fence_token"], minimum=1)
         _integer(f"{method}.now_ms", value["now_ms"])
-        if value["ttl_ms"] is not None:
+        # Mirror the native authority exactly: capacity_lease.rs bounds ttl_ms
+        # only on RENEWAL (`if renew && request.ttl_ms.is_some_and(...)`).
+        # ReleaseCapacity hands a lease back, so a supplied ttl is meaningless
+        # and the server ignores it. Validating it here unconditionally made the
+        # client STRICTER than the engine, rejecting a release the engine would
+        # have accepted -- a client must never invent a contract the authority
+        # does not enforce.
+        if renew and value["ttl_ms"] is not None:
             _integer(f"{method}.ttl_ms", value["ttl_ms"], minimum=1)
             if value["ttl_ms"] > 24 * 60 * 60 * 1000:
                 raise ValueError(f"{method}.ttl_ms exceeds 24h")
@@ -4099,13 +4144,17 @@ class CapacityLeaseClient:
         )
 
     async def reclaim(self, request: dict[str, Any]) -> dict[str, Any]:
-        return await self._reclaim_or_status("ReclaimExpiredCapacity", request, reclaim=True)
+        return await self._reclaim_or_status(
+            "ReclaimExpiredCapacity", request, reclaim=True
+        )
 
     async def status(self, request: dict[str, Any]) -> dict[str, Any]:
         return await self._reclaim_or_status("CapacityStatus", request, reclaim=False)
 
     async def reconcile(self, request: dict[str, Any]) -> dict[str, Any]:
-        return await self._reclaim_or_status("ReconcileCapacity", request, reclaim=False)
+        return await self._reclaim_or_status(
+            "ReconcileCapacity", request, reclaim=False
+        )
 
     async def _reclaim_or_status(
         self, method: str, request: dict[str, Any], *, reclaim: bool
@@ -4132,13 +4181,19 @@ class CapacityLeaseClient:
             answer = _exact_mapping(
                 f"{method} result",
                 result,
-                frozenset({"schema_version", "decision", "reclaimed_lease_ids", "next_cursor"}),
+                frozenset(
+                    {"schema_version", "decision", "reclaimed_lease_ids", "next_cursor"}
+                ),
             )
-            if answer["schema_version"] != "1" or answer["decision"] not in _CAPACITY_DECISIONS:
+            if (
+                answer["schema_version"] != "1"
+                or answer["decision"] not in _CAPACITY_DECISIONS
+            ):
                 raise ValueError(f"{method} result schema/decision is invalid")
-            if not isinstance(answer["reclaimed_lease_ids"], list) or len(
-                answer["reclaimed_lease_ids"]
-            ) > 128:
+            if (
+                not isinstance(answer["reclaimed_lease_ids"], list)
+                or len(answer["reclaimed_lease_ids"]) > 128
+            ):
                 raise ValueError(f"{method} result lease ids are invalid")
             return answer
         answer = _exact_mapping(
@@ -4166,7 +4221,9 @@ class CapacityLeaseClient:
             raise ValueError("UpdateCapacityCell request shape is invalid")
         _integer("UpdateCapacityCell.now_ms", value["now_ms"])
         if value["expected_epoch"] is not None:
-            _integer("UpdateCapacityCell.expected_epoch", value["expected_epoch"], minimum=0)
+            _integer(
+                "UpdateCapacityCell.expected_epoch", value["expected_epoch"], minimum=0
+            )
         await self._require_method("UpdateCapacityCell")
         result = await self._client._send("UpdateCapacityCell", {"request": value})
         answer = _exact_mapping(
@@ -4174,7 +4231,10 @@ class CapacityLeaseClient:
             result,
             frozenset({"schema_version", "decision", "cell", "message"}),
         )
-        if answer["schema_version"] != "1" or answer["decision"] not in _CAPACITY_DECISIONS:
+        if (
+            answer["schema_version"] != "1"
+            or answer["decision"] not in _CAPACITY_DECISIONS
+        ):
             raise ValueError("UpdateCapacityCell result schema/decision is invalid")
         return answer
 
@@ -6383,26 +6443,37 @@ class ClusterTopologyClient:
             isinstance(value, str)
             and value.startswith(prefix)
             and len(value) == len(prefix) + 64
-            and all(character in "0123456789abcdefABCDEF" for character in value[len(prefix) :])
+            and all(
+                character in "0123456789abcdefABCDEF"
+                for character in value[len(prefix) :]
+            )
         )
 
     @classmethod
     def _member_identity(cls, cluster_id: str, node_id: int) -> str:
         cluster_bytes = cluster_id.encode("utf-8")
-        return "sha256:" + hashlib.sha256(
-            cls._DISCOVERY_DOMAIN.replace(
-                b"cluster-discovery", b"member-identity"
-            )
-            + len(cluster_bytes).to_bytes(8, "big")
-            + cluster_bytes
-            + node_id.to_bytes(8, "big")
-        ).hexdigest()
+        return (
+            "sha256:"
+            + hashlib.sha256(
+                cls._DISCOVERY_DOMAIN.replace(b"cluster-discovery", b"member-identity")
+                + len(cluster_bytes).to_bytes(8, "big")
+                + cluster_bytes
+                + node_id.to_bytes(8, "big")
+            ).hexdigest()
+        )
 
     @classmethod
     def _endpoint_is_bounded(cls, endpoint: Any) -> bool:
-        if not isinstance(endpoint, str) or not endpoint or len(endpoint) > cls._MAX_FIELD_BYTES:
+        if (
+            not isinstance(endpoint, str)
+            or not endpoint
+            or len(endpoint) > cls._MAX_FIELD_BYTES
+        ):
             return False
-        if any(character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F for character in endpoint):
+        if any(
+            character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
+            for character in endpoint
+        ):
             return False
         if not (endpoint.startswith("tcp://") or endpoint.startswith("tls://")):
             return False
@@ -6464,11 +6535,7 @@ class ClusterTopologyClient:
                 or not 0 <= value <= cls._MAX_U64
             ):
                 raise ValueError("ClusterMembers certificate validity is malformed")
-        if (
-            not_before is not None
-            and not_after is not None
-            and not_before > not_after
-        ):
+        if not_before is not None and not_after is not None and not_before > not_after:
             raise ValueError("ClusterMembers certificate validity is inverted")
         if rotation_epoch > 0 and certificate_id is None:
             raise ValueError("ClusterMembers certificate rotation requires an id")
@@ -6505,7 +6572,10 @@ class ClusterTopologyClient:
             "signature",
         }:
             raise ValueError("ClusterMembers response has unexpected or missing fields")
-        if isinstance(answer["schema_version"], bool) or answer["schema_version"] != self._SCHEMA_VERSION:
+        if (
+            isinstance(answer["schema_version"], bool)
+            or answer["schema_version"] != self._SCHEMA_VERSION
+        ):
             raise ValueError("ClusterMembers schema version is unsupported")
         cluster_id = answer["cluster_id"]
         if not self._is_digest(cluster_id):
@@ -6521,19 +6591,28 @@ class ClusterTopologyClient:
                 or not isinstance(value, int)
                 or not 0 <= value <= self._MAX_U64
             ):
-                raise ValueError(f"ClusterMembers.{field} must be a non-negative integer")
+                raise ValueError(
+                    f"ClusterMembers.{field} must be a non-negative integer"
+                )
             return value
 
         epoch = non_negative_int(answer["epoch"], "epoch")
-        membership_epoch = non_negative_int(answer["membership_epoch"], "membership_epoch")
+        membership_epoch = non_negative_int(
+            answer["membership_epoch"], "membership_epoch"
+        )
         placement_epoch = non_negative_int(answer["placement_epoch"], "placement_epoch")
         if epoch != membership_epoch:
-            raise ValueError("ClusterMembers epoch alias does not match membership_epoch")
+            raise ValueError(
+                "ClusterMembers epoch alias does not match membership_epoch"
+            )
         if min_membership_epoch is not None and membership_epoch < min_membership_epoch:
             raise ValueError("ClusterMembers membership snapshot is stale")
         if min_placement_epoch is not None and placement_epoch < min_placement_epoch:
             raise ValueError("ClusterMembers placement snapshot is stale")
-        if membership_epoch < self._membership_epoch or placement_epoch < self._placement_epoch:
+        if (
+            membership_epoch < self._membership_epoch
+            or placement_epoch < self._placement_epoch
+        ):
             raise ValueError("ClusterMembers snapshot moved backwards")
 
         groups = answer["groups"]
@@ -6548,7 +6627,11 @@ class ClusterTopologyClient:
         seen_groups: set[int] = set()
         member_count = 0
         for group in groups:
-            if not isinstance(group, dict) or set(group) != {"group_id", "leader_id", "members"}:
+            if not isinstance(group, dict) or set(group) != {
+                "group_id",
+                "leader_id",
+                "members",
+            }:
                 raise ValueError("ClusterMembers group entry is malformed")
             group_id = group["group_id"]
             if (
@@ -6594,7 +6677,9 @@ class ClusterTopologyClient:
                     raise ValueError("ClusterMembers contains duplicate members")
                 seen_members.add(node_id)
                 identity = member["member_identity"]
-                if not self._is_digest(identity) or identity != self._member_identity(cluster_id, node_id):
+                if not self._is_digest(identity) or identity != self._member_identity(
+                    cluster_id, node_id
+                ):
                     raise ValueError("ClusterMembers member identity is invalid")
                 role = member["role"]
                 if role not in ("leader", "follower", "learner"):
@@ -6608,7 +6693,9 @@ class ClusterTopologyClient:
                     or not tls_name
                     or len(tls_name) > self._MAX_FIELD_BYTES
                     or any(
-                        character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
+                        character.isspace()
+                        or ord(character) < 0x20
+                        or ord(character) == 0x7F
                         for character in tls_name
                     )
                 ):
@@ -6616,7 +6703,9 @@ class ClusterTopologyClient:
                 health = member["health"]
                 if health not in ("healthy", "degraded", "unknown"):
                     raise ValueError("ClusterMembers member health is invalid")
-                certificate_id, rotation_epoch, not_before, not_after = self._certificate(member)
+                certificate_id, rotation_epoch, not_before, not_after = (
+                    self._certificate(member)
+                )
                 canonical_members.append(
                     [
                         node_id,
@@ -6637,7 +6726,14 @@ class ClusterTopologyClient:
             if leader_id is not None:
                 if leader_id not in seen_members:
                     raise ValueError("ClusterMembers leader is not a member")
-                if sum(1 for member in members if member["node_id"] == leader_id and member["role"] == "leader") != 1:
+                if (
+                    sum(
+                        1
+                        for member in members
+                        if member["node_id"] == leader_id and member["role"] == "leader"
+                    )
+                    != 1
+                ):
                     raise ValueError("ClusterMembers leader role is inconsistent")
                 expected_leaders.append({"group_id": group_id, "node_id": leader_id})
             canonical_groups.append([group_id, leader_id, canonical_members])
@@ -6678,19 +6774,27 @@ class ClusterTopologyClient:
             raise ValueError("ClusterMembers auth binding is malformed")
         context = self._client._effective_verified_context()
         expected_binding = {
-            "tenant_digest": "sha256:" + hashlib.sha256(str(context["tenant"]).encode("utf-8")).hexdigest(),
-            "principal_digest": "sha256:" + hashlib.sha256(str(context["principal"]).encode("utf-8")).hexdigest(),
-            "agent_digest": "sha256:" + hashlib.sha256(str(context["agent_id"]).encode("utf-8")).hexdigest(),
+            "tenant_digest": "sha256:"
+            + hashlib.sha256(str(context["tenant"]).encode("utf-8")).hexdigest(),
+            "principal_digest": "sha256:"
+            + hashlib.sha256(str(context["principal"]).encode("utf-8")).hexdigest(),
+            "agent_digest": "sha256:"
+            + hashlib.sha256(str(context["agent_id"]).encode("utf-8")).hexdigest(),
         }
         if binding != expected_binding:
-            raise ValueError("ClusterMembers snapshot is bound to a different request context")
+            raise ValueError(
+                "ClusterMembers snapshot is bound to a different request context"
+            )
 
         signature = answer["signature"]
         if (
             not isinstance(signature, str)
             or not signature.startswith("hmac-sha256:")
             or len(signature) != len("hmac-sha256:") + 64
-            or any(character not in "0123456789abcdefABCDEF" for character in signature[len("hmac-sha256:") :])
+            or any(
+                character not in "0123456789abcdefABCDEF"
+                for character in signature[len("hmac-sha256:") :]
+            )
         ):
             raise ValueError("ClusterMembers signature is missing or malformed")
         payload = json.dumps(
@@ -6707,11 +6811,14 @@ class ClusterTopologyClient:
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
-        expected_signature = "hmac-sha256:" + hmac.new(
-            self._client._auth_secret.encode("utf-8"),
-            self._DISCOVERY_DOMAIN + payload,
-            hashlib.sha256,
-        ).hexdigest()
+        expected_signature = (
+            "hmac-sha256:"
+            + hmac.new(
+                self._client._auth_secret.encode("utf-8"),
+                self._DISCOVERY_DOMAIN + payload,
+                hashlib.sha256,
+            ).hexdigest()
+        )
         if not hmac.compare_digest(signature, expected_signature):
             raise ValueError("ClusterMembers signature verification failed")
         self._cluster_id = cluster_id
@@ -13267,9 +13374,7 @@ class EpistemicGraphClient:
             reader_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await asyncio.wait_for(reader_task, _CLOSE_TIMEOUT)
-        self._fail_pending(
-            self._terminal_error or ConnectionError("client closed")
-        )
+        self._fail_pending(self._terminal_error or ConnectionError("client closed"))
         self._close_writer_once()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await asyncio.wait_for(self._writer.wait_closed(), _CLOSE_TIMEOUT)
@@ -13301,9 +13406,7 @@ class EpistemicGraphClient:
                 self._set_terminal_error(exc)
                 reader_task = self._reader_task
                 self._reader_task = None
-                self._close_task = asyncio.create_task(
-                    self._finish_close(reader_task)
-                )
+                self._close_task = asyncio.create_task(self._finish_close(reader_task))
             close_task = self._close_task
 
         assert close_task is not None
@@ -13360,7 +13463,9 @@ class EpistemicGraphClient:
         if len(graphs) > limit:
             raise RuntimeError("ResourceStats response exceeded its bounded graph page")
         if len(tenants) > _MAX_RESOURCE_STATS_TENANTS:
-            raise RuntimeError("ResourceStats response exceeded its bounded tenant page")
+            raise RuntimeError(
+                "ResourceStats response exceeded its bounded tenant page"
+            )
         if summary and (graphs or tenants):
             raise RuntimeError("summary ResourceStats response must omit detail arrays")
         next_cursor = snapshot.get("next_cursor")

@@ -66,9 +66,20 @@ def main() -> None:
         require(field in index, f"maintained index manifest is missing {field}")
 
     served = read("src/server/secondary_indexes.rs")
+    # Coverage enforcement moved from the version-only `covers(version)` to
+    # `covers_source(version, nodes, edges)`, which ALSO fails closed on
+    # node/edge cursor drift. This gate tracks that stronger invariant, and
+    # additionally refuses a regression back to the deprecated weaker call --
+    # a served read must never re-acquire the ability to look "covered" while
+    # its source cursors have drifted.
     require(
-        "manifest().covers(self.core.version())" in served,
+        "covers_source(source_snapshot_version" in served,
         "text/spatial availability does not enforce snapshot coverage",
+    )
+    require(
+        "manifest().covers(" not in served,
+        "served availability uses the deprecated version-only covers(); it must "
+        "use covers_source(), which also fails closed on node/edge cursor drift",
     )
     require("ix.clear()" in served, "text recovery does not remove stale documents")
 
