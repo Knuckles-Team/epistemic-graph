@@ -9,17 +9,18 @@
 
 use std::collections::BTreeSet;
 
-use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction};
+use redb::{
+    Database, Durability, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use eg_types::capacity_lease::{CapacityCell, CapacityLease, LeaseState};
 use eg_types::native_control::{
-    CapacityAcquireRequest, CapacityAcquireResult, CapacityAvailability,
-    CapacityCellUpdateRequest, CapacityCellUpdateResult, CapacityDecision, CapacityDemand,
-    CapacityLeaseMutationRequest, CapacityMutationResult, CapacityReclaimRequest,
-    CapacityReclaimResult, CapacityStatusRequest, CapacityStatusResult,
-    NativeControlSchemaVersion, MAX_CAPACITY_AMOUNT, MAX_CAPACITY_BUDGET,
+    CapacityAcquireRequest, CapacityAcquireResult, CapacityAvailability, CapacityCellUpdateRequest,
+    CapacityCellUpdateResult, CapacityDecision, CapacityDemand, CapacityLeaseMutationRequest,
+    CapacityMutationResult, CapacityReclaimRequest, CapacityReclaimResult, CapacityStatusRequest,
+    CapacityStatusResult, NativeControlSchemaVersion, MAX_CAPACITY_AMOUNT, MAX_CAPACITY_BUDGET,
     MAX_CAPACITY_DEMANDS, MAX_CAPACITY_ID_BYTES, MAX_CAPACITY_MUTATION_BATCH,
     MAX_CAPACITY_RECLAIM_BATCH, MAX_CAPACITY_STATUS_ROWS, MAX_CAPACITY_TTL_MS,
 };
@@ -77,7 +78,9 @@ pub(crate) fn clear_graph_rows(wtx: &WriteTransaction, graph: &str) -> Result<()
         })
         .collect::<Result<Vec<_>, _>>()?;
     for cell in cell_keys.into_iter().flatten() {
-        cells.remove((graph, cell.as_str())).map_err(|e| e.to_string())?;
+        cells
+            .remove((graph, cell.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     drop(cells);
     let mut leases = wtx.open_table(LEASES).map_err(|e| e.to_string())?;
@@ -94,7 +97,9 @@ pub(crate) fn clear_graph_rows(wtx: &WriteTransaction, graph: &str) -> Result<()
         })
         .collect::<Result<Vec<_>, _>>()?;
     for lease in lease_keys.into_iter().flatten() {
-        leases.remove((graph, lease.as_str())).map_err(|e| e.to_string())?;
+        leases
+            .remove((graph, lease.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     drop(leases);
     let mut usage = wtx.open_table(USAGE).map_err(|e| e.to_string())?;
@@ -111,7 +116,9 @@ pub(crate) fn clear_graph_rows(wtx: &WriteTransaction, graph: &str) -> Result<()
         })
         .collect::<Result<Vec<_>, _>>()?;
     for cell in usage_keys.into_iter().flatten() {
-        usage.remove((graph, cell.as_str())).map_err(|e| e.to_string())?;
+        usage
+            .remove((graph, cell.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     drop(usage);
     let mut idem = wtx.open_table(IDEMPOTENCY).map_err(|e| e.to_string())?;
@@ -150,9 +157,7 @@ pub(crate) fn commit(
     let mut staged_audit_tail = audit_tail.clone();
     #[cfg(feature = "security")]
     if !result_is_replay(method, &bytes)? {
-        let mut audit = wtx
-            .open_table(super::AUDIT)
-            .map_err(|e| e.to_string())?;
+        let mut audit = wtx.open_table(super::AUDIT).map_err(|e| e.to_string())?;
         super::append_audit_entry(&mut audit, &mut staged_audit_tail, graph, method)?;
     }
     wtx.commit().map_err(|e| e.to_string())?;
@@ -166,13 +171,13 @@ pub(crate) fn commit(
 #[cfg(feature = "security")]
 fn result_is_replay(method: &Method, bytes: &[u8]) -> Result<bool, String> {
     match method {
-        Method::AcquireCapacity { .. } => {
-            Ok(decode_durable::<CapacityAcquireResult>(bytes)?.decision == CapacityDecision::Replayed)
+        Method::AcquireCapacity { .. } => Ok(decode_durable::<CapacityAcquireResult>(bytes)?
+            .decision
+            == CapacityDecision::Replayed),
+        Method::RenewCapacity { .. } | Method::ReleaseCapacity { .. } => {
+            Ok(decode_durable::<CapacityMutationResult>(bytes)?.decision
+                == CapacityDecision::Replayed)
         }
-        Method::RenewCapacity { .. } | Method::ReleaseCapacity { .. } => Ok(
-            decode_durable::<CapacityMutationResult>(bytes)?.decision
-                == CapacityDecision::Replayed,
-        ),
         _ => Ok(false),
     }
 }
@@ -201,7 +206,11 @@ pub(crate) fn read(
         }
         let cell: CapacityCell = decode_durable(&crypto.unseal(value.value())?)?;
         validate_cell_bounds(&cell)?;
-        if request.cell_id.as_deref().is_none_or(|wanted| wanted == cell_id) {
+        if request
+            .cell_id
+            .as_deref()
+            .is_none_or(|wanted| wanted == cell_id)
+        {
             cell_rows.push(cell);
         }
         if cell_rows.len() > MAX_CAPACITY_STATUS_ROWS {
@@ -296,12 +305,19 @@ fn acquire(
     let mut digest_request = request.clone();
     digest_request.now_ms = 0;
     let digest = request_digest(&digest_request)?;
-    if let Some(replay) = read_replay(wtx, graph, &request.tenant_ref, &request.idempotency_key, crypto)? {
+    if let Some(replay) = read_replay(
+        wtx,
+        graph,
+        &request.tenant_ref,
+        &request.idempotency_key,
+        crypto,
+    )? {
         if replay.digest != digest || replay.operation != "acquire" {
-            return Err("IDEMPOTENCY_CONFLICT: capacity acquire key has a different request".to_string());
+            return Err(
+                "IDEMPOTENCY_CONFLICT: capacity acquire key has a different request".to_string(),
+            );
         }
-        let mut result: CapacityAcquireResult =
-            decode_durable(&crypto.unseal(&replay.result)?)?;
+        let mut result: CapacityAcquireResult = decode_durable(&crypto.unseal(&replay.result)?)?;
         result.decision = CapacityDecision::Replayed;
         return Ok(result);
     }
@@ -313,10 +329,12 @@ fn acquire(
         wtx,
         graph,
         request.now_ms,
-        None,
-        None,
-        None,
-        MAX_CAPACITY_RECLAIM_BATCH,
+        ReclaimScope {
+            tenant: None,
+            cell_id: None,
+            cursor: None,
+            max_count: MAX_CAPACITY_RECLAIM_BATCH,
+        },
         crypto,
     )?;
 
@@ -324,14 +342,22 @@ fn acquire(
     let mut usage = wtx.open_table(USAGE).map_err(|e| e.to_string())?;
     let mut leases = wtx.open_table(LEASES).map_err(|e| e.to_string())?;
     let mut demands = request.demands.clone();
-    demands.sort_by(|left, right| (&left.cell_id, &left.resource_class, left.amount).cmp(&(&right.cell_id, &right.resource_class, right.amount)));
+    demands.sort_by(|left, right| {
+        (&left.cell_id, &left.resource_class, left.amount).cmp(&(
+            &right.cell_id,
+            &right.resource_class,
+            right.amount,
+        ))
+    });
     let mut seen = BTreeSet::new();
     let mut availability = Vec::with_capacity(demands.len());
     let mut cell_rows = Vec::with_capacity(demands.len());
     let mut usage_rows = Vec::with_capacity(demands.len());
     for demand in &demands {
         if !seen.insert((demand.cell_id.clone(), demand.resource_class)) {
-            return Err("capacity acquire demands must name each cell/resource dimension once".to_string());
+            return Err(
+                "capacity acquire demands must name each cell/resource dimension once".to_string(),
+            );
         }
         let cell = cells
             .get((graph, demand.cell_id.as_str()))
@@ -340,7 +366,10 @@ fn acquire(
             .and_then(|value| decode_durable::<CapacityCell>(&crypto.unseal(value.value())?))?;
         validate_cell_bounds(&cell)?;
         if cell.resource_class != demand.resource_class {
-            return Err(format!("capacity cell '{}' resource dimension mismatch", demand.cell_id));
+            return Err(format!(
+                "capacity cell '{}' resource dimension mismatch",
+                demand.cell_id
+            ));
         }
         let row = usage
             .get((graph, demand.cell_id.as_str()))
@@ -369,11 +398,8 @@ fn acquire(
     }
 
     let mut out = Vec::with_capacity(demands.len());
-    for (index, ((demand, cell), mut row)) in demands
-        .iter()
-        .zip(cell_rows)
-        .zip(usage_rows)
-        .enumerate()
+    for (index, ((demand, cell), mut row)) in
+        demands.iter().zip(cell_rows).zip(usage_rows).enumerate()
     {
         row.next_fence = row
             .next_fence
@@ -407,7 +433,9 @@ fn acquire(
             idempotency_key: request.idempotency_key.clone(),
             state: LeaseState::Active,
         };
-        lease.validate().map_err(|error| format!("invalid capacity lease: {error:?}"))?;
+        lease
+            .validate()
+            .map_err(|error| format!("invalid capacity lease: {error:?}"))?;
         row.leased_amount = row
             .leased_amount
             .checked_add(demand.amount)
@@ -431,7 +459,18 @@ fn acquire(
         available: availability,
         message: None,
     };
-    write_replay(wtx, graph, &request.tenant_ref, &request.idempotency_key, "acquire", &digest, &result, crypto)?;
+    write_replay(
+        wtx,
+        graph,
+        ReplayKey {
+            tenant: &request.tenant_ref,
+            key: &request.idempotency_key,
+            operation: "acquire",
+            digest: &digest,
+        },
+        &result,
+        crypto,
+    )?;
     Ok(result)
 }
 
@@ -449,8 +488,13 @@ fn mutate_leases(
     let digest = request_digest(&digest_request)?;
     if let Some(key) = key {
         if let Some(replay) = read_replay(wtx, graph, &request.tenant_ref, key, crypto)? {
-            if replay.digest != digest || replay.operation != if renew { "renew" } else { "release" } {
-                return Err("IDEMPOTENCY_CONFLICT: capacity mutation key has a different request".to_string());
+            if replay.digest != digest
+                || replay.operation != if renew { "renew" } else { "release" }
+            {
+                return Err(
+                    "IDEMPOTENCY_CONFLICT: capacity mutation key has a different request"
+                        .to_string(),
+                );
             }
             let mut result: CapacityMutationResult =
                 decode_durable(&crypto.unseal(&replay.result)?)?;
@@ -467,11 +511,22 @@ fn mutate_leases(
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("capacity lease '{}' was not found", fence.lease_id))
             .and_then(|value| decode_durable::<CapacityLease>(&crypto.unseal(value.value())?))?;
-        if current.tenant_ref != request.tenant_ref || current.actor_digest != request.owner_digest {
-            return Ok(CapacityMutationResult { schema_version: NativeControlSchemaVersion::V1, decision: CapacityDecision::StaleFence, leases: Vec::new(), message: Some("capacity lease owner mismatch".to_string()) });
+        if current.tenant_ref != request.tenant_ref || current.actor_digest != request.owner_digest
+        {
+            return Ok(CapacityMutationResult {
+                schema_version: NativeControlSchemaVersion::V1,
+                decision: CapacityDecision::StaleFence,
+                leases: Vec::new(),
+                message: Some("capacity lease owner mismatch".to_string()),
+            });
         }
         if current.lease_epoch != fence.lease_epoch {
-            return Ok(CapacityMutationResult { schema_version: NativeControlSchemaVersion::V1, decision: CapacityDecision::StaleEpoch, leases: Vec::new(), message: Some("capacity lease epoch is stale".to_string()) });
+            return Ok(CapacityMutationResult {
+                schema_version: NativeControlSchemaVersion::V1,
+                decision: CapacityDecision::StaleEpoch,
+                leases: Vec::new(),
+                message: Some("capacity lease epoch is stale".to_string()),
+            });
         }
         let cell = cells_table
             .get((graph, current.cell_id.as_str()))
@@ -480,16 +535,39 @@ fn mutate_leases(
             .and_then(|value| decode_durable::<CapacityCell>(&crypto.unseal(value.value())?))?;
         validate_cell_bounds(&cell)?;
         if cell.epoch != current.lease_epoch {
-            return Ok(CapacityMutationResult { schema_version: NativeControlSchemaVersion::V1, decision: CapacityDecision::StaleEpoch, leases: vec![current], message: Some("capacity cell epoch has advanced".to_string()) });
+            return Ok(CapacityMutationResult {
+                schema_version: NativeControlSchemaVersion::V1,
+                decision: CapacityDecision::StaleEpoch,
+                leases: vec![current],
+                message: Some("capacity cell epoch has advanced".to_string()),
+            });
         }
         if current.fence_token != fence.fence_token {
-            return Ok(CapacityMutationResult { schema_version: NativeControlSchemaVersion::V1, decision: CapacityDecision::StaleFence, leases: Vec::new(), message: Some("capacity lease fence is stale".to_string()) });
+            return Ok(CapacityMutationResult {
+                schema_version: NativeControlSchemaVersion::V1,
+                decision: CapacityDecision::StaleFence,
+                leases: Vec::new(),
+                message: Some("capacity lease fence is stale".to_string()),
+            });
         }
-        if matches!(current.state, LeaseState::Released | LeaseState::Expired | LeaseState::Reclaimed) {
-            return Ok(CapacityMutationResult { schema_version: NativeControlSchemaVersion::V1, decision: CapacityDecision::Expired, leases: vec![current], message: Some("capacity lease is no longer active".to_string()) });
+        if matches!(
+            current.state,
+            LeaseState::Released | LeaseState::Expired | LeaseState::Reclaimed
+        ) {
+            return Ok(CapacityMutationResult {
+                schema_version: NativeControlSchemaVersion::V1,
+                decision: CapacityDecision::Expired,
+                leases: vec![current],
+                message: Some("capacity lease is no longer active".to_string()),
+            });
         }
         if request.now_ms >= current.expires_at_ms {
-            return Ok(CapacityMutationResult { schema_version: NativeControlSchemaVersion::V1, decision: CapacityDecision::Expired, leases: vec![current], message: Some("capacity lease has expired".to_string()) });
+            return Ok(CapacityMutationResult {
+                schema_version: NativeControlSchemaVersion::V1,
+                decision: CapacityDecision::Expired,
+                leases: vec![current],
+                message: Some("capacity lease has expired".to_string()),
+            });
         }
         snapshots.push(current);
     }
@@ -512,17 +590,18 @@ fn mutate_leases(
                 .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
                 .transpose()?
                 .unwrap_or_default();
-            row.leased_amount = row
-                .leased_amount
-                .checked_sub(lease.amount)
-                .ok_or_else(|| "capacity usage underflow; ledger requires reconciliation".to_string())?;
+            row.leased_amount = row.leased_amount.checked_sub(lease.amount).ok_or_else(|| {
+                "capacity usage underflow; ledger requires reconciliation".to_string()
+            })?;
             let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
             let sealed_usage = crypto.seal(&sealed_usage_bytes);
             usage
                 .insert((graph, lease.cell_id.as_str()), sealed_usage.as_ref())
                 .map_err(|e| e.to_string())?;
         }
-        lease.validate().map_err(|error| format!("invalid capacity lease: {error:?}"))?;
+        lease
+            .validate()
+            .map_err(|error| format!("invalid capacity lease: {error:?}"))?;
         let sealed_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
         let sealed = crypto.seal(&sealed_bytes);
         leases_table
@@ -532,12 +611,27 @@ fn mutate_leases(
     }
     let result = CapacityMutationResult {
         schema_version: NativeControlSchemaVersion::V1,
-        decision: if renew { CapacityDecision::Renewed } else { CapacityDecision::Released },
+        decision: if renew {
+            CapacityDecision::Renewed
+        } else {
+            CapacityDecision::Released
+        },
         leases: output,
         message: None,
     };
     if let Some(key) = key {
-        write_replay(wtx, graph, &request.tenant_ref, key, if renew { "renew" } else { "release" }, &digest, &result, crypto)?;
+        write_replay(
+            wtx,
+            graph,
+            ReplayKey {
+                tenant: &request.tenant_ref,
+                key,
+                operation: if renew { "renew" } else { "release" },
+                digest: &digest,
+            },
+            &result,
+            crypto,
+        )?;
     }
     Ok(result)
 }
@@ -553,31 +647,51 @@ fn reclaim(
         wtx,
         graph,
         request.now_ms,
-        Some(request.tenant_ref.as_str()),
-        request.cell_id.as_deref(),
-        request.cursor.as_deref(),
-        request.max_count as usize,
+        ReclaimScope {
+            tenant: Some(request.tenant_ref.as_str()),
+            cell_id: request.cell_id.as_deref(),
+            cursor: request.cursor.as_deref(),
+            max_count: request.max_count as usize,
+        },
         crypto,
     )?;
     let next_cursor = reclaimed.last().cloned();
     Ok(CapacityReclaimResult {
         schema_version: NativeControlSchemaVersion::V1,
-        decision: if reclaimed.is_empty() { CapacityDecision::Accepted } else { CapacityDecision::Reclaimed },
+        decision: if reclaimed.is_empty() {
+            CapacityDecision::Accepted
+        } else {
+            CapacityDecision::Reclaimed
+        },
         reclaimed_lease_ids: reclaimed,
         next_cursor,
     })
+}
+
+/// Which expired leases one reclaim pass considers, and how far it may page.
+/// Grouped so the reclaim helper keeps a readable arity
+/// (clippy::too_many_arguments) and so the three optional string filters cannot
+/// be transposed at a call site.
+struct ReclaimScope<'a> {
+    tenant: Option<&'a str>,
+    cell_id: Option<&'a str>,
+    cursor: Option<&'a str>,
+    max_count: usize,
 }
 
 fn reclaim_expired_inner(
     wtx: &WriteTransaction,
     graph: &str,
     now_ms: u64,
-    tenant: Option<&str>,
-    cell_id: Option<&str>,
-    cursor: Option<&str>,
-    max_count: usize,
+    scope: ReclaimScope<'_>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Vec<String>, String> {
+    let ReclaimScope {
+        tenant,
+        cell_id,
+        cursor,
+        max_count,
+    } = scope;
     let mut leases = wtx.open_table(LEASES).map_err(|e| e.to_string())?;
     let mut usage = wtx.open_table(USAGE).map_err(|e| e.to_string())?;
     let mut expired = Vec::new();
@@ -617,10 +731,9 @@ fn reclaim_expired_inner(
             .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
             .transpose()?
             .unwrap_or_default();
-        row.leased_amount = row
-            .leased_amount
-            .checked_sub(lease.amount)
-            .ok_or_else(|| "capacity usage underflow; ledger requires reconciliation".to_string())?;
+        row.leased_amount = row.leased_amount.checked_sub(lease.amount).ok_or_else(|| {
+            "capacity usage underflow; ledger requires reconciliation".to_string()
+        })?;
         let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
         let sealed_usage = crypto.seal(&sealed_usage_bytes);
         usage
@@ -659,9 +772,17 @@ fn update_cell(
         .transpose()?;
     if request.expected_epoch != current.as_ref().map(|cell| cell.epoch) {
         let cell = current.ok_or_else(|| "capacity cell was not found".to_string())?;
-        return Ok(CapacityCellUpdateResult { schema_version: NativeControlSchemaVersion::V1, decision: CapacityDecision::StaleEpoch, cell, message: Some("capacity cell epoch CAS failed".to_string()) });
+        return Ok(CapacityCellUpdateResult {
+            schema_version: NativeControlSchemaVersion::V1,
+            decision: CapacityDecision::StaleEpoch,
+            cell,
+            message: Some("capacity cell epoch CAS failed".to_string()),
+        });
     }
-    if current.as_ref().is_some_and(|cell| next_cell.epoch <= cell.epoch) {
+    if current
+        .as_ref()
+        .is_some_and(|cell| next_cell.epoch <= cell.epoch)
+    {
         return Err("capacity cell epoch must advance monotonically".to_string());
     }
     let usage = wtx.open_table(USAGE).map_err(|e| e.to_string())?;
@@ -680,12 +801,19 @@ fn update_cell(
     cells
         .insert((graph, next_cell.cell_id.as_str()), sealed.as_ref())
         .map_err(|e| e.to_string())?;
-    Ok(CapacityCellUpdateResult { schema_version: NativeControlSchemaVersion::V1, decision: CapacityDecision::Accepted, cell: next_cell, message: None })
+    Ok(CapacityCellUpdateResult {
+        schema_version: NativeControlSchemaVersion::V1,
+        decision: CapacityDecision::Accepted,
+        cell: next_cell,
+        message: None,
+    })
 }
 
 fn validate_id(value: &str, field: &str) -> Result<(), String> {
     if value.trim().is_empty() || value.len() > MAX_CAPACITY_ID_BYTES {
-        return Err(format!("{field} must be non-empty and at most {MAX_CAPACITY_ID_BYTES} bytes"));
+        return Err(format!(
+            "{field} must be non-empty and at most {MAX_CAPACITY_ID_BYTES} bytes"
+        ));
     }
     Ok(())
 }
@@ -694,7 +822,10 @@ fn validate_cell_bounds(cell: &CapacityCell) -> Result<(), String> {
     cell.validate()
         .map_err(|error| format!("invalid capacity cell: {error:?}"))?;
     if cell.cell_id.len() > MAX_CAPACITY_ID_BYTES
-        || cell.parent_id.as_deref().is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES)
+        || cell
+            .parent_id
+            .as_deref()
+            .is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES)
         || cell.policy_digest.len() > MAX_CAPACITY_ID_BYTES
         || cell.capacity > MAX_CAPACITY_AMOUNT
         || cell.reserved_floor > MAX_CAPACITY_AMOUNT
@@ -718,12 +849,20 @@ fn validate_acquire_request(request: &CapacityAcquireRequest) -> Result<(), Stri
     if request.ttl_ms == 0 || request.ttl_ms > MAX_CAPACITY_TTL_MS {
         return Err("capacity acquire ttl_ms is outside native bounds".to_string());
     }
-    if request.cost_budget_micros.is_some_and(|value| value > MAX_CAPACITY_BUDGET)
-        || request.token_budget.is_some_and(|value| value > MAX_CAPACITY_BUDGET)
+    if request
+        .cost_budget_micros
+        .is_some_and(|value| value > MAX_CAPACITY_BUDGET)
+        || request
+            .token_budget
+            .is_some_and(|value| value > MAX_CAPACITY_BUDGET)
     {
         return Err("capacity budget is outside native bounds".to_string());
     }
-    if request.lease_id.as_deref().is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES) {
+    if request
+        .lease_id
+        .as_deref()
+        .is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES)
+    {
         return Err("capacity lease_id exceeds native bounds".to_string());
     }
     if request.lease_id.is_some() && request.demands.len() != 1 {
@@ -738,7 +877,10 @@ fn validate_acquire_request(request: &CapacityAcquireRequest) -> Result<(), Stri
     Ok(())
 }
 
-fn validate_mutation_request(request: &CapacityLeaseMutationRequest, renew: bool) -> Result<(), String> {
+fn validate_mutation_request(
+    request: &CapacityLeaseMutationRequest,
+    renew: bool,
+) -> Result<(), String> {
     if request.schema_version != NativeControlSchemaVersion::V1 {
         return Err("capacity lease mutation schema_version must be 1".to_string());
     }
@@ -747,10 +889,18 @@ fn validate_mutation_request(request: &CapacityLeaseMutationRequest, renew: bool
     if request.leases.is_empty() || request.leases.len() > MAX_CAPACITY_MUTATION_BATCH {
         return Err("capacity lease mutation batch is outside native bounds".to_string());
     }
-    if renew && request.ttl_ms.is_some_and(|ttl| ttl == 0 || ttl > MAX_CAPACITY_TTL_MS) {
+    if renew
+        && request
+            .ttl_ms
+            .is_some_and(|ttl| ttl == 0 || ttl > MAX_CAPACITY_TTL_MS)
+    {
         return Err("capacity renewal ttl_ms is outside native bounds".to_string());
     }
-    if request.idempotency_key.as_deref().is_some_and(|key| key.trim().is_empty() || key.len() > MAX_CAPACITY_ID_BYTES) {
+    if request
+        .idempotency_key
+        .as_deref()
+        .is_some_and(|key| key.trim().is_empty() || key.len() > MAX_CAPACITY_ID_BYTES)
+    {
         return Err("capacity idempotency_key is outside native bounds".to_string());
     }
     let mut ids = BTreeSet::new();
@@ -771,10 +921,18 @@ fn validate_reclaim_request(request: &CapacityReclaimRequest) -> Result<(), Stri
     if request.max_count == 0 || request.max_count as usize > MAX_CAPACITY_RECLAIM_BATCH {
         return Err("capacity reclaim max_count is outside native bounds".to_string());
     }
-    if request.cell_id.as_deref().is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES) {
+    if request
+        .cell_id
+        .as_deref()
+        .is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES)
+    {
         return Err("capacity reclaim cell_id exceeds native bounds".to_string());
     }
-    if request.cursor.as_deref().is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES) {
+    if request
+        .cursor
+        .as_deref()
+        .is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES)
+    {
         return Err("capacity reclaim cursor exceeds native bounds".to_string());
     }
     Ok(())
@@ -788,9 +946,18 @@ fn validate_status_request(request: &CapacityStatusRequest) -> Result<(), String
     if request.max_count == 0 || request.max_count as usize > MAX_CAPACITY_STATUS_ROWS {
         return Err("capacity status max_count is outside native bounds".to_string());
     }
-    if request.cell_id.as_deref().is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES)
-        || request.lease_id.as_deref().is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES)
-        || request.cursor.as_deref().is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES)
+    if request
+        .cell_id
+        .as_deref()
+        .is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES)
+        || request
+            .lease_id
+            .as_deref()
+            .is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES)
+        || request
+            .cursor
+            .as_deref()
+            .is_some_and(|id| id.len() > MAX_CAPACITY_ID_BYTES)
     {
         return Err("capacity status selector exceeds native bounds".to_string());
     }
@@ -841,16 +1008,30 @@ fn read_replay(
         .transpose()
 }
 
+/// The identity of one replay record: which tenant/idempotency key it belongs to,
+/// which operation produced it, and the digest it is keyed by. Grouped so the
+/// writer keeps a readable arity (clippy::too_many_arguments) and so four
+/// same-typed `&str` params cannot be passed in the wrong order.
+struct ReplayKey<'a> {
+    tenant: &'a str,
+    key: &'a str,
+    operation: &'a str,
+    digest: &'a str,
+}
+
 fn write_replay<T: Serialize>(
     wtx: &WriteTransaction,
     graph: &str,
-    tenant: &str,
-    key: &str,
-    operation: &str,
-    digest: &str,
+    replay: ReplayKey<'_>,
     result: &T,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    let ReplayKey {
+        tenant,
+        key,
+        operation,
+        digest,
+    } = replay;
     let result = encode(result)?;
     let replay = DurableReplay {
         digest: digest.to_string(),

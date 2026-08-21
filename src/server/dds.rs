@@ -152,10 +152,7 @@ fn next_isolated_dds_identity(prefix: &str) -> (u32, String) {
             Some((current + 1) % DDS_TEST_DOMAIN_SLOTS)
         })
         .unwrap_or(0);
-    (
-        DDS_TEST_DOMAIN_BASE + slot,
-        format!("/{prefix}_{slot:03}"),
-    )
+    (DDS_TEST_DOMAIN_BASE + slot, format!("/{prefix}_{slot:03}"))
 }
 
 /// Mangle a ROS 2 topic name to the DDS topic name a live `ros2` daemon uses
@@ -195,7 +192,10 @@ pub fn mangle_type_name(ros_type: &str) -> String {
 mod native {
     use super::*;
     use std::collections::HashMap;
-    use std::sync::{atomic::{AtomicBool, Ordering}, Mutex};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    };
 
     use dust_dds::{
         domain::{
@@ -258,28 +258,26 @@ mod native {
             let participant = DomainParticipantFactory::get_instance()
                 .create_participant(domain_id.into(), QosKind::Default, NO_LISTENER, NO_STATUS)
                 .map_err(|e| format!("dds participant: {e}"))?;
-            let publisher = match participant
-                .create_publisher(QosKind::Default, NO_LISTENER, NO_STATUS)
-            {
-                Ok(publisher) => publisher,
-                Err(e) => {
-                    let _ = participant.delete_contained_entities();
-                    let _ = DomainParticipantFactory::get_instance()
-                        .delete_participant(&participant);
-                    return Err(format!("dds publisher: {e}"));
-                }
-            };
-            let subscriber = match participant
-                .create_subscriber(QosKind::Default, NO_LISTENER, NO_STATUS)
-            {
-                Ok(subscriber) => subscriber,
-                Err(e) => {
-                    let _ = participant.delete_contained_entities();
-                    let _ = DomainParticipantFactory::get_instance()
-                        .delete_participant(&participant);
-                    return Err(format!("dds subscriber: {e}"));
-                }
-            };
+            let publisher =
+                match participant.create_publisher(QosKind::Default, NO_LISTENER, NO_STATUS) {
+                    Ok(publisher) => publisher,
+                    Err(e) => {
+                        let _ = participant.delete_contained_entities();
+                        let _ = DomainParticipantFactory::get_instance()
+                            .delete_participant(&participant);
+                        return Err(format!("dds publisher: {e}"));
+                    }
+                };
+            let subscriber =
+                match participant.create_subscriber(QosKind::Default, NO_LISTENER, NO_STATUS) {
+                    Ok(subscriber) => subscriber,
+                    Err(e) => {
+                        let _ = participant.delete_contained_entities();
+                        let _ = DomainParticipantFactory::get_instance()
+                            .delete_participant(&participant);
+                        return Err(format!("dds subscriber: {e}"));
+                    }
+                };
             let reliability = ReliabilityQosPolicy {
                 kind: ReliabilityQosPolicyKind::Reliable,
                 max_blocking_time: DurationKind::Finite(Duration::new(0, 100_000_000)),
@@ -822,10 +820,7 @@ mod cyclone {
         async fn eg347_cyclone_dds_loopback_pub_sub_roundtrip() {
             let (domain, topic) = next_isolated_dds_identity("eg129_cyclone_loopback");
 
-            assert_eq!(
-                mangle_topic_name(&topic),
-                format!("rt{topic}")
-            );
+            assert_eq!(mangle_topic_name(&topic), format!("rt{topic}"));
 
             let transport = CycloneDdsTransport::new(domain).expect("dds transport");
             transport.subscribe(&topic).await.expect("subscribe");

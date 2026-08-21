@@ -71,6 +71,11 @@ use super::schema::{
 // pushdown consults to choose a real eg-ann index over the brute-force scan.
 use crate::sql::{AnnIndexPlan, HypertablePlan};
 
+/// One row's index-maintenance delta: `(row id, before cells, after cells)`.
+/// Named rather than spelled inline so the tuple's meaning is stated once
+/// (clippy::type_complexity).
+type IndexChange = (u64, Option<Vec<Cell>>, Option<Vec<Cell>>);
+
 /// Catalog system table: `table_name -> MessagePack(TableSchema)`.
 const CATALOG: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_catalog__");
 /// Row store: `(table_name, rowid) -> MessagePack(Vec<Cell>)`.
@@ -3202,13 +3207,13 @@ fn validate_fk_target_in(
                 schema.name
             ));
         }
-        if matches!(on_delete, RefAction::SetNull) || matches!(on_update, RefAction::SetNull) {
-            if !local.nullable {
-                return Err(format!(
-                    "FOREIGN KEY on table `{}`: SET NULL requires nullable column `{local_col}`",
-                    schema.name
-                ));
-            }
+        if (matches!(on_delete, RefAction::SetNull) || matches!(on_update, RefAction::SetNull))
+            && !local.nullable
+        {
+            return Err(format!(
+                "FOREIGN KEY on table `{}`: SET NULL requires nullable column `{local_col}`",
+                schema.name
+            ));
         }
     }
     if !schema_has_unique_over(&ref_schema, ref_columns) {
@@ -4761,7 +4766,7 @@ fn insert_on_conflict_in(
     }
 
     let mut affected: Vec<Vec<Cell>> = Vec::new();
-    let mut index_changes: Vec<(u64, Option<Vec<Cell>>, Option<Vec<Cell>>)> = Vec::new();
+    let mut index_changes: Vec<IndexChange> = Vec::new();
     let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
     for row in rows {
         for value in row {

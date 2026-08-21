@@ -149,13 +149,13 @@ pub fn resolve_tls_config() -> std::io::Result<Option<(String, String, Option<St
 }
 
 fn tls_config_from_env() -> std::io::Result<Option<PgWireTlsConfig>> {
-    Ok(resolve_tls_config()?.map(|(cert_path, key_path, client_ca_path)| {
-        PgWireTlsConfig {
+    Ok(
+        resolve_tls_config()?.map(|(cert_path, key_path, client_ca_path)| PgWireTlsConfig {
             cert_path,
             key_path,
             client_ca_path,
-        }
-    }))
+        }),
+    )
 }
 
 fn addr_is_loopback(addr: &str) -> bool {
@@ -254,14 +254,20 @@ fn build_tls_material(config: &PgWireTlsConfig) -> std::io::Result<PgWireTlsMate
     }
 
     let key_pem = std::fs::read(&config.key_path).map_err(|_| {
-        Error::new(ErrorKind::InvalidInput, "pgwire TLS private key unavailable")
+        Error::new(
+            ErrorKind::InvalidInput,
+            "pgwire TLS private key unavailable",
+        )
     })?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let mode = std::fs::metadata(&config.key_path)
             .map_err(|_| {
-                Error::new(ErrorKind::InvalidInput, "pgwire TLS private key unavailable")
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "pgwire TLS private key unavailable",
+                )
             })?
             .permissions()
             .mode();
@@ -278,16 +284,15 @@ fn build_tls_material(config: &PgWireTlsConfig) -> std::io::Result<PgWireTlsMate
     let _ = pgwire::tokio::tokio_rustls::rustls::crypto::ring::default_provider().install_default();
     let builder = pgwire::tokio::tokio_rustls::rustls::ServerConfig::builder();
     let server_config = if let Some(client_ca_path) = &config.client_ca_path {
-        let ca_pem = std::fs::read(client_ca_path).map_err(|_| {
-            Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA unavailable")
-        })?;
+        let ca_pem = std::fs::read(client_ca_path)
+            .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA unavailable"))?;
         let mut roots = pgwire::tokio::tokio_rustls::rustls::RootCertStore::empty();
         for certificate in CertificateDer::pem_reader_iter(BufReader::new(ca_pem.as_slice())) {
             let certificate = certificate
                 .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA invalid"))?;
-            roots.add(certificate).map_err(|_| {
-                Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA invalid")
-            })?;
+            roots
+                .add(certificate)
+                .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA invalid"))?;
         }
         if roots.is_empty() {
             return Err(Error::new(
@@ -1626,10 +1631,7 @@ pub async fn serve_with_auth(
     };
     let tls_config = tls_config_from_env()?;
     validate_startup_policy_with_tls(addr, &auth_secret, auth_mode, tls_config.as_ref())?;
-    let tls_material = tls_config
-        .as_ref()
-        .map(build_tls_material)
-        .transpose()?;
+    let tls_material = tls_config.as_ref().map(build_tls_material).transpose()?;
     // Once native TLS is configured, do not permit a plaintext downgrade even
     // on loopback. The safe plaintext exception is only the explicit no-TLS
     // loopback default.
@@ -1662,7 +1664,9 @@ pub async fn serve_with_auth(
                 .as_ref()
                 .map(|material| material.certificate_pem.clone()),
         ));
-        let tls_acceptor = tls_material.as_ref().map(|material| material.acceptor.clone());
+        let tls_acceptor = tls_material
+            .as_ref()
+            .map(|material| material.acceptor.clone());
         tokio::spawn(async move {
             if require_tls {
                 match client_requested_tls(&socket).await {
@@ -1674,9 +1678,7 @@ pub async fn serve_with_auth(
                         return;
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "pgwire TLS preflight from {peer} failed: {e}"
-                        );
+                        tracing::warn!("pgwire TLS preflight from {peer} failed: {e}");
                         return;
                     }
                 }

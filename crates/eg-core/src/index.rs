@@ -341,12 +341,7 @@ impl IndexManifest {
     /// whose source coverage disagreed with the graph. Every readiness,
     /// reconciliation, and served-query decision must use this exact tuple so
     /// mismatches fail closed.
-    pub fn covers_source(
-        &self,
-        source_snapshot_version: u64,
-        nodes: u64,
-        edges: u64,
-    ) -> bool {
+    pub fn covers_source(&self, source_snapshot_version: u64, nodes: u64, edges: u64) -> bool {
         self.build_version == Self::BUILD_VERSION
             && self.validity == IndexValidity::Valid
             && self.completeness.complete
@@ -1064,10 +1059,19 @@ mod tests {
     fn manifest_source_coverage_requires_the_exact_source_tuple() {
         let valid = IndexManifest::valid(7, 3, 2);
         assert!(valid.covers_source(7, 3, 2));
-        assert!(!valid.covers_source(8, 3, 2), "future snapshot is not current");
+        assert!(
+            !valid.covers_source(8, 3, 2),
+            "future snapshot is not current"
+        );
         assert!(!valid.covers_source(6, 3, 2), "older snapshot is stale");
-        assert!(!valid.covers_source(7, 4, 2), "node cursor mismatch fails closed");
-        assert!(!valid.covers_source(7, 3, 1), "edge cursor mismatch fails closed");
+        assert!(
+            !valid.covers_source(7, 4, 2),
+            "node cursor mismatch fails closed"
+        );
+        assert!(
+            !valid.covers_source(7, 3, 1),
+            "edge cursor mismatch fails closed"
+        );
 
         let mut incomplete = valid;
         incomplete.completeness.complete = false;
@@ -1115,11 +1119,7 @@ mod tests {
             true
         }
 
-        fn apply_delta(
-            &self,
-            _core: &GraphCore,
-            _change: &ChangeSet,
-        ) -> Result<(), IndexError> {
+        fn apply_delta(&self, _core: &GraphCore, _change: &ChangeSet) -> Result<(), IndexError> {
             Ok(())
         }
     }
@@ -1133,9 +1133,7 @@ mod tests {
             manifest: std::sync::Mutex::new(IndexManifest::valid(0, 1, 0)),
         }));
 
-        let tally = g
-            .indexes()
-            .commit_batch_at(&g, &ChangeSet::new(), 1, 0, 0);
+        let tally = g.indexes().commit_batch_at(&g, &ChangeSet::new(), 1, 0, 0);
         assert_eq!(tally.deltas_applied, 0);
         assert_eq!(tally.failures, 1);
         let manifest = g.indexes().server_manifests()[0].1;

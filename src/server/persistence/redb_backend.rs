@@ -5306,22 +5306,16 @@ mod tests {
         let dir_s = dir.to_string_lossy().to_string();
 
         {
-            let _guard = EncryptionRequiredEnvGuard::set_with_ref(
-                "stable-key-material",
-                "kms/graph",
-                "1",
-            );
+            let _guard =
+                EncryptionRequiredEnvGuard::set_with_ref("stable-key-material", "kms/graph", "1");
             let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
                 .expect("first open must establish the pinned reference");
             backend.shutdown();
         }
 
         let result = {
-            let _guard = EncryptionRequiredEnvGuard::set_with_ref(
-                "stable-key-material",
-                "kms/graph",
-                "2",
-            );
+            let _guard =
+                EncryptionRequiredEnvGuard::set_with_ref("stable-key-material", "kms/graph", "2");
             RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
         };
         let message = match result {

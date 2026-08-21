@@ -548,9 +548,7 @@ pub(crate) async fn try_handle_gateway(
             .await
         }
         // ── L11 rollout batch 2 (EG-P0-2 continued): graph-core family ──
-        Method::CompareAndSetNodeFields {
-            ..
-        } => {
+        Method::CompareAndSetNodeFields { .. } => {
             let owned_method = method.clone();
             commit_gateway_coalescable(&ctx, &plan, &method, move |core| {
                 mutation::apply_coalescable_write(core, &owned_method)

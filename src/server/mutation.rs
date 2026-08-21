@@ -1072,10 +1072,12 @@ pub(crate) fn apply_coalescable_write(
                         ),
                     );
                 } else {
-                    change.updated_nodes.push(crate::index::NodeChange::with_fields(
-                        node_id.clone(),
-                        updates.keys().cloned().collect(),
-                    ));
+                    change
+                        .updated_nodes
+                        .push(crate::index::NodeChange::with_fields(
+                            node_id.clone(),
+                            updates.keys().cloned().collect(),
+                        ));
                 }
             }
             Ok(ResultPayload::Bool(ok))

@@ -94,7 +94,9 @@ pub struct NodeInfo {
 fn valid_host_port(value: &str, scheme: Option<&str>) -> bool {
     if value.is_empty()
         || value.len() > MAX_NODE_INFO_FIELD_BYTES
-        || value.chars().any(|character| character.is_whitespace() || character.is_control())
+        || value
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
     {
         return false;
     }
@@ -161,15 +163,13 @@ fn validate_node_info(info: &NodeInfo) -> Result<(), String> {
             "node info advertised_client_addr must be tcp:// or tls:// host:port".to_string(),
         );
     }
-    if info
-        .tls_server_name
-        .as_deref()
-        .is_some_and(|name| {
-            name.is_empty()
-                || name.len() > MAX_NODE_INFO_FIELD_BYTES
-                || name.chars().any(|character| character.is_whitespace() || character.is_control())
-        })
-    {
+    if info.tls_server_name.as_deref().is_some_and(|name| {
+        name.is_empty()
+            || name.len() > MAX_NODE_INFO_FIELD_BYTES
+            || name
+                .chars()
+                .any(|character| character.is_whitespace() || character.is_control())
+    }) {
         return Err("node info tls_server_name exceeds resource limits".to_string());
     }
     if info
@@ -179,11 +179,10 @@ fn validate_node_info(info: &NodeInfo) -> Result<(), String> {
     {
         return Err("node info certificate_id exceeds resource limits".to_string());
     }
-    if info
-        .certificate_id
-        .as_deref()
-        .is_some_and(|id| id.chars().any(|character| character.is_whitespace() || character.is_control()))
-    {
+    if info.certificate_id.as_deref().is_some_and(|id| {
+        id.chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    }) {
         return Err("node info certificate_id contains whitespace".to_string());
     }
     if info
@@ -274,8 +273,7 @@ impl NodeInfoStore {
         {
             let wtx = db.begin_write().map_err(|e| e.to_string())?;
             wtx.open_table(NODE_INFO).map_err(|e| e.to_string())?;
-            wtx.open_table(NODE_INFO_META)
-                .map_err(|e| e.to_string())?;
+            wtx.open_table(NODE_INFO_META).map_err(|e| e.to_string())?;
             wtx.commit().map_err(|e| e.to_string())?;
         }
         let mut entries = HashMap::new();
@@ -392,9 +390,7 @@ impl NodeInfoStore {
                 let mut t = wtx.open_table(NODE_INFO).map_err(|e| e.to_string())?;
                 t.insert(info.node_id, blob.as_slice())
                     .map_err(|e| e.to_string())?;
-                let mut meta = wtx
-                    .open_table(NODE_INFO_META)
-                    .map_err(|e| e.to_string())?;
+                let mut meta = wtx.open_table(NODE_INFO_META).map_err(|e| e.to_string())?;
                 meta.insert(NODE_INFO_META_KEY, meta_blob.as_slice())
                     .map_err(|e| e.to_string())?;
             }
@@ -600,10 +596,8 @@ mod tests {
 
     #[test]
     fn durable_generation_advances_across_repeated_updates_and_restart() {
-        let dir = std::env::temp_dir().join(format!(
-            "eg-node-info-generation-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("eg-node-info-generation-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         {

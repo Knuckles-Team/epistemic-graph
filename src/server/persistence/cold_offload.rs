@@ -145,7 +145,8 @@ impl ColdTenantTracker {
             graph: graph.to_string(),
             incarnation_id: None,
         });
-        exact.or(legacy)
+        exact
+            .or(legacy)
             .is_some_and(|timestamp| now.duration_since(*timestamp) >= idle_window)
     }
 
@@ -171,8 +172,7 @@ impl ColdTenantTracker {
     /// recreated graph with the same name.
     pub fn forget_incarnation(&self, graph: &str, incarnation_id: &str) {
         let matches = |key: &TrackerKey| {
-            key.graph.as_str() == graph
-                && key.incarnation_id.as_deref() == Some(incarnation_id)
+            key.graph.as_str() == graph && key.incarnation_id.as_deref() == Some(incarnation_id)
         };
         self.last_access.lock().retain(|key, _| !matches(key));
         self.offloaded.lock().retain(|key| !matches(key));
@@ -539,11 +539,7 @@ mod tracker_tests {
     fn access_recency_is_fenced_by_incarnation() {
         let tracker = ColdTenantTracker::new();
         tracker.touch_with_incarnation("tenant:recreate", "incarnation:old");
-        assert!(tracker.is_cold_for(
-            "tenant:recreate",
-            "incarnation:old",
-            Duration::ZERO
-        ));
+        assert!(tracker.is_cold_for("tenant:recreate", "incarnation:old", Duration::ZERO));
 
         tracker.touch_with_incarnation("tenant:recreate", "incarnation:new");
         assert!(!tracker.is_cold_for(
@@ -552,9 +548,7 @@ mod tracker_tests {
             Duration::from_secs(3600)
         ));
         tracker.forget_incarnation("tenant:recreate", "incarnation:old");
-        assert!(tracker
-            .cold_graphs(Duration::from_secs(3600))
-            .is_empty());
+        assert!(tracker.cold_graphs(Duration::from_secs(3600)).is_empty());
     }
 }
 

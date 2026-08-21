@@ -187,10 +187,8 @@ pub async fn start(
             .unwrap_or_else(|| cfg.bind_addr.clone());
         let cluster_id = cfg.cluster_id.clone();
         let node_id = cfg.node_id;
-        let member_identity = crate::server::persistence::node_info_store::member_identity_for(
-            &cluster_id,
-            node_id,
-        );
+        let member_identity =
+            crate::server::persistence::node_info_store::member_identity_for(&cluster_id, node_id);
         let advertised_client_addr = cfg.advertised_client_addr.clone();
         let advertised_tls_server_name = cfg.advertised_tls_server_name.clone();
         let advertised_certificate_id = cfg.advertised_certificate_id.clone();

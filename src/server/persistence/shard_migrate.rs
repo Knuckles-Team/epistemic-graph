@@ -572,7 +572,9 @@ fn copy_global_tables(
     // across a changed K must not make restore totals appear to change.
     #[cfg(feature = "security")]
     {
-        let mut d_encryption_canary = wtx.open_table(ENCRYPTION_CANARY).map_err(|e| e.to_string())?;
+        let mut d_encryption_canary = wtx
+            .open_table(ENCRYPTION_CANARY)
+            .map_err(|e| e.to_string())?;
         // Compare the KEY BINDING row, never the whole table.
         //
         // The `ENCRYPTION_CANARY` table holds two different kinds of row. The
@@ -612,16 +614,17 @@ fn copy_global_tables(
             // mislabelled a key mismatch: without a binding there is no key identity
             // to compare, and the canary alone cannot supply one.
             let Some(binding) = binding else {
-                return Err("source shard has an encryption canary but no key-binding row; \
+                return Err(
+                    "source shard has an encryption canary but no key-binding row; \
                             open it once with the configured key to complete the legacy \
                             upgrade before restoring"
-                    .to_string());
+                        .to_string(),
+                );
             };
             if let Some(existing) = &source_binding {
                 if existing != &binding {
                     return Err(
-                        "encryption key-binding metadata differs between source shards"
-                            .to_string(),
+                        "encryption key-binding metadata differs between source shards".to_string(),
                     );
                 }
             } else {

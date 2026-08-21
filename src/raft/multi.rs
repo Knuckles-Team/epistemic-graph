@@ -37,10 +37,10 @@ use openraft::BasicNode;
 use openraft::Config;
 use tokio::sync::RwLock;
 
-use super::network::{self, GroupRpcReply, RaftFrame, RaftFrameReply};
 use super::membership_shrink::{
     MembershipShrinkEvidence, MembershipShrinkJournal, MembershipShrinkPhase,
 };
+use super::network::{self, GroupRpcReply, RaftFrame, RaftFrameReply};
 use super::placement::{self, PlacementCatalog, PlacementRoute};
 use super::store::EgStore;
 use super::{
@@ -433,15 +433,8 @@ impl MultiRaft {
         let failure_domains = [(node_id, format!("harness-node-{node_id}"))]
             .into_iter()
             .collect();
-        let multi = Self::start_inner(
-            node_id,
-            bind_addr,
-            backend,
-            ctx,
-            None,
-            failure_domains,
-        )
-        .await?;
+        let multi =
+            Self::start_inner(node_id, bind_addr, backend, ctx, None, failure_domains).await?;
         // Harness construction is process-owned: once the real MultiRaft
         // listener/catalog exists, publish it to the shared ServerState rather
         // than making every fixture remember a second wiring assignment.
@@ -860,9 +853,7 @@ impl MultiRaft {
             self.failure_domains
                 .write()
                 .entry(*peer_id)
-                .or_insert_with(|| {
-                    super::config::failure_domain_for_peer(*peer_id, &peer.addr)
-                });
+                .or_insert_with(|| super::config::failure_domain_for_peer(*peer_id, &peer.addr));
         }
         // The store's ctx carries the router so its snapshot dump is SCOPED to this
         // group's tenant-range graphs (CONCEPT:AU-KG.ingest.staged), not the whole registry.
@@ -1034,9 +1025,10 @@ impl MultiRaft {
         self.pool
             .register_peer(new_node, &addr)
             .map_err(|_| "invalid or conflicting Raft peer registration".to_string())?;
-        self.failure_domains.write().entry(new_node).or_insert_with(|| {
-            super::config::failure_domain_for_peer(new_node, &addr)
-        });
+        self.failure_domains
+            .write()
+            .entry(new_node)
+            .or_insert_with(|| super::config::failure_domain_for_peer(new_node, &addr));
         let raft = self
             .groups
             .read()
@@ -1150,10 +1142,7 @@ impl MultiRaft {
         let (mut voters, current_term, current_leader, learners, learner_caught_up_live) = {
             let metrics = raft.metrics();
             let watched = metrics.borrow_watched();
-            let v: BTreeSet<NodeId> = watched
-                .membership_config
-                .voter_ids()
-                .collect();
+            let v: BTreeSet<NodeId> = watched.membership_config.voter_ids().collect();
             let learners: BTreeSet<NodeId> = watched
                 .membership_config
                 .membership()
@@ -1195,16 +1184,24 @@ impl MultiRaft {
             .observed_learner
             .ok_or_else(|| "membership shrink requires a caught-up learner".to_string())?;
         if !learners.contains(&learner) {
-            return Err("membership shrink learner is not in the committed learner set".to_string());
+            return Err(
+                "membership shrink learner is not in the committed learner set".to_string(),
+            );
         }
         if current_leader != Some(self.node_id) {
-            return Err("membership shrink must be proposed by the current group leader".to_string());
+            return Err(
+                "membership shrink must be proposed by the current group leader".to_string(),
+            );
         }
         if current_leader == Some(node) {
-            return Err("membership shrink requires leadership transfer before removal".to_string());
+            return Err(
+                "membership shrink requires leadership transfer before removal".to_string(),
+            );
         }
         if !learner_caught_up_live {
-            return Err("membership shrink learner has not caught up to the leader log".to_string());
+            return Err(
+                "membership shrink learner has not caught up to the leader log".to_string(),
+            );
         }
         let expected_voters: Vec<NodeId> = {
             let mut current: Vec<NodeId> = voters.iter().copied().collect();
@@ -1216,15 +1213,12 @@ impl MultiRaft {
             || evidence.observed_voters != expected_voters
             || evidence.observed_leader != current_leader
         {
-            return Err("membership shrink evidence does not match live term or voter set".to_string());
+            return Err(
+                "membership shrink evidence does not match live term or voter set".to_string(),
+            );
         }
-        let mut journal = MembershipShrinkJournal::new(
-            gid,
-            node,
-            learner,
-            current_term,
-            expected_voters,
-        )?;
+        let mut journal =
+            MembershipShrinkJournal::new(gid, node, learner, current_term, expected_voters)?;
         if let Some(existing) = self
             .placement
             .membership_shrink_journal(&journal.operation_id)
@@ -1262,16 +1256,16 @@ impl MultiRaft {
         let (observed_voters, observed_leader) = {
             let metrics = raft.metrics();
             let watched = metrics.borrow_watched();
-            let mut observed: Vec<NodeId> = watched
-                .membership_config
-                .voter_ids()
-                .collect();
+            let mut observed: Vec<NodeId> = watched.membership_config.voter_ids().collect();
             observed.sort_unstable();
             (observed, watched.current_leader)
         };
-        if observed_voters != voters.iter().copied().collect::<Vec<_>>() || observed_leader == Some(node)
+        if observed_voters != voters.iter().copied().collect::<Vec<_>>()
+            || observed_leader == Some(node)
         {
-            return Err("membership shrink commit did not produce the expected voter fence".to_string());
+            return Err(
+                "membership shrink commit did not produce the expected voter fence".to_string(),
+            );
         }
         let mut committed_evidence = evidence;
         committed_evidence.observed_voters = observed_voters;
@@ -1374,22 +1368,15 @@ impl MultiRaft {
             let mut known_domains = self.failure_domains.write();
             for (_, _, _, _, _, _, discovered_domains) in &observations {
                 for (node_id, domain) in discovered_domains {
-                    known_domains.entry(*node_id).or_insert_with(|| domain.clone());
+                    known_domains
+                        .entry(*node_id)
+                        .or_insert_with(|| domain.clone());
                 }
             }
         }
         let failure_domains = self.failure_domains.read().clone();
 
-        for (
-            gid,
-            raft,
-            voters,
-            current_leader,
-            local_is_leader,
-            target,
-            _,
-        ) in observations
-        {
+        for (gid, raft, voters, current_leader, local_is_leader, target, _) in observations {
             // Nothing to balance for a single-voter group.
             if voters.len() <= 1 {
                 continue;
@@ -1416,8 +1403,7 @@ impl MultiRaft {
             if !failure_domain_safe(&failure_domains, current, target) {
                 report.skipped.push((
                     gid,
-                    "target shares the current leader failure domain or has no domain"
-                        .to_string(),
+                    "target shares the current leader failure domain or has no domain".to_string(),
                 ));
                 continue;
             }

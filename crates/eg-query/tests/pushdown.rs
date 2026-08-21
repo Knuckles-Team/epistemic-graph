@@ -357,7 +357,9 @@ fn secondary_index_catalog_and_scalar_lookup_contract() {
         .unwrap();
     assert!(blue_after_delete.is_empty());
 
-    assert!(store.drop_secondary_index("events", "events_team_idx", false).unwrap());
+    assert!(store
+        .drop_secondary_index("events", "events_team_idx", false)
+        .unwrap());
     assert!(store
         .secondary_index_rows(
             "events",
@@ -371,7 +373,13 @@ fn secondary_index_catalog_and_scalar_lookup_contract() {
 
     drop(store);
     let reopened = TableStore::open_scoped(&path, "tenant-a").unwrap();
-    assert_eq!(reopened.list_secondary_indexes(Some("events")).unwrap().len(), 1);
+    assert_eq!(
+        reopened
+            .list_secondary_indexes(Some("events"))
+            .unwrap()
+            .len(),
+        1
+    );
     assert_eq!(reopened.scan("events").unwrap().len(), 2);
 }
 
@@ -383,16 +391,20 @@ fn secondary_index_rejects_vector_columns_without_touching_ann_catalog() {
     let (store, _path) = TableStore::open_temp().unwrap();
     let schema = TableSchema::new(
         "embeddings",
-        vec![Column::new("embedding", ColumnType::Vector(Some(3)), false, false)],
+        vec![Column::new(
+            "embedding",
+            ColumnType::Vector(Some(3)),
+            false,
+            false,
+        )],
     );
     store.create_table(&schema, false).unwrap();
-    let spec = store
-        .secondary_index_spec(
-            "embeddings",
-            "embedding_btree",
-            vec![SecondaryIndexColumn::ascending("embedding")],
-            &schema,
-        );
+    let spec = store.secondary_index_spec(
+        "embeddings",
+        "embedding_btree",
+        vec![SecondaryIndexColumn::ascending("embedding")],
+        &schema,
+    );
     assert!(spec.is_err());
     assert!(store.list_ann_indexes().unwrap().is_empty());
 }

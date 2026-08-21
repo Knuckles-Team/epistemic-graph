@@ -167,11 +167,13 @@ impl WriteOp {
                 serde_json::Value::Array(values) => values
                     .iter()
                     .fold(0u64, |total, value| total.saturating_add(json_bytes(value))),
-                serde_json::Value::Object(values) => values.iter().fold(0u64, |total, (key, value)| {
-                    total
-                        .saturating_add(key.len() as u64)
-                        .saturating_add(json_bytes(value))
-                }),
+                serde_json::Value::Object(values) => {
+                    values.iter().fold(0u64, |total, (key, value)| {
+                        total
+                            .saturating_add(key.len() as u64)
+                            .saturating_add(json_bytes(value))
+                    })
+                }
             }
         }
 
@@ -180,8 +182,7 @@ impl WriteOp {
                 node_id,
                 properties_msgpack,
                 ..
-            } => (node_id.len() as u64)
-                .saturating_add(properties_msgpack.len() as u64),
+            } => (node_id.len() as u64).saturating_add(properties_msgpack.len() as u64),
             Self::RemoveNode { node_id, .. } => node_id.len() as u64,
             Self::AddEdge {
                 source_id,
@@ -201,14 +202,14 @@ impl WriteOp {
                 conditions,
                 updates,
                 ..
-            } => conditions
-                .iter()
-                .chain(updates.iter())
-                .fold(node_id.len() as u64, |total, (key, value)| {
+            } => conditions.iter().chain(updates.iter()).fold(
+                node_id.len() as u64,
+                |total, (key, value)| {
                     total
                         .saturating_add(key.len() as u64)
                         .saturating_add(json_bytes(value))
-                }),
+                },
+            ),
         }
     }
 }
@@ -719,13 +720,22 @@ mod tests {
             properties_msgpack: node_props(3),
             reply: third,
         });
-        assert!(rejected.is_err(), "full RAM queue must return BUSY to its caller");
+        assert!(
+            rejected.is_err(),
+            "full RAM queue must return BUSY to its caller"
+        );
         drop(rejected);
-        assert!(third_rx.await.is_err(), "rejected RAM op must not be applied inline");
+        assert!(
+            third_rx.await.is_err(),
+            "rejected RAM op must not be applied inline"
+        );
         assert!(matches!(first_rx.await.unwrap(), WriteOutcome::Ok));
         assert!(matches!(second_rx.await.unwrap(), WriteOutcome::Ok));
         assert_eq!(core.node_count(), 2, "only accepted RAM tickets may mutate");
-        assert!(!core.has_node("third"), "overflow op must not overtake queued writes");
+        assert!(
+            !core.has_node("third"),
+            "overflow op must not overtake queued writes"
+        );
     }
 
     /// N producers writing distinct nodes to ONE graph must (a) all land (no lost

@@ -341,7 +341,9 @@ fn materialize_array(
                             match value.as_f64() {
                                 Some(number) => b.values().append_value(number),
                                 None if value.is_null() => b.values().append_null(),
-                                None => return Err("invalid floating-point ARRAY element".to_string()),
+                                None => {
+                                    return Err("invalid floating-point ARRAY element".to_string())
+                                }
                             }
                         }
                         b.append(true);
@@ -486,8 +488,9 @@ fn scalar_to_json(value: &ScalarValue) -> Option<serde_json::Value> {
         ScalarValue::UInt16(Some(value)) => Some((*value as u64).into()),
         ScalarValue::UInt32(Some(value)) => Some((*value as u64).into()),
         ScalarValue::UInt64(Some(value)) => Some((*value).into()),
-        ScalarValue::Float32(Some(value)) => serde_json::Number::from_f64(*value as f64)
-            .map(serde_json::Value::Number),
+        ScalarValue::Float32(Some(value)) => {
+            serde_json::Number::from_f64(*value as f64).map(serde_json::Value::Number)
+        }
         ScalarValue::Float64(Some(value)) => {
             serde_json::Number::from_f64(*value).map(serde_json::Value::Number)
         }
@@ -513,9 +516,7 @@ fn secondary_lookup(expr: &Expr, schema: &TableSchema) -> Option<SecondaryIndexL
         return None;
     };
     let (column, literal, op) = match (binary.left.as_ref(), binary.right.as_ref()) {
-        (Expr::Column(column), Expr::Literal(value, _)) => {
-            (column, value, binary.op)
-        }
+        (Expr::Column(column), Expr::Literal(value, _)) => (column, value, binary.op),
         (Expr::Literal(value, _), Expr::Column(column)) => {
             (column, value, reverse_index_operator(binary.op))
         }
@@ -526,11 +527,26 @@ fn secondary_lookup(expr: &Expr, schema: &TableSchema) -> Option<SecondaryIndexL
     let cell = Cell::coerce(&json, ty, true).ok()?;
     let column = column.name.clone();
     match op {
-        Operator::Eq => Some(SecondaryIndexLookup::Eq { column, value: cell }),
-        Operator::Lt => Some(SecondaryIndexLookup::Lt { column, value: cell }),
-        Operator::LtEq => Some(SecondaryIndexLookup::Le { column, value: cell }),
-        Operator::Gt => Some(SecondaryIndexLookup::Gt { column, value: cell }),
-        Operator::GtEq => Some(SecondaryIndexLookup::Ge { column, value: cell }),
+        Operator::Eq => Some(SecondaryIndexLookup::Eq {
+            column,
+            value: cell,
+        }),
+        Operator::Lt => Some(SecondaryIndexLookup::Lt {
+            column,
+            value: cell,
+        }),
+        Operator::LtEq => Some(SecondaryIndexLookup::Le {
+            column,
+            value: cell,
+        }),
+        Operator::Gt => Some(SecondaryIndexLookup::Gt {
+            column,
+            value: cell,
+        }),
+        Operator::GtEq => Some(SecondaryIndexLookup::Ge {
+            column,
+            value: cell,
+        }),
         _ => None,
     }
 }

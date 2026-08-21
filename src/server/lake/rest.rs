@@ -540,11 +540,7 @@ fn err_body(message: &str, kind: &str, code: u16) -> String {
 fn carrier_denied_response() -> (&'static str, String) {
     (
         "403 Forbidden",
-        err_body(
-            "Iceberg carrier request denied",
-            "ForbiddenException",
-            403,
-        ),
+        err_body("Iceberg carrier request denied", "ForbiddenException", 403),
     )
 }
 

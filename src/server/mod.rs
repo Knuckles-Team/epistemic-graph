@@ -3619,10 +3619,7 @@ mod tests {
         // accounted for by the ordered worker. If this regresses, the drain
         // stopped recording a committed job — an accounting bug, not an
         // environment issue.
-        assert_eq!(
-            ops, N,
-            "stats account for every admitted dispatched write"
-        );
+        assert_eq!(ops, N, "stats account for every admitted dispatched write");
         // TIMING-DEPENDENT, but FORCED deterministic above: the coalescer
         // applied them in fewer lock acquisitions than ops. Because every
         // writer was made to queue behind `hold` before any could land, this

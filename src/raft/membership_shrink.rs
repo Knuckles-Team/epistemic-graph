@@ -71,7 +71,11 @@ impl MembershipShrinkEvidence {
         if self.evidence_ref.is_empty() || self.evidence_ref.len() > MAX_EVIDENCE_REF {
             return Err("membership shrink evidence reference is invalid".to_string());
         }
-        if self.evidence_ref.bytes().any(|byte| byte.is_ascii_control()) {
+        if self
+            .evidence_ref
+            .bytes()
+            .any(|byte| byte.is_ascii_control())
+        {
             return Err("membership shrink evidence reference contains control bytes".to_string());
         }
         Ok(())
@@ -105,7 +109,9 @@ pub enum ShrinkRecoveryAction {
 }
 
 fn validate_voters(voters: &[NodeId]) -> Result<(), String> {
-    if voters.is_empty() || voters.len() > MAX_VOTERS || voters.windows(2).any(|pair| pair[0] >= pair[1])
+    if voters.is_empty()
+        || voters.len() > MAX_VOTERS
+        || voters.windows(2).any(|pair| pair[0] >= pair[1])
     {
         return Err("membership voter set must be sorted, unique, and bounded".to_string());
     }
@@ -156,13 +162,7 @@ impl MembershipShrinkJournal {
         validate_voters(&remaining_voters)?;
         Ok(Self {
             schema_version: MEMBERSHIP_SHRINK_SCHEMA_VERSION,
-            operation_id: operation_id(
-                group_id,
-                target,
-                learner,
-                expected_term,
-                &expected_voters,
-            ),
+            operation_id: operation_id(group_id, target, learner, expected_term, &expected_voters),
             group_id,
             target,
             learner,
@@ -226,7 +226,10 @@ impl MembershipShrinkJournal {
     ) -> bool {
         let expected_voters = match next {
             MembershipShrinkPhase::RemovalCommitted | MembershipShrinkPhase::Completed
-                if evidence.membership_change_committed => &self.remaining_voters,
+                if evidence.membership_change_committed =>
+            {
+                &self.remaining_voters
+            }
             _ => &self.expected_voters,
         };
         evidence.validate().is_ok()
@@ -274,10 +277,7 @@ impl MembershipShrinkJournal {
                     && evidence.headroom_preserved
                     && evidence.pdb_preserved
             }
-            (
-                MembershipShrinkPhase::SafetyChecked,
-                MembershipShrinkPhase::RemovalCommitted,
-            ) => {
+            (MembershipShrinkPhase::SafetyChecked, MembershipShrinkPhase::RemovalCommitted) => {
                 evidence.membership_change_committed
                     && evidence.target_absent
                     && evidence.observed_voters == self.remaining_voters
@@ -331,7 +331,10 @@ impl MembershipShrinkJournal {
             MembershipShrinkPhase::SafetyChecked
             | MembershipShrinkPhase::RemovalCommitted
             | MembershipShrinkPhase::Completed
-                if observed == self.remaining_voters => ShrinkRecoveryAction::Complete,
+                if observed == self.remaining_voters =>
+            {
+                ShrinkRecoveryAction::Complete
+            }
             phase if !phase.terminal() && observed == self.expected_voters => {
                 ShrinkRecoveryAction::Resume
             }
@@ -366,26 +369,28 @@ impl MembershipShrinkJournal {
         }
         matches!(
             (self.phase, next.phase),
-            (MembershipShrinkPhase::Proposed, MembershipShrinkPhase::DrainRequested)
-                | (MembershipShrinkPhase::DrainRequested, MembershipShrinkPhase::Drained)
-                | (MembershipShrinkPhase::Drained, MembershipShrinkPhase::LearnerCaughtUp)
-                | (
-                    MembershipShrinkPhase::LearnerCaughtUp,
-                    MembershipShrinkPhase::LeadershipTransferred
-                )
-                | (
-                    MembershipShrinkPhase::LeadershipTransferred,
-                    MembershipShrinkPhase::SafetyChecked
-                )
-                | (
-                    MembershipShrinkPhase::SafetyChecked,
-                    MembershipShrinkPhase::RemovalCommitted
-                )
-                | (
-                    MembershipShrinkPhase::RemovalCommitted,
-                    MembershipShrinkPhase::Completed
-                )
-                | (_, MembershipShrinkPhase::Aborted)
+            (
+                MembershipShrinkPhase::Proposed,
+                MembershipShrinkPhase::DrainRequested
+            ) | (
+                MembershipShrinkPhase::DrainRequested,
+                MembershipShrinkPhase::Drained
+            ) | (
+                MembershipShrinkPhase::Drained,
+                MembershipShrinkPhase::LearnerCaughtUp
+            ) | (
+                MembershipShrinkPhase::LearnerCaughtUp,
+                MembershipShrinkPhase::LeadershipTransferred
+            ) | (
+                MembershipShrinkPhase::LeadershipTransferred,
+                MembershipShrinkPhase::SafetyChecked
+            ) | (
+                MembershipShrinkPhase::SafetyChecked,
+                MembershipShrinkPhase::RemovalCommitted
+            ) | (
+                MembershipShrinkPhase::RemovalCommitted,
+                MembershipShrinkPhase::Completed
+            ) | (_, MembershipShrinkPhase::Aborted)
         )
     }
 

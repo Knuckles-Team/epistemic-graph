@@ -2016,9 +2016,10 @@ fn validate_submit_context(
     if context.request_id.trim().is_empty()
         || context.subject_id.trim().is_empty()
         || context.trace_id.trim().is_empty()
-        || context.scopes.iter().any(|scope| {
-            scope.trim().is_empty() || !verified_context.allows_action(scope)
-        })
+        || context
+            .scopes
+            .iter()
+            .any(|scope| scope.trim().is_empty() || !verified_context.allows_action(scope))
         || context.expires_at_ms < context.issued_at_ms
     {
         return Err("SubmitWorkItem context violates the verified carrier bounds".to_string());
@@ -2856,28 +2857,22 @@ async fn dispatch_inner(
     if !state_machine_authorized && !identity_bootstrap {
         match &req.method {
             Method::SubmitWorkItem { request } => {
-                if let Err(error) = validate_submit_context(
-                    &req.graph,
-                    &request.context,
-                    &verified_context,
-                ) {
+                if let Err(error) =
+                    validate_submit_context(&req.graph, &request.context, &verified_context)
+                {
                     return Response::err(req.id, error);
                 }
             }
             Method::SubmitWorkItems { request } => {
-                if let Err(error) = validate_submit_context(
-                    &req.graph,
-                    &request.context,
-                    &verified_context,
-                ) {
+                if let Err(error) =
+                    validate_submit_context(&req.graph, &request.context, &verified_context)
+                {
                     return Response::err(req.id, error);
                 }
                 for child in &request.requests {
-                    if let Err(error) = validate_submit_context(
-                        &req.graph,
-                        &child.context,
-                        &verified_context,
-                    ) {
+                    if let Err(error) =
+                        validate_submit_context(&req.graph, &child.context, &verified_context)
+                    {
                         return Response::err(req.id, error);
                     }
                 }
@@ -5910,10 +5905,12 @@ async fn replicate_served_modality(
             // decoder to reject receipt tampering without ever reconstructing or
             // exposing the sealed/source material.
             let result = match record.result_msgpack.as_deref() {
-                Some(encoded) => crate::raft::decode_sanitized_modality_result(
-                    modality, operation, encoded,
-                )
-                .map_err(|_| "replicated modality receipt has an invalid result".to_string()),
+                Some(encoded) => {
+                    crate::raft::decode_sanitized_modality_result(modality, operation, encoded)
+                        .map_err(|_| {
+                            "replicated modality receipt has an invalid result".to_string()
+                        })
+                }
                 None => Err("replicated modality receipt has no terminal result".to_string()),
             };
             let result = match result {
@@ -6847,7 +6844,10 @@ async fn dispatch_graph_op_inner(
                     .await
                     .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
                     .unwrap_or_else(|error| {
-                        Response::err(req_id, format!("native capacity status read failed: {error}"))
+                        Response::err(
+                            req_id,
+                            format!("native capacity status read failed: {error}"),
+                        )
                     })
             }
             method @ (Method::AcquireCapacity { .. }

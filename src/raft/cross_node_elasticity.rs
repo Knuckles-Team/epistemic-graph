@@ -52,7 +52,9 @@ impl ResourceVector {
             resident_bytes: self.resident_bytes.saturating_add(other.resident_bytes),
             resident_nodes: self.resident_nodes.saturating_add(other.resident_nodes),
             read_ops_per_sec: self.read_ops_per_sec.saturating_add(other.read_ops_per_sec),
-            write_ops_per_sec: self.write_ops_per_sec.saturating_add(other.write_ops_per_sec),
+            write_ops_per_sec: self
+                .write_ops_per_sec
+                .saturating_add(other.write_ops_per_sec),
             queue_depth: self.queue_depth.saturating_add(other.queue_depth),
             fsync_p99_micros: self.fsync_p99_micros.saturating_add(other.fsync_p99_micros),
             cpu_millis: self.cpu_millis.saturating_add(other.cpu_millis),
@@ -67,7 +69,9 @@ impl ResourceVector {
             resident_bytes: self.resident_bytes.checked_sub(other.resident_bytes)?,
             resident_nodes: self.resident_nodes.checked_sub(other.resident_nodes)?,
             read_ops_per_sec: self.read_ops_per_sec.checked_sub(other.read_ops_per_sec)?,
-            write_ops_per_sec: self.write_ops_per_sec.checked_sub(other.write_ops_per_sec)?,
+            write_ops_per_sec: self
+                .write_ops_per_sec
+                .checked_sub(other.write_ops_per_sec)?,
             queue_depth: self.queue_depth.checked_sub(other.queue_depth)?,
             fsync_p99_micros: self.fsync_p99_micros.checked_sub(other.fsync_p99_micros)?,
             cpu_millis: self.cpu_millis.checked_sub(other.cpu_millis)?,
@@ -178,10 +182,7 @@ impl ResourceHeadroom {
             queue_depth: remaining(limits.queue_depth, load.queue_depth),
             fsync_p99_micros: remaining(limits.fsync_p99_micros, load.fsync_p99_micros),
             cpu_millis: remaining(limits.cpu_millis, load.cpu_millis),
-            fanout_units_per_sec: remaining(
-                limits.fanout_units_per_sec,
-                load.fanout_units_per_sec,
-            ),
+            fanout_units_per_sec: remaining(limits.fanout_units_per_sec, load.fanout_units_per_sec),
         }
     }
 
@@ -220,7 +221,10 @@ pub struct NodeCapacity {
 
 impl NodeCapacity {
     pub fn headroom(&self, additional: ResourceVector) -> ResourceHeadroom {
-        ResourceHeadroom::from_limits_and_load(self.limits, self.observed.saturating_add(additional))
+        ResourceHeadroom::from_limits_and_load(
+            self.limits,
+            self.observed.saturating_add(additional),
+        )
     }
 
     pub fn projected_pressure_bp(&self, additional: ResourceVector) -> u64 {
@@ -230,8 +234,7 @@ impl NodeCapacity {
     }
 
     fn validate(&self) -> bool {
-        self.limits.validate_limits()
-            && self.network_bytes_per_sec > 0
+        self.limits.validate_limits() && self.network_bytes_per_sec > 0
     }
 }
 
@@ -583,8 +586,14 @@ impl PlannerInput {
                 "elasticity input exceeds a bound or has invalid policy".to_string(),
             ));
         }
-        if self.nodes.windows(2).any(|pair| pair[0].node_id >= pair[1].node_id)
-            || self.placements.windows(2).any(|pair| pair[0].key() >= pair[1].key())
+        if self
+            .nodes
+            .windows(2)
+            .any(|pair| pair[0].node_id >= pair[1].node_id)
+            || self
+                .placements
+                .windows(2)
+                .any(|pair| pair[0].key() >= pair[1].key())
             || self
                 .active_moves
                 .windows(2)
@@ -610,10 +619,10 @@ impl PlannerInput {
                 || placement.graph.len() > MAX_GRAPH_ID_BYTES
                 || !node_ids.contains(&placement.primary_node)
                 || placement.follower_nodes.len() > MAX_FOLLOWERS
-                || placement.follower_nodes.iter().any(|node| {
-                    *node == placement.primary_node
-                        || !node_ids.contains(node)
-                })
+                || placement
+                    .follower_nodes
+                    .iter()
+                    .any(|node| *node == placement.primary_node || !node_ids.contains(node))
             {
                 return Err(PlannerError::InvalidInput(
                     "placement has an invalid graph, node, or follower".to_string(),
@@ -730,8 +739,10 @@ impl CrossNodeElasticityPlanner {
         input.validate()?;
         let encoded = serde_json::to_vec(input)
             .map_err(|error| PlannerError::Fingerprint(error.to_string()))?;
-        let input_digest =
-            digest_parts(b"epistemic-graph/cross-node-input/v1\0", [encoded.as_slice()]);
+        let input_digest = digest_parts(
+            b"epistemic-graph/cross-node-input/v1\0",
+            [encoded.as_slice()],
+        );
         let trigger_bp = (input.policy.scale_up_threshold_bp as u64)
             .saturating_add(input.policy.hysteresis_bp as u64);
         let mut plan = ElasticityPlan {
@@ -748,23 +759,25 @@ impl CrossNodeElasticityPlanner {
         let mut total_budget_used = 0u64;
 
         for placement in &input.placements {
-            let active = input
-                .active_moves
-                .iter()
-                .find(|move_| move_.graph == placement.graph && move_.shard_id == placement.shard_id);
+            let active = input.active_moves.iter().find(|move_| {
+                move_.graph == placement.graph && move_.shard_id == placement.shard_id
+            });
             if let Some(checkpoint) = active {
                 if !checkpoint.validate() {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::InvalidCheckpoint));
+                    plan.aborts
+                        .push(Self::abort(placement, PlanAbortReason::InvalidCheckpoint));
                     continue;
                 }
                 if checkpoint.placement_epoch != placement.placement_epoch
                     || checkpoint.source_node != placement.primary_node
                 {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::StaleTopology));
+                    plan.aborts
+                        .push(Self::abort(placement, PlanAbortReason::StaleTopology));
                     continue;
                 }
                 if checkpoint.target_node == placement.primary_node {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::DuplicateInFlight));
+                    plan.aborts
+                        .push(Self::abort(placement, PlanAbortReason::DuplicateInFlight));
                     continue;
                 }
                 let Some(target) = input
@@ -772,15 +785,18 @@ impl CrossNodeElasticityPlanner {
                     .iter()
                     .find(|node| node.node_id == checkpoint.target_node)
                 else {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
+                    plan.aborts
+                        .push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
                     continue;
                 };
                 if target.availability != NodeAvailability::Eligible {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
+                    plan.aborts
+                        .push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
                     continue;
                 }
                 if plan.proposals.len() >= input.policy.max_proposals {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::ProposalLimit));
+                    plan.aborts
+                        .push(Self::abort(placement, PlanAbortReason::ProposalLimit));
                     continue;
                 }
                 let Some((source_load, target_load)) = Self::projected_loads(
@@ -790,7 +806,8 @@ impl CrossNodeElasticityPlanner {
                     &planned_additions,
                     &planned_removals,
                 ) else {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::SourceLoadMismatch));
+                    plan.aborts
+                        .push(Self::abort(placement, PlanAbortReason::SourceLoadMismatch));
                     continue;
                 };
                 let projected_target = target_load.saturating_add(placement.load);
@@ -801,20 +818,21 @@ impl CrossNodeElasticityPlanner {
                     input.policy.delta_window_seconds,
                 );
                 if !projected_target.fits_in(target.limits) {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::InsufficientCapacity));
+                    plan.aborts.push(Self::abort(
+                        placement,
+                        PlanAbortReason::InsufficientCapacity,
+                    ));
                     continue;
                 }
                 if Self::violates_slo(projected_target, &input.policy) {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::SloRisk));
+                    plan.aborts
+                        .push(Self::abort(placement, PlanAbortReason::SloRisk));
                     continue;
                 }
-                if !Self::within_budget(
-                    cost,
-                    network_budget_used,
-                    total_budget_used,
-                    &input.policy,
-                ) {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::BudgetExceeded));
+                if !Self::within_budget(cost, network_budget_used, total_budget_used, &input.policy)
+                {
+                    plan.aborts
+                        .push(Self::abort(placement, PlanAbortReason::BudgetExceeded));
                     continue;
                 }
                 let proposal = Self::proposal(
@@ -845,7 +863,8 @@ impl CrossNodeElasticityPlanner {
                 .iter()
                 .find(|node| node.node_id == placement.primary_node)
             else {
-                plan.aborts.push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
+                plan.aborts
+                    .push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
                 continue;
             };
             let Some((source_load, _)) = Self::projected_loads(
@@ -855,7 +874,8 @@ impl CrossNodeElasticityPlanner {
                 &planned_additions,
                 &planned_removals,
             ) else {
-                plan.aborts.push(Self::abort(placement, PlanAbortReason::SourceLoadMismatch));
+                plan.aborts
+                    .push(Self::abort(placement, PlanAbortReason::SourceLoadMismatch));
                 continue;
             };
             let source_pressure = source_load.pressure_bp(source.limits);
@@ -879,11 +899,13 @@ impl CrossNodeElasticityPlanner {
                 | PlacementState::Snapshotting
                 | PlacementState::DeltaCatchUp
                 | PlacementState::FencedCutover => {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::DuplicateInFlight));
+                    plan.aborts
+                        .push(Self::abort(placement, PlanAbortReason::DuplicateInFlight));
                     continue;
                 }
                 PlacementState::Quarantined => {
-                    plan.aborts.push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
+                    plan.aborts
+                        .push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
                     continue;
                 }
                 PlacementState::Resident | PlacementState::Follower | PlacementState::Draining => {
@@ -918,7 +940,8 @@ impl CrossNodeElasticityPlanner {
                 continue;
             }
             if plan.proposals.len() >= input.policy.max_proposals {
-                plan.aborts.push(Self::abort(placement, PlanAbortReason::ProposalLimit));
+                plan.aborts
+                    .push(Self::abort(placement, PlanAbortReason::ProposalLimit));
                 continue;
             }
 
@@ -972,7 +995,8 @@ impl CrossNodeElasticityPlanner {
             plan.proposals.push(proposal);
         }
 
-        plan.proposals.sort_by(|left, right| left.proposal_id.cmp(&right.proposal_id));
+        plan.proposals
+            .sort_by(|left, right| left.proposal_id.cmp(&right.proposal_id));
         plan.aborts.sort_by(|left, right| {
             (&left.graph, left.shard_id).cmp(&(&right.graph, right.shard_id))
         });
@@ -994,19 +1018,29 @@ impl CrossNodeElasticityPlanner {
         additions: &std::collections::BTreeMap<NodeId, ResourceVector>,
         removals: &std::collections::BTreeMap<NodeId, ResourceVector>,
     ) -> Option<(ResourceVector, ResourceVector)> {
-        let source = input.nodes.iter().find(|node| node.node_id == placement.primary_node)?;
-        let target = input.nodes.iter().find(|node| node.node_id == target_node)?;
-        let source_base = source
-            .observed
-            .saturating_add(*additions.get(&source.node_id).unwrap_or(&ResourceVector::default()));
+        let source = input
+            .nodes
+            .iter()
+            .find(|node| node.node_id == placement.primary_node)?;
+        let target = input
+            .nodes
+            .iter()
+            .find(|node| node.node_id == target_node)?;
+        let source_base = source.observed.saturating_add(
+            *additions
+                .get(&source.node_id)
+                .unwrap_or(&ResourceVector::default()),
+        );
         let source_load = source_base.checked_sub(
             *removals
                 .get(&source.node_id)
                 .unwrap_or(&ResourceVector::default()),
         )?;
-        let target_base = target
-            .observed
-            .saturating_add(*additions.get(&target.node_id).unwrap_or(&ResourceVector::default()));
+        let target_base = target.observed.saturating_add(
+            *additions
+                .get(&target.node_id)
+                .unwrap_or(&ResourceVector::default()),
+        );
         Some((source_load, target_base))
     }
 
@@ -1048,13 +1082,9 @@ impl CrossNodeElasticityPlanner {
                 continue;
             }
             saw_eligible = true;
-            let Some((_, target_base)) = Self::projected_loads(
-                input,
-                placement,
-                target.node_id,
-                additions,
-                removals,
-            ) else {
+            let Some((_, target_base)) =
+                Self::projected_loads(input, placement, target.node_id, additions, removals)
+            else {
                 continue;
             };
             let projected_target = target_base.saturating_add(placement.load);
@@ -1265,7 +1295,10 @@ mod tests {
         let resumed = planner.plan(&resumed_input).expect("valid resumed plan");
         assert_eq!(resumed.proposals[0].move_id, proposal.move_id);
         assert_eq!(resumed.proposals[0].checkpoint.delta_cursor, 42);
-        assert_eq!(resumed.proposals[0].no_loss_fence_id, proposal.no_loss_fence_id);
+        assert_eq!(
+            resumed.proposals[0].no_loss_fence_id,
+            proposal.no_loss_fence_id
+        );
     }
 
     #[test]
@@ -1276,7 +1309,10 @@ mod tests {
         i.nodes[1].limits = vector(50);
         let result = CrossNodeElasticityPlanner.plan(&i).expect("valid plan");
         assert_eq!(result.proposals.len(), 0);
-        assert_eq!(result.aborts[0].reason, PlanAbortReason::InsufficientCapacity);
+        assert_eq!(
+            result.aborts[0].reason,
+            PlanAbortReason::InsufficientCapacity
+        );
 
         i.nodes[1].limits = vector(100);
         i.policy.max_queue_depth = 10;

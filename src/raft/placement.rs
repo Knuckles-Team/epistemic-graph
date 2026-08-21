@@ -790,9 +790,7 @@ impl PlacementCatalog {
         &self,
         operation_id: &str,
     ) -> Result<Option<super::membership_shrink::MembershipShrinkJournal>, String> {
-        if operation_id.len() != 64
-            || !operation_id.bytes().all(|byte| byte.is_ascii_hexdigit())
-        {
+        if operation_id.len() != 64 || !operation_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Ok(None);
         }
         let node_id = format!("{MEMBERSHIP_SHRINK_NODE_PREFIX}{operation_id}");
@@ -806,13 +804,12 @@ impl PlacementCatalog {
         let Some(blob) = core.and_then(|core| core.get_node_properties(&node_id)) else {
             return Ok(None);
         };
-        let journal = eg_types::msgpack::decode_bounded::<
-            super::membership_shrink::MembershipShrinkJournal,
-        >(
-            &blob,
-            eg_types::msgpack::MsgpackLimits::new(256 * 1024, 4_096, 32),
-        )
-        .map_err(|_| "membership shrink journal is corrupt".to_string())?;
+        let journal =
+            eg_types::msgpack::decode_bounded::<super::membership_shrink::MembershipShrinkJournal>(
+                &blob,
+                eg_types::msgpack::MsgpackLimits::new(256 * 1024, 4_096, 32),
+            )
+            .map_err(|_| "membership shrink journal is corrupt".to_string())?;
         if !journal.validate() || journal.node_id() != node_id {
             return Err("membership shrink journal failed its integrity fence".to_string());
         }

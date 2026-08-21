@@ -72,9 +72,9 @@ where
 }
 
 pub mod config;
-pub mod cross_shard_txn;
 /// Pure, policy-only M3 cross-node elasticity proposals with resumable move identities.
 pub mod cross_node_elasticity;
+pub mod cross_shard_txn;
 /// Bounded shard/Raft drain state machine (NE-167): admission is stopped and
 /// observed before a voter is removed, every acknowledgement is revision/fence
 /// bound, and restart recovery fails closed.
@@ -88,9 +88,9 @@ pub mod drain;
 /// build does not link) — `cluster` implies both.
 #[cfg(feature = "query")]
 pub mod exchange;
-pub mod multi;
 /// Durable drain/safety contract for Raft membership shrink.
 pub mod membership_shrink;
+pub mod multi;
 pub mod network;
 pub mod node;
 /// The placement catalog (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) — the ONE durable,
@@ -304,18 +304,21 @@ impl SanitizedModalityResult {
         if self.schema_version != SANITIZED_MODALITY_CODEC_VERSION {
             return Err("sanitized modality result schema version is unsupported".to_string());
         }
-        if self.outcomes.is_empty()
-            || self.outcomes.len() > MAX_REPLICATED_MODALITY_RESULT_ITEMS
-        {
+        if self.outcomes.is_empty() || self.outcomes.len() > MAX_REPLICATED_MODALITY_RESULT_ITEMS {
             return Err("sanitized modality result cardinality is outside bounds".to_string());
         }
         match (&self.kind, self.operation) {
             (SanitizedModalityResultKind::Single, operation)
                 if !matches!(operation, SanitizedModalityMutation::IngestStream)
                     && self.outcomes.len() == 1 =>
-            Ok(()),
+            {
+                Ok(())
+            }
             (SanitizedModalityResultKind::Stream, SanitizedModalityMutation::IngestStream)
-                if self.outcomes.len() >= 2 => Ok(()),
+                if self.outcomes.len() >= 2 =>
+            {
+                Ok(())
+            }
             _ => Err("sanitized modality result type does not match operation".to_string()),
         }
     }
@@ -509,9 +512,10 @@ impl SanitizedModalityRaftCommand {
 
     fn validate(&self, server_secret: &str) -> Result<(), String> {
         use sha2::{Digest, Sha256};
-        if server_secret.is_empty() || self.schema_version != SANITIZED_MODALITY_CODEC_VERSION
-        {
-            return Err("sanitized modality Raft command schema version is unsupported".to_string());
+        if server_secret.is_empty() || self.schema_version != SANITIZED_MODALITY_CODEC_VERSION {
+            return Err(
+                "sanitized modality Raft command schema version is unsupported".to_string(),
+            );
         }
         if self.result.schema_version != self.schema_version
             || self.result.modality != self.modality
@@ -703,7 +707,10 @@ mod sanitized_modality_command_tests {
         };
         decoded.validate("cluster-auth-secret").unwrap();
         assert_eq!(decoded.schema_version, SANITIZED_MODALITY_CODEC_VERSION);
-        assert_eq!(decoded.result.schema_version, SANITIZED_MODALITY_CODEC_VERSION);
+        assert_eq!(
+            decoded.result.schema_version,
+            SANITIZED_MODALITY_CODEC_VERSION
+        );
         assert_eq!(decoded.result.kind, SanitizedModalityResultKind::Single);
     }
 
@@ -730,8 +737,8 @@ mod sanitized_modality_command_tests {
         let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
         let node_id = format!("__eg_internal_served_audio_{}", "a".repeat(64));
         let receipt = format!("sha256:{}", "b".repeat(64));
-        let wrong_type = rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true))
-            .unwrap();
+        let wrong_type =
+            rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true)).unwrap();
         assert!(SanitizedModalityRaftCommand::new(
             "cluster-auth-secret",
             eg_types::ServedModalityKind::Audio,
