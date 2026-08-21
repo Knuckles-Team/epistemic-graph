@@ -31,7 +31,6 @@ use tokio::sync::RwLock;
 use super::config::RaftClusterConfig;
 use super::multi::MultiRaft;
 use super::{AppCtx, RaftHandle, DEFAULT_GROUP};
-use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
 
 async fn shutdown_after_start_error<T>(
@@ -200,18 +199,18 @@ pub async fn start(
             let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
             loop {
                 match multi_for_report
-                    .commit_node_info(
-                        cluster_id.clone(),
+                    .commit_node_info(crate::raft::multi::NodeInfoReport {
+                        cluster_id: cluster_id.clone(),
                         node_id,
-                        member_identity.clone(),
-                        raft_addr.clone(),
-                        advertised_client_addr.clone(),
-                        advertised_tls_server_name.clone(),
-                        advertised_certificate_id.clone(),
-                        advertised_certificate_rotation_epoch,
-                        advertised_certificate_not_before_ms,
-                        advertised_certificate_not_after_ms,
-                    )
+                        member_identity: member_identity.clone(),
+                        raft_addr: raft_addr.clone(),
+                        advertised_client_addr: advertised_client_addr.clone(),
+                        tls_server_name: advertised_tls_server_name.clone(),
+                        certificate_id: advertised_certificate_id.clone(),
+                        certificate_rotation_epoch: advertised_certificate_rotation_epoch,
+                        certificate_not_before_ms: advertised_certificate_not_before_ms,
+                        certificate_not_after_ms: advertised_certificate_not_after_ms,
+                    })
                     .await
                 {
                     Ok(()) => {

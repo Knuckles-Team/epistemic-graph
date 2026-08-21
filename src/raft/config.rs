@@ -232,12 +232,7 @@ impl RaftClusterConfig {
         let advertised_client_addr = parse_advertised_client_addr()?;
         let advertised_tls_server_name = parse_advertised_tls_server_name()?;
         let cluster_id = parse_cluster_id(&peers)?;
-        let (
-            advertised_certificate_id,
-            advertised_certificate_rotation_epoch,
-            advertised_certificate_not_before_ms,
-            advertised_certificate_not_after_ms,
-        ) = parse_certificate_metadata()?;
+        let certificate = parse_certificate_metadata()?;
         Ok(Some(Self {
             node_id,
             cluster_id,
@@ -245,10 +240,10 @@ impl RaftClusterConfig {
             bind_addr,
             advertised_client_addr,
             advertised_tls_server_name,
-            advertised_certificate_id,
-            advertised_certificate_rotation_epoch,
-            advertised_certificate_not_before_ms,
-            advertised_certificate_not_after_ms,
+            advertised_certificate_id: certificate.id,
+            advertised_certificate_rotation_epoch: certificate.rotation_epoch,
+            advertised_certificate_not_before_ms: certificate.not_before_ms,
+            advertised_certificate_not_after_ms: certificate.not_after_ms,
             is_bootstrap,
             groups,
             transport_secret,
@@ -282,7 +277,21 @@ fn parse_cluster_id(peers: &PeerMap) -> Result<String, String> {
     Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
 }
 
-fn parse_certificate_metadata() -> Result<(Option<String>, u64, Option<u64>, Option<u64>), String> {
+/// The advertised-certificate block of `RaftClusterConfig`, parsed as a unit.
+///
+/// Named rather than returned as a 4-tuple: the tuple was
+/// `(Option<String>, u64, Option<u64>, Option<u64>)`, where three of the four
+/// members are optional integers and NOTHING at the call site distinguishes
+/// them -- transposing `not_before` and `not_after` would compile silently.
+/// Fields make that a type error and let the destructuring drop away.
+struct CertificateMetadata {
+    id: Option<String>,
+    rotation_epoch: u64,
+    not_before_ms: Option<u64>,
+    not_after_ms: Option<u64>,
+}
+
+fn parse_certificate_metadata() -> Result<CertificateMetadata, String> {
     let certificate_id = std::env::var(ADVERTISED_CERTIFICATE_ID_ENV)
         .ok()
         .map(|value| value.trim().to_string())
@@ -320,7 +329,12 @@ fn parse_certificate_metadata() -> Result<(Option<String>, u64, Option<u64>, Opt
             "certificate rotation metadata requires {ADVERTISED_CERTIFICATE_ID_ENV}"
         ));
     }
-    Ok((certificate_id, rotation_epoch, not_before, not_after))
+    Ok(CertificateMetadata {
+        id: certificate_id,
+        rotation_epoch,
+        not_before_ms: not_before,
+        not_after_ms: not_after,
+    })
 }
 
 fn parse_optional_u64_env(name: &str) -> Result<Option<u64>, String> {

@@ -416,6 +416,27 @@ fn loopback_endpoint(endpoint: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// One node's self-report for `Method::NodeInfoUpsert` (ADR-1 / W1.1).
+///
+/// A struct, not eleven positional parameters. Four of them are `Option<String>`
+/// or `Option<u64>` and three are plain `String` addresses, so any two adjacent
+/// same-typed arguments could be transposed at the single call site and still
+/// compile -- silently reporting a TLS server name as a certificate id, or
+/// `not_after` as `not_before`. Named fields make that a type error, and the
+/// destructuring below keeps the body byte-for-byte what it was.
+pub(crate) struct NodeInfoReport {
+    pub(crate) cluster_id: String,
+    pub(crate) node_id: NodeId,
+    pub(crate) member_identity: String,
+    pub(crate) raft_addr: String,
+    pub(crate) advertised_client_addr: String,
+    pub(crate) tls_server_name: Option<String>,
+    pub(crate) certificate_id: Option<String>,
+    pub(crate) certificate_rotation_epoch: u64,
+    pub(crate) certificate_not_before_ms: Option<u64>,
+    pub(crate) certificate_not_after_ms: Option<u64>,
+}
+
 impl MultiRaft {
     /// Start an explicitly plaintext loopback listener for the fault-injection and
     /// in-process harnesses. Production startup must use [`start_configured`].
@@ -1653,19 +1674,19 @@ impl MultiRaft {
     /// on every replica — NOT graph nodes (placement's O(N) lesson).
     ///
     /// [ni]: crate::server::persistence::node_info_store::NodeInfo
-    pub(crate) async fn commit_node_info(
-        &self,
-        cluster_id: String,
-        node_id: NodeId,
-        member_identity: String,
-        raft_addr: String,
-        advertised_client_addr: String,
-        tls_server_name: Option<String>,
-        certificate_id: Option<String>,
-        certificate_rotation_epoch: u64,
-        certificate_not_before_ms: Option<u64>,
-        certificate_not_after_ms: Option<u64>,
-    ) -> Result<(), String> {
+    pub(crate) async fn commit_node_info(&self, info: NodeInfoReport) -> Result<(), String> {
+        let NodeInfoReport {
+            cluster_id,
+            node_id,
+            member_identity,
+            raft_addr,
+            advertised_client_addr,
+            tls_server_name,
+            certificate_id,
+            certificate_rotation_epoch,
+            certificate_not_before_ms,
+            certificate_not_after_ms,
+        } = info;
         self.ensure_group(DEFAULT_GROUP).await?;
         let server_secret = self.ctx.state.read().await.auth_secret.clone();
         let method = Method::NodeInfoUpsert {

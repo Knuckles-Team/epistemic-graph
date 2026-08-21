@@ -700,7 +700,13 @@ pub enum GroupRpc {
     TransferLeader(GroupId, TransferLeaderRequest<TypeConfig>),
     /// Authenticated engine-internal client write forwarded to another group's
     /// current leader. Public clients cannot construct this transport frame.
-    ClientWrite(GroupId, super::RaftRequest),
+    /// Boxed: `RaftRequest` is ~400 bytes while the next-largest variant is
+    /// ~192, so inlining it made EVERY `GroupRpc` -- including a 24-byte `Vote`
+    /// -- at least 400 bytes on the wire-encode path and in every match. The
+    /// box costs one allocation on the write path only, which already allocates
+    /// to serialise. The enum is constructed in exactly one place and matched in
+    /// three, all in this file.
+    ClientWrite(GroupId, Box<super::RaftRequest>),
     /// Per-group ReadIndex barrier.  This is also used against the placement group
     /// before resolving a cross-graph route vector.
     ReadBarrier(GroupId),
@@ -854,7 +860,7 @@ impl HeartbeatCoalescer {
         }
         match rx.await {
             Ok(Ok(reply)) => Ok(reply),
-            Ok(Err(error)) => Err(io::Error::new(io::ErrorKind::Other, error)),
+            Ok(Err(error)) => Err(io::Error::other(error)),
             Err(_) => {
                 // A standalone factory may not have a flush worker.  Keep this
                 // branch fail-closed rather than silently sending a second frame;
@@ -1272,6 +1278,7 @@ pub(crate) async fn dispatch_group(
                 GroupRpcReply::TransferLeader(reply)
             }
             GroupRpc::ClientWrite(_, req) => {
+                let req = *req;
                 let reply = match req.validate() {
                     Ok(()) => raft
                         .client_write(req)
@@ -1303,7 +1310,8 @@ pub(crate) async fn forward_client_write(
 ) -> Result<super::RaftResponse, String> {
     request.validate()?;
     let body = rmp_serde::to_vec_named(&RaftFrame::One(Box::new(GroupRpc::ClientWrite(
-        group_id, request,
+        group_id,
+        Box::new(request),
     ))))
     .map_err(|_| "unable to encode internal Raft client write".to_string())?;
     let response = pool
