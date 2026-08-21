@@ -23,7 +23,7 @@ ENV UV_SYSTEM_PYTHON=1 \
 
 # Published/CI-wheel input for ordinary image publication.
 FROM builder-base AS builder-release
-ARG EG_VERSION=2.27.0
+ARG EG_VERSION=2.26.2
 ARG EG_WHEEL_DIR=docker/wheels
 ARG TARGETARCH
 COPY ${EG_WHEEL_DIR}/ /wheels/
