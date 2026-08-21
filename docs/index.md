@@ -1,120 +1,105 @@
 # Epistemic Graph
 
-`epistemic-graph` is the unified, Rust-native **"master-of-all" data & compute engine** for the
-agent-utilities ecosystem. It collapses a graph database, vector index, SQL warehouse, triple-store +
-OWL reasoner, time-series DB, content-addressed blob store, and full-text index into **one durable
-engine** with **one cross-modal `RowSet` planner**, exposed to Python out-of-process over
-length-prefixed **MessagePack on UDS/TCP** (HMAC-authenticated, no PyO3) or embedded in-process on the
-edge.
+epistemic-graph is a durable, Rust-native database that unifies graph, vector, SQL, RDF/OWL, and
+time-series behind one engine and one query planner. Use it standalone, or as the storage and
+reasoning engine behind agent-utilities. Every capability is tracked operation-by-operation and
+honestly marked — see what's live before you build on it.
 
-It is **durable by default** (redb-authoritative — an acked write survives `kill -9`) and scales by
-configuration alone, from an embedded edge process to a multi-node Raft cluster with cross-shard
-transactions.
+## Quick start
 
-> **[North Star: Seamless](north_star.md)** — every cross-modal seam (a write→read path that crosses
-> OWL/vector/graph/timeseries/relational) is implemented **at every surface** — RPC, all SQL wires,
-> SPARQL, GraphQL — never merely flagged. Each surface is a thin parser/router onto the same committed
-> seam. The North Star page is the current seam-verification matrix.
+=== "Docker"
 
-```mermaid
-flowchart LR
-    EDGE["edge / local process<br/>EmbeddedEngine library handle"]
-    NODE["single durable server<br/>main build"]
-    CLUSTER["HA cluster<br/>Raft + pgwire + cross-shard 2PC"]
-    EDGE --> NODE --> CLUSTER
-```
+    ```bash
+    : "${CONTAINER_DATA_DIR:?set to the image data directory}"
+    : "${TLS_CERT_FILE:?set to a host PEM certificate file}"
+    : "${TLS_KEY_FILE:?set to a host PEM private key file}"
+    docker volume create eg-data
+    docker run -d --name epistemic-graph \
+      -e GRAPH_SERVICE_AUTH_SECRET \
+      -e EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph \
+      -e EPISTEMIC_GRAPH_TENANT=tenant:default \
+      -e EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial \
+      -e EPISTEMIC_GRAPH_SIGNER_KEYS_JSON \
+      -e GRAPH_SERVICE_PERSIST_DIR="${CONTAINER_DATA_DIR}" \
+      -e GRAPH_SERVICE_TCP_ADDR=0.0.0.0:9100 \
+      -e GRAPH_SERVICE_TLS_CERT=/run/secrets/server.crt \
+      -e GRAPH_SERVICE_TLS_KEY=/run/secrets/server.key \
+      -p 9100:9100 \
+      --mount type=bind,src="${TLS_CERT_FILE}",dst=/run/secrets/server.crt,readonly \
+      --mount type=bind,src="${TLS_KEY_FILE}",dst=/run/secrets/server.key,readonly \
+      -v eg-data:"${CONTAINER_DATA_DIR}" \
+      <registry>/epistemic-graph:<tag>
+    ```
 
-It also fronts **many wire protocols** and **cross-cutting subsystems** on that one substrate — a
-message broker, an observability stack, GIS, tensors, streams, and an LLM KV-cache — so the same durable
-store answers a Postgres, Neo4j, Redis, S3, AMQP, or PromQL client:
+    Populate `GRAPH_SERVICE_AUTH_SECRET` and `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` from a runtime
+    secret provider before starting the container. The server accepts only `eg2.` request
+    envelopes and requires the audience, tenant, policy revision, durable replay state, and
+    trusted signer registry. Routable native TCP always uses TLS/mTLS (`GRAPH_SERVICE_TLS_CERT`,
+    `_KEY`, optional `_CLIENT_CA`). Auxiliary listeners, including database-protocol and metrics
+    listeners, are loopback-only; expose them through a co-located authenticated TLS gateway when
+    needed. Full recipes (compose, HA cluster, prebuilt wheels): [deployment guide](deployment.md).
 
-```mermaid
-flowchart TB
-    subgraph Wires["Wire adapters (one WireProtocol exec path)"]
-        W["native · pgwire · sqlite · mysql · mssql · bolt · redis · s3 · amqp · mqtt · stomp · obs"]
-    end
-    subgraph Subsys["Cross-cutting subsystems"]
-        BR["broker"]
-        OB["observability"]
-        MM["agent-memory"]
-        KV["KV-cache"]
-    end
-    subgraph Modalities["Modality engines"]
-        MOD["graph · vector · SQL · RDF/OWL · SHACL/ShEx · TSDB · text · GIS · tensor · stream · BLOB"]
-    end
-    CORE["one durable substrate<br/>GraphCore + redb-authoritative + unified RowSet planner"]
+=== "Binary"
 
-    Wires --> CORE
-    Subsys --> CORE
-    CORE --> Modalities
-```
+    ```bash
+    # Read all secrets and policy values from deployment configuration.
+    : "${GRAPH_SERVICE_AUTH_SECRET:?required}"
+    : "${EPISTEMIC_GRAPH_SIGNER_KEYS_JSON:?required}"
+    : "${GRAPH_SERVICE_PERSIST_DIR:?required}"
+    export EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph
+    export EPISTEMIC_GRAPH_TENANT=tenant:default
+    export EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial
+    epistemic-graph-server
+    ```
 
-See the [subsystems reference](architecture/subsystems.md) for how each composes on the substrate.
+=== "Python client"
 
-> **Honesty first.** Every capability is tracked operation-by-operation in the
-> **[capabilities & parity matrix](capabilities.md)**; per-method authority, durability,
-> audit, CDC, and transaction facts come from the
-> **[generated capability ledger](capabilities.generated.md)**. External hardware and
-> multi-host campaigns are release-certification evidence, not unimplemented source.
+    ```bash
+    pip install epistemic-graph
+    ```
 
-## Start here
+    ```python
+    from epistemic_graph import SyncEpistemicGraphClient
 
-- **[Capabilities & parity matrix](capabilities.md)** — the operation-by-operation truth table per
-  interface. Read this to know exactly what works today.
-- **[Technical Overview](overview.md)** — the crate DAG, the unified `RowSet` planner pipeline, and the
-  always-on graph algorithms.
-- **Per-interface guides** — [SQL](interfaces/sql.md) · [SPARQL](interfaces/sparql.md) ·
-  [Cypher](interfaces/cypher.md) · [GraphQL](interfaces/graphql.md) · [Vector](interfaces/vector.md) ·
-  [Time-series](interfaces/timeseries.md) · [KV & Blob](interfaces/kv_blob.md) ·
-  [Ontology lifecycle](interfaces/ontology.md).
-- **[Master-of-all engine](architecture/engine.md)** — the deep architecture: durability, cross-modal
-  ACID, RDF/OWL mapping, the RLS request path, streaming/CDC, federation, multi-Raft + cross-shard 2PC,
-  and the tenant lifecycle.
-- **[Authoritative MutationBatch](architecture/mutation_batch.md)** — commit-before-ack staging,
-  durable idempotency/status, ordered projection outbox, and the native WorkItem state machine.
-- **[Governed ChangeEnvelope](architecture/change_envelope.md)** — one native transaction for
-  external graph/object material, policy, lineage, evidence, typed content versions/cursors, and
-  the outbox, with verified request binding and cluster-safe replay.
-- **[Governed modality serving](architecture/modality_serving.md)** — universal opaque
-  Artifact/Occurrence/Rendition/Segment/Feature/EvidenceLocus identities, 12/12 plus native-probe
-  production media TCKs, a verified-context `ServedModality` ingest/typed-query/lifecycle service
-  with concrete native decoding, AEAD-sealed state, and bounded resources, plus the one cursor-driven `KnowledgeStream`
-  protocol shared by graph, SQL, RDF, vector,
-  time series, jobs, and cross-modal queries. It returns bounded Arrow KnowledgeBatches after the
-  normal RequestContext, RLS, and placement gates; Arrow is the sole result projection.
-- **[Distributed analytics and incremental reasoning](architecture/distributed-analytics-reasoning.md)** —
-  verified coordinator RPCs for leased/fenced remote workers, durable typed results with transactional claims, and
-  outbox/cursor-driven TMS, conflict, causal and materialization maintenance.
-- **[Native program optimization](architecture/native-program-optimization.md)** — the operational
-  `submit_program_optimization` contract, 13 Rust-native optimizer families, evidence across all
-  14 modalities, governed runtime plan steps, and evaluation-gated promotion.
+    context = {
+        "principal": "service:client",
+        "tenant": "tenant:default",
+        "audience": "epistemic-graph",
+        "agent_id": "service:client",
+        "roles": ["graph-client"],
+        "scopes": ["kg:read", "kg:write"],
+        "policy_version": "policy:initial",
+        "delegation": [],
+    }
+    with SyncEpistemicGraphClient.connect(verified_context=context) as graph:
+        graph.nodes.add("node:a", {"node_type": "coordinator"})
+        graph.nodes.add("node:b", {"node_type": "worker"})
+        graph.edges.add("node:a", "node:b", {"weight": 1.5})
+        print("Order:", graph.graph.topological_sort())
+    ```
 
-## Operate & deploy
+    The published wheel already contains the complete main Rust build **and** all runtime Python
+    helpers (OWL/SPARQL, LMCache HTTP acceleration, and numeric interoperability). More entry
+    points — the remote → shared-local → autostart resolver and the embedded in-process handle —
+    are in [engine modes](engine_modes.md).
 
-- **[One build, opt-in layers](architecture/tiers.md)** — the feature-composition map: the one main
-  full-featured build plus the `cluster` (HA raft) and `full-extras` (GPU/ROS2) opt-in build layers.
-- **[Engine modes](engine_modes.md)** — endpoint resolution, one shared local server, supervised
-  autostart of the packaged main binary, and the embedded library path.
-- **[Deployment (database)](deployment.md)** — Docker, prebuilt wheels, single-node, and HA-cluster
-  recipes for every scale.
-- **[Service Mode](service_mode.md)** — the wire protocol, authentication, multi-graph management,
-  isolation policy, and Prometheus metrics.
-- **[Cost model & capacity](cost_model.md)** — the per-tenant memory budget, autoscale signals, and
-  embedded-to-cluster footprint planning.
+!!! note "Honesty first"
+    Every capability is tracked operation-by-operation in the
+    **[capabilities & parity matrix](capabilities.md)**; per-method authority, durability, audit,
+    CDC, and transaction facts come from the **[generated capability ledger](capabilities.generated.md)**.
+    External hardware and multi-host campaigns are release-certification evidence, not
+    unimplemented source. See what's live before you build on it.
 
-## Reference
+## How it's organized
 
-- **[Rust Compute Guide](rust_compute_guide.md)** — adding a capability across protocol/server/client.
-- **[Transport Benchmarks](benchmarks.md)** — measured per-operation latency over MessagePack.
-- **[Concept Registry](concepts.md)** — the stable `CONCEPT` identifiers that trace the engine's ideas.
-- **[Binary promotion](deploy/binary_promotion.md)** — promoting a new engine binary through a deployment registry.
-- Architecture deep-dives: [Write coalescer](architecture/write_coalescer.md) ·
-  [Index manager](architecture/index_manager.md) · [Correctness harness](architecture/correctness_harness.md).
+| | |
+|---|---|
+| **Query it** | [Interfaces](interfaces/index.md) — one guide per wire protocol: SQL, SPARQL, Cypher, GraphQL, vector, time-series, and more. |
+| **Understand internals** | [Architecture](architecture/index.md) — the commit model, analytics/reasoning plane, distribution & scaling, and hardening. |
+| **Operate it** | [Deployment](deployment.md) and [Operations runbook](operations/runbook.md) — standalone, Docker, and HA-cluster recipes; day-2 procedures. |
+| **Reference** | [Concept registry](concepts.md) · [UQL](uql.md) · [environment variables](deployment.md#configuration-reference). |
+| **Status** | [docs/status.md](status.md) — the generated Codex/status page: what's live, in progress, or roadmap, by pillar. |
 
-## Design principle: design for a network boundary
-
-Every out-of-process invocation crosses a process boundary — serialize, socket round-trip, deserialize.
-A call is **not** a cheap function call. **Batch, never per-element:** ship work into a single
-round-trip over data already resident in the graph (one all-pairs op, not a Python loop), and keep
-tight per-element math in-process. The [Rust Compute Guide](rust_compute_guide.md) explains how this
-shapes every caller.
+Go deeper: the engine's guiding design principle is
+**[North Star: Seamless](north_star.md)** — every cross-modal read/write path is implemented at
+*every* wire surface, never merely flagged at the one it was first built for.

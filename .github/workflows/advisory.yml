@@ -88,6 +88,9 @@ jobs:
       - name: Documentation feature, ledger, and MkDocs contract
         continue-on-error: true
         run: python3 scripts/check_documentation_contract.py
+      - name: Status page freshness gate (docs/status.md vs capabilities/concept-reservations)
+        continue-on-error: true
+        run: python3 scripts/check_status_page.py
       - name: Canonical structural property schema
         continue-on-error: true
         run: python3 scripts/check_canonical_property_schema.py

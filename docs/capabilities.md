@@ -6,6 +6,8 @@ is verified against the source, not against intent. Legend:
 - **✅ supported** — implemented and covered by tests.
 - **🔶 in-progress** — partially built or actively being added; the unsupported part errors honestly.
 - **🗺 roadmap** — designed, not yet built.
+- **❌ rejected** — deliberately not supported; the operation fails closed by design (e.g. an
+  insecure fallback), not because it is unimplemented.
 
 The **Feature** column is the Cargo feature that gates the surface; the
 [tiers page](architecture/tiers.md) shows which prebuilt binary carries it.
