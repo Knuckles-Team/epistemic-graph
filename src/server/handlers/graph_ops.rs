@@ -385,35 +385,6 @@ pub(crate) async fn try_handle_gateway(
     // deliberately after both hand-back checks above, so SQL/RDF reads retain
     // their existing snapshot-level RLS path without paying for a second copy.
     let mutates = requires_write(&method);
-    // Point membership lookups answer ONE question per id and do not need a
-    // materialized projection to do it. `project_core` is
-    // `O(V log V + E log E + V*d)` and its cache is keyed on
-    // `GraphCore::version()`, so an ingest that interleaves reads and writes
-    // misses on nearly every read: measured live at ~1.2s per `HasNode` on a
-    // 56k-node graph, which is the same cost as a full graph dump for a boolean.
-    // `node_visible` delegates to the SAME `IsolationLayer::can_see_node` that
-    // `filter_view` applies per node, so this short-circuit cannot answer
-    // differently from the projection it skips.
-    if !mutates {
-        if let Some(authority) = read_authority {
-            match &method {
-                Method::HasNode { node_id } => {
-                    return Ok(Response::ok(
-                        req_id,
-                        ResultPayload::Bool(authority.node_visible(core, node_id)),
-                    ));
-                }
-                Method::HasNodesBatch { node_ids } if node_ids.len() <= MAX_BATCH_IDS => {
-                    let out: Vec<bool> = node_ids
-                        .iter()
-                        .map(|id| authority.node_visible(core, id))
-                        .collect();
-                    return Ok(Response::ok(req_id, ResultPayload::raw(&out)));
-                }
-                _ => {}
-            }
-        }
-    }
     let projected_core = if mutates {
         None
     } else {
@@ -2481,6 +2452,38 @@ pub(crate) async fn try_handle(
     // must supply a GraphReadAuthority and receives the same pre-compute projection
     // before the first primitive can inspect existence, counts, embeddings, or
     // topology. Query/RDF handlers instead retain their snapshot-level filter.
+    // Point membership lookups answer ONE question per id and do not need a
+    // materialized projection to do it. `project_core` is
+    // `O(V log V + E log E + V*d)` and its cache is keyed on
+    // `GraphCore::version()`, so an ingest that interleaves reads and writes
+    // misses on nearly every read: measured live at ~1.2s per `HasNode` on a
+    // 56k-node graph -- the cost of a full graph dump, to answer a boolean.
+    //
+    // This MUST sit here, above the projection in the terminal handler, and not
+    // in `try_handle_gateway`: `HasNode`/`HasNodesBatch` are plain reads and are
+    // never gateway-routed, so an interception there is unreachable for them. A
+    // first attempt put it there and changed nothing measurable -- the live
+    // `HasNode` count and `projection_cache_miss` count stayed exactly equal.
+    //
+    // `node_visible` delegates to the SAME `IsolationLayer::can_see_node` that
+    // `filter_view` applies per node, so this short-circuit cannot answer
+    // differently from the projection it skips.
+    match &method {
+        Method::HasNode { node_id } => {
+            return Response::ok(
+                req_id,
+                ResultPayload::Bool(read_authority.node_visible(&core, node_id)),
+            );
+        }
+        Method::HasNodesBatch { node_ids } if node_ids.len() <= MAX_BATCH_IDS => {
+            let out: Vec<bool> = node_ids
+                .iter()
+                .map(|id| read_authority.node_visible(&core, id))
+                .collect();
+            return Response::ok(req_id, ResultPayload::raw(&out));
+        }
+        _ => {}
+    }
     let core = read_authority.project_core(&core);
     match method {
         // AddNode/RemoveNode (CONCEPT:EG-P0-2 bypass guard): these — along with
