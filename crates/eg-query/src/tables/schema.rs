@@ -1475,7 +1475,7 @@ mod table_schema_tests {
             false,
         )
         .unwrap();
-        assert!(matches!(uuid, Cell::Bytes(bytes) if bytes.len() == 16));
+        assert!(matches!(&uuid, Cell::Bytes(bytes) if bytes.len() == 16));
         assert_eq!(
             uuid.to_typed_json(ColumnType::Uuid),
             Value::String("a1a2a3a4-b1b2-c1c2-d1d2-e1e2e3e4e5e6".into())

@@ -807,7 +807,7 @@ mod tests {
             .expect("legacy configuration must resolve")
             .expect("key material is present");
         assert_eq!(config.key_ref(), &EncryptionKeyRef::legacy());
-        assert_eq!(format!("{config:?}").contains("legacy-material"), false);
+        assert!(!format!("{config:?}").contains("legacy-material"));
     }
 
     /// NE-028: an operator-supplied identity/version is retained on the cipher and

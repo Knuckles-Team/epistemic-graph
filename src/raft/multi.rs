@@ -1117,8 +1117,8 @@ impl MultiRaft {
     /// with the durable shrink contract instead.
     pub async fn remove_group_member(&self, gid: GroupId, node: NodeId) -> Result<(), String> {
         Err(format!(
-            "refusing unsafe membership shrink of node {node} from group {gid}; "
-                "submit a drain/learner/quorum evidence journal first"
+            "refusing unsafe membership shrink of node {node} from group {gid}; \
+             submit a drain/learner/quorum evidence journal first"
         ))
     }
 
