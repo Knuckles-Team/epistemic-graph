@@ -536,16 +536,49 @@ pub fn resolve_txn_recovery_key() -> Option<Vec<u8>> {
 /// `std::sync::Mutex`), so the old poison-recovery step
 /// (`unwrap_or_else(|poisoned| poisoned.into_inner())`) is gone: there is
 /// nothing to recover from.
+/// An `RwLock`, not a `Mutex`, and the distinction is the whole point.
+///
+/// The original mutex only bound tests that MUTATE the encryption env. But a
+/// test that merely OPENS a durable store is just as order-sensitive: it reads
+/// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at open, and a test that opens then REOPENS
+/// (backup round trip, lazy-startup rehydrate, eviction reopen) fails its canary
+/// check if the ambient key changed in between. There are ~28 such tests across
+/// `redb_backend.rs` and `cold_offload.rs` and none of them took the mutex --
+/// so the lock was taken at some entrypoints and not others, which protects
+/// nothing (CONCEPT:AU-OS.governance.lane-partitioned-resources, same shape).
+///
+/// Measured: `cargo test --lib` fails ~2/1185 under high parallelism with
+/// "EPISTEMIC_GRAPH_ENCRYPTION_KEY does not match the key that previously
+/// encrypted this store (canary decryption failed)", and passes under the
+/// 2-core-affinity pre-push run where the interleaving does not arise.
+///
+/// Making every store-opening test take the SAME mutex would serialise the
+/// entire durable suite. A read/write split costs nothing instead: store
+/// openers hold a READ guard concurrently with each other, and a key mutator
+/// takes the WRITE guard, which excludes them all for exactly as long as the
+/// ambient key is unstable.
 #[cfg(test)]
-pub(crate) static TEST_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(crate) static TEST_ENV_LOCK: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
 
 /// Acquire [`TEST_ENV_LOCK`] from an `async fn` (`#[tokio::test]`) test body.
 /// Bind the returned guard to a named local at the top of the test so it
 /// lives — and keeps the lock held — for the test's entire body, including
 /// every `.await` inside it.
 #[cfg(test)]
-pub(crate) async fn acquire_test_env_lock() -> tokio::sync::MutexGuard<'static, ()> {
-    TEST_ENV_LOCK.lock().await
+pub(crate) async fn acquire_test_env_lock() -> tokio::sync::RwLockWriteGuard<'static, ()> {
+    TEST_ENV_LOCK.write().await
+}
+
+/// Acquire [`TEST_ENV_LOCK`] for READING: "I do not change the encryption
+/// environment, but I require it to hold still."
+///
+/// Every test that opens a durable store must hold this for its whole body.
+/// Read guards do not exclude each other, so the durable suite keeps its
+/// parallelism; they exclude only a concurrent key MUTATOR, which is precisely
+/// the interleaving that breaks an open-then-reopen canary check.
+#[cfg(test)]
+pub(crate) async fn acquire_test_env_read_lock() -> tokio::sync::RwLockReadGuard<'static, ()> {
+    TEST_ENV_LOCK.read().await
 }
 
 /// Synchronous counterpart to [`acquire_test_env_lock`] for the small set of
@@ -559,8 +592,8 @@ pub(crate) async fn acquire_test_env_lock() -> tokio::sync::MutexGuard<'static, 
 /// [`TEST_ENV_LOCK`], so sync and async participants remain mutually
 /// exclusive with each other.
 #[cfg(test)]
-pub(crate) fn acquire_test_env_lock_blocking() -> tokio::sync::MutexGuard<'static, ()> {
-    TEST_ENV_LOCK.blocking_lock()
+pub(crate) fn acquire_test_env_lock_blocking() -> tokio::sync::RwLockWriteGuard<'static, ()> {
+    TEST_ENV_LOCK.blocking_write()
 }
 
 #[cfg(test)]
@@ -628,7 +661,7 @@ mod tests {
         prev_key_version: Option<String>,
         prev_recovery_key: Option<String>,
         prev_required_mode: Option<String>,
-        _lock: tokio::sync::MutexGuard<'static, ()>,
+        _lock: tokio::sync::RwLockWriteGuard<'static, ()>,
     }
 
     impl EnvGuard {

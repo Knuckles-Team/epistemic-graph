@@ -5752,6 +5752,11 @@ mod tests {
     /// can't masquerade as a fresh one.
     #[tokio::test(flavor = "multi_thread")]
     async fn many_recreate_cycles_keep_inmemory_writes_visible() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::protocol::ResultPayload;
         use crate::server::persistence::read_through::BackendReadThroughFactory;
 
@@ -5983,6 +5988,11 @@ mod tests {
     /// the row — proving the await observed durable state, not just an enqueue.
     #[tokio::test(flavor = "multi_thread")]
     async fn record_durable_awaits_commit() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-redb-durable-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -6019,6 +6029,11 @@ mod tests {
     /// batch firing all the batch's waiters) is what makes that terminate quickly.
     #[tokio::test(flavor = "multi_thread")]
     async fn record_durable_coalesces_many_writers() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-redb-coalesce-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -6078,6 +6093,11 @@ mod tests {
     /// back) and that no OTHER shard commits either.
     #[tokio::test(flavor = "multi_thread")]
     async fn read_through_snapshot_triggers_no_writer_commit() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-redb-snapread-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -6141,6 +6161,11 @@ mod tests {
     /// even while the writer is saturated with commits.
     #[tokio::test(flavor = "multi_thread")]
     async fn reads_run_concurrently_with_inflight_writes() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-redb-snapconc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -6209,6 +6234,11 @@ mod tests {
     /// after the ack sees it).
     #[tokio::test(flavor = "multi_thread")]
     async fn read_after_ack_sees_latest_committed() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-redb-snapack-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -6310,6 +6340,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn micro_linger_coalesces_concurrent_writers() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-redb-linger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -6413,6 +6448,11 @@ mod tests {
     /// the baseline the bench measures against and proves the knob is a real opt-out.
     #[tokio::test(flavor = "multi_thread")]
     async fn micro_linger_disabled_preserves_durability() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-redb-nolinger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -6522,6 +6562,11 @@ mod tests {
     /// read-through (it is not in RAM, but redb serves it) — no loss across the boundary.
     #[tokio::test(flavor = "multi_thread")]
     async fn authoritative_eviction_bounds_memory_and_reads_through() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-redb-evict-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -6581,6 +6626,11 @@ mod tests {
     /// resident (durability unconfirmed) and instead evict only durable nodes.
     #[tokio::test(flavor = "multi_thread")]
     async fn authoritative_eviction_never_drops_undurable_node() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-redb-evict-safe-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -6655,6 +6705,11 @@ mod tests {
     #[cfg(feature = "raft")]
     #[tokio::test(flavor = "multi_thread")]
     async fn raft_log_and_mutation_share_one_group_commit() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-redb-1txn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -7651,6 +7706,11 @@ mod tests {
     #[cfg(feature = "security")]
     #[tokio::test]
     async fn audit_verify_dispatch_detects_tamper() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::protocol::{AuditReport, ResultPayload};
 
         const SECRET: &str = "audit-secret";
@@ -7733,6 +7793,11 @@ mod tests {
     /// ephemeral buffer, not a durable change log).
     #[tokio::test]
     async fn get_ledger_dispatch_returns_real_committed_mutations() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::protocol::{LedgerReadResult, ResultPayload};
 
         const SECRET: &str = "get-ledger-secret";
@@ -7854,6 +7919,11 @@ mod tests {
     #[cfg(feature = "security")]
     #[tokio::test]
     async fn provenance_anchor_inclusion_proof_detects_tamper() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::protocol::{AuditReport, MerkleInclusionReport, ResultPayload};
         use crate::server::persistence::provenance_anchor;
 
@@ -8093,6 +8163,10 @@ mod tests {
 
     #[test]
     fn normal_startup_rejects_retired_single_file_layout() {
+        // Sync `#[test]`, so the blocking counterpart. It opens a durable store
+        // and therefore needs the encryption env to hold still; it never mutates
+        // it, but `blocking_read` is the only guard available off a runtime.
+        let _env_read_lock = crate::crypto::TEST_ENV_LOCK.blocking_read();
         let dir = std::env::temp_dir().join(format!(
             "eg-shard-retired-layout-{}-{:?}",
             std::process::id(),
@@ -8202,6 +8276,11 @@ mod tests {
     /// succeeding and per-shard stats showing two distinct shards each committed.
     #[tokio::test(flavor = "multi_thread")]
     async fn two_graphs_on_different_shards_commit_concurrently() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-shard-par-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -8277,6 +8356,11 @@ mod tests {
     /// env-mutating tests via the shared lock.
     #[tokio::test]
     async fn shards_env_override_is_honored() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-shard-env-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -8301,6 +8385,11 @@ mod tests {
     /// `shard_index` (byte-for-byte), and an explicit assignment overrides the hash.
     #[tokio::test]
     async fn catalog_auto_attach_gate_and_empty_is_fnv1a() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         let root = std::env::temp_dir().join(format!("eg-r5-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -8355,6 +8444,11 @@ mod tests {
     /// rows are GC'd, and an unrelated graph is untouched.
     #[tokio::test(flavor = "multi_thread")]
     async fn online_reshard_moves_graph_live_no_loss() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const K: usize = 4;
         let dir = std::env::temp_dir().join(format!("eg-r1-{}", std::process::id()));
@@ -8508,6 +8602,11 @@ mod tests {
     /// read-through from redb. The shared `__commons__` is never offloaded.
     #[tokio::test(flavor = "multi_thread")]
     async fn cold_offload_evicts_then_serves_on_access() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::cold_offload::{offload_cold_tenants, ColdTenantTracker};
         let dir = std::env::temp_dir().join(format!("eg-r6-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -8675,6 +8774,11 @@ mod tests {
     /// resharding → graphs spread across shards and every node survives (no loss).
     #[tokio::test(flavor = "multi_thread")]
     async fn rebalance_execute_balances_and_preserves_data() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::rebalance::{
             plan_rebalance, shard_loads_from_catalog, RebalanceOptions,
         };
@@ -8740,6 +8844,11 @@ mod tests {
     /// for the common idle case, with no data loss.
     #[tokio::test(flavor = "multi_thread")]
     async fn online_reshard_delta_is_small_for_idle_graph() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const K: usize = 4;
         let dir = std::env::temp_dir().join(format!("eg-r1-delta-{}", std::process::id()));
@@ -8802,6 +8911,11 @@ mod tests {
     /// and get a rebalance plan. Proves the WIRE surface, not just the backend methods.
     #[tokio::test(flavor = "multi_thread")]
     async fn admin_rpc_dispatch_roundtrip() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::protocol::ResultPayload;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const SECRET: &str = "admin-rpc";

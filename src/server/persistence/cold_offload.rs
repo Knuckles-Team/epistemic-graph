@@ -882,6 +882,11 @@ mod admission_tests {
     /// rest.
     #[tokio::test(flavor = "multi_thread")]
     async fn n_registered_m_resident_lazy_open_on_access() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-lazy-n-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -947,6 +952,11 @@ mod admission_tests {
     /// durability-gated eviction never loses anything.
     #[tokio::test(flavor = "multi_thread")]
     async fn evicted_graph_lazy_reopens_with_data_intact() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-lazy-reopen-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -993,6 +1003,11 @@ mod admission_tests {
     /// `page_in` calls land the rest one bounded batch at a time.
     #[tokio::test(flavor = "multi_thread")]
     async fn open_lazy_paged_materializes_one_page_then_page_in_completes_deterministically() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-lazy-paged-manual-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -1068,6 +1083,11 @@ mod admission_tests {
     /// lands the rest of a graph bigger than one page.
     #[tokio::test(flavor = "multi_thread")]
     async fn paged_lazy_open_wiring_is_resident_immediately_then_completes_in_background() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-lazy-paged-bg-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -1533,6 +1553,11 @@ mod admission_tests {
     /// to admit each new one.
     #[tokio::test(flavor = "multi_thread")]
     async fn quota_bounds_resident_count_under_churn() {
+        // Holds the encryption env still for this test's whole body: it opens a
+        // durable store, so a concurrent key mutation would break its canary
+        // check. A READ guard, so these tests still run concurrently with each
+        // other -- only a key MUTATOR is excluded.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-lazy-quota-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
