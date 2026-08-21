@@ -42,6 +42,10 @@ from epistemic_graph.client import SyncEpistemicGraphClient  # noqa: E402
 
 SCHEMA_VERSION = 1
 AGENT_ID = "service:exact-certifier"
+# RBAC role names this sandbox's signer may place on an identity it registers
+# (NE-065 scoping; see the registry construction in `Engine.start`). Explicit
+# enumeration, never a wildcard -- `RoleAllowance::parse` rejects a bare `"*"`.
+CERTIFIER_ALLOWED_ROLES = ("exact-matrix-reader",)
 AUDIENCE = "epistemic-graph-certification"
 POLICY_VERSION = "policy:certification"
 TENANT = "tenant:certification-a"
@@ -305,8 +309,22 @@ class ExactEngine:
             "EPISTEMIC_GRAPH_TENANT": tenant,
             "EPISTEMIC_GRAPH_POLICY_VERSION": POLICY_VERSION,
             "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": str(self.security_dir),
+            # NE-247: the SCOPED signer-registry shape. NE-065 made the flat
+            # `{signer_id: key}` form fail closed (no roles, no System grant),
+            # so this sandbox's own genesis `bootstrap_system_identity` -- an
+            # `AgentRole::System` self-registration -- is denied under it.
+            # `certify_exact_protocol_authorization.py` reuses this exact
+            # engine sandbox and additionally registers a peer carrying
+            # `PEER_ROLE`, so that role is enumerated here too.
             "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
-                {AGENT_ID: self.authority.signer_key}, separators=(",", ":")
+                {
+                    AGENT_ID: {
+                        "key": self.authority.signer_key,
+                        "allowed_roles": list(CERTIFIER_ALLOWED_ROLES),
+                        "may_grant_system": True,
+                    }
+                },
+                separators=(",", ":"),
             ),
             "EPISTEMIC_GRAPH_REDB_COMMIT_POLICY": "each",
             "EPISTEMIC_GRAPH_REDB_SHARDS": str(redb_shards),

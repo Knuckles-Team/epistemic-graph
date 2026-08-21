@@ -1032,8 +1032,20 @@ def _spawn_engine(
         "EPISTEMIC_GRAPH_TENANT": authority.context["tenant"],
         "EPISTEMIC_GRAPH_POLICY_VERSION": authority.context["policy_version"],
         "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": str(security_dir),
+        # NE-247: the SCOPED signer-registry shape. Under NE-065 the flat
+        # `{signer_id: key}` form grants no roles and no `AgentRole::System`,
+        # which denies this harness's own `bootstrap_system_identity` below.
+        # This sandbox registers no other identity, so `allowed_roles` stays
+        # empty -- only the System bootstrap is authorised.
         "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
-            {authority.signer_id: authority.signer_key}, separators=(",", ":")
+            {
+                authority.signer_id: {
+                    "key": authority.signer_key,
+                    "allowed_roles": [],
+                    "may_grant_system": True,
+                }
+            },
+            separators=(",", ":"),
         ),
         "EPISTEMIC_GRAPH_REDB_SHARDS": "1",
         "EPISTEMIC_GRAPH_MAX_INFLIGHT": "256",

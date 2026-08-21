@@ -15,6 +15,28 @@ TEST_AUDIENCE = "epistemic-graph-test"
 TEST_TENANT = "tenant:test"
 TEST_POLICY_VERSION = "policy:test"
 
+# NE-247. NE-065 replaced the flat `{signer_id: key}` signer registry with a
+# SCOPED one and made the flat shape fail closed (`allowed_roles: []`,
+# `may_grant_system: false`) rather than silently unlimited -- see
+# `SignerKeySpec::Legacy`'s justification in `src/server/auth.rs`. This suite's
+# registry was never migrated, so `authorize_grant` denied the session
+# fixture's own `bootstrap_system_identity` (an `AgentRole::System` grant) and
+# 534 of 548 tests errored at setup with `signer is not authorized for this
+# identity registration`. The registry is now scoped explicitly.
+#
+# `may_grant_system` is genuinely required here: the fixture registers the
+# suite's own genesis System identity, which is exactly the one grant that flag
+# exists to authorise. `authorize_grant` still holds the rest of NE-065's shape
+# on this path -- a System grant must carry NO RBAC roles and must be a SELF
+# registration (`agent_id == signer`), both of which the fixture satisfies.
+#
+# `TEST_SIGNER_ALLOWED_ROLES` is an EXPLICIT enumeration, not a wildcard: a
+# bare `"*"` is rejected by `RoleAllowance::parse` by design, and a
+# `"namespace:*"` prefix would not match these bare role names anyway. Any test
+# that registers an identity with a new RBAC role name must add it here -- that
+# is the scoping working, not friction to route around.
+TEST_SIGNER_ALLOWED_ROLES = ["commons-access", "worker1-access"]
+
 
 def request_context(
     *,
@@ -74,8 +96,15 @@ def strict_server_env(
         "EPISTEMIC_GRAPH_TENANT": TEST_TENANT,
         "EPISTEMIC_GRAPH_POLICY_VERSION": TEST_POLICY_VERSION,
         "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": state_dir,
+        # NE-247: the SCOPED registry shape. See TEST_SIGNER_ALLOWED_ROLES above.
         "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
-            {TEST_AGENT_ID: TEST_SIGNER_KEY}
+            {
+                TEST_AGENT_ID: {
+                    "key": TEST_SIGNER_KEY,
+                    "allowed_roles": TEST_SIGNER_ALLOWED_ROLES,
+                    "may_grant_system": True,
+                }
+            }
         ),
     }
     if persist_dir is not None:

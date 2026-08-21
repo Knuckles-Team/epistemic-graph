@@ -25,6 +25,7 @@ from typing import Any
 from certify_exact_fault_restart import (
     AGENT_ID,
     AUDIENCE,
+    CERTIFIER_ALLOWED_ROLES,
     POLICY_VERSION,
     SECOND_TENANT,
     TENANT,
@@ -44,6 +45,15 @@ SCHEMA_VERSION = 1
 AUTH_GRAPH = "authorization-matrix"
 PEER_ID = "service:exact-peer"
 PEER_ROLE = "exact-matrix-reader"
+# NE-247: `ExactEngine.start` builds the SCOPED signer registry from
+# `CERTIFIER_ALLOWED_ROLES`, and NE-065's `authorize_grant` denies any role
+# outside it. Asserting the coupling here means a renamed PEER_ROLE fails at
+# import with an obvious message instead of at `register_identity` with the
+# deliberately-indistinguishable "signer is not authorized" denial.
+assert PEER_ROLE in CERTIFIER_ALLOWED_ROLES, (
+    f"{PEER_ROLE!r} must be listed in certify_exact_fault_restart."
+    "CERTIFIER_ALLOWED_ROLES or the engine sandbox will refuse to register it"
+)
 SOCKET_TIMEOUT_SECONDS = 3.0
 LISTENER_TIMEOUT_SECONDS = 30.0
 
