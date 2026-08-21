@@ -876,6 +876,31 @@ mod tests {
         backend.shutdown();
     }
 
+    /// Set `EPISTEMIC_GRAPH_ENCRYPTION_KEY` for one test and restore the previous
+    /// value on drop — including on panic, which a bare set/remove pair would leak
+    /// into every later test in the process.
+    #[cfg(feature = "security")]
+    struct EncryptionKeyForTest(Option<String>);
+
+    #[cfg(feature = "security")]
+    impl EncryptionKeyForTest {
+        fn set(value: &str) -> Self {
+            let previous = std::env::var(crate::crypto::ENCRYPTION_KEY_ENV).ok();
+            std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, value);
+            Self(previous)
+        }
+    }
+
+    #[cfg(feature = "security")]
+    impl Drop for EncryptionKeyForTest {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(value) => std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, value),
+                None => std::env::remove_var(crate::crypto::ENCRYPTION_KEY_ENV),
+            }
+        }
+    }
+
     /// CONCEPT:EG-KG.sharding.reshard-on-restore — the DR round trip: populate a durable dir → ONLINE backup (live,
     /// no quiesce) → restore into a FRESH dir → reopen and assert every graph's
     /// nodes/edges/ledger survive identically.
@@ -888,6 +913,16 @@ mod tests {
         // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        // Exercise the ENCRYPTED restore path deliberately, instead of whatever the
+        // ambient environment happens to configure.
+        //
+        // This test used to pass with encryption OFF (no key in env => no canary rows
+        // => the cross-shard key check short-circuits), and fail the moment a key was
+        // present. That is backwards: the K>1 restore is exactly where the key-binding
+        // comparison runs, so the interesting path was the one never covered. Pinning
+        // a key here makes the encrypted multi-shard round trip the default assertion.
+        #[cfg(feature = "security")]
+        let _key_guard = EncryptionKeyForTest::set("backup-roundtrip-key-material");
         let root = std::env::temp_dir().join(format!("eg-backup-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");

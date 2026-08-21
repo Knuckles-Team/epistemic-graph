@@ -48,7 +48,7 @@ use redb::{Database, Durability, ReadableDatabase, ReadableTable};
 
 use super::redb_backend::{shard_index, RAFT_META};
 #[cfg(feature = "security")]
-use super::redb_backend::ENCRYPTION_CANARY;
+use super::redb_backend::{ENCRYPTION_CANARY, ENCRYPTION_KEY_BINDING_KEY};
 use crate::redb_layout::{
     discover_indexed_shards, retired_single_shard, shard_filename, validate_shard_count,
 };
@@ -573,7 +573,22 @@ fn copy_global_tables(
     #[cfg(feature = "security")]
     {
         let mut d_encryption_canary = wtx.open_table(ENCRYPTION_CANARY).map_err(|e| e.to_string())?;
-        let mut source_binding: Option<Vec<(String, Vec<u8>)>> = None;
+        // Compare the KEY BINDING row, never the whole table.
+        //
+        // The `ENCRYPTION_CANARY` table holds two different kinds of row. The
+        // binding (`ENCRYPTION_KEY_BINDING_KEY`) is a deterministic encoding of the
+        // key's identity/version — the thing that actually has to match across
+        // shards. The canary row next to it is `cipher.seal(plaintext)`, and `seal`
+        // draws a FRESH RANDOM NONCE per call, so sealing the same plaintext with
+        // the same key produces different bytes in every shard, forever.
+        //
+        // Comparing the raw rows therefore rejected every encrypted multi-shard
+        // restore -- the error even said "key-binding metadata differs" while
+        // actually comparing ciphertext that is *designed* never to be equal. That
+        // made restore-from-backup impossible whenever encryption at rest was on
+        // and K > 1, which is a disaster-recovery defect, not a nuisance.
+        let mut source_rows: Option<Vec<(String, Vec<u8>)>> = None;
+        let mut source_binding: Option<Vec<u8>> = None;
         for src in src_dbs {
             let rtx = src.begin_read().map_err(|e| e.to_string())?;
             let Some(table) = rtx.open_table(ENCRYPTION_CANARY).ok() else {
@@ -587,18 +602,37 @@ fn copy_global_tables(
             if rows.is_empty() {
                 continue;
             }
+            let binding = rows
+                .iter()
+                .find(|(key, _)| key == ENCRYPTION_KEY_BINDING_KEY)
+                .map(|(_, value)| value.clone());
+            // A canary with no binding row is the pre-key-lifecycle shape that
+            // `Shard::open` upgrades in place on first open with the configured key.
+            // Restoring one is refused with the REAL reason rather than being
+            // mislabelled a key mismatch: without a binding there is no key identity
+            // to compare, and the canary alone cannot supply one.
+            let Some(binding) = binding else {
+                return Err("source shard has an encryption canary but no key-binding row; \
+                            open it once with the configured key to complete the legacy \
+                            upgrade before restoring"
+                    .to_string());
+            };
             if let Some(existing) = &source_binding {
-                if existing != &rows {
+                if existing != &binding {
                     return Err(
                         "encryption key-binding metadata differs between source shards"
                             .to_string(),
                     );
                 }
             } else {
-                source_binding = Some(rows);
+                source_binding = Some(binding);
+                // Carry the first shard's rows forward: every shard's canary decrypts
+                // to the same plaintext under the one agreed key, so any single copy
+                // is a valid canary for the destination.
+                source_rows = Some(rows);
             }
         }
-        if let Some(rows) = source_binding {
+        if let Some(rows) = source_rows {
             for (key, value) in rows {
                 d_encryption_canary
                     .insert(key.as_str(), value.as_slice())
