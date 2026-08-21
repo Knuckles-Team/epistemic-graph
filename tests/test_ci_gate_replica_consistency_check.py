@@ -125,13 +125,24 @@ def test_gates_job_run_steps_include_the_numeric_kernel_parity_chain():
 
 
 def test_advisory_feature_matrix_is_now_covered_and_expanded_per_leg():
-    """GAP 1's headline example: advisory.yml's feature-build matrix (10
-    feature combinations) used to be entirely unreplicated. It must now show
-    up as 10 distinct, individually-runnable RUN rows with the real matrix
-    values substituted in (not a literal, unresolved '${{ matrix... }}')."""
+    """GAP 1's headline example: advisory.yml's feature-build matrix used to be
+    entirely unreplicated. Every leg it declares must now show up as its own
+    individually-runnable RUN row with the real matrix values substituted in
+    (not a literal, unresolved '${{ matrix... }}').
+
+    The expected count is READ FROM THE WORKFLOW, not hardcoded. It used to be
+    the literal 10, which is what the matrix happened to hold when this test was
+    written; the matrix has since grown to 13 legs and the test failed for that
+    growth alone -- reporting "the replica is broken" when the replica had
+    correctly expanded every one of them. A drift guard that fires on the thing
+    it is supposed to permit is worse than none, so it now asserts the property
+    (one row per declared leg, all substituted) rather than a snapshot of the
+    count.
+    """
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
     plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["advisory.yml"], doc)
+    declared = doc["jobs"]["feature-matrix"]["strategy"]["matrix"]["target"]
     matrix_rows = [
         p
         for p in plan
@@ -139,8 +150,10 @@ def test_advisory_feature_matrix_is_now_covered_and_expanded_per_leg():
         and p["mode"] == "RUN"
         and p["name"].startswith("Build ")
     ]
-    assert len(matrix_rows) == 10, (
-        f"expected 10 feature-matrix legs, got {len(matrix_rows)}: {[r['job'] for r in matrix_rows]}"
+    assert len(declared) > 0, "advisory.yml declares no feature-matrix legs"
+    assert len(matrix_rows) == len(declared), (
+        f"expected one RUN row per declared leg ({len(declared)}), got "
+        f"{len(matrix_rows)}: {[r['job'] for r in matrix_rows]}"
     )
     for row in matrix_rows:
         assert "${{" not in row["detail"], (

@@ -1117,11 +1117,116 @@ def _run_step(
     return status, elapsed
 
 
+#: Cached result of :func:`_local_setup_python_bin` -- a real path once
+#: provisioned, an empty ``Path`` once provisioning has been tried and failed
+#: (so a broken host is reported once, not once per job).
+_LOCAL_SETUP_PYTHON: Path | None = None
+
+
+def _local_setup_python_bin() -> str | None:
+    """Provide locally what ``actions/setup-python`` provides in CI.
+
+    ``actions/setup-python`` is classified ENV_SETUP and skipped here, which is
+    right -- but nothing replaced the one property it supplies that the local
+    host does NOT have for free: a Python whose site-packages this run may
+    write to. On a PEP 668 distro interpreter every replicated ``pip install``
+    step dies with ``error: externally-managed-environment``, and it dies for a
+    reason that is a fact about this host, not about the workflow. Worse, it
+    does not stop there: a later step that USES what the install would have
+    provided then runs against a stale environment and reports a confident,
+    entirely fictional failure -- ``Install the wheel`` failing is what made
+    ``numpy-free boundary contract (NE-249)`` "fail" against a previously
+    installed copy of the package it was supposed to be testing.
+
+    So: one venv per run, created with ``--system-site-packages`` so every step
+    that already worked against the ambient interpreter keeps working, and
+    prepended to PATH only for jobs that actually declare ``setup-python``.
+    ``VIRTUAL_ENV`` is deliberately NOT exported -- ``uv run`` steps consult it
+    and would switch environments underneath themselves; a venv's own
+    ``bin/pip`` installs into its own prefix from PATH alone.
+
+    This is a LOCAL_ENV_OVERRIDES-class adjustment: declared, printed, and
+    never a substitute for a workflow-declared value.
+    """
+
+    global _LOCAL_SETUP_PYTHON
+    if _LOCAL_SETUP_PYTHON is None:
+        target = Path(LOCAL_ENV_OVERRIDES["TMPDIR"]) / "setup-python-venv"
+        if not (target / "bin" / "pip").exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            # `uv venv --seed` first, `python3 -m venv` second. On a Debian
+            # interpreter -- which is exactly the PEP 668 case this exists for --
+            # the stdlib route fails with "ensurepip is not available", so the
+            # obvious ordering is the one that does not work on the only host
+            # that needs it. uv is already a hard dependency of this repo's own
+            # gates, so it is not a new requirement.
+            attempts = []
+            if shutil.which("uv") is not None:
+                attempts.append(
+                    [
+                        "uv",
+                        "venv",
+                        "--seed",
+                        "--system-site-packages",
+                        "--python",
+                        sys.executable,
+                        str(target),
+                    ]
+                )
+            attempts.append(
+                [sys.executable, "-m", "venv", "--system-site-packages", str(target)]
+            )
+            failures = []
+            for command in attempts:
+                created = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    stdin=subprocess.DEVNULL,
+                    timeout=300,
+                )
+                if created.returncode == 0 and (target / "bin" / "pip").exists():
+                    break
+                # `python3 -m venv` reports the ensurepip failure on STDOUT, so
+                # a stderr-only report prints an empty reason and reads as a
+                # mystery. Take whichever stream actually said something.
+                failures.append(
+                    f"{command[0]}: "
+                    f"{(created.stderr.strip() or created.stdout.strip())[:300]}"
+                )
+            else:
+                print(
+                    "    [local setup-python replacement UNAVAILABLE -- pip steps "
+                    f"will fail as they do today: {' | '.join(failures)}]"
+                )
+                _LOCAL_SETUP_PYTHON = Path("")
+                return None
+        print(f"    [local setup-python replacement: {target}]")
+        _LOCAL_SETUP_PYTHON = target
+    if not str(_LOCAL_SETUP_PYTHON):
+        return None
+    return str(_LOCAL_SETUP_PYTHON / "bin")
+
+
+def _job_declares_setup_python(job: dict) -> bool:
+    """Does this job ask CI for a provisioned Python interpreter?"""
+    for step in _job_steps(job or {}):
+        if _action_name(str((step or {}).get("uses", "") or "")) == (
+            "actions/setup-python"
+        ):
+            return True
+    return False
+
+
 def _job_base_env(doc: dict, job_id: str) -> dict:
     env = dict(os.environ)
     env.update({k: str(v) for k, v in (doc.get("env") or {}).items()})
     env.update({k: str(v) for k, v in (doc["jobs"][job_id].get("env") or {}).items()})
     env.update(LOCAL_ENV_OVERRIDES)
+    if _job_declares_setup_python(doc["jobs"][job_id]):
+        bin_dir = _local_setup_python_bin()
+        if bin_dir is not None:
+            env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
     return env
 
 
