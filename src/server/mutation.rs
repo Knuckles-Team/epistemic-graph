@@ -1920,10 +1920,39 @@ fn prepublish_success(core: &GraphCore, method: &Method) -> Option<ResultPayload
             Some(ResultPayload::String("ok".to_string()))
         }
         Method::BatchUpdate { operations_msgpack } => {
-            let result = crate::algorithms::batch_update_preview(core, operations_msgpack).ok()?;
-            eg_types::msgpack::decode_property_value(&result)
-                .ok()
-                .map(ResultPayload::Json)
+            // Falling through to `None` here is not a no-op: it routes this write
+            // into the runtime-result branch, which reads the ENTIRE authoritative
+            // graph snapshot back out of redb, clones it, and rebuilds a whole
+            // `GraphCore` from it before applying. On a 56k-node graph that is
+            // seconds per write instead of milliseconds. Swallowing the reason with
+            // `.ok()?` made that cliff invisible — the write still succeeded, just
+            // via the expensive path, so nothing surfaced and no metric moved.
+            let result = match crate::algorithms::batch_update_preview(core, operations_msgpack) {
+                Ok(result) => result,
+                Err(error) => {
+                    tracing::warn!(
+                        target: "epistemic_graph::mutation",
+                        %error,
+                        "BatchUpdate preview failed; falling back to the \
+                         full-snapshot runtime-result commit path"
+                    );
+                    return None;
+                }
+            };
+            match eg_types::msgpack::decode_property_value(&result) {
+                Ok(value) => Some(ResultPayload::Json(value)),
+                Err(error) => {
+                    tracing::warn!(
+                        target: "epistemic_graph::mutation",
+                        // `?` (Debug) not `%` (Display): MsgpackValidationError
+                        // implements Debug only.
+                        ?error,
+                        "BatchUpdate preview summary failed to decode; falling back \
+                         to the full-snapshot runtime-result commit path"
+                    );
+                    None
+                }
+            }
         }
         _ => None,
     }

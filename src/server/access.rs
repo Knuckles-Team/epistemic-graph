@@ -273,6 +273,40 @@ impl GraphReadAuthority {
         let _ = view;
     }
 
+    /// Answer ONE node-membership question without materializing a projection.
+    ///
+    /// `project_core` builds a whole filtered `GraphCore`
+    /// (`O(V log V + E log E + V*d)`), which a point lookup does not need: a
+    /// `HasNode` used to pay the same cost as a full graph dump, and on a live
+    /// 56k-node graph that measured ~1.2s per call even WITH the projection cache
+    /// in front of it (the cache is keyed on `GraphCore::version()`, so an ingest
+    /// that interleaves reads and writes misses on essentially every read).
+    ///
+    /// Visibility is delegated to `IsolationLayer::can_see_node` — the SAME
+    /// function `filter_view` applies to every node — so this fast path cannot
+    /// drift from the bulk path it short-circuits. It is id-aware, which the
+    /// blob-only `can_see_node` below deliberately is not: a node present in the
+    /// topology with NO property blob must be judged `default_public` (what
+    /// `filter_view` does), and `row_visibility(&[])` is not that. `analysis_snapshot()` is the
+    /// cheap half of `build_projection` (it clones concurrent-map handles and the
+    /// `schema_node_ids` reverse index, not every node's property blob); the
+    /// expensive half is the sort + per-node clone into a second core, which is
+    /// exactly what this skips.
+    pub(crate) fn node_visible(&self, core: &GraphCore, node_id: &str) -> bool {
+        let view = core.analysis_snapshot();
+        if !view.node_map.contains_key(node_id) {
+            return false;
+        }
+        #[cfg(feature = "security")]
+        {
+            self.isolation.can_see_node(&self.actor, &view, node_id)
+        }
+        #[cfg(not(feature = "security"))]
+        {
+            true
+        }
+    }
+
     /// Evaluate one CDC before/after property blob with the exact graph-row RLS
     /// predicate.  An absent image is not evidence of visibility; callers normally
     /// authorize an event when either its before or after image is visible.
@@ -1400,6 +1434,50 @@ mod universal_row_read_tests {
             });
         }
         (core, isolation)
+    }
+
+    /// The equivalence oracle for the `HasNode`/`HasNodesBatch` point-lookup fast
+    /// path (`GraphReadAuthority::node_visible`).
+    ///
+    /// That fast path exists so a boolean membership question stops paying for a
+    /// whole `O(V log V + E log E + V*d)` projection. The ONLY thing that makes it
+    /// safe is that it must answer identically to the projection it skips — this
+    /// crate enforces row-level isolation, so a fast path that disagrees is a
+    /// data-leak bug, not a performance bug.
+    ///
+    /// Asserting equivalence (rather than hardcoding expected booleans) is
+    /// deliberate: it pins the fast path TO the bulk path, so a future change to
+    /// RLS policy that moves one also has to move the other or fail here. The
+    /// fixture deliberately spans every visibility class the predicate
+    /// distinguishes — another actor's private row, one's own private row, a
+    /// public row, a topology row with NO property blob (`untagged`, which
+    /// `filter_view` judges as `default_public` rather than implicitly visible),
+    /// and an id that is absent entirely.
+    #[test]
+    fn has_node_fast_path_answers_exactly_as_the_projection_it_skips() {
+        let (core, isolation) = shared_graph();
+        for agent_id in ["alice", "bob"] {
+            let context = super::super::auth::VerifiedRequestContext::verified_for_test(agent_id);
+            let authority = GraphReadAuthority::from_verified(&context, &isolation).unwrap();
+            let projected = authority.project_core(&core);
+            for node_id in [
+                "alice-private",
+                "bob-private",
+                "public",
+                "untagged",
+                "does-not-exist",
+            ] {
+                assert_eq!(
+                    authority.node_visible(&core, node_id),
+                    projected.has_node(node_id),
+                    "point-lookup fast path disagreed with the projection for \
+                     actor={agent_id} node={node_id}: node_visible() is the \
+                     short-circuit `HasNode`/`HasNodesBatch` take instead of \
+                     building a filtered core, so any disagreement is an RLS \
+                     divergence between the two read paths"
+                );
+            }
+        }
     }
 
     #[test]
