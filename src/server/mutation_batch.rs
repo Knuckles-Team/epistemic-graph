@@ -1067,9 +1067,7 @@ pub(crate) async fn commit_work_item(
     )
     .await;
     match result {
-        Ok(result) if committed.replayed && submit => {
-            mark_submit_replayed(result, submit_batch)
-        }
+        Ok(result) if committed.replayed && submit => mark_submit_replayed(result, submit_batch),
         Ok(result) => Ok(result),
         Err(error) => match reconcile_projection_from_authority(persistence, &fname, core).await {
             Ok(()) => Err(error),
@@ -1087,10 +1085,7 @@ pub(crate) async fn commit_work_item(
 /// bit after the authoritative replay; never write the rewritten bytes back to
 /// redb.
 fn mark_submit_replayed(result: ResultPayload, batch: bool) -> Result<ResultPayload, String> {
-    fn set_flags(
-        value: &mut serde_json::Value,
-        batch: bool,
-    ) -> Result<(), String> {
+    fn set_flags(value: &mut serde_json::Value, batch: bool) -> Result<(), String> {
         let object = value
             .as_object_mut()
             .ok_or_else(|| "replayed SubmitWorkItem result is not an object".to_string())?;

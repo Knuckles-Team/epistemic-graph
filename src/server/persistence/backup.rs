@@ -80,9 +80,9 @@ use crate::redb_store::{
     MUTATION_OUTBOX, MUTATION_OUTBOX_DELIVERY, MUTATION_PROJECTION_CURSOR, NODES, RAFT_LOG,
     SEMANTIC, XSHARD_DECISION, XSHARD_PREPARE,
 };
-use crate::server::persistence::redb_backend::RAFT_META;
 #[cfg(feature = "security")]
 use crate::server::persistence::redb_backend::ENCRYPTION_CANARY;
+use crate::server::persistence::redb_backend::RAFT_META;
 use crate::server::persistence::shard_migrate;
 
 /// The bundle manifest file name.
@@ -448,7 +448,9 @@ pub(crate) fn copy_snapshot_verbatim(
     // boundary and cannot silently establish a new canary under a different key.
     #[cfg(feature = "security")]
     {
-        let mut d_encryption_canary = wtx.open_table(ENCRYPTION_CANARY).map_err(|e| e.to_string())?;
+        let mut d_encryption_canary = wtx
+            .open_table(ENCRYPTION_CANARY)
+            .map_err(|e| e.to_string())?;
         if let Ok(t) = rtx.open_table(ENCRYPTION_CANARY) {
             for row in t.iter().map_err(|e| e.to_string())? {
                 let (k, v) = row.map_err(|e| e.to_string())?;

@@ -51,16 +51,28 @@ fn context_binding(context: &VerifiedRequestContext) -> Value {
     })
 }
 
+/// The three parallel topology projections a signed snapshot carries. Grouped so
+/// the signing function keeps a readable arity (clippy::too_many_arguments) and
+/// so the three can never be passed in the wrong order.
+struct SnapshotProjections {
+    groups: Vec<Value>,
+    canonical_groups: Vec<Value>,
+    leaders: Vec<Value>,
+}
+
 fn signed_snapshot(
     secret: &str,
     cluster_id: &str,
     membership_epoch: u64,
     placement_epoch: u64,
     context: &VerifiedRequestContext,
-    groups: Vec<Value>,
-    canonical_groups: Vec<Value>,
-    leaders: Vec<Value>,
+    projections: SnapshotProjections,
 ) -> Result<Value, String> {
+    let SnapshotProjections {
+        groups,
+        canonical_groups,
+        leaders,
+    } = projections;
     if secret.is_empty() {
         return Err("cluster discovery signing authority is unavailable".to_string());
     }
@@ -239,9 +251,11 @@ async fn handle_cluster_members(
             membership_epoch,
             0,
             verified_context,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
+            SnapshotProjections {
+                groups: Vec::new(),
+                canonical_groups: Vec::new(),
+                leaders: Vec::new(),
+            },
         ) {
             Ok(snapshot) => Response::ok(req_id, ResultPayload::Json(snapshot)),
             Err(error) => Response::err(req_id, error),
@@ -362,11 +376,7 @@ async fn handle_cluster_members(
             }));
             member_count += 1;
         }
-        canonical_groups.push(serde_json::json!([
-            group_id,
-            leader_id,
-            canonical_members,
-        ]));
+        canonical_groups.push(serde_json::json!([group_id, leader_id, canonical_members,]));
         groups.push(serde_json::json!({
             "group_id": group_id,
             "leader_id": leader_id,
@@ -380,9 +390,11 @@ async fn handle_cluster_members(
         membership_epoch,
         placement_epoch,
         verified_context,
-        groups,
-        canonical_groups,
-        leaders,
+        SnapshotProjections {
+            groups,
+            canonical_groups,
+            leaders,
+        },
     ) {
         Ok(snapshot) => Response::ok(req_id, ResultPayload::Json(snapshot)),
         Err(error) => Response::err(req_id, error),
@@ -444,9 +456,11 @@ pub(crate) async fn try_handle(
                 0,
                 0,
                 verified_context,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
+                SnapshotProjections {
+                    groups: Vec::new(),
+                    canonical_groups: Vec::new(),
+                    leaders: Vec::new(),
+                },
             );
             Ok(match snapshot {
                 Ok(snapshot) => Response::ok(req_id, ResultPayload::Json(snapshot)),

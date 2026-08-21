@@ -517,8 +517,7 @@ impl TenantMatcher {
         // here; a guessed custom suffix must still prove access through ACL.
         tenant_of(graph_name) == self.tenant
             || (graph_name.starts_with(&self.prefix)
-                && (graph_name.ends_with("__default")
-                    || graph_name.ends_with("____commons__")))
+                && (graph_name.ends_with("__default") || graph_name.ends_with("____commons__")))
     }
 }
 
@@ -933,9 +932,7 @@ pub async fn enforce_memory_budgets(
 
             // A graph that came back resident (rehydrated by access between sweeps) is no
             // longer hibernated.
-            if handle.core.node_count() > 0
-                && is_hibernated(name, &handle.incarnation_id)
-            {
+            if handle.core.node_count() > 0 && is_hibernated(name, &handle.incarnation_id) {
                 note_hibernated(name, &handle.incarnation_id, false);
             }
         }

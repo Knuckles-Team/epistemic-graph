@@ -662,11 +662,7 @@ pub fn commit(wtx: WriteTransaction, batch: &MutationBatch) -> Result<(), String
 /// matters for a repaired/legacy store whose batch record survived without its
 /// index row.  Any broken cross-scope link or malformed record fails closed;
 /// silently deleting an unknown batch could erase another tenant's authority.
-pub fn purge_scope(
-    wtx: &WriteTransaction,
-    tenant: &str,
-    graph: &str,
-) -> Result<(), String> {
+pub fn purge_scope(wtx: &WriteTransaction, tenant: &str, graph: &str) -> Result<(), String> {
     if tenant.trim().is_empty() || graph.trim().is_empty() {
         return Err("mutation scope requires non-empty tenant and graph".to_string());
     }
@@ -717,9 +713,7 @@ pub fn purge_scope(
                 .get(batch_id.as_str())
                 .map_err(|error| error.to_string())?
                 .ok_or_else(|| {
-                    format!(
-                        "mutation idempotency scope points to missing batch '{batch_id}'"
-                    )
+                    format!("mutation idempotency scope points to missing batch '{batch_id}'")
                 })?;
             let record = decode_batch_record(value.value())?;
             if record.batch.batch_id != batch_id.as_str()
@@ -736,9 +730,7 @@ pub fn purge_scope(
                 .get(batch_id.as_str())
                 .map_err(|error| error.to_string())?
                 .ok_or_else(|| {
-                    format!(
-                        "mutation idempotency scope points to missing batch '{batch_id}'"
-                    )
+                    format!("mutation idempotency scope points to missing batch '{batch_id}'")
                 })?;
             let record = decode_batch_record(value.value())?;
             if record.batch.idempotency_key != *idempotency_key {
@@ -762,17 +754,13 @@ pub fn purge_scope(
 
     for batch_id in &batch_ids {
         {
-            let mut table = wtx
-                .open_table(BATCHES)
-                .map_err(|error| error.to_string())?;
+            let mut table = wtx.open_table(BATCHES).map_err(|error| error.to_string())?;
             table
                 .remove(batch_id.as_str())
                 .map_err(|error| error.to_string())?;
         }
         {
-            let mut table = wtx
-                .open_table(OUTBOX)
-                .map_err(|error| error.to_string())?;
+            let mut table = wtx.open_table(OUTBOX).map_err(|error| error.to_string())?;
             let ordinals: Vec<u32> = table
                 .range((batch_id.as_str(), 0u32)..=(batch_id.as_str(), u32::MAX))
                 .map_err(|error| error.to_string())?
@@ -1233,24 +1221,14 @@ mod tests {
         let db = Database::create(dir.path().join("native.redb")).unwrap();
         initialize(&db).unwrap();
 
-        let prepared = scoped_saga_batch(
-            "tenant-a",
-            "graph-a",
-            "prepared-a",
-            "prepared-a-key",
-        );
+        let prepared = scoped_saga_batch("tenant-a", "graph-a", "prepared-a", "prepared-a-key");
         assert!(matches!(
-            prepare_saga_with_private_payload(&db, &prepared, 1, Some(b"encrypted-plan"))
-                .unwrap(),
+            prepare_saga_with_private_payload(&db, &prepared, 1, Some(b"encrypted-plan")).unwrap(),
             SagaBegin::Execute
         ));
 
-        let mut committed = scoped_saga_batch(
-            "tenant-a",
-            "graph-a",
-            "committed-a",
-            "committed-a-key",
-        );
+        let mut committed =
+            scoped_saga_batch("tenant-a", "graph-a", "committed-a", "committed-a-key");
         committed.outbox.push(eg_types::MutationOutboxIntent {
             topic: "native.committed".to_string(),
             key: committed.batch_id.clone(),
@@ -1260,12 +1238,7 @@ mod tests {
         prepare_saga(&db, &committed, 2).unwrap();
         commit_saga(&db, &committed, vec![0x01], 3).unwrap();
 
-        let mut other = scoped_saga_batch(
-            "tenant-a",
-            "graph-b",
-            "committed-b",
-            "committed-b-key",
-        );
+        let mut other = scoped_saga_batch("tenant-a", "graph-b", "committed-b", "committed-b-key");
         other.outbox.push(eg_types::MutationOutboxIntent {
             topic: "native.other".to_string(),
             key: other.batch_id.clone(),

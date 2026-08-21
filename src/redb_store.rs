@@ -124,9 +124,7 @@ fn native_retry_method(method: &Method) -> Option<Method> {
 /// carry a fresh request/trace/expiry window. Keep the security-bearing scope
 /// and subject fields in the idempotency comparison while normalizing only the
 /// authority-issued temporal/correlation fields.
-fn normalize_submit_context(
-    context: &mut crate::epistemic_operations::RequestContext,
-) {
+fn normalize_submit_context(context: &mut crate::epistemic_operations::RequestContext) {
     context.request_id.clear();
     context.trace_id.clear();
     context.issued_at_ms = 0;
@@ -140,9 +138,7 @@ fn native_retry_method_key(method: &Method) -> Result<Option<Vec<u8>>, String> {
         .transpose()
 }
 
-fn native_retry_operations(
-    operations: &[MutationOperation],
-) -> Option<Vec<MutationOperation>> {
+fn native_retry_operations(operations: &[MutationOperation]) -> Option<Vec<MutationOperation>> {
     if operations.is_empty()
         || operations
             .iter()
@@ -297,9 +293,9 @@ fn mutation_operations_retry_match(
 mod resource_reservation_tests;
 
 #[cfg(feature = "redb")]
-pub(crate) mod development_lane;
-#[cfg(feature = "redb")]
 pub(crate) mod capacity_lease;
+#[cfg(feature = "redb")]
+pub(crate) mod development_lane;
 pub(crate) mod work_item_capability;
 
 fn decode_durable<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
@@ -1715,10 +1711,10 @@ fn apply_mutation_batch_in_wtx(
             // current authoritative observation.  Permit that one derived value
             // only for cross-modal requests; every other identity component stays
             // byte/exact and a same-key different request still conflicts.
-            let expected_graph_version_matches =
-                record.batch.expected_graph_version == batch.expected_graph_version
-                    || (crossmodal.is_some()
-                        && batch.expected_graph_version == Some(current_graph_version));
+            let expected_graph_version_matches = record.batch.expected_graph_version
+                == batch.expected_graph_version
+                || (crossmodal.is_some()
+                    && batch.expected_graph_version == Some(current_graph_version));
             let same_identity = record.batch.batch_id == batch.batch_id
                 && record.batch.context == batch.context
                 && record.batch.tenant == batch.tenant
@@ -2202,7 +2198,9 @@ fn apply_mutation_batch_in_wtx(
                 Method::CreateGraph { .. } => {}
                 Method::DeleteGraph { .. } => {
                     clear_graph_rows(graph_fname, &mut nodes, &mut edges, &mut ledger)?;
-                    command_sequences.remove(graph_fname).map_err(|e| e.to_string())?;
+                    command_sequences
+                        .remove(graph_fname)
+                        .map_err(|e| e.to_string())?;
                     clear_resource_rows(
                         graph_fname,
                         &mut resource_reservations,
@@ -2235,7 +2233,9 @@ fn apply_mutation_batch_in_wtx(
                 }
                 Method::ClearGraph => {
                     clear_graph_rows(graph_fname, &mut nodes, &mut edges, &mut ledger)?;
-                    command_sequences.remove(graph_fname).map_err(|e| e.to_string())?;
+                    command_sequences
+                        .remove(graph_fname)
+                        .map_err(|e| e.to_string())?;
                     clear_resource_rows(
                         graph_fname,
                         &mut resource_reservations,
@@ -2276,9 +2276,11 @@ fn apply_mutation_batch_in_wtx(
                         &mut nodes,
                         &mut edges,
                         &mut command_sequences,
-                        crypto,
-                        committed_at_ms,
-                        &batch.batch_id,
+                        WorkItemCommitScope {
+                            crypto,
+                            authoritative_now_ms: committed_at_ms,
+                            outbox_id: &batch.batch_id,
+                        },
                     )?;
                     if generated_result.is_some() || batch.operations.len() != 1 {
                         return Err(
@@ -2287,7 +2289,8 @@ fn apply_mutation_batch_in_wtx(
                         );
                     }
                     let payload = crate::protocol::ResultPayload::raw(&result);
-                    generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
+                    generated_result =
+                        Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
                 }
                 Method::SubmitWorkItems { request } => {
                     let result = apply_submit_work_items_rows(
@@ -2296,9 +2299,11 @@ fn apply_mutation_batch_in_wtx(
                         &mut nodes,
                         &mut edges,
                         &mut command_sequences,
-                        crypto,
-                        committed_at_ms,
-                        &batch.batch_id,
+                        WorkItemCommitScope {
+                            crypto,
+                            authoritative_now_ms: committed_at_ms,
+                            outbox_id: &batch.batch_id,
+                        },
                     )?;
                     if generated_result.is_some() || batch.operations.len() != 1 {
                         return Err(
@@ -2307,7 +2312,8 @@ fn apply_mutation_batch_in_wtx(
                         );
                     }
                     let payload = crate::protocol::ResultPayload::raw(&result);
-                    generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
+                    generated_result =
+                        Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
                 }
                 method @ (Method::ClaimWorkItem { .. }
                 | Method::RenewWorkItemLease { .. }
@@ -5823,21 +5829,35 @@ pub(crate) fn read_resource_reservation_status(
 /// transaction is held. The returned payload is persisted as the batch result in
 /// that same transaction, so a retry observes the exact original claim/commit
 /// outcome rather than running selection twice.
+/// The commit-scoped inputs both WorkItem row appliers need alongside their redb
+/// tables: the durable crypto handle, the authoritative commit timestamp, and the
+/// outbox id. Grouped so each applier keeps a readable arity
+/// (clippy::too_many_arguments) without disturbing the borrowed table params,
+/// whose redb lifetimes are load-bearing.
+struct WorkItemCommitScope<'a> {
+    crypto: DurableCrypto<'a>,
+    authoritative_now_ms: u64,
+    outbox_id: &'a str,
+}
+
 fn apply_submit_work_item_rows(
     graph: &str,
     request: &eg_types::native_control::SubmitWorkItemRequest,
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
     command_sequences: &mut redb::Table<&str, u64>,
-    crypto: DurableCrypto<'_>,
-    authoritative_now_ms: u64,
-    outbox_id: &str,
+    scope: WorkItemCommitScope<'_>,
 ) -> Result<eg_types::native_control::SubmitWorkItemResult, String> {
-    use sha2::{Digest, Sha256};
+    let WorkItemCommitScope {
+        crypto,
+        authoritative_now_ms,
+        outbox_id,
+    } = scope;
     use eg_types::native_control::{
-        NativeControlSchemaVersion, MAX_SUBMIT_DEPENDENCIES,
-        MAX_SUBMIT_METADATA_BYTES, MAX_SUBMIT_PROVENANCE_REFS, MAX_SUBMIT_REF_BYTES,
+        NativeControlSchemaVersion, MAX_SUBMIT_DEPENDENCIES, MAX_SUBMIT_METADATA_BYTES,
+        MAX_SUBMIT_PROVENANCE_REFS, MAX_SUBMIT_REF_BYTES,
     };
+    use sha2::{Digest, Sha256};
     if request.schema_version != NativeControlSchemaVersion::V1 {
         return Err("SubmitWorkItem schema_version must be 1".to_string());
     }
@@ -5859,7 +5879,10 @@ fn apply_submit_work_item_rows(
         }
     }
     if request.command_digest.len() != 64
-        || !request.command_digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || !request
+            .command_digest
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
     {
         return Err("SubmitWorkItem command_digest must be a SHA-256 hex value".to_string());
     }
@@ -5879,7 +5902,9 @@ fn apply_submit_work_item_rows(
         || request.max_attempts > 4096
         || !(-1024..=1024).contains(&request.priority)
     {
-        return Err("SubmitWorkItem admission/max_attempts/priority is outside native bounds".to_string());
+        return Err(
+            "SubmitWorkItem admission/max_attempts/priority is outside native bounds".to_string(),
+        );
     }
     if request
         .deadline_unix
@@ -5944,7 +5969,9 @@ fn apply_submit_work_item_rows(
         }
         scanned += 1;
         if scanned > 50_000 {
-            return Err("ADMISSION_BACKPRESSURE: WorkItem quota scan exceeds native bound".to_string());
+            return Err(
+                "ADMISSION_BACKPRESSURE: WorkItem quota scan exceeds native bound".to_string(),
+            );
         }
         let props: serde_json::Map<String, serde_json::Value> =
             decode_durable(&crypto.unseal(value.value())?)?;
@@ -5994,21 +6021,43 @@ fn apply_submit_work_item_rows(
         .insert(graph, command_sequence)
         .map_err(|e| e.to_string())?;
     let now_s = authoritative_now_ms as f64 / 1000.0;
-    let pending_dependencies = dependency_rows.iter().filter(|(_, pending)| *pending).count();
-    let status = if pending_dependencies == 0 { "ready" } else { "submitted" };
+    let pending_dependencies = dependency_rows
+        .iter()
+        .filter(|(_, pending)| *pending)
+        .count();
+    let status = if pending_dependencies == 0 {
+        "ready"
+    } else {
+        "submitted"
+    };
     let mut props = serde_json::Map::new();
-    props.insert("node_type".into(), serde_json::Value::String("WorkItem".into()));
+    props.insert(
+        "node_type".into(),
+        serde_json::Value::String("WorkItem".into()),
+    );
     props.insert(
         "name".into(),
         serde_json::Value::String(format!("WorkItem: {}", request.kind)),
     );
-    props.insert("tenant".into(), serde_json::Value::String(context_tenant.to_string()));
-    props.insert("kind".into(), serde_json::Value::String(request.kind.clone()));
-    props.insert("queue".into(), serde_json::Value::String(request.kind.clone()));
+    props.insert(
+        "tenant".into(),
+        serde_json::Value::String(context_tenant.to_string()),
+    );
+    props.insert(
+        "kind".into(),
+        serde_json::Value::String(request.kind.clone()),
+    );
+    props.insert(
+        "queue".into(),
+        serde_json::Value::String(request.kind.clone()),
+    );
     props.insert("status".into(), serde_json::Value::String(status.into()));
     props.insert("state".into(), serde_json::Value::String(status.into()));
     props.insert("priority".into(), serde_json::Value::from(request.priority));
-    props.insert("prio_bucket".into(), serde_json::Value::from(request.priority));
+    props.insert(
+        "prio_bucket".into(),
+        serde_json::Value::from(request.priority),
+    );
     props.insert(
         "depends_on".into(),
         serde_json::Value::Array(
@@ -6019,32 +6068,77 @@ fn apply_submit_work_item_rows(
                 .collect(),
         ),
     );
-    props.insert("dep_count".into(), serde_json::Value::from(pending_dependencies as u64));
-    props.insert("downstream_ids".into(), serde_json::Value::Array(Vec::new()));
+    props.insert(
+        "dep_count".into(),
+        serde_json::Value::from(pending_dependencies as u64),
+    );
+    props.insert(
+        "downstream_ids".into(),
+        serde_json::Value::Array(Vec::new()),
+    );
     props.insert("next_retry_at".into(), serde_json::Value::from(0.0));
     props.insert("backoff_base_s".into(), serde_json::Value::from(1.0));
-    props.insert("resource_class".into(), serde_json::Value::String(String::new()));
-    props.insert("fairness_group".into(), serde_json::Value::String(String::new()));
+    props.insert(
+        "resource_class".into(),
+        serde_json::Value::String(String::new()),
+    );
+    props.insert(
+        "fairness_group".into(),
+        serde_json::Value::String(String::new()),
+    );
     props.insert("lease_owner".into(), serde_json::Value::Null);
     props.insert("last_lease_owner".into(), serde_json::Value::Null);
     props.insert("lease_epoch".into(), serde_json::Value::from(0u64));
     props.insert("fencing_token".into(), serde_json::Value::from(0u64));
     props.insert("lease_expires_at".into(), serde_json::Value::Null);
-    props.insert("work_item_fence".into(), serde_json::Value::String(String::new()));
+    props.insert(
+        "work_item_fence".into(),
+        serde_json::Value::String(String::new()),
+    );
     props.insert("defer_count".into(), serde_json::Value::from(0u64));
-    props.insert("input_artifact_refs".into(), serde_json::json!([request.input_ref]));
-    props.insert("output_artifact_refs".into(), serde_json::Value::Array(Vec::new()));
-    props.insert("payload_ref".into(), serde_json::Value::String(request.input_ref.clone()));
+    props.insert(
+        "input_artifact_refs".into(),
+        serde_json::json!([request.input_ref]),
+    );
+    props.insert(
+        "output_artifact_refs".into(),
+        serde_json::Value::Array(Vec::new()),
+    );
+    props.insert(
+        "payload_ref".into(),
+        serde_json::Value::String(request.input_ref.clone()),
+    );
     props.insert("attempt".into(), serde_json::Value::from(0u64));
-    props.insert("max_attempts".into(), serde_json::Value::from(request.max_attempts));
+    props.insert(
+        "max_attempts".into(),
+        serde_json::Value::from(request.max_attempts),
+    );
     props.insert("created_at".into(), serde_json::Value::from(now_s));
     props.insert("updated_at".into(), serde_json::Value::from(now_s));
-    props.insert("idempotency_key".into(), serde_json::Value::String(request.idempotency_key.clone()));
-    props.insert("command_digest".into(), serde_json::Value::String(request.command_digest.to_ascii_lowercase()));
-    props.insert("policy_digest".into(), serde_json::Value::String(request.policy_digest.clone()));
-    props.insert("catalog_digest".into(), serde_json::Value::String(request.catalog_digest.clone()));
-    props.insert("model_digest".into(), serde_json::Value::String(request.model_digest.clone()));
-    props.insert("metadata".into(), serde_json::Value::Object(request.metadata.clone().into_iter().collect()));
+    props.insert(
+        "idempotency_key".into(),
+        serde_json::Value::String(request.idempotency_key.clone()),
+    );
+    props.insert(
+        "command_digest".into(),
+        serde_json::Value::String(request.command_digest.to_ascii_lowercase()),
+    );
+    props.insert(
+        "policy_digest".into(),
+        serde_json::Value::String(request.policy_digest.clone()),
+    );
+    props.insert(
+        "catalog_digest".into(),
+        serde_json::Value::String(request.catalog_digest.clone()),
+    );
+    props.insert(
+        "model_digest".into(),
+        serde_json::Value::String(request.model_digest.clone()),
+    );
+    props.insert(
+        "metadata".into(),
+        serde_json::Value::Object(request.metadata.clone().into_iter().collect()),
+    );
     props.insert(
         "provenance_refs".into(),
         serde_json::Value::Array(
@@ -6056,8 +6150,14 @@ fn apply_submit_work_item_rows(
                 .collect(),
         ),
     );
-    props.insert("context".into(), serde_json::to_value(&request.context).map_err(|e| e.to_string())?);
-    props.insert("command_sequence".into(), serde_json::Value::from(command_sequence));
+    props.insert(
+        "context".into(),
+        serde_json::to_value(&request.context).map_err(|e| e.to_string())?,
+    );
+    props.insert(
+        "command_sequence".into(),
+        serde_json::Value::from(command_sequence),
+    );
     if let Some(deadline) = request.deadline_unix {
         props.insert("deadline_unix".into(), serde_json::Value::from(deadline));
     }
@@ -6071,7 +6171,15 @@ fn apply_submit_work_item_rows(
         let sealed = crypto.seal(&edge_props);
         let ordinal = next_edge_ordinal(edges, graph, &work_item_id, dependency)?;
         edges
-            .insert((graph, work_item_id.as_str(), String::as_str(dependency), ordinal), sealed.as_ref())
+            .insert(
+                (
+                    graph,
+                    work_item_id.as_str(),
+                    String::as_str(dependency),
+                    ordinal,
+                ),
+                sealed.as_ref(),
+            )
             .map_err(|e| e.to_string())?;
     }
     for (dependency, pending) in &dependency_rows {
@@ -6090,11 +6198,12 @@ fn apply_submit_work_item_rows(
                 .entry("downstream_ids".to_string())
                 .or_insert_with(|| serde_json::Value::Array(Vec::new()));
             let ids = downstream.as_array_mut().ok_or_else(|| {
-                format!(
-                    "SubmitWorkItem dependency '{dependency}' has invalid downstream index"
-                )
+                format!("SubmitWorkItem dependency '{dependency}' has invalid downstream index")
             })?;
-            if ids.iter().any(|id| id.as_str() == Some(work_item_id.as_str())) {
+            if ids
+                .iter()
+                .any(|id| id.as_str() == Some(work_item_id.as_str()))
+            {
                 false
             } else {
                 ids.push(serde_json::Value::String(work_item_id.clone()));
@@ -6137,10 +6246,13 @@ fn apply_submit_work_items_rows(
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
     command_sequences: &mut redb::Table<&str, u64>,
-    crypto: DurableCrypto<'_>,
-    authoritative_now_ms: u64,
-    outbox_id: &str,
+    scope: WorkItemCommitScope<'_>,
 ) -> Result<eg_types::native_control::SubmitWorkItemsResult, String> {
+    let WorkItemCommitScope {
+        crypto,
+        authoritative_now_ms,
+        outbox_id,
+    } = scope;
     use eg_types::native_control::{
         NativeControlSchemaVersion, MAX_SUBMIT_BATCH, MAX_SUBMIT_BATCH_CHANGED_IDS,
     };
@@ -6181,9 +6293,11 @@ fn apply_submit_work_items_rows(
             nodes,
             edges,
             command_sequences,
-            crypto,
-            authoritative_now_ms,
-            outbox_id,
+            WorkItemCommitScope {
+                crypto,
+                authoritative_now_ms,
+                outbox_id,
+            },
         )?;
         changed.extend(result.changed_work_item_ids.clone());
         results.push(result);
@@ -9863,9 +9977,7 @@ pub(crate) fn purge_graph_rows(
         let mut command_sequences = wtx
             .open_table(WORK_ITEM_COMMAND_SEQUENCE)
             .map_err(|e| e.to_string())?;
-        command_sequences
-            .remove(graph)
-            .map_err(|e| e.to_string())?;
+        command_sequences.remove(graph).map_err(|e| e.to_string())?;
 
         clear_change_material_rows(&wtx, graph)?;
         // Mutation authority is lifecycle-owned state too.  Keep this shared
@@ -14249,9 +14361,8 @@ mod mutation_batch_tests {
             let mut conflict = rederived.clone();
             conflict.operations[0].method = Method::ApplyMutation {
                 event_type: "crossmodal_operation".to_string(),
-                query:
-                    "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                        .to_string(),
+                query: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    .to_string(),
             };
             let error = commit_crossmodal_at(&db, &conflict, &methods, &vectors, None).unwrap_err();
             assert!(error.contains("IDEMPOTENCY_CONFLICT"));

@@ -572,9 +572,9 @@ mod authority_tests {
     use crate::server::auth::VerifiedRequestContext;
 
     fn authority(agent_id: &str, tenant: &str) -> CarrierAuthority {
-        CarrierAuthority::from_verified(
-            &VerifiedRequestContext::verified_for_test_in_tenant(agent_id, tenant),
-        )
+        CarrierAuthority::from_verified(&VerifiedRequestContext::verified_for_test_in_tenant(
+            agent_id, tenant,
+        ))
         .expect("test context must mint a carrier authority")
     }
 

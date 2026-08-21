@@ -478,9 +478,15 @@ mod tests {
         assert!(writer.try_enqueue(first).is_ok());
         assert!(writer.try_enqueue(second).is_ok());
         let rejected = writer.try_enqueue(third);
-        assert!(rejected.is_err(), "third ticket must receive BUSY/backpressure");
+        assert!(
+            rejected.is_err(),
+            "third ticket must receive BUSY/backpressure"
+        );
         drop(rejected);
-        assert!(third_rx.await.is_err(), "rejected job must never be acknowledged");
+        assert!(
+            third_rx.await.is_err(),
+            "rejected job must never be acknowledged"
+        );
 
         assert_eq!(first_rx.await.unwrap().id, 1);
         assert_eq!(second_rx.await.unwrap().id, 2);
@@ -539,14 +545,14 @@ mod tests {
         let panic_run: std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>> =
             Box::pin(async { panic!("adversarial routed job panic") });
         assert!(writer
-            .try_enqueue(
-                RoutedCommitJob::new(panic_run, panic_reply).with_request_id(11)
-            )
+            .try_enqueue(RoutedCommitJob::new(panic_run, panic_reply).with_request_id(11))
             .is_ok());
         let (next, next_rx) = job(12, &Arc::new(std::sync::Mutex::new(Vec::new())));
         assert!(writer.try_enqueue(next).is_ok());
 
-        let panic_response = panic_rx.await.expect("panic must be converted to a response");
+        let panic_response = panic_rx
+            .await
+            .expect("panic must be converted to a response");
         assert_eq!(panic_response.id, 11);
         assert!(panic_response
             .error

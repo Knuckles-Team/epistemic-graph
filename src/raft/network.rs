@@ -913,39 +913,42 @@ impl HeartbeatCoalescer {
     async fn flush_pending(&self, pool: &PeerPool) {
         // Flush peers concurrently: one unavailable destination must not hold the
         // heartbeat cadence of every other peer behind the transport timeout.
-        let jobs = self.drain_pending().into_iter().map(|(addr, pending)| async move {
-            let batch: Vec<GroupRpc> = pending.iter().map(|item| item.rpc.clone()).collect();
-            let result = Self::send_batch(pool, &addr, batch).await;
-            match result {
-                Ok(replies) if replies.len() == pending.len() => {
-                    for (item, reply) in pending.into_iter().zip(replies) {
-                        if let Some(done) = item.completion {
-                            let _ = done.send(Ok(reply));
+        let jobs = self
+            .drain_pending()
+            .into_iter()
+            .map(|(addr, pending)| async move {
+                let batch: Vec<GroupRpc> = pending.iter().map(|item| item.rpc.clone()).collect();
+                let result = Self::send_batch(pool, &addr, batch).await;
+                match result {
+                    Ok(replies) if replies.len() == pending.len() => {
+                        for (item, reply) in pending.into_iter().zip(replies) {
+                            if let Some(done) = item.completion {
+                                let _ = done.send(Ok(reply));
+                            }
+                        }
+                    }
+                    Ok(replies) => {
+                        let error = format!(
+                            "raft heartbeat batch reply count mismatch: expected {}, got {}",
+                            pending.len(),
+                            replies.len()
+                        );
+                        for item in pending {
+                            if let Some(done) = item.completion {
+                                let _ = done.send(Err(error.clone()));
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        let error = format!("raft heartbeat batch failed: {error}");
+                        for item in pending {
+                            if let Some(done) = item.completion {
+                                let _ = done.send(Err(error.clone()));
+                            }
                         }
                     }
                 }
-                Ok(replies) => {
-                    let error = format!(
-                        "raft heartbeat batch reply count mismatch: expected {}, got {}",
-                        pending.len(),
-                        replies.len()
-                    );
-                    for item in pending {
-                        if let Some(done) = item.completion {
-                            let _ = done.send(Err(error.clone()));
-                        }
-                    }
-                }
-                Err(error) => {
-                    let error = format!("raft heartbeat batch failed: {error}");
-                    for item in pending {
-                        if let Some(done) = item.completion {
-                            let _ = done.send(Err(error.clone()));
-                        }
-                    }
-                }
-            }
-        });
+            });
         futures::future::join_all(jobs).await;
     }
 
@@ -968,10 +971,7 @@ impl HeartbeatCoalescer {
             .map(|(addr, pending)| {
                 (
                     addr,
-                    pending
-                        .into_iter()
-                        .map(|item| item.rpc)
-                        .collect::<Vec<_>>(),
+                    pending.into_iter().map(|item| item.rpc).collect::<Vec<_>>(),
                 )
             })
             .collect()
@@ -1135,9 +1135,7 @@ impl RaftNetworkV2<TypeConfig> for GroupNetworkClient {
         let group_rpc = GroupRpc::Append(self.gid, rpc);
         let result = if let Some(coalescer) = &self.coalescer {
             if HeartbeatCoalescer::is_heartbeat(&group_rpc) {
-                coalescer
-                    .heartbeat_round_trip(&self.addr, group_rpc)
-                    .await
+                coalescer.heartbeat_round_trip(&self.addr, group_rpc).await
             } else {
                 self.round_trip(group_rpc).await
             }

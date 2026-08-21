@@ -321,9 +321,10 @@ fn encode_cell(out: &mut Vec<u8>, cell: &Cell, ty: ColumnType) -> Result<(), Str
     // support without changing the durable encoding.
     let (tag, payload): (u8, Vec<u8>) = match (cell, ty) {
         (Cell::Null, _) => (0x00, Vec::new()),
-        (Cell::Int(value), ColumnType::Int | ColumnType::BigInt) => {
-            (0x10, ((*value as u64) ^ (1u64 << 63)).to_be_bytes().to_vec())
-        }
+        (Cell::Int(value), ColumnType::Int | ColumnType::BigInt) => (
+            0x10,
+            ((*value as u64) ^ (1u64 << 63)).to_be_bytes().to_vec(),
+        ),
         (Cell::Float(value), ColumnType::Float | ColumnType::Double | ColumnType::Numeric(_)) => {
             if !value.is_finite() {
                 return Err("non-finite floating values are not indexable".into());
@@ -339,9 +340,10 @@ fn encode_cell(out: &mut Vec<u8>, cell: &Cell, ty: ColumnType) -> Result<(), Str
             };
             (0x11, sortable.to_be_bytes().to_vec())
         }
-        (Cell::Timestamp(value), ColumnType::Timestamp | ColumnType::TimestampTz) => {
-            (0x12, ((*value as u64) ^ (1u64 << 63)).to_be_bytes().to_vec())
-        }
+        (Cell::Timestamp(value), ColumnType::Timestamp | ColumnType::TimestampTz) => (
+            0x12,
+            ((*value as u64) ^ (1u64 << 63)).to_be_bytes().to_vec(),
+        ),
         (Cell::Text(value), ColumnType::Text | ColumnType::Uuid) => {
             (0x20, value.as_bytes().to_vec())
         }

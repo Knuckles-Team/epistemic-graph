@@ -347,9 +347,7 @@ pub fn resolve_key_config() -> Result<Option<EncryptionKeyConfig>, String> {
             {
                 return Err(format!(
                     "{} and {} require non-empty {}",
-                    ENCRYPTION_KEY_ID_ENV,
-                    ENCRYPTION_KEY_VERSION_ENV,
-                    ENCRYPTION_KEY_ENV,
+                    ENCRYPTION_KEY_ID_ENV, ENCRYPTION_KEY_VERSION_ENV, ENCRYPTION_KEY_ENV,
                 ));
             }
             return Ok(None);
@@ -360,9 +358,7 @@ pub fn resolve_key_config() -> Result<Option<EncryptionKeyConfig>, String> {
             {
                 return Err(format!(
                     "{} and {} require {}",
-                    ENCRYPTION_KEY_ID_ENV,
-                    ENCRYPTION_KEY_VERSION_ENV,
-                    ENCRYPTION_KEY_ENV,
+                    ENCRYPTION_KEY_ID_ENV, ENCRYPTION_KEY_VERSION_ENV, ENCRYPTION_KEY_ENV,
                 ));
             }
             return Ok(None);
@@ -841,7 +837,9 @@ mod tests {
         let encoded = binding.encode().expect("binding encoding");
         let decoded = EncryptionKeyBinding::decode(&encoded).expect("binding decoding");
         assert_eq!(decoded.key_ref().expect("binding ref"), key_ref);
-        assert!(!encoded.windows(b"key-material".len()).any(|w| w == b"key-material"));
+        assert!(!encoded
+            .windows(b"key-material".len())
+            .any(|w| w == b"key-material"));
     }
 
     #[test]

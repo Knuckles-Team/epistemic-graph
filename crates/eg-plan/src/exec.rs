@@ -1801,8 +1801,7 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
     #[cfg(not(feature = "geo"))]
     if !spatial.is_empty() {
         return Err(
-            "filter predicate requires the geo modality feature, not enabled in this build"
-                .into(),
+            "filter predicate requires the geo modality feature, not enabled in this build".into(),
         );
     }
     // Apply each JSONPath predicate against the stored per-row JSON (CONCEPT:EG-KG.compute.json-deep-indexing),

@@ -199,7 +199,9 @@ pub enum DrainFailure {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "event")]
 pub enum DrainEvent {
-    AdmissionStopRequested { identity: DrainIdentity },
+    AdmissionStopRequested {
+        identity: DrainIdentity,
+    },
     AdmissionStopped {
         identity: DrainIdentity,
         /// Must be false.  A request to stop admission is not an observation
@@ -218,14 +220,18 @@ pub enum DrainEvent {
         authoritative_writer: NodeId,
         healthy_voters: usize,
     },
-    ShrinkRequested { identity: DrainIdentity },
+    ShrinkRequested {
+        identity: DrainIdentity,
+    },
     ShrinkCommitted {
         identity: DrainIdentity,
         voters_after: BTreeSet<NodeId>,
         authoritative_writer: NodeId,
         healthy_voters: usize,
     },
-    Completed { identity: DrainIdentity },
+    Completed {
+        identity: DrainIdentity,
+    },
     PostShrinkFailure {
         identity: DrainIdentity,
         reason: DrainFailure,
@@ -307,9 +313,7 @@ impl ShardDrain {
                 self.require_phase(DrainPhase::Proposed)?;
                 self.phase = DrainPhase::AdmissionStopRequested;
             }
-            DrainEvent::AdmissionStopped {
-                accepting, ..
-            } => {
+            DrainEvent::AdmissionStopped { accepting, .. } => {
                 self.require_phase(DrainPhase::AdmissionStopRequested)?;
                 if accepting {
                     return Err(DrainError::AdmissionMustBeStopped);

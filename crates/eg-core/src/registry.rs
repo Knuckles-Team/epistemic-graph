@@ -794,14 +794,11 @@ impl GraphRegistry {
     /// Fence a retained handle before it publishes asynchronous work.
     pub fn is_current_handle(&self, handle: &GraphHandle) -> bool {
         !handle.is_cancelled()
-            && self
-                .graphs
-                .get(&handle.name)
-                .is_some_and(|entry| {
-                    entry.incarnation_id.as_str() == handle.incarnation_id.as_str()
-                        && Arc::ptr_eq(&entry.core, &handle.core)
-                        && Arc::ptr_eq(&entry.cancellation, &handle.cancellation)
-                })
+            && self.graphs.get(&handle.name).is_some_and(|entry| {
+                entry.incarnation_id.as_str() == handle.incarnation_id.as_str()
+                    && Arc::ptr_eq(&entry.core, &handle.core)
+                    && Arc::ptr_eq(&entry.cancellation, &handle.cancellation)
+            })
     }
 
     /// Current completeness/freshness watermark for lifecycle responses/health.
@@ -1980,7 +1977,10 @@ mod tests {
 
         // Exactly-once over the resident set, and the resident set only.
         assert_eq!(visits.values().copied().sum::<usize>(), reg.resident_len());
-        assert!(visits.values().all(|&n| n == 1), "duplicate visit: {visits:?}");
+        assert!(
+            visits.values().all(|&n| n == 1),
+            "duplicate visit: {visits:?}"
+        );
         for i in 0..4 {
             assert_eq!(visits.get(&format!("hot:{i}")).copied(), Some(1));
         }

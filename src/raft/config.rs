@@ -282,21 +282,17 @@ fn parse_cluster_id(peers: &PeerMap) -> Result<String, String> {
     Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
 }
 
-fn parse_certificate_metadata(
-) -> Result<(Option<String>, u64, Option<u64>, Option<u64>), String> {
+fn parse_certificate_metadata() -> Result<(Option<String>, u64, Option<u64>, Option<u64>), String> {
     let certificate_id = std::env::var(ADVERTISED_CERTIFICATE_ID_ENV)
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    if certificate_id
-        .as_deref()
-        .is_some_and(|value| {
-            value.len() > MAX_ADVERTISED_FIELD_BYTES
-                || value.chars().any(|character| {
-                    character.is_whitespace() || character.is_control()
-                })
-        })
-    {
+    if certificate_id.as_deref().is_some_and(|value| {
+        value.len() > MAX_ADVERTISED_FIELD_BYTES
+            || value
+                .chars()
+                .any(|character| character.is_whitespace() || character.is_control())
+    }) {
         return Err(format!(
             "{ADVERTISED_CERTIFICATE_ID_ENV} exceeds {MAX_ADVERTISED_FIELD_BYTES} bytes"
         ));
@@ -309,7 +305,10 @@ fn parse_certificate_metadata(
         .unwrap_or(0);
     let not_before = parse_optional_u64_env(ADVERTISED_CERTIFICATE_NOT_BEFORE_ENV)?;
     let not_after = parse_optional_u64_env(ADVERTISED_CERTIFICATE_NOT_AFTER_ENV)?;
-    if not_before.zip(not_after).is_some_and(|(before, after)| before > after) {
+    if not_before
+        .zip(not_after)
+        .is_some_and(|(before, after)| before > after)
+    {
         return Err(format!(
             "{ADVERTISED_CERTIFICATE_NOT_BEFORE_ENV} must not exceed {ADVERTISED_CERTIFICATE_NOT_AFTER_ENV}"
         ));
@@ -521,9 +520,7 @@ fn parse_peers(raw: &str) -> Result<PeerMap, String> {
 /// operator's failure boundary is an availability zone/rack.  Without one, the
 /// endpoint host is the conservative domain: the balancer will never move a leader
 /// between two voters that resolve to the same host.
-pub(crate) fn resolve_failure_domains(
-    peers: &PeerMap,
-) -> Result<BTreeMap<NodeId, String>, String> {
+pub(crate) fn resolve_failure_domains(peers: &PeerMap) -> Result<BTreeMap<NodeId, String>, String> {
     let explicit = std::env::var(RAFT_FAILURE_DOMAINS_ENV).ok();
     match explicit {
         Some(raw) if !raw.trim().is_empty() => parse_failure_domains(&raw, peers),
@@ -567,10 +564,7 @@ pub(crate) fn failure_domain_for_peer(node_id: NodeId, endpoint: &str) -> String
     }
 }
 
-fn parse_failure_domains(
-    raw: &str,
-    peers: &PeerMap,
-) -> Result<BTreeMap<NodeId, String>, String> {
+fn parse_failure_domains(raw: &str, peers: &PeerMap) -> Result<BTreeMap<NodeId, String>, String> {
     let mut domains = BTreeMap::new();
     for (entry_index, part) in raw
         .split(',')
@@ -579,9 +573,7 @@ fn parse_failure_domains(
         .enumerate()
     {
         let (node_id, domain) = part.split_once('=').ok_or_else(|| {
-            format!(
-                "malformed failure-domain entry {entry_index} (expected 'node_id=domain')"
-            )
+            format!("malformed failure-domain entry {entry_index} (expected 'node_id=domain')")
         })?;
         let node_id = node_id
             .trim()

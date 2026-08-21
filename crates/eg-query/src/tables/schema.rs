@@ -458,8 +458,7 @@ impl CheckExpr {
                     if actual.is_number() || value.is_number() {
                         match (numeric_check_text(&actual), numeric_check_text(value)) {
                             (Some(left), Some(right)) => {
-                                compare_numeric_text(&left, &right)
-                                    == std::cmp::Ordering::Equal
+                                compare_numeric_text(&left, &right) == std::cmp::Ordering::Equal
                             }
                             _ => false,
                         }
@@ -515,7 +514,9 @@ impl CheckExpr {
         *nodes = (*nodes)
             .checked_add(1)
             .filter(|nodes| *nodes <= MAX_CHECK_NODES)
-            .ok_or_else(|| format!("CHECK expression exceeds maximum of {MAX_CHECK_NODES} nodes"))?;
+            .ok_or_else(|| {
+                format!("CHECK expression exceeds maximum of {MAX_CHECK_NODES} nodes")
+            })?;
         match self {
             CheckExpr::In { values, .. } => {
                 if values.len() > MAX_CHECK_IN_VALUES {
@@ -1351,8 +1352,8 @@ mod table_schema_tests {
         assert_eq!(
             cell,
             Cell::Bytes(vec![
-                0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xe1, 0xe2,
-                0xe3, 0xe4, 0xe5, 0xe6,
+                0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xe1, 0xe2, 0xe3, 0xe4,
+                0xe5, 0xe6,
             ])
         );
         // A bare 32-hex-digit form normalizes to the SAME hyphenated canonical form.
@@ -1745,14 +1746,12 @@ impl Cell {
             (Cell::Text(value), ColumnType::Numeric(precision_scale)) => {
                 typed_numeric_value(value, precision_scale)
             }
-            (Cell::Json(Value::Array(values)), ColumnType::Array(elem)) => {
-                Value::Array(
-                    values
-                        .iter()
-                        .map(|value| typed_array_value(value, elem))
-                        .collect(),
-                )
-            }
+            (Cell::Json(Value::Array(values)), ColumnType::Array(elem)) => Value::Array(
+                values
+                    .iter()
+                    .map(|value| typed_array_value(value, elem))
+                    .collect(),
+            ),
             (Cell::Json(value), ColumnType::Json) => value.clone(),
             _ => self.to_json(),
         }
@@ -1881,9 +1880,7 @@ fn typed_array_value(value: &Value, elem: ArrayElemType) -> Value {
             }
         }
         if let Value::String(s) = value {
-            return normalize_uuid(s)
-                .map(Value::String)
-                .unwrap_or(Value::Null);
+            return normalize_uuid(s).map(Value::String).unwrap_or(Value::Null);
         }
     }
     value.clone()
@@ -1935,7 +1932,11 @@ fn normalize_numeric_literal(
     if raw_int_part.is_empty() && frac_part.is_empty() {
         return Err(format!("invalid NUMERIC literal `{raw}`"));
     }
-    let int_part = if raw_int_part.is_empty() { "0" } else { raw_int_part };
+    let int_part = if raw_int_part.is_empty() {
+        "0"
+    } else {
+        raw_int_part
+    };
     if !int_part.chars().all(|c| c.is_ascii_digit())
         || !frac_part.chars().all(|c| c.is_ascii_digit())
     {

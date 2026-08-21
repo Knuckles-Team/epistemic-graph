@@ -1706,10 +1706,7 @@ fn ne002_column_types_round_trip_through_insert_select_arrow() {
     let schema = store.get_schema("typed").unwrap().unwrap();
     let rows = store.scan("typed").unwrap();
     assert!(matches!(rows[0][0], Cell::Bytes(ref bytes) if bytes.len() == 16));
-    assert_eq!(
-        rows[0][1],
-        Cell::Json(Value::String("123.40".to_string()))
-    );
+    assert_eq!(rows[0][1], Cell::Json(Value::String("123.40".to_string())));
     assert_eq!(rows[0][2], Cell::Timestamp(1_704_067_200_000_000i64));
     assert_eq!(
         rows[0][3],

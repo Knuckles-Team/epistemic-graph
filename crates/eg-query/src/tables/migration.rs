@@ -46,22 +46,17 @@ pub struct SchemaSnapshot {
 }
 
 /// How a migration may interact with dependent secondary indexes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SecondaryIndexPolicy {
     /// Reject a plan that affects a column carrying a registered index.  The
     /// caller must explicitly drop/rebuild that index in a separate governed
     /// operation before retrying the migration.
+    #[default]
     RejectAffected,
     /// An explicit acknowledgement that an index rebuild is coordinated by the
     /// caller.  The store still verifies the local catalog and never silently
     /// drops an index; the rebuild must be visible in the surrounding plan.
     RebuildByCaller,
-}
-
-impl Default for SecondaryIndexPolicy {
-    fn default() -> Self {
-        Self::RejectAffected
-    }
 }
 
 /// Policy switches that make destructive or cross-authority changes explicit.
@@ -135,9 +130,16 @@ impl RollbackMetadata {
 /// embedded in durable migration state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SchemaMigrationOperation {
-    AddColumn { column: Column },
-    DropColumn { column: String },
-    RenameColumn { from: String, to: String },
+    AddColumn {
+        column: Column,
+    },
+    DropColumn {
+        column: String,
+    },
+    RenameColumn {
+        from: String,
+        to: String,
+    },
     AlterColumnType {
         column: String,
         new_type: ColumnType,
@@ -145,8 +147,12 @@ pub enum SchemaMigrationOperation {
         /// unless [`MigrationPolicy::allow_lossy_coercion`] is true.
         lossy: bool,
     },
-    AddConstraint { constraint: TableConstraint },
-    DropConstraint { constraint: String },
+    AddConstraint {
+        constraint: TableConstraint,
+    },
+    DropConstraint {
+        constraint: String,
+    },
 }
 
 impl SchemaMigrationOperation {
@@ -155,8 +161,9 @@ impl SchemaMigrationOperation {
     pub fn affected_columns(&self) -> Vec<&str> {
         match self {
             Self::AddColumn { .. } => Vec::new(),
-            Self::DropColumn { column }
-            | Self::AlterColumnType { column, .. } => vec![column.as_str()],
+            Self::DropColumn { column } | Self::AlterColumnType { column, .. } => {
+                vec![column.as_str()]
+            }
             Self::RenameColumn { from, to } => vec![from.as_str(), to.as_str()],
             Self::AddConstraint { constraint } => match constraint {
                 TableConstraint::PrimaryKey { columns, .. }
@@ -312,10 +319,8 @@ impl SchemaMigration {
         self.validate_type_policies(current_schema)?;
         let projected = self.projected_schema(current_schema)?;
         self.target_schema_digest = projected.schema_digest()?;
-        self.rollback = RollbackMetadata::for_prior(
-            self.expected_schema_version,
-            &self.expected_schema_digest,
-        );
+        self.rollback =
+            RollbackMetadata::for_prior(self.expected_schema_version, &self.expected_schema_digest);
         self.checksum = self.compute_checksum()?;
         self.validate_identity(true)
     }
@@ -484,7 +489,10 @@ impl SchemaMigration {
             validate_text(kind, value)?;
         }
         if self.expected_schema_digest.len() != 64
-            || !self.expected_schema_digest.bytes().all(|c| c.is_ascii_hexdigit())
+            || !self
+                .expected_schema_digest
+                .bytes()
+                .all(|c| c.is_ascii_hexdigit())
         {
             return Err("schema migration expected digest is not a SHA-256 hex value".to_string());
         }
@@ -511,9 +519,7 @@ impl SchemaMigration {
             })?;
             validate_digest("RLS binding", digest)?;
         } else if self.policy.rls_binding_digest.is_some() {
-            return Err(
-                "an RLS binding digest requires require_rls_revalidation=true".to_string(),
-            );
+            return Err("an RLS binding digest requires require_rls_revalidation=true".to_string());
         }
         for operation in &self.operations {
             validate_operation(operation)?;
@@ -592,14 +598,18 @@ impl SchemaMigration {
 
 fn validate_text(kind: &str, value: &str) -> Result<(), String> {
     if value.is_empty() || value.len() > MAX_SCHEMA_MIGRATION_TEXT || value.contains('\0') {
-        return Err(format!("schema migration {kind} is empty, oversized, or contains NUL"));
+        return Err(format!(
+            "schema migration {kind} is empty, oversized, or contains NUL"
+        ));
     }
     Ok(())
 }
 
 fn validate_digest(kind: &str, value: &str) -> Result<(), String> {
     if value.len() != 64 || !value.bytes().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!("schema migration {kind} is not a SHA-256 hex value"));
+        return Err(format!(
+            "schema migration {kind} is not a SHA-256 hex value"
+        ));
     }
     Ok(())
 }
@@ -612,7 +622,10 @@ fn validate_operation(operation: &SchemaMigrationOperation) -> Result<(), String
             vec![("column", column.as_str())]
         }
         SchemaMigrationOperation::RenameColumn { from, to } => {
-            vec![("source column", from.as_str()), ("target column", to.as_str())]
+            vec![
+                ("source column", from.as_str()),
+                ("target column", to.as_str()),
+            ]
         }
         SchemaMigrationOperation::AddConstraint { .. } => Vec::new(),
         SchemaMigrationOperation::DropConstraint { constraint } => {
@@ -672,9 +685,7 @@ fn remove_constraint_like_store(schema: &mut TableSchema, name: &str) -> bool {
             column.unique = false;
             column.primary_key = false;
             removed = true;
-        } else if name == format!("{}_{}_check", table, column.name)
-            && column.check.is_some()
-        {
+        } else if name == format!("{}_{}_check", table, column.name) && column.check.is_some() {
             column.check = None;
             removed = true;
         }
@@ -773,10 +784,11 @@ mod tests {
         stale.expected_schema_version = 0;
         stale.rollback.prior_schema_version = 0;
         stale.checksum = stale.expected_checksum().unwrap();
-        assert!(stale.seal_for(&TableSchema::new(
-            "events",
-            vec![Column::new("id", ColumnType::BigInt, false, true)],
-        ))
-        .is_err());
+        assert!(stale
+            .seal_for(&TableSchema::new(
+                "events",
+                vec![Column::new("id", ColumnType::BigInt, false, true)],
+            ))
+            .is_err());
     }
 }

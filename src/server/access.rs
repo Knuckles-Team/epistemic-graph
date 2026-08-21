@@ -2530,10 +2530,7 @@ mod read_rls_coverage_tests {
     /// dataset/result handles in `handlers::viz`; the three pure-compute
     /// handlers have no server-held handle at all, so there is no row or
     /// non-row resource for them to read across tenants.
-    fn assert_self_routed_cross_tenant_control(
-        method: &str,
-        expected_reason: &'static str,
-    ) {
+    fn assert_self_routed_cross_tenant_control(method: &str, expected_reason: &'static str) {
         let owner = CarrierAuthority::from_verified(
             &super::super::auth::VerifiedRequestContext::verified_for_test_in_tenant(
                 "owner", "tenant-a",

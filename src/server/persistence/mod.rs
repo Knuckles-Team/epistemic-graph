@@ -26,9 +26,9 @@ use crate::mutation_batch::{
     MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationOutboxLease,
     MutationOutboxRecord, MutationProjectionCursor,
 };
-use eg_types::native_control::CapacityStatusResult;
 use crate::protocol::Method;
 use crate::server::ServerState;
+use eg_types::native_control::CapacityStatusResult;
 
 pub mod read_through;
 

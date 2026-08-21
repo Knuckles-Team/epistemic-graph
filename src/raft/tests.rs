@@ -2007,10 +2007,17 @@ async fn coalesced_batch_round_trips_on_one_connection() {
         live_coalescer.heartbeat_round_trip(&addr, GroupRpc::Append(403, heartbeat_req())),
     );
     for reply in [r1, r2, r3] {
-        assert!(matches!(reply.expect("live coalesced heartbeat"), GroupRpcReply::Append(_)));
+        assert!(matches!(
+            reply.expect("live coalesced heartbeat"),
+            GroupRpcReply::Append(_)
+        ));
     }
     assert_eq!(live_coalescer.coalesced(), 3);
-    assert_eq!(live_pool.opens(), 1, "live heartbeats share one pooled frame");
+    assert_eq!(
+        live_pool.opens(),
+        1,
+        "live heartbeats share one pooled frame"
+    );
     live_coalescer.stop();
     live_worker.abort();
     let _ = live_worker.await;
@@ -3328,7 +3335,11 @@ async fn multi_group_write_throughput_scales_vs_single_group() {
 
         println!(
             "ADR-2 W1.2 write-scaling: round {round}{} multi={:.0} w/s, single={:.0} w/s",
-            if round < WARMUP_ROUNDS { " (warm-up, discarded)" } else { "" },
+            if round < WARMUP_ROUNDS {
+                " (warm-up, discarded)"
+            } else {
+                ""
+            },
             multi.wps,
             single.wps,
         );
