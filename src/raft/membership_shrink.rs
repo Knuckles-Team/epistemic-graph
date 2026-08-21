@@ -186,7 +186,7 @@ impl MembershipShrinkJournal {
             .copied()
             .filter(|voter| *voter != self.target)
             .collect();
-        let abort_reason_valid = self.abort_reason.as_ref().map_or(true, |reason| {
+        let abort_reason_valid = self.abort_reason.as_ref().is_none_or(|reason| {
             !reason.is_empty()
                 && reason.len() <= MAX_EVIDENCE_REF
                 && !reason.bytes().any(|byte| byte.is_ascii_control())
@@ -216,7 +216,7 @@ impl MembershipShrinkJournal {
         }
         self.evidence
             .as_ref()
-            .map_or(true, |evidence| evidence.validate().is_ok())
+            .is_none_or(|evidence| evidence.validate().is_ok())
     }
 
     fn evidence_matches(

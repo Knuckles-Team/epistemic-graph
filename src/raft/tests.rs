@@ -15,6 +15,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+// `Raft::metrics()` returns a watch receiver; `borrow_watched` is a method on
+// the `WatchReceiver` TRAIT, so it is only in scope where the trait is imported.
+// `multi.rs` imports it and compiles; this module called it without the import
+// and failed only under `--workspace --all-features`, which is the sole profile
+// that builds these tests.
+use openraft::async_runtime::watch::WatchReceiver;
 use openraft::BasicNode;
 use tokio::sync::RwLock;
 
@@ -2139,7 +2145,12 @@ async fn multi_node_group_join_then_leader_rebalance() {
     let initial_term = {
         let group = leader.group(gid).await.expect("group metrics");
         let metrics = group.raft.metrics();
-        metrics.borrow_watched().current_term
+        // Bound to a local, not chained: `borrow_watched()` returns a `Ref<'_, T>`
+        // borrowing `metrics`, and a temporary in the tail expression outlives the
+        // block that owns `metrics` -- `E0597: metrics does not live long enough`.
+        // Same shape `multi.rs` already uses at every metrics read.
+        let current = metrics.borrow_watched();
+        current.current_term
     };
 
     // EVERY node runs a balancing pass (as a real cluster does). openraft 0.10
@@ -2185,7 +2196,12 @@ async fn multi_node_group_join_then_leader_rebalance() {
     let converged_term = {
         let group = node2.group(gid).await.expect("group metrics");
         let metrics = group.raft.metrics();
-        metrics.borrow_watched().current_term
+        // Bound to a local, not chained: `borrow_watched()` returns a `Ref<'_, T>`
+        // borrowing `metrics`, and a temporary in the tail expression outlives the
+        // block that owns `metrics` -- `E0597: metrics does not live long enough`.
+        // Same shape `multi.rs` already uses at every metrics read.
+        let current = metrics.borrow_watched();
+        current.current_term
     };
     assert!(
         converged_term > initial_term,
