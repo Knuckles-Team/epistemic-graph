@@ -1043,6 +1043,42 @@ impl IsolationLayer {
     /// node is dropped too (an edge to an invisible node would otherwise leak its
     /// existence). Default-deny remains active even before identities are provisioned.
     #[cfg(feature = "security")]
+    /// Decide RLS visibility for ONE node of `view`, exactly as
+    /// [`Self::filter_view`] decides it for every node.
+    ///
+    /// This is the single definition of graph-row node visibility. `filter_view`
+    /// calls it per node, and point-lookup callers (`HasNode`/`HasNodesBatch` in
+    /// `server::handlers::graph_ops`) call it directly instead of materializing a
+    /// whole filtered `GraphCore` just to answer one membership question — a
+    /// projection is `O(V log V + E log E + V*d)` and a point lookup used to pay
+    /// all of it (D-OP-1 / D-OB-20).
+    ///
+    /// It exists as a shared function rather than a second copy of the predicate
+    /// precisely BECAUSE it is a security boundary: two independently-maintained
+    /// spellings of "can this actor see this row" is how a fast path silently
+    /// starts disagreeing with the bulk path. The two subtleties that a
+    /// hand-rolled point check gets wrong are both preserved here — a node with
+    /// NO property blob is judged as `default_public` (not implicitly visible),
+    /// and `schema` is derived from the snapshot's live `schema_node_ids` reverse
+    /// index rather than decoded from the blob (`row_visibility`'s `.schema` is
+    /// always `false`).
+    pub fn can_see_node(&self, agent_id: &str, view: &crate::graph::GraphView, id: &str) -> bool {
+        let mut vis = view
+            .node_properties
+            .get(id)
+            .map(|blob| row_visibility(blob))
+            .unwrap_or_else(RowVisibility::default_public);
+        // BUG A3 (2026-08-12): TBox membership is DERIVED from this
+        // snapshot's live reverse index (`view.schema_node_ids`,
+        // populated from `GraphCore::schema_refs` at snapshot time),
+        // never decoded from the blob (`row_visibility`'s `.schema`
+        // is always `false`) — so an axiom's deletion, which drops
+        // `id` from `schema_refs`, is reflected on the very NEXT
+        // snapshot with no separate "clear the marker" step.
+        vis.schema = view.schema_node_ids.contains(id);
+        self.can_see_row(agent_id, &vis)
+    }
+
     pub fn filter_view(&self, agent_id: &str, view: &mut crate::graph::GraphView) {
         // Decide visibility for EVERY topology node. A topology row with no
         // property blob is untagged and must be hidden like an undecodable row.
@@ -1050,20 +1086,7 @@ impl IsolationLayer {
             .node_map
             .keys()
             .filter_map(|id| {
-                let mut vis = view
-                    .node_properties
-                    .get(id)
-                    .map(|blob| row_visibility(blob))
-                    .unwrap_or_else(RowVisibility::default_public);
-                // BUG A3 (2026-08-12): TBox membership is DERIVED from this
-                // snapshot's live reverse index (`view.schema_node_ids`,
-                // populated from `GraphCore::schema_refs` at snapshot time),
-                // never decoded from the blob (`row_visibility`'s `.schema`
-                // is always `false`) — so an axiom's deletion, which drops
-                // `id` from `schema_refs`, is reflected on the very NEXT
-                // snapshot with no separate "clear the marker" step.
-                vis.schema = view.schema_node_ids.contains(id);
-                if self.can_see_row(agent_id, &vis) {
+                if self.can_see_node(agent_id, view, id) {
                     None
                 } else {
                     Some(id.clone())
