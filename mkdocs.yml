@@ -85,84 +85,53 @@ extra:
       link: https://pypi.org/project/epistemic-graph/
 
 nav:
-  # Nav is ordered topologically: what the engine IS -> how you query it ->
-  # advanced analytics -> how it distributes/scales -> how you run it -> reference.
+  # Nav is intentionally shallow: each deep subtree (architecture/, interfaces/) collapses
+  # to its own curated index.md landing page, plus whatever specific pages
+  # scripts/check_documentation_contract.py's AUTHORITATIVE_PAGES requires to stay directly
+  # in nav. Everything else stays in docs_dir, reachable from the landing pages and search.
   - Home: index.md
-  - Capabilities & Parity Matrix: capabilities.md
-  - Generated Capability Policy Ledger: capabilities.generated.md
-  - Epistemic OS Hardening: architecture/epistemic-os-hardening.md
-  - Technical Overview: overview.md
-  - Foundations:
+  - Status: status.md
+  - Get Started:
+      - Technical Overview: overview.md
+      - Engine Modes: engine_modes.md
       - "North Star: Seamless": north_star.md
-      - Master-of-all Engine: architecture/engine.md
+  - Capabilities:
+      - Capabilities & Parity Matrix: capabilities.md
+      - Generated Capability Policy Ledger: capabilities.generated.md
+  - Interfaces:
+      - Interfaces Overview: interfaces/index.md
+  - Architecture:
+      - Architecture Overview: architecture/index.md
       - Verified Request Authority: architecture/request_authority.md
       - Authoritative MutationBatch: architecture/mutation_batch.md
       - Governed ChangeEnvelope: architecture/change_envelope.md
-      - Governed Modality Serving: architecture/modality_serving.md
-      - Native ASR Provider (GOC-33): architecture/native_asr.md
-      - Native Piper TTS (GOC-34): architecture/native_tts_piper.md
       - Canonical Structural Properties: architecture/canonical-property-schema.md
-      - Subsystems (C4 Containers): architecture/subsystems.md
-      - Unified Planner & UQL: uql.md
-      - One Build, Opt-in Layers: architecture/tiers.md
-      - Engine Modes: engine_modes.md
-      - Service Mode: service_mode.md
-      - Transport Boundary (ADR): transport_boundary_adr.md
-  - Query Surfaces & Interfaces:
-      - Connecting (per-wire guide): interfaces/connecting.md
-      - Atomic Batch Updates: interfaces/batch_update.md
-      - SQL & pgwire: interfaces/sql.md
-      - SPARQL & RDF: interfaces/sparql.md
-      - Cypher & Bolt: interfaces/cypher.md
-      - GraphQL: interfaces/graphql.md
-      - Vector / ANN: interfaces/vector.md
-      - Time-series: interfaces/timeseries.md
-      - Key-value & Blob: interfaces/kv_blob.md
-      - Messaging & Broker: interfaces/messaging.md
-      - Observability (logs/metrics/traces): interfaces/observability.md
-      - GIS / Spatial: interfaces/gis.md
-      - KV-cache (vLLM/LMCache): interfaces/kvcache.md
-      - KV-cache Remote Backend: architecture/kvcache_remote_backend.md
-      - Agent Memory: interfaces/memory.md
-      - Ontology Lifecycle: interfaces/ontology.md
-      - Client Drivers (Python/JS/Go): interfaces/clients.md
-      - Epistemic Operations Protocol: interfaces/epistemic_operations.md
-  - Analytics & Advanced Capabilities:
+      - Governed Modality Serving: architecture/modality_serving.md
       - Native Program Optimization: architecture/native-program-optimization.md
-      - Analytics Program (one kernel, two surfaces): architecture/analytics_program.md
       - Distributed Analytics & Incremental Reasoning: architecture/distributed-analytics-reasoning.md
-      - Data Mining (graph_mine / /api/mining): mining.md
-      - Graph Learning (graph_learn / /api/graphlearn): graphlearn.md
-      - Analytics in UQL (EG-353): analytics_in_uql.md
+      - Analytics Program (one kernel, two surfaces): architecture/analytics_program.md
       - Numeric Kernel (EG-321): architecture/numeric_kernel.md
-      - Lakehouse LTAP Interop (EG-317): architecture/lakehouse_ltap.md
-      - Distribution / Robotics / GPU (EG-3.x): architecture/distribution_robotics_gpu.md
-      - Native Visualization (D-VZ-1): architecture/native_visualization.md
-  - Distribution & Scaling:
-      - Engine Scaling Program (M1/M2/M3): architecture/scaling_program.md
-      - Multi-Raft Cluster Status (M2): architecture/m2_raft_status.md
-      - Catalog-driven Resharding (M3): architecture/m3_resharding.md
-      - Cluster Deployment: architecture/cluster_deployment.md
-      - Per-Graph Write Coalescer: architecture/write_coalescer.md
       - Hot-path Complexity Ledger: architecture/hot-path-complexity.md
-      - Reserved Read-Admission Lane (EG-044): architecture/reserved_read_lane.md
-      - Index Manager: architecture/index_manager.md
-      - Correctness Harness: architecture/correctness_harness.md
-  - Deploy & Operate:
+  - Operate & Deploy:
       - Standalone Deployment (just the engine): standalone_deployment.md
-      - DBeaver / psql Quickstart: dbeaver_quickstart.md
+      - Deployment (database): deployment.md
       - Deployment Topology (components): deployment_topology.md
+      - Service Mode: service_mode.md
+      - DBeaver / psql Quickstart: dbeaver_quickstart.md
+      - Cost Model & Capacity: cost_model.md
       - Operations Runbook: operations/runbook.md
       - Exact Fault/Restart Certification: operations/exact-fault-restart-certification.md
       - Exact Release Campaigns: operations/exact-release-campaigns.md
-      - Deployment (database): deployment.md
-      - Cost Model & Capacity: cost_model.md
       - Binary Promotion (deploy): deploy/binary_promotion.md
+      - Transition Runbook (deploy): deploy/transition-runbook.md
+      - Transport Boundary (ADR): transport_boundary_adr.md
       - Rust Compute Guide: rust_compute_guide.md
-  - Performance:
-      - Exact-binary Certification: performance_certification.md
-      - Transport Benchmarks: benchmarks.md
-      - Soak / Chaos Benchmarks: benchmarks-soak.md
   - Reference:
       - Concept Registry: concepts.md
+      - Unified Planner & UQL: uql.md
+      - Environment Variable Reference: deployment.md
       - Roadmap: roadmap.md
+      - Transport Benchmarks: benchmarks.md
+      - Soak / Chaos Benchmarks: benchmarks-soak.md
+      - Exact-binary Certification: performance_certification.md
+  - For AI Agents: https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md

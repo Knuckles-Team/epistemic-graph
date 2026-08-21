@@ -20,9 +20,9 @@ and OWL reasoning into a single high-performance binary.
 MessagePack over Unix Domain Sockets (default) or TCP**, authenticated with
 **HMAC-SHA256**. `eg2.` is the sole request envelope: every served request carries
 a verified principal, tenant, audience, effective agent, policy version, scopes,
-timestamp, nonce, and idempotency key. The server requires the `security` feature,
-a non-empty signing secret, deployment policy values, a durable replay ledger,
-and a signer-key registry before it opens a listener (see
+timestamp, nonce, and idempotency key. The server **MUST NOT** open a listener
+without the `security` feature, a non-empty signing secret, deployment policy
+values, a durable replay ledger, and a signer-key registry (see
 `docs/service_mode.md#authentication-protocol`).
 
 **Two deployment shapes, one performance discipline (this edict evolved — see history).**
@@ -33,11 +33,11 @@ independently; the wheel ships the `epistemic-graph-server` binary + a pure-Pyth
 for a self-contained deployment (one `graph-os`, no horizontal fan-out) the engine is
 embedded **in-process via PyO3** — one binary, one lifecycle, no socket serialize/round-trip,
 no cross-image drift — and is **preferred wherever it consolidates with no hot-path cost**.
-**The rule that keeps BOTH shapes fast is the same and non-negotiable: engine calls stay
+**The rule that keeps BOTH shapes fast is the same and non-negotiable: engine calls MUST stay
 BATCHED** (one call = one batch op over graph-resident data, never a per-element Python loop)
-and the engine's tokio/compute internals stay pure Rust — so Python never bottlenecks the hot
-path in either shape. Rust-native/optimized is the default; PyO3 sits ONLY at that batched
-boundary, never in a per-op inner loop. (History: PyO3 was originally removed outright to stay
+and the engine's tokio/compute internals **MUST** stay pure Rust — so Python never bottlenecks the hot
+path in either shape. Rust-native/optimized is the default; PyO3 **MUST** sit only at that batched
+boundary, and **MUST NOT** appear in a per-op inner loop. (History: PyO3 was originally removed outright to stay
 GIL-free and horizontally scalable — the right call for a shared, scaled engine. It is now
 restored as the OPT-IN unified path because a self-contained deployment gains a single
 consolidated binary with no measured downside, and the batching discipline preserves the
@@ -53,15 +53,15 @@ in-process call** — every invocation costs *serialize → socket round-trip �
 deserialize* against a separate process. A call is **not** a cheap function call.
 Two rules follow, and they shape every integration:
 
-- **Batch, never per-element.** Ship work to the engine in **one** round-trip over
+- **Batch, never per-element.** Callers **MUST** ship work to the engine in **one** round-trip over
   data already resident in the graph (e.g. `compute_similarity_edges(threshold)` for
   all-pairs similarity), instead of calling per pair/row in a Python loop. *N*
   elements in a loop = *N* round-trips = catastrophic; the same work as one batch op
-  = one round-trip. If a batch op you need doesn't exist yet, add it engine-side
-  rather than looping client-side.
+  = one round-trip. If a batch op you need doesn't exist yet, you **MUST** add it
+  engine-side rather than looping client-side.
 - **Keep tight per-element math in-process.** A single cosine of two vectors is
-  cheaper in local scalar/list code than marshalled over the wire — push to the
-  engine only when a *batch* amortizes the round-trip. (Reference:
+  cheaper in local scalar/list code than marshalled over the wire — callers **SHOULD**
+  push to the engine only when a *batch* amortizes the round-trip. (Reference:
   agent-utilities `KG-2.3` similarity collapse routes the all-pairs batch here
   but keeps pairwise cosine local.)
 
@@ -80,32 +80,32 @@ which sets no durability override — only a persist dir).
 
 **Resolution rules** (read once at startup, `src/main.rs`):
 
-- Every served build includes `redb` and uses it as the authoritative backend.
-- `GRAPH_SERVICE_PERSIST_DIR` is mandatory before a listener opens; it contains
+- Every served build **MUST** include `redb` and use it as the authoritative backend.
+- `GRAPH_SERVICE_PERSIST_DIR` **MUST** be set before a listener opens; it contains
   both graph durability and the request replay ledger.
-- A served mutation always follows commit-before-ack. There is no write-behind,
-  in-memory-only, or alternate snapshot persistence mode.
+- A served mutation **MUST** always follow commit-before-ack. There **MUST NOT** be a
+  write-behind, in-memory-only, or alternate snapshot persistence mode.
 
 The three durability rules that make "authoritative" actually safe (CONCEPT:EG-KG.backend.authoritative-dispatch/
 EG-KG.storage.read-through-seam-exercised), attached once at startup as the authoritative store:
 
-- **Commit-before-ack.** A durable mutation is COMMITTED to redb (group-commit
+- **Commit-before-ack.** A durable mutation **MUST** be COMMITTED to redb (group-commit
   fsync) BEFORE its Response is acked. Dispatch awaits `record_durable`; a commit
-  failure becomes an ERROR response — an acked write is *always* on disk. Many
+  failure becomes an ERROR response — an acked write **MUST** always be on disk. Many
   concurrent awaiting writers still coalesce into ONE group-commit fsync.
 - **Eviction is read-through-safe** (CONCEPT:EG-KG.storage.read-through-seam-exercised). The per-graph node cap
   resumes ENFORCING under authoritative mode so memory stays bounded — but WITHOUT
   data loss. eg-core defines a `ReadThrough` seam (`crates/eg-core/src/read_through.rs`);
   the facade implements it over the redb backend's point-read and injects one per
   graph at startup, so `GraphCore::get_node_properties` serves an EVICTED node's
-  stored blob from redb on a RAM miss. Eviction is durability-gated: a node is
-  dropped from RAM ONLY after a redb read CONFIRMS it is on disk (commit-before-ack
-  makes that the common case); a node whose durability can't be confirmed is left
+  stored blob from redb on a RAM miss. Eviction **MUST** be durability-gated: a node
+  **MUST NOT** be dropped from RAM until a redb read CONFIRMS it is on disk (commit-before-ack
+  makes that the common case); a node whose durability can't be confirmed **MUST** be left
   resident. So an evicted node is still readable and never lost. (Topology/edge
   reconstruction and whole-graph scans use the bounded, incarnation-fenced lazy-page
   materializer; they never require an unbounded request-path `load_all`.)
-- **Backpressure, not drop.** The redb writer's bounded channel BLOCKS for capacity
-  (off-reactor) instead of shedding a mutation. A durable write is never silently
+- **Backpressure, not drop.** The redb writer's bounded channel **MUST** block for capacity
+  (off-reactor) instead of shedding a mutation. A durable write **MUST NOT** be silently
   discarded.
 
 **Sharded K-way durable writer (CONCEPT:EG-KG.backend.sharded-k-way-durable).** redb is single-writer-PER-FILE, so
@@ -593,25 +593,25 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 
 1. **Crates mirror the DAG** `eg-types → eg-core → eg-compute → epistemic-graph`.
    A new shared/wire type → `eg-types`; a new graph-core capability → `eg-core`; a
-   new compute domain → `eg-compute`. Imports point left only — never make a lower
-   crate depend on a higher one. *Gate:* the workspace graph (a cycle won't build).
+   new compute domain → `eg-compute`. Imports **MUST** point left only — a lower
+   crate **MUST NOT** depend on a higher one. *Gate:* the workspace graph (a cycle won't build).
 
 2. **Dispatch is a thin routing table.** `src/server/dispatch.rs` is a labeled
    `'dispatch` block that routes each `Method` to a `handlers::<domain>::try_handle`
    (`Ok(resp)` = handled, `Err(method)` = not mine, fall through). The post-match
-   write side-effects (in-flight gauge, authoritative redb commit, CDC emit) stay
-   **centralized in the shell** so every write handler gets durability for free and
-   it cannot drift per-domain. **No business logic in a routing arm** — logic lives
-   in `handlers::<domain>`. *Gate:* clippy + the handler tests.
+   write side-effects (in-flight gauge, authoritative redb commit, CDC emit) **MUST**
+   stay **centralized in the shell** so every write handler gets durability for free and
+   it cannot drift per-domain. A routing arm **MUST NOT** contain business logic —
+   logic **MUST** live in `handlers::<domain>`. *Gate:* clippy + the handler tests.
 
 3. **One handler module per domain**, 1:1 with the `// ── <domain> ──` sections in
-   `protocol.rs`. A new domain ⇒ a new `handlers/<domain>.rs`, not another arm in an
+   `protocol.rs`. A new domain **MUST** get a new `handlers/<domain>.rs`, not another arm in an
    existing file.
 
 4. **Feature-gating gates three sites** (the `ast` precedent): the crate/feature
    wiring (`eg-compute/<domain>` + `eg-types/<domain>` if it has wire DTOs), the
    handler `mod` (`#[cfg(feature=…)] pub(crate) mod <domain>;`), and the dispatch
-   routing. A gated-out method's variant stays in the enum and **must** fall to the
+   routing. A gated-out method's variant **MUST** stay in the enum and **MUST** fall to the
    explicit "not available in this server build" catch-all — never a panic, never a
    silent mis-route. *Gate:* `test_gated_out_method_returns_not_built` (slim-server row).
 
@@ -619,8 +619,8 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
    enum must embed a compute type, the pure-data struct/enum goes in
    `eg-types::wire` (feature-gated) and the domain module re-exports it
    (`pub use eg_types::wire::Order;`) — the data sits at the bottom of the DAG, the
-   algorithm stays in `eg-compute`. Do **not** pull a heavy dep (nalgebra,
-   tree-sitter) into a default build to satisfy a type: gate it.
+   algorithm stays in `eg-compute`. You **MUST NOT** pull a heavy dep (nalgebra,
+   tree-sitter) into a default build to satisfy a type — gate it.
 
 6. **Adding a capability (5 steps):** (1) implement it in the `eg-compute`/`eg-core`
    domain module; (2) add the `Method` variant in the matching `protocol.rs` section
@@ -630,7 +630,7 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
    method + a `tests/` round-trip and a co-located `#[cfg(test)]` dispatch test.
 
 7. **The protocol enum stays flat + section-commented.** The current client and server
-   share that exact contract. Any structural change is an atomic ecosystem-wide
+   share that exact contract. Any structural change **MUST** be an atomic ecosystem-wide
    replacement: update every generated/client consumer and delete the superseded
    shape in the same change.
 
@@ -715,97 +715,99 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 
 ## ⛔ No Scratch or Temporary Files in Repository
 
-**NEVER** commit temporary scripts (`test_*.py`/`debug_*.py` outside `tests/`),
+You **MUST NOT** commit temporary scripts (`test_*.py`/`debug_*.py` outside `tests/`),
 scratch files, `.log`/`.txt` command dumps, patch leftovers (`*.orig`, `*.rej`),
-or tracked binaries. Put scratch work and reports in deployment-configured
-directories outside the repository. Keep tests in `tests/` (pytest) /
+or tracked binaries. Scratch work and reports **MUST** go in deployment-configured
+directories outside the repository. Tests **MUST** live in `tests/` (pytest) /
 `#[cfg(test)]` (Rust).
 
 
 ## ⛔ Keep the Repository Root Pristine
 
-The repository root must contain only canonical project files. The only hidden
+The repository root **MUST** contain only canonical project files. The only hidden
 directories allowed at root are `.git/`, `.github/`, `.specify/` (plus a local,
-git-ignored `.venv/`). NEVER write scratch/debug/migration files to the repo —
+git-ignored `.venv/`). You **MUST NOT** write scratch/debug/migration files to the repo —
 especially the root: no `fix_*.py`/`migrate_*.py`/`refactor_*.py`/root `test_*.py`,
 no `*.db`/`*.log`/scratch `*.txt`/`*.orig`/`*.rej`/`*.bak`, no build artifacts
 (`*.tsbuildinfo`), and no AI scratch dirs (`.agent/`, `.agents/`, `.agent_data/`,
-`.tmp/`, `.hypothesis/`). Put experiments in a configured external scratch
-directory and tests in `tests/`. Run `git status` before finishing and confirm
-no stray root files.
+`.tmp/`, `.hypothesis/`). Experiments **MUST** go in a configured external scratch
+directory and tests in `tests/`. You **MUST** run `git status` before finishing and
+confirm no stray root files.
 
 ## Working Discipline — think, simplify, stay surgical, verify
 
 These four habits cut the most common LLM coding mistakes. For trivial tasks, use
 judgment; the bias here is correctness over speed.
 
-- **Think before coding.** State your assumptions explicitly. If a request has more than
-  one reasonable reading, surface the options instead of silently picking one. If a
-  simpler approach exists, say so and push back when warranted. When something is
-  genuinely unclear, stop and name what's confusing — ask, don't guess.
+- **Think before coding.** You **SHOULD** state your assumptions explicitly. If a request
+  has more than one reasonable reading, you **SHOULD** surface the options instead of
+  silently picking one. If a simpler approach exists, say so and push back when warranted.
+  When something is genuinely unclear, you **MUST** stop and name what's confusing — ask,
+  don't guess.
 - **Simplicity first.** Write the minimum code that solves the stated problem — no
   speculative features, no abstraction for single-use code, no configurability that
   wasn't requested, no error handling for impossible states. If you wrote 200 lines and
-  it could be 50, rewrite it. (Name code from its purpose, never `wave0`/`phase2`/`v2`.)
-- **Stay surgical.** Every changed line should trace directly to the task. Don't refactor,
-  reformat, or "improve" working code adjacent to your change; match the existing style
-  even where you'd do it differently. Remove only the imports/symbols your own change
-  orphaned; if you spot unrelated dead code, mention it rather than deleting it inline.
-  *Exception — the Quality Bar below:* lint/format/type errors the pre-commit gate flags
-  get fixed regardless of who introduced them. In short: **surgical on behavior, clean on
-  lint.**
-- **Verify against a goal.** Turn the task into a checkable outcome before you start:
-  "fix the bug" → "write a failing test that reproduces it, then make it pass"; "add
-  validation" → "tests for the invalid inputs pass". For multi-step work, state the short
-  plan and the check for each step, then loop until the checks pass.
+  it could be 50, rewrite it. (Code **MUST** be named from its purpose, never
+  `wave0`/`phase2`/`v2`.)
+- **Stay surgical.** Every changed line **SHOULD** trace directly to the task. You **MUST
+  NOT** refactor, reformat, or "improve" working code adjacent to your change; match the
+  existing style even where you'd do it differently. Remove only the imports/symbols your
+  own change orphaned; if you spot unrelated dead code, mention it rather than deleting it
+  inline. *Exception — the Quality Bar below:* lint/format/type errors the pre-commit gate
+  flags **MUST** be fixed regardless of who introduced them. In short: **surgical on
+  behavior, clean on lint.**
+- **Verify against a goal.** You **SHOULD** turn the task into a checkable outcome before
+  you start: "fix the bug" → "write a failing test that reproduces it, then make it pass";
+  "add validation" → "tests for the invalid inputs pass". For multi-step work, state the
+  short plan and the check for each step, then loop until the checks pass.
 
 ## No Legacy — no back-compat, update every consumer, delete the old path
 
 **We own every consumer.** Everything that calls this engine lives under
 `agent-packages/*` (the `epistemic_graph` Python client, agent-utilities,
 data-science-mcp, the `agents/*` connectors). There is no external caller pinned
-to an old version, so we **do not carry backward compatibility**: no deprecated
+to an old version, so we **MUST NOT carry backward compatibility**: no deprecated
 protocol methods, no client-API aliases, no `*_legacy`/`*_compat` symbols, no
 fallback branches, no "kept for existing deployments" code.
 
 When you change a shared contract — a `Method`/`ResultPayload` wire shape, the
-client API, an env/flag name, a feature set — make it **atomic across the
-ecosystem**: grep every consumer under `agent-packages/`, update them in the same
-change, and **delete the old path** (a left-behind legacy reference is a bug, not
-compatibility). No deprecation window — this is the aggressive form of
+client API, an env/flag name, a feature set — you **MUST** make it **atomic across
+the ecosystem**: grep every consumer under `agent-packages/`, update them in the
+same change, and **delete the old path** (a left-behind legacy reference is a bug,
+not compatibility). No deprecation window — this is the aggressive form of
 strangler-then-delete: skip the strangle, migrate-and-delete in one commit.
 
 **The one exception is persisted on-disk state** in the current durable redb
-store: a format change may need a **one-time offline data migration**
-(read-old → write-new), after which the old-format reader is removed. That is data
-migration, not API back-compat — never a permanent dual-format reader.
+store: a format change **MAY** need a **one-time offline data migration**
+(read-old → write-new), after which the old-format reader **MUST** be removed.
+That is data migration, not API back-compat — never a permanent dual-format reader.
 
 The served security contract follows this rule literally. `eg2.` is the only
-request-envelope format; there is no authentication bypass, profile downgrade,
-or permissive RLS switch. The server build must include `security`, routable native
-TCP must use TLS, and every auxiliary listener is loopback-only. A fresh empty
-durable RBAC store admits exactly one bootstrap action: signer-backed `eg2.`
-self-registration in `__commons__` as `System`, with no teams or roles and the
-single exact scope `security:bootstrap`. All later operations use normal durable
-identity/RBAC policy.
+request-envelope format; there **MUST** be no authentication bypass, profile
+downgrade, or permissive RLS switch. The server build **MUST** include `security`,
+routable native TCP **MUST** use TLS, and every auxiliary listener **MUST** be
+loopback-only. A fresh empty durable RBAC store admits exactly one bootstrap
+action: signer-backed `eg2.` self-registration in `__commons__` as `System`, with
+no teams or roles and the single exact scope `security:bootstrap`. All later
+operations use normal durable identity/RBAC policy.
 
 ## Quality Bar — Leave the Codebase Clean (REQUIRED)
 
-After completing any code change, run the project's pre-commit suite and drive it
-**fully green** before committing:
+After completing any code change, you **MUST** run the project's pre-commit suite
+and drive it **fully green** before committing:
 
 ```bash
 pre-commit run --all-files
 ```
 
-Resolve **every** issue it reports — failures, lint errors, type errors, and
-warnings — **including problems that pre-date your change and were not caused by
-your edits**. The standing goal is a clean, working codebase with **no errors and
-no warnings**. Do not silence checks (`# noqa`, `# type: ignore`, `SKIP=`,
-`--no-verify`) to force green unless the exception is already documented in this
-file as a known, unavoidable limitation. Only commit once `pre-commit run
---all-files` passes cleanly; if a check legitimately cannot pass, stop and explain
-why rather than bypassing it.
+You **MUST** resolve **every** issue it reports — failures, lint errors, type
+errors, and warnings — **including problems that pre-date your change and were
+not caused by your edits**. The standing goal is a clean, working codebase with
+**no errors and no warnings**. You **MUST NOT** silence checks (`# noqa`,
+`# type: ignore`, `SKIP=`, `--no-verify`) to force green unless the exception is
+already documented in this file as a known, unavoidable limitation. You **MUST
+NOT** commit until `pre-commit run --all-files` passes cleanly; if a check
+legitimately cannot pass, stop and explain why rather than bypassing it.
 
 ## GOC-70 — every test must pass on a resource-constrained runner
 
@@ -827,34 +829,35 @@ that reliably held on a many-core dev host and reliably didn't on a 2-core
 runner (see that file's `state()`/`ENC_ENV_LOCK` docs for the fix).
 
 **The rules, in order of how a test should satisfy them:**
-1. Never assert a timing- or scheduling-dependent property as an invariant.
-   Assert what's true regardless of scheduling: the operation *landed*, and is
-   *accounted for on whichever path it took* — not that N tasks specifically
-   overlapped.
-2. Never depend on ambient process-global state (an env var, a `std::sync::Once`
-   assumed to have already fired) another test may be concurrently mutating.
-   Either provision what the test needs explicitly and locally, or — if a
-   process-global mutation is unavoidable (e.g. `std::env::set_var` is the only
-   seam a dependency exposes) — serialize EVERY participant that reads or
-   mutates that global behind ONE shared lock held for the mutating window (see
-   `ENC_ENV_LOCK` in `tests/advanced_crossmodal_roundtrip.rs`).
-3. If a test needs contention, construct it deterministically (hold a lock,
-   gate on a barrier/channel, enqueue synchronously before yielding) rather
-   than spawning N tasks and hoping the scheduler overlaps them. See
+1. A test **MUST NOT** assert a timing- or scheduling-dependent property as an
+   invariant. It **MUST** assert what's true regardless of scheduling: the
+   operation *landed*, and is *accounted for on whichever path it took* — not
+   that N tasks specifically overlapped.
+2. A test **MUST NOT** depend on ambient process-global state (an env var, a
+   `std::sync::Once` assumed to have already fired) another test may be
+   concurrently mutating. It **MUST** either provision what it needs explicitly
+   and locally, or — if a process-global mutation is unavoidable (e.g.
+   `std::env::set_var` is the only seam a dependency exposes) — serialize EVERY
+   participant that reads or mutates that global behind ONE shared lock held for
+   the mutating window (see `ENC_ENV_LOCK` in
+   `tests/advanced_crossmodal_roundtrip.rs`).
+3. If a test needs contention, it **MUST** construct it deterministically (hold
+   a lock, gate on a barrier/channel, enqueue synchronously before yielding)
+   rather than spawning N tasks and hoping the scheduler overlaps them. See
    `write_coalescer::tests::concurrent_writes_coalesce_into_fewer_lock_
    acquisitions` for the pattern: every op is enqueued from one synchronous
    loop with no `.await` inside it, so the separately-spawned worker task
    cannot run until the whole batch is already queued — deterministic on any
    core count, including 1.
-4. If a test genuinely cannot construct the conditions it needs, it must fail
-   loudly, never pass vacuously — a test reporting coverage it doesn't have is
-   worse than a known failing one.
-5. Bound resource use; make RSS-style assertions a per-test baseline DELTA
-   (`current_rss_mb()`, `src/server/dispatch.rs`), never an absolute/peak
-   reading — a sibling test's allocation contaminates a process-wide absolute
-   reading under parallel execution.
-6. Size timeouts generously enough for a slow runner without masking hangs,
-   and say how the value was chosen.
+4. If a test genuinely cannot construct the conditions it needs, it **MUST**
+   fail loudly, and **MUST NOT** pass vacuously — a test reporting coverage it
+   doesn't have is worse than a known failing one.
+5. A test **MUST** bound resource use; RSS-style assertions **MUST** be a
+   per-test baseline DELTA (`current_rss_mb()`, `src/server/dispatch.rs`), never
+   an absolute/peak reading — a sibling test's allocation contaminates a
+   process-wide absolute reading under parallel execution.
+6. Timeouts **SHOULD** be sized generously enough for a slow runner without
+   masking hangs, and the test **SHOULD** say how the value was chosen.
 
 **Enforcement:** `scripts/constrained_parallelism_gate.sh` restricts CPU
 affinity to 2 cores (`taskset -c 0,1`) and re-runs the lib suite PLUS the
@@ -874,10 +877,10 @@ Full detail: `plans/graph-os-completion-program/GOC-59-67-EXPANSION-TRACKS.md`, 
 
 ## Working with Git Worktrees (multi-session)
 
-Multiple agents/sessions work the `agent-packages/*` repos concurrently. **Do not
-edit the repository-manager-owned canonical checkout** — its background sync can
-reset the working tree and discard
-uncommitted edits. Take your own git worktree on your own branch instead:
+Multiple agents/sessions work the `agent-packages/*` repos concurrently. You
+**MUST NOT edit the repository-manager-owned canonical checkout** — its
+background sync can reset the working tree and discard uncommitted edits. Take
+your own git worktree on your own branch instead:
 
 ```bash
 # preferred — repository-manager MCP:
@@ -889,18 +892,19 @@ git -C agent-packages/<repo> checkout main
 git -C agent-packages/<repo> worktree add "$WORKTREE_ROOT/<repo>/<branch>" -b <branch>
 ```
 
-Work in the worktree and **commit often** (commits survive a working-tree reset).
-Each session must use a **distinct branch** — git allows a branch in only one
-worktree, which is what keeps concurrent sessions from colliding. Keep
-`WORKTREE_ROOT` outside the canonical workspace scan so the sync leaves worktrees
-alone.
+Work in the worktree; you **SHOULD commit often** (commits survive a working-tree
+reset). Each session **MUST** use a **distinct branch** — git allows a branch in
+only one worktree, which is what keeps concurrent sessions from colliding.
+`WORKTREE_ROOT` **MUST** stay outside the canonical workspace scan so the sync
+leaves worktrees alone.
 
-**Finishing work in a worktree** — run this sequence before calling it done:
+**Finishing work in a worktree** — you **MUST** run this sequence before calling
+it done:
 1. **Pre-commit green** — `pre-commit run --all-files`; resolve every issue per the
    Quality Bar above (including pre-existing), no `--no-verify`.
 2. **Commit** in the worktree.
 3. **Merge to main locally** — `rm_worktree merge <repo> <branch> --into main`
-   (or `git merge --no-ff`). Push only when the user asks.
+   (or `git merge --no-ff`). You **MUST NOT** push unless the user asks.
 4. **Clean up** — remove the worktree and delete the merged branch:
    `rm_worktree remove <repo> <branch> --delete-branch`; `rm_worktree prune` clears
    stale entries. (Raw-git: `git worktree remove <path> && git branch -d <branch>`.)
@@ -913,25 +917,26 @@ module `__version__`s lag) and a **stale `uv.lock`** (shipping known-vulnerable 
 A version mismatch makes the next `bump-my-version` throw `VersionNotFoundException`; a stale lock
 is what Dependabot flags. Rules:
 
-1. **Never hand-edit a version string.** Change the version ONLY via
+1. **Never hand-edit a version string.** You **MUST** change the version only via
    `bump-my-version bump {patch|minor|major}` (a.k.a. `bump2version`), which rewrites every file
    registered in `.bumpversion.cfg` in one atomic, tagged commit. If you edited the version in
    `pyproject.toml` by hand, you created drift — revert and use the bumper.
-2. **Every version-bearing file must be registered in `.bumpversion.cfg`** — at minimum
-   `pyproject.toml` AND `README.md`, plus `docker/Dockerfile` and any module `__version__`. Never
-   add a file that embeds the version without a `[bumpversion:file:...]` entry for it.
-3. **Re-lock on every dependency change.** After editing `pyproject.toml` deps/extras, run
-   `uv lock` and commit `uv.lock` in the SAME change. The `uv-lock` pre-commit hook runs with
-   `--locked` and fails on drift — never bypass it. The committed `uv.lock` is the
-   Dependabot/security surface.
-4. **Patch CVEs with a version floor at the source, then re-lock.** `uv` resolves one version
-   graph-wide, so a lower-bound in the extra that pulls a dependency raises it for the whole lock.
+2. **Every version-bearing file MUST be registered in `.bumpversion.cfg`** — at minimum
+   `pyproject.toml` AND `README.md`, plus `docker/Dockerfile` and any module `__version__`. You
+   **MUST NOT** add a file that embeds the version without a `[bumpversion:file:...]` entry for it.
+3. **Re-lock on every dependency change.** After editing `pyproject.toml` deps/extras, you
+   **MUST** run `uv lock` and commit `uv.lock` in the SAME change. The `uv-lock` pre-commit hook
+   runs with `--locked` and fails on drift — you **MUST NOT** bypass it. The committed `uv.lock`
+   is the Dependabot/security surface.
+4. **Patch CVEs with a version floor at the source, then re-lock.** You **SHOULD** add the
+   lower-bound in the extra that pulls the dependency, then re-lock — `uv` resolves one version
+   graph-wide, so raising the floor there raises it for the whole lock.
 
 ## crates.io-only Rust dependency edict (no `git = `, no out-of-workspace `path = `)
 
-Every Rust dependency in this workspace MUST come from crates.io, the official registry. Do
-not add a `git = ` source, and do not add a `path = ` to code outside this workspace, to any
-published crate's `Cargo.toml`. Rationale:
+Every Rust dependency in this workspace **MUST** come from crates.io, the official registry.
+You **MUST NOT** add a `git = ` source, and **MUST NOT** add a `path = ` to code outside this
+workspace, to any published crate's `Cargo.toml`. Rationale:
 
 - **Reproducible builds** — a registry version is immutable and content-addressed; a `git`
   `rev` still depends on the upstream host staying reachable and the ref never being deleted,
@@ -944,10 +949,10 @@ published crate's `Cargo.toml`. Rationale:
 
 **The only acceptable exception** is a security fix that has not yet been released on
 crates.io. Such a pin:
-- MUST be to an immutable `rev` (a full commit hash) — never a branch or tag that can move.
-- MUST carry a comment naming the RUSTSEC/advisory ID and the exact crates.io version that will
+- **MUST** be to an immutable `rev` (a full commit hash) — never a branch or tag that can move.
+- **MUST** carry a comment naming the RUSTSEC/advisory ID and the exact crates.io version that will
   replace it.
-- MUST be removed the moment that version publishes — swap back to a plain `version = "..."`
+- **MUST** be removed the moment that version publishes — swap back to a plain `version = "..."`
   registry dependency in the same change that notices the release.
 
 This is exactly what happened with `object_store` at the root `Cargo.toml`: it was pinned via
