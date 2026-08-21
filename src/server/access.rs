@@ -2168,6 +2168,8 @@ const REASON_LEDGER_ADMIN_OBSERVABILITY: &str =
     "src/server/handlers/graph_ops.rs's GetLedger arm reads raw_core.get_ledger() (captured before project_core shadows core, same pattern as raw_ledger_len for Metrics.total_mutations) -- the mutation ledger is process-observability, not row-visible data, and is gated by its own ledger:read RBAC authz_action (eg_capabilities::policy) enforced in dispatch.rs before any handler runs, not by per-row RLS";
 const REASON_VERIFIED_TENANT_CLAIM: &str =
     "dispatch.rs compares the request's tenant against verified_context.claims().tenant before serving it (GetChangeEnvelope/GetContentVersion/GetChangeCursor) -- an explicit verified-tenant-claim check, not a graph row";
+const REASON_NATIVE_CAPACITY_TENANT_GATED: &str =
+    "CapacityStatus/ReconcileCapacity page native capacity CELLS and LEASES out of redb (redb_store::capacity_lease::read) -- control-plane rows keyed by (graph, cell/lease id), never a GraphView node/edge row, so there is no row for RLS to filter. dispatch.rs compares the request's tenant against verified_context.tenant() and requires kg:admin or capacity:read:aggregate to cross it, on top of the capacity:read method gate in allows_method";
 const REASON_CLUSTER_ADMIN_GATED: &str =
     "cluster-wide / control-plane methods gated by the kg:admin capability (IsolationLayer::require_admin_capability) -- span the whole registry/cluster, not one resolved graph's rows, mirroring mutation.rs's own NON_GATEWAY_COORDINATED classification of the equivalent admin writes";
 const REASON_CHANNEL_MEMBERSHIP: &str =
@@ -2260,6 +2262,9 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("ExportSqliteFile", REASON_CLUSTER_ADMIN_GATED),
     ("PlacementRoute", REASON_CLUSTER_ADMIN_GATED),
     ("RebalancePlan", REASON_CLUSTER_ADMIN_GATED),
+    // REASON_NATIVE_CAPACITY_TENANT_GATED
+    ("CapacityStatus", REASON_NATIVE_CAPACITY_TENANT_GATED),
+    ("ReconcileCapacity", REASON_NATIVE_CAPACITY_TENANT_GATED),
     // REASON_CLUSTER_TOPOLOGY_READ
     ("ClusterMembers", REASON_CLUSTER_TOPOLOGY_READ),
     // REASON_CHANNEL_MEMBERSHIP

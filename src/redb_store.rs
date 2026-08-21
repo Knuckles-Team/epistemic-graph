@@ -12038,6 +12038,22 @@ mod mutation_batch_tests {
         db
     }
 
+    /// Reopen an EXISTING fixture database without seeding anything.
+    ///
+    /// [`open`] deliberately seeds `MUTATION_GRAPH_VERSION["graph-a"] = 3` when
+    /// that row is absent, which 47 fixtures depend on. That makes it the wrong
+    /// tool for asserting a row was durably DELETED: it re-inserts the very row
+    /// under test between the deletion and the assertion, so such a test can only
+    /// ever fail — it reports as coverage of durability while being incapable of
+    /// observing it.
+    fn reopen(path: &std::path::Path) -> Database {
+        let db = Database::create(path).unwrap();
+        let wtx = db.begin_write().unwrap();
+        initialize_canonical_tables(&wtx).unwrap();
+        wtx.commit().unwrap();
+        db
+    }
+
     fn node(id: &str, value: i64) -> Method {
         Method::AddNode {
             node_id: id.to_string(),
@@ -15007,7 +15023,10 @@ mod mutation_batch_tests {
         // The deletion is durable, not merely visible in the write
         // transaction that performed it.
         drop(db);
-        let reopened = open(&path);
+        // `reopen`, NOT `open`: `open` re-seeds MUTATION_GRAPH_VERSION["graph-a"]
+        // whenever it is missing, which is exactly the row the next assertion
+        // requires to be gone.
+        let reopened = reopen(&path);
         assert!(read_all_graph_meta(&reopened).unwrap().is_empty());
         assert!(read_mutation_graph_version(&reopened, "graph-a")
             .unwrap()
