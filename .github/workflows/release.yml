@@ -158,6 +158,17 @@ jobs:
         run: pip install --no-index --find-links target/wheels eg-numeric
       - name: numpy-parity gate (compiled kernel vs numpy)
         run: python -m pytest crates/eg-numeric/tests/test_kernel_parity.py --noconftest -q
+      # NE-249: the boundary contract, which nothing ran until now. This file
+      # holds the single most load-bearing property of the NumPy retirement --
+      # `test_import_and_native_calls_succeed_with_numpy_import_blocked` spawns
+      # a fresh interpreter with `import numpy` denied and proves the kernel
+      # still imports and computes -- plus the bounds checks and the restored
+      # construction surface. Running only `test_kernel_parity.py` from this
+      # directory meant the retirement was verified by a test that never
+      # executed, while `numpy` stayed installed in this job for the parity
+      # gate above and would have masked a regression completely.
+      - name: numpy-free boundary contract (NE-249)
+        run: python -m pytest crates/eg-numeric/tests/test_builtin_boundary.py --noconftest -q
 
   # ── STAGE 2: the ONE main wheel (CONCEPT:EG-371), built for every
   # supported native target — release-critical item: wheel build +
