@@ -155,3 +155,13 @@ BestTrajectory  # owner=@genius review-by=2026-09-12 note=BIND-data-model-alread
 # command path — engine-internal maintenance; a client must never write another
 # node's topology row. Clients READ topology via ClusterMembers (bound).
 NodeInfoUpsert  # owner=@genius PERMANENT reason=raft-startup-self-report-only-a-client-must-never-write-another-nodes-topology-row-read-path-is-ClusterMembers
+
+# TTS synthesis (GOC-05, `tts-piper` feature). Deliberately NOT bound yet: this
+# variant's own doc-comment in protocol.rs declares its payload an explicit
+# INTERIM carrier — opaque `request_msgpack` + `input_bytes` for the sensitive
+# text/phoneme bytes, standing in for GOC-05's CAS-backed `SensitiveInputRef`
+# resolution, which is a follow-up and "not yet built". Binding a client to a
+# shape its author has already said is going to change would ship a contract we
+# intend to break; the review date is when that follow-up is expected to have
+# landed and the real shape is bindable.
+TtsSynthesize  # owner=@genius review-by=2026-10-21 note=BIND-once-GOC-05-SensitiveInputRef-replaces-the-interim-opaque-bytes-carrier
