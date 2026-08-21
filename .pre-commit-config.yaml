@@ -536,8 +536,20 @@ repos:
     # unaffected. (`build_backend.py`'s native-artifact cache now fingerprints this
     # var too, so a dev-profile install is never served for a request that didn't ask
     # for one.) Pair with `EPISTEMIC_GRAPH_TEST_BINARY` (conftest.py) to also skip its
-    # cargo build+run when a matching binary is already on disk.
-    entry: bash -c 'export MATURIN_PEP517_ARGS="--profile dev"; test_target="tests"; for d in tests/unit test/unit tests test; do if [ -d "$d" ]; then test_target="$d"; break; fi; done; if [ -f uv.lock ]; then uv run --all-extras pytest "$test_target" -q --tb=short -m "not slow" --timeout=60; else pytest "$test_target" -q --tb=short -m "not slow" --timeout=60; fi'
+    # cargo build+run when a matching binary is already on disk -- which this
+    # entry now DOES, because not doing it made the gate unpassable from a cold
+    # cargo target. `conftest.py::start_epistemic_graph_server` falls back to
+    # `cargo build --features full` INSIDE a fixture, and fixture setup runs
+    # inside pytest-timeout's per-test 60s window: a cold full-featured build
+    # takes minutes, so EVERY test in the suite ERRORed at setup with
+    # `Failed: Timeout (>60.0s)` and the gate read as a wholesale test failure
+    # (measured 2026-08-21 on a full pre-push run: ~500 ERRORs, not one of them
+    # about the code under review). A warm target hid it, which is why it
+    # survived this long. Building here, BEFORE pytest starts, puts that build
+    # outside every test's timeout; conftest then just execs the binary. A
+    # build failure still fails the gate loudly and says so -- it simply no
+    # longer masquerades as the whole suite timing out.
+    entry: bash -c 'export MATURIN_PEP517_ARGS="--profile dev"; test_target="tests"; for d in tests/unit test/unit tests test; do if [ -d "$d" ]; then test_target="$d"; break; fi; done; if [ -z "$EPISTEMIC_GRAPH_TEST_BINARY" ]; then cargo build --features full --bin epistemic-graph-server || { echo "REFUSED - cannot build epistemic-graph-server for the integration suite" >&2; exit 1; }; EPISTEMIC_GRAPH_TEST_BINARY="$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')/debug/epistemic-graph-server"; export EPISTEMIC_GRAPH_TEST_BINARY; fi; if [ -f uv.lock ]; then uv run --all-extras pytest "$test_target" -q --tb=short -m "not slow" --timeout=60; else pytest "$test_target" -q --tb=short -m "not slow" --timeout=60; fi'
     language: system
     types: [python]
     pass_filenames: false

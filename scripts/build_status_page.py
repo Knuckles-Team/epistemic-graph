@@ -365,7 +365,13 @@ def render() -> str:
     lines.append("```bash")
     lines.append("python scripts/check_status_page.py")
     lines.append("```")
-    lines.append("")
+    # No trailing blank line: `"\n".join(lines) + "\n"` already terminates the
+    # last line, and an extra "" here emitted a trailing BLANK line that
+    # `end-of-file-fixer` strips on the very next commit -- after which
+    # `check_status_page.py` (which compares byte-for-byte against this
+    # renderer) reports the page stale again. The two hooks were mutually
+    # unsatisfiable, so `docs/status.md` could not be regenerated and committed
+    # at all; it only surfaced once something actually made the page stale.
 
     return "\n".join(lines) + "\n"
 

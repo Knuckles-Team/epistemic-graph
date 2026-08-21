@@ -20,6 +20,7 @@ This gate closes that gap with two assertions:
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -71,12 +72,82 @@ def _rust_method_variants() -> set[str]:
     return variants
 
 
+def _send_forwarding_parameters(tree: ast.AST) -> dict[str, int]:
+    """Map ``helper name -> index of the parameter it forwards to ``_send``.
+
+    Some client methods do not call ``_send`` with a literal; they hand the
+    method name to a shared validator that sends it (``_mutate("RenewCapacity",
+    ...)``, ``_reclaim_or_status("CapacityStatus", ...)``). A regex over
+    ``_send("..."`` cannot see those, and reported five genuinely-bound capacity
+    methods as unbound — a gate that under-reports coverage pushes real bindings
+    into the deferral baseline, which is the opposite of what this ratchet is
+    for. One hop of parameter flow, resolved below, is what the shape actually
+    needs.
+    """
+
+    forwarding: dict[str, int] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = [arg.arg for arg in node.args.args] + [
+            arg.arg for arg in node.args.kwonlyargs
+        ]
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Call) or not inner.args:
+                continue
+            func = inner.func
+            if not (isinstance(func, ast.Attribute) and func.attr == "_send"):
+                continue
+            first = inner.args[0]
+            if isinstance(first, ast.Name) and first.id in params:
+                forwarding[node.name] = params.index(first.id)
+    return forwarding
+
+
 def _python_sent_methods() -> set[str]:
-    """Method-name string literals the client passes to ``_send(...)``."""
+    """Method names the client can actually put on the wire.
+
+    Direct ``_send("X", ...)`` literals, plus literals handed to a helper that
+    forwards its own parameter to ``_send`` (see
+    :func:`_send_forwarding_parameters`). Both reach the engine identically, so
+    both count as bound.
+    """
+
     text = _CLIENT.read_text(encoding="utf-8")
     # ``\s*`` spans newlines (multi-line call sites), so this catches both
     # ``_send("X"`` and ``_send(\n    "X"``.
-    return set(re.findall(r'_send\(\s*"([A-Za-z0-9_]+)"', text))
+    sent = set(re.findall(r'_send\(\s*"([A-Za-z0-9_]+)"', text))
+
+    tree = ast.parse(text)
+    forwarding = _send_forwarding_parameters(tree)
+    # Resolve to a fixpoint so a helper that forwards into another helper is
+    # still followed, rather than silently stopping after one hop.
+    while True:
+        grew = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else func.id if isinstance(func, ast.Name) else None
+            )
+            index = forwarding.get(name) if name else None
+            if index is None:
+                continue
+            # `self` is not in a call's positional args but IS in the def's
+            # parameter list, so a bound-method call site is one short.
+            position = index - 1 if isinstance(func, ast.Attribute) else index
+            if 0 <= position < len(node.args):
+                argument = node.args[position]
+                if isinstance(argument, ast.Constant) and isinstance(
+                    argument.value, str
+                ):
+                    grew |= argument.value not in sent
+                    sent.add(argument.value)
+        if not grew:
+            return sent
 
 
 @dataclass(frozen=True)

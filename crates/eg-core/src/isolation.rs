@@ -1033,16 +1033,6 @@ impl IsolationLayer {
         false
     }
 
-    /// Filter a [`GraphView`](crate::graph::GraphView) IN-PLACE down to only the
-    /// rows `agent_id` may see (CONCEPT:EG-KG.sharding.row-level-security — RLS in the read/plan path).
-    ///
-    /// This runs on the owned, off-lock snapshot the query planner (SQL / Cypher /
-    /// SPARQL / unified) consumes — NOT at the graph boundary — so NO query surface
-    /// can exfiltrate a forbidden row: a hidden node is removed from the view's
-    /// topology, node-map, and property map, and every edge incident to a removed
-    /// node is dropped too (an edge to an invisible node would otherwise leak its
-    /// existence). Default-deny remains active even before identities are provisioned.
-    #[cfg(feature = "security")]
     /// Decide RLS visibility for ONE node of `view`, exactly as
     /// [`Self::filter_view`] decides it for every node.
     ///
@@ -1062,6 +1052,7 @@ impl IsolationLayer {
     /// and `schema` is derived from the snapshot's live `schema_node_ids` reverse
     /// index rather than decoded from the blob (`row_visibility`'s `.schema` is
     /// always `false`).
+    #[cfg(feature = "security")]
     pub fn can_see_node(&self, agent_id: &str, view: &crate::graph::GraphView, id: &str) -> bool {
         let mut vis = view
             .node_properties
@@ -1079,6 +1070,16 @@ impl IsolationLayer {
         self.can_see_row(agent_id, &vis)
     }
 
+    /// Filter a [`GraphView`](crate::graph::GraphView) IN-PLACE down to only the
+    /// rows `agent_id` may see (CONCEPT:EG-KG.sharding.row-level-security — RLS in the read/plan path).
+    ///
+    /// This runs on the owned, off-lock snapshot the query planner (SQL / Cypher /
+    /// SPARQL / unified) consumes — NOT at the graph boundary — so NO query surface
+    /// can exfiltrate a forbidden row: a hidden node is removed from the view's
+    /// topology, node-map, and property map, and every edge incident to a removed
+    /// node is dropped too (an edge to an invisible node would otherwise leak its
+    /// existence). Default-deny remains active even before identities are provisioned.
+    #[cfg(feature = "security")]
     pub fn filter_view(&self, agent_id: &str, view: &mut crate::graph::GraphView) {
         // Decide visibility for EVERY topology node. A topology row with no
         // property blob is untagged and must be hidden like an undecodable row.
