@@ -237,7 +237,7 @@ confirm there before declaring the cluster production-live:
    graph-os transparently forwards). Verify this is wired for the 0.10 `client_write`
    return/`ForwardToLeader` shape.
 2. **Membership admin entrypoint — DONE.** `MultiRaft::add_group_member` was split
-   into [`add_group_learner`](../../src/raft/multi.rs) (add-learner only, no
+   into `add_group_learner` (`src/raft/multi.rs`, add-learner only, no
    promotion) + `change_group_voters` (the promotion/rebalance half), both now
    reachable at runtime as `Method::RaftAddLearner` /
    `Method::RaftChangeMembership` (`src/server/handlers/raft_admin.rs`), gated

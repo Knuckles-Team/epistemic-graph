@@ -103,8 +103,18 @@ builds the image, exposes TLS native RPC, and persists to the named volume
 
 ### Plain `docker run`
 
+`CONTAINER_DATA_DIR` is the durable data directory inside the container;
+`TLS_CERT_FILE`/`TLS_KEY_FILE` are host paths to a PEM certificate and private
+key that get bind-mounted in for TLS termination, for example:
+
+```bash
+export CONTAINER_DATA_DIR=/var/lib/epistemic-graph TLS_CERT_FILE=./certs/server.crt TLS_KEY_FILE=./certs/server.key
+```
+
 ```bash
 : "${CONTAINER_DATA_DIR:?set to the image data directory}"
+: "${TLS_CERT_FILE:?set to a host PEM certificate file}"
+: "${TLS_KEY_FILE:?set to a host PEM private key file}"
 docker volume create eg-data
 docker run -d --name epistemic-graph \
   -e GRAPH_SERVICE_AUTH_SECRET \
