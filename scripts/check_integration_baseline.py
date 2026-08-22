@@ -42,9 +42,21 @@ BASELINE_PATH = REPO_ROOT / "tests" / "integration_failure_baseline.txt"
 #: The reason after " - " is deliberately dropped: this gate tracks WHICH tests
 #: fail, never WHY, so a baselined test whose failure mode changes is still
 #: baselined. That is a real limitation, stated rather than hidden.
+#:
+#: Matched ONLY inside pytest's "short test summary info" block. Applying it to
+#: the whole output was a real defect: pytest pads captured log records to a
+#: level column, so a line like
+#:     ERROR    asyncio:base_events.py:1785 Task was destroyed but it is pending!
+#: begins with ERROR + whitespace and was read as a failing node id. The gate
+#: then reported a REGRESSION for a test that does not exist, on a run whose
+#: counts (17 failed / 513 passed) matched the baseline exactly — a gate
+#: inventing a failure is precisely what this one exists to prevent.
 #: A pytest id may contain spaces (parametrised ids embed the parameter text),
 #: so the node is everything up to the reason separator rather than `\S+`.
-_OUTCOME = re.compile(r"^(?:FAILED|ERROR)\s+(.+?)(?:\s+-\s.*)?$")
+#: Captures the ENTIRE remainder; `_node_id` decides where the id ends, because
+#: that decision needs to know whether a `[...]` parameter section is open and
+#: a regex alternation cannot express that without becoming unreadable.
+_OUTCOME = re.compile(r"^(?:FAILED|ERROR)\s+(.+)$")
 
 #: `  # owner=` is the separator, not a bare `#`, because a parametrised id can
 #: legitimately contain one.
@@ -80,12 +92,56 @@ def parse_baseline(text: str) -> tuple[set[str], list[tuple[str, datetime.date]]
     return nodes, dated
 
 
+#: pytest's own delimiter for the block that lists failing node ids. Everything
+#: before it is test progress and captured output; everything after belongs to
+#: the run epilogue.
+_SUMMARY_START = re.compile(r"^=+\s*short test summary info\s*=+$")
+_SUMMARY_END = re.compile(r"^=+.*(?:passed|failed|error|no tests ran).*=+$")
+
+
 def parse_outcomes(output: str) -> set[str]:
-    return {
-        match.group(1)
-        for match in (_OUTCOME.match(line.strip()) for line in output.splitlines())
-        if match is not None
-    }
+    """Failing/erroring node ids, read only from pytest's summary block.
+
+    Scanning the whole output cannot work: captured log records share the
+    `ERROR <text>` prefix and are indistinguishable from summary lines by shape
+    alone. Bounding the scan to the block pytest itself delimits removes the
+    ambiguity instead of trying to out-guess it with a cleverer pattern.
+    """
+
+    found: set[str] = set()
+    inside = False
+    for raw in output.splitlines():
+        line = raw.strip()
+        if not inside:
+            if _SUMMARY_START.match(line):
+                inside = True
+            continue
+        if _SUMMARY_END.match(line):
+            break
+        match = _OUTCOME.match(line)
+        if match is not None:
+            found.add(_node_id(match.group(1)))
+    return found
+
+
+def _node_id(captured: str) -> str:
+    """Strip pytest's ` - <reason>` suffix without truncating a parametrised id.
+
+    pytest writes `FAILED <nodeid> - <reason>`, but a parametrised id can itself
+    contain " - " — this repo has several, e.g.
+    `test_inventory_drift_fails_closed[... does not exactly cover ...]`. Cutting
+    at the first " - " silently shortens those, and a shortened id then fails to
+    match its own baseline entry. So: when the id carries a `[...]` parameter
+    section, keep everything through its final `]`; only outside a parameter
+    section does " - " introduce the reason.
+    """
+
+    if "[" in captured:
+        close = captured.rfind("]")
+        if close != -1:
+            return captured[: close + 1].strip()
+    head, separator, _ = captured.partition(" - ")
+    return (head if separator else captured).strip()
 
 
 def main() -> int:
