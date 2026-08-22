@@ -14,6 +14,13 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+# Per-purpose maturin --out directories. `dist/` alone does not cover them, so
+# every local gate run left `dist-gates/`/`numdist-gates/` untracked in the repo
+# root — the exact shape that turns a careless `git add -A` into a committed
+# 1.6MB of wheels. The gates job (release.yml) writes the first pair; the
+# suffix varies by purpose, so match the family rather than chasing each new one.
+dist-*/
+numdist-*/
 eggs/
 .eggs/
 lib/
