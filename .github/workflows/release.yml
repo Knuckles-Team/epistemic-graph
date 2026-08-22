@@ -258,10 +258,12 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      # Each leg performs two independent full+numeric native builds. Keep the
-      # platform legs serial as well so release certification has one compiler
-      # workload at a time.
-      max-parallel: 1
+      # Every leg runs on its own GitHub-HOSTED runner VM, so the legs share no
+      # compiler, disk or memory: serializing them bought nothing and cost the
+      # whole matrix. Measured on run 32563780499 (2026-08-22) with the old
+      # `max-parallel: 1`: linux-x86_64 ran 11:08->14:01, linux-aarch64 only
+      # STARTED at 14:01, and the three remaining legs sat queued from 11:08 --
+      # a ~17h projected matrix for ~3h of critical path. Legs run concurrently.
       matrix:
         include:
           - name: linux-x86_64
