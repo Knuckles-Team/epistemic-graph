@@ -1265,6 +1265,9 @@ def _local_hygiene() -> None:
         "numdist-reproduction",
         "dist-primary",
         "dist-reproduction",
+        "numdist-gates",
+        "dist-gates",
+        ".gates-wheel-venv",
     ):
         p = REPO_ROOT / pattern
         if p.exists():

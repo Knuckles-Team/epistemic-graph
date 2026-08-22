@@ -14,14 +14,20 @@ pytestmark = pytest.mark.no_engine
 
 
 def _kernel() -> Any:
-    for name in ("epistemic_graph.numeric", "numeric"):
-        try:
-            module = importlib.import_module(name)
-        except ImportError:
-            continue
-        if getattr(module, "__kernel__", None) == "eg-numeric":
-            return module
-    pytest.skip("eg-numeric Surface-A wheel is not installed")
+    # ONLY the folded-in, natively injected extension — there is no separately
+    # published/installed `eg-numeric` package (CONCEPT:EG-346). A bare top-level
+    # `numeric` import only resolves when `eg-numeric` was installed standalone,
+    # which is the exact architectural remnant this contract must never validate
+    # against: that package's version is permanently `0.1.0`, which let a stale
+    # six-week-old build masquerade as "already satisfied" and silently mask a
+    # real regression (see scripts/ci_gate_replica.py's 2026-08-21 incident note).
+    try:
+        module = importlib.import_module("epistemic_graph.numeric")
+    except ImportError:
+        pytest.skip("epistemic_graph.numeric is not installed (folded wheel missing)")
+    if getattr(module, "__kernel__", None) != "eg-numeric":
+        pytest.skip("epistemic_graph.numeric is not installed (folded wheel missing)")
+    return module
 
 
 def test_import_and_native_calls_succeed_with_numpy_import_blocked() -> None:

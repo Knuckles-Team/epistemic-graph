@@ -8,17 +8,24 @@ kernel op equals its numpy reference (``np.allclose``), including the mandatory 
 diverges from numpy — so the ``xp`` shim can be made kernel-LIVE (CONCEPT:AU-KG.compute.shim-goes-kernel-live) with a
 standing correctness guarantee, not just the numpy fallback.
 
-Run against the freshly-built wheel::
+Run against the freshly-built, folded wheel — there is NO separately published/installed
+``eg-numeric`` package (CONCEPT:EG-346, see ``scripts/inject_numeric_kernel.py``)::
 
-    PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 \
-      maturin build --release -m crates/eg-numeric/Cargo.toml --features python
-    pip install target/wheels/eg_numeric-*.whl
+    maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out numdist
+    maturin build --release --features "$MATURIN_FEATURES" --out dist
+    python scripts/inject_numeric_kernel.py dist/epistemic_graph-*.whl numdist/*.whl
+    pip install dist/epistemic_graph-*.whl
     pytest crates/eg-numeric/tests/test_kernel_parity.py --noconftest -q
 
-The module is discovered as ``epistemic_graph.numeric`` (folded build) or ``numeric``
-(standalone wheel) — the same two names the ``xp`` shim probes. If neither imports the
-test is SKIPPED (so a no-wheel checkout is green), but the CI job builds+installs the wheel
-first, so in CI it always runs the real kernel.
+The module is discovered ONLY as ``epistemic_graph.numeric`` (the folded-in, natively
+injected extension) — the same name the ``xp`` shim probes first. There is deliberately
+no fallback to a bare top-level ``numeric`` import: that name only resolves when
+``eg-numeric`` was installed as its own standalone package, which is the exact
+architectural remnant this test must never validate against (a standalone install's
+version is permanently ``0.1.0``, which let a stale build masquerade as fresh — see
+``scripts/ci_gate_replica.py``'s 2026-08-21 incident note). If the folded module doesn't
+import the test is SKIPPED (so a no-wheel checkout is green), but the CI job
+builds+folds+installs the wheel first, so in CI it always runs the real kernel.
 """
 
 from __future__ import annotations
@@ -34,14 +41,17 @@ import pytest
 # a value with a static Python type, so every `_k.<op>(...)` call below is exempt
 # from mypy's "may be None" attribute checks by construction.
 _kernel_module: Any = None
-for _name in ("epistemic_graph.numeric", "numeric"):
-    try:
-        _m = importlib.import_module(_name)
-    except ImportError:
-        continue
-    if getattr(_m, "__kernel__", None) == "eg-numeric":
-        _kernel_module = _m
-        break
+# `_m` is `Any` for the same reason `_kernel_module` is: `import_module` returns a
+# `Module`, so a plain `_m = None` in the except branch is a type error. The
+# module is discovered at runtime and its surface is not statically known either
+# way.
+_m: Any = None
+try:
+    _m = importlib.import_module("epistemic_graph.numeric")
+except ImportError:
+    pass
+if _m is not None and getattr(_m, "__kernel__", None) == "eg-numeric":
+    _kernel_module = _m
 
 pytestmark = pytest.mark.skipif(
     _kernel_module is None,
