@@ -178,8 +178,24 @@ jobs:
         run: python scripts/normalize_wheel_build_paths.py numdist-gates/*.whl
       - name: Audit numeric kernel wheel for retained build identity
         run: python scripts/check_wheel_privacy.py numdist-gates/*.whl
+      # Deliberately NOT `--release --features "$MATURIN_FEATURES"`. This wheel is a
+      # FOLD TARGET: everything asserted about it downstream — that the numeric
+      # kernel injects, that RECORD stays valid, that the console script keeps its
+      # 0755 bit, that no build identity is retained, that
+      # `epistemic_graph.numeric` imports and computes from the INSTALLED wheel —
+      # is a property of wheel PACKAGING, not of which engine features were
+      # compiled in or at what optimisation level. The `build` job below still
+      # produces the real `full,ast-extended` release artifacts for every target.
+      #
+      # Measured 2026-08-21: `--release --features full,ast-extended` takes ~40
+      # minutes (DataFusion, Polars, Wasmtime, 15 tree-sitter grammars, LTO), and
+      # inside `ci_gate_replica.py` — whose per-step ceiling is 3600s — it TIMED
+      # OUT, cascading into five dependent steps that then reported their own
+      # failures. A slim server build produces a byte-identically-shaped wheel for
+      # these purposes in ~2.5 minutes, and was verified end to end: all four wheel
+      # audits pass and the NE-249 boundary contract is 17/17 against it.
       - name: Build gates epistemic-graph server wheel (fold target)
-        run: maturin build --release --features "$MATURIN_FEATURES" --out dist-gates
+        run: maturin build --no-default-features --features server --out dist-gates
       - name: Fold the numeric kernel into the gates epistemic-graph wheel (EG-346)
         run: |
           python scripts/inject_numeric_kernel.py "$(ls dist-gates/epistemic_graph-*.whl)" "$(ls numdist-gates/*.whl)"
