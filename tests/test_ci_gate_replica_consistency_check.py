@@ -115,9 +115,9 @@ def test_gates_job_run_steps_include_the_numeric_kernel_parity_chain():
         p["name"] for p in plan if p["job"] == "gates" and p["mode"] == "RUN"
     }
     for expected in (
-        "Build eg-numeric Surface-A wheel (feature python)",
+        "Build gates numeric kernel wheel (feature python)",
         "numpy-parity gate (compiled kernel vs numpy)",
-        "Audit numeric wheel for retained build identity",
+        "Audit numeric kernel wheel for retained build identity",
     ):
         assert expected in gates_run_names, (
             f"missing from parsed gates RUN plan: {expected!r}"

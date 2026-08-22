@@ -170,17 +170,25 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
         "numdist-reproduction",
     ):
         assert f"--out {output}" in raw
-    assert raw.count("scripts/inject_numeric_kernel.py") == 2
-    # These three scripts each run 3x, not 2x: once in the `build` job for
-    # each of the primary/reproduction release-wheel passes, PLUS once more
-    # in the `gates` job (normalizing/auditing the standalone eg-numeric
-    # Surface-A parity wheel built there for the numpy-parity gate). That
-    # third call is a legitimate, unrelated wheel and doesn't affect the
-    # primary/reproduction reproducibility this test protects — a drop below
-    # 3 still means one of those calls went missing.
-    assert raw.count("scripts/normalize_wheel_sbom.py") == 3
-    assert raw.count("scripts/normalize_wheel_build_paths.py") == 3
-    assert raw.count("scripts/check_wheel_privacy.py") == 3
+    # The `gates` job now folds its OWN numeric kernel wheel into a real
+    # `epistemic-graph` wheel (CONCEPT:EG-346) — mirroring the `build` job's
+    # primary/reproduction fold — rather than `pip install`ing the standalone
+    # `eg-numeric` build artifact (the 2026-08-21 stale-install incident this
+    # gate exists to prevent: that package's version is permanently `0.1.0`,
+    # so a pip install of it can report "already satisfied" against a
+    # six-week-old build and mask a real kernel regression). So
+    # `inject_numeric_kernel.py` runs 3x, not 2x: once in the `build` job for
+    # each of the primary/reproduction release-wheel passes, PLUS once more in
+    # the `gates` job's own fold — a drop below 3 means one of those calls
+    # went missing.
+    assert raw.count("scripts/inject_numeric_kernel.py") == 3
+    # normalize/audit run twice per fold (the raw numeric kernel wheel, then
+    # the folded server wheel) — 2x in `build` (primary + reproduction) plus
+    # 2x in `gates` (its own numeric kernel wheel + its own folded wheel) = 4.
+    # A drop below 4 means one of those calls went missing.
+    assert raw.count("scripts/normalize_wheel_sbom.py") == 4
+    assert raw.count("scripts/normalize_wheel_build_paths.py") == 4
+    assert raw.count("scripts/check_wheel_privacy.py") == 4
     assert raw.count("sccache: 'false'") == 4
     assert (
         raw.count("CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target")

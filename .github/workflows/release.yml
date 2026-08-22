@@ -138,26 +138,65 @@ jobs:
       - name: Protocol parity (Python client ⇄ Rust Method enum)
         run: python -m pytest tests/test_protocol_parity.py --noconftest -q
 
-      # numeric-parity: the developer-only reference gate builds + installs the
-      # eg-numeric Surface-A pyo3 wheel and proves EVERY kernel op matches its
-      # NumPy reference. NumPy is installed only in this isolated gates job; it
-      # must never enter the published wheel metadata or release smoke path.
+      # numeric-parity + NE-249: the developer-only reference gate proves EVERY
+      # kernel op matches its NumPy reference, AND that the kernel still imports
+      # and computes with NumPy import-blocked. NumPy is installed only in this
+      # isolated gates job; it must never enter the published wheel metadata or
+      # release smoke path.
+      #
+      # There is exactly ONE published package, `epistemic-graph` (CONCEPT:EG-346,
+      # see the injector under scripts/) — the numeric kernel ships INSIDE its
+      # wheel as a native `epistemic_graph.numeric` extension. There is NO
+      # separately published/installed `eg-numeric` package. This job used to
+      # `pip install --no-index --find-links target/wheels eg-numeric`, which
+      # installed the intermediate build artifact as a standalone top-level
+      # `numeric` package — even though the artifact is a `python -m build`-style
+      # dev target, not a release shape. Because `crates/eg-numeric`'s version is
+      # permanently `0.1.0`, that install could report success while changing
+      # nothing: pip found a stale same-version copy "already satisfied" and
+      # silently skipped a fresh build. That is exactly what happened on
+      # 2026-08-21 (see ci_gate_replica.py's LOCAL_ENV_OVERRIDES comment): the
+      # NE-249 boundary contract ran 16 of 17 cases against a six-week-old
+      # `numeric.abi3.so`, reporting failures against operations that exist.
+      #
+      # So this gate now builds BOTH the numeric kernel wheel and a real
+      # `epistemic-graph` server wheel, folds the former into the latter (the
+      # exact same fold the real release path performs per-platform below —
+      # see "Fold primary/reproduction numeric kernel into the epistemic-graph
+      # wheel") — and installs THAT into a clean throwaway venv. The parity and
+      # boundary-contract tests then exercise `epistemic_graph.numeric` from the
+      # natively-injected wheel, never a standalone `eg-numeric` install.
       - name: Install maturin + parity deps
         run: pip install 'maturin>=1,<2' numpy pytest
       - name: Configure identity-neutral Rust source paths
         run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV"
-      - name: Build eg-numeric Surface-A wheel (feature python)
-        run: maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out target/wheels
-      - name: Normalize build-local SBOM references
-        run: python scripts/normalize_wheel_sbom.py target/wheels/*.whl
-      - name: Normalize retained native build paths
-        run: python scripts/normalize_wheel_build_paths.py target/wheels/*.whl
-      - name: Audit numeric wheel for retained build identity
-        run: python scripts/check_wheel_privacy.py target/wheels/*.whl
-      - name: Install the wheel
-        run: pip install --no-index --find-links target/wheels eg-numeric
+      - name: Build gates numeric kernel wheel (feature python)
+        run: maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out numdist-gates
+      - name: Normalize build-local SBOM references (numeric kernel wheel)
+        run: python scripts/normalize_wheel_sbom.py numdist-gates/*.whl
+      - name: Normalize retained native build paths (numeric kernel wheel)
+        run: python scripts/normalize_wheel_build_paths.py numdist-gates/*.whl
+      - name: Audit numeric kernel wheel for retained build identity
+        run: python scripts/check_wheel_privacy.py numdist-gates/*.whl
+      - name: Build gates epistemic-graph server wheel (fold target)
+        run: maturin build --release --features "$MATURIN_FEATURES" --out dist-gates
+      - name: Fold the numeric kernel into the gates epistemic-graph wheel (EG-346)
+        run: |
+          python scripts/inject_numeric_kernel.py "$(ls dist-gates/epistemic_graph-*.whl)" "$(ls numdist-gates/*.whl)"
+      - name: Normalize and audit the folded gates wheel
+        run: |
+          python scripts/normalize_wheel_sbom.py dist-gates/*.whl
+          python scripts/normalize_wheel_build_paths.py dist-gates/*.whl
+          python scripts/check_wheel_privacy.py dist-gates/*.whl
+      - name: Require a complete gates wheel (kernel + executable binary + RECORD)
+        run: python scripts/check_wheel_completeness.py dist-gates/*.whl
+      - name: Install the folded epistemic-graph wheel into a clean throwaway venv
+        run: |
+          python -m venv .gates-wheel-venv
+          .gates-wheel-venv/bin/pip install --upgrade pip
+          .gates-wheel-venv/bin/pip install numpy pytest "$(ls dist-gates/epistemic_graph-*.whl)"
       - name: numpy-parity gate (compiled kernel vs numpy)
-        run: python -m pytest crates/eg-numeric/tests/test_kernel_parity.py --noconftest -q
+        run: PYTHONNOUSERSITE=1 .gates-wheel-venv/bin/python -m pytest crates/eg-numeric/tests/test_kernel_parity.py --noconftest -q
       # NE-249: the boundary contract, which nothing ran until now. This file
       # holds the single most load-bearing property of the NumPy retirement --
       # `test_import_and_native_calls_succeed_with_numpy_import_blocked` spawns
@@ -168,7 +207,7 @@ jobs:
       # executed, while `numpy` stayed installed in this job for the parity
       # gate above and would have masked a regression completely.
       - name: numpy-free boundary contract (NE-249)
-        run: python -m pytest crates/eg-numeric/tests/test_builtin_boundary.py --noconftest -q
+        run: PYTHONNOUSERSITE=1 .gates-wheel-venv/bin/python -m pytest crates/eg-numeric/tests/test_builtin_boundary.py --noconftest -q
 
   # ── STAGE 2: the ONE main wheel (CONCEPT:EG-371), built for every
   # supported native target — release-critical item: wheel build +
