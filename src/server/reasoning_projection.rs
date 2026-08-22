@@ -509,7 +509,24 @@ fn replace_snapshot(temporary: &Path, path: &Path) -> std::io::Result<()> {
     std::fs::rename(temporary, path)
 }
 
+// Win32 atomic-replace FFI. This is the C-FFI exception the repo's
+// `#![deny(unsafe_code)]` (src/lib.rs) permits only via a scoped `#[allow]` plus a
+// soundness note, exactly as `server/dds.rs` and `eg-compute/src/ast/parser.rs` do;
+// it is gated to `#[cfg(windows)]`, not a blanket crate-level allow.
+//
+// Soundness: both calls take pointers into `Vec<u16>` buffers (`target`,
+// `replacement`) that are live for the whole call and NUL-terminated by `wide()`,
+// which also rejects interior NULs so the OS cannot read past the terminator. The
+// remaining arguments are null, which both APIs document as valid (no backup file,
+// no reserved data). Neither call retains a pointer after returning, and both
+// report failure through the return value, read via `last_os_error()` before any
+// further FFI call can overwrite it. No Rust aliasing invariant is involved.
+//
+// The `unsafe` is unavoidable rather than a convenience: `std::fs::rename` maps to
+// `MoveFileExW` WITHOUT `MOVEFILE_WRITE_THROUGH`, so it cannot provide the durable
+// same-volume swap this snapshot publication depends on.
 #[cfg(windows)]
+#[allow(unsafe_code)]
 fn replace_snapshot(temporary: &Path, path: &Path) -> std::io::Result<()> {
     use std::ffi::c_void;
     use std::os::windows::ffi::OsStrExt;
