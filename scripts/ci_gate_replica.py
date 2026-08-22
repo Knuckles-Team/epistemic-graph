@@ -231,6 +231,22 @@ LOCAL_ENV_OVERRIDES = {
         "CI_GATE_CARGO_TARGET_DIR", "/var/tmp/eg-ci-gate-target"
     ),
     "TMPDIR": os.environ.get("CI_GATE_TMPDIR", "/var/tmp/eg-ci-gate-tmp"),
+    # A CI runner is ephemeral and has no user-site directory. A developer host
+    # does, and inheriting it is not a harmless difference -- it manufactures
+    # code verdicts out of stale artifacts.
+    #
+    # Measured 2026-08-21: `numpy-free boundary contract (NE-249)` failed 16 of
+    # 17 cases against a `numeric.abi3.so` in ~/.local dated 10 July. The step
+    # before it, `pip install --no-index --find-links target/wheels eg-numeric`,
+    # had reported success while installing nothing: eg-numeric's version is
+    # permanently 0.1.0, so pip found that six-week-old build "already
+    # satisfied" and skipped. The freshly built wheel passes 17/17 -- verified
+    # directly in a clean venv. The engine was never the problem; the reported
+    # failures described a July build of the very thing under test.
+    #
+    # PYTHONNOUSERSITE hides ~/.local without hiding the system site-packages,
+    # so the install actually lands and the test exercises what it claims to.
+    "PYTHONNOUSERSITE": "1",
 }
 
 # A cold local Cargo gate can fan out enough compiler jobs to exhaust the
