@@ -211,8 +211,25 @@ jobs:
           python -m venv .gates-wheel-venv
           .gates-wheel-venv/bin/pip install --upgrade pip
           .gates-wheel-venv/bin/pip install numpy pytest "$(ls dist-gates/epistemic_graph-*.whl)"
+      # Run from a scratch directory, NOT the repo root. `python -m pytest` puts
+      # CWD first on sys.path, so from the root `import epistemic_graph.numeric`
+      # resolves the SOURCE TREE's `epistemic_graph/numeric.abi3.so` — a
+      # gitignored build artifact — instead of the wheel just installed into the
+      # venv. That silently inverts the entire point of these two steps, which
+      # exist to test the INSTALLED artifact.
+      #
+      # CI passes today only because a fresh checkout has no such artifact. That
+      # is luck, not isolation: measured 2026-08-22, a local run resolved an
+      # August 18 kernel missing `linspace`/`fill_diagonal` and reported 12 of 17
+      # NE-249 cases failing against operations that are present in the wheel
+      # under test. Anchoring to $REPO and running from elsewhere makes the
+      # shadowing impossible rather than improbable.
       - name: numpy-parity gate (compiled kernel vs numpy)
-        run: PYTHONNOUSERSITE=1 .gates-wheel-venv/bin/python -m pytest crates/eg-numeric/tests/test_kernel_parity.py --noconftest -q
+        run: |
+          REPO="$PWD"
+          cd "$(mktemp -d)"
+          PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -m pytest \
+            "$REPO/crates/eg-numeric/tests/test_kernel_parity.py" --noconftest -q
       # NE-249: the boundary contract, which nothing ran until now. This file
       # holds the single most load-bearing property of the NumPy retirement --
       # `test_import_and_native_calls_succeed_with_numpy_import_blocked` spawns
@@ -223,7 +240,11 @@ jobs:
       # executed, while `numpy` stayed installed in this job for the parity
       # gate above and would have masked a regression completely.
       - name: numpy-free boundary contract (NE-249)
-        run: PYTHONNOUSERSITE=1 .gates-wheel-venv/bin/python -m pytest crates/eg-numeric/tests/test_builtin_boundary.py --noconftest -q
+        run: |
+          REPO="$PWD"
+          cd "$(mktemp -d)"
+          PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -m pytest \
+            "$REPO/crates/eg-numeric/tests/test_builtin_boundary.py" --noconftest -q
 
   # ── STAGE 2: the ONE main wheel (CONCEPT:EG-371), built for every
   # supported native target — release-critical item: wheel build +
