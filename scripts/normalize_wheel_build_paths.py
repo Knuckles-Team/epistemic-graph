@@ -189,6 +189,7 @@ def normalize_wheel_build_paths(
             rows: list[tuple[str, bytes]] = []
             changes = comment_changes
             record_info = record_infos[0]
+            wrote_temporary = False
             try:
                 with zipfile.ZipFile(temporary, "w") as destination:
                     destination.comment = comment
@@ -204,17 +205,56 @@ def normalize_wheel_build_paths(
 
                     record = _record_bytes(rows, record_info.filename)
                     destination.writestr(record_info, record)
-
-                if not changes:
-                    temporary.unlink(missing_ok=True)
-                    return 0
-                temporary.chmod(original_mode)
-                temporary.replace(path)
+                wrote_temporary = True
             finally:
-                temporary.unlink(missing_ok=True)
+                if not wrote_temporary:
+                    temporary.unlink(missing_ok=True)
+
+            # `source` (opened above to read `path`) is still open at this
+            # point -- the write phase above needed `source.read()`. It closes
+            # only once this `with` block exits, immediately below. Windows
+            # refuses to replace/delete a file while ANY handle onto it
+            # (including this read-only one) is still open (`PermissionError` /
+            # WinError 32); POSIX happily replaces a file out from under an
+            # open handle, which is why this never surfaced on the
+            # Linux/macOS legs. Everything below that touches `temporary` /
+            # `path` on disk therefore MUST run after `source` is closed, not
+            # merely after its reads are done.
+
+        if not changes:
+            temporary.unlink(missing_ok=True)
+            return 0
+        try:
+            temporary.chmod(original_mode)
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
     except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
-        raise ValueError("wheel cannot be normalized") from exc
+        raise ValueError(
+            f"wheel {path} cannot be normalized: {type(exc).__name__}: {exc}"
+        ) from exc
     return changes
+
+
+def _report_failure(path: Path, exc: BaseException) -> None:
+    """Print the wheel path and the real exception chain to stderr.
+
+    The wheel path and every exception's type/message are safe to print --
+    `normalize_wheel_build_paths` never echoes the concrete build-root text it
+    discovers, only fixed-width neutral aliases -- so there is no privacy
+    trade-off in making this diagnostic legible. This replaces a generic
+    "could not complete" line that discarded the real `OSError`/`ValueError`
+    (type, message, and chained cause) and made every Windows CI failure
+    unreadable in the log.
+    """
+
+    print(f"FAIL: wheel build-path normalization failed for {path}", file=sys.stderr)
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        print(f"  caused by: {type(current).__name__}: {current}", file=sys.stderr)
+        current = current.__cause__
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -223,12 +263,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     changes = 0
-    try:
-        for path in sorted(args.wheels, key=lambda item: item.name):
+    for path in sorted(args.wheels, key=lambda item: item.name):
+        try:
             changes += normalize_wheel_build_paths(path, checkout=Path.cwd())
-    except (ValueError, OSError):
-        print("FAIL: wheel build-path normalization could not complete", file=sys.stderr)
-        return 1
+        except (ValueError, OSError) as exc:
+            _report_failure(path, exc)
+            return 1
 
     print(
         f"OK: normalized {changes} retained build-path occurrence(s) "
