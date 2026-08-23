@@ -4330,7 +4330,12 @@ impl GraphCore {
     /// under their text, bools/numbers under their `to_string()`. Arrays/objects/
     /// null are NOT equality-indexable (return `None`) — they fall to a full scan,
     /// matching how an equality predicate on such a column behaves.
-    fn property_value_key(v: &serde_json::Value) -> Option<String> {
+    ///
+    /// `pub` (CONCEPT:EG-KG.storage.index-manager-seam) so a caller resolving a WHERE/inline-prop
+    /// literal to a `Predicate::PropertyEq` value (eg-query's Cypher executor) canonicalizes
+    /// EXACTLY the same way this index was built — the single source of truth, not a
+    /// second implementation a future edit here could silently drift out of sync with.
+    pub fn property_value_key(v: &serde_json::Value) -> Option<String> {
         match v {
             serde_json::Value::String(s) => Some(s.clone()),
             serde_json::Value::Bool(b) => Some(b.to_string()),

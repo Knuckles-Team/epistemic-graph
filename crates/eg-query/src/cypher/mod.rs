@@ -36,6 +36,8 @@ mod proc;
 pub use exec::{
     exec_cypher, exec_cypher_params, exec_cypher_write, exec_cypher_write_params, Params,
 };
+#[cfg(feature = "result-cache")]
+pub use exec::{exec_cypher_params_indexed, IndexSource};
 pub use plan::{CypherQuery, Statement, WriteOp, WriteQuery};
 pub use proc::{CypherProcedure, ProcRow, YieldValue};
 
