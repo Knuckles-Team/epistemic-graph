@@ -1526,13 +1526,42 @@ pub(crate) async fn try_handle(
                 #[cfg(feature = "security")]
                 rls,
             );
+            // `version`-paired snapshot (`result-cache` build only, see above): hand
+            // `exec_cypher_params_indexed` an `IndexSource` so an unlabeled `MATCH (n)
+            // WHERE n.id = …`/`IN […]` — the fleet/tool-registration slow-query shape —
+            // can narrow through the bounded property index instead of a whole-graph
+            // scan (CONCEPT:EG-KG.storage.index-manager-seam). The index answers off `core`'s LIVE
+            // state, so `exec_cypher_params_indexed` brackets it against `core.version()`
+            // and discards the answer (full-scan fallback) if a concurrent commit raced
+            // this snapshot; the SERVED result is identical to plain `exec_cypher` either
+            // way — only the work to reach it differs.
+            #[cfg(feature = "result-cache")]
+            let core_for_index = core.clone();
+            #[cfg(feature = "result-cache")]
+            let resp = match compute_off_lock(req_id, move || {
+                eg_query::exec_cypher_params_indexed(
+                    &snap,
+                    &query,
+                    &eg_query::Params::new(),
+                    eg_query::IndexSource::new(&core_for_index, version),
+                )
+            })
+            .await
+            {
+                Ok(Ok(result)) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    core.result_cache().put(hash, version, bytes.clone());
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
+                Err(resp) => resp,
+            };
+            #[cfg(not(feature = "result-cache"))]
             let resp = match compute_off_lock(req_id, move || eg_query::exec_cypher(&snap, &query))
                 .await
             {
                 Ok(Ok(result)) => {
                     let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    #[cfg(feature = "result-cache")]
-                    core.result_cache().put(hash, version, bytes.clone());
                     Response::ok(req_id, ResultPayload::Raw(bytes))
                 }
                 Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),

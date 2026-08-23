@@ -103,6 +103,51 @@ pub type Params = serde_json::Map<String, Value>;
 /// variables in the surrounding scope.
 type Binding = HashMap<String, String>;
 
+/// A live handle back to the graph's bounded, demand-driven secondary-property index
+/// (`GraphCore::indexes()`, CONCEPT:EG-KG.storage.index-manager-seam), paired with the OCC
+/// [`GraphCore::version`] the accompanying `GraphView` snapshot was captured at
+/// (CONCEPT:EG-KG.txn.occ-graph-core).
+///
+/// Optional performance hint for [`resolve_match`]'s START-position candidate
+/// resolution: an unlabeled, unbound start position otherwise enumerates the WHOLE
+/// graph (`label_candidates`). When the pattern/WHERE offers an indexable equality or
+/// `IN` predicate on that start variable, [`indexed_start_candidates`] narrows the
+/// candidate set through this handle instead — but ONLY when `core.version()` reads
+/// back the SAME `version` both immediately before and immediately after the lookup
+/// (bracketing it, the standard OCC read pattern this engine already uses elsewhere):
+/// that equality is the proof no concurrent commit could have changed the live index's
+/// answer out from under the point-in-time `GraphView` this executor otherwise reads
+/// exclusively. Any mismatch — or no `IndexSource` at all — falls back to today's
+/// `label_candidates` full scan; the RESULT is byte-for-byte identical either way, only
+/// the WORK to reach it differs. See [`exec_cypher_params_indexed`]'s doc for why most
+/// callers do not (and need not) supply one.
+///
+/// Only constructible under `result-cache` (its one field-carrying form): every
+/// producer of a real one (`exec_cypher_params_indexed`, this crate's re-export) is
+/// gated the same way, since the version-bracket guarantee this type exists to carry
+/// rests on `GraphCore::analysis_snapshot_versioned`'s atomic pairing, itself
+/// `result-cache`-only. Without that feature `Option<IndexSource<'_>>` is always
+/// `None` in practice, so the type collapses to a fieldless placeholder — it still
+/// needs to EXIST (it appears in `resolve_match`'s always-compiled signature), just
+/// with nothing to read, so it carries no dead-code warning in a lean build.
+#[cfg(feature = "result-cache")]
+#[derive(Clone, Copy)]
+pub struct IndexSource<'a> {
+    core: &'a GraphCore,
+    version: u64,
+}
+
+#[cfg(feature = "result-cache")]
+impl<'a> IndexSource<'a> {
+    pub fn new(core: &'a GraphCore, version: u64) -> Self {
+        Self { core, version }
+    }
+}
+
+#[cfg(not(feature = "result-cache"))]
+#[derive(Clone, Copy)]
+pub struct IndexSource<'a>(std::marker::PhantomData<&'a GraphCore>);
+
 /// Parse + run `cypher` over `view` (read-only, single graph). Synchronous and
 /// dep-free — safe to call inside `spawn_blocking` like `exec_sql`.
 pub fn exec_cypher(view: &GraphView, cypher: &str) -> Result<QueryResult, String> {
@@ -117,21 +162,56 @@ pub fn exec_cypher(view: &GraphView, cypher: &str) -> Result<QueryResult, String
 /// a repeat call with IDENTICAL query text (any `$params`, any graph) reuses the
 /// already-parsed AST instead of re-parsing (see that module's doc for why a plan
 /// never needs to invalidate). Sized by `EPISTEMIC_GRAPH_CYPHER_PLAN_CACHE`.
+///
+/// No property-index consultation ([`IndexSource`]) — every unlabeled start scans
+/// `view` in full, exactly as before. Use [`exec_cypher_params_indexed`] when a paired
+/// `(GraphCore, version)` is available.
 pub fn exec_cypher_params(
     view: &GraphView,
     cypher: &str,
     params: &Params,
+) -> Result<QueryResult, String> {
+    exec_cypher_params_inner(view, cypher, params, None)
+}
+
+/// [`exec_cypher_params`]'s indexed form (CONCEPT:EG-KG.storage.index-manager-seam): identical read
+/// semantics and identical results — only `resolve_match`'s unlabeled-start candidate
+/// resolution may consult `index` instead of full-scanning `view`. Callers that hold a
+/// `GraphView` paired with the exact `GraphCore`/version it was snapshotted at (e.g. via
+/// `GraphCore::analysis_snapshot_versioned`) should prefer this over
+/// [`exec_cypher_params`] — the `Method::CypherQuery` pure-read handler is the one
+/// production caller that measurably benefits (unlabeled `MATCH (n) WHERE n.id = …`
+/// during fleet/tool registration). Every other caller either lacks a paired core+version
+/// (a `GraphView` alone, e.g. GraphQL/bolt-wire/gds) or is a write statement's embedded
+/// MATCH (a different, unmeasured workload shape) — both keep calling
+/// [`exec_cypher_params`] unchanged, `#[cfg(feature = "result-cache")]` guarding this
+/// entry point's OCC version bracket like [`GraphView::projection_scope`]'s identical gate.
+#[cfg(feature = "result-cache")]
+pub fn exec_cypher_params_indexed(
+    view: &GraphView,
+    cypher: &str,
+    params: &Params,
+    index: IndexSource<'_>,
+) -> Result<QueryResult, String> {
+    exec_cypher_params_inner(view, cypher, params, Some(index))
+}
+
+fn exec_cypher_params_inner(
+    view: &GraphView,
+    cypher: &str,
+    params: &Params,
+    index: Option<IndexSource<'_>>,
 ) -> Result<QueryResult, String> {
     let query = plan_cache::global().get_or_parse(cypher)?;
     // The `EPISTEMIC_GRAPH_CYPHER_ENGINE` rollout (legacy | plan | shadow) is a
     // `full`-only surface; a lean `cypher`-only build always runs legacy.
     #[cfg(feature = "cypher-plan")]
     {
-        engine::dispatch(view, cypher, &query, params)
+        engine::dispatch(view, cypher, &query, params, index)
     }
     #[cfg(not(feature = "cypher-plan"))]
     {
-        run_legacy(view, &query, params)
+        run_legacy(view, &query, params, index)
     }
 }
 
@@ -142,8 +222,9 @@ fn run_legacy(
     view: &GraphView,
     query: &CypherQuery,
     params: &Params,
+    index: Option<IndexSource<'_>>,
 ) -> Result<QueryResult, String> {
-    let bindings = run_stages(view, &query.stages, params, row_budget(query))?;
+    let bindings = run_stages(view, &query.stages, params, row_budget(query), index)?;
     finalize(view, query, bindings)
 }
 
@@ -182,6 +263,7 @@ fn run_stages(
     stages: &[ReadStage],
     params: &Params,
     budget: Option<usize>,
+    index: Option<IndexSource<'_>>,
 ) -> Result<Vec<Binding>, String> {
     // Seed with one empty binding so the first MATCH resolves from scratch.
     let mut bindings: Vec<Binding> = vec![HashMap::new()];
@@ -198,8 +280,15 @@ fn run_stages(
                     // `budget` is `Some` only for a single-MATCH pipeline (see
                     // `row_budget`), so the short-circuit cap is applied to the one and
                     // only stage here; a multi-stage query always carries `None`.
-                    let mut matched =
-                        resolve_match(view, pattern, where_clause, incoming, params, budget)?;
+                    let mut matched = resolve_match(
+                        view,
+                        pattern,
+                        where_clause,
+                        incoming,
+                        params,
+                        budget,
+                        index,
+                    )?;
                     if let Some(pv) = path_var {
                         for b in matched.iter_mut() {
                             record_path(pattern, b, pv);
@@ -243,7 +332,7 @@ fn run_stages(
                 bindings = out;
             }
             ReadStage::Call { subquery } => {
-                let additions = subquery_additions(view, subquery, params)?;
+                let additions = subquery_additions(view, subquery, params, index)?;
                 let mut out: Vec<Binding> = Vec::new();
                 for b in &bindings {
                     for add in &additions {
@@ -352,10 +441,11 @@ fn subquery_additions(
     view: &GraphView,
     subquery: &CypherQuery,
     params: &Params,
+    index: Option<IndexSource<'_>>,
 ) -> Result<Vec<Binding>, String> {
     // A CALL subquery has its own LIMIT scope (applied by its own `finalize` below);
     // the outer query's short-circuit budget never applies here.
-    let sub_bindings = run_stages(view, &subquery.stages, params, None)?;
+    let sub_bindings = run_stages(view, &subquery.stages, params, None, index)?;
     let ret = &subquery.ret;
     let items: Vec<ReturnItem> = if ret.star {
         scope_vars(&subquery.stages)
@@ -667,6 +757,7 @@ fn resolve_match(
     anchor: &Binding,
     params: &Params,
     budget: Option<usize>,
+    index: Option<IndexSource<'_>>,
 ) -> Result<Vec<Binding>, String> {
     // Label-index-first: rebind the walk to start at a labeled end when the start is a
     // full-graph scan. The reversed pattern binds the same variables over the same paths.
@@ -679,22 +770,36 @@ fn resolve_match(
         final_preds,
     } = partition_where(pattern, anchor, where_clause);
 
-    // Start candidates: the anchored id if the start var is bound, else the label set,
-    // then narrowed by any inline property constraints (CONCEPT:EG-KG.query.param-list-drives-unwind).
+    // Start candidates: the anchored id if the start var is bound; else, when the
+    // start is UNLABELED and unbound (an otherwise whole-graph scan), try narrowing
+    // through the bounded property index (CONCEPT:EG-KG.storage.index-manager-seam) via an
+    // indexable inline-prop or start-position WHERE equality/IN predicate; else the
+    // label set. `indexed_start_candidates` returning `None` (no `IndexSource`, no
+    // usable predicate, or the index/version-race guard declined) is NOT the same as
+    // an empty candidate set — it means "fall back to the full scan", so it is never
+    // conflated with `Some(vec![])` (a real, indexed, zero-match answer) here.
     let start_ids: Vec<String> = match pattern.start.var.as_ref().and_then(|v| anchor.get(v)) {
         Some(id) => vec![id.clone()],
-        None => label_candidates(view, &pattern.start),
+        None => indexed_start_candidates(index, &pattern.start, &start_preds, anchor, params)
+            .unwrap_or_else(|| label_candidates(view, &pattern.start)),
     }
     .into_iter()
     // An ANCHORED start node still has its `:Label`/inline props enforced here — the
     // label-index candidate set only pre-filters the un-anchored case (CONCEPT:EG-KG.query.cypher-planning
-    // lets a CALL/YIELD node id flow into a labelled MATCH).
+    // lets a CALL/YIELD node id flow into a labelled MATCH). The `view.node_map`
+    // membership check is a no-op for `label_candidates` (which is already built from
+    // `view` and can't return anything else) but is load-bearing for an INDEXED
+    // candidate: the index answers off LIVE core state (CONCEPT:EG-KG.storage.index-manager-seam), so
+    // an id it returns that this exact point-in-time `view` doesn't have (RLS-filtered,
+    // or added/removed by a write that raced the snapshot) is dropped here rather than
+    // trusted — every downstream WHERE/prop read only ever consults `view`, never `index`.
     .filter(|id| {
-        pattern
-            .start
-            .label
-            .as_ref()
-            .is_none_or(|l| node_has_label_id(view, id, l))
+        view.node_map.contains_key(id)
+            && pattern
+                .start
+                .label
+                .as_ref()
+                .is_none_or(|l| node_has_label_id(view, id, l))
             && node_props_match(view, id, &pattern.start, anchor, params)
     })
     .collect();
@@ -1904,6 +2009,209 @@ fn cmp_values(a: &Value, b: &Value) -> Ordering {
     rank(a).cmp(&rank(b))
 }
 
+// ── indexed start-candidate resolution (CONCEPT:EG-KG.storage.index-manager-seam) ───────────────────
+
+/// Try to resolve pattern `node`'s START candidates WITHOUT `label_candidates`'
+/// whole-graph scan — ONLY when `node` is UNLABELED (a labeled start already narrows
+/// cheaply via the label index).
+///
+/// Two indexable shapes, checked in order:
+///   1. An inline property map (`(n {id: 'x'})` / `(n {id: $p})`) — every key resolves
+///      against `anchor`/`params` (CONCEPT:EG-KG.query.param-list-drives-unwind) to a scalar literal.
+///   2. A `start_preds` conjunct (CONCEPT:EG-KG.query.cypher-where-pushdown) that is a bare `var.prop = <literal>`
+///      or `var.prop IN [<literals>]` test on `node`'s own variable — deliberately NOT
+///      an `Or`: a disjunction (like the `tenant_id = … OR tenant_id IS NULL OR …`
+///      production shape) is never narrowed here, it stays a post-narrowing FILTER
+///      applied by the caller's unchanged `all_where_hold(start_preds)` walk, exactly
+///      as before this function existed.
+///
+/// `id` gets its OWN fast path, ahead of and independent from the general property
+/// index: it is a VIRTUAL property backed by the node's GRAPH KEY (`node_prop`'s own
+/// `if prop == "id" { … view.node_map … }` special case), never a literal field a
+/// node's stored property blob necessarily carries — `GraphCore::nodes_by_property`
+/// indexes literal blob fields, so routing `id` through it would silently answer
+/// "indexed, zero matches" for every node whose blob happens not to duplicate its own
+/// id as a field (the common case; see the doc on [`indexed_where_cond`]). Resolving
+/// `id` needs no `IndexSource`/`core` at all — the literal(s) are handed back AS THE
+/// CANDIDATE SET and re-validated by the caller's EXISTING `view.node_map.contains_key`
+/// check together with `all_where_hold(start_preds)`, exactly like every other
+/// candidate source. Every OTHER property key routes through [`indexed_where_cond`] /
+/// [`lookup_property_conjunction`] — the real `IndexManager`/`PropertyEqIndex` seam,
+/// which DOES need a version-bracketed `IndexSource` (CONCEPT:EG-KG.storage.index-manager-seam).
+///
+/// Returns:
+///   * `Some(ids)` — resolved without a full scan, INCLUDING the legitimate empty case
+///     (indexed, zero matches, or an `id` literal not shaped like a string). The
+///     caller must serve this as-is, never treat it as "try the fallback instead".
+///   * `None` — nothing indexable was found, the covering index refused (bounded cap
+///     full), or the version bracket ([`IndexSource`]'s doc) caught a concurrent write
+///     racing the snapshot ⇒ the caller MUST fall back to `label_candidates`. `None`
+///     here is never conflated with `Some(vec![])`: one means "no answer, full-scan",
+///     the other means "answered: nothing matches".
+fn indexed_start_candidates(
+    index: Option<IndexSource<'_>>,
+    node: &NodePat,
+    start_preds: &[WhereExpr],
+    anchor: &Binding,
+    params: &Params,
+) -> Option<Vec<String>> {
+    if node.label.is_some() {
+        return None;
+    }
+    if let Some(props) = &node.props {
+        if !props.is_empty() {
+            if let Some(ids) = indexed_inline_props(index, props, anchor, params) {
+                return Some(ids);
+            }
+        }
+    }
+    let var = node.var.as_deref()?;
+    for w in start_preds {
+        let WhereExpr::Cond(c) = w else { continue };
+        if c.var != var {
+            continue;
+        }
+        if let Some(ids) = indexed_where_cond(index, c) {
+            return Some(ids);
+        }
+    }
+    None
+}
+
+/// The inline-property-map leg of [`indexed_start_candidates`]: resolve every key
+/// against `anchor`/`params`, then answer `id` directly (see that function's doc) or
+/// the rest as the intersection of each key's [`lookup_property_eq`].
+fn indexed_inline_props(
+    index: Option<IndexSource<'_>>,
+    props: &[(String, PropVal)],
+    anchor: &Binding,
+    params: &Params,
+) -> Option<Vec<String>> {
+    let mut resolved: Vec<(String, Value)> = Vec::with_capacity(props.len());
+    for (key, pv) in props {
+        resolved.push((key.clone(), resolve_prop_val(anchor, params, pv).ok()?));
+    }
+    if let Some((_, id_val)) = resolved.iter().find(|(k, _)| k == "id") {
+        // A direct id pin already narrows to AT MOST ONE candidate — any OTHER
+        // inline props in the same map are re-verified by `resolve_match`'s
+        // existing `node_props_match` filter regardless, so nothing is lost by not
+        // also routing them through the index here.
+        return Some(vec![id_val.as_str()?.to_string()]);
+    }
+    let _ = &index; // referenced unconditionally so a `result-cache`-off build doesn't warn
+    #[cfg(feature = "result-cache")]
+    {
+        let index = index?;
+        let mut pairs: Vec<(String, String)> = Vec::with_capacity(resolved.len());
+        for (key, val) in &resolved {
+            pairs.push((key.clone(), GraphCore::property_value_key(val)?));
+        }
+        lookup_property_conjunction(index, &pairs)
+    }
+    #[cfg(not(feature = "result-cache"))]
+    {
+        None
+    }
+}
+
+/// The WHERE-conjunct leg of [`indexed_start_candidates`]: `id` resolves directly off
+/// the literal(s) (no index, no `core` — see that function's doc); any other property
+/// key routes through the version-bracketed [`lookup_property_eq`]/[`lookup_property_in`]
+/// seam. `None` when `c` isn't a bare `Cmp(Eq, _)`/non-empty `In` test, when a literal
+/// isn't the right shape (a non-string `id` literal can never match a real node id; a
+/// non-scalar property literal isn't equality-indexable), or when the general index
+/// declines — the caller then tries the next conjunct, if any, before giving up.
+fn indexed_where_cond(index: Option<IndexSource<'_>>, c: &Condition) -> Option<Vec<String>> {
+    let _ = &index; // referenced unconditionally so a `result-cache`-off build doesn't warn
+    match &c.test {
+        Test::Cmp(CompareOp::Eq, value) if c.prop == "id" => {
+            Some(vec![value.as_str()?.to_string()])
+        }
+        Test::In(values) if !values.is_empty() && c.prop == "id" => {
+            let mut out = Vec::with_capacity(values.len());
+            for v in values {
+                out.push(v.as_str()?.to_string());
+            }
+            out.sort_unstable();
+            out.dedup();
+            Some(out)
+        }
+        #[cfg(feature = "result-cache")]
+        Test::Cmp(CompareOp::Eq, value) => {
+            let index = index?;
+            let canon = GraphCore::property_value_key(value)?;
+            lookup_property_eq(index, &c.prop, &canon)
+        }
+        #[cfg(feature = "result-cache")]
+        Test::In(values) if !values.is_empty() => {
+            let index = index?;
+            lookup_property_in(index, &c.prop, values)
+        }
+        _ => None,
+    }
+}
+
+/// One `PropertyEq` lookup through the `IndexManager`/`PropertyEqIndex` seam
+/// (CONCEPT:EG-KG.storage.index-manager-seam), version-bracketed per [`IndexSource`]'s contract: `core.version()`
+/// must read back the SAME `index.version` both immediately before and immediately
+/// after the lookup, or the answer is discarded (`None` ⇒ caller full-scans) since a
+/// concurrent commit could otherwise have changed the live index's answer out from
+/// under the point-in-time snapshot the rest of this query reads exclusively.
+#[cfg(feature = "result-cache")]
+fn lookup_property_eq(index: IndexSource<'_>, key: &str, value: &str) -> Option<Vec<String>> {
+    if index.core.version() != index.version {
+        return None;
+    }
+    let result = index.core.indexes().lookup(
+        index.core,
+        &eg_core::index::Predicate::PropertyEq {
+            key: key.to_string(),
+            value: value.to_string(),
+        },
+    );
+    if index.core.version() != index.version {
+        return None;
+    }
+    result
+}
+
+/// `var.prop IN [v1, v2, …]` (CONCEPT:EG-KG.query.param-list-drives-unwind) via the SAME per-key lookup
+/// [`lookup_property_eq`] uses, unioned (sorted + deduped) across every list value.
+/// `None` if ANY value isn't a scalar-indexable literal, the key isn't indexable, or a
+/// version race is caught on any leg — never a partial union.
+#[cfg(feature = "result-cache")]
+fn lookup_property_in(index: IndexSource<'_>, key: &str, values: &[Value]) -> Option<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+    for v in values {
+        let canon = GraphCore::property_value_key(v)?;
+        out.extend(lookup_property_eq(index, key, &canon)?);
+    }
+    out.sort_unstable();
+    out.dedup();
+    Some(out)
+}
+
+/// Every inline-prop key ANDed together (CONCEPT:EG-KG.query.param-list-drives-unwind) — the intersection of each
+/// key's [`lookup_property_eq`] result, smallest set first. `None` if any key isn't
+/// indexable (mirrors `GraphCore::nodes_by_properties`' identical all-or-nothing
+/// contract — a partial pushdown here would risk silently dropping a valid match).
+#[cfg(feature = "result-cache")]
+fn lookup_property_conjunction(
+    index: IndexSource<'_>,
+    pairs: &[(String, String)],
+) -> Option<Vec<String>> {
+    let mut sets: Vec<Vec<String>> = Vec::with_capacity(pairs.len());
+    for (key, value) in pairs {
+        sets.push(lookup_property_eq(index, key, value)?);
+    }
+    sets.sort_by_key(|s| s.len());
+    let mut acc = sets.remove(0);
+    for s in &sets {
+        acc.retain(|id| s.binary_search(id).is_ok());
+    }
+    Some(acc)
+}
+
 // ── label / property helpers ─────────────────────────────────────────────────
 
 /// Node ids matching a `(var:Label)` — via the same fields the eg-core label index
@@ -2114,6 +2422,11 @@ fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<Query
             &w.where_clause,
             &HashMap::new(),
             params,
+            None,
+            // No paired (core, version) here — `analysis_snapshot()` (unlike
+            // `analysis_snapshot_versioned()`) doesn't capture one atomically with the
+            // snapshot, and this write-statement MATCH prefix is a different, unmeasured
+            // workload shape from the production read hot path this optimization targets.
             None,
         )?,
         None => vec![HashMap::new()],
@@ -2731,11 +3044,12 @@ mod engine {
         text: &str,
         query: &CypherQuery,
         params: &Params,
+        index: Option<IndexSource<'_>>,
     ) -> Result<QueryResult, String> {
         match selected_engine() {
-            CypherEngine::Legacy => run_legacy(view, query, params),
-            CypherEngine::Plan => run_plan(view, query, params),
-            CypherEngine::Shadow => run_shadow(view, text, query, params),
+            CypherEngine::Legacy => run_legacy(view, query, params, index),
+            CypherEngine::Plan => run_plan(view, query, params, index),
+            CypherEngine::Shadow => run_shadow(view, text, query, params, index),
         }
     }
 
@@ -2743,14 +3057,17 @@ mod engine {
     /// binding-table walk. A pure AST pre-pass ([`cost_plan`]) rewrites each MATCH pattern
     /// to begin at the cost-cheapest end (reusing the semantics-preserving
     /// [`reverse_pattern`]); the rewritten query then runs through the identical
-    /// `run_stages`/`finalize`, so the result is unchanged as a set.
+    /// `run_stages`/`finalize`, so the result is unchanged as a set. `index` flows through
+    /// unchanged — the property-index start-candidate narrowing lives in the SHARED
+    /// `resolve_match`, so both engines benefit identically (CONCEPT:EG-KG.storage.index-manager-seam).
     fn run_plan(
         view: &GraphView,
         query: &CypherQuery,
         params: &Params,
+        index: Option<IndexSource<'_>>,
     ) -> Result<QueryResult, String> {
         let planned = cost_plan(view, query);
-        let bindings = run_stages(view, &planned.stages, params, row_budget(&planned))?;
+        let bindings = run_stages(view, &planned.stages, params, row_budget(&planned), index)?;
         finalize(view, &planned, bindings)
     }
 
@@ -2763,9 +3080,10 @@ mod engine {
         text: &str,
         query: &CypherQuery,
         params: &Params,
+        index: Option<IndexSource<'_>>,
     ) -> Result<QueryResult, String> {
-        let legacy = run_legacy(view, query, params);
-        let plan = run_plan(view, query, params);
+        let legacy = run_legacy(view, query, params, index);
+        let plan = run_plan(view, query, params, index);
         match (&legacy, &plan) {
             (Ok(l), Ok(p)) => {
                 if let Some(reason) = result_divergence(l, p, query) {
@@ -2883,10 +3201,10 @@ mod engine {
         params: &Params,
     ) -> Result<Option<String>, String> {
         let query = plan_cache::global().get_or_parse(text)?;
-        let Ok(l) = run_legacy(view, &query, params) else {
+        let Ok(l) = run_legacy(view, &query, params, None) else {
             return Ok(None);
         };
-        match run_plan(view, &query, params) {
+        match run_plan(view, &query, params, None) {
             Ok(p) => Ok(result_divergence(&l, &p, &query)),
             Err(e) => Ok(Some(format!("plan engine errored: {e}"))),
         }
@@ -2901,7 +3219,7 @@ mod engine {
         params: &Params,
     ) -> Result<QueryResult, String> {
         let query = plan_cache::global().get_or_parse(text)?;
-        run_plan(view, &query, params)
+        run_plan(view, &query, params, None)
     }
 
     /// Run ONLY the legacy engine (bypassing the cached env selection).
@@ -2912,7 +3230,7 @@ mod engine {
         params: &Params,
     ) -> Result<QueryResult, String> {
         let query = plan_cache::global().get_or_parse(text)?;
-        run_legacy(view, &query, params)
+        run_legacy(view, &query, params, None)
     }
 }
 
@@ -4997,5 +5315,375 @@ mod tests {
                 "shadow divergence on generated query (iter {iter}): {q}"
             );
         }
+    }
+
+    // ── indexed start-candidate resolution (CONCEPT:EG-KG.storage.index-manager-seam) ───────────────
+
+    /// Like [`fixture`] but also returns the owning `GraphCore` (kept alive alongside
+    /// the snapshot) and the OCC version it was captured at — what
+    /// [`IndexSource`]/`exec_cypher_params_indexed` need. Mirrors the production
+    /// `Method::CypherQuery` handler's own `analysis_snapshot_versioned()` pairing.
+    #[cfg(feature = "result-cache")]
+    fn fixture_versioned() -> (GraphCore, GraphView, u64) {
+        let core = GraphCore::new();
+        core.add_node(
+            "alice".into(),
+            pbytes(serde_json::json!({"node_type":"Person","name":"Alice","tenant_id":"homelab"})),
+        );
+        core.add_node(
+            "bob".into(),
+            pbytes(serde_json::json!({"node_type":"Person","name":"Bob","tenant_id":"homelab"})),
+        );
+        core.add_node(
+            "carol".into(),
+            pbytes(serde_json::json!({"node_type":"Person","name":"Carol","tenant_id":"other"})),
+        );
+        core.add_node(
+            "d1".into(),
+            pbytes(serde_json::json!({"node_type":"Doc","size":42})),
+        );
+        core.add_edge(
+            "alice".into(),
+            "bob".into(),
+            pbytes(serde_json::json!({"relationship":"KNOWS"})),
+        )
+        .unwrap();
+        core.add_edge(
+            "bob".into(),
+            "carol".into(),
+            pbytes(serde_json::json!({"relationship":"KNOWS"})),
+        )
+        .unwrap();
+        let (view, version) = core.analysis_snapshot_versioned();
+        (core, view, version)
+    }
+
+    /// The exact production shape from the slow-query log: an unlabeled `MATCH (n)`
+    /// with a WHERE that ANDs a tenant disjunction (never indexable — stays a
+    /// post-narrowing filter) with a plain `n.id = <literal>` equality (indexable).
+    /// The indexed path (`exec_cypher_params_indexed`) must return byte-for-byte the
+    /// SAME rows as the unindexed legacy path (`exec_cypher`).
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_id_equality_matches_full_scan_production_shape() {
+        let (core, view, version) = fixture_versioned();
+        let q =
+            "MATCH (n) WHERE (n.tenant_id = 'homelab' OR n.tenant_id IS NULL OR n.tenant_id = '') \
+                  AND (n.id = 'bob') RETURN n.id AS id, n.name AS name";
+        let unindexed = exec_cypher(&view, q).unwrap();
+        let indexed =
+            exec_cypher_params_indexed(&view, q, &Params::new(), IndexSource::new(&core, version))
+                .unwrap();
+        assert_eq!(indexed.columns, unindexed.columns);
+        assert_eq!(indexed.rows, unindexed.rows);
+        assert_eq!(ids(&indexed, 0), vec!["bob"]);
+    }
+
+    /// The second production shape: `n.id IN [literal]`.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_id_in_list_matches_full_scan() {
+        let (core, view, version) = fixture_versioned();
+        let q =
+            "MATCH (n) WHERE n.id IN ['bob', 'carol'] RETURN n.id AS id, n.tenant_id AS tenant_id";
+        let unindexed = exec_cypher(&view, q).unwrap();
+        let indexed =
+            exec_cypher_params_indexed(&view, q, &Params::new(), IndexSource::new(&core, version))
+                .unwrap();
+        assert_eq!(indexed.rows, unindexed.rows);
+        assert_eq!(ids(&indexed, 0), vec!["bob", "carol"]);
+    }
+
+    /// `n.id = <literal not present>`: the index legitimately resolves to ZERO
+    /// matches (`Some(vec![])`), not "not indexable" (`None`). The indexed path must
+    /// still return the identical (empty) rows the full scan does — this is the
+    /// end-to-end companion to `indexed_lookup_returns_some_empty_vec_not_none`
+    /// below, which pins the exact `Option` shape a conflation bug would flip.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_id_equality_no_match_is_empty_not_whole_graph() {
+        let (core, view, version) = fixture_versioned();
+        let q = "MATCH (n) WHERE n.id = 'nobody' RETURN n.id AS id";
+        let indexed =
+            exec_cypher_params_indexed(&view, q, &Params::new(), IndexSource::new(&core, version))
+                .unwrap();
+        assert!(
+            indexed.rows.is_empty(),
+            "expected zero rows, got {} — a None/Some(vec![]) conflation would fall back to \
+             the full scan and return every node instead",
+            indexed.rows.len()
+        );
+    }
+
+    /// Inline node-property equality (`(n {id: 'bob'})`) is ALSO narrowed through the
+    /// index, not just a WHERE conjunct.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_inline_prop_equality_matches_full_scan() {
+        let (core, view, version) = fixture_versioned();
+        let q = "MATCH (n {id: 'bob'}) RETURN n.id AS id";
+        let unindexed = exec_cypher(&view, q).unwrap();
+        let indexed =
+            exec_cypher_params_indexed(&view, q, &Params::new(), IndexSource::new(&core, version))
+                .unwrap();
+        assert_eq!(indexed.rows, unindexed.rows);
+        assert_eq!(ids(&indexed, 0), vec!["bob"]);
+    }
+
+    /// A WHERE that is PURELY a disjunction over the start var (no plain equality/IN
+    /// conjunct at all — the tenant-only shape) offers nothing indexable:
+    /// `indexed_start_candidates` must decline (`None`), not silently narrow to
+    /// nothing. The end-to-end answer still has to match the full scan.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_disjunction_only_where_falls_back_and_still_matches() {
+        let (core, view, version) = fixture_versioned();
+        let q =
+            "MATCH (n) WHERE n.tenant_id = 'homelab' OR n.tenant_id = 'other' RETURN n.id AS id";
+        let unindexed = exec_cypher(&view, q).unwrap();
+        let indexed =
+            exec_cypher_params_indexed(&view, q, &Params::new(), IndexSource::new(&core, version))
+                .unwrap();
+        assert_eq!(indexed.rows, unindexed.rows);
+        assert_eq!(ids(&indexed, 0), vec!["alice", "bob", "carol"]);
+
+        // Directly pin the `None` this shape must produce (no plain Cond, only an Or).
+        let anchor = Binding::new();
+        let start_preds = vec![WhereExpr::Or(vec![
+            WhereExpr::Cond(Condition {
+                var: "n".to_string(),
+                prop: "tenant_id".to_string(),
+                test: Test::Cmp(CompareOp::Eq, Value::String("homelab".to_string())),
+            }),
+            WhereExpr::Cond(Condition {
+                var: "n".to_string(),
+                prop: "tenant_id".to_string(),
+                test: Test::Cmp(CompareOp::Eq, Value::String("other".to_string())),
+            }),
+        ])];
+        let node = NodePat {
+            var: Some("n".to_string()),
+            label: None,
+            props: None,
+        };
+        assert_eq!(
+            indexed_start_candidates(
+                Some(IndexSource::new(&core, version)),
+                &node,
+                &start_preds,
+                &anchor,
+                &Params::new(),
+            ),
+            None,
+            "a pure disjunction offers no plain equality/IN conjunct to index"
+        );
+    }
+
+    /// THE conflation-catching test (per task spec): directly pins that an indexed,
+    /// zero-match predicate returns `Some(vec![])`, never `None`. If a future edit
+    /// swapped in something like `if ids.is_empty() { None } else { Some(ids) }`, this
+    /// assertion fails immediately (`None != Some(vec![])`), whereas an end-to-end
+    /// query-result test alone could not distinguish "no predicate was indexable" from
+    /// "the index says zero rows" — both legitimately produce zero output rows via
+    /// (fallback-then-filter) vs (index-then-filter). A DIFFERENT unindexable shape
+    /// (`None`, from `indexed_disjunction_only_where_falls_back_and_still_matches`
+    /// above) is asserted right alongside it so the two `Option` shapes are pinned
+    /// side by side, not just individually plausible.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_lookup_returns_some_empty_vec_not_none() {
+        // Uses `tenant_id` (a REAL stored blob field, routed through
+        // `GraphCore::nodes_by_property`/`IndexManager`), not `id` (which has its own
+        // always-`Some` fast path — see `indexed_where_cond`'s doc — and so can't
+        // exercise a genuine "indexed, zero matches" answer at this layer).
+        let (core, _view, version) = fixture_versioned();
+        let anchor = Binding::new();
+        let node = NodePat {
+            var: Some("n".to_string()),
+            label: None,
+            props: None,
+        };
+
+        // Indexed, real predicate, zero matches ⇒ Some(vec![]).
+        let no_match_preds = vec![WhereExpr::Cond(Condition {
+            var: "n".to_string(),
+            prop: "tenant_id".to_string(),
+            test: Test::Cmp(
+                CompareOp::Eq,
+                Value::String("nonexistent-tenant".to_string()),
+            ),
+        })];
+        let empty = indexed_start_candidates(
+            Some(IndexSource::new(&core, version)),
+            &node,
+            &no_match_preds,
+            &anchor,
+            &Params::new(),
+        );
+        assert_eq!(empty, Some(Vec::<String>::new()));
+        assert_ne!(
+            empty, None,
+            "an indexed zero-match answer is Some(vec![]), never None"
+        );
+
+        // No IndexSource at all ⇒ genuinely None (nothing to conflate it with).
+        let no_index =
+            indexed_start_candidates(None, &node, &no_match_preds, &anchor, &Params::new());
+        assert_eq!(no_index, None);
+
+        // A real match ⇒ Some(vec![the matching ids]).
+        let match_preds = vec![WhereExpr::Cond(Condition {
+            var: "n".to_string(),
+            prop: "tenant_id".to_string(),
+            test: Test::Cmp(CompareOp::Eq, Value::String("homelab".to_string())),
+        })];
+        let mut hit = indexed_start_candidates(
+            Some(IndexSource::new(&core, version)),
+            &node,
+            &match_preds,
+            &anchor,
+            &Params::new(),
+        )
+        .unwrap();
+        hit.sort();
+        assert_eq!(hit, vec!["alice".to_string(), "bob".to_string()]);
+    }
+
+    /// `id`'s own fast path (distinct from the general property index tested above):
+    /// it ALWAYS answers `Some` for a bare `Cmp(Eq, <string>)`/non-empty `In` test —
+    /// including a literal that names no real node — because it hands back the
+    /// literal(s) themselves for `resolve_match`'s EXISTING `view.node_map`
+    /// membership + `all_where_hold` re-check to validate, exactly like every other
+    /// candidate source. No `IndexSource` is consulted at all.
+    #[test]
+    fn indexed_id_fast_path_echoes_literals_unconditionally() {
+        let node = NodePat {
+            var: Some("n".to_string()),
+            label: None,
+            props: None,
+        };
+        let no_such_node = vec![WhereExpr::Cond(Condition {
+            var: "n".to_string(),
+            prop: "id".to_string(),
+            test: Test::Cmp(CompareOp::Eq, Value::String("nobody".to_string())),
+        })];
+        assert_eq!(
+            indexed_start_candidates(None, &node, &no_such_node, &Binding::new(), &Params::new()),
+            Some(vec!["nobody".to_string()]),
+            "the id fast path needs no IndexSource and doesn't pre-filter existence"
+        );
+
+        // A non-string `id` literal can never match a real (always-string) node id —
+        // the fast path declines rather than fabricating a non-string candidate.
+        let numeric_id = vec![WhereExpr::Cond(Condition {
+            var: "n".to_string(),
+            prop: "id".to_string(),
+            test: Test::Cmp(CompareOp::Eq, Value::Number(7.into())),
+        })];
+        assert_eq!(
+            indexed_start_candidates(None, &node, &numeric_id, &Binding::new(), &Params::new()),
+            None
+        );
+    }
+
+    /// OCC version-race guard (CONCEPT:EG-KG.txn.occ-graph-core): an `IndexSource` stamped with a
+    /// version that does NOT match the live `GraphCore.version()` must be refused
+    /// (`None`) even though the predicate is perfectly indexable and would match —
+    /// proving the bracket actually gates on version equality rather than always
+    /// trusting the live index.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_lookup_declines_on_version_mismatch() {
+        // `tenant_id` again — `id`'s own fast path never touches `core.version()`,
+        // so it cannot exercise the bracket this test targets.
+        let (core, _view, version) = fixture_versioned();
+        let anchor = Binding::new();
+        let node = NodePat {
+            var: Some("n".to_string()),
+            label: None,
+            props: None,
+        };
+        let preds = vec![WhereExpr::Cond(Condition {
+            var: "n".to_string(),
+            prop: "tenant_id".to_string(),
+            test: Test::Cmp(CompareOp::Eq, Value::String("homelab".to_string())),
+        })];
+        let stale = indexed_start_candidates(
+            Some(IndexSource::new(&core, version.wrapping_add(1))),
+            &node,
+            &preds,
+            &anchor,
+            &Params::new(),
+        );
+        assert_eq!(
+            stale, None,
+            "a version mismatch must decline, never answer stale"
+        );
+
+        // Sanity: the SAME query with the CORRECT version does resolve.
+        let fresh = indexed_start_candidates(
+            Some(IndexSource::new(&core, version)),
+            &node,
+            &preds,
+            &anchor,
+            &Params::new(),
+        )
+        .unwrap();
+        let mut fresh = fresh;
+        fresh.sort();
+        assert_eq!(fresh, vec!["alice".to_string(), "bob".to_string()]);
+    }
+
+    /// A labeled start never consults the property index at all (the label index
+    /// already narrows it cheaply) — `indexed_start_candidates` must decline
+    /// immediately regardless of an otherwise-indexable WHERE predicate.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_lookup_declines_for_labeled_start() {
+        let (core, _view, version) = fixture_versioned();
+        let anchor = Binding::new();
+        let node = NodePat {
+            var: Some("n".to_string()),
+            label: Some("Person".to_string()),
+            props: None,
+        };
+        let preds = vec![WhereExpr::Cond(Condition {
+            var: "n".to_string(),
+            prop: "id".to_string(),
+            test: Test::Cmp(CompareOp::Eq, Value::String("bob".to_string())),
+        })];
+        assert_eq!(
+            indexed_start_candidates(
+                Some(IndexSource::new(&core, version)),
+                &node,
+                &preds,
+                &anchor,
+                &Params::new(),
+            ),
+            None
+        );
+    }
+
+    /// Full shadow-mode equivalence over the indexed path: `plan` engine + index vs
+    /// `legacy` engine + index must still agree (the index lives in the SHARED
+    /// `resolve_match`, so this is mostly a non-regression check that indexing didn't
+    /// silently break the plan-engine cost reorder).
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_lookup_agrees_across_legacy_and_plan_engines() {
+        let (core, view, version) = fixture_versioned();
+        let q = "MATCH (n) WHERE n.id IN ['bob', 'carol'] RETURN n.id AS id";
+        let index = Some(IndexSource::new(&core, version));
+        let query = plan_cache::global().get_or_parse(q).unwrap();
+        let legacy_bindings = run_stages(
+            &view,
+            &query.stages,
+            &Params::new(),
+            row_budget(&query),
+            index,
+        )
+        .unwrap();
+        let legacy = finalize(&view, &query, legacy_bindings).unwrap();
+        assert_eq!(ids(&legacy, 0), vec!["bob", "carol"]);
     }
 }
