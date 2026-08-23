@@ -66,3 +66,6 @@ pub use cypher::{
     classify_cypher, exec_cypher, exec_cypher_params, exec_cypher_write, exec_cypher_write_params,
     CypherProcedure, CypherStatementKind, Params, ProcRow, YieldValue,
 };
+
+#[cfg(all(feature = "cypher", feature = "result-cache"))]
+pub use cypher::{exec_cypher_params_indexed, IndexSource};
