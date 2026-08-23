@@ -17,6 +17,7 @@ from scripts.configure_rust_path_remap import (
     path_remaps,
 )
 from scripts.normalize_wheel_build_paths import normalize_wheel_build_paths
+from scripts.normalize_wheel_build_paths import main as normalize_build_paths_main
 from scripts.normalize_wheel_sbom import normalize_wheel
 
 # This file's own module docstring says "no engine required" -- every test here
@@ -737,3 +738,120 @@ def test_cli_never_echoes_a_sensitive_prefix(
     assert str(build_root) not in captured.out
     assert str(build_root) not in captured.err
     assert "category=runtime-build-prefix" in captured.err
+
+
+def test_build_path_normalizer_closes_source_before_replacing_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Windows refuses to replace/delete a file while ANY handle onto it is
+    still open (`PermissionError` / WinError 32). `normalize_wheel_build_paths`
+    used to call `Path.replace` on the freshly rewritten temp file while the
+    *source* `zipfile.ZipFile` -- opened for reading the original wheel -- was
+    still open inside its own enclosing `with` block (it stayed open only
+    because the write phase needed `source.read()`). POSIX happily replaces a
+    file out from under an open handle, so this was invisible on the
+    Linux/macOS release legs; it is exactly the windows-x86_64 leg's real
+    failure behind `scripts/normalize_wheel_build_paths.py`'s generic
+    "could not complete" line (`.github/workflows/release.yml`, "Normalize
+    and audit primary wheel" step).
+
+    This reproduces the failure mode without a Windows runner: it fails any
+    `Path.replace` of the ``.build-paths-tmp`` file while a read-mode
+    `zipfile.ZipFile` handle is still tracked as open, and only passes once
+    the source handle is closed before the replace -- which is exactly what
+    the fix does.
+    """
+
+    build_root = PurePosixPath("/", "var", "lib", "fixture-builder", "source")
+    wheel = _wheel(
+        tmp_path,
+        {
+            "fixture_package-1.0.0.dist-info/METADATA": _neutral_metadata(),
+            "fixture_package-1.0.0.dist-info/RECORD": b"stale-record\n",
+            "fixture_package/native.so": (
+                f"ELF\x00{build_root}/native/parser.c\x00"
+            ).encode(),
+        },
+    )
+
+    open_read_handles: list[zipfile.ZipFile] = []
+    real_init = zipfile.ZipFile.__init__
+    real_close = zipfile.ZipFile.close
+
+    def tracking_init(self, file, mode="r", *args, **kwargs):
+        real_init(self, file, mode, *args, **kwargs)
+        if mode == "r":
+            open_read_handles.append(self)
+
+    def tracking_close(self):
+        real_close(self)
+        if self in open_read_handles:
+            open_read_handles.remove(self)
+
+    monkeypatch.setattr(zipfile.ZipFile, "__init__", tracking_init)
+    monkeypatch.setattr(zipfile.ZipFile, "close", tracking_close)
+
+    real_replace = Path.replace
+
+    def guarded_replace(self, target):
+        if str(self).endswith(".build-paths-tmp") and open_read_handles:
+            raise PermissionError(
+                13,
+                "The process cannot access the file because it is being "
+                "used by another process",
+            )
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", guarded_replace)
+
+    assert (
+        normalize_wheel_build_paths(wheel, environ={"HOME": str(build_root)}) == 1
+    )
+    with zipfile.ZipFile(wheel) as archive:
+        payload = archive.read("fixture_package/native.so")
+    assert str(build_root).encode() not in payload
+
+
+def test_cli_reports_real_cause_instead_of_a_generic_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """The CLI used to catch every failure behind one generic "FAIL: wheel
+    build-path normalization could not complete" line with no wheel path, no
+    exception type, and no message -- exactly why the windows-x86_64 release
+    leg's real failure was undiagnosable from the CI log. It must now report
+    which wheel failed and the real exception chain (type + message), not a
+    static string."""
+
+    wheel = _wheel(
+        tmp_path,
+        {
+            "fixture_package-1.0.0.dist-info/METADATA": _neutral_metadata(),
+            "fixture_package-1.0.0.dist-info/RECORD": b"stale-record\n",
+            "fixture_package/native.so": (
+                b"ELF\x00/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f"
+                b"/some-dep-1.2.3/src/lib.rs\x00"
+            ),
+        },
+    )
+
+    real_replace = Path.replace
+
+    def boom(self, target):
+        if str(self).endswith(".build-paths-tmp"):
+            raise PermissionError(
+                13,
+                "The process cannot access the file because it is being "
+                "used by another process",
+            )
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", boom)
+
+    assert normalize_build_paths_main([str(wheel)]) == 1
+    captured = capsys.readouterr()
+    assert str(wheel) in captured.err
+    assert "PermissionError" in captured.err
+    assert "used by another process" in captured.err
+    assert captured.err.strip() != (
+        "FAIL: wheel build-path normalization could not complete"
+    )
