@@ -1524,8 +1524,56 @@ fn bind_verified_identity(
             return Err(format!("request context asserts unverified role '{role}'"));
         }
     }
+    // Roles and OAuth2 scopes are fungible at this boundary for the SCOPE
+    // side of the check: a claimed scope is accepted if it is present in
+    // EITHER verified set, not only `verified.scopes`.
+    //
+    // Why: the IdP is free to express any given capability as a realm/client
+    // role or as an OAuth2 scope — that is an IdP-side modeling choice, not a
+    // security boundary, and `oidc.rs`'s `validate_claims` already treats it
+    // that way on the verification side: `realm_access.roles` and every
+    // `resource_access.*.roles` are unconditionally folded into
+    // `verified.roles` (see `JwtValidator::validate_claims`,
+    // `src/server/oidc.rs:427-434`), so `verified.roles` is already a merged,
+    // IdP-shape-agnostic set by the time it reaches here. agent-utilities
+    // sends the `kg:read`/`kg:write`/`kg:admin` capability family as OAuth2
+    // *scopes* by architecture (`agent_utilities/knowledge_graph/core/
+    // session.py:95-99,288-290,406-408`), while Keycloak — this deployment's
+    // actual IdP — carries that same family in `realm_access.roles`. Without
+    // this, the two independent loops below would never agree with each
+    // other's IdP-shape assumption and every `kg:*`-scoped request would fail
+    // closed the instant `EPISTEMIC_GRAPH_REQUIRE_OIDC` is enabled, even
+    // though the token cryptographically proves the caller holds the
+    // capability.
+    //
+    // This module already set exactly this precedent one check up: the
+    // tenant claim above is resolved from whichever of `tenant_id`, `tenant`,
+    // `org_id`, `tid`, or `org` the issuer happened to populate (`oidc.rs:
+    // 140-183`) rather than requiring one fixed claim name. Accepting a scope
+    // from either verified set is the same move — tolerate the IdP's
+    // vocabulary choice — applied to the roles/scopes boundary instead of a
+    // single claim name.
+    //
+    // This does NOT widen privilege. The scope must still appear in a
+    // claim set that has already passed RSA/JWKS signature, issuer,
+    // audience, and expiry verification (`JwtValidator::validate_claims`);
+    // this change only stops caring which of the two verified, cryptographically-attested
+    // sets carried it. An attacker cannot forge membership in `verified.roles`
+    // any more easily than in `verified.scopes` — both come from the same
+    // verified token.
+    //
+    // The mirror image — accepting a claimed ROLE that was verified only as
+    // a scope — is deliberately NOT made symmetric here. Today every caller
+    // in this codebase that asserts a role names an actual authorization
+    // role (see the role loop above), and nothing here has established that
+    // an IdP ever expresses a role-shaped capability as a bare OAuth2 scope
+    // (as opposed to the scope-shaped `kg:*` family this fix addresses,
+    // which the IdP demonstrably DOES express as roles). Widening the role
+    // loop without that evidence risks accepting a role claim on the
+    // strength of an unrelated scope grant. Left unchanged, on purpose,
+    // pending a concrete case showing an IdP emitting a role as a scope.
     for scope in &claims.scopes {
-        if !verified.scopes.contains(scope) {
+        if !verified.scopes.contains(scope) && !verified.roles.contains(scope) {
             return Err(format!(
                 "request context asserts unverified scope '{scope}'"
             ));
@@ -3423,6 +3471,95 @@ mod tests {
             let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
                 .unwrap_err();
             assert!(error.contains("scope"), "{error}");
+        }
+
+        // ── Role/scope fungibility (this fix) ──────────────────────────
+        //
+        // agent-utilities sends the `kg:*` capability family as OAuth2
+        // scopes; Keycloak carries that same family in `realm_access.roles`,
+        // which `JwtValidator::validate_claims` folds into `verified.roles`
+        // (never `verified.scopes`). These three tests pin the resulting
+        // behavior of `bind_verified_identity`'s scope loop: a claimed scope
+        // verified only via the role set is now accepted (a), a claimed
+        // scope verified in neither set is still rejected with the exact
+        // same fail-closed message as before this fix (b), and the role
+        // loop's own behavior — deliberately left asymmetric, see the
+        // comment on the scope loop in `bind_verified_identity` — is
+        // unchanged (c).
+
+        #[test]
+        fn scope_verified_only_via_role_claim_is_accepted() {
+            // (a) The envelope claims scope "kg:write". The token never puts
+            // "kg:write" in its `scope` claim — it only appears in the
+            // token's `roles`, which `validate_claims` folds into
+            // `verified.roles`. Before this fix the independent scope loop
+            // could never see it there and this request failed closed even
+            // though the token cryptographically proves the caller holds
+            // "kg:write".
+            let _guard = install_test_validator();
+            let mut claims = matching_claims();
+            claims.scopes = vec!["kg:write".into()];
+            // `claims.roles` stays `matching_claims()`'s default ["kg:read"],
+            // so the token must also independently verify that role — this
+            // test isolates the SCOPE loop's fungibility behavior rather
+            // than accidentally relying on the role loop rejecting first.
+            let token = sign(&oidc_claims(
+                "agent:planner",
+                "tenant-a",
+                &["kg:read", "kg:write"], // verified.roles: satisfies the role
+                // loop ("kg:read") AND supplies
+                // "kg:write" for the scope loop
+                "kg:read", // verified.scopes: does NOT contain "kg:write"
+            ));
+            let req = envelope_request(720, "oidc-scope-via-role", claims, Some(&token));
+            let result =
+                verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay());
+            assert!(result.is_ok(), "{:?}", result.err());
+        }
+
+        #[test]
+        fn scope_verified_in_neither_set_still_fails_closed_with_same_message() {
+            // (b) Fail-closed property preserved: a scope absent from BOTH
+            // `verified.scopes` AND `verified.roles` must still be rejected,
+            // with the exact same error text this loop has always produced
+            // (callers/logs match on it) — this fix only adds a second place
+            // to look, it does not soften the rejection.
+            let _guard = install_test_validator();
+            let mut claims = matching_claims();
+            claims.scopes = vec!["kg:admin".into()];
+            let token = sign(&oidc_claims(
+                "agent:planner",
+                "tenant-a",
+                &["kg:read"], // verified.roles: does not contain "kg:admin"
+                "kg:read",    // verified.scopes: does not contain "kg:admin"
+            ));
+            let req = envelope_request(721, "oidc-scope-neither-set", claims, Some(&token));
+            let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
+                .unwrap_err();
+            assert_eq!(error, "request context asserts unverified scope 'kg:admin'");
+        }
+
+        #[test]
+        fn role_verified_only_via_scope_claim_still_fails_closed() {
+            // (c) Mirror-image check: the role loop is deliberately left
+            // asymmetric (see the comment in `bind_verified_identity`). A
+            // claimed role that the token only expresses via its `scope`
+            // claim (i.e. present in `verified.scopes` but not
+            // `verified.roles`) must still be rejected exactly as before
+            // this fix — proving the role loop's behavior is unchanged.
+            let _guard = install_test_validator();
+            let mut claims = matching_claims();
+            claims.roles = vec!["kg:admin".into()];
+            let token = sign(&oidc_claims(
+                "agent:planner",
+                "tenant-a",
+                &[],        // verified.roles: does not contain "kg:admin"
+                "kg:admin", // verified.scopes: DOES contain "kg:admin"
+            ));
+            let req = envelope_request(722, "oidc-role-via-scope", claims, Some(&token));
+            let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
+                .unwrap_err();
+            assert_eq!(error, "request context asserts unverified role 'kg:admin'");
         }
 
         #[test]
