@@ -2296,6 +2296,20 @@ pub enum Method {
         /// RBAC role names this agent holds (CONCEPT:EG-KG.compute.feature).
         roles: Vec<String>,
     },
+    /// Read back one principal's currently-registered identity (CONCEPT:EG-KG.compute.feature).
+    /// `RegisterIdentity` REPLACES an agent's whole role set on every call -- there is no
+    /// merge -- so a caller that wants to ADD a role without silently dropping one already
+    /// granted by a prior admission pass must read the current set back first; this closes
+    /// that gap. The handler returns `Option<AgentIdentity>` (`eg_types::acl::AgentIdentity`):
+    /// `None` means "no identity registered for `agent_id`" (unknown), which callers MUST
+    /// keep distinct from `Some(identity)` carrying an empty `roles` Vec (registered,
+    /// CONFIRMED to hold no roles) -- conflating the two would reintroduce the exact
+    /// blind-upsert ambiguity this RPC exists to eliminate. Gated `security:admin`, the same
+    /// scope `RegisterIdentity` already requires, so this grants no new privilege to anyone
+    /// who could not already call `RegisterIdentity`.
+    GetIdentity {
+        agent_id: String,
+    },
     /// Administer the RBAC role/grant policy (CONCEPT:EG-KG.compute.feature). Unconditional in the
     /// enum; the handler is gated behind the `security` feature (a non-security build
     /// falls to the dispatch "not available in this build" catch-all, like EG-090's
