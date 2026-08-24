@@ -6308,33 +6308,111 @@ mod tests {
         assert_eq!(fresh, vec!["alice".to_string(), "bob".to_string()]);
     }
 
-    /// A labeled start never consults the property index at all (the label index
-    /// already narrows it cheaply) — `indexed_start_candidates` must decline
-    /// immediately regardless of an otherwise-indexable WHERE predicate.
+    /// LANE D-engine (`fix(cypher): consult the property index for unlabeled
+    /// n.id equality/IN`, 49bf22b71) already removed the old
+    /// `node.label.is_some()` gate from `indexed_start_candidates` for the
+    /// INLINE-prop `id` leg (`indexed_labeled_inline_id_no_longer_declines`,
+    /// `indexed_labeled_inline_id_wrong_label_returns_empty_not_wrong_node`
+    /// above) — that gate is gone for the WHERE-conjunct `n.id = <literal>`
+    /// leg too, and always was; this test previously asserted the STALE,
+    /// pre-LANE-D invariant ("a labeled start must decline immediately") that
+    /// commit 49bf22b71 itself invalidated without updating this test,
+    /// leaving it silently red. The CURRENT invariant, proven end-to-end
+    /// below exactly like this file's other `wrong_label` tests: a labeled
+    /// start's WHERE `id` equality DOES resolve through the same
+    /// no-`IndexSource`-needed fast path an unlabeled start gets (label is
+    /// NOT consulted by `indexed_start_candidates`/`indexed_where_cond`
+    /// at all — see `indexed_where_cond`'s `Test::Cmp(Eq, _) if c.prop ==
+    /// "id"` arm, which never reads `node.label`), and the label constraint
+    /// is still enforced afterward by `resolve_match`'s own post-filter
+    /// (`node_has_label_point`, since this candidate source sets
+    /// `from_label_scan = false` — see that match arm's comment) rather than
+    /// by `indexed_start_candidates` declining. A WHERE-equality query whose
+    /// literal names a node of the WRONG label must still resolve to EMPTY,
+    /// exactly like the full scan, proving narrowing-by-id never becomes a
+    /// way to bypass label enforcement.
     #[test]
     #[cfg(feature = "result-cache")]
-    fn indexed_lookup_declines_for_labeled_start() {
-        let (core, _view, version) = fixture_versioned();
+    fn indexed_where_id_equality_no_longer_declines_for_labeled_start_but_label_still_enforced()
+    {
+        let (core, view, version) = fixture_versioned();
         let anchor = Binding::new();
-        let node = NodePat {
-            var: Some("n".to_string()),
-            label: Some("Person".to_string()),
-            props: None,
-        };
         let preds = vec![WhereExpr::Cond(Condition {
             var: "n".to_string(),
             prop: "id".to_string(),
             test: Test::Cmp(CompareOp::Eq, Value::String("bob".to_string())),
         })];
+
+        // Unit level: `indexed_start_candidates` itself is unfiltered by label for
+        // the WHERE-conjunct `id` leg, same as the inline-prop leg already proven
+        // above — it answers off the literal alone, with or without a matching
+        // `:Person` label on `node`.
+        let person_node = NodePat {
+            var: Some("n".to_string()),
+            label: Some("Person".to_string()),
+            props: None,
+        };
         assert_eq!(
             indexed_start_candidates(
                 Some(IndexSource::new(&core, version)),
-                &node,
+                &person_node,
                 &preds,
                 &anchor,
                 &Params::new(),
             ),
-            None
+            Some(vec!["bob".to_string()]),
+            "a labeled start's WHERE `id` equality must resolve through the same \
+             no-IndexSource-needed fast path an unlabeled start already gets"
+        );
+        let doc_node = NodePat {
+            var: Some("n".to_string()),
+            label: Some("Doc".to_string()),
+            props: None,
+        };
+        assert_eq!(
+            indexed_start_candidates(
+                Some(IndexSource::new(&core, version)),
+                &doc_node,
+                &preds,
+                &anchor,
+                &Params::new(),
+            ),
+            Some(vec!["bob".to_string()]),
+            "indexed_start_candidates itself does not enforce the label — bob is \
+             returned even for a :Doc-labeled node pattern; the caller must filter it"
+        );
+
+        // End-to-end: the CORRECT label resolves bob, byte-for-byte the same as the
+        // full scan.
+        let ok_q = "MATCH (n:Person) WHERE n.id = 'bob' RETURN n.id AS id";
+        let ok_unindexed = exec_cypher(&view, ok_q).unwrap();
+        let ok_indexed = exec_cypher_params_indexed(
+            &view,
+            ok_q,
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(ok_indexed.rows, ok_unindexed.rows);
+        assert_eq!(ids(&ok_indexed, 0), vec!["bob"]);
+
+        // End-to-end: the WRONG label must resolve to EMPTY, not bob — proving
+        // `resolve_match`'s post-filter (not `indexed_start_candidates`) is what
+        // enforces the label constraint here.
+        let wrong_q = "MATCH (n:Doc) WHERE n.id = 'bob' RETURN n.id AS id";
+        let wrong_unindexed = exec_cypher(&view, wrong_q).unwrap();
+        assert!(wrong_unindexed.rows.is_empty(), "sanity: bob is not a :Doc");
+        let wrong_indexed = exec_cypher_params_indexed(
+            &view,
+            wrong_q,
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(wrong_indexed.rows, wrong_unindexed.rows);
+        assert!(
+            wrong_indexed.rows.is_empty(),
+            "the id fast path must not become a way to bypass label enforcement"
         );
     }
 
