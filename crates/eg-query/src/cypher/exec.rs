@@ -781,31 +781,48 @@ fn resolve_match(
     // zero-match answer) here. The `.filter(...)` below re-enforces `node`'s label (and
     // any other inline props) on whichever candidate source answered, so an indexed
     // labeled start can't bypass label enforcement.
-    let start_ids: Vec<String> = match pattern.start.var.as_ref().and_then(|v| anchor.get(v)) {
-        Some(id) => vec![id.clone()],
-        None => indexed_start_candidates(index, &pattern.start, &start_preds, anchor, params)
-            .unwrap_or_else(|| label_candidates(view, &pattern.start)),
-    }
-    .into_iter()
-    // An ANCHORED start node still has its `:Label`/inline props enforced here — the
-    // label-index candidate set only pre-filters the un-anchored case (CONCEPT:EG-KG.query.cypher-planning
-    // lets a CALL/YIELD node id flow into a labelled MATCH). The `view.node_map`
-    // membership check is a no-op for `label_candidates` (which is already built from
-    // `view` and can't return anything else) but is load-bearing for an INDEXED
-    // candidate: the index answers off LIVE core state (CONCEPT:EG-KG.storage.index-manager-seam), so
-    // an id it returns that this exact point-in-time `view` doesn't have (RLS-filtered,
-    // or added/removed by a write that raced the snapshot) is dropped here rather than
-    // trusted — every downstream WHERE/prop read only ever consults `view`, never `index`.
-    .filter(|id| {
-        view.node_map.contains_key(id)
-            && pattern
-                .start
-                .label
-                .as_ref()
-                .is_none_or(|l| node_has_label_id(view, id, l))
-            && node_props_match(view, id, &pattern.start, anchor, params)
-    })
-    .collect();
+    // Did the candidate set come from a whole-label enumeration (`label_candidates`,
+    // which ALREADY paid to build/consult the memoized whole-graph `label_index_memo`
+    // to produce it), or from something small and known ahead of any index — a bound
+    // `anchor` id, or `indexed_start_candidates`' id fast path? The distinction drives
+    // which of [`node_has_label_id`]/[`node_has_label_point`] the filter below uses:
+    // reusing the already-built index is free in the first case, but PAYING to build
+    // it (an O(V) decode of every node's property blob) just to answer a handful of
+    // point checks in the second case would silently reintroduce the exact
+    // whole-graph-scan cost the id fast path exists to eliminate — see
+    // `node_has_label_point`'s doc.
+    let anchored_id = pattern.start.var.as_ref().and_then(|v| anchor.get(v));
+    let (start_candidates, from_label_scan): (Vec<String>, bool) = match anchored_id {
+        Some(id) => (vec![id.clone()], false),
+        None => match indexed_start_candidates(index, &pattern.start, &start_preds, anchor, params)
+        {
+            Some(ids) => (ids, false),
+            None => (label_candidates(view, &pattern.start), true),
+        },
+    };
+    let start_ids: Vec<String> = start_candidates
+        .into_iter()
+        // An ANCHORED start node still has its `:Label`/inline props enforced here — the
+        // label-index candidate set only pre-filters the un-anchored case (CONCEPT:EG-KG.query.cypher-planning
+        // lets a CALL/YIELD node id flow into a labelled MATCH). The `view.node_map`
+        // membership check is a no-op for `label_candidates` (which is already built from
+        // `view` and can't return anything else) but is load-bearing for an INDEXED
+        // candidate: the index answers off LIVE core state (CONCEPT:EG-KG.storage.index-manager-seam), so
+        // an id it returns that this exact point-in-time `view` doesn't have (RLS-filtered,
+        // or added/removed by a write that raced the snapshot) is dropped here rather than
+        // trusted — every downstream WHERE/prop read only ever consults `view`, never `index`.
+        .filter(|id| {
+            view.node_map.contains_key(id)
+                && pattern.start.label.as_ref().is_none_or(|l| {
+                    if from_label_scan {
+                        node_has_label_id(view, id, l)
+                    } else {
+                        node_has_label_point(view, id, l)
+                    }
+                })
+                && node_props_match(view, id, &pattern.start, anchor, params)
+        })
+        .collect();
 
     // The DEPTH-FIRST budgeted walk is the LIMIT short-circuit; it does not expand
     // quantified groups, so a pattern with a group hop keeps the breadth-first walk.
@@ -2255,6 +2272,39 @@ fn node_has_label_id(view: &GraphView, id: &str, label: &str) -> bool {
     view.label_index(build_cypher_label_index)
         .get(label)
         .is_some_and(|ids| ids.binary_search_by(|probe| probe.as_str().cmp(id)).is_ok())
+}
+
+/// Point form of [`node_has_label_id`]: decode just `id`'s OWN stored blob
+/// (`view.node_properties.get(id)`, an O(1) map hit already loaded in this
+/// snapshot) and test it directly with [`node_has_label`], instead of consulting
+/// — and, on a cold `GraphView`, PAYING TO BUILD — the memoized whole-graph
+/// [`GraphView::label_index`] (`build_cypher_label_index` decodes EVERY node's
+/// property blob in the graph on its first call per snapshot).
+///
+/// `resolve_match`'s start-candidate filter uses this whenever the candidate set
+/// is already small and known ahead of any index — a bound/anchored start, or
+/// [`indexed_start_candidates`]' `id` fast path — exactly the `MATCH (n:Label)
+/// WHERE n.id IN [...] RETURN ...` shape the durable ACL hydration path issues on
+/// every governed read (CONCEPT:EG-KG.storage.index-manager-seam). A fresh,
+/// per-request `GraphView` (`analysis_snapshot_versioned` clones one per call)
+/// starts with a cold `label_index_memo`, so without this split, verifying the
+/// label on that handful of already-resolved ids still decoded every node's
+/// blob in the WHOLE graph the first time any labelled MATCH ran — silently
+/// reintroducing, one filter step later, the exact O(graph) cost the id fast
+/// path exists to eliminate. `node_has_label_id` stays the right choice for
+/// `label_candidates`' own (unindexed, whole-label-scan) callers, which already
+/// paid to build the same index to enumerate their candidate set in the first
+/// place, so consulting it again there is free, not redundant.
+///
+/// Same `node_type`/`labels` semantics as `build_cypher_label_index`/
+/// `node_has_label_id` (both ultimately test the identical two fields
+/// [`node_has_label`] tests) — this returns the byte-for-byte same answer for
+/// any given `(id, label)`, only the WORK to reach it differs, same contract as
+/// [`indexed_start_candidates`] itself.
+fn node_has_label_point(view: &GraphView, id: &str, label: &str) -> bool {
+    view.node_properties
+        .get(id)
+        .is_some_and(|blob| node_has_label(blob, label))
 }
 
 /// Does a node's property blob carry `label` as canonical `node_type` or in the
@@ -5965,5 +6015,175 @@ mod tests {
         let cities = exec_cypher_write(&core, "MATCH (c:City) RETURN c.id, c.name").unwrap();
         assert_eq!(cities.rows.len(), 1);
         assert_eq!(ids(&cities, 0), vec!["x"]);
+    }
+
+    // ── realistic-scale benchmark: labelled id-IN start (LANE perf/engine-node-id-index) ──
+    //
+    // The durable ACL hydration path (`agent_utilities/knowledge_graph/core/
+    // secured_reads.py`) issues `MATCH (n:Label) WHERE n.id IN [...] RETURN ...` on
+    // EVERY governed read, against a brand-new `GraphView` per call
+    // (`GraphCore::analysis_snapshot_versioned` clones one per request, so
+    // `label_index_memo` starts cold every single time). Before this lane, the
+    // START-candidate `id` fast path (`indexed_start_candidates`, already landed —
+    // see `49bf22b`/`8770345c`) resolved the candidate ids in O(k), but
+    // `resolve_match`'s post-filter then re-verified the `:Label` constraint via
+    // `node_has_label_id`, which consults (and, cold, PAYS TO BUILD) the memoized
+    // WHOLE-GRAPH label index — an O(V) decode of every node's property blob,
+    // silently reintroducing the exact whole-graph-scan cost the id fast path was
+    // supposed to have eliminated. `node_has_label_point` (added in this lane) closes
+    // that gap with a per-candidate point decode instead.
+
+    /// The label used to round-robin `["Tool", "Concept", "Memory", "Document",
+    /// "Skill", "MCPServer"]` across a synthetic large graph — kept as one array so
+    /// the graph builder and the id-picking logic below can never drift apart on
+    /// which nodes are `:Tool`.
+    const BENCH_LABELS: [&str; 6] =
+        ["Tool", "Concept", "Memory", "Document", "Skill", "MCPServer"];
+
+    /// `n` nodes round-robined across [`BENCH_LABELS`] — large enough (≥25k) to make
+    /// an O(V) whole-graph blob-decode pass measurably expensive, so the benchmarks
+    /// below have something real to show. Built via `add_node_no_ledger`: this
+    /// synthetic graph's ledger is never read (same sanctioned pattern
+    /// `GraphReadAuthority::build_projection` uses for throwaway construction — see
+    /// that function's own doc on why plain `add_node` would dominate the build time
+    /// with wasted per-byte ledger hex-encoding at this scale).
+    fn build_large_labelled_graph(n: usize) -> GraphCore {
+        let core = GraphCore::new();
+        for i in 0..n {
+            let lbl = BENCH_LABELS[i % BENCH_LABELS.len()];
+            core.add_node_no_ledger(
+                format!("n{i}"),
+                pbytes(serde_json::json!({"node_type": lbl, "seq": i as i64})),
+            );
+        }
+        core
+    }
+
+    /// 20 ids guaranteed to carry `label` (every `BENCH_LABELS.len()`-th id starting
+    /// at `label`'s own offset into [`BENCH_LABELS`]), spread across nearly the whole
+    /// `0..n` id space rather than a contiguous prefix — the shape a batched ACL
+    /// hydration `IN [...]` sends.
+    fn scattered_ids_of_label(n: usize, label: &str) -> Vec<String> {
+        let offset = BENCH_LABELS.iter().position(|&l| l == label).unwrap();
+        let stride = BENCH_LABELS.len() * (n / (20 * BENCH_LABELS.len()));
+        (0..20)
+            .map(|i| format!("n{}", offset + i * stride))
+            .collect()
+    }
+
+    /// Pins the two label-check strategies' cost on a realistic 25k-node graph:
+    /// [`node_has_label_point`] (this lane's fix — a per-candidate point decode) vs
+    /// [`node_has_label_id`] (the pre-existing memoized-index path, which on a COLD
+    /// view pays a full O(V) blob-decode of the WHOLE graph to answer even one
+    /// lookup). Each strategy runs against a FRESH, cold snapshot per iteration,
+    /// mirroring one `GraphView` per production request.
+    ///
+    /// `#[ignore]`d by default (a wall-clock benchmark, not a correctness
+    /// assertion) — run explicitly with `cargo test --release -- --ignored
+    /// bench_labelled_id_in`.
+    #[test]
+    #[ignore = "wall-clock benchmark, not a correctness assertion — run explicitly"]
+    fn bench_labelled_id_in_point_vs_index_build() {
+        const N: usize = 25_000;
+        const RUNS: usize = 20;
+        let core = build_large_labelled_graph(N);
+        let target_ids = scattered_ids_of_label(N, "Tool");
+
+        // "After" this lane: `node_has_label_point` on a cold, freshly cloned view
+        // per run — O(k) point decodes, k == target_ids.len().
+        let point_elapsed = {
+            let start = std::time::Instant::now();
+            for _ in 0..RUNS {
+                let view = core.analysis_snapshot();
+                for id in &target_ids {
+                    assert!(node_has_label_point(&view, id, "Tool"));
+                }
+            }
+            start.elapsed()
+        };
+
+        // "Before" this lane: what `resolve_match`'s start-candidate filter did for
+        // ANY candidate set, no matter how small — `node_has_label_id` on a cold,
+        // freshly cloned view per run. Its first call per run pays a full O(V) decode
+        // of every node's property blob in the graph to build `label_index_memo`.
+        let index_build_elapsed = {
+            let start = std::time::Instant::now();
+            for _ in 0..RUNS {
+                let view = core.analysis_snapshot();
+                for id in &target_ids {
+                    assert!(node_has_label_id(&view, id, "Tool"));
+                }
+            }
+            start.elapsed()
+        };
+
+        eprintln!(
+            "bench_labelled_id_in_point_vs_index_build: N={N} candidates={} runs={RUNS} \
+             point={point_elapsed:?} index_build={index_build_elapsed:?} speedup={:.1}x",
+            target_ids.len(),
+            index_build_elapsed.as_secs_f64() / point_elapsed.as_secs_f64().max(1e-9)
+        );
+
+        // The algorithmic gap is 3-4 orders of magnitude (20 point decodes vs 25,000
+        // whole-graph decodes per run), so a generous 5x margin is robust against
+        // ordinary timing noise while still proving the fix eliminates the
+        // whole-graph scan on this shape.
+        assert!(
+            index_build_elapsed > point_elapsed * 5,
+            "expected the whole-graph label-index build to be at least 5x slower than \
+             the point-check fast path on a {N}-node graph; point={point_elapsed:?} \
+             index_build={index_build_elapsed:?}"
+        );
+    }
+
+    /// End-to-end companion: the exact production query shape (`MATCH (n:Label)
+    /// WHERE n.id IN [...] RETURN ...`) through the full `exec_cypher_params_indexed`
+    /// pipeline, on a fresh per-call snapshot each iteration (mirroring one
+    /// `GraphView` per request). Asserts correctness AND reports the realistic-scale
+    /// wall-clock cost end to end (start-candidate resolution + label re-check +
+    /// projection), not just the isolated label-check primitives above.
+    ///
+    /// `#[ignore]`d by default — run explicitly with `cargo test --release --features
+    /// result-cache -- --ignored bench_labelled_id_in_end_to_end`.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    #[ignore = "wall-clock benchmark, not a correctness assertion — run explicitly"]
+    fn bench_labelled_id_in_end_to_end() {
+        const N: usize = 25_000;
+        const RUNS: usize = 20;
+        let core = build_large_labelled_graph(N);
+        let target_ids = scattered_ids_of_label(N, "Tool");
+        let ids_literal = target_ids
+            .iter()
+            .map(|id| format!("'{id}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let q = format!("MATCH (n:Tool) WHERE n.id IN [{ids_literal}] RETURN n.id AS id");
+
+        let start = std::time::Instant::now();
+        let mut last_len = 0;
+        for _ in 0..RUNS {
+            let (view, version) = core.analysis_snapshot_versioned();
+            let result = exec_cypher_params_indexed(
+                &view,
+                &q,
+                &Params::new(),
+                IndexSource::new(&core, version),
+            )
+            .unwrap();
+            last_len = result.rows.len();
+        }
+        let elapsed = start.elapsed();
+        assert_eq!(
+            last_len,
+            target_ids.len(),
+            "every scattered id is a real :Tool node and should resolve"
+        );
+        eprintln!(
+            "bench_labelled_id_in_end_to_end: N={N} candidates={} runs={RUNS} total={elapsed:?} \
+             avg_per_query={:?}",
+            target_ids.len(),
+            elapsed / RUNS as u32
+        );
     }
 }
