@@ -770,14 +770,17 @@ fn resolve_match(
         final_preds,
     } = partition_where(pattern, anchor, where_clause);
 
-    // Start candidates: the anchored id if the start var is bound; else, when the
-    // start is UNLABELED and unbound (an otherwise whole-graph scan), try narrowing
-    // through the bounded property index (CONCEPT:EG-KG.storage.index-manager-seam) via an
+    // Start candidates: the anchored id if the start var is bound; else, when unbound
+    // (labeled OR unlabeled — an otherwise whole-graph or whole-label scan), try
+    // narrowing through the bounded property index (CONCEPT:EG-KG.storage.index-manager-seam) via an
     // indexable inline-prop or start-position WHERE equality/IN predicate; else the
-    // label set. `indexed_start_candidates` returning `None` (no `IndexSource`, no
-    // usable predicate, or the index/version-race guard declined) is NOT the same as
-    // an empty candidate set — it means "fall back to the full scan", so it is never
-    // conflated with `Some(vec![])` (a real, indexed, zero-match answer) here.
+    // label set (or the whole graph, unlabeled). `indexed_start_candidates` returning
+    // `None` (no `IndexSource`, no usable predicate, or the index/version-race guard
+    // declined) is NOT the same as an empty candidate set — it means "fall back to the
+    // full scan", so it is never conflated with `Some(vec![])` (a real, indexed,
+    // zero-match answer) here. The `.filter(...)` below re-enforces `node`'s label (and
+    // any other inline props) on whichever candidate source answered, so an indexed
+    // labeled start can't bypass label enforcement.
     let start_ids: Vec<String> = match pattern.start.var.as_ref().and_then(|v| anchor.get(v)) {
         Some(id) => vec![id.clone()],
         None => indexed_start_candidates(index, &pattern.start, &start_preds, anchor, params)
@@ -2011,9 +2014,19 @@ fn cmp_values(a: &Value, b: &Value) -> Ordering {
 
 // ── indexed start-candidate resolution (CONCEPT:EG-KG.storage.index-manager-seam) ───────────────────
 
-/// Try to resolve pattern `node`'s START candidates WITHOUT `label_candidates`'
-/// whole-graph scan — ONLY when `node` is UNLABELED (a labeled start already narrows
-/// cheaply via the label index).
+/// Try to resolve pattern `node`'s START candidates WITHOUT a whole-candidate-set
+/// scan — for an UNLABELED start that would otherwise be `label_candidates`' full
+/// `view.node_map` scan, AND for a LABELED start whose candidate set is
+/// `label_candidates`' (cheaper but still O(label-cardinality)) enumeration PLUS a
+/// property-blob decode per candidate during `node_props_match`/WHERE evaluation —
+/// exactly the shape a single-node `MERGE (m:Label {id: $x})`/`MATCH (m:Label {id:
+/// $x})` pays for when `Label`'s cardinality is large (CONCEPT:EG-KG.storage.index-manager-seam,
+/// the production `IngestManifest`/`RunTrace`/`Concept` slow-query shapes). A labeled
+/// start does NOT skip label enforcement by going through here: the caller
+/// (`resolve_match`)'s existing post-filter re-checks `node_has_label_id` on every
+/// candidate this function returns, exactly as it always has for `label_candidates`'
+/// own output — an indexed candidate is a hint to narrow the SET, never a substitute
+/// for the label check.
 ///
 /// Two indexable shapes, checked in order:
 ///   1. An inline property map (`(n {id: 'x'})` / `(n {id: $p})`) — every key resolves
@@ -2048,6 +2061,11 @@ fn cmp_values(a: &Value, b: &Value) -> Ordering {
 ///     racing the snapshot ⇒ the caller MUST fall back to `label_candidates`. `None`
 ///     here is never conflated with `Some(vec![])`: one means "no answer, full-scan",
 ///     the other means "answered: nothing matches".
+///
+/// A `:Label` on `node` is NOT a reason to decline here — see this function's doc.
+/// The candidates returned (from either leg) are UNFILTERED by label; `resolve_match`
+/// intersects them with the label constraint (and any other inline props) itself, the
+/// same post-filter it already applies to `label_candidates`' output.
 fn indexed_start_candidates(
     index: Option<IndexSource<'_>>,
     node: &NodePat,
@@ -2055,9 +2073,6 @@ fn indexed_start_candidates(
     anchor: &Binding,
     params: &Params,
 ) -> Option<Vec<String>> {
-    if node.label.is_some() {
-        return None;
-    }
     if let Some(props) = &node.props {
         if !props.is_empty() {
             if let Some(ids) = indexed_inline_props(index, props, anchor, params) {
@@ -2414,7 +2429,32 @@ pub fn exec_cypher_write_params(
 fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<QueryResult, String> {
     // Resolve the leading MATCH (if any) over a snapshot into bindings. No MATCH ⇒
     // one empty binding (the write clauses run exactly once).
-    let snap = core.analysis_snapshot();
+    //
+    // `analysis_snapshot_versioned` (the `result-cache` build) pairs the snapshot with
+    // the OCC version read under the SAME topology lock, exactly like the
+    // `Method::CypherQuery` read handler — safe to hand `resolve_match` as an
+    // `IndexSource` HERE because this leading MATCH runs before ANY of this
+    // statement's own write ops touch the graph (the mutation loop below only starts
+    // once `bindings` is fully resolved); the only staleness this needs to guard
+    // against is a *concurrent, other* writer racing the snapshot, which the
+    // version bracket already catches (falls back to a full scan rather than a torn
+    // answer). It must NOT be threaded into the mutation loop that follows:
+    // `core.add_node`/`compare_and_set_fields`/etc. write straight into `core`'s live
+    // state without bumping `core.version()` — that only happens once, in
+    // `mark_dirty()`, at the very end of this function — so a node created/changed by
+    // an EARLIER binding or op in this SAME statement would be invisible to a cached
+    // property-index answer while still passing the version bracket (the bracket only
+    // detects an version bump, and there isn't one yet). `apply_merge` below
+    // deliberately does not consult this or any `IndexSource` for exactly that
+    // reason; see its own doc.
+    #[cfg(feature = "result-cache")]
+    let (snap, leading_match_index) = {
+        let (snap, version) = core.analysis_snapshot_versioned();
+        (snap, Some(IndexSource::new(core, version)))
+    };
+    #[cfg(not(feature = "result-cache"))]
+    let (snap, leading_match_index): (GraphView, Option<IndexSource<'_>>) =
+        (core.analysis_snapshot(), None);
     let mut bindings: Vec<Binding> = match &w.match_pattern {
         Some(pattern) => resolve_match(
             &snap,
@@ -2423,11 +2463,7 @@ fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<Query
             &HashMap::new(),
             params,
             None,
-            // No paired (core, version) here — `analysis_snapshot()` (unlike
-            // `analysis_snapshot_versioned()`) doesn't capture one atomically with the
-            // snapshot, and this write-statement MATCH prefix is a different, unmeasured
-            // workload shape from the production read hot path this optimization targets.
-            None,
+            leading_match_index,
         )?,
         None => vec![HashMap::new()],
     };
@@ -2728,6 +2764,42 @@ fn apply_merge(
     mutated: &mut bool,
 ) -> Result<(), String> {
     let want = props_to_map(node.props.as_deref(), binding, params)?;
+
+    // Fast path (CONCEPT:EG-KG.storage.index-manager-seam): the dominant production shape is
+    // `MERGE (m:Label {id: $x}) SET …` — a single-node point lookup, not a scan.
+    // `GraphCore::get_node_properties` is a DIRECT DashMap read keyed by the node's
+    // GRAPH KEY (no property index, no cache, no staleness of any kind — it reads
+    // whatever `core` holds live at this instant, so it is exactly as fresh as the
+    // full scan below and safe to consult even mid-statement, unlike the general
+    // property index; see `exec_write`'s doc on why THAT index is not used here).
+    // A hit is checked against the SAME `label` + `want` conditions the full-scan
+    // loop below checks for one candidate — so a match here is unconditionally the
+    // same match the loop would find, and it's returned immediately without ever
+    // touching `get_nodes_by_label`'s O(label-cardinality) scan+decode. A miss (no
+    // node at that graph key, wrong label, or its blob doesn't carry `want`
+    // verbatim — e.g. a non-Cypher-authored node whose blob's own `id` field
+    // diverges from its graph key) falls through to the unchanged full scan rather
+    // than being treated as "absent": this fast path can only ever ADD a match,
+    // never suppress one the slow path would have found.
+    if let Some(id_val) = want.get("id").and_then(Value::as_str) {
+        if let Some(blob) = core.get_node_properties(id_val) {
+            let label_ok = node
+                .label
+                .as_deref()
+                .is_none_or(|label| node_has_label(&blob, label));
+            if label_ok {
+                if let Ok(Value::Object(obj)) = eg_types::msgpack::decode_property_value(&blob) {
+                    if want.iter().all(|(k, v)| obj.get(k) == Some(v)) {
+                        if let Some(var) = &node.var {
+                            binding.insert(var.clone(), id_val.to_string());
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
     let candidates: Vec<(String, Vec<u8>)> = match &node.label {
         Some(label) => core.get_nodes_by_label(label, 0),
         None => core.get_nodes(),
@@ -5685,5 +5757,213 @@ mod tests {
         .unwrap();
         let legacy = finalize(&view, &query, legacy_bindings).unwrap();
         assert_eq!(ids(&legacy, 0), vec!["bob", "carol"]);
+    }
+
+    // ── labelled-start indexed resolution (LANE D-engine) ────────────────────────
+
+    /// A LABELLED start with an indexable inline `id` property now narrows through
+    /// the same fast path an unlabeled start already used — `indexed_start_candidates`
+    /// no longer bails out on `node.label.is_some()`. Directly proves the gate is
+    /// gone: no `IndexSource` is even required for the `id` leg (mirrors
+    /// `indexed_id_fast_path_echoes_literals_unconditionally`, but with a label).
+    #[test]
+    fn indexed_labeled_inline_id_no_longer_declines() {
+        let node = NodePat {
+            var: Some("n".to_string()),
+            label: Some("Person".to_string()),
+            props: Some(vec![("id".to_string(), PropVal::Lit(Value::String("bob".to_string())))]),
+        };
+        assert_eq!(
+            indexed_start_candidates(None, &node, &[], &Binding::new(), &Params::new()),
+            Some(vec!["bob".to_string()]),
+            "a labelled start's inline `id` prop must resolve through the same \
+             no-IndexSource-needed fast path an unlabeled start already gets"
+        );
+    }
+
+    /// End-to-end companion: `MATCH (n:Person {id: 'bob'}) RETURN …` — the indexed
+    /// path must return byte-for-byte the same row the full scan does.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_labeled_inline_id_matches_full_scan() {
+        let (core, view, version) = fixture_versioned();
+        let q = "MATCH (n:Person {id: 'bob'}) RETURN n.id AS id, n.name AS name";
+        let unindexed = exec_cypher(&view, q).unwrap();
+        let indexed =
+            exec_cypher_params_indexed(&view, q, &Params::new(), IndexSource::new(&core, version))
+                .unwrap();
+        assert_eq!(indexed.rows, unindexed.rows);
+        assert_eq!(ids(&indexed, 0), vec!["bob"]);
+    }
+
+    /// A labelled start with a WHERE equality on a REAL stored property (not `id`)
+    /// also narrows through the general `PropertyEqIndex` seam now that the label
+    /// gate is gone — `n.tenant_id = 'homelab'` picks alice+bob (both `:Person`),
+    /// never carol (`tenant_id = 'other'`) even though carol also matches the
+    /// predicate as an UNLABELED candidate — proving the label constraint is still
+    /// enforced on an indexed labelled start, not bypassed by the narrowing.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_labeled_where_equality_matches_full_scan_and_respects_label() {
+        let (core, view, version) = fixture_versioned();
+        let q = "MATCH (n:Person) WHERE n.tenant_id = 'homelab' RETURN n.id AS id";
+        let unindexed = exec_cypher(&view, q).unwrap();
+        let indexed =
+            exec_cypher_params_indexed(&view, q, &Params::new(), IndexSource::new(&core, version))
+                .unwrap();
+        assert_eq!(indexed.rows, unindexed.rows);
+        assert_eq!(ids(&indexed, 0), vec!["alice", "bob"]);
+    }
+
+    /// The `id` fast path answers off the LITERAL alone, unconditionally of label —
+    /// so a labelled MATCH whose id literal names a node of a DIFFERENT label (`bob`
+    /// is `:Person`, not `:Doc`) must still resolve to an EMPTY result, exactly like
+    /// the full scan: `resolve_match`'s post-filter (`node_has_label_id`) is what
+    /// enforces the label, not `indexed_start_candidates` itself. This is the
+    /// "narrowing by label must not become a way to bypass enforcement" invariant.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_labeled_inline_id_wrong_label_returns_empty_not_wrong_node() {
+        let (core, view, version) = fixture_versioned();
+        let q = "MATCH (n:Doc {id: 'bob'}) RETURN n.id AS id";
+        let unindexed = exec_cypher(&view, q).unwrap();
+        assert!(unindexed.rows.is_empty(), "sanity: bob is not a :Doc");
+        let indexed =
+            exec_cypher_params_indexed(&view, q, &Params::new(), IndexSource::new(&core, version))
+                .unwrap();
+        assert_eq!(indexed.rows, unindexed.rows);
+        assert!(indexed.rows.is_empty());
+
+        // Directly pin that `indexed_start_candidates` itself is unfiltered by label
+        // — the (unlabeled-looking) candidate set includes "bob" regardless of the
+        // `:Doc` label on `node`; only the caller's post-filter removes it.
+        let node = NodePat {
+            var: Some("n".to_string()),
+            label: Some("Doc".to_string()),
+            props: Some(vec![("id".to_string(), PropVal::Lit(Value::String("bob".to_string())))]),
+        };
+        assert_eq!(
+            indexed_start_candidates(
+                Some(IndexSource::new(&core, version)),
+                &node,
+                &[],
+                &Binding::new(),
+                &Params::new()
+            ),
+            Some(vec!["bob".to_string()]),
+            "indexed_start_candidates itself does not enforce the label — the caller must"
+        );
+    }
+
+    /// A labelled start whose WHERE is a pure disjunction (no plain equality/IN
+    /// conjunct) still offers nothing indexable and must fall back to a full scan —
+    /// same as the unlabeled case, just now reachable with a label present. The
+    /// end-to-end answer must still match the full scan exactly.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn indexed_labeled_non_indexable_where_falls_back_and_matches() {
+        let (core, view, version) = fixture_versioned();
+        let q = "MATCH (n:Person) WHERE n.tenant_id = 'homelab' OR n.tenant_id = 'other' \
+                  RETURN n.id AS id";
+        let unindexed = exec_cypher(&view, q).unwrap();
+        let indexed =
+            exec_cypher_params_indexed(&view, q, &Params::new(), IndexSource::new(&core, version))
+                .unwrap();
+        assert_eq!(indexed.rows, unindexed.rows);
+        assert_eq!(ids(&indexed, 0), vec!["alice", "bob", "carol"]);
+
+        // Pin the `None` directly: a labelled node with only a disjunction is exactly
+        // as un-indexable as the unlabeled case was.
+        let node = NodePat {
+            var: Some("n".to_string()),
+            label: Some("Person".to_string()),
+            props: None,
+        };
+        let preds = vec![WhereExpr::Or(vec![
+            WhereExpr::Cond(Condition {
+                var: "n".to_string(),
+                prop: "tenant_id".to_string(),
+                test: Test::Cmp(CompareOp::Eq, Value::String("homelab".to_string())),
+            }),
+            WhereExpr::Cond(Condition {
+                var: "n".to_string(),
+                prop: "tenant_id".to_string(),
+                test: Test::Cmp(CompareOp::Eq, Value::String("other".to_string())),
+            }),
+        ])];
+        assert_eq!(
+            indexed_start_candidates(
+                Some(IndexSource::new(&core, version)),
+                &node,
+                &preds,
+                &Binding::new(),
+                &Params::new()
+            ),
+            None
+        );
+    }
+
+    // ── MERGE point-lookup fast path (LANE D-engine, apply_merge) ────────────────
+
+    /// The exact production shape (`MERGE (m:Label {id: $x}) SET …`): the SECOND
+    /// MERGE against an id that already exists must hit `apply_merge`'s new
+    /// `get_node_properties` point-lookup fast path, bind the SAME node (not create
+    /// a duplicate), and a following `SET` must land on it. Only one node may exist
+    /// afterward.
+    #[test]
+    fn merge_fast_path_finds_existing_node_and_set_lands_on_it() {
+        let core = GraphCore::new();
+        exec_cypher_write(
+            &core,
+            "MERGE (m:IngestManifest {id: 'manifest-1'}) SET m.graph_name = 'first'",
+        )
+        .unwrap();
+        exec_cypher_write(
+            &core,
+            "MERGE (m:IngestManifest {id: 'manifest-1'}) SET m.graph_name = 'second'",
+        )
+        .unwrap();
+        let qr = exec_cypher_write(&core, "MATCH (m:IngestManifest) RETURN m.graph_name").unwrap();
+        // Exactly one node — the second MERGE found (not duplicated) the first.
+        assert_eq!(cells_of(&qr, 0), vec![Value::String("second".to_string())]);
+        assert_eq!(qr.rows.len(), 1);
+    }
+
+    /// `merge_is_idempotent`'s companion at the unit level: the fast path must be
+    /// reached (not just "some path" that happens to also be idempotent) — pin node
+    /// COUNT stays 1 across 3 MERGEs of the same id, and that a DIFFERENT id creates
+    /// a genuinely second node.
+    #[test]
+    fn merge_fast_path_does_not_duplicate_across_repeated_merges() {
+        let core = GraphCore::new();
+        for _ in 0..3 {
+            exec_cypher_write(&core, "MERGE (n:City {id: 'paris', name: 'Paris'})").unwrap();
+        }
+        exec_cypher_write(&core, "MERGE (n:City {id: 'lyon', name: 'Lyon'})").unwrap();
+        let qr = exec_cypher_write(&core, "MATCH (c:City) RETURN c.id").unwrap();
+        assert_eq!(col0(&qr), vec!["lyon", "paris"]);
+    }
+
+    /// A label mismatch at the SAME graph-key id (an edge case only reachable via
+    /// two different labels sharing one literal `id`) must behave IDENTICALLY to the
+    /// pre-existing full-scan-only `apply_merge`: the fast path declines (its
+    /// `label_ok` check fails) and falls through to the unchanged full scan, which
+    /// also finds no label-matching candidate and creates via `realize_node` —
+    /// `core.add_node` on an existing graph key REPLACES that node's blob wholesale.
+    /// This test pins that documented (if surprising) contract is unchanged by the
+    /// fast path, not a new divergence it introduces.
+    #[test]
+    fn merge_fast_path_label_mismatch_falls_back_like_full_scan() {
+        let core = GraphCore::new();
+        exec_cypher_write(&core, "CREATE (n:Person {id: 'x', name: 'Original'})").unwrap();
+        exec_cypher_write(&core, "MERGE (m:City {id: 'x', name: 'NewCity'})").unwrap();
+
+        // No :Person node with id 'x' remains — the merge fell through to
+        // `realize_node`, which overwrote the graph-key `x` node's blob entirely.
+        let persons = exec_cypher_write(&core, "MATCH (p:Person) RETURN p.id").unwrap();
+        assert!(persons.rows.is_empty());
+        let cities = exec_cypher_write(&core, "MATCH (c:City) RETURN c.id, c.name").unwrap();
+        assert_eq!(cities.rows.len(), 1);
+        assert_eq!(ids(&cities, 0), vec!["x"]);
     }
 }
