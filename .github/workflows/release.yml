@@ -457,16 +457,18 @@ jobs:
         shell: bash
         run: python scripts/check_wheel_completeness.py dist-reproduction/*.whl
 
+      # Diagnostic replacement for the former bare inline `python -c` (three
+      # `assert`s, no output on failure -- exactly what made the
+      # windows-x86_64-only reproducibility failure undiagnosable from the CI
+      # log). The three protected assertion messages are UNCHANGED
+      # ('release wheel cardinality mismatch' / 'release wheel filename
+      # mismatch' / 'release wheel digest mismatch') and the gate still exits
+      # non-zero on any mismatch -- this only adds a full member-level
+      # CONTENT-vs-CONTAINER-ONLY report on stdout. See
+      # scripts/compare_wheel_reproducibility.py.
       - name: Require byte-identical folded wheels
         shell: bash
-        run: >-
-          python -c "from hashlib import sha256; from pathlib import Path;
-          primary=sorted(Path('dist-primary').glob('epistemic_graph-*.whl'));
-          reproduction=sorted(Path('dist-reproduction').glob('epistemic_graph-*.whl'));
-          assert len(primary)==len(reproduction)==1, 'release wheel cardinality mismatch';
-          assert primary[0].name==reproduction[0].name, 'release wheel filename mismatch';
-          assert sha256(primary[0].read_bytes()).digest()==sha256(reproduction[0].read_bytes()).digest(), 'release wheel digest mismatch';
-          print('release_wheel_reproducibility=passed')"
+        run: python scripts/compare_wheel_reproducibility.py dist-primary dist-reproduction
 
       - name: Stage sole publish candidate
         shell: bash
