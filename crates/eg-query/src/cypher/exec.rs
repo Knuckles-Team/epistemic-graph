@@ -311,7 +311,7 @@ fn run_stages(
                 let mut out: Vec<Binding> = Vec::new();
                 for b in &bindings {
                     let nb = project_with(b, items);
-                    if where_holds(view, &nb, where_clause)? {
+                    if where_holds(view, &nb, params, where_clause)? {
                         out.push(nb);
                     }
                 }
@@ -838,7 +838,7 @@ fn resolve_match(
             if let Some(v) = &pattern.start.var {
                 b.insert(v.clone(), sid.clone());
             }
-            if !all_where_hold(view, &b, &start_preds)? {
+            if !all_where_hold(view, &b, params, &start_preds)? {
                 continue;
             }
             walk_metrics::note_start();
@@ -863,7 +863,7 @@ fn resolve_match(
             b.insert(v.clone(), sid.clone());
         }
         // Start-node WHERE conjuncts drop a candidate before ANY hop expands from it.
-        if !all_where_hold(view, &b, &start_preds)? {
+        if !all_where_hold(view, &b, params, &start_preds)? {
             continue;
         }
         walk_metrics::note_start();
@@ -874,7 +874,7 @@ fn resolve_match(
 
     let mut out: Vec<Binding> = Vec::new();
     for (b, _) in partials {
-        if all_where_hold(view, &b, &final_preds)? {
+        if all_where_hold(view, &b, params, &final_preds)? {
             out.push(b);
         }
     }
@@ -910,7 +910,7 @@ fn walk_hops(
                     walk_metrics::note_hop_expansion();
                     if let Some(nb) = bind_target_node(view, node, &group_binding, &target, params)
                     {
-                        if all_where_hold(view, &nb, preds)? {
+                        if all_where_hold(view, &nb, params, preds)? {
                             next.push((nb, target));
                         }
                     }
@@ -933,7 +933,7 @@ fn walk_hops(
                     continue;
                 };
                 bind_edge_var(view, &mut nb, edge, cur, &t);
-                if all_where_hold(view, &nb, preds)? {
+                if all_where_hold(view, &nb, params, preds)? {
                     next.push((nb, t));
                 }
             }
@@ -993,7 +993,7 @@ impl DfsWalk<'_> {
             return Ok(());
         }
         if hop_idx == self.hops.len() {
-            if all_where_hold(self.view, binding, self.final_preds)? {
+            if all_where_hold(self.view, binding, self.params, self.final_preds)? {
                 out.push(binding.clone());
             }
             return Ok(());
@@ -1017,7 +1017,7 @@ impl DfsWalk<'_> {
                 continue;
             };
             bind_edge_var(self.view, &mut nb, edge, cur, &t);
-            if !all_where_hold(self.view, &nb, preds)? {
+            if !all_where_hold(self.view, &nb, self.params, preds)? {
                 continue;
             }
             self.run(&nb, &t, hop_idx + 1, out)?;
@@ -1544,19 +1544,25 @@ fn scope_vars(stages: &[ReadStage]) -> Vec<String> {
 fn where_holds(
     view: &GraphView,
     binding: &Binding,
+    params: &Params,
     where_clause: &Option<WhereExpr>,
 ) -> Result<bool, String> {
     match where_clause {
         None => Ok(true),
-        Some(e) => where_expr_holds(view, binding, e),
+        Some(e) => where_expr_holds(view, binding, params, e),
     }
 }
 
-fn where_expr_holds(view: &GraphView, binding: &Binding, e: &WhereExpr) -> Result<bool, String> {
+fn where_expr_holds(
+    view: &GraphView,
+    binding: &Binding,
+    params: &Params,
+    e: &WhereExpr,
+) -> Result<bool, String> {
     match e {
         WhereExpr::Or(alts) => {
             for a in alts {
-                if where_expr_holds(view, binding, a)? {
+                if where_expr_holds(view, binding, params, a)? {
                     return Ok(true);
                 }
             }
@@ -1564,13 +1570,13 @@ fn where_expr_holds(view: &GraphView, binding: &Binding, e: &WhereExpr) -> Resul
         }
         WhereExpr::And(parts) => {
             for p in parts {
-                if !where_expr_holds(view, binding, p)? {
+                if !where_expr_holds(view, binding, params, p)? {
                     return Ok(false);
                 }
             }
             Ok(true)
         }
-        WhereExpr::Cond(c) => cond_holds(view, binding, c),
+        WhereExpr::Cond(c) => cond_holds(view, binding, params, c),
     }
 }
 
@@ -1581,41 +1587,92 @@ fn where_expr_holds(view: &GraphView, binding: &Binding, e: &WhereExpr) -> Resul
 fn all_where_hold(
     view: &GraphView,
     binding: &Binding,
+    params: &Params,
     preds: &[WhereExpr],
 ) -> Result<bool, String> {
     for w in preds {
-        if !where_expr_holds(view, binding, w)? {
+        if !where_expr_holds(view, binding, params, w)? {
             return Ok(false);
         }
     }
     Ok(true)
 }
 
-fn cond_holds(view: &GraphView, binding: &Binding, c: &Condition) -> Result<bool, String> {
+fn cond_holds(
+    view: &GraphView,
+    binding: &Binding,
+    params: &Params,
+    c: &Condition,
+) -> Result<bool, String> {
     let actual = match binding.get(&c.var) {
         Some(id) => node_prop_checked(view, id, &c.prop)?,
         None => None,
     };
-    Ok(test_holds(actual.as_ref(), &c.test))
+    test_holds(actual.as_ref(), &c.test, binding, params)
 }
 
-fn test_holds(actual: Option<&Value>, test: &Test) -> bool {
+/// `<op> <literal>`/`IN`/`IS [NOT] NULL` are pure — the operand is already a
+/// resolved literal in the AST. `STARTS WITH`/`ENDS WITH`/`CONTAINS` are NOT: their
+/// operand is a `PropVal` (literal OR `$param`, CONCEPT:EG-KG.query.param-list-drives-unwind), so
+/// evaluating them needs the live binding+params to resolve a param reference —
+/// hence this now takes `binding`/`params` and returns `Result` (an undefined `$param`
+/// is a real error, surfaced via `resolve_prop_val`, not silently swallowed).
+fn test_holds(
+    actual: Option<&Value>,
+    test: &Test,
+    binding: &Binding,
+    params: &Params,
+) -> Result<bool, String> {
     match test {
-        Test::Cmp(op, expected) => compare(actual, op, expected),
-        Test::In(list) => actual.is_some_and(|a| list.iter().any(|l| l == a)),
-        Test::StartsWith(s) => actual
-            .and_then(|v| v.as_str())
-            .is_some_and(|a| a.starts_with(s.as_str())),
-        Test::EndsWith(s) => actual
-            .and_then(|v| v.as_str())
-            .is_some_and(|a| a.ends_with(s.as_str())),
-        Test::Contains(s) => actual
-            .and_then(|v| v.as_str())
-            .is_some_and(|a| a.contains(s.as_str())),
+        Test::Cmp(op, expected) => Ok(compare(actual, op, expected)),
+        Test::In(list) => Ok(actual.is_some_and(|a| list.iter().any(|l| l == a))),
+        Test::StartsWith(operand) => str_test_holds(actual, binding, params, operand, |a, s| {
+            a.starts_with(s)
+        }),
+        Test::EndsWith(operand) => {
+            str_test_holds(actual, binding, params, operand, |a, s| a.ends_with(s))
+        }
+        Test::Contains(operand) => {
+            str_test_holds(actual, binding, params, operand, |a, s| a.contains(s))
+        }
         // A missing value reads as null, so IS NULL holds.
-        Test::IsNull => actual.is_none_or(|v| v.is_null()),
-        Test::IsNotNull => actual.is_some_and(|v| !v.is_null()),
+        Test::IsNull => Ok(actual.is_none_or(|v| v.is_null())),
+        Test::IsNotNull => Ok(actual.is_some_and(|v| !v.is_null())),
     }
+}
+
+/// Evaluate a `STARTS WITH`/`ENDS WITH`/`CONTAINS` string predicate.
+///
+/// Operand resolution: `operand` resolves through `resolve_prop_val` — the same
+/// live params+binding path an inline property map or an UNWIND list element
+/// uses — so `$param` works here exactly like everywhere else `PropVal` appears
+/// in the grammar. An undefined `$param`, or a param/expression that resolves to
+/// a non-string, is a genuine error (surfaced, not silently coerced or dropped —
+/// BUG-035's "fail loud, not silently wrong" precedent).
+///
+/// Left-hand (property) semantics — per Cypher, and distinct from the operand
+/// error above: a MISSING property or a NON-STRING property value is `null`, so
+/// the predicate is simply false for that row — never an error, never treated
+/// as an accidental match. `test_holds`'s `actual` is already the checked
+/// (BUG-035) property read, so "couldn't decode the node's own blob" already
+/// errored upstream in `node_prop_checked`; what lands here as `None` is a
+/// genuinely absent/non-string property.
+fn str_test_holds(
+    actual: Option<&Value>,
+    binding: &Binding,
+    params: &Params,
+    operand: &PropVal,
+    op: impl Fn(&str, &str) -> bool,
+) -> Result<bool, String> {
+    let resolved = resolve_prop_val(binding, params, operand)?;
+    let Some(needle) = resolved.as_str() else {
+        return Err(format!(
+            "STARTS WITH/ENDS WITH/CONTAINS operand must resolve to a string, found {resolved}"
+        ));
+    };
+    Ok(actual
+        .and_then(|v| v.as_str())
+        .is_some_and(|haystack| op(haystack, needle)))
 }
 
 /// Compare an actual property value against a literal. Equality works across JSON
@@ -1819,9 +1876,66 @@ fn eval_scalar(view: &GraphView, binding: &Binding, expr: &Expr) -> Value {
                     .unwrap_or(Value::Null)
             }
         }
+        Expr::Labels(v) => {
+            if binding.contains_key(&qpp_node_key(v)) {
+                Value::Array(
+                    binding_list(binding, &qpp_node_key(v))
+                        .into_iter()
+                        .map(|id| {
+                            Value::Array(
+                                node_labels(view, &id).into_iter().map(Value::String).collect(),
+                            )
+                        })
+                        .collect(),
+                )
+            } else if let Some(id) = binding.get(v) {
+                Value::Array(node_labels(view, id).into_iter().map(Value::String).collect())
+            } else {
+                // `v` isn't bound to a node at all (e.g. a scalar/edge variable) —
+                // `labels()` only ever applies to nodes, so this is null rather than
+                // an empty list (distinct from "bound node, no label").
+                Value::Null
+            }
+        }
         // Aggregates never reach here (the agg path owns them).
         Expr::CountStar | Expr::Aggregate(..) => Value::Null,
     }
+}
+
+/// The node's labels for `labels(n)`: the canonical `node_type` (if any) followed
+/// by the explicit multi-label `labels` property array (if any) — EXACTLY the two
+/// fields [`node_has_label`]/[`build_cypher_label_index`] key on, so `labels(n)`
+/// always agrees with what `(n:Label)` pattern-matched against. Deduplicated,
+/// primary (`node_type`) label first, insertion order otherwise preserved (not
+/// sorted — Cypher doesn't guarantee an order, but a stable "primary label first"
+/// is the more useful contract for callers). A node with neither field, or whose
+/// property blob is missing/undecodable, is unlabelled: `[]` — never null, never
+/// an error; a projection expression's "no value" is `Value::Null` at the `Expr`
+/// level (see the `else` arm above), not here at the per-node level.
+fn node_labels(view: &GraphView, node_id: &str) -> Vec<String> {
+    let Some(blob) = view.node_properties.get(node_id) else {
+        return Vec::new();
+    };
+    let Ok(val) = eg_types::msgpack::decode_property_value(blob) else {
+        return Vec::new();
+    };
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    if let Some(lbl) = val.get("node_type").and_then(|v| v.as_str()) {
+        if seen.insert(lbl.to_string()) {
+            out.push(lbl.to_string());
+        }
+    }
+    if let Some(arr) = val.get("labels").and_then(|v| v.as_array()) {
+        for x in arr {
+            if let Some(lbl) = x.as_str() {
+                if seen.insert(lbl.to_string()) {
+                    out.push(lbl.to_string());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Compute the grouped aggregate rows (CONCEPT:EG-KG.query.eg-extend-read-side). The non-aggregate items form
@@ -4215,6 +4329,169 @@ mod tests {
         let qr2 = exec_cypher(&v, "MATCH (a:Person) WHERE a.name CONTAINS 'o' RETURN a").unwrap();
         // 'Bob' and 'Carol' contain 'o'.
         assert_eq!(ids(&qr2, 0), vec!["bob", "carol"]);
+    }
+
+    /// Fixture matching the confirmed-production defect's shape: `:Preference`
+    /// nodes keyed by a dotted `id` (the graph key, read via the virtual `id`
+    /// property), plus a `value` property that is deliberately a mix of string,
+    /// number, and absent — for exercising `STARTS WITH`/`ENDS WITH`/`CONTAINS`
+    /// null/type semantics on the left-hand side.
+    fn preference_fixture() -> GraphView {
+        let core = GraphCore::new();
+        core.add_node(
+            "pref:llm.provider".into(),
+            pbytes(serde_json::json!({"node_type":"Preference","value":"anthropic"})),
+        );
+        core.add_node(
+            "pref:llm.model".into(),
+            pbytes(serde_json::json!({"node_type":"Preference","value":"sonnet"})),
+        );
+        core.add_node(
+            "pref:ui.theme".into(),
+            pbytes(serde_json::json!({"node_type":"Preference","value":"dark"})),
+        );
+        // Non-string `value` — must not error and must not match a STARTS WITH/
+        // ENDS WITH/CONTAINS predicate on `value`.
+        core.add_node(
+            "pref:count".into(),
+            pbytes(serde_json::json!({"node_type":"Preference","value":7})),
+        );
+        // `value` entirely absent — same requirement (missing reads as null).
+        core.add_node(
+            "pref:novalue".into(),
+            pbytes(serde_json::json!({"node_type":"Preference"})),
+        );
+        core.add_node(
+            "other:not-a-preference".into(),
+            pbytes(serde_json::json!({"node_type":"Other"})),
+        );
+        core.analysis_snapshot()
+    }
+
+    /// The exact production repro from the defect report:
+    /// `MATCH (p:Preference) WHERE p.id STARTS WITH $prefix RETURN p.id AS id, p.value AS value`.
+    /// This is the parse-error regression test's execution-level counterpart —
+    /// it proves the query not only parses but MATCHES the right rows, end to end.
+    #[test]
+    fn starts_with_param_matches_production_repro_query() {
+        let v = preference_fixture();
+        let mut params = Params::new();
+        params.insert("prefix".to_string(), Value::String("pref:llm.".to_string()));
+        let qr = exec_cypher_params(
+            &v,
+            "MATCH (p:Preference) WHERE p.id STARTS WITH $prefix RETURN p.id AS id, p.value AS value",
+            &params,
+        )
+        .unwrap();
+        assert_eq!(qr.columns, vec!["id", "value"]);
+        assert_eq!(ids(&qr, 0), vec!["pref:llm.model", "pref:llm.provider"]);
+    }
+
+    #[test]
+    fn starts_with_param_no_match_returns_empty_not_error() {
+        let v = preference_fixture();
+        let mut params = Params::new();
+        params.insert("prefix".to_string(), Value::String("nope:".to_string()));
+        let qr = exec_cypher_params(
+            &v,
+            "MATCH (p:Preference) WHERE p.id STARTS WITH $prefix RETURN p.id AS id",
+            &params,
+        )
+        .unwrap();
+        assert!(qr.rows.is_empty(), "expected empty result, got {:?}", qr.rows);
+    }
+
+    #[test]
+    fn starts_with_undefined_param_is_a_loud_error_not_a_silent_scan() {
+        let v = preference_fixture();
+        let err = exec_cypher(
+            &v,
+            "MATCH (p:Preference) WHERE p.id STARTS WITH $missing RETURN p.id",
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("undefined parameter"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn starts_with_on_non_string_or_missing_property_is_false_not_error() {
+        let v = preference_fixture();
+        // "sonnet" (pref:llm.model) is the only string `value` starting with 's';
+        // the numeric `value` (pref:count) and the entirely absent `value`
+        // (pref:novalue) must silently NOT match — no error, no accidental match.
+        let qr = exec_cypher(
+            &v,
+            "MATCH (p:Preference) WHERE p.value STARTS WITH 's' RETURN p.id AS id",
+        )
+        .unwrap();
+        assert_eq!(ids(&qr, 0), vec!["pref:llm.model"]);
+    }
+
+    #[test]
+    fn ends_with_and_contains_accept_param_operand_end_to_end() {
+        let v = preference_fixture();
+        let mut suffix_params = Params::new();
+        suffix_params.insert("suffix".to_string(), Value::String(".model".to_string()));
+        let qr = exec_cypher_params(
+            &v,
+            "MATCH (p:Preference) WHERE p.id ENDS WITH $suffix RETURN p.id AS id",
+            &suffix_params,
+        )
+        .unwrap();
+        assert_eq!(ids(&qr, 0), vec!["pref:llm.model"]);
+
+        let mut needle_params = Params::new();
+        needle_params.insert("needle".to_string(), Value::String("llm".to_string()));
+        let qr2 = exec_cypher_params(
+            &v,
+            "MATCH (p:Preference) WHERE p.id CONTAINS $needle RETURN p.id AS id",
+            &needle_params,
+        )
+        .unwrap();
+        assert_eq!(ids(&qr2, 0), vec!["pref:llm.model", "pref:llm.provider"]);
+    }
+
+    /// `labels(n)`: fixture nodes covering a single canonical `node_type`, a
+    /// `node_type` PLUS an explicit multi-label `labels` array, and a fully
+    /// unlabelled node (no `node_type`, no `labels`).
+    fn labels_fixture() -> GraphView {
+        let core = GraphCore::new();
+        core.add_node("n1".into(), pbytes(serde_json::json!({"node_type":"Person"})));
+        core.add_node(
+            "n2".into(),
+            pbytes(serde_json::json!({"node_type":"Person","labels":["Employee","Manager"]})),
+        );
+        core.add_node("n3".into(), pbytes(serde_json::json!({})));
+        core.analysis_snapshot()
+    }
+
+    #[test]
+    fn labels_returns_node_type_and_multi_label_array() {
+        let v = labels_fixture();
+        let qr = exec_cypher(&v, "MATCH (n) WHERE n.id = 'n1' RETURN labels(n)").unwrap();
+        assert_eq!(
+            cells_of(&qr, 0)[0],
+            Value::Array(vec![Value::String("Person".into())])
+        );
+
+        let qr2 = exec_cypher(&v, "MATCH (n) WHERE n.id = 'n2' RETURN labels(n)").unwrap();
+        assert_eq!(
+            cells_of(&qr2, 0)[0],
+            Value::Array(vec![
+                Value::String("Person".into()),
+                Value::String("Employee".into()),
+                Value::String("Manager".into()),
+            ])
+        );
+    }
+
+    #[test]
+    fn labels_on_unlabelled_node_is_empty_list_not_null_or_error() {
+        let v = labels_fixture();
+        let qr = exec_cypher(&v, "MATCH (n) WHERE n.id = 'n3' RETURN labels(n)").unwrap();
+        assert_eq!(cells_of(&qr, 0)[0], Value::Array(vec![]));
     }
 
     #[test]
