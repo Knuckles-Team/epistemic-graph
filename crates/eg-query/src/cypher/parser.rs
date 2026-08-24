@@ -23,11 +23,12 @@
 //! cond       := var '.' prop test
 //! test       := op literal
 //!             | 'IN' '[' literal (',' literal)* ']'
-//!             | ('STARTS'|'ENDS') 'WITH' string
-//!             | 'CONTAINS' string
+//!             | ('STARTS'|'ENDS') 'WITH' (string | param)
+//!             | 'CONTAINS' (string | param)
 //!             | 'IS' ('NOT')? 'NULL'
 //! item       := expr ('AS' alias)?
-//! expr(proj) := 'count' '(' '*' ')' | agg '(' (var ('.' prop)?) ')' | var ('.' prop)?
+//! expr(proj) := 'count' '(' '*' ')' | agg '(' (var ('.' prop)?) ')' | 'type' '(' var ')'
+//!             | 'labels' '(' var ')' | var ('.' prop)?
 //! op         := '=' | '<>' | '!=' | '<' | '<=' | '>' | '>='
 //! literal    := string | number | true | false
 //! ```
@@ -610,14 +611,14 @@ impl Parser {
         } else if self.peek_keyword("STARTS") {
             self.eat_keyword("STARTS")?;
             self.eat_keyword("WITH")?;
-            Ok(Test::StartsWith(self.parse_string_operand("STARTS WITH")?))
+            Ok(Test::StartsWith(self.parse_str_test_operand("STARTS WITH")?))
         } else if self.peek_keyword("ENDS") {
             self.eat_keyword("ENDS")?;
             self.eat_keyword("WITH")?;
-            Ok(Test::EndsWith(self.parse_string_operand("ENDS WITH")?))
+            Ok(Test::EndsWith(self.parse_str_test_operand("ENDS WITH")?))
         } else if self.peek_keyword("CONTAINS") {
             self.eat_keyword("CONTAINS")?;
-            Ok(Test::Contains(self.parse_string_operand("CONTAINS")?))
+            Ok(Test::Contains(self.parse_str_test_operand("CONTAINS")?))
         } else if self.peek_keyword("IS") {
             self.eat_keyword("IS")?;
             if self.peek_keyword("NOT") {
@@ -646,10 +647,21 @@ impl Parser {
         }
     }
 
-    fn parse_string_operand(&mut self, kw: &str) -> Result<String, String> {
-        match self.parse_literal()? {
-            Value::String(s) => Ok(s),
-            other => Err(format!("{kw} expects a string literal, found {other:?}")),
+    /// The right-hand operand of `STARTS WITH`/`ENDS WITH`/`CONTAINS`: a string
+    /// literal, or a `$param` reference (CONCEPT:EG-KG.query.param-list-drives-unwind) —
+    /// the production shape (`p.id STARTS WITH $prefix`) needs the latter, so this
+    /// does NOT go through `parse_literal` (which has no `$param` case at all).
+    /// Resolved against the live params+binding at evaluation time by
+    /// `resolve_prop_val`, same as every other `PropVal` site in this grammar; a
+    /// non-string resolved value is a runtime type error there, not here (the
+    /// param's value isn't known until execution).
+    fn parse_str_test_operand(&mut self, kw: &str) -> Result<PropVal, String> {
+        match self.next() {
+            Some(Tok::Str(s)) => Ok(PropVal::Lit(Value::String(s))),
+            Some(Tok::Param(name)) => Ok(PropVal::Param(name)),
+            other => Err(format!(
+                "{kw} expects a string literal or $param, found {other:?}"
+            )),
         }
     }
 
@@ -717,8 +729,9 @@ impl Parser {
     }
 
     /// A projection expression: an aggregate (`count(*)`, `sum(a.p)`, …), the
-    /// `type(r)` relationship-type accessor (CONCEPT:EG-KG.query.rel-type-projection), or a bare
-    /// `var` / `var.prop` (CONCEPT:EG-KG.query.eg-extend-read-side).
+    /// `type(r)` relationship-type accessor (CONCEPT:EG-KG.query.rel-type-projection), the
+    /// `labels(n)` node-label accessor, or a bare `var` / `var.prop`
+    /// (CONCEPT:EG-KG.query.eg-extend-read-side).
     fn parse_proj_expr(&mut self) -> Result<Expr, String> {
         // Aggregate: an agg-func ident immediately followed by `(`.
         if let Some(Tok::Ident(name)) = self.peek() {
@@ -743,6 +756,14 @@ impl Parser {
                     let var = self.ident()?;
                     self.expect(&Tok::RParen)?;
                     return Ok(Expr::RelType(var));
+                }
+                // `labels(n)` — the node-label accessor over a node variable.
+                if name.eq_ignore_ascii_case("labels") {
+                    self.next(); // `labels`
+                    self.expect(&Tok::LParen)?;
+                    let var = self.ident()?;
+                    self.expect(&Tok::RParen)?;
+                    return Ok(Expr::Labels(var));
                 }
             }
         }
@@ -1510,6 +1531,95 @@ mod tests {
             WhereExpr::Or(alts) => assert_eq!(alts.len(), 2),
             _ => panic!("expected OR"),
         }
+    }
+
+    /// Regression test for the confirmed production defect: `STARTS WITH` against a
+    /// `$param` operand (not just a string literal) — the exact query shape that
+    /// broke the MCP fleet enable/disable toggle. Before this fix, `parse_literal`
+    /// (which `parse_string_operand` delegated to) had no `$param` case, so this
+    /// failed with `expected literal, found Some(Param("prefix"))`; a still-earlier
+    /// parser (predating `STARTS`/`ENDS`/`CONTAINS` keyword recognition entirely)
+    /// is what the field-observed `expected keyword WITH, found Some(RParen)`
+    /// message came from. Either way, this exact production query must now parse
+    /// clean end to end.
+    #[test]
+    fn starts_with_accepts_param_operand_production_repro() {
+        let q = parse(
+            "MATCH (p:Preference) WHERE p.id STARTS WITH $prefix \
+             RETURN p.id AS id, p.value AS value",
+        )
+        .unwrap();
+        let (_, where_c) = first_match(&q);
+        match where_c.as_ref().unwrap() {
+            WhereExpr::Cond(c) => {
+                assert_eq!(c.var, "p");
+                assert_eq!(c.prop, "id");
+                assert_eq!(c.test, Test::StartsWith(PropVal::Param("prefix".into())));
+            }
+            other => panic!("expected a single STARTS WITH condition, found {other:?}"),
+        }
+        assert_eq!(q.ret.items.len(), 2);
+        assert_eq!(q.ret.items[0].column(), "id");
+        assert_eq!(q.ret.items[1].column(), "value");
+    }
+
+    #[test]
+    fn ends_with_and_contains_accept_param_operand() {
+        let q = parse("MATCH (a:Doc) WHERE a.name ENDS WITH $suffix RETURN a").unwrap();
+        let (_, where_c) = first_match(&q);
+        match where_c.as_ref().unwrap() {
+            WhereExpr::Cond(c) => {
+                assert_eq!(c.test, Test::EndsWith(PropVal::Param("suffix".into())));
+            }
+            _ => panic!("expected ENDS WITH condition"),
+        }
+
+        let q = parse("MATCH (a:Doc) WHERE a.name CONTAINS $needle RETURN a").unwrap();
+        let (_, where_c) = first_match(&q);
+        match where_c.as_ref().unwrap() {
+            WhereExpr::Cond(c) => {
+                assert_eq!(c.test, Test::Contains(PropVal::Param("needle".into())));
+            }
+            _ => panic!("expected CONTAINS condition"),
+        }
+    }
+
+    #[test]
+    fn starts_with_still_accepts_string_literal_operand() {
+        let q = parse("MATCH (a:Person) WHERE a.name STARTS WITH 'A' RETURN a").unwrap();
+        let (_, where_c) = first_match(&q);
+        match where_c.as_ref().unwrap() {
+            WhereExpr::Cond(c) => {
+                assert_eq!(
+                    c.test,
+                    Test::StartsWith(PropVal::Lit(Value::String("A".into())))
+                );
+            }
+            _ => panic!("expected STARTS WITH condition"),
+        }
+    }
+
+    #[test]
+    fn starts_with_rejects_non_string_non_param_operand() {
+        let err = parse("MATCH (a:Person) WHERE a.name STARTS WITH 5 RETURN a").unwrap_err();
+        assert!(
+            err.contains("STARTS WITH expects a string literal or $param"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn parses_labels_projection() {
+        let q = parse("MATCH (n) RETURN labels(n)").unwrap();
+        assert_eq!(q.ret.items.len(), 1);
+        assert_eq!(q.ret.items[0].expr, Expr::Labels("n".to_string()));
+        assert_eq!(q.ret.items[0].column(), "labels(n)");
+    }
+
+    #[test]
+    fn parses_labels_projection_with_alias() {
+        let q = parse("MATCH (n:Preference) RETURN labels(n) AS lbls").unwrap();
+        assert_eq!(q.ret.items[0].column(), "lbls");
     }
 
     #[test]
