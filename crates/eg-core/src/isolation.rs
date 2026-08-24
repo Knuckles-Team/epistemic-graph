@@ -871,6 +871,20 @@ impl IsolationLayer {
         self.agents.contains_key(agent_id)
     }
 
+    /// Read back `agent_id`'s currently-registered identity, cloned.
+    ///
+    /// `try_register_agent`/`try_register_agent_from_request` REPLACE an agent's entire
+    /// role set on every call (CONCEPT:EG-KG.compute.feature) -- there is no merge. A caller
+    /// that wants to add a role without silently dropping one granted by a prior admission
+    /// pass must read the current set back first; this is that read-back. `None` means "no
+    /// identity registered for `agent_id`" (unknown) and MUST stay distinguishable from
+    /// `Some(identity)` carrying an empty `roles` Vec (registered, confirmed to hold no
+    /// roles) -- conflating the two would reintroduce the exact blind-upsert risk this
+    /// accessor exists to close.
+    pub fn get_identity(&self, agent_id: &str) -> Option<AgentIdentity> {
+        self.agents.get(agent_id).cloned()
+    }
+
     /// Check if an agent has the requested access level to a graph.
     pub fn check_access(
         &self,
@@ -1200,6 +1214,53 @@ mod tests {
             roles: vec![],
         });
         layer
+    }
+
+    /// `get_identity` on a registered principal round-trips its FULL role set --
+    /// the identity read-back this accessor exists to provide (CONCEPT:EG-KG.compute.feature).
+    #[test]
+    fn get_identity_round_trips_registered_principal_role_set() {
+        let mut layer = IsolationLayer::new();
+        layer.register_agent(AgentIdentity {
+            agent_id: "carol".to_string(),
+            role: AgentRole::Agent,
+            teams: vec!["alpha".to_string(), "beta".to_string()],
+            roles: vec!["sysadmin".to_string(), "auditor".to_string()],
+        });
+        let identity = layer
+            .get_identity("carol")
+            .expect("carol was just registered");
+        assert_eq!(identity.agent_id, "carol");
+        assert_eq!(identity.role, AgentRole::Agent);
+        assert_eq!(identity.teams, vec!["alpha".to_string(), "beta".to_string()]);
+        assert_eq!(
+            identity.roles,
+            vec!["sysadmin".to_string(), "auditor".to_string()]
+        );
+    }
+
+    /// An unregistered principal yields `None` -- "unknown", not "confirmed empty".
+    /// Distinguishing this from `Some(identity)` with an empty `roles` Vec is the whole
+    /// point of `get_identity`; see its doc comment.
+    #[test]
+    fn get_identity_returns_none_for_unregistered_principal() {
+        let layer = setup();
+        assert!(layer.get_identity("nobody").is_none());
+    }
+
+    /// A registered principal holding NO roles reads back as `Some(identity)` with an
+    /// empty `roles` Vec -- NOT `None`. This is the exact "unknown vs. confirmed empty"
+    /// distinction `get_identity` exists to preserve end-to-end.
+    #[test]
+    fn get_identity_distinguishes_registered_empty_roles_from_unregistered() {
+        let layer = setup();
+        // `setup()` registers "worker1" with `roles: vec![]`.
+        let identity = layer
+            .get_identity("worker1")
+            .expect("worker1 is registered by setup()");
+        assert!(identity.roles.is_empty());
+        assert!(layer.get_identity("worker1").is_some());
+        assert!(layer.get_identity("ghost").is_none());
     }
 
     /// BUG A3 diagnostic (2026-08-12): isolate the derive-from-live-reverse-

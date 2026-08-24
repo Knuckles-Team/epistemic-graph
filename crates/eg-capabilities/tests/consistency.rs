@@ -1001,7 +1001,10 @@ fn all_methods_table_has_the_expected_variant_count() {
     // auto-merge trap this comment now closes; see the GOC-33 merge report.
     // Plus native WorkItem SubmitWorkItem(s) and capacity lease/controller
     // operations (9 unconditional methods): 386 + 9 = 395.
-    let expected = 395
+    // Plus the `GetIdentity` identity read-back (CONCEPT:EG-KG.compute.feature,
+    // unconditional -- closes the RegisterIdentity blind-upsert gap; matching the
+    // sibling constant in `lib.rs::all_methods_table_matches_policy_fn...`): 395 + 1 = 396.
+    let expected = 396
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

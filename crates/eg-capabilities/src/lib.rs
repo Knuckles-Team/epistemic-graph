@@ -1441,6 +1441,24 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Atomic,
         },
+        // The identity read-back closing the `RegisterIdentity` blind-upsert gap
+        // (CONCEPT:EG-KG.compute.feature): a pure read of the in-memory identity store, so
+        // it is NOT grouped with the mutating `RegisterIdentity`/`RbacAdmin` arm above even
+        // though it shares their `security:admin` gate -- mirrors the `ClusterMembers`
+        // read-only precedent (`mutates: false`, `DurabilityDomain::None`,
+        // `TxnParticipation::Snapshot`) rather than `RegisterIdentity`'s
+        // `ControlRedb`/`Atomic` mutation shape. Gated at the SAME `security:admin` scope
+        // `RegisterIdentity` already requires, so it grants no new privilege to anyone who
+        // could not already call `RegisterIdentity`.
+        Method::GetIdentity { .. } => MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::None,
+            authz_action: "security:admin",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Snapshot,
+        },
         Method::ApplyMultisigMutation { .. } => MethodPolicy {
             mutates: true,
             durability_domain: DurabilityDomain::GraphRedb,
@@ -2676,6 +2694,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("FinanceSabrCalibrate", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:finance", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, ""),
         ("RegisterIdentity", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "security:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX"),
         ("RbacAdmin", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "security:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata"),
+        ("GetIdentity", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "security:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "identity read-back closing the RegisterIdentity blind-upsert gap: None means unregistered/unknown, Some(identity) with empty roles means registered-and-confirmed-empty -- gated security:admin like RegisterIdentity/RbacAdmin so it grants no caller new privilege"),
         ("ApplyMultisigMutation", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "security:admin", idempotent: true, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Saga }, "threshold validation translates into the graph MutationBatch gateway"),
         #[cfg(feature = "jobs")]
         ("AnalyticsJob", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::JobsRedb, authz_action: "jobs:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway"),
@@ -2949,7 +2968,9 @@ mod smoke_tests {
         // auto-merge trap this comment now closes; see the GOC-33 merge report.
         // Plus native WorkItem SubmitWorkItem(s) and capacity lease/controller
         // operations (9 unconditional methods): 386 + 9 = 395.
-        let expected = 395
+        // Plus the `GetIdentity` identity read-back (CONCEPT:EG-KG.compute.feature,
+        // unconditional -- closes the RegisterIdentity blind-upsert gap): 395 + 1 = 396.
+        let expected = 396
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
