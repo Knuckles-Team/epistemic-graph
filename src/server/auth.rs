@@ -3507,16 +3507,11 @@ mod tests {
                 "agent:planner",
                 "tenant-a",
                 &["kg:read", "kg:write"], // verified.roles: satisfies the role
-                                          // loop ("kg:read") AND supplies
-                                          // "kg:write" for the scope loop
+                // loop ("kg:read") AND supplies
+                // "kg:write" for the scope loop
                 "kg:read", // verified.scopes: does NOT contain "kg:write"
             ));
-            let req = envelope_request(
-                720,
-                "oidc-scope-via-role",
-                claims,
-                Some(&token),
-            );
+            let req = envelope_request(720, "oidc-scope-via-role", claims, Some(&token));
             let result =
                 verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay());
             assert!(result.is_ok(), "{:?}", result.err());
@@ -3538,12 +3533,7 @@ mod tests {
                 &["kg:read"], // verified.roles: does not contain "kg:admin"
                 "kg:read",    // verified.scopes: does not contain "kg:admin"
             ));
-            let req = envelope_request(
-                721,
-                "oidc-scope-neither-set",
-                claims,
-                Some(&token),
-            );
+            let req = envelope_request(721, "oidc-scope-neither-set", claims, Some(&token));
             let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
                 .unwrap_err();
             assert_eq!(error, "request context asserts unverified scope 'kg:admin'");
@@ -3563,15 +3553,10 @@ mod tests {
             let token = sign(&oidc_claims(
                 "agent:planner",
                 "tenant-a",
-                &[],          // verified.roles: does not contain "kg:admin"
-                "kg:admin",   // verified.scopes: DOES contain "kg:admin"
+                &[],        // verified.roles: does not contain "kg:admin"
+                "kg:admin", // verified.scopes: DOES contain "kg:admin"
             ));
-            let req = envelope_request(
-                722,
-                "oidc-role-via-scope",
-                claims,
-                Some(&token),
-            );
+            let req = envelope_request(722, "oidc-role-via-scope", claims, Some(&token));
             let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
                 .unwrap_err();
             assert_eq!(error, "request context asserts unverified role 'kg:admin'");
