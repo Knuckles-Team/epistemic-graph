@@ -57,6 +57,7 @@ pub(crate) mod walk_metrics {
     thread_local! {
         static STARTS: Cell<u64> = const { Cell::new(0) };
         static HOPS: Cell<u64> = const { Cell::new(0) };
+        static WARM_LABEL_HITS: Cell<u64> = const { Cell::new(0) };
     }
 
     /// A start-node candidate whose hop walk was initiated (the label-index / anchor
@@ -78,16 +79,37 @@ pub(crate) mod walk_metrics {
     #[inline(always)]
     pub(crate) fn note_hop_expansion() {}
 
+    /// The warm `GraphCore.label_index` prefilter ([`super::indexed_label_candidates`],
+    /// this lane's fix) was actually consulted AND answered — i.e. both version
+    /// brackets held — for a label-only START candidate resolution, as opposed to
+    /// falling back to the cold whole-snapshot `label_candidates` scan. Lets a test
+    /// assert the warm path was taken without depending on wall-clock timing
+    /// (GOC-70) — a counter, not a stopwatch.
+    #[cfg(test)]
+    pub(crate) fn note_warm_label_hit() {
+        WARM_LABEL_HITS.with(|c| c.set(c.get().saturating_add(1)));
+    }
+    #[cfg(not(test))]
+    #[inline(always)]
+    pub(crate) fn note_warm_label_hit() {}
+
     #[cfg(test)]
     pub(crate) fn reset() {
         STARTS.with(|c| c.set(0));
         HOPS.with(|c| c.set(0));
+        WARM_LABEL_HITS.with(|c| c.set(0));
     }
 
     /// `(starts_expanded, hop_expansions)` since the last [`reset`].
     #[cfg(test)]
     pub(crate) fn snapshot() -> (u64, u64) {
         (STARTS.with(Cell::get), HOPS.with(Cell::get))
+    }
+
+    /// Count of [`note_warm_label_hit`] calls since the last [`reset`].
+    #[cfg(test)]
+    pub(crate) fn warm_label_hits() -> u64 {
+        WARM_LABEL_HITS.with(Cell::get)
     }
 }
 
@@ -797,7 +819,28 @@ fn resolve_match(
         None => match indexed_start_candidates(index, &pattern.start, &start_preds, anchor, params)
         {
             Some(ids) => (ids, false),
-            None => (label_candidates(view, &pattern.start), true),
+            // No inline-prop/WHERE equality to index — but a LABELED start can still
+            // avoid `label_candidates`' cold, per-VIEW `label_index_memo` build (an
+            // O(V) msgpack-decode-every-node pass that starts over on every fresh
+            // snapshot, see that memo's doc) by first trying `GraphCore`'s PERSISTENT,
+            // write-path-maintained `label_index` through `warm_label_candidates` —
+            // built once and incrementally kept warm across every later query, not
+            // just this one. `false` here (not `from_label_scan`) is deliberate and
+            // matches `indexed_start_candidates`' own candidates just above: the warm
+            // index is a hint that only NARROWS the set, so the filter below must
+            // still re-verify Cypher's narrower label predicate per candidate via
+            // `node_has_label_point` rather than trusting it outright — see
+            // `warm_label_candidates`'s doc for why the two indexes' semantics differ
+            // and why that re-verification is what keeps this result-identical.
+            None => match pattern
+                .start
+                .label
+                .as_deref()
+                .and_then(|label| warm_label_candidates(index, label))
+            {
+                Some(ids) => (ids, false),
+                None => (label_candidates(view, &pattern.start), true),
+            },
         },
     };
     let start_ids: Vec<String> = start_candidates
@@ -2419,6 +2462,81 @@ fn node_has_label_point(view: &GraphView, id: &str, label: &str) -> bool {
     view.node_properties
         .get(id)
         .is_some_and(|blob| node_has_label(blob, label))
+}
+
+/// `resolve_match`'s always-compiled entry point for the warm-index leg of
+/// label-only START-candidate resolution (this lane's fix, CONCEPT:EG-KG.compute.consult-lazy sibling
+/// of `apply_merge`'s identical `core.get_nodes_by_label` + narrow-verify shape on
+/// the write path). `None` immediately in a `result-cache`-off build (no
+/// `IndexSource` ever exists then, mirroring [`indexed_inline_props`]/
+/// [`indexed_where_cond`]'s identical `let _ = …` pattern) or when `index` is
+/// `None`; otherwise defers to [`indexed_label_candidates`].
+fn warm_label_candidates(index: Option<IndexSource<'_>>, label: &str) -> Option<Vec<String>> {
+    let _ = &index; // referenced unconditionally so a `result-cache`-off build doesn't warn
+    #[cfg(feature = "result-cache")]
+    {
+        indexed_label_candidates(index?, label)
+    }
+    #[cfg(not(feature = "result-cache"))]
+    {
+        let _ = label;
+        None
+    }
+}
+
+/// Warm-index leg of label-only START-candidate resolution: when a
+/// version-bracketed [`IndexSource`] is available, narrow `label`'s candidate
+/// set through `GraphCore`'s PERSISTENT, write-path-maintained `label_index`
+/// (`GraphCore::get_nodes_by_label`) instead of paying to build THIS
+/// snapshot's own `label_index_memo` from scratch — [`build_cypher_label_index`]'s
+/// O(V) msgpack-decode-EVERY-node pass, which starts cold on every fresh
+/// `GraphView` (`label_index_memo`'s doc), unlike `GraphCore.label_index`,
+/// which is built once and incrementally maintained across every later query
+/// until the next write invalidates it (`label_index_add`/`_remove`/`_refile`).
+///
+/// `GraphCore.label_index` keys on a BROADER write-path field set (`type`/
+/// `node_type`/`label`/`labels`, see that field's doc on `GraphCore`) than
+/// Cypher's `(var:Label)` semantics (`node_type`/`labels` only, see
+/// [`node_has_label`]) — every field the narrow test reads is also read by the
+/// broad one, so the broad index is a structural SUPERSET of the narrow one for
+/// any label, which is why this is safe to use as a PREFILTER ONLY: every id
+/// this returns still passes through `resolve_match`'s existing post-filter
+/// (`node_has_label_point`, since — like [`indexed_start_candidates`]' other
+/// legs — this candidate source is index-derived, not an already-built whole-
+/// snapshot scan) before being trusted. That re-verification is what makes the
+/// served result byte-for-byte identical to the cold `label_candidates` full
+/// scan either way — only the work to reach it differs, and a broader-but-not-
+/// narrower candidate (e.g. a node carrying `label`/`type` but no
+/// `node_type`/`labels`) is dropped there rather than wrongly matched.
+///
+/// Version-bracketed exactly like [`lookup_property_eq`]: `core.version()` must
+/// read back the SAME `index.version` both before and after the lookup, or the
+/// answer is discarded (`None` ⇒ caller falls back to `label_candidates`) since
+/// a concurrent commit could otherwise have changed the live index's answer out
+/// from under the point-in-time `view` the rest of this query reads exclusively.
+///
+/// Only ever reached when `index` is `Some` — i.e. through
+/// [`exec_cypher_params_indexed`]'s one production caller, which snapshots via
+/// `analysis_snapshot_versioned` and applies only RLS filtering, never the
+/// read-your-own-writes overlay (`GraphView::overlay_add_node` et al. are used
+/// exclusively by a separate, non-Cypher transaction-replay path). A future
+/// caller that starts pairing an `IndexSource` with an overlaid view would need
+/// to additionally reconcile the overlay's buffered adds/removes against this
+/// prefilter — e.g. an overlay-added node the live `core` index cannot yet know
+/// about — before trusting it; today's one caller never does, so that case is
+/// out of scope here and this function must not be reused for one without
+/// re-checking that assumption.
+#[cfg(feature = "result-cache")]
+fn indexed_label_candidates(index: IndexSource<'_>, label: &str) -> Option<Vec<String>> {
+    if index.core.version() != index.version {
+        return None;
+    }
+    let candidates = index.core.get_nodes_by_label(label, 0);
+    if index.core.version() != index.version {
+        return None;
+    }
+    walk_metrics::note_warm_label_hit();
+    Some(candidates.into_iter().map(|(id, _blob)| id).collect())
 }
 
 /// Does a node's property blob carry `label` as canonical `node_type` or in the
@@ -5757,6 +5875,163 @@ mod tests {
         (core, view, version)
     }
 
+    /// Fixture for the warm-label-index prefilter (this lane's fix,
+    /// CONCEPT:EG-KG.compute.consult-lazy): one node per field `GraphCore.label_index`'s
+    /// BROADER write-path contract keys on (`type`/`node_type`/`label`/`labels`), so
+    /// tests can pin exactly which shapes the narrower Cypher `(var:Label)` predicate
+    /// (`node_type` + `labels` only, see `node_has_label`) must and must NOT match:
+    ///   * `na1` — labeled ONLY via `node_type` (narrow-matchable).
+    ///   * `la1` — labeled ONLY via the multi-valued `labels` array (narrow-matchable).
+    ///   * `tb1` — labeled ONLY via `type` — the TRAP: broad-index-matchable but
+    ///     narrow-UNMATCHABLE, so it must never appear in a Cypher `:Gamma` result.
+    ///   * `lb1` — labeled ONLY via `label` — the same trap, the other broad-only field.
+    fn label_trap_fixture_versioned() -> (GraphCore, GraphView, u64) {
+        let core = GraphCore::new();
+        core.add_node("na1".into(), pbytes(serde_json::json!({"node_type": "Alpha"})));
+        core.add_node(
+            "la1".into(),
+            pbytes(serde_json::json!({"labels": ["Beta", "Other"]})),
+        );
+        core.add_node("tb1".into(), pbytes(serde_json::json!({"type": "Gamma"})));
+        core.add_node("lb1".into(), pbytes(serde_json::json!({"label": "Gamma"})));
+        let (view, version) = core.analysis_snapshot_versioned();
+        (core, view, version)
+    }
+
+    /// (a) Result-identical vs the cold `label_candidates` scan for every fixture
+    /// shape — INCLUDING the trap case, which the naive "just swap the index" fix
+    /// this lane's task explicitly warns against would get wrong: `tb1`/`lb1` carry
+    /// only the BROADER `type`/`label` fields `GraphCore.label_index` keys on, so a
+    /// naive swap would start matching `:Gamma` for nodes that must never match it.
+    /// The prefilter-then-verify shape (`indexed_label_candidates` narrows via the
+    /// warm index, `resolve_match`'s existing `node_has_label_point` re-verifies the
+    /// NARROW predicate on each candidate) must produce the exact same answer the
+    /// cold, unindexed path does in every case.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn warm_label_prefilter_matches_cold_scan_including_trap_labels() {
+        let (core, view, version) = label_trap_fixture_versioned();
+        let index = IndexSource::new(&core, version);
+        for (label, want) in [
+            ("Alpha", vec!["na1"]),
+            ("Beta", vec!["la1"]),
+            // The trap: `type`/`label`-only nodes carry the broad index's label but
+            // must NOT satisfy Cypher's narrower `(var:Label)` test.
+            ("Gamma", Vec::<&str>::new()),
+        ] {
+            let q = format!("MATCH (n:{label}) RETURN n.id AS id");
+            let unindexed = exec_cypher(&view, &q).unwrap();
+            let indexed =
+                exec_cypher_params_indexed(&view, &q, &Params::new(), index).unwrap();
+            assert_eq!(
+                indexed.rows, unindexed.rows,
+                "label {label}: indexed and cold-scan results diverged"
+            );
+            assert_eq!(
+                ids(&indexed, 0),
+                want,
+                "label {label}: unexpected match set (trap case must stay empty)"
+            );
+        }
+    }
+
+    /// (c) The warm path is actually taken for the matching cases — a counter, not a
+    /// stopwatch (GOC-70): `walk_metrics::warm_label_hits()` only increments inside
+    /// `indexed_label_candidates` once both OCC version brackets hold, so seeing it
+    /// increase proves `resolve_match` really consulted `GraphCore.label_index`
+    /// rather than silently falling back to the cold `label_candidates` scan.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn warm_label_prefilter_is_actually_consulted() {
+        let (core, view, version) = label_trap_fixture_versioned();
+        let index = IndexSource::new(&core, version);
+        walk_metrics::reset();
+        assert_eq!(walk_metrics::warm_label_hits(), 0);
+        let result = exec_cypher_params_indexed(
+            &view,
+            "MATCH (n:Alpha) RETURN n.id AS id",
+            &Params::new(),
+            index,
+        )
+        .unwrap();
+        assert_eq!(ids(&result, 0), vec!["na1"]);
+        assert!(
+            walk_metrics::warm_label_hits() >= 1,
+            "expected the warm GraphCore.label_index prefilter to be consulted at least \
+             once, got {} hits — resolve_match must have fallen back to the cold scan",
+            walk_metrics::warm_label_hits()
+        );
+
+        // The unindexed path must NEVER touch the warm prefilter — it has no
+        // `IndexSource` to consult at all.
+        walk_metrics::reset();
+        let _ = exec_cypher(&view, "MATCH (n:Alpha) RETURN n.id AS id").unwrap();
+        assert_eq!(
+            walk_metrics::warm_label_hits(),
+            0,
+            "the unindexed path must never record a warm-label hit"
+        );
+    }
+
+    /// (b) A label the warm index cannot vouch for falls back correctly, in the two
+    /// distinct ways that can happen:
+    ///   * a GENUINELY absent label — the persistent index legitimately answers
+    ///     "zero candidates" (`Some(vec![])`, still a warm HIT, not a fallback) —
+    ///     this is the exact `count(:__NoSuchLabel__)` shape this lane's fix targets.
+    ///   * an OCC version race — the `IndexSource` is stamped with a version that no
+    ///     longer matches the live `GraphCore.version()`, so the prefilter must
+    ///     decline (`None`) rather than trust a possibly-stale answer, and
+    ///     `resolve_match` must fall back to the cold `label_candidates` scan and
+    ///     still return the correct (non-empty) result.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn warm_label_prefilter_absent_label_and_version_race_fall_back_correctly() {
+        let (core, view, version) = label_trap_fixture_versioned();
+
+        // Genuinely absent label: warm index answers Some(vec![]) directly.
+        walk_metrics::reset();
+        assert_eq!(
+            indexed_label_candidates(IndexSource::new(&core, version), "NoSuchLabel"),
+            Some(Vec::new())
+        );
+        assert_eq!(
+            walk_metrics::warm_label_hits(),
+            1,
+            "an absent label is still a warm HIT (the index legitimately says zero), \
+             not a decline"
+        );
+        let empty = exec_cypher_params_indexed(
+            &view,
+            "MATCH (n:NoSuchLabel) RETURN n.id AS id",
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert!(empty.rows.is_empty());
+
+        // Version race: a stale `IndexSource` must decline outright.
+        walk_metrics::reset();
+        assert_eq!(
+            indexed_label_candidates(IndexSource::new(&core, version.wrapping_add(1)), "Alpha"),
+            None,
+            "a version mismatch must decline, never answer stale"
+        );
+        assert_eq!(
+            walk_metrics::warm_label_hits(),
+            0,
+            "a declined (version-race) lookup must not count as a warm hit"
+        );
+        // The end-to-end query must still be correct via the cold fallback.
+        let stale = exec_cypher_params_indexed(
+            &view,
+            "MATCH (n:Alpha) RETURN n.id AS id",
+            &Params::new(),
+            IndexSource::new(&core, version.wrapping_add(1)),
+        )
+        .unwrap();
+        assert_eq!(ids(&stale, 0), vec!["na1"]);
+    }
+
     /// The exact production shape from the slow-query log: an unlabeled `MATCH (n)`
     /// with a WHERE that ANDs a tenant disjunction (never indexable — stays a
     /// post-narrowing filter) with a plain `n.id = <literal>` equality (indexable).
@@ -6033,33 +6308,111 @@ mod tests {
         assert_eq!(fresh, vec!["alice".to_string(), "bob".to_string()]);
     }
 
-    /// A labeled start never consults the property index at all (the label index
-    /// already narrows it cheaply) — `indexed_start_candidates` must decline
-    /// immediately regardless of an otherwise-indexable WHERE predicate.
+    /// LANE D-engine (`fix(cypher): consult the property index for unlabeled
+    /// n.id equality/IN`, 49bf22b71) already removed the old
+    /// `node.label.is_some()` gate from `indexed_start_candidates` for the
+    /// INLINE-prop `id` leg (`indexed_labeled_inline_id_no_longer_declines`,
+    /// `indexed_labeled_inline_id_wrong_label_returns_empty_not_wrong_node`
+    /// above) — that gate is gone for the WHERE-conjunct `n.id = <literal>`
+    /// leg too, and always was; this test previously asserted the STALE,
+    /// pre-LANE-D invariant ("a labeled start must decline immediately") that
+    /// commit 49bf22b71 itself invalidated without updating this test,
+    /// leaving it silently red. The CURRENT invariant, proven end-to-end
+    /// below exactly like this file's other `wrong_label` tests: a labeled
+    /// start's WHERE `id` equality DOES resolve through the same
+    /// no-`IndexSource`-needed fast path an unlabeled start gets (label is
+    /// NOT consulted by `indexed_start_candidates`/`indexed_where_cond`
+    /// at all — see `indexed_where_cond`'s `Test::Cmp(Eq, _) if c.prop ==
+    /// "id"` arm, which never reads `node.label`), and the label constraint
+    /// is still enforced afterward by `resolve_match`'s own post-filter
+    /// (`node_has_label_point`, since this candidate source sets
+    /// `from_label_scan = false` — see that match arm's comment) rather than
+    /// by `indexed_start_candidates` declining. A WHERE-equality query whose
+    /// literal names a node of the WRONG label must still resolve to EMPTY,
+    /// exactly like the full scan, proving narrowing-by-id never becomes a
+    /// way to bypass label enforcement.
     #[test]
     #[cfg(feature = "result-cache")]
-    fn indexed_lookup_declines_for_labeled_start() {
-        let (core, _view, version) = fixture_versioned();
+    fn indexed_where_id_equality_no_longer_declines_for_labeled_start_but_label_still_enforced()
+    {
+        let (core, view, version) = fixture_versioned();
         let anchor = Binding::new();
-        let node = NodePat {
-            var: Some("n".to_string()),
-            label: Some("Person".to_string()),
-            props: None,
-        };
         let preds = vec![WhereExpr::Cond(Condition {
             var: "n".to_string(),
             prop: "id".to_string(),
             test: Test::Cmp(CompareOp::Eq, Value::String("bob".to_string())),
         })];
+
+        // Unit level: `indexed_start_candidates` itself is unfiltered by label for
+        // the WHERE-conjunct `id` leg, same as the inline-prop leg already proven
+        // above — it answers off the literal alone, with or without a matching
+        // `:Person` label on `node`.
+        let person_node = NodePat {
+            var: Some("n".to_string()),
+            label: Some("Person".to_string()),
+            props: None,
+        };
         assert_eq!(
             indexed_start_candidates(
                 Some(IndexSource::new(&core, version)),
-                &node,
+                &person_node,
                 &preds,
                 &anchor,
                 &Params::new(),
             ),
-            None
+            Some(vec!["bob".to_string()]),
+            "a labeled start's WHERE `id` equality must resolve through the same \
+             no-IndexSource-needed fast path an unlabeled start already gets"
+        );
+        let doc_node = NodePat {
+            var: Some("n".to_string()),
+            label: Some("Doc".to_string()),
+            props: None,
+        };
+        assert_eq!(
+            indexed_start_candidates(
+                Some(IndexSource::new(&core, version)),
+                &doc_node,
+                &preds,
+                &anchor,
+                &Params::new(),
+            ),
+            Some(vec!["bob".to_string()]),
+            "indexed_start_candidates itself does not enforce the label — bob is \
+             returned even for a :Doc-labeled node pattern; the caller must filter it"
+        );
+
+        // End-to-end: the CORRECT label resolves bob, byte-for-byte the same as the
+        // full scan.
+        let ok_q = "MATCH (n:Person) WHERE n.id = 'bob' RETURN n.id AS id";
+        let ok_unindexed = exec_cypher(&view, ok_q).unwrap();
+        let ok_indexed = exec_cypher_params_indexed(
+            &view,
+            ok_q,
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(ok_indexed.rows, ok_unindexed.rows);
+        assert_eq!(ids(&ok_indexed, 0), vec!["bob"]);
+
+        // End-to-end: the WRONG label must resolve to EMPTY, not bob — proving
+        // `resolve_match`'s post-filter (not `indexed_start_candidates`) is what
+        // enforces the label constraint here.
+        let wrong_q = "MATCH (n:Doc) WHERE n.id = 'bob' RETURN n.id AS id";
+        let wrong_unindexed = exec_cypher(&view, wrong_q).unwrap();
+        assert!(wrong_unindexed.rows.is_empty(), "sanity: bob is not a :Doc");
+        let wrong_indexed = exec_cypher_params_indexed(
+            &view,
+            wrong_q,
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(wrong_indexed.rows, wrong_unindexed.rows);
+        assert!(
+            wrong_indexed.rows.is_empty(),
+            "the id fast path must not become a way to bypass label enforcement"
         );
     }
 
