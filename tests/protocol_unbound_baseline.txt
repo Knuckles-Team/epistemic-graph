@@ -165,3 +165,14 @@ NodeInfoUpsert  # owner=@genius PERMANENT reason=raft-startup-self-report-only-a
 # intend to break; the review date is when that follow-up is expected to have
 # landed and the real shape is bindable.
 TtsSynthesize  # owner=@genius review-by=2026-10-21 note=BIND-once-GOC-05-SensitiveInputRef-replaces-the-interim-opaque-bytes-carrier
+
+# Zero-Trust Consensus identity read-back (CONCEPT:EG-KG.compute.feature): closes the
+# `RegisterIdentity` blind-upsert gap (a merge-before-register caller needs to read a
+# principal's current role set before REPLACING it). Landed engine-side only in this
+# change (`crates/eg-types/src/protocol.rs`, `crates/eg-core/src/isolation.rs`,
+# `crates/eg-capabilities/src/lib.rs`, `src/server/dispatch.rs`); the thin Python client
+# binding (`epistemic_graph/client.py`, sending the literal wire method name
+# `"GetIdentity"` with `{"agent_id": ...}` and decoding the `Option<AgentIdentity>`
+# JSON result, `None` on an unregistered principal) is a SEPARATE, parallel lane's
+# responsibility — not added here to avoid a two-lane edit collision on client.py.
+GetIdentity  # owner=@genius review-by=2026-09-07 note=BIND-pending-parallel-au-lane-client.py-wiring

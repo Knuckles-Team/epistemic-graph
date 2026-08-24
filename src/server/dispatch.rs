@@ -3970,6 +3970,30 @@ async fn dispatch_inner(
             Response::ok(req.id, ResultPayload::String("registered".to_string()))
         }
 
+        // Identity read-back (CONCEPT:EG-KG.compute.feature): closes the `RegisterIdentity`
+        // blind-upsert gap. `RegisterIdentity` REPLACES a principal's whole role set on
+        // every call, so a caller that wants to add a role without dropping one already
+        // granted by a prior admission pass must read the current set back first. Gated at
+        // the SAME `security:admin` scope as `RegisterIdentity` (see `eg_capabilities::policy`),
+        // enforced by the admin-scope check above the method match, so no additional
+        // authorization is done here.
+        Method::GetIdentity { agent_id } => {
+            let s = timed_read(state).await;
+            // `None` = "no identity registered for `agent_id`" (unknown); `Some(identity)`
+            // with an empty `roles` Vec = "registered, confirmed to hold no roles". The two
+            // MUST stay distinguishable end-to-end — see `IsolationLayer::get_identity` —
+            // so a merge-before-register caller can tell "nothing granted yet" from
+            // "already confirmed empty", which is the exact ambiguity this RPC exists to
+            // eliminate. `serde_json::to_value` preserves that: `None` serializes to JSON
+            // `null`, never to an empty object.
+            let identity = s.isolation.get_identity(&agent_id);
+            drop(s);
+            match serde_json::to_value(&identity) {
+                Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
+                Err(e) => Response::err(req.id, format!("Serialization error: {}", e)),
+            }
+        }
+
         // ── RBAC policy administration (CONCEPT:EG-KG.compute.feature) ──────────────────
         // Gated at the handler; a non-security build has no arm and falls to the
         // dispatch "not available in this build" catch-all (mirrors EG-090).
@@ -8920,6 +8944,112 @@ mod admin_scope_tests {
             r.error.is_none(),
             "an agent with an explicit RBAC Admin grant must be allowed: {:?}",
             r.error
+        );
+    }
+
+    // ── `Method::GetIdentity` (CONCEPT:EG-KG.compute.feature) ─────────────────────────
+    //
+    // The identity read-back closing the `RegisterIdentity` blind-upsert gap. Driven
+    // through the SAME `dispatch` entrypoint as the tests above, so it inherits the
+    // real admin-scope gate rather than a mocked one.
+
+    /// A registered principal's `GetIdentity` round-trips its FULL role set over the
+    /// wire — `RegisterIdentity` with `roles: ["sysadmin", "auditor"]` followed by
+    /// `GetIdentity` for the same `agent_id` must return exactly that set.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_identity_round_trips_registered_principal_role_set() {
+        let state = state_min();
+        let registered = dispatch_on_heap(
+            &state,
+            req_as(
+                1,
+                Some("root"),
+                Method::RegisterIdentity {
+                    agent_id: "dave".into(),
+                    role: AgentRole::Agent,
+                    teams: vec!["alpha".into()],
+                    signature: String::new(),
+                    roles: vec!["sysadmin".into(), "auditor".into()],
+                },
+            ),
+        )
+        .await;
+        assert!(registered.error.is_none(), "register dave: {:?}", registered.error);
+
+        let r = dispatch_on_heap(
+            &state,
+            req_as(
+                2,
+                Some("root"),
+                Method::GetIdentity {
+                    agent_id: "dave".into(),
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "GetIdentity: {:?}", r.error);
+        let ResultPayload::Json(value) = r.result.expect("GetIdentity must return a result")
+        else {
+            panic!("GetIdentity must return ResultPayload::Json");
+        };
+        assert_eq!(value["agent_id"], "dave");
+        assert_eq!(value["teams"], serde_json::json!(["alpha"]));
+        assert_eq!(
+            value["roles"],
+            serde_json::json!(["sysadmin", "auditor"])
+        );
+    }
+
+    /// An unregistered principal's `GetIdentity` returns JSON `null` (`None`) — NOT an
+    /// error, and NOT an object with empty fields. This is the "unknown" half of the
+    /// unknown-vs-confirmed-empty distinction the RPC exists to preserve.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_identity_returns_none_for_unregistered_principal() {
+        let state = state_min();
+        let r = dispatch_on_heap(
+            &state,
+            req_as(
+                1,
+                Some("root"),
+                Method::GetIdentity {
+                    agent_id: "nobody".into(),
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "GetIdentity: {:?}", r.error);
+        match r.result {
+            Some(ResultPayload::Json(value)) => assert!(
+                value.is_null(),
+                "unregistered principal must read back as JSON null, got {value:?}"
+            ),
+            other => panic!("expected ResultPayload::Json(null), got {other:?}"),
+        }
+    }
+
+    /// `GetIdentity` is gated `security:admin`, the same scope `RegisterIdentity`
+    /// already requires (CONCEPT:EG-P0-6) — a caller with no admin capability is
+    /// rejected exactly like an unprivileged `RegisterIdentity` caller is.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_identity_rejected_without_admin_capability() {
+        let state = state_min();
+        // "alice" (Agent role, no roles, no grants) is registered by `state_min()`.
+        let r = dispatch_on_heap(
+            &state,
+            req_as(
+                1,
+                Some("alice"),
+                Method::GetIdentity {
+                    agent_id: "alice".into(),
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_some(), "expected ACCESS_DENIED, got {:?}", r);
+        let msg = r.error.unwrap();
+        assert!(
+            msg.contains("ACCESS_DENIED") && msg.contains("admin capability"),
+            "unexpected denial message: {msg}"
         );
     }
 }
