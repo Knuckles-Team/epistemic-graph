@@ -4,9 +4,13 @@
 //! Read clauses (CONCEPT:EG-KG.query.eg-extend-read-side): a read query is a sequence of reading stages
 //! (`MATCH` / `OPTIONAL MATCH` / `WITH`) terminated by a `RETURN`. `WHERE` is a
 //! boolean expression tree (`OR`/`AND` + leaf tests `IN`/`STARTS WITH`/`CONTAINS`/
-//! `ENDS WITH`/`IS [NOT] NULL`/comparison). `RETURN`/`WITH` items support
-//! aggregation (`count`/`collect`/`sum`/`avg`/`min`/`max`), `DISTINCT`, `*`,
-//! `ORDER BY`, `SKIP` and `LIMIT`.
+//! `ENDS WITH`/`IS [NOT] NULL`/comparison). The three string-prefix tests
+//! (`STARTS WITH`/`ENDS WITH`/`CONTAINS`) take a literal OR a `$param` operand
+//! (CONCEPT:EG-KG.query.param-list-drives-unwind) — a `PropVal`, resolved against the
+//! live params+binding at evaluation time, exactly like an inline property map.
+//! `RETURN`/`WITH` items support aggregation (`count`/`collect`/`sum`/`avg`/`min`/
+//! `max`), the `type(r)` relationship-type accessor, the `labels(n)` node-label
+//! accessor, `DISTINCT`, `*`, `ORDER BY`, `SKIP` and `LIMIT`.
 //!
 //! Variable-length generalization (CONCEPT:EG-KG.query.concept-2): a pattern may combine fixed
 //! hops with a single variable-length hop, and bind a path variable (`p = (…)`).
@@ -224,12 +228,17 @@ pub enum Test {
     Cmp(CompareOp, Value),
     /// `IN [l1, l2, …]`.
     In(Vec<Value>),
-    /// `STARTS WITH 's'`.
-    StartsWith(String),
-    /// `ENDS WITH 's'`.
-    EndsWith(String),
-    /// `CONTAINS 's'`.
-    Contains(String),
+    /// `STARTS WITH 's'` / `STARTS WITH $param` — the right-hand operand resolves
+    /// through the same live params+binding path as an inline property map
+    /// (`resolve_prop_val`), so a parameterized prefix (the production shape,
+    /// `p.id STARTS WITH $prefix`) works exactly like everywhere else `PropVal`
+    /// is used in this grammar. `Ref` is accepted by the resolver but the parser
+    /// never emits it here (no `var.prop` operand support — out of scope).
+    StartsWith(PropVal),
+    /// `ENDS WITH 's'` / `ENDS WITH $param` — see [`Test::StartsWith`].
+    EndsWith(PropVal),
+    /// `CONTAINS 's'` / `CONTAINS $param` — see [`Test::StartsWith`].
+    Contains(PropVal),
     /// `IS NULL`.
     IsNull,
     /// `IS NOT NULL`.
@@ -285,6 +294,13 @@ pub enum Expr {
     /// property `rel_matches` matches on, so `type(r)` is never null for an
     /// edge a typed `-[:REL]->` pattern could have matched.
     RelType(String),
+    /// `labels(n)` — the node-label accessor over a bound node variable. Returns
+    /// a LIST (per Cypher semantics — never a bare string, never null): the
+    /// canonical `node_type` (if any) followed by the explicit multi-label
+    /// `labels` property array (if any), deduplicated, primary label first. A
+    /// node carrying neither field is unlabelled and returns `[]`, not null and
+    /// not an error.
+    Labels(String),
 }
 
 impl Expr {
@@ -303,6 +319,7 @@ impl Expr {
             Expr::CountStar => "count(*)".to_string(),
             Expr::Aggregate(f, a) => format!("{}({})", f.name(), a.text()),
             Expr::RelType(v) => format!("type({v})"),
+            Expr::Labels(v) => format!("labels({v})"),
         }
     }
 }
