@@ -187,6 +187,23 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
             ),
         },
     ),
+    "repro-diagnose.yml": WorkflowSpec(
+        filename="repro-diagnose.yml",
+        # Never release-blocking: workflow_dispatch-only, never triggered by
+        # push/pull_request, and not `needs:`-wired into release.yml's chain.
+        blocking=False,
+        executable_jobs=frozenset(),
+        job_skip_reasons={
+            "diagnose": (
+                "workflow_dispatch-only, windows-latest-only fast-loop diagnostic "
+                "for the windows-x86_64 release wheel reproducibility bug (builds a "
+                "slim maturin wheel twice and compares them) — needs the Windows "
+                "MSVC toolchain a local dev host does not have, same class of "
+                "native-toolchain limitation as release.yml's `build` job skip "
+                "reason above. Never runs on push/PR and never blocks a release."
+            ),
+        },
+    ),
     "advisory.yml": WorkflowSpec(
         filename="advisory.yml",
         blocking=False,
