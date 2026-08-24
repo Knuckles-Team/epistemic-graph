@@ -1,0 +1,144 @@
+name: Repro Diagnose (Windows wheel reproducibility)
+
+# ─────────────────────────────────────────────────────────────────────────
+# Manual-only diagnostic loop for the windows-x86_64-only release wheel
+# reproducibility failure (release.yml `build` job, "Require byte-identical
+# folded wheels"). linux-x86_64, linux-aarch64, and macos-aarch64 all
+# reproduce byte for byte under the identical build configuration; only
+# Windows does not, and the real release build (`--release --features
+# full,ast-extended`) takes ~40 minutes per leg -- too slow to iterate a
+# diagnosis against.
+#
+# The `gates` job in release.yml documents (and measured, 2026-08-22) that a
+# slim `maturin build --no-default-features --features server` produces a
+# byte-identically-SHAPED wheel in ~2.5 minutes. This workflow builds that
+# slim wheel TWICE on windows-latest, wiping CARGO_TARGET_DIR between passes
+# exactly the way release.yml's "Remove primary native build state" step
+# does, and runs the SAME diagnostic script release.yml's "Require
+# byte-identical folded wheels" step calls
+# (scripts/compare_wheel_reproducibility.py) against the pair -- turning an
+# 8-hour full-release diagnosis loop into minutes.
+#
+# This workflow can NEVER block a release and can NEVER run unattended: it is
+# workflow_dispatch-only, on windows-latest only. It must never gain a `push`
+# or `pull_request` trigger.
+#
+# Setup steps below (checkout / setup-python / Rust toolchain pin / rust
+# toolchain install / SOURCE_DATE_EPOCH / path remap) are copied EXACTLY from
+# release.yml's `build` job, pinned action SHAs included, because any
+# divergence there invalidates the whole experiment -- this must reproduce
+# the SAME build environment the real release leg uses, just with a faster
+# feature set.
+# ─────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  PYTHONDONTWRITEBYTECODE: "1"
+  CARGO_BUILD_JOBS: "1"
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  diagnose:
+    name: diagnose windows-x86_64 wheel reproducibility
+    runs-on: windows-latest
+    steps:
+      # ── Setup: copied EXACTLY from release.yml's `build` job. ──
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Read tracked Rust toolchain pin
+        id: rust-toolchain
+        shell: bash
+        run: >-
+          python -c "import os,re,tomllib;
+          channel=tomllib.load(open('rust-toolchain.toml','rb'))['toolchain']['channel'];
+          assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', channel);
+          open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8').write(f'channel={channel}\n')"
+
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+          targets: x86_64-pc-windows-msvc
+
+      - name: Bind build time to the source revision
+        shell: bash
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          case "$SOURCE_DATE_EPOCH" in
+            ''|*[!0-9]*) exit 1 ;;
+          esac
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
+
+      - name: Configure identity-neutral Rust source paths
+        shell: bash
+        run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target x86_64-pc-windows-msvc
+
+      # ── End of copied setup. Everything below is specific to this
+      #    fast-loop diagnostic (slim wheel, twice, compare). ──
+
+      - name: Install maturin
+        shell: bash
+        run: pip install 'maturin>=1,<2'
+
+      # Windows runners default every step to pwsh; every path-touching step
+      # here is explicit `shell: bash` so `$GITHUB_ENV`/env-var expansion and
+      # the Unix-style paths this repo's scripts assume behave the same way
+      # they do on the Linux/macOS release legs.
+      - name: Build primary slim wheel (windows-x86_64)
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-repro-diagnose-target
+        run: maturin build --no-default-features --features server --out dist-primary
+
+      # Mirrors release.yml's "Remove primary native build state" step
+      # byte-for-byte in intent: wipe ONLY the exact per-leg CARGO_TARGET_DIR
+      # this job set above, never anything else under RUNNER_TEMP.
+      - name: Remove primary native build state
+        shell: bash
+        run: >-
+          python -c "import os,shutil; from pathlib import Path;
+          root=Path(os.environ['RUNNER_TEMP']).resolve();
+          target=(root/'epistemic-graph-repro-diagnose-target').resolve();
+          assert target.parent==root and target.name=='epistemic-graph-repro-diagnose-target';
+          print('removing' if target.exists() else 'already absent:', target);
+          shutil.rmtree(target) if target.exists() else None"
+
+      - name: Build reproduction slim wheel (windows-x86_64)
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-repro-diagnose-target
+        run: maturin build --no-default-features --features server --out dist-reproduction
+
+      - name: Compare slim wheel reproducibility
+        shell: bash
+        run: python scripts/compare_wheel_reproducibility.py dist-primary dist-reproduction
+
+      # Uploaded unconditionally (even when the comparison step above fails)
+      # so both wheels can be pulled down and diffed locally.
+      - name: Upload primary wheel
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: repro-diagnose-dist-primary
+          path: dist-primary/*.whl
+          if-no-files-found: warn
+
+      - name: Upload reproduction wheel
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: repro-diagnose-dist-reproduction
+          path: dist-reproduction/*.whl
+          if-no-files-found: warn
