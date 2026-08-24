@@ -2204,6 +2204,13 @@ const REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE: &str =
     "src/server/handlers/query.rs's causal_estimate_wire/causal_counterfactual_wire/rank_by_provenance_wire (Method::CausalEstimate/CausalCounterfactual/RankByProvenance) build an ephemeral eg_epistemic::CausalGraph, or rank eg_epistemic::RetrievalCandidates, purely from the REQUEST's own variables/do_values/actual/candidates/weights fields -- these three handler arms never call core.analysis_snapshot() or reference state/core/GraphView at all (confirmed by reading each arm and its wire fn body), so there is no tenant-owned graph row in play to RLS-scope; the same posture as REASON_PURE_COMPUTE's finance/datascience primitives, just epistemic-causal's own request-scoped SCM/ranking inputs instead";
 // t1-grounding-0802 follow-up audit: `ClusterMembers` was added (ADR-1/W1.1
 // engine-authoritative cluster-topology discovery) without a classification here.
+// Auth-unification wave 1 (Workstream C): `GetIdentity` is the identity READ-BACK that
+// closes `RegisterIdentity`'s blind-upsert gap -- `RegisterIdentity` REPLACES a principal's
+// whole role set, so a merge-before-register caller must be able to read the current set
+// first (the production graph-os scheduler logged `existing_roles is unknown (None)` at every
+// boot precisely because no such RPC existed).
+const REASON_IDENTITY_STORE_ADMIN_GATED: &str =
+    "src/server/dispatch.rs's GetIdentity arm answers from IsolationLayer::get_identity -- a point read of the in-memory RBAC identity map (`agents: HashMap<String, AgentIdentity>`, crates/eg-core/src/isolation.rs), the SAME store RegisterIdentity writes and RbacAdmin governs. It is control-plane principal metadata (agent_id/role/teams/roles), not one resolved graph's rows: it never constructs a GraphView/GraphCore and never calls project_core/filter_view, so there is no per-node `_owner`/`_visibility`/`_grants` for RLS to filter on. Authority is the same `security:admin` authz_action the rest of the Zero-Trust Consensus family carries (crates/eg-capabilities/src/lib.rs), so it grants no visibility to any caller who could not already call RegisterIdentity/RbacAdmin against that identical store";
 const REASON_CLUSTER_TOPOLOGY_READ: &str =
     "src/server/handlers/topology.rs::handle_cluster_members answers from the durable NodeInfoStore + live MultiRaft membership (self-reported node/raft-group topology) -- not one resolved graph's rows, never touches core/GraphView/project_core. Gated by its own authz_action `cluster:topology-read` (crates/eg-capabilities/src/lib.rs), deliberately NOT kg:admin (REASON_CLUSTER_ADMIN_GATED) so ordinary service roles can re-resolve after a failover -- a distinct, weaker gate than the admin-only cluster methods above, so it gets its own reason rather than being folded into theirs";
 // BUG-044-class facade audit (push/eg-merge-artifacts): `QueryWorkItemReservation`/
@@ -2267,6 +2274,7 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("ReconcileCapacity", REASON_NATIVE_CAPACITY_TENANT_GATED),
     // REASON_CLUSTER_TOPOLOGY_READ
     ("ClusterMembers", REASON_CLUSTER_TOPOLOGY_READ),
+    ("GetIdentity", REASON_IDENTITY_STORE_ADMIN_GATED),
     // REASON_CHANNEL_MEMBERSHIP
     ("GetChannelMembers", REASON_CHANNEL_MEMBERSHIP),
     ("GetChannelMessages", REASON_CHANNEL_MEMBERSHIP),
