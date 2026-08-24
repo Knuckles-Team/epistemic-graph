@@ -6963,6 +6963,21 @@ class RaftAdminClient:
         )
 
 
+class AgentIdentity(TypedDict):
+    """Wire shape of ``Method::GetIdentity``'s ``Some(...)`` result — mirrors the
+    Rust ``eg_types::acl::AgentIdentity`` struct (``crates/eg-types/src/acl.rs:78-88``).
+
+    ``role`` is either the bare string ``"System"``/``"Agent"`` or the single-key
+    mapping ``{"Manager": {"subordinates": [...]}}`` — the same shape
+    :meth:`ConsensusClient.register_identity` accepts as input.
+    """
+
+    agent_id: str
+    role: str | dict[str, Any]
+    teams: list[str]
+    roles: list[str]
+
+
 class ConsensusClient:
     """CONCEPT:AU-KG.research.research-pipeline-runner — Zero-Trust Consensus Namespace"""
 
@@ -7054,6 +7069,44 @@ class ConsensusClient:
             [],
             signer_id=signer_id,
             signer_key=signer_key,
+        )
+
+    async def get_identity(self, agent_id: str) -> AgentIdentity | None:
+        """Read back ``agent_id``'s current identity — the read half of
+        :meth:`register_identity` (``Method::GetIdentity``, read-only,
+        ``authz_action: security:admin``).
+
+        Three, and only three, outcomes:
+
+        * ``agent_id`` has never been registered → returns ``None``.
+        * ``agent_id`` is registered but currently holds no RBAC roles →
+          returns an :class:`AgentIdentity` with ``roles: []`` (and possibly
+          ``teams: []``). This is a *confirmed empty* result, not an unknown
+          one, and callers (e.g. admission code merging ``existing_roles``
+          into a :meth:`register_identity` upsert) must not treat it as
+          equivalent to "not registered".
+        * The call itself fails (timeout, transport error, engine error,
+          malformed response) → raises, exactly like every other RPC on this
+          client. A failure is never translated into ``None`` — doing so
+          would recreate the ambiguity this RPC exists to remove.
+        """
+
+        if not isinstance(agent_id, str) or not agent_id.strip():
+            raise ValueError("agent_id must be a non-empty opaque identifier")
+        result = await self._client._send(
+            "GetIdentity",
+            {"agent_id": agent_id},
+            graph="__commons__",
+        )
+        if result is None:
+            return None
+        return cast(
+            AgentIdentity,
+            _exact_mapping(
+                "AgentIdentity",
+                result,
+                frozenset({"agent_id", "role", "teams", "roles"}),
+            ),
         )
 
     async def apply_multisig_mutation(
