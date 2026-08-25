@@ -502,6 +502,18 @@ impl IsolationLayer {
         })
     }
 
+    /// The durable identity/RBAC policy store this layer writes through to, when one
+    /// is bound (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
+    ///
+    /// Exposed so the online-backup path can bundle `rbac.redb`: redb takes an
+    /// exclusive per-file lock, so the backup cannot open the file itself and must be
+    /// handed this live handle. A bundle without it restores an engine with no roles,
+    /// grants or registered identities at all.
+    #[cfg(feature = "security")]
+    pub fn policy_store(&self) -> Option<std::sync::Arc<dyn crate::rbac_persist::RbacPolicyStore>> {
+        self.persist.clone()
+    }
+
     /// Write through the FULL RBAC state (policy + identities) to the configured
     /// store. Absence is an invalid internal state. Secure request handlers
     /// use the fallible `try_*` mutation methods below and roll in-memory state

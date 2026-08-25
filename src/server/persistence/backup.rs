@@ -44,9 +44,26 @@
 //! * `admin-mutations.redb` — the portable local projection of placement-group
 //!   consensus: admin coordinator receipts, fences, child outbox rows and
 //!   authenticated encrypted plans for prepared parents.
+//! * the NON-SHARD durable stores a restore is incomplete without — `rbac.redb`
+//!   (roles, grants, registered identities, bootstrap lifecycle), `kv.redb`,
+//!   `node_info.redb` and `catalog.redb`. See [`super::durable_stores`].
 //! * `MANIFEST.json` — [`BackupManifest`]: format version, engine version, shard count K,
 //!   caller-supplied timestamp, opaque label reference, aggregate-only copied row totals,
-//!   and exact portable-file digests.
+//!   exact portable-file digests, the `bundled_stores` inventory, and the
+//!   `excluded_stores` map naming every durable store this bundle deliberately does NOT
+//!   carry, WITH ITS REASON.
+//!
+//! ## Scope is declared, never implied (BUG-PE-054)
+//!
+//! Before this the bundle held graph shards + `admin-mutations.redb` and NOTHING else,
+//! while the manifest described only what it had captured. A restore therefore came up
+//! with no RBAC/identity state at all — a backup that silently cannot restore identity
+//! is worse than no backup, because it is trusted. redb's exclusive per-file lock means
+//! this module can never simply open a sibling store, so the two halves of the fix are:
+//! the caller hands in the live handles it owns ([`super::durable_stores::BundledStoreSource`]),
+//! and everything still left out is NAMED IN THE MANIFEST with the reason it was left
+//! out. `durable_stores`' `registry_covers_every_redb_store` test is what stops a future
+//! `.redb` from being silently forgotten again.
 //!
 //! ## Restore — verbatim import, re-shard-on-restore
 //!
@@ -195,6 +212,9 @@ pub struct BackupReport {
     pub xshard_prepares: u64,
     pub xshard_decisions: u64,
     pub admin_mutations: eg_mutation_store::RecoveryStoreCounts,
+    /// Non-shard durable stores copied into the bundle, as `file name → rows copied`
+    /// (CONCEPT:EG-KG.sharding.reshard-on-restore).
+    pub bundled_stores: BTreeMap<String, u64>,
     /// Stable, non-secret encryption key identity captured from the live store.
     /// Material is never included in a report or bundle manifest.
     pub encryption_key_id: Option<String>,
@@ -262,6 +282,19 @@ pub struct BackupManifest {
     pub encryption_key_id: Option<String>,
     #[serde(default)]
     pub encryption_key_version: Option<String>,
+    /// Non-shard durable stores captured in this bundle, as `file name → rows copied`.
+    /// EMPTY on a bundle written before the scope was declared — such a bundle carries
+    /// graph shards and coordinator receipts ONLY, and a restore from it comes up with
+    /// no RBAC/identity, KV, cluster-topology or placement-catalog state.
+    #[serde(default)]
+    pub bundled_stores: BTreeMap<String, u64>,
+    /// Durable stores this bundle deliberately does NOT capture, as
+    /// `file name → reason` (from
+    /// [`durable_stores::DURABLE_STORES`](super::durable_stores::DURABLE_STORES)).
+    /// A bundle that documents its own scope cannot silently mislead an operator into
+    /// trusting a restore it was never able to perform.
+    #[serde(default)]
+    pub excluded_stores: BTreeMap<String, String>,
     /// Exact SHA-256 for every portable graph shard and coordinator store.
     /// Keys are bundle-local generic file names, never host paths.
     pub file_digests: BTreeMap<String, String>,
@@ -275,6 +308,8 @@ impl BackupManifest {
         label: &str,
         file_digests: BTreeMap<String, String>,
     ) -> Self {
+        let bundled_stores = report.bundled_stores.clone();
+        let excluded_stores = super::durable_stores::excluded_store_reasons();
         Self {
             format_version: BUNDLE_FORMAT_VERSION,
             engine_version: engine_version.to_string(),
@@ -294,6 +329,8 @@ impl BackupManifest {
             admin_mutations: report.admin_mutations,
             encryption_key_id: report.encryption_key_id.clone(),
             encryption_key_version: report.encryption_key_version.clone(),
+            bundled_stores,
+            excluded_stores,
             file_digests,
         }
     }
@@ -341,9 +378,13 @@ fn file_sha256(path: &Path) -> Result<String, String> {
 fn portable_file_digests(
     dir: &Path,
     shard_files: &[std::path::PathBuf],
+    bundled_stores: &BTreeMap<String, u64>,
 ) -> Result<BTreeMap<String, String>, String> {
     let mut files = shard_files.to_vec();
     files.push(dir.join(ADMIN_MUTATIONS_FILE));
+    for name in bundled_stores.keys() {
+        files.push(dir.join(name));
+    }
     let mut digests = BTreeMap::new();
     for path in files {
         let metadata = std::fs::symlink_metadata(&path)
@@ -610,7 +651,7 @@ pub(crate) fn write_manifest(
     if shard_files.len() != report.shards {
         return Err("backup shard-file count changed before publication".to_string());
     }
-    let file_digests = portable_file_digests(dir, &shard_files)?;
+    let file_digests = portable_file_digests(dir, &shard_files, &report.bundled_stores)?;
     let manifest =
         BackupManifest::from_report(report, engine_version, timestamp, label, file_digests);
     let json = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
@@ -684,13 +725,29 @@ pub fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
         (None, None) => {}
         _ => return Err("backup manifest encryption key reference is invalid".to_string()),
     }
-    if manifest.file_digests.len() != manifest.shard_count + 1
+    if manifest.file_digests.len() != manifest.shard_count + 1 + manifest.bundled_stores.len()
         || manifest
             .file_digests
             .values()
             .any(|digest| !is_sha256_ref(digest))
     {
         return Err("backup manifest file digest inventory is invalid".to_string());
+    }
+    // Every declared bundled store must be a KNOWN durable store, and must not also be
+    // declared excluded — otherwise the manifest describes a scope it does not have.
+    for name in manifest.bundled_stores.keys() {
+        match super::durable_stores::lookup(name) {
+            Some(store)
+                if matches!(store.scope, super::durable_stores::BackupScope::Bundled) => {}
+            _ => {
+                return Err(
+                    "backup manifest declares a store this build does not bundle".to_string()
+                )
+            }
+        }
+        if manifest.excluded_stores.contains_key(name) {
+            return Err("backup manifest declares a store both bundled and excluded".to_string());
+        }
     }
     let shard_files = crate::redb_layout::discover_current_shards(dir)?;
     if shard_files.len() != manifest.shard_count {
@@ -714,7 +771,7 @@ pub fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
         return Err("admin mutation coordinator totals do not match the manifest".to_string());
     }
     drop(admin);
-    let actual_digests = portable_file_digests(dir, &shard_files)?;
+    let actual_digests = portable_file_digests(dir, &shard_files, &manifest.bundled_stores)?;
     if actual_digests != manifest.file_digests {
         return Err("backup portable-file digests do not match the manifest".to_string());
     }
@@ -733,6 +790,8 @@ pub struct RestoreReport {
     pub migration: shard_migrate::MigrationReport,
     /// Validated coordinator receipts and encrypted staged recovery plans.
     pub admin_mutations: eg_mutation_store::RecoveryStoreCounts,
+    /// Non-shard durable store files copied back into the persist dir.
+    pub restored_stores: Vec<String>,
 }
 
 /// Rebuild a persist-dir from a backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore). Validates the manifest,
@@ -813,11 +872,24 @@ pub fn restore_bundle(
     if admin_mutations != manifest.admin_mutations {
         return Err("restored admin mutation coordinator totals changed".to_string());
     }
+    // Restore every non-shard durable store the bundle carried. Without this an engine
+    // rebuilt from a bundle comes up with no RBAC/identity state at all — the failure
+    // this whole scope declaration exists to make impossible.
+    let mut restored_stores = Vec::new();
+    for name in manifest.bundled_stores.keys() {
+        let target = persist_dir.join(name);
+        if target.exists() {
+            return Err("restore target already contains a bundled durable store".to_string());
+        }
+        std::fs::copy(bundle_dir.join(name), &target).map_err(|error| error.to_string())?;
+        restored_stores.push(name.clone());
+    }
     Ok(RestoreReport {
         manifest,
         restored_shards: k,
         migration,
         admin_mutations,
+        restored_stores,
     })
 }
 
@@ -941,7 +1013,7 @@ mod tests {
             .expect("reopen");
         assert_eq!(backend.shard_count(), 3);
         let report = backend
-            .backup(&bundle, "test-engine", 1_700_000_000, "nightly")
+            .backup(&bundle, "test-engine", 1_700_000_000, "nightly", &[])
             .expect("backup");
         assert_eq!(report.shards, 3);
         assert_eq!(report.graphs, graphs.len() as u64);
@@ -1036,7 +1108,7 @@ mod tests {
         let backend = RedbBackend::open_with_shards(src_s.clone(), DurabilityPolicy::Each, 256, 1)
             .expect("reopen");
         let report = backend
-            .backup(&bundle, "test-engine", 42, "")
+            .backup(&bundle, "test-engine", 42, "", &[])
             .expect("backup");
         assert_eq!(report.shards, 1);
         assert!(bundle.join("graph-0.redb").exists(), "K=1 bundle file");
@@ -1058,6 +1130,157 @@ mod tests {
             );
         }
         rb.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// BUG-PE-054 — the DR round trip must carry IDENTITY state.
+    ///
+    /// The bundle used to hold graph shards + `admin-mutations.redb` only, so a restore
+    /// came up with no RBAC/identity, KV, cluster-topology or placement-catalog state —
+    /// silently, from a manifest that said nothing about its own scope. This proves the
+    /// non-shard durable stores survive the round trip, and that the manifest declares
+    /// both what it captured and what it deliberately did not.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn backup_restore_carries_non_shard_durable_stores() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let root = std::env::temp_dir().join(format!("eg-backup-sib-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let src = root.join("live");
+        let bundle = root.join("bundle");
+        let restored = root.join("restored");
+        std::fs::create_dir_all(&src).unwrap();
+        let src_s = src.to_string_lossy().to_string();
+
+        seed(&src_s, 1, &["alpha"]).await;
+
+        // Durable RBAC/identity state beside the shards — the omission that mattered.
+        let identity = eg_core::acl::AgentIdentity {
+            agent_id: "restore-probe".to_string(),
+            role: eg_core::acl::AgentRole::Agent,
+            teams: Vec::new(),
+            roles: vec!["reader".to_string()],
+        };
+        let rbac = eg_core::rbac_persist::RbacStore::open(&src).expect("open rbac store");
+        let mut identities = std::collections::BTreeMap::new();
+        identities.insert(identity.agent_id.clone(), identity);
+        rbac.save(
+            &eg_core::rbac::RbacPolicy::new(),
+            &identities,
+            eg_core::rbac_persist::IdentityBootstrapState::Consumed,
+        )
+        .expect("persist identity");
+
+        let kv = crate::server::kv::KvStore::open(Some(&src_s)).expect("open kv");
+        kv.put("probe", "key", b"value".to_vec()).expect("kv put");
+
+        let backend = RedbBackend::open_with_shards(src_s.clone(), DurabilityPolicy::Each, 256, 1)
+            .expect("reopen");
+        // Exactly the adapter the production admin handler hands in.
+        let rbac_source = super::super::durable_stores::RbacBundledStore(std::sync::Arc::new(rbac));
+        let extra: Vec<&dyn super::super::durable_stores::BundledStoreSource> =
+            vec![&rbac_source, &kv];
+        let report = backend
+            .backup(&bundle, "test-engine", 7, "sibling", &extra)
+            .expect("backup");
+        backend.shutdown();
+        drop(rbac_source);
+        drop(kv);
+
+        assert!(
+            report.bundled_stores.contains_key("rbac.redb"),
+            "rbac.redb bundled, got {:?}",
+            report.bundled_stores
+        );
+        assert!(
+            report.bundled_stores.contains_key("kv.redb"),
+            "kv.redb bundled, got {:?}",
+            report.bundled_stores
+        );
+        assert!(
+            report.bundled_stores.contains_key("node_info.redb"),
+            "node_info.redb bundled, got {:?}",
+            report.bundled_stores
+        );
+
+        let manifest = read_manifest(&bundle).expect("manifest validates");
+        assert_eq!(manifest.bundled_stores, report.bundled_stores);
+        // Self-describing: every deliberately-excluded store is named WITH its reason.
+        for (name, reason) in &manifest.excluded_stores {
+            assert!(!reason.is_empty(), "{name} excluded with no reason");
+        }
+        assert!(
+            manifest.excluded_stores.contains_key("blob.redb"),
+            "the manifest must state that blob bytes are not captured"
+        );
+
+        let restore = restore_bundle(&bundle, &restored, 1).expect("restore");
+        for expected in ["rbac.redb", "kv.redb", "node_info.redb"] {
+            assert!(
+                restore.restored_stores.contains(&expected.to_string()),
+                "{expected} restored, got {:?}",
+                restore.restored_stores
+            );
+        }
+        // The restored engine knows the identity again — the whole point of BUG-PE-054.
+        let restored_rbac =
+            eg_core::rbac_persist::RbacStore::open(&restored).expect("reopen restored rbac");
+        let (_, restored_identities, bootstrap) = restored_rbac.load().expect("load identities");
+        assert!(
+            restored_identities.contains_key("restore-probe"),
+            "registered identity survived the round trip, got {:?}",
+            restored_identities.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            bootstrap,
+            eg_core::rbac_persist::IdentityBootstrapState::Consumed,
+            "identity bootstrap lifecycle survived the round trip"
+        );
+        drop(restored_rbac);
+        // The restored KV surface answers the write taken before the backup.
+        let restored_s = restored.to_string_lossy().to_string();
+        let restored_kv = crate::server::kv::KvStore::open(Some(&restored_s)).expect("open kv");
+        assert_eq!(
+            restored_kv.get("probe", "key").expect("kv get").as_deref(),
+            Some(&b"value"[..]),
+            "KV row survived the round trip"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// BUG-PE-054 — an unregistered durable store cannot be smuggled into a bundle.
+    /// The registry is the single list; anything else must fail loudly at backup time.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn backup_refuses_an_unregistered_bundled_store() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        struct Bogus;
+        impl super::super::durable_stores::BundledStoreSource for Bogus {
+            fn file_name(&self) -> &'static str {
+                "not-in-the-registry.redb"
+            }
+            fn copy_into(&self, _destination: &Path) -> Result<u64, String> {
+                panic!("must never be copied");
+            }
+        }
+        let root = std::env::temp_dir().join(format!("eg-backup-bogus-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let src = root.join("live");
+        std::fs::create_dir_all(&src).unwrap();
+        let src_s = src.to_string_lossy().to_string();
+        seed(&src_s, 1, &["alpha"]).await;
+        let backend = RedbBackend::open_with_shards(src_s.clone(), DurabilityPolicy::Each, 256, 1)
+            .expect("reopen");
+        let bogus = Bogus;
+        let extra: Vec<&dyn super::super::durable_stores::BundledStoreSource> = vec![&bogus];
+        let error = backend
+            .backup(&root.join("bundle"), "test-engine", 7, "", &extra)
+            .expect_err("unregistered store must be refused");
+        assert!(
+            error.contains("not a registered bundled durable store"),
+            "got: {error}"
+        );
+        backend.shutdown();
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1086,6 +1309,8 @@ mod tests {
             "auxiliary": 0, "global": 0,
             "xshard_prepares": 0, "xshard_decisions": 0,
             "admin_mutations": eg_mutation_store::RecoveryStoreCounts::default(),
+            "bundled_stores": {},
+            "excluded_stores": {},
             "file_digests": {},
         });
         std::fs::write(dir.join(MANIFEST_FILE), serde_json::to_vec(&m).unwrap()).unwrap();

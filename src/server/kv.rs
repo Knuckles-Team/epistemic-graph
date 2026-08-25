@@ -1101,3 +1101,45 @@ mod dispatch_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// Bundle the durable namespaced KV surface (CONCEPT:EG-KG.backend.networked-shared-kv) into
+/// an online backup.
+///
+/// `kv.redb` holds real acknowledged user writes (`KvPut`/`KvCas`) and the fleet-shared
+/// KV-cache blocks, in its OWN durability domain off the graph shards. It was omitted
+/// from every bundle before this, so a restore silently came up with an empty KV surface.
+#[cfg(feature = "redb")]
+impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore {
+    fn file_name(&self) -> &'static str {
+        "kv.redb"
+    }
+
+    fn copy_into(&self, destination: &std::path::Path) -> Result<u64, String> {
+        let Backend::Redb(source) = &self.backend else {
+            return Err("KV store is in-memory; nothing to bundle".to_string());
+        };
+        let rtx = source.begin_read().map_err(|e| e.to_string())?;
+        let target =
+            crate::server::persistence::durable_stores::create_bundle_file(destination)?;
+        let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
+        wtx.set_durability(Durability::Immediate)
+            .map_err(|e| e.to_string())?;
+        let mut rows = 0u64;
+        crate::copy_bundled_table!(rtx, wtx, rows, KV);
+        // The KV domain's own MutationBatch bookkeeping lives in the SAME file; copy it
+        // so a restored store keeps its idempotency/OCC/fence boundary rather than
+        // re-admitting an already-acknowledged write.
+        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::BATCHES);
+        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::IDEMPOTENCY);
+        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::VERSIONS);
+        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::FENCES);
+        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::OUTBOX);
+        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::PRIVATE_PAYLOADS);
+        wtx.commit().map_err(|e| e.to_string())?;
+        Ok(rows)
+    }
+
+    fn is_durable(&self) -> bool {
+        KvStore::is_durable(self)
+    }
+}
