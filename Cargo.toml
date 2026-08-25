@@ -1216,7 +1216,25 @@ cluster = ["full", "raft", "compute-dist", "nonblocking", "matview"]
 # `default`/`full`/`cluster` — the scale-out build's no-pyo3-engine gate
 # (`scripts/check_no_pyo3.sh`) only allows this to compile when a caller
 # explicitly opts in here.
-pyo3-engine = ["dep:eg-pyengine", "eg-pyengine/python"]
+#
+# `eg-pyengine/security` is folded in here (unlike the 15 Wave-1 DOMAIN
+# features `crates/eg-pyengine/Cargo.toml` pre-adds, EG-PYENGINE-PLAN.md §4.5)
+# because per-agent RLS is Wave 0's own proven-end-to-end contract
+# (`crates/eg-pyengine/src/authority.rs`), not a domain a later lane owns, and
+# it is cheap: it only forwards to `eg-core/security`, which `full` (hence
+# `default`) already links today, so it adds no NEW dependency to a build that
+# also has `full`/`default` on. The 15 domain features are DELIBERATELY left
+# off this line for now — each pulls a real, sometimes heavy, dependency
+# (DataFusion/Arrow via `eg-query`'s `sql` feature, `wasmtime` via `eg-wasm`,
+# `oxrdf`/`oxttl` via `eg-rdf`, ...) that Wave 0's stub domain files
+# (`crates/eg-pyengine/src/<domain>.rs`) do not yet call at all — turning them
+# on here today would only inflate `pyo3-engine`'s build without exercising
+# anything. Each Wave-1 domain lane adds its OWN `eg-pyengine/<domain>` name
+# to this line as a single-line append once its domain methods actually call
+# that dependency (`EG-PYENGINE-PLAN.md` §4.5's own stated default —
+# "all domains implemented so far are on" — deferred to be decided AS they
+# are implemented, not before, since none is implemented yet at Wave 0).
+pyo3-engine = ["dep:eg-pyengine", "eg-pyengine/python", "eg-pyengine/security"]
 
 # ── Quantum as a governed epistemic-graph capability (D-QN-1, lane
 # w0-eg-quantum-contracts, Q0 contracts) ──

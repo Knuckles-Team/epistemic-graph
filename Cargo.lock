@@ -2762,9 +2762,19 @@ dependencies = [
 name = "eg-pyengine"
 version = "0.1.0"
 dependencies = [
+ "eg-compute",
  "eg-core",
+ "eg-jobs",
+ "eg-plan",
+ "eg-query",
+ "eg-rdf",
+ "eg-statechart",
+ "eg-tsdb",
+ "eg-wasm",
  "parking_lot",
  "pyo3",
+ "rmp-serde",
+ "serde_json",
 ]
 
 [[package]]
