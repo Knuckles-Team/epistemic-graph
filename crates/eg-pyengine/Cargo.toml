@@ -26,6 +26,70 @@ default = []
 # pyo3), same shape.
 python = ["dep:pyo3"]
 
+# Engine-level per-agent Row-Level Security (`crates/eg-pyengine/src/authority.rs`,
+# EG-PYENGINE-PLAN.md §4.3) -- forwards to eg-core's own `security` feature, which
+# gates `IsolationLayer::filter_view`/`can_see_row`/`RowVisibility` there (without
+# it, `EmbeddedAuthority::can_see_properties` compiles to an unconditional `true`,
+# matching `server::access::GraphReadAuthority`'s own `#[cfg(not(feature =
+# "security"))]` behavior). Independent of `python` -- a pure-Rust `cargo test
+# --features security` exercises authority.rs's own RLS unit tests with no pyo3 at
+# all. NOT folded into `pyo3-engine` below yet; see that root feature's own comment.
+security = ["eg-core/security"]
+
+# ---------------------------------------------------------------------------
+# Wave-1 domain features (EG-PYENGINE-PLAN.md §4.5), pre-added here in ONE Wave-0
+# commit so no later lane ever edits this file again -- it only appends its OWN
+# single feature line if it discovers a genuinely new need. Names mirror root
+# Cargo.toml's own domain feature names 1:1 (Cargo.toml:186-990) so a reviewer can
+# diff the two lists and see the same domain set. Each domain's stub file
+# (`crates/eg-pyengine/src/<domain>.rs`) does not itself require its feature to
+# compile (the stub holds no domain-crate calls yet) -- these are dependency/feature
+# SEAMS for that lane's real implementation, not something Wave 0 exercises.
+#
+# Every crate named below sits BELOW the facade in the workspace DAG (deps on
+# eg-core/eg-types only, confirmed by reading each crate's own Cargo.toml this
+# session) -- none of them re-introduces the facade-dependency cycle `eg-pyengine`
+# already cannot take.
+#
+# Two of the fifteen names below (`blob`, `streaming`) are markers with NO new
+# dependency: the facade's own `blob`/`streaming` features
+# (`Cargo.toml:171,513`) require `server` (Tokio) because the actual redb-backed
+# blob store (`src/server/blob.rs`) and CDC plumbing live in the FACADE, not
+# eg-core -- unreachable from this crate for the same DAG reason authority.rs's own
+# doc comment explains for `access.rs`. `streaming`'s one exception:
+# `GraphCore::changes()` (`eg-core/src/graph.rs:3099`, `ChangeNotifier`) IS already
+# reachable unconditionally through the existing `eg-core` dependency, so
+# `streaming`'s Wave-1 lane has a real starting point despite no NEW dependency
+# being needed for it. `blob`'s Wave-1 lane has no eg-core-level durable store to
+# call at all yet -- flagged here explicitly, per the plan's own instruction, for
+# that lane to review rather than silently discover.
+finance = ["dep:eg-compute", "eg-compute/finance"]
+datascience = ["dep:eg-compute", "eg-compute/datascience"]
+mining = ["dep:eg-compute", "eg-compute/mining"]
+graphlearn = ["datascience", "dep:eg-compute", "eg-compute/graphlearn"]
+ml-pipeline = ["mining", "datascience", "graphlearn"]
+reasoning = ["dep:eg-compute", "eg-compute/reasoning"]
+# `query.rs` (the facade handler this mirrors) calls BOTH eg_query (classify/exec_sql/
+# exec_cypher) and eg_plan (Op/Plan/uql::parse, the unified-query-text surface) --
+# confirmed by grep, `src/server/handlers/query.rs`. `cypher` is eg-query alone (no
+# eg-plan), matching root Cargo.toml:432's own narrower composition.
+query = ["dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query"]
+cypher = ["dep:eg-query", "eg-query/cypher"]
+tsdb = ["dep:eg-tsdb", "eg-tsdb/redb-store"]
+streaming = []
+wasm-udf = ["dep:eg-wasm", "eg-wasm/wasm-udf"]
+rdf = ["dep:eg-rdf", "eg-rdf/rdf"]
+blob = []
+# `jobs.rs` also calls `eg_compute::mining` (association-rule mining as a job kind)
+# -- confirmed by grep -- so `jobs` pulls `mining` here too, matching root
+# Cargo.toml:212's own `jobs = ["server", "mining", "epistemic", ...]` composition
+# (minus `epistemic`, which nothing in this crate's five prototype methods or any
+# of the 25 domain stubs calls yet -- not added on spec, per the crates.io-only /
+# "no dependency you cannot prove is needed" edict; the `jobs` Wave-1 lane appends
+# it as its own single feature line if its real implementation needs it).
+jobs = ["mining", "dep:eg-jobs"]
+statechart = ["dep:eg-statechart"]
+
 [dependencies]
 # The engine core this binding embeds directly -- the SAME `GraphCore`/
 # `GraphRegistry` the out-of-process Tokio server dispatches against
@@ -43,3 +107,29 @@ parking_lot = "0.12"
 # Surface (Python) only, feature `python`. abi3-py39 matches eg-numeric's floor so
 # both extensions target the same minimum stable ABI.
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
+
+# ---------------------------------------------------------------------------
+# Wave-1 domain crates, ALL optional (path deps only, crates.io-only edict --
+# every one of these is already an in-tree workspace member, no new external crate).
+# Gated by the matching feature above; a bare `cargo build -p eg-pyengine` (or
+# `--features python` alone) links NONE of them.
+# ---------------------------------------------------------------------------
+eg-compute = { path = "../eg-compute", optional = true }
+eg-query = { path = "../eg-query", optional = true }
+eg-plan = { path = "../eg-plan", optional = true }
+eg-tsdb = { path = "../eg-tsdb", optional = true }
+eg-rdf = { path = "../eg-rdf", optional = true }
+eg-jobs = { path = "../eg-jobs", optional = true }
+eg-statechart = { path = "../eg-statechart", optional = true }
+eg-wasm = { path = "../eg-wasm", optional = true }
+
+[dev-dependencies]
+# Test-only: `authority.rs`'s `per_call_override_lets_two_principals_share_one_authority`
+# test builds a real msgpack RLS-tagged property blob (`_owner`/`_visibility`) to
+# exercise `IsolationLayer::can_see_row` end to end, mirroring the exact encoding
+# `crates/eg-core/src/isolation.rs:356-378`'s own `stamp_owner_id_if_absent` produces
+# (`rmp_serde::to_vec_named`) -- both crates are already regular (non-dev) deps of
+# `eg-core`, which this crate depends on unconditionally, so this adds no NEW crate to
+# the workspace's dependency set, only a dev-only edge from this one.
+serde_json = "1.0"
+rmp-serde = "1.3"

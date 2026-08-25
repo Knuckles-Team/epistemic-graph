@@ -13,6 +13,12 @@ from scripts.push_gate_evidence import (
     SUBSET_PROOFS,
     _digest,
 )
+import pytest
+
+# Pure/static test -- never needs the shared native engine (see
+# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# which this marker exempts this module from triggering).
+pytestmark = pytest.mark.no_engine
 
 
 def _success(selection: Selection) -> dict[str, object]:

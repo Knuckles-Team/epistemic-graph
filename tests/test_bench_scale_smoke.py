@@ -12,6 +12,12 @@ import sys
 
 import pytest
 
+# The scale harness (scripts/bench_scale.py) manages its OWN server subprocess
+# and skips itself when no binary is built -- it never uses conftest.py's
+# session-scoped `start_epistemic_graph_server` fixture, so this module
+# should not trigger it either.
+pytestmark = pytest.mark.no_engine
+
 _BENCH_PATH = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "bench_scale.py"
 
 

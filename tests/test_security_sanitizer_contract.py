@@ -3,6 +3,12 @@
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
+import pytest
+
+# Pure/static test -- never needs the shared native engine (see
+# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# which this marker exempts this module from triggering).
+pytestmark = pytest.mark.no_engine
 
 ROOT = Path(__file__).resolve().parents[1]
 

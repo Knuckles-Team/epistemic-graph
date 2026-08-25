@@ -20,6 +20,11 @@ from conftest import request_context
 
 from epistemic_graph.pool import ConnectionPool, ShardRouter, _auto_pool_size
 
+# Fake-client unit tests only -- never needs the shared native engine (see
+# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# which this marker exempts this module from triggering).
+pytestmark = pytest.mark.no_engine
+
 
 class WorkMockServer:
     """Echo server that simulates per-request work and tracks concurrency.

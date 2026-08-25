@@ -8,6 +8,11 @@ from pathlib import Path
 
 import pytest
 
+# Pure/static test -- never needs the shared native engine (see
+# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# which this marker exempts this module from triggering).
+pytestmark = pytest.mark.no_engine
+
 
 def _gate_module():
     root = Path(__file__).resolve().parents[1]
