@@ -170,10 +170,37 @@ def path_remaps(
     return tuple(sorted(unique.values(), key=lambda item: (-len(item[0]), item[0])))
 
 
+# MSVC `link.exe` stamps a wall-clock `TimeDateStamp` into the PE header and a
+# freshly-generated GUID into the CodeView debug directory on EVERY link, so two
+# byte-identical inputs still produce two different binaries. `/Brepro` makes both
+# content-derived instead, which is what the release workflow's
+# "Require byte-identical folded wheels" step needs on the windows-x86_64 leg.
+# `strip = true` does NOT cover this: it removes symbols, not the PE timestamp.
+# Emitted ONLY for the MSVC target -- these are `link.exe` switches and would be
+# rejected by `ld`/`lld` on the Linux and macOS legs.
+_MSVC_TARGET = "x86_64-pc-windows-msvc"
+_MSVC_DETERMINISTIC_LINK_FLAGS: tuple[str, ...] = ("-Clink-arg=/Brepro",)
+
+
+def _deterministic_link_flags(target: str | None) -> tuple[str, ...]:
+    """Linker flags required for a byte-reproducible link on `target`.
+
+    Only MSVC needs one today; every other target this fleet builds already
+    links reproducibly under the existing `SOURCE_DATE_EPOCH` +
+    `--remap-path-prefix` + `codegen-units = 1` configuration (proven by the
+    linux-x86_64/linux-aarch64/macos-aarch64 legs passing the same gate).
+    """
+
+    if target == _MSVC_TARGET:
+        return _MSVC_DETERMINISTIC_LINK_FLAGS
+    return ()
+
+
 def encoded_rustflags(
     environ: Mapping[str, str] | None = None,
     *,
     checkout: str | PurePath | None = None,
+    target: str | None = None,
 ) -> tuple[str, int, int]:
     """Return encoded flags plus preserved/remap counts for safe reporting."""
 
@@ -184,7 +211,14 @@ def encoded_rustflags(
         for source, replacement in path_remaps(env, checkout=checkout)
         if not _already_remapped(existing, source)
     ]
-    return UNIT_SEPARATOR.join([*existing, *remaps]), len(existing), len(remaps)
+    link = [
+        flag for flag in _deterministic_link_flags(target) if flag not in existing
+    ]
+    return (
+        UNIT_SEPARATOR.join([*existing, *remaps, *link]),
+        len(existing),
+        len(remaps),
+    )
 
 
 # Compiler-invocation env var that governs each *FLAGS variable, mirroring the
@@ -383,7 +417,9 @@ def write_github_environment(
 ) -> tuple[int, int]:
     """Append the encoded flags to GitHub Actions' per-step environment file."""
 
-    encoded, preserved, remaps = encoded_rustflags(environ, checkout=checkout)
+    encoded, preserved, remaps = encoded_rustflags(
+        environ, checkout=checkout, target=target
+    )
     env = os.environ if environ is None else environ
     cflags_var = _scoped_flags_variable("CFLAGS", target)
     cxxflags_var = _scoped_flags_variable("CXXFLAGS", target)
