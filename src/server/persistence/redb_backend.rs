@@ -1696,12 +1696,21 @@ impl RedbBackend {
     /// `engine_version` / `timestamp_secs` / `label` are CALLER-SUPPLIED — this library
     /// never reads the wall clock. `dst_dir` is created if absent and must not already
     /// hold bundle shard files (it refuses to overwrite).
+    ///
+    /// `extra_stores` carries the durable stores this backend does NOT own but that a
+    /// restore is incomplete without — `rbac.redb` (identity/RBAC) and `kv.redb`. redb
+    /// takes an exclusive per-file lock, so this path cannot open them itself; the
+    /// caller (which holds the live `ServerState`) hands in the live handles. The
+    /// stores this backend DOES own (`node_info.redb`, `catalog.redb`) are added here.
+    /// Every bundled store is declared in the manifest, as is every store deliberately
+    /// left out — see [`super::durable_stores`].
     pub fn backup(
         &self,
         dst_dir: &std::path::Path,
         engine_version: &str,
         timestamp_secs: u64,
         label: &str,
+        extra_stores: &[&dyn super::durable_stores::BundledStoreSource],
     ) -> Result<super::backup::BackupReport, String> {
         use super::backup;
         std::fs::create_dir_all(dst_dir).map_err(|e| e.to_string())?;
@@ -1759,6 +1768,33 @@ impl RedbBackend {
             &self.admin_mutations,
             &dst_dir.join(backup::ADMIN_MUTATIONS_FILE),
         )?;
+        // Non-shard durable stores: the ones this backend owns, then the ones handed in.
+        let node_info = self.node_info();
+        let catalog = self.catalog.clone();
+        let mut owned: Vec<&dyn super::durable_stores::BundledStoreSource> =
+            vec![node_info.as_ref()];
+        if let Some(catalog) = catalog.as_deref() {
+            owned.push(catalog);
+        }
+        for store in owned.into_iter().chain(extra_stores.iter().copied()) {
+            if !store.is_durable() {
+                continue;
+            }
+            let name = store.file_name();
+            match super::durable_stores::lookup(name).map(|entry| entry.scope) {
+                Some(super::durable_stores::BackupScope::Bundled) => {}
+                _ => {
+                    return Err(format!(
+                        "{name} is not a registered bundled durable store; declare it in                          durable_stores::DURABLE_STORES before backing it up"
+                    ))
+                }
+            }
+            if report.bundled_stores.contains_key(name) {
+                return Err(format!("duplicate bundled durable store {name}"));
+            }
+            let rows = store.copy_into(&dst_dir.join(name))?;
+            report.bundled_stores.insert(name.to_string(), rows);
+        }
         let admin_boundary_after =
             eg_mutation_store::recovery_store_fingerprint(&self.admin_mutations)?;
         let xshard_boundary_after = backup::xshard_recovery_fingerprint(&shard0)?;
@@ -1772,9 +1808,10 @@ impl RedbBackend {
         }
         backup::write_manifest(dst_dir, &report, engine_version, timestamp_secs, label)?;
         tracing::info!(
-            "online backup complete: {} shards, {} graphs",
+            "online backup complete: {} shards, {} graphs, {} non-shard durable store(s)",
             report.shards,
-            report.graphs
+            report.graphs,
+            report.bundled_stores.len()
         );
         Ok(report)
     }

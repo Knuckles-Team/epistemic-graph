@@ -32,6 +32,12 @@ use eg_types::native_control::CapacityStatusResult;
 
 pub mod read_through;
 
+// The canonical registry of every durable redb store the engine opens under a persist
+// dir, plus each store's backup scope (bundled / deliberately excluded, with a reason).
+// Consumed by `backup` so a bundle is self-describing about what a restore restores.
+#[cfg(feature = "redb")]
+pub mod durable_stores;
+
 #[cfg(feature = "redb")]
 pub mod redb_backend;
 
