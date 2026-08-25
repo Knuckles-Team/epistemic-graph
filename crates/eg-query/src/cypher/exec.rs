@@ -1669,9 +1669,9 @@ fn test_holds(
     match test {
         Test::Cmp(op, expected) => Ok(compare(actual, op, expected)),
         Test::In(list) => Ok(actual.is_some_and(|a| list.iter().any(|l| l == a))),
-        Test::StartsWith(operand) => str_test_holds(actual, binding, params, operand, |a, s| {
-            a.starts_with(s)
-        }),
+        Test::StartsWith(operand) => {
+            str_test_holds(actual, binding, params, operand, |a, s| a.starts_with(s))
+        }
         Test::EndsWith(operand) => {
             str_test_holds(actual, binding, params, operand, |a, s| a.ends_with(s))
         }
@@ -1926,13 +1926,21 @@ fn eval_scalar(view: &GraphView, binding: &Binding, expr: &Expr) -> Value {
                         .into_iter()
                         .map(|id| {
                             Value::Array(
-                                node_labels(view, &id).into_iter().map(Value::String).collect(),
+                                node_labels(view, &id)
+                                    .into_iter()
+                                    .map(Value::String)
+                                    .collect(),
                             )
                         })
                         .collect(),
                 )
             } else if let Some(id) = binding.get(v) {
-                Value::Array(node_labels(view, id).into_iter().map(Value::String).collect())
+                Value::Array(
+                    node_labels(view, id)
+                        .into_iter()
+                        .map(Value::String)
+                        .collect(),
+                )
             } else {
                 // `v` isn't bound to a node at all (e.g. a scalar/edge variable) —
                 // `labels()` only ever applies to nodes, so this is null rather than
@@ -4516,7 +4524,11 @@ mod tests {
             &params,
         )
         .unwrap();
-        assert!(qr.rows.is_empty(), "expected empty result, got {:?}", qr.rows);
+        assert!(
+            qr.rows.is_empty(),
+            "expected empty result, got {:?}",
+            qr.rows
+        );
     }
 
     #[test]
@@ -4576,7 +4588,10 @@ mod tests {
     /// unlabelled node (no `node_type`, no `labels`).
     fn labels_fixture() -> GraphView {
         let core = GraphCore::new();
-        core.add_node("n1".into(), pbytes(serde_json::json!({"node_type":"Person"})));
+        core.add_node(
+            "n1".into(),
+            pbytes(serde_json::json!({"node_type":"Person"})),
+        );
         core.add_node(
             "n2".into(),
             pbytes(serde_json::json!({"node_type":"Person","labels":["Employee","Manager"]})),
@@ -5887,7 +5902,10 @@ mod tests {
     ///   * `lb1` — labeled ONLY via `label` — the same trap, the other broad-only field.
     fn label_trap_fixture_versioned() -> (GraphCore, GraphView, u64) {
         let core = GraphCore::new();
-        core.add_node("na1".into(), pbytes(serde_json::json!({"node_type": "Alpha"})));
+        core.add_node(
+            "na1".into(),
+            pbytes(serde_json::json!({"node_type": "Alpha"})),
+        );
         core.add_node(
             "la1".into(),
             pbytes(serde_json::json!({"labels": ["Beta", "Other"]})),
@@ -5921,8 +5939,7 @@ mod tests {
         ] {
             let q = format!("MATCH (n:{label}) RETURN n.id AS id");
             let unindexed = exec_cypher(&view, &q).unwrap();
-            let indexed =
-                exec_cypher_params_indexed(&view, &q, &Params::new(), index).unwrap();
+            let indexed = exec_cypher_params_indexed(&view, &q, &Params::new(), index).unwrap();
             assert_eq!(
                 indexed.rows, unindexed.rows,
                 "label {label}: indexed and cold-scan results diverged"
@@ -6333,8 +6350,7 @@ mod tests {
     /// way to bypass label enforcement.
     #[test]
     #[cfg(feature = "result-cache")]
-    fn indexed_where_id_equality_no_longer_declines_for_labeled_start_but_label_still_enforced()
-    {
+    fn indexed_where_id_equality_no_longer_declines_for_labeled_start_but_label_still_enforced() {
         let (core, view, version) = fixture_versioned();
         let anchor = Binding::new();
         let preds = vec![WhereExpr::Cond(Condition {
@@ -6451,7 +6467,10 @@ mod tests {
         let node = NodePat {
             var: Some("n".to_string()),
             label: Some("Person".to_string()),
-            props: Some(vec![("id".to_string(), PropVal::Lit(Value::String("bob".to_string())))]),
+            props: Some(vec![(
+                "id".to_string(),
+                PropVal::Lit(Value::String("bob".to_string())),
+            )]),
         };
         assert_eq!(
             indexed_start_candidates(None, &node, &[], &Binding::new(), &Params::new()),
@@ -6520,7 +6539,10 @@ mod tests {
         let node = NodePat {
             var: Some("n".to_string()),
             label: Some("Doc".to_string()),
-            props: Some(vec![("id".to_string(), PropVal::Lit(Value::String("bob".to_string())))]),
+            props: Some(vec![(
+                "id".to_string(),
+                PropVal::Lit(Value::String("bob".to_string())),
+            )]),
         };
         assert_eq!(
             indexed_start_candidates(
@@ -6667,8 +6689,14 @@ mod tests {
     /// "Skill", "MCPServer"]` across a synthetic large graph — kept as one array so
     /// the graph builder and the id-picking logic below can never drift apart on
     /// which nodes are `:Tool`.
-    const BENCH_LABELS: [&str; 6] =
-        ["Tool", "Concept", "Memory", "Document", "Skill", "MCPServer"];
+    const BENCH_LABELS: [&str; 6] = [
+        "Tool",
+        "Concept",
+        "Memory",
+        "Document",
+        "Skill",
+        "MCPServer",
+    ];
 
     /// `n` nodes round-robined across [`BENCH_LABELS`] — large enough (≥25k) to make
     /// an O(V) whole-graph blob-decode pass measurably expensive, so the benchmarks

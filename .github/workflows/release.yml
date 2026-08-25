@@ -257,6 +257,15 @@ jobs:
     needs: gates
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
+    # An OPTIONAL leg must not hold the whole run open. Measured on run
+    # 32697532796: macos-x86_64 is `continue-on-error: true`, yet the run sat at
+    # 8h06m because a non-blocking leg still keeps the matrix (and therefore the
+    # `publish-pypi` gate that `needs: build`) alive until it finishes or the
+    # 6h GitHub default expires. `matrix.timeout_minutes` caps the best-effort
+    # legs tightly while leaving the supported legs a generous bound -- the
+    # measured full `--release --features full,ast-extended` build is ~40 min
+    # per pass and each leg runs two passes plus fold/normalize/compare.
+    timeout-minutes: ${{ matrix.timeout_minutes || 240 }}
     strategy:
       fail-fast: false
       # Every leg runs on its own GitHub-HOSTED runner VM, so the legs share no
@@ -287,11 +296,13 @@ jobs:
             runner: macos-14
             target: aarch64-apple-darwin
             maturin_args: ""
+            timeout_minutes: 90
             optional: true
           - name: macos-x86_64
             runner: macos-15-intel
             target: x86_64-apple-darwin
             maturin_args: ""
+            timeout_minutes: 90
             optional: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

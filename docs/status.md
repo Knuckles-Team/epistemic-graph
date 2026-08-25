@@ -6,7 +6,7 @@
 
 ## Capabilities by status
 
-**263 LIVE**, **0 BUILDING**, and **0 ROADMAP** operations tracked in `docs/capabilities.md`'s operation-by-operation truth table (cross-check: the machine-checked `docs/capabilities.generated.md` ledger currently enumerates **399 wire methods** — a different, finer granularity, since several generated-ledger methods can compose into one `capabilities.md` row; the two are not expected to be equal, but a `capabilities.generated.md` that shrinks while `capabilities.md` does not is a drift signal).
+**263 LIVE**, **0 BUILDING**, and **0 ROADMAP** operations tracked in `docs/capabilities.md`'s operation-by-operation truth table (cross-check: the machine-checked `docs/capabilities.generated.md` ledger currently enumerates **400 wire methods** — a different, finer granularity, since several generated-ledger methods can compose into one `capabilities.md` row; the two are not expected to be equal, but a `capabilities.generated.md` that shrinks while `capabilities.md` does not is a drift signal).
 
 | Status | Count |
 |:------|---:|
