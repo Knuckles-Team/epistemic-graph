@@ -87,6 +87,23 @@ pub struct GraphView {
     /// node data at all (`topology_snapshot`) since there is nothing to
     /// row-filter there.
     pub schema_node_ids: std::collections::HashSet<String>,
+    /// perf/row-visibility-index: each node's DECODED RLS visibility as of this
+    /// snapshot, captured from `GraphCore`'s write-time-maintained
+    /// `visibility_index` (see [`GraphCore::live_visibility_index`]) so
+    /// `IsolationLayer::can_see_node`/`filter_view` (`crate::isolation`) can
+    /// consult it as an O(1) map lookup per node instead of running
+    /// `row_visibility`'s full bounded msgpack decode for every node on every
+    /// cold query — the SAME `RwLock<Option<HashMap<..>>>` + incremental-posting
+    /// idiom [`GraphCore`]'s `label_index` already uses, mirrored here as a
+    /// per-snapshot copy exactly like `schema_node_ids` immediately above (real
+    /// snapshot DATA, not a derived memo — see that field's doc). A node absent
+    /// from this map (a `topology_snapshot`, which carries no property blobs at
+    /// all, or any hand-built `GraphView` not sourced from `GraphCore`) is not a
+    /// correctness gap: `can_see_node` falls back to its original per-blob decode
+    /// for any id missing here. Only ever populated under `security` — the only
+    /// build where [`crate::isolation::RowVisibility`] exists at all.
+    #[cfg(feature = "security")]
+    pub visibility_index: HashMap<String, crate::isolation::RowVisibility>,
 }
 
 /// Graph-level handles threaded into a [`GraphView`] (CONCEPT:EG-KG.query.named-graph-projection-catalog,
@@ -143,6 +160,10 @@ impl Clone for GraphView {
             // membership), not a derived cache/memo — preserved like
             // `node_properties`/`edge_properties` above, not reset.
             schema_node_ids: self.schema_node_ids.clone(),
+            // perf/row-visibility-index: same category as `schema_node_ids`
+            // immediately above — real point-in-time snapshot data, preserved.
+            #[cfg(feature = "security")]
+            visibility_index: self.visibility_index.clone(),
         }
     }
 }
@@ -238,6 +259,10 @@ struct IndexStamps {
     node_id: std::sync::atomic::AtomicU64,
     property: std::sync::atomic::AtomicU64,
     path: std::sync::atomic::AtomicU64,
+    /// perf/row-visibility-index sibling stamp for `GraphCore::visibility_index`,
+    /// gated like the index itself — only meaningful under `security`.
+    #[cfg(feature = "security")]
+    visibility: std::sync::atomic::AtomicU64,
 }
 
 /// Inverted JSONPath path-index (CONCEPT:EG-KG.compute.json-deep-indexing — document/JSON deep indexing): for
@@ -615,6 +640,38 @@ pub struct GraphCore {
     /// instead of a second whole `GraphCore`. See `crate::rls_view_cache`.
     #[cfg(feature = "security")]
     rls_view_cache: crate::rls_view_cache::FilteredViewCache,
+    /// perf/row-visibility-index: cached `node_id -> RowVisibility` for every
+    /// currently-live node, mirroring `label_index`'s exact shape and idiom
+    /// (`RwLock<Option<HashMap<..>>>`, built lazily via [`Self::live_visibility_index`]
+    /// / [`Self::build_visibility_index`], stamped via `index_stamps.visibility`,
+    /// dropped by [`Self::invalidate_indexes`] / [`Self::invalidate_node_indexes_if_stale`]
+    /// exactly like the other node-derived caches) — EXCEPT this one is also
+    /// incrementally MAINTAINED on every add/remove/RLS-key-touching update
+    /// (`Self::visibility_index_set`/`Self::visibility_index_remove`, called from
+    /// `Self::invalidate_indexes_for_change`), so once warm it never needs a full
+    /// rebuild again under continuous ingest — only the ONE node a write actually
+    /// touched is re-decoded. This is what makes the FIRST query after a write-driven
+    /// `FilteredViewCache`/`rls_projection_cache` invalidation (`crate::rls_view_cache`,
+    /// `crate::rls_projection_cache` — both amortize the FILTERED result across
+    /// queries, not the per-node decode itself) cheap too: `IsolationLayer::can_see_node`
+    /// consults a per-snapshot copy of this map (`GraphView::visibility_index`,
+    /// captured by `Self::live_visibility_index` at snapshot time) as an O(1) lookup
+    /// instead of re-running `crate::isolation::row_visibility`'s full bounded
+    /// msgpack decode over every node in the graph. Every entry is produced by
+    /// calling that SAME function on the node's raw blob — this index never
+    /// reimplements or approximates the RLS decode, only memoizes it — so a warm
+    /// lookup is byte-for-byte identical to what a cold decode of the same blob
+    /// would have produced. Gated by `security` (the only build where
+    /// `crate::isolation::RowVisibility` exists at all).
+    #[cfg(feature = "security")]
+    visibility_index: RwLock<Option<HashMap<String, crate::isolation::RowVisibility>>>,
+    /// perf/row-visibility-index: count of FULL rebuilds of `visibility_index`
+    /// (the row-visibility sibling of [`Self::index_rebuilds`], kept separate so
+    /// this new index's own "rebuild count under continuous ingest ~1" signal is
+    /// never conflated with the pre-existing label/property/path counter). Never on
+    /// a read hot path — observability only.
+    #[cfg(feature = "security")]
+    visibility_index_rebuilds: std::sync::atomic::AtomicU64,
     /// A18 TBox/ABox RLS distinction (BUG A3, 2026-08-12): reverse index counting
     /// LIVE ontology schema-defining triples per node id — `iri -> count of
     /// live schema-defining triples`. A node is TBox (schema-exempt from
@@ -2328,6 +2385,12 @@ impl GraphCore {
             rls_projection_cache: crate::rls_projection_cache::ProjectionCache::default(),
             #[cfg(feature = "security")]
             rls_view_cache: crate::rls_view_cache::FilteredViewCache::default(),
+            // perf/row-visibility-index — cold, like the other lazy node-derived
+            // indexes above; built on first use.
+            #[cfg(feature = "security")]
+            visibility_index: RwLock::new(None),
+            #[cfg(feature = "security")]
+            visibility_index_rebuilds: std::sync::atomic::AtomicU64::new(0),
             schema_refs: DashMap::new(),
             ledger_dropped_total: std::sync::atomic::AtomicU64::new(0),
         }
@@ -2442,6 +2505,14 @@ impl GraphCore {
         *self.node_id_index.write() = None;
         *self.property_index.write() = None;
         *self.path_index.write() = None;
+        // perf/row-visibility-index: a wholesale content replacement (e.g.
+        // `replace_snapshot`) invalidates the visibility index exactly like the
+        // other node-derived caches above — the warm map would otherwise keep
+        // serving decisions for a now-superseded image.
+        #[cfg(feature = "security")]
+        {
+            *self.visibility_index.write() = None;
+        }
     }
 
     /// Invalidate the edge-key keyset-scan cache (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). Kept
@@ -2493,6 +2564,14 @@ impl GraphCore {
             {
                 footprint.node_changed = true;
             }
+            // perf/row-visibility-index: unlike the label/property postings below,
+            // `row_visibility` tolerates an undecodable blob internally (it returns
+            // `RowVisibility::default_public()`, the SAME value `can_see_node` would
+            // have produced for that node before this index existed) — so there is
+            // no "cannot target its postings" failure mode here and no need to drop
+            // the whole index on a decode failure. File unconditionally.
+            #[cfg(feature = "security")]
+            self.visibility_index_set(&nc.id, nc.properties_msgpack.as_deref(), target_version);
             match self.node_props_value(&nc.id, nc.properties_msgpack.as_deref()) {
                 Some(val) => {
                     self.label_index_add(&nc.id, &val, target_version);
@@ -2519,6 +2598,12 @@ impl GraphCore {
             {
                 footprint.node_changed = true;
             }
+            // perf/row-visibility-index: a flat `id -> RowVisibility` map needs no
+            // captured value to unfile — unlike the label/property postings (which
+            // need to know WHICH postings to remove `id` from), removal here is a
+            // single O(1) delete regardless of what the node's blob contained.
+            #[cfg(feature = "security")]
+            self.visibility_index_remove(id, target_version);
             let captured = change
                 .removed_node_props
                 .get(id)
@@ -2555,6 +2640,13 @@ impl GraphCore {
                 *self.label_index.write() = None;
                 *self.property_index.write() = None;
                 *self.path_index.write() = None;
+                // perf/row-visibility-index: an unknown-scope CAS could have touched
+                // an RLS key just as easily as any other — same conservative
+                // whole-index drop as the other node-derived caches above.
+                #[cfg(feature = "security")]
+                {
+                    *self.visibility_index.write() = None;
+                }
                 #[cfg(feature = "result-cache")]
                 {
                     footprint.coarse_node = true;
@@ -2576,6 +2668,23 @@ impl GraphCore {
             #[cfg(feature = "result-cache")]
             footprint.keys.extend(fields.iter().cloned());
             self.path_index_invalidate_for_fields(fields, target_version);
+            // perf/row-visibility-index: re-file ONLY when a changed field is one of
+            // the RLS keys `row_visibility` actually reads (EITHER naming
+            // convention — `crate::isolation::RowVisibility`'s doc) — a CAS that
+            // left every RLS key untouched cannot have changed the node's
+            // visibility decision, so the warm entry stays valid and is left alone
+            // (unlike label/property refiling above, which always re-files on ANY
+            // known field set because it must recompute regardless).
+            #[cfg(feature = "security")]
+            if fields.iter().any(|f| {
+                f == crate::isolation::RLS_OWNER_KEY
+                    || f == crate::isolation::RLS_VISIBILITY_KEY
+                    || f == crate::isolation::RLS_GRANTS_KEY
+                    || f == crate::isolation::RLS_OWNER_ID_KEY
+                    || f == crate::isolation::RLS_SHARED_SCOPE_KEY
+            }) {
+                self.visibility_index_set(&nc.id, None, target_version);
+            }
         }
 
         #[cfg(feature = "result-cache")]
@@ -2681,6 +2790,140 @@ impl GraphCore {
         self.index_stamps
             .label
             .store(target_version, std::sync::atomic::Ordering::Release);
+    }
+
+    // ── perf/row-visibility-index: write-time-maintained RLS visibility cache ──
+
+    /// (Re)file `id`'s RLS visibility in the WARM `visibility_index` from its
+    /// CURRENT property blob — the shared operation an ADD and an RLS-key-touching
+    /// CAS refile both need (compute-and-insert; there is no separate "refile"
+    /// shape the way label/property postings need, since this is a flat
+    /// `id -> RowVisibility` map, not a `value -> ids` posting list). No-op when
+    /// cold (mirrors every other node-derived cache: a cold cache stays cold and
+    /// builds on demand via [`Self::live_visibility_index`]). Stamped.
+    ///
+    /// `blob` is the freshly-written content when the caller already has it (an
+    /// ADD's captured `properties_msgpack`); when `None`, the CURRENT
+    /// `node_properties` entry (post-write — mirrors [`Self::node_props_value`]'s
+    /// identical fallback chain) is read instead, used by the CAS-refile call site
+    /// which does not carry a captured blob.
+    ///
+    /// Correctness: every entry is produced by calling
+    /// [`crate::isolation::row_visibility`] on the RAW blob bytes — the EXACT
+    /// function [`crate::isolation::IsolationLayer::can_see_node`] called per-node,
+    /// per-query before this index existed. This function never reimplements or
+    /// approximates that decode; it only memoizes calls to it, so a warm entry is
+    /// byte-for-byte identical to what a cold decode of the same blob would
+    /// produce. A node with no readable blob at all (should not occur for an
+    /// add/update whose node still exists post-write) resolves to
+    /// `RowVisibility::default_public()` — the SAME fallback `can_see_node` used
+    /// for a missing blob (`view.node_properties.get(id)` returning `None`), not a
+    /// new case.
+    #[cfg(feature = "security")]
+    fn visibility_index_set(&self, id: &str, blob: Option<&[u8]>, target_version: u64) {
+        let mut guard = self.visibility_index.write();
+        let Some(index) = guard.as_mut() else {
+            return;
+        };
+        let vis = match blob {
+            Some(b) => crate::isolation::row_visibility(b),
+            None => match self.node_properties.get(id) {
+                Some(props) => crate::isolation::row_visibility(props.value().as_slice()),
+                None => crate::isolation::RowVisibility::default_public(),
+            },
+        };
+        index.insert(id.to_string(), vis);
+        self.index_stamps
+            .visibility
+            .store(target_version, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Unfile `id` from the WARM `visibility_index`. No-op when cold. Stamped.
+    #[cfg(feature = "security")]
+    fn visibility_index_remove(&self, id: &str, target_version: u64) {
+        let mut guard = self.visibility_index.write();
+        let Some(index) = guard.as_mut() else {
+            return;
+        };
+        index.remove(id);
+        self.index_stamps
+            .visibility
+            .store(target_version, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Lazily build-and-cache [`Self::visibility_index`], returning an owned copy
+    /// for a [`GraphView`] snapshot to carry (`GraphView::visibility_index`).
+    /// Mirrors [`Self::get_nodes_by_label_page`]'s consult-then-build-once idiom
+    /// exactly: a warm index is returned via a cheap clone (cloning `RowVisibility`
+    /// structs — small, no allocation-heavy tree walk — not re-decoding); a cold
+    /// index pays [`Self::build_visibility_index`]'s ONE full
+    /// `row_visibility`-per-node decode pass, stamps itself at the version it
+    /// scanned, and publishes the result so every later call (from ANY caller,
+    /// building ANY kind of snapshot) sees it warm. From then on the index is kept
+    /// current in place by [`Self::invalidate_indexes_for_change`]
+    /// (`visibility_index_set`/`_remove`) on every write, so a write-driven
+    /// `FilteredViewCache`/`rls_projection_cache` invalidation (which amortize the
+    /// FILTERED result, not the per-node decode) is followed by an O(1)-lookup
+    /// rebuild here, not a re-decode — this is what makes the query immediately
+    /// after a write cheap too, not just the query after that.
+    #[cfg(feature = "security")]
+    fn live_visibility_index(&self) -> HashMap<String, crate::isolation::RowVisibility> {
+        {
+            let guard = self.visibility_index.read();
+            if let Some(idx) = guard.as_ref() {
+                return idx.clone();
+            }
+        }
+        let built_at = self.version();
+        let built = self.build_visibility_index();
+        {
+            let mut guard = self.visibility_index.write();
+            self.index_stamps
+                .visibility
+                .store(built_at, std::sync::atomic::Ordering::Release);
+            *guard = Some(built.clone());
+        }
+        built
+    }
+
+    /// Scan the node store once and build the RLS visibility index — the O(V)
+    /// `row_visibility`-per-node decode pass this index's incremental maintenance
+    /// (`visibility_index_set`/`_remove`) exists to pay AT MOST ONCE under
+    /// continuous ingest (mirrors [`Self::build_label_index`]'s identical
+    /// "rebuild count under ingest ~1" observability shape, tracked separately via
+    /// [`Self::visibility_index_rebuilds`] rather than the pre-existing
+    /// [`Self::index_rebuilds`] counter so the two signals are never conflated).
+    #[cfg(feature = "security")]
+    fn build_visibility_index(&self) -> HashMap<String, crate::isolation::RowVisibility> {
+        let n = self
+            .visibility_index_rebuilds
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        tracing::debug!(
+            target: "epistemic_graph::index_rebuild",
+            index = "visibility",
+            nodes = self.node_properties.len(),
+            total_rebuilds = n,
+            "full RLS-visibility-index rebuild (cold cache); warm ingest maintains it incrementally"
+        );
+        self.node_properties
+            .iter()
+            .map(|entry| {
+                (
+                    entry.key().clone(),
+                    crate::isolation::row_visibility(entry.value().as_slice()),
+                )
+            })
+            .collect()
+    }
+
+    /// Count of FULL rebuilds of [`Self::visibility_index`] (perf/row-visibility-index).
+    /// Observability + test-assertion hook ("the fast path is actually taken") —
+    /// never on a read hot path.
+    #[cfg(feature = "security")]
+    pub fn visibility_index_rebuilds(&self) -> u64 {
+        self.visibility_index_rebuilds
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// File `id` under every INDEXED property key it has a scalar value for, in the WARM property
@@ -2935,6 +3178,16 @@ impl GraphCore {
             new_version,
         );
         Self::drop_if_stale(&self.path_index, &self.index_stamps.path, new_version);
+        // perf/row-visibility-index: same stamp-aware preserve-or-drop treatment as
+        // the four caches above — a write whose `invalidate_indexes_for_change` step
+        // already incrementally re-filed the touched node(s) (stamp >= new_version)
+        // is preserved; a write that bypassed maintenance is dropped.
+        #[cfg(feature = "security")]
+        Self::drop_if_stale(
+            &self.visibility_index,
+            &self.index_stamps.visibility,
+            new_version,
+        );
     }
 
     /// Set a lazy cache to `None` iff it is warm AND its stamp predates `new_version`. Generic over
@@ -5730,6 +5983,12 @@ impl GraphCore {
             // No property blobs at all in this snapshot, so nothing for
             // `filter_view` to row-filter here (BUG A3) — empty, not omitted.
             schema_node_ids: std::collections::HashSet::new(),
+            // perf/row-visibility-index: same reasoning as `schema_node_ids`
+            // immediately above — no property blobs here for `can_see_node` to
+            // decide visibility over, so nothing to carry. (`can_see_node`'s
+            // missing-entry fallback also makes this safe even if it were used.)
+            #[cfg(feature = "security")]
+            visibility_index: HashMap::new(),
         }
     }
 
@@ -5761,6 +6020,11 @@ impl GraphCore {
             projection_scope: None,
             // BUG A3: point-in-time TBox membership, consulted by `filter_view`.
             schema_node_ids: self.live_schema_node_ids(),
+            // perf/row-visibility-index: point-in-time RLS visibility for every
+            // node above, consulted by `can_see_node`/`filter_view` — see
+            // `GraphView::visibility_index`'s doc.
+            #[cfg(feature = "security")]
+            visibility_index: self.live_visibility_index(),
         }
     }
 
@@ -5803,6 +6067,10 @@ impl GraphCore {
             }),
             // BUG A3: point-in-time TBox membership, consulted by `filter_view`.
             schema_node_ids: self.live_schema_node_ids(),
+            // perf/row-visibility-index: same as `analysis_snapshot` — see
+            // `GraphView::visibility_index`'s doc.
+            #[cfg(feature = "security")]
+            visibility_index: self.live_visibility_index(),
         };
         (view, version)
     }
@@ -5889,6 +6157,14 @@ impl GraphCore {
             // fresh OCC version line can never hit an entry cached against the parent's.
             #[cfg(feature = "security")]
             rls_view_cache: crate::rls_view_cache::FilteredViewCache::default(),
+            // perf/row-visibility-index — a fork starts with a cold visibility
+            // index too, same reasoning as `label_index`/etc above: rebuilt lazily
+            // on first use, then incrementally maintained from its own fresh
+            // version line.
+            #[cfg(feature = "security")]
+            visibility_index: RwLock::new(None),
+            #[cfg(feature = "security")]
+            visibility_index_rebuilds: std::sync::atomic::AtomicU64::new(0),
             // A fork deep-clones the parent's DATA (node/edge properties above), so
             // its TBox/ABox reverse index (BUG A3) must mirror the parent's live
             // schema-triple counts at fork time too -- schema-ness is content-
@@ -8944,6 +9220,156 @@ mod tests {
             rebuilds_before,
             "an in-place refile must not trigger a full index rebuild"
         );
+    }
+
+    // ── perf/row-visibility-index: write-time-maintained RLS visibility cache ──
+    // (CONCEPT:EG-KG.sharding.row-level-security perf). These assert the FAST PATH is actually
+    // taken (via `visibility_index_rebuilds()`, a counter — never timing, per
+    // GOC-70) and that the incrementally-maintained index stays correct across a
+    // write that changes ownership. Bit-for-bit decision equivalence between the
+    // index path and the decode path is proven separately in
+    // `crate::isolation`'s `row_visibility_index_equivalence` test module.
+
+    #[test]
+    #[cfg(feature = "security")]
+    fn visibility_index_warms_once_and_survives_writes_without_rebuilding() {
+        let g = GraphCore::new();
+        g.add_node(
+            "a".into(),
+            props(serde_json::json!({"_owner": "alice", "_visibility": "private"})),
+        );
+        g.add_node("b".into(), props(serde_json::json!({"name": "untagged"})));
+
+        assert_eq!(g.visibility_index_rebuilds(), 0, "cold before any snapshot");
+        let view1 = g.analysis_snapshot();
+        assert_eq!(
+            g.visibility_index_rebuilds(),
+            1,
+            "the first snapshot must warm the index with exactly one full rebuild"
+        );
+        assert_eq!(
+            view1
+                .visibility_index
+                .get("a")
+                .and_then(|v| v.owner.as_deref()),
+            Some("alice")
+        );
+
+        // A second snapshot with nothing written in between must hit the warm
+        // index — no rebuild.
+        let _view2 = g.analysis_snapshot();
+        assert_eq!(
+            g.visibility_index_rebuilds(),
+            1,
+            "a warm re-read must not rebuild"
+        );
+
+        // An RLS-key-touching CAS, committed the way the write coalescer does
+        // (mirrors `crates/eg-core/tests/dependency_scoped_cache.rs`'s
+        // `commit_add`/`commit_remove_captured` shape: mutate, describe the
+        // change, `maintain_indexes` + `mark_dirty`).
+        let mut conditions = serde_json::Map::new();
+        conditions.insert("_owner".into(), serde_json::json!("alice"));
+        let mut updates = serde_json::Map::new();
+        updates.insert("_owner".into(), serde_json::json!("bob"));
+        assert!(g.compare_and_set_fields("a", &conditions, &updates));
+        let mut change = crate::index::ChangeSet::new();
+        change
+            .updated_nodes
+            .push(crate::index::NodeChange::with_fields(
+                "a".into(),
+                vec!["_owner".into()],
+            ));
+        g.maintain_indexes(&change);
+        g.mark_dirty();
+
+        let view3 = g.analysis_snapshot();
+        assert_eq!(
+            g.visibility_index_rebuilds(),
+            1,
+            "an RLS-key-touching CAS must be incrementally re-filed, not trigger a full rebuild"
+        );
+        assert_eq!(
+            view3
+                .visibility_index
+                .get("a")
+                .and_then(|v| v.owner.as_deref()),
+            Some("bob"),
+            "the warm index must reflect the ownership change made via incremental refile"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "security")]
+    fn visibility_index_remove_unfiles_a_deleted_node() {
+        let g = GraphCore::new();
+        g.add_node("a".into(), props(serde_json::json!({"_owner": "alice"})));
+        g.add_node("b".into(), props(serde_json::json!({"_owner": "bob"})));
+        let _ = g.analysis_snapshot(); // warm the index
+        assert!(g
+            .visibility_index
+            .read()
+            .as_ref()
+            .expect("warmed above")
+            .contains_key("a"));
+
+        let captured = g.get_node_properties("a");
+        g.remove_node("a".into());
+        let mut change = crate::index::ChangeSet::new();
+        match captured {
+            Some(b) => change.record_remove_node_with_properties("a".into(), b),
+            None => change.record_remove_node("a".into()),
+        }
+        g.maintain_indexes(&change);
+        g.mark_dirty();
+
+        assert!(
+            !g.visibility_index
+                .read()
+                .as_ref()
+                .expect("still warm — only one node was removed")
+                .contains_key("a"),
+            "a removed node must be unfiled from the warm visibility index"
+        );
+        assert_eq!(
+            g.visibility_index_rebuilds(),
+            1,
+            "a removal must be incrementally unfiled, not trigger a full rebuild"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "security")]
+    fn visibility_index_drops_wholesale_on_unknown_scope_update_then_rewarms_on_next_read() {
+        let g = GraphCore::new();
+        g.add_node("a".into(), props(serde_json::json!({"_owner": "alice"})));
+        let _ = g.analysis_snapshot();
+        assert_eq!(g.visibility_index_rebuilds(), 1);
+        assert!(g.visibility_index.read().is_some(), "warmed above");
+
+        // An update carrying `changed_fields: None` (`NodeChange::with_properties`)
+        // is the "unknown scope" shape — could have touched an RLS key just as
+        // easily as any other field, so the conservative fallback drops the
+        // whole index rather than guessing which entry to touch.
+        let mut change = crate::index::ChangeSet::new();
+        change
+            .updated_nodes
+            .push(crate::index::NodeChange::with_properties(
+                "a".into(),
+                props(serde_json::json!({"_owner": "bob"})),
+            ));
+        g.maintain_indexes(&change);
+        g.mark_dirty();
+
+        assert!(
+            g.visibility_index.read().is_none(),
+            "an unknown-scope update must conservatively drop the whole warm index"
+        );
+
+        // The next snapshot rebuilds it — exactly one MORE full rebuild, never a
+        // silent stale-serve.
+        let _view = g.analysis_snapshot();
+        assert_eq!(g.visibility_index_rebuilds(), 2);
     }
 
     #[test]

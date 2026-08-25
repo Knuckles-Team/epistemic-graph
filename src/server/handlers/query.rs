@@ -207,10 +207,37 @@ pub(crate) async fn try_handle(
                     let (snap, graph_version) = {
                         #[cfg(feature = "result-cache")]
                         {
-                            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-                            let (mut snap, version) = core.analysis_snapshot_versioned();
+                            // perf/row-visibility-index (B-sweep): this path has no
+                            // whole-RESULT byte cache to probe first (the SQL served
+                            // context/table cache further below is keyed on
+                            // `graph_version`, not on this query's bytes), so EVERY
+                            // read pays for a filtered view — exactly why amortizing
+                            // the per-node RLS decode via `FilteredViewCache` (the
+                            // SAME per-(actor,version) cache `Method::CypherQuery`
+                            // uses) matters here.
                             #[cfg(feature = "security")]
-                            rls.filter_view(caller, &mut snap);
+                            let (snap, version) = {
+                                let probe_version = core.version();
+                                match core.cached_filtered_view(caller, probe_version) {
+                                    Some(cached) => (cached, probe_version),
+                                    None => {
+                                        let generation = core.filtered_view_cache_generation();
+                                        let (mut fresh, built_version) =
+                                            core.analysis_snapshot_versioned();
+                                        rls.filter_view(caller, &mut fresh);
+                                        let fresh = Arc::new(fresh);
+                                        core.put_cached_filtered_view(
+                                            caller.to_string(),
+                                            built_version,
+                                            generation,
+                                            fresh.clone(),
+                                        );
+                                        (fresh, built_version)
+                                    }
+                                }
+                            };
+                            #[cfg(not(feature = "security"))]
+                            let (snap, version) = core.analysis_snapshot_versioned();
                             (snap, version)
                         }
                         #[cfg(not(feature = "result-cache"))]
@@ -368,9 +395,32 @@ pub(crate) async fn try_handle(
                 if let Some(bytes) = probe {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
-                let (mut snap, version) = core.analysis_snapshot_versioned();
+                // perf/row-visibility-index (B-sweep): a result-cache MISS still
+                // used to unconditionally pay for `filter_view`'s full per-node RLS
+                // decode — mirror `Method::CypherQuery`'s per-(actor,version)
+                // `FilteredViewCache` probe-then-build here too.
                 #[cfg(feature = "security")]
-                rls.filter_view(caller, &mut snap);
+                let (snap, version) = {
+                    let probe_version = core.version();
+                    match core.cached_filtered_view(caller, probe_version) {
+                        Some(cached) => (cached, probe_version),
+                        None => {
+                            let generation = core.filtered_view_cache_generation();
+                            let (mut fresh, built_version) = core.analysis_snapshot_versioned();
+                            rls.filter_view(caller, &mut fresh);
+                            let fresh = Arc::new(fresh);
+                            core.put_cached_filtered_view(
+                                caller.to_string(),
+                                built_version,
+                                generation,
+                                fresh.clone(),
+                            );
+                            (fresh, built_version)
+                        }
+                    }
+                };
+                #[cfg(not(feature = "security"))]
+                let (snap, version) = core.analysis_snapshot_versioned();
                 (snap, version, hash)
             };
             #[cfg(not(feature = "result-cache"))]
@@ -508,9 +558,32 @@ pub(crate) async fn try_handle(
                 if let Some(bytes) = probe {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
-                let (mut snap, version) = core.analysis_snapshot_versioned();
+                // perf/row-visibility-index (B-sweep): a result-cache MISS still
+                // used to unconditionally pay for `filter_view`'s full per-node RLS
+                // decode — mirror `Method::CypherQuery`'s per-(actor,version)
+                // `FilteredViewCache` probe-then-build here too.
                 #[cfg(feature = "security")]
-                rls.filter_view(caller, &mut snap);
+                let (snap, version) = {
+                    let probe_version = core.version();
+                    match core.cached_filtered_view(caller, probe_version) {
+                        Some(cached) => (cached, probe_version),
+                        None => {
+                            let generation = core.filtered_view_cache_generation();
+                            let (mut fresh, built_version) = core.analysis_snapshot_versioned();
+                            rls.filter_view(caller, &mut fresh);
+                            let fresh = Arc::new(fresh);
+                            core.put_cached_filtered_view(
+                                caller.to_string(),
+                                built_version,
+                                generation,
+                                fresh.clone(),
+                            );
+                            (fresh, built_version)
+                        }
+                    }
+                };
+                #[cfg(not(feature = "security"))]
+                let (snap, version) = core.analysis_snapshot_versioned();
                 (snap, version, hash)
             };
             #[cfg(not(feature = "result-cache"))]
@@ -1403,12 +1476,37 @@ pub(crate) async fn try_handle(
                     #[cfg(feature = "security")]
                     rls,
                 );
-                let (mut snap, version) = core.analysis_snapshot_versioned();
-                if let Some(bytes) = core.result_cache().get(hash, version) {
+                // perf/row-visibility-index (B-sweep): probe the whole-RESULT
+                // cache FIRST via a cheap `core.version()` read — no snapshot at
+                // all on a hit (mirrors `Method::CypherQuery`'s exact two-tier
+                // shape; the previous code here built+filtered a snapshot before
+                // ever checking for a hit). Only a genuine MISS reaches the
+                // per-(actor,version) `FilteredViewCache` probe-then-build below.
+                if let Some(bytes) = core.result_cache().get(hash, core.version()) {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
                 #[cfg(feature = "security")]
-                rls.filter_view(caller, &mut snap);
+                let (snap, version) = {
+                    let probe_version = core.version();
+                    match core.cached_filtered_view(caller, probe_version) {
+                        Some(cached) => (cached, probe_version),
+                        None => {
+                            let generation = core.filtered_view_cache_generation();
+                            let (mut fresh, built_version) = core.analysis_snapshot_versioned();
+                            rls.filter_view(caller, &mut fresh);
+                            let fresh = Arc::new(fresh);
+                            core.put_cached_filtered_view(
+                                caller.to_string(),
+                                built_version,
+                                generation,
+                                fresh.clone(),
+                            );
+                            (fresh, built_version)
+                        }
+                    }
+                };
+                #[cfg(not(feature = "security"))]
+                let (snap, version) = core.analysis_snapshot_versioned();
                 (snap, version, hash)
             };
             #[cfg(not(feature = "result-cache"))]
@@ -4415,12 +4513,56 @@ fn rls_snapshot(
     core: &Arc<GraphCore>,
     #[cfg(feature = "security")] caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
-) -> crate::graph::GraphView {
-    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-    let mut snap = core.analysis_snapshot();
+) -> Arc<crate::graph::GraphView> {
+    // perf/row-visibility-index (B-sweep): this ONE helper backs FIVE `Method`
+    // arms in a `not(result-cache)` build (Sql/UnifiedQuery/UnifiedQueryText/
+    // GraphQl/CypherQuery — every `rls_snapshot(...)` call site in this file), so
+    // wiring the per-(actor,version) `FilteredViewCache` here amortizes the
+    // per-node RLS decode for all of them in one place, mirroring EXACTLY
+    // `Method::CypherQuery`'s own result-cache-build probe-then-build shape
+    // above (same cache, same RLS-safety argument: keyed by (actor, version),
+    // never a cross-actor share, invalidated on every whole-image transition
+    // alongside `project_core`'s own cache).
+    //
+    // ONE deliberate difference from that reference implementation:
+    // `analysis_snapshot_versioned` (an atomically-paired (view, version) read
+    // under one topology lock) is itself gated `feature = "result-cache"` — and
+    // this whole function only compiles when `result-cache` is OFF — so it is
+    // unavailable here. `probe_version` is instead read via a separate
+    // `core.version()` call BEFORE building the plain `analysis_snapshot()`,
+    // exactly the same "captured before the scan so the stamp is a safe LOWER
+    // BOUND" idiom `get_nodes_by_label_page` already documents for its own
+    // index stamp: a concurrent write racing between the two reads can only
+    // make the snapshot reflect content NEWER than `probe_version` claims,
+    // never older. Since `GraphCore::version()` is monotonic, no future caller
+    // ever probes at that same (now-stale) version again, so a mis-stamped
+    // entry is simply orphaned (an inert cache slot, evicted eventually by
+    // LRU) — never served to a caller who didn't ask for exactly that version.
+    // The unsafe direction (reading version AFTER the snapshot, which could
+    // label OLDER content with a NEWER version and later serve a stale RLS
+    // decision to a caller who has since had access revoked) is never taken.
     #[cfg(feature = "security")]
-    rls.filter_view(caller, &mut snap);
-    snap
+    {
+        let probe_version = core.version();
+        if let Some(cached) = core.cached_filtered_view(caller, probe_version) {
+            return cached;
+        }
+        let generation = core.filtered_view_cache_generation();
+        let mut fresh = core.analysis_snapshot();
+        rls.filter_view(caller, &mut fresh);
+        let fresh = Arc::new(fresh);
+        core.put_cached_filtered_view(
+            caller.to_string(),
+            probe_version,
+            generation,
+            fresh.clone(),
+        );
+        fresh
+    }
+    #[cfg(not(feature = "security"))]
+    {
+        Arc::new(core.analysis_snapshot())
+    }
 }
 
 /// ⚠ THE RLS-AWARE RESULT-CACHE KEY (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231 — the headline

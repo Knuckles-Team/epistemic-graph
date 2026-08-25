@@ -273,6 +273,42 @@ impl GraphReadAuthority {
         let _ = view;
     }
 
+    /// perf/row-visibility-index (B-sweep) — the `FilteredViewCache`-aware
+    /// equivalent of a caller's own `core.analysis_snapshot()` + `self.filter_view(&mut
+    /// view)` pair, for a call site that wants a PLAIN (no write-set overlay)
+    /// RLS-filtered read of the current graph. Mirrors `Method::CypherQuery`'s
+    /// probe-then-build shape (`src/server/handlers/query.rs`) using THIS
+    /// authority's own actor: a hit returns the SAME shared `Arc<GraphView>` a
+    /// concurrent request for this actor at this version already built; a miss
+    /// builds+filters exactly as before and publishes the result for the next
+    /// caller. `version` is read BEFORE the snapshot is taken — a safe LOWER
+    /// bound (an under-estimate only risks one extra rebuild, never a stale
+    /// serve — see `crate::server::handlers::query::rls_snapshot`'s doc for the
+    /// full argument), since [`GraphReadAuthority`] does not hold the topology
+    /// lock across both reads the way `GraphCore::analysis_snapshot_versioned`
+    /// does.
+    ///
+    /// Callers that overlay buffered writes onto the view before use (a staged
+    /// transaction's own read-your-own-writes path) MUST NOT use this — the
+    /// cached entry is a pure function of (actor, version) alone and is shared
+    /// across every caller at that version; mutating it would corrupt another
+    /// caller's cached read. Build an owned snapshot via
+    /// `core.analysis_snapshot()` + [`Self::filter_view`] instead for that case,
+    /// exactly as today.
+    #[cfg(feature = "security")]
+    pub(crate) fn cached_filter_view(&self, core: &Arc<GraphCore>) -> Arc<GraphView> {
+        let probe_version = core.version();
+        if let Some(cached) = core.cached_filtered_view(&self.actor, probe_version) {
+            return cached;
+        }
+        let generation = core.filtered_view_cache_generation();
+        let mut fresh = core.analysis_snapshot();
+        self.filter_view(&mut fresh);
+        let fresh = Arc::new(fresh);
+        core.put_cached_filtered_view(self.actor.clone(), probe_version, generation, fresh.clone());
+        fresh
+    }
+
     /// Answer ONE node-membership question without materializing a projection.
     ///
     /// `project_core` builds a whole filtered `GraphCore`
