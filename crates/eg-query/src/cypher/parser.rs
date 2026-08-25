@@ -611,7 +611,9 @@ impl Parser {
         } else if self.peek_keyword("STARTS") {
             self.eat_keyword("STARTS")?;
             self.eat_keyword("WITH")?;
-            Ok(Test::StartsWith(self.parse_str_test_operand("STARTS WITH")?))
+            Ok(Test::StartsWith(
+                self.parse_str_test_operand("STARTS WITH")?,
+            ))
         } else if self.peek_keyword("ENDS") {
             self.eat_keyword("ENDS")?;
             self.eat_keyword("WITH")?;

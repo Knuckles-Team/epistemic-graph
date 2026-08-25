@@ -1252,7 +1252,10 @@ mod tests {
             .expect("carol was just registered");
         assert_eq!(identity.agent_id, "carol");
         assert_eq!(identity.role, AgentRole::Agent);
-        assert_eq!(identity.teams, vec!["alpha".to_string(), "beta".to_string()]);
+        assert_eq!(
+            identity.teams,
+            vec!["alpha".to_string(), "beta".to_string()]
+        );
         assert_eq!(
             identity.roles,
             vec!["sysadmin".to_string(), "auditor".to_string()]
