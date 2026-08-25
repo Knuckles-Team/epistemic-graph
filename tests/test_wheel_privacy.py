@@ -855,3 +855,49 @@ def test_cli_reports_real_cause_instead_of_a_generic_message(
     assert captured.err.strip() != (
         "FAIL: wheel build-path normalization could not complete"
     )
+
+
+def test_msvc_leg_gets_deterministic_link_flag_and_others_do_not() -> None:
+    """`/Brepro` is emitted for the MSVC target only (E1).
+
+    MSVC `link.exe` stamps a wall-clock `TimeDateStamp` into the PE header and a
+    fresh CodeView GUID on every link, so two byte-identical inputs still yield
+    two different binaries -- which is what fails the release workflow's
+    "Require byte-identical folded wheels" step on windows-x86_64 while the
+    linux/macos legs pass. `/Brepro` makes both content-derived.
+
+    It is a `link.exe` switch, so emitting it on a leg that links with `ld`/`lld`
+    would break that leg's build outright. This pins BOTH halves: present for
+    MSVC, absent everywhere else.
+    """
+
+    msvc, _, _ = encoded_rustflags(
+        {}, checkout="/build/source", target="x86_64-pc-windows-msvc"
+    )
+    assert "-Clink-arg=/Brepro" in msvc.split("\x1f")
+
+    for other in (
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        None,
+    ):
+        flags, _, _ = encoded_rustflags({}, checkout="/build/source", target=other)
+        assert "-Clink-arg=/Brepro" not in flags.split("\x1f"), other
+
+
+def test_deterministic_link_flag_is_not_duplicated_when_already_present() -> None:
+    """A caller-supplied `/Brepro` is preserved, not emitted twice.
+
+    Duplicate link args are accepted by `link.exe` but would make the encoded
+    flag string differ between a leg that pre-set it and one that did not --
+    itself a reproducibility hazard.
+    """
+
+    flags, _, _ = encoded_rustflags(
+        {"RUSTFLAGS": "-Clink-arg=/Brepro"},
+        checkout="/build/source",
+        target="x86_64-pc-windows-msvc",
+    )
+    assert flags.split("\x1f").count("-Clink-arg=/Brepro") == 1
