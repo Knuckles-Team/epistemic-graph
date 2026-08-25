@@ -40,6 +40,11 @@
 //! With NO persist dir the engine is in-memory only (a scratch graph), exactly like
 //! the server with no persist dir.
 //!
+//! `open()` also takes the SAME single-writer `engine.lock` `flock` guard the
+//! standalone server takes (`eg_core::persist_lock`, BUG-PE-031): a second
+//! `EmbeddedEngine::open()` — or a `main.rs`-launched server — against the same
+//! `persist_dir` while this handle is alive is refused, not merely racy.
+//!
 //! ## SQLite-equivalent SQL (CONCEPT:EG-KG.storage.namespaced-kv-surface / EG-018)
 //!
 //! SQLite is *embedded* — its equivalence here is this in-process mode PLUS arbitrary
@@ -105,6 +110,15 @@ struct Inner {
     /// Durable redb store, present when a persist dir is configured AND `durable`.
     #[cfg(feature = "redb")]
     store: Option<EmbeddedRedbStore>,
+    /// Single-writer lock on `persist_dir`, held for the lifetime of this `Inner`
+    /// (i.e. until the last `EmbeddedEngine` clone drops) whenever `store` is
+    /// `Some` — the embedded-transport half of BUG-PE-031: `src/main.rs`'s
+    /// standalone server already refuses a second writer on the same persist dir
+    /// via `persist_lock::acquire`; this closes the same class for the embedded
+    /// transport by taking the SAME `eg_core::persist_lock` guard. `None` for an
+    /// in-memory engine (nothing to guard).
+    #[cfg(feature = "redb")]
+    _persist_lock: Option<eg_core::persist_lock::PersistDirLock>,
     /// In-memory-only when there is no durable store.
     #[cfg(not(feature = "redb"))]
     _persist: Option<std::path::PathBuf>,
@@ -134,8 +148,15 @@ impl EmbeddedEngine {
         #[cfg(feature = "redb")]
         {
             let registry = RwLock::new(GraphRegistry::new());
+            let mut persist_lock = None;
             let store = match (&persist_dir, options.durable) {
                 (Some(dir), true) => {
+                    // Single-writer guard FIRST — refuse (and touch nothing) if another
+                    // engine already owns this persist dir, exactly like `src/main.rs`'s
+                    // standalone-server guard (BUG-PE-031).
+                    persist_lock = eg_core::persist_lock::open_persist_mode(
+                        eg_core::persist_lock::PersistMode::Durable(dir.clone()),
+                    )?;
                     let store = EmbeddedRedbStore::open(dir)?;
                     // Replay the durable store into the fresh registry (the SAME
                     // reconstruction the server's redb load_all does).
@@ -182,6 +203,7 @@ impl EmbeddedEngine {
                 inner: Arc::new(Inner {
                     registry,
                     store,
+                    _persist_lock: persist_lock,
                     #[cfg(feature = "query")]
                     tables,
                 }),

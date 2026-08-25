@@ -215,6 +215,38 @@ fn embedded_delete_purges_durable_rows_across_reopen() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// BUG-PE-031: a second `EmbeddedEngine::open()` on the SAME persist dir, while the
+/// first handle is still alive, must be refused — the embedded transport takes the
+/// SAME single-writer `engine.lock` guard the standalone server does, so two writers
+/// against one (potentially 13GB production) redb directory can never clobber each
+/// other's snapshots.
+#[test]
+fn embedded_second_open_on_same_dir_is_refused_while_first_is_held() {
+    let dir = tmp_dir("single-writer");
+    let first = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+
+    let second = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable());
+    let err = match second {
+        Ok(_) => panic!("a second open on the same persist dir must be refused"),
+        Err(e) => e,
+    };
+    assert!(
+        err.contains("already locked"),
+        "expected the single-writer lock error, got: {err}"
+    );
+
+    // Dropping the first handle releases the lock; a fresh open then succeeds.
+    drop(first);
+    let third = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable());
+    let third_err = third.as_ref().err().cloned();
+    assert!(
+        third.is_ok(),
+        "open after the first holder released should succeed: {third_err:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// In-memory mode: no persist dir ⇒ not durable, but every op still works.
 #[test]
 fn embedded_in_memory_no_persist() {

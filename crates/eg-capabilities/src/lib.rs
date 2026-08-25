@@ -2970,7 +2970,23 @@ mod smoke_tests {
         // operations (9 unconditional methods): 386 + 9 = 395.
         // Plus the `GetIdentity` identity read-back (CONCEPT:EG-KG.compute.feature,
         // unconditional -- closes the RegisterIdentity blind-upsert gap): 395 + 1 = 396.
-        let expected = 396
+        //
+        // BUG-PE-033: 396 was already STALE the moment it landed. `git log -S` on this
+        // constant + `crates/eg-types/src/protocol.rs` shows the merge that carried
+        // `Method::ResourceStatsPage` (`git diff 85965524 125e1045 -- crates/eg-
+        // capabilities/src/lib.rs`, "Merge branch 'native-capacity-submit-work-item'")
+        // landed a fully-formed, correctly-classified `policy()` arm AND `ALL_METHODS`
+        // row for it (mirrors `ResourceStats`: `mutates: false`, `DurabilityDomain::
+        // None`, `service:control`, `TxnParticipation::None` -- it is the bounded/
+        // keyset-paginated sibling of `ResourceStats`, gated `#[cfg(feature = "cost")]`
+        // in the enum but `cost` is force-enabled on this crate's own `eg-types`
+        // dependency, exactly like `rdf`/`mining`/`security`, so it is unconditional
+        // here) -- but that merge's only recorded conflict was in `src/server/
+        // dispatch.rs`, and this literal was never bumped for it, silently drifting one
+        // behind reality (the SAME "silent auto-merge trap" class as the a1f4025/GOC-33
+        // incident this comment chain already documents). No policy work is needed --
+        // ResourceStatsPage already has one; only the count was wrong: 396 + 1 = 397.
+        let expected = 397
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
