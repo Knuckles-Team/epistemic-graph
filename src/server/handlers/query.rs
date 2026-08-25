@@ -1513,9 +1513,62 @@ pub(crate) async fn try_handle(
                 if let Some(bytes) = core.result_cache().get(hash, core.version()) {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
-                let (mut snap, version) = core.analysis_snapshot_versioned();
+                // perf/cold-query-floor-analysis (UNCOMPILED PROPOSAL — see
+                // `crate::rls_view_cache` in eg-core, not yet exercised by any test or
+                // build): a whole-RESULT-cache MISS used to unconditionally pay for
+                // `analysis_snapshot_versioned()` (an O(V+E) clone of every node/edge
+                // property blob's Arc handle) PLUS `rls.filter_view` — which, per node
+                // in the ENTIRE snapshot (not just the rows this query's WHERE clause
+                // ultimately matches), fully msgpack-decodes that node's property blob
+                // (`IsolationLayer::can_see_node` -> `row_visibility`) just to read 2-3
+                // small RLS metadata keys. That is architecturally the SAME bug
+                // `build_cypher_label_index` had before `perf/warm-label-index`
+                // (`2662713b`) fixed it for the label index, except unmemoized: this
+                // filtered view is a pure function of (graph content, actor's ACL
+                // grants) at one `version()`, so a same-(actor, version) repeat pays the
+                // full O(V) decode again on every distinct query text (a whole-result
+                // cache miss), which is exactly the reported ~900ms fixed floor —
+                // measured live via the structurally identical `project_core` cache's
+                // own `epistemic_graph_projection_cache_miss_build_seconds` (298
+                // misses, mean 1.10s/miss). Probe the per-actor filtered-view cache
+                // FIRST; only a genuine cold (actor, version) pair pays for the
+                // snapshot + filter, exactly mirroring the `result_cache` probe just
+                // above (BUG-267) and `GraphReadAuthority::project_core`'s existing
+                // cache-then-build shape (`src/server/access.rs`). RLS safety: keyed by
+                // (actor, version) exactly like `project_core`'s cache — never a
+                // cross-actor share — and invalidated on every whole-image transition
+                // `project_core`'s cache is (`GraphCore::invalidate_filtered_view_cache`,
+                // called alongside `invalidate_projection_cache` at both its sites).
+                // `version` MUST be the exact version the returned `snap` reflects (the
+                // same BUG-267 invariant the `result_cache.put` below relies on: an
+                // entry can never claim a version newer than the data it reflects) —
+                // NOT a fresh `core.version()` re-read after the cache probe, which
+                // could have raced a concurrent commit. The hit branch reuses
+                // `probe_version` (what `cached_filtered_view` matched against); the
+                // miss branch reuses `built_version` (what `analysis_snapshot_versioned`
+                // itself captured), exactly as the pre-existing code did.
                 #[cfg(feature = "security")]
-                rls.filter_view(caller, &mut snap);
+                let (snap, version): (Arc<crate::graph::GraphView>, u64) = {
+                    let probe_version = core.version();
+                    match core.cached_filtered_view(caller, probe_version) {
+                        Some(cached) => (cached, probe_version),
+                        None => {
+                            let generation = core.filtered_view_cache_generation();
+                            let (mut fresh, built_version) = core.analysis_snapshot_versioned();
+                            rls.filter_view(caller, &mut fresh);
+                            let fresh = Arc::new(fresh);
+                            core.put_cached_filtered_view(
+                                caller.to_string(),
+                                built_version,
+                                generation,
+                                fresh.clone(),
+                            );
+                            (fresh, built_version)
+                        }
+                    }
+                };
+                #[cfg(not(feature = "security"))]
+                let (snap, version) = core.analysis_snapshot_versioned();
                 (snap, version, hash)
             };
             #[cfg(not(feature = "result-cache"))]
