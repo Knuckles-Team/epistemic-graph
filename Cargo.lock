@@ -2533,6 +2533,7 @@ dependencies = [
  "eg-modality",
  "eg-mutation-store",
  "eg-types",
+ "fs4 0.8.4",
  "hex",
  "parking_lot",
  "petgraph 0.6.5",

@@ -39,6 +39,12 @@ pub mod decay;
 /// dependency set. Gated with the result cache it serves.
 #[cfg(feature = "result-cache")]
 pub mod dep_scope;
+/// Canonical durable-mutation classification/application, hoisted down from the
+/// facade's `src/mutation_apply.rs` (`plans/pyengine/EG-PYENGINE-PLAN.md` §4.2) so a
+/// caller below the facade (`crates/eg-pyengine`) can share it instead of
+/// re-deriving a drifting copy. See the module's own doc for exactly what moved and
+/// what stayed at the facade (DAG-forced: needs `eg-compute`/`eg-rdf`/`src/server`).
+pub mod durable_apply;
 pub mod graph;
 pub mod index;
 pub mod isolation;
@@ -48,6 +54,14 @@ pub mod jsonpath;
 /// `PathIndexPersistence` seam + in-memory default are always compiled; the
 /// redb-backed `RedbPathIndexStore` is gated behind the `path-persist` feature.
 pub mod path_persist;
+/// Single-writer-per-persist-dir guard, hoisted down from the facade's
+/// `src/persist_lock.rs` (same `engine.lock` `flock` mechanism, unchanged) so a
+/// caller below the facade (`crates/eg-pyengine`) can take the SAME exclusive lock a
+/// second embedded engine on the same directory would be refused. Also the home of
+/// `PersistMode`, the explicit-choice persist-dir contract (`plans/pyengine/
+/// EG-PYENGINE-PLAN.md` §9.2 Gate A / BUG-PE-003) that makes an unconfigured silent
+/// fallback path structurally unrepresentable.
+pub mod persist_lock;
 /// CONCEPT:EG-KG.query.named-graph-projection-catalog (W4.5 / N5) — the `gds.graph.project`-
 /// equivalent named/materialized graph-projection catalog, invalidated via the SAME `dep_scope`
 /// `DepClock` the result cache's dependency-scoped entries use. Gated with it (needs the clock).
