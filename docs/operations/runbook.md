@@ -207,6 +207,26 @@ single-secret configuration remains compatible as `legacy@1`; new deployments sh
 set `EPISTEMIC_GRAPH_ENCRYPTION_KEY_ID` and
 `EPISTEMIC_GRAPH_ENCRYPTION_KEY_VERSION` from the KMS record.
 
+Startup fails closed in BOTH directions, before the writer thread or any listener is
+admitted (BUG-PE-055):
+
+- **A populated PLAINTEXT store handed a key is refused.** Enabling encryption-at-rest
+  on a store that already holds durable rows is a destructive-read operation, not a
+  config toggle -- every pre-existing value would fail to unseal. Use the
+  re-encryption ceremony below into a fresh persist dir, or unset the key.
+- **An ENCRYPTED store opened with no key is refused**, regardless of
+  `EPISTEMIC_GRAPH_ENCRYPTION_REQUIRED`. A missing key for a sealed store is not a
+  rollout-posture choice; it used to open cleanly and then fail one read at a time.
+- Establishing a NEW key binding (only possible on an empty store) logs at WARN, not
+  INFO, naming `EPISTEMIC_GRAPH_ENCRYPTION_KEY`. If you expected the store to already
+  hold data, that warning means it is not the store you meant.
+
+**Where the key lives matters as much as the store.** If the key material is minted
+under an ephemeral location (a container `emptyDir`) while the persist dir is durable,
+every restart presents a different key to the same store. With the refusals above that
+now surfaces as a hard, named startup failure instead of silent damage -- but the fix
+is to source the key from the KMS/secret reference, not from a per-process file.
+
 The key reference is a pin, not a secret.  A changed ID/version is deliberately a
 rotation boundary: the engine refuses to open with a bounded diagnostic and never
 auto-rekeys a live store.  This prevents a crash halfway through a rewrite from
