@@ -253,7 +253,7 @@ fn finish_batch(
     // properties, query text, document bodies, or identifiers. Bind the outbox row to
     // the canonical operation list with a digest-only manifest; the authoritative
     // batch/state remains the recovery source.
-    let summary = projection_payload_for_operations(&operations)?;
+    let summary = crate::redb_store::projection_payload_for_operations(&operations)?;
     let mut scope_digest = Sha256::new();
     scope_digest.update(ctx.tenant.as_bytes());
     scope_digest.update([0]);
@@ -291,56 +291,6 @@ fn finish_batch(
     };
     batch.validate()?;
     Ok(batch)
-}
-
-/// Encode the derived projection wake-up for an immutable operation list.
-///
-/// Native resource retries compare this derived intent after normalizing the
-/// authority-owned lifecycle timestamp. Keeping the digest construction here
-/// prevents the retry path from drifting from the producer in `finish_batch`.
-pub(crate) fn projection_summary_for_operations(
-    operations: &[MutationOperation],
-) -> Result<Vec<u8>, String> {
-    let encoded_operations = rmp_serde::to_vec_named(operations).map_err(|e| e.to_string())?;
-    use sha2::{Digest, Sha256};
-    rmp_serde::to_vec_named(&serde_json::json!({
-        "schema": "epistemic.mutation.projection.v1",
-        "operations": operations.len(),
-        "operations_sha256": hex::encode(Sha256::digest(&encoded_operations)),
-    }))
-    .map_err(|e| e.to_string())
-}
-
-/// Encode the feature-aware projection wake-up payload for an operation list.
-///
-/// `epistemic-tms` replaces the ordinary summary with a typed
-/// `ReasoningProjectionWakeup`. Retry reconciliation must derive the same
-/// payload as the producer, including that feature-specific shape.
-pub(crate) fn projection_payload_for_operations(
-    operations: &[MutationOperation],
-) -> Result<Vec<u8>, String> {
-    #[cfg(feature = "epistemic-tms")]
-    {
-        use sha2::{Digest, Sha256};
-
-        let encoded_operations =
-            rmp_serde::to_vec_named(operations).map_err(|error| error.to_string())?;
-        let methods = operations
-            .iter()
-            .map(|operation| operation.method.clone())
-            .collect::<Vec<_>>();
-        let wakeup = eg_epistemic::ReasoningProjectionWakeup::new(
-            operations.len(),
-            hex::encode(Sha256::digest(encoded_operations)),
-            eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),
-        )?;
-        rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())
-    }
-
-    #[cfg(not(feature = "epistemic-tms"))]
-    {
-        projection_summary_for_operations(operations)
-    }
 }
 
 /// Durable pseudonym used by every native coordinator retry check.
