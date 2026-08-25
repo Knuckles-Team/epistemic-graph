@@ -129,6 +129,71 @@ pub(crate) const ENCRYPTION_KEY_BINDING_KEY: &str = "key-binding-v1";
 #[cfg(feature = "security")]
 const ENCRYPTION_CANARY_PLAINTEXT: &[u8] = b"epistemic-graph-encryption-canary";
 
+/// What [`verify_or_establish_encryption_canary`] did, so the open path can log the
+/// TRUTH rather than one undifferentiated "ENABLED" line (BUG-PE-055).
+#[cfg(feature = "security")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanaryOutcome {
+    /// The store's existing canary decrypted under the configured key.
+    Verified,
+    /// A pre-NE-028 fixed canary was verified and upgraded to the bound pair.
+    UpgradedLegacy,
+    /// FIRST use of a key on an EMPTY store — a new canary was written. On a store
+    /// that already held rows this is refused, not logged.
+    Established,
+}
+
+/// Does this shard already hold durable rows (BUG-PE-055)?
+///
+/// The question the canary path could not previously ask. Establishing a canary is
+/// only safe on an EMPTY store: on a populated PLAINTEXT store it silently converts
+/// every subsequent write to sealed framing while every pre-existing value stays
+/// plaintext, so each of those reads then fails closed with
+/// `"encrypted durable value is missing sealed framing"`. `crypto`'s
+/// [`TXN_RECOVERY_KEY_ENV`](crate::crypto::TXN_RECOVERY_KEY_ENV) doc already names that
+/// as "a destructive-read operation on a populated plaintext store, not a config
+/// toggle"; this is the probe that lets the open path refuse it.
+#[cfg(feature = "security")]
+fn shard_holds_durable_rows(db: &Database) -> Result<bool, String> {
+    use redb::ReadableTableMetadata as _;
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    macro_rules! non_empty {
+        ($definition:expr) => {{
+            if let Ok(table) = rtx.open_table($definition) {
+                if table.len().map_err(|e| e.to_string())? > 0 {
+                    return Ok(true);
+                }
+            }
+        }};
+    }
+    non_empty!(crate::redb_store::GRAPH_META);
+    non_empty!(crate::redb_store::NODES);
+    non_empty!(crate::redb_store::EDGES);
+    non_empty!(crate::redb_store::LEDGER);
+    non_empty!(crate::redb_store::SEMANTIC);
+    non_empty!(crate::redb_store::AUDIT);
+    Ok(false)
+}
+
+/// Does this shard carry encryption-at-rest metadata (BUG-PE-055)?
+///
+/// Answered on the NO-KEY path, which previously never looked: a store whose values
+/// are sealed opened cleanly with no key at all and then failed per-read. Startup is
+/// where that belongs.
+#[cfg(feature = "security")]
+fn shard_carries_encryption_metadata(db: &Database) -> Result<bool, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let Ok(table) = rtx.open_table(ENCRYPTION_CANARY) else {
+        return Ok(false);
+    };
+    for key in [ENCRYPTION_CANARY_KEY, ENCRYPTION_KEY_BINDING_KEY] {
+        if table.get(key).map_err(|e| e.to_string())?.is_some() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Verify (or, on first use, establish) that `cipher` is the SAME key and stable
 /// identity/version that sealed this shard's previous data. Called from `Shard::open`
 /// before any writer thread spawns or any listener binds.
@@ -141,7 +206,7 @@ const ENCRYPTION_CANARY_PLAINTEXT: &[u8] = b"epistemic-graph-encryption-canary";
 fn verify_or_establish_encryption_canary(
     db: &Database,
     cipher: &crate::crypto::ValueCipher,
-) -> Result<(), String> {
+) -> Result<CanaryOutcome, String> {
     let (existing_canary, existing_binding) = {
         let rtx = db.begin_read().map_err(|e| e.to_string())?;
         let table = rtx
@@ -189,7 +254,7 @@ fn verify_or_establish_encryption_canary(
                         .to_string(),
                 );
             }
-            Ok(())
+            Ok(CanaryOutcome::Verified)
         }
         (Some(sealed), None) => {
             // Upgrade the pre-NE-028 fixed canary only after proving the configured
@@ -226,7 +291,7 @@ fn verify_or_establish_encryption_canary(
                     .map_err(|e| e.to_string())?;
             }
             wtx.commit().map_err(|e| e.to_string())?;
-            Ok(())
+            Ok(CanaryOutcome::UpgradedLegacy)
         }
         (None, Some(_)) => Err(
             "refusing to open the durable graph store: encryption key binding exists but \
@@ -234,6 +299,25 @@ fn verify_or_establish_encryption_canary(
                 .to_string(),
         ),
         (None, None) => {
+            // BUG-PE-055: this arm used to be taken IDENTICALLY for a brand-new store
+            // and for a populated store that was written in plaintext — it established
+            // a canary and started encrypting, silently, logging only
+            // "redb encryption-at-rest ENABLED". Every pre-existing value then became
+            // unreadable one read at a time. Establishing a canary is only ever
+            // correct on an EMPTY store.
+            if shard_holds_durable_rows(db)? {
+                return Err(format!(
+                    "refusing to open the durable graph store: {} is set but this store \
+                     carries no encryption canary and already holds durable rows, so it \
+                     was written in PLAINTEXT. Enabling encryption-at-rest on a populated \
+                     plaintext store is a destructive-read operation, not a config \
+                     toggle: every existing value would fail to unseal. Complete the \
+                     documented offline re-encryption procedure into a fresh persist \
+                     dir, or unset {} to keep serving this store as it is.",
+                    crate::crypto::ENCRYPTION_KEY_ENV,
+                    crate::crypto::ENCRYPTION_KEY_ENV,
+                ));
+            }
             let binding = crate::crypto::EncryptionKeyBinding::from_key_ref(configured_ref);
             let binding_bytes = binding.encode()?;
             let sealed = cipher.seal(&expected_plaintext);
@@ -250,7 +334,7 @@ fn verify_or_establish_encryption_canary(
                     .map_err(|e| e.to_string())?;
             }
             wtx.commit().map_err(|e| e.to_string())?;
-            Ok(())
+            Ok(CanaryOutcome::Established)
         }
     }
 }
@@ -1102,17 +1186,57 @@ impl Shard {
         #[cfg(feature = "security")]
         match &cipher {
             Some(c) => {
-                tracing::info!(
-                    "redb encryption-at-rest ENABLED (value blobs sealed with ChaCha20-Poly1305)"
-                );
                 // GOC-16 / BUG-248: fail closed BEFORE the writer thread spawns or any
                 // listener binds if the configured key does not match the key that
                 // sealed this store's existing data — see
                 // `verify_or_establish_encryption_canary`'s doc for exactly what this
                 // does and does not cover.
-                verify_or_establish_encryption_canary(&db, c)?;
+                //
+                // BUG-PE-055: log AFTER the check, and say which of the three things
+                // actually happened. The old unconditional "ENABLED" line was emitted
+                // before the check ran, so it appeared even on a store that was about
+                // to be refused — and, worse, it read identically whether the key was
+                // the store's existing key or a brand-new one being imposed on it.
+                match verify_or_establish_encryption_canary(&db, c)? {
+                    CanaryOutcome::Verified => tracing::info!(
+                        "redb encryption-at-rest ENABLED (value blobs sealed with \
+                         ChaCha20-Poly1305); the configured key matches this store's \
+                         existing key binding"
+                    ),
+                    CanaryOutcome::UpgradedLegacy => tracing::info!(
+                        "redb encryption-at-rest ENABLED (value blobs sealed with \
+                         ChaCha20-Poly1305); this store's pre-key-lifecycle canary was \
+                         verified and upgraded to a bound key reference"
+                    ),
+                    CanaryOutcome::Established => tracing::warn!(
+                        "redb encryption-at-rest ENABLED (value blobs sealed with \
+                         ChaCha20-Poly1305) and a NEW key binding was established: this \
+                         store had no encryption canary and no durable rows, so {} is \
+                         being used for the FIRST time here. If you expected this store \
+                         to already hold data, it is not the store you meant — check the \
+                         persist dir before writing to it.",
+                        crate::crypto::ENCRYPTION_KEY_ENV,
+                    ),
+                }
             }
-            None => match crate::crypto::encryption_required_mode() {
+            None => {
+                // BUG-PE-055: the no-key path never looked at the canary, so a store
+                // whose values are SEALED opened cleanly with no key and then failed
+                // one read at a time ("encrypted durable value requires configured key
+                // material"). This is the symmetric partner of the wrong-key refusal
+                // above, and it holds regardless of the required-mode posture — a
+                // missing key for an encrypted store is not a posture choice.
+                if shard_carries_encryption_metadata(&db)? {
+                    return Err(format!(
+                        "refusing to open the durable graph store: this store carries \
+                         encryption-at-rest metadata (its value blobs are sealed) but {} \
+                         is not set, so every read of an existing value would fail. \
+                         Configure the key reference and material that encrypted this \
+                         store.",
+                        crate::crypto::ENCRYPTION_KEY_ENV,
+                    ));
+                }
+                match crate::crypto::encryption_required_mode() {
                 crate::crypto::EncryptionRequiredMode::Off => {}
                 crate::crypto::EncryptionRequiredMode::Warn => {
                     tracing::warn!(
@@ -1131,7 +1255,8 @@ impl Shard {
                         crate::crypto::ENCRYPTION_KEY_ENV,
                     ));
                 }
-            },
+                }
+            }
         }
         // Keep a clone of the cipher for the snapshot-read path (CONCEPT:EG-KG.storage.snapshot-read-off-writer); the
         // writer thread takes ownership of the original below.
@@ -5401,6 +5526,126 @@ mod tests {
         for _ in 0..2 {
             let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
                 .expect("no key configured must keep opening exactly as before");
+            backend.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-PE-055 known-bad proof, direction 1: a POPULATED PLAINTEXT store must not
+    /// silently accept a brand-new key.
+    ///
+    /// Observed before this fix: the engine opened a previously-unencrypted store with
+    /// a fresh key WITHOUT complaint, wrote a canary, and logged
+    /// `redb encryption-at-rest ENABLED`. Every value already in the store then failed
+    /// to unseal, one read at a time. This is the shape the deployment hits when the
+    /// key lives under an ephemeral `AGENT_UTILITIES_DATA_DIR` (an emptyDir) while the
+    /// store is on a persistent hostPath: a fresh key on every restart, against
+    /// durable data.
+    #[cfg(feature = "security")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn populated_plaintext_store_refuses_a_brand_new_key() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let dir = std::env::temp_dir().join(format!(
+            "eg-redb-enc-adopt-plaintext-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        // Write real durable rows with encryption OFF — a plaintext store.
+        {
+            let _guard = EncryptionRequiredEnvGuard::set(None, "off");
+            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+                .expect("plaintext open");
+            backend
+                .register_graph("plain", "plain", crate::protocol::GraphType::Global)
+                .await
+                .expect("register");
+            backend.shutdown();
+        }
+
+        // Now hand it a key it has never seen.
+        let result = {
+            let _guard = EncryptionRequiredEnvGuard::set(Some("a-brand-new-key"), "warn");
+            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+        };
+        let message = match result {
+            Ok(_) => panic!(
+                "a populated PLAINTEXT store must refuse a brand-new key, not silently \
+                 start encrypting over it"
+            ),
+            Err(message) => message,
+        };
+        assert!(
+            message.contains(crate::crypto::ENCRYPTION_KEY_ENV)
+                && message.contains("PLAINTEXT")
+                && message.contains("destructive-read"),
+            "the diagnostic must name the variable and the hazard, got: {message}"
+        );
+        assert!(
+            !message.contains("a-brand-new-key"),
+            "key material must never reach a diagnostic, got: {message}"
+        );
+
+        // The store is untouched: it still opens with encryption off.
+        {
+            let _guard = EncryptionRequiredEnvGuard::set(None, "off");
+            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+                .expect("the refused open must leave the plaintext store serviceable");
+            backend.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-PE-055 known-bad proof, direction 2: an ENCRYPTED store must not open with
+    /// NO key at all.
+    ///
+    /// The no-key path never looked at the canary, so a store whose values are sealed
+    /// opened cleanly and then failed one read at a time with
+    /// `"encrypted durable value requires configured key material"`. That is the
+    /// symmetric partner of the wrong-key refusal, and it holds regardless of
+    /// `EPISTEMIC_GRAPH_ENCRYPTION_REQUIRED` — a missing key for an encrypted store is
+    /// not a rollout-posture choice.
+    #[cfg(feature = "security")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn encrypted_store_refuses_to_open_without_a_key() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let dir =
+            std::env::temp_dir().join(format!("eg-redb-enc-nokey-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        {
+            let _guard = EncryptionRequiredEnvGuard::set(Some("sealing-key-material"), "warn");
+            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+                .expect("first open establishes the canary on an empty store");
+            backend
+                .register_graph("sealed", "sealed", crate::protocol::GraphType::Global)
+                .await
+                .expect("register");
+            backend.shutdown();
+        }
+
+        // `off` deliberately: the refusal must not depend on the required-mode posture.
+        let result = {
+            let _guard = EncryptionRequiredEnvGuard::set(None, "off");
+            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+        };
+        let message = match result {
+            Ok(_) => panic!("an ENCRYPTED store must refuse to open with no key configured"),
+            Err(message) => message,
+        };
+        assert!(
+            message.contains(crate::crypto::ENCRYPTION_KEY_ENV)
+                && message.contains("encryption-at-rest metadata"),
+            "the diagnostic must name the variable and the cause, got: {message}"
+        );
+
+        // With the original key it opens again — the refusal changed nothing on disk.
+        {
+            let _guard = EncryptionRequiredEnvGuard::set(Some("sealing-key-material"), "warn");
+            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+                .expect("the original key must still open the store");
             backend.shutdown();
         }
         let _ = std::fs::remove_dir_all(&dir);
