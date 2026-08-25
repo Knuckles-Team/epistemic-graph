@@ -379,7 +379,11 @@ pub fn stamp_owner_id_if_absent(blob: &[u8], caller_agent_id: &str) -> Option<Ve
 
 #[cfg(feature = "security")]
 impl RowVisibility {
-    fn default_public() -> Self {
+    /// `pub(crate)` (not private) so `crate::graph`'s row-visibility-index
+    /// maintenance (`GraphCore::visibility_index_set`, perf/row-visibility-index)
+    /// can produce the IDENTICAL fallback value `can_see_node` used to compute
+    /// inline for a node with no property blob at all, before that index existed.
+    pub(crate) fn default_public() -> Self {
         RowVisibility {
             owner: None,
             public: true,
@@ -1068,11 +1072,27 @@ impl IsolationLayer {
     /// always `false`).
     #[cfg(feature = "security")]
     pub fn can_see_node(&self, agent_id: &str, view: &crate::graph::GraphView, id: &str) -> bool {
-        let mut vis = view
-            .node_properties
-            .get(id)
-            .map(|blob| row_visibility(blob))
-            .unwrap_or_else(RowVisibility::default_public);
+        // perf/row-visibility-index: `view.visibility_index` carries each node's
+        // ALREADY-DECODED `RowVisibility` when it was populated from
+        // `GraphCore`'s write-time-maintained index (`GraphCore::live_visibility_index`,
+        // `crate::graph`) — an O(1) map lookup instead of re-running `row_visibility`'s
+        // full bounded msgpack decode for every node on every query. A hit here is BY
+        // CONSTRUCTION identical to the decode fallback below: every entry in that index
+        // was itself produced by calling `row_visibility` on the node's raw blob (see
+        // `GraphCore::visibility_index_set`/`build_visibility_index`), never a
+        // reimplementation of the decode logic. A node ABSENT from the index — a view
+        // not sourced from `GraphCore` (e.g. `topology_snapshot`, a hand-built test
+        // view, or a `get_subgraph` induced view, none of which populate this map) —
+        // falls back to the exact pre-existing per-blob decode, so correctness never
+        // depends on the index being complete or even present.
+        let mut vis = match view.visibility_index.get(id) {
+            Some(vis) => vis.clone(),
+            None => view
+                .node_properties
+                .get(id)
+                .map(|blob| row_visibility(blob))
+                .unwrap_or_else(RowVisibility::default_public),
+        };
         // BUG A3 (2026-08-12): TBox membership is DERIVED from this
         // snapshot's live reverse index (`view.schema_node_ids`,
         // populated from `GraphCore::schema_refs` at snapshot time),
@@ -1920,6 +1940,175 @@ mod tests {
                 assert!(
                     layer.can_see_row("worker1", &vis),
                     "the owner itself must still see its own private row"
+                );
+            }
+        }
+
+        // ── perf/row-visibility-index: index-path/decode-path equivalence ──
+        //
+        // `IsolationLayer::can_see_node` now has TWO ways to obtain a node's
+        // `RowVisibility`: an O(1) lookup into `GraphView::visibility_index` (when
+        // `GraphCore` populated it from its write-time-maintained index), or the
+        // pre-existing full `row_visibility(blob)` decode (when the entry is
+        // absent). This suite is the load-bearing proof that the two paths NEVER
+        // disagree — a perf change that could ever change who can see what is a
+        // security incident, not an optimization. It is not "probably fine
+        // because the index is built by calling `row_visibility`" reasoning
+        // alone: every case below runs the SAME blob through both paths and
+        // asserts byte-for-byte-identical outcomes.
+        mod row_visibility_index_equivalence {
+            use super::*;
+
+            fn props_bytes(pairs: &[(&str, &str)]) -> Vec<u8> {
+                let map: std::collections::BTreeMap<String, String> = pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect();
+                rmp_serde::to_vec_named(&map).unwrap()
+            }
+
+            /// A `_visibility` value of the WRONG JSON type (a number, not a
+            /// string) — a "partial/malformed" RLS blob distinct from a
+            /// fully-undecodable byte sequence: it decodes fine as a map, but the
+            /// RLS key's value fails `.as_str()`, exactly like an absent key.
+            fn props_partial_malformed() -> Vec<u8> {
+                rmp_serde::to_vec_named(&serde_json::json!({
+                    "_owner": "worker2",
+                    "_visibility": 12345,
+                }))
+                .unwrap()
+            }
+
+            struct Case {
+                name: &'static str,
+                blob: Vec<u8>,
+                caller: &'static str,
+            }
+
+            /// The five required scenarios (CONCEPT:EG-KG.sharding.row-level-security perf spec):
+            /// an owned node, a foreign-owner node, a shared-scope node, a node
+            /// with no RLS keys, and a node with a malformed/partial RLS blob —
+            /// plus a second malformed shape (decodable map, wrong-typed value)
+            /// distinct from the fully-undecodable-bytes case.
+            fn cases() -> Vec<Case> {
+                vec![
+                    Case {
+                        name: "owned_private",
+                        blob: props_bytes(&[("_owner", "worker1"), ("_visibility", "private")]),
+                        caller: "worker1",
+                    },
+                    Case {
+                        name: "foreign_owner_private",
+                        blob: props_bytes(&[("_owner", "worker2"), ("_visibility", "private")]),
+                        caller: "worker1",
+                    },
+                    Case {
+                        name: "shared_scope_org",
+                        blob: props_bytes(&[("_owner_id", "worker2"), ("_shared_scope", "org")]),
+                        caller: "worker1",
+                    },
+                    Case {
+                        name: "no_rls_keys",
+                        blob: props_bytes(&[("name", "plain")]),
+                        caller: "worker1",
+                    },
+                    Case {
+                        name: "malformed_undecodable_blob",
+                        blob: vec![0xFF, 0x00, 0x01],
+                        caller: "worker1",
+                    },
+                    Case {
+                        name: "malformed_partial_rls_value",
+                        blob: props_partial_malformed(),
+                        caller: "worker1",
+                    },
+                ]
+            }
+
+            fn decode_only_view(case: &Case) -> GraphView {
+                let mut v = GraphView::default();
+                let idx = v.graph.add_node(case.name.to_string());
+                v.node_map.insert(case.name.to_string(), idx);
+                v.node_properties
+                    .insert(case.name.to_string(), std::sync::Arc::new(case.blob.clone()));
+                v
+            }
+
+            /// Same topology/blob as `decode_only_view`, PLUS a pre-populated
+            /// `visibility_index` entry computed EXACTLY how
+            /// `GraphCore::build_visibility_index`/`visibility_index_set` compute
+            /// it in production: a direct call to `row_visibility` on the same
+            /// raw blob (never a reimplementation of the decode).
+            fn index_warmed_view(case: &Case) -> GraphView {
+                let mut v = decode_only_view(case);
+                v.visibility_index
+                    .insert(case.name.to_string(), row_visibility(&case.blob));
+                v
+            }
+
+            #[test]
+            fn index_path_matches_decode_path_for_every_case() {
+                let layer = setup();
+                for case in cases() {
+                    let decode_view = decode_only_view(&case);
+                    let index_view = index_warmed_view(&case);
+                    assert!(
+                        decode_view.visibility_index.is_empty(),
+                        "case {:?}: sanity — the decode-path view must carry NO index entry",
+                        case.name
+                    );
+                    assert!(
+                        index_view.visibility_index.contains_key(case.name),
+                        "case {:?}: sanity — the index-path view must carry a warm entry",
+                        case.name
+                    );
+                    let via_decode = layer.can_see_node(case.caller, &decode_view, case.name);
+                    let via_index = layer.can_see_node(case.caller, &index_view, case.name);
+                    assert_eq!(
+                        via_decode, via_index,
+                        "case {:?}: index-path and decode-path disagreed for caller {:?}",
+                        case.name, case.caller
+                    );
+                }
+            }
+
+            /// The same equivalence proof through `filter_view` end-to-end (real
+            /// topology + edge dropping), not just the per-node predicate in
+            /// isolation — proves the wiring produces an identical FILTERED graph,
+            /// not merely an identical single-node verdict.
+            #[test]
+            fn filter_view_result_is_identical_with_and_without_a_warm_index() {
+                let layer = setup();
+                for case in cases() {
+                    let mut decode_view = decode_only_view(&case);
+                    let mut index_view = index_warmed_view(&case);
+                    layer.filter_view(case.caller, &mut decode_view);
+                    layer.filter_view(case.caller, &mut index_view);
+                    assert_eq!(
+                        decode_view.node_map.contains_key(case.name),
+                        index_view.node_map.contains_key(case.name),
+                        "case {:?}: filter_view visibility diverged between paths",
+                        case.name
+                    );
+                }
+            }
+
+            /// A node ABSENT from `visibility_index` (the documented fallback
+            /// contract — "if a shape can't be indexed safely, fall back to the
+            /// existing decode") must still be decided correctly, proving the
+            /// safety net actually works rather than merely that a FULLY
+            /// populated index agrees with itself.
+            #[test]
+            fn missing_index_entry_falls_back_to_decode_and_still_agrees() {
+                let layer = setup();
+                let case = &cases()[1]; // foreign_owner_private
+                let v = decode_only_view(case);
+                assert!(v.visibility_index.is_empty(), "deliberately cold index");
+                let expected = row_visibility(&case.blob);
+                assert_eq!(
+                    layer.can_see_node(case.caller, &v, case.name),
+                    layer.can_see_row(case.caller, &expected),
+                    "a node missing from the index must fall back to the pre-existing decode"
                 );
             }
         }

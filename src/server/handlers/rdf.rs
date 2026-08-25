@@ -113,22 +113,71 @@ pub(crate) async fn try_handle(
                 #[cfg(not(feature = "security"))]
                 let hash =
                     eg_core::result_cache::ResultCache::hash_query("sparql", cache_key.as_bytes());
-                let (mut snap, version) = core.analysis_snapshot_versioned();
-                if let Some(bytes) = core.result_cache().get(hash, version) {
+                // perf/row-visibility-index (B-sweep): mirrors `Method::CypherQuery`'s
+                // exact two-tier probe shape (`src/server/handlers/query.rs`) —
+                // probe the whole-RESULT cache FIRST via a cheap `core.version()`
+                // read (no snapshot built at all on a hit, unlike the previous
+                // shape here which built+filtered a snapshot before ever checking
+                // for a hit); only a genuine result-cache MISS reaches the
+                // per-(actor,version) `FilteredViewCache` probe-then-build below,
+                // which amortizes the per-node RLS decode the same way it does for
+                // Cypher.
+                if let Some(bytes) = core.result_cache().get(hash, core.version()) {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
                 #[cfg(feature = "security")]
-                rls.filter_view(caller, &mut snap);
+                let (snap, version) = {
+                    let probe_version = core.version();
+                    match core.cached_filtered_view(caller, probe_version) {
+                        Some(cached) => (cached, probe_version),
+                        None => {
+                            let generation = core.filtered_view_cache_generation();
+                            let (mut snap, built_version) = core.analysis_snapshot_versioned();
+                            rls.filter_view(caller, &mut snap);
+                            let snap = Arc::new(snap);
+                            core.put_cached_filtered_view(
+                                caller.to_string(),
+                                built_version,
+                                generation,
+                                snap.clone(),
+                            );
+                            (snap, built_version)
+                        }
+                    }
+                };
+                #[cfg(not(feature = "security"))]
+                let (snap, version) = core.analysis_snapshot_versioned();
                 (snap, version, hash)
             };
-            #[cfg(not(feature = "result-cache"))]
-            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-            let snap = {
-                let mut snap = core.analysis_snapshot();
-                #[cfg(feature = "security")]
-                rls.filter_view(caller, &mut snap);
-                snap
+            // perf/row-visibility-index (B-sweep): mirrors
+            // `src/server/handlers/query.rs`'s `rls_snapshot` helper exactly — the
+            // per-(actor,version) `FilteredViewCache` probe-then-build, safe under
+            // the SAME "version read before the snapshot is a safe lower bound"
+            // reasoning documented on that helper (this file cannot call
+            // `analysis_snapshot_versioned`'s atomic pair either, for the identical
+            // reason: it too is `feature = "result-cache"`-gated).
+            #[cfg(all(not(feature = "result-cache"), feature = "security"))]
+            let snap: Arc<crate::graph::GraphView> = {
+                let probe_version = core.version();
+                match core.cached_filtered_view(caller, probe_version) {
+                    Some(cached) => cached,
+                    None => {
+                        let generation = core.filtered_view_cache_generation();
+                        let mut snap = core.analysis_snapshot();
+                        rls.filter_view(caller, &mut snap);
+                        let snap = Arc::new(snap);
+                        core.put_cached_filtered_view(
+                            caller.to_string(),
+                            probe_version,
+                            generation,
+                            snap.clone(),
+                        );
+                        snap
+                    }
+                }
             };
+            #[cfg(all(not(feature = "result-cache"), not(feature = "security")))]
+            let snap = Arc::new(core.analysis_snapshot());
             let resp = match compute_off_lock(req_id, move || {
                 eg_rdf::sparql::execute(
                     &eg_rdf::sparql::Dataset::new(&snap, Vec::new()),
@@ -401,10 +450,34 @@ async fn handle_run_rules(
     #[cfg(feature = "security")] caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Response {
-    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-    let mut snap = core.analysis_snapshot();
+    // perf/row-visibility-index (B-sweep): same per-(actor,version)
+    // `FilteredViewCache` probe-then-build as the `Sparql` arm above — see that
+    // site's comment for the full "version before the snapshot is a safe lower
+    // bound" reasoning. Unlike `Sparql`, `RunRules` has no `result-cache`-gated
+    // sibling: it never used `analysis_snapshot_versioned` even when
+    // `result-cache` is on, so this wiring applies unconditionally here.
     #[cfg(feature = "security")]
-    rls.filter_view(caller, &mut snap);
+    let snap: Arc<crate::graph::GraphView> = {
+        let probe_version = core.version();
+        match core.cached_filtered_view(caller, probe_version) {
+            Some(cached) => cached,
+            None => {
+                let generation = core.filtered_view_cache_generation();
+                let mut snap = core.analysis_snapshot();
+                rls.filter_view(caller, &mut snap);
+                let snap = Arc::new(snap);
+                core.put_cached_filtered_view(
+                    caller.to_string(),
+                    probe_version,
+                    generation,
+                    snap.clone(),
+                );
+                snap
+            }
+        }
+    };
+    #[cfg(not(feature = "security"))]
+    let snap = Arc::new(core.analysis_snapshot());
     let req = eg_rdf::rules::RuleReasonRequest {
         ontology_ttl,
         rules,
