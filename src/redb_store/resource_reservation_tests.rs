@@ -2476,11 +2476,9 @@ fn native_retry_rebuilds_projection_outbox_after_authoritative_time_changes() {
     let proposed_operations = vec![operation(proposed_method)];
     assert!(mutation_operations_retry_match(&stored_operations, &proposed_operations).unwrap());
     let stored_payload =
-        crate::server::mutation_batch::projection_payload_for_operations(&stored_operations)
-            .unwrap();
+        crate::redb_store::projection_payload_for_operations(&stored_operations).unwrap();
     let proposed_payload =
-        crate::server::mutation_batch::projection_payload_for_operations(&proposed_operations)
-            .unwrap();
+        crate::redb_store::projection_payload_for_operations(&proposed_operations).unwrap();
     assert_ne!(
         stored_payload, proposed_payload,
         "the producer binds each outbox to its historical authority timestamp"
