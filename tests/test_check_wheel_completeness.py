@@ -132,6 +132,47 @@ def test_a_wheel_without_the_numeric_kernel_is_rejected(tmp_path: Path) -> None:
     assert main([str(wheel)]) == 1
 
 
+def test_a_wheel_without_the_engine_kernel_passes_by_default(tmp_path: Path) -> None:
+    """The eg-pyengine binding is genuinely optional: absence alone is fine."""
+    wheel = _build_wheel(
+        tmp_path / "engine-less.whl",
+        members=_complete_members(),
+        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+    )
+    assert "epistemic_graph/engine.abi3.so" not in _complete_members()
+    assert check_wheel(wheel) == []
+    assert main([str(wheel)]) == 0
+
+
+def test_a_wheel_without_the_engine_kernel_is_rejected_when_required(
+    tmp_path: Path,
+) -> None:
+    """--require-engine-kernel turns the optional invariant into a hard gate."""
+    wheel = _build_wheel(
+        tmp_path / "engine-less-required.whl",
+        members=_complete_members(),
+        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+    )
+    failures = check_wheel(wheel, require_engine_kernel=True)
+    assert any("no engine kernel" in failure for failure in failures)
+    # Exercise the actual CLI flag, not just the underlying function, so the
+    # argparse wiring itself is proven rather than assumed.
+    assert main(["--require-engine-kernel", str(wheel)]) == 1
+
+
+def test_a_wheel_with_the_engine_kernel_passes_when_required(tmp_path: Path) -> None:
+    """A correctly folded engine kernel satisfies --require-engine-kernel."""
+    members = _complete_members()
+    members["epistemic_graph/engine.abi3.so"] = b"\x7fELF-engine-kernel"
+    wheel = _build_wheel(
+        tmp_path / "with-engine.whl",
+        members=members,
+        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+    )
+    assert check_wheel(wheel, require_engine_kernel=True) == []
+    assert main(["--require-engine-kernel", str(wheel)]) == 0
+
+
 def test_a_windows_wheel_is_accepted(tmp_path: Path) -> None:
     """`.pyd` kernel + `.exe` binary + no POSIX mode bits is a valid wheel."""
     members = _complete_members()

@@ -41,10 +41,27 @@ The invariants, each one a regression that actually shipped:
    ``.so`` is intentionally self-contained; retaining NumPy in wheel metadata
    would make a clean install resolve the retired interpreter-side runtime and
    conceal a regression in the native boundary.
+6. **In-process engine binding present, but only when opted into** —
+   ``epistemic_graph/engine*.{so,pyd}`` (``crates/eg-pyengine``'s
+   ``epistemic_graph.engine`` pyo3 extension, folded in by
+   :mod:`scripts.inject_pyengine`, the same "build one thing, graft another
+   into it" shape as the numeric kernel above). Unlike the numeric kernel,
+   this extension is genuinely OPTIONAL — plenty of legitimate wheels
+   (a slim ``server``-only build, a wheel from before packaging landed, a
+   caller that hasn't wired the engine fold-in step) never had it and must
+   NOT be rejected for that. There is no way to infer "this wheel's release
+   build opted into folding the engine kernel" from wheel contents alone, so
+   this invariant is checked ONLY when the caller says so explicitly via
+   ``--require-engine-kernel`` — one CLI flag, not a config schema. A release
+   pipeline that always folds the engine kernel in (this one now does, see
+   ``.github/workflows/release.yml``) passes the flag at every call site; any
+   other caller that omits it gets the pre-existing, lenient behavior
+   unchanged.
 
 Usage::
 
     python scripts/check_wheel_completeness.py dist/*.whl
+    python scripts/check_wheel_completeness.py --require-engine-kernel dist/*.whl
 
 Exits non-zero, naming every failed invariant per wheel, if any wheel is
 incomplete. Prints only wheel-relative member names — never a build path.
@@ -82,6 +99,15 @@ def _urlsafe_sha256(data: bytes) -> str:
 
 def _kernel_members(names: Sequence[str]) -> list[str]:
     prefix = f"{TARGET_PACKAGE}/numeric"
+    return [
+        name
+        for name in names
+        if name.startswith(prefix) and name.endswith(KERNEL_SUFFIXES)
+    ]
+
+
+def _engine_kernel_members(names: Sequence[str]) -> list[str]:
+    prefix = f"{TARGET_PACKAGE}/engine"
     return [
         name
         for name in names
@@ -159,8 +185,14 @@ def _record_failures(archive: zipfile.ZipFile) -> list[str]:
     return failures
 
 
-def check_wheel(path: Path) -> list[str]:
-    """Return the list of failed invariants for one wheel (empty == complete)."""
+def check_wheel(path: Path, *, require_engine_kernel: bool = False) -> list[str]:
+    """Return the list of failed invariants for one wheel (empty == complete).
+
+    ``require_engine_kernel`` gates invariant 6 (the eg-pyengine binding):
+    unlike the numeric kernel, this extension is genuinely optional, so its
+    absence is only a failure when the caller asserts the release build
+    opted into folding it in.
+    """
     failures: list[str] = []
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
@@ -170,6 +202,14 @@ def check_wheel(path: Path) -> list[str]:
                 f"no numeric kernel: expected {TARGET_PACKAGE}/numeric*"
                 f"{{{','.join(KERNEL_SUFFIXES)}}} — the eg-numeric inject did not run "
                 "or was undone (import epistemic_graph.numeric would fail)"
+            )
+
+        if require_engine_kernel and not _engine_kernel_members(names):
+            failures.append(
+                f"no engine kernel: expected {TARGET_PACKAGE}/engine*"
+                f"{{{','.join(KERNEL_SUFFIXES)}}} — --require-engine-kernel was set but "
+                "the eg-pyengine inject did not run or was undone "
+                "(import epistemic_graph.engine would fail)"
             )
 
         server_entries = _server_entries(archive)
@@ -223,12 +263,24 @@ def check_wheel(path: Path) -> list[str]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("wheels", nargs="+", type=Path)
+    parser.add_argument(
+        "--require-engine-kernel",
+        action="store_true",
+        help=(
+            "also require epistemic_graph/engine*.{so,pyd} (the eg-pyengine "
+            "in-process binding). Pass this only when the wheel's release "
+            "build opted into folding the engine kernel in — omitted by "
+            "default because the extension is genuinely optional."
+        ),
+    )
     args = parser.parse_args(argv)
 
     incomplete = 0
     for path in sorted(args.wheels, key=lambda item: item.name):
         try:
-            failures = check_wheel(path)
+            failures = check_wheel(
+                path, require_engine_kernel=args.require_engine_kernel
+            )
         except (OSError, zipfile.BadZipFile, UnicodeDecodeError) as exc:
             print(
                 f"FAIL: {path.name} could not be read as a wheel ({type(exc).__name__})"

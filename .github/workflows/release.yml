@@ -178,6 +178,18 @@ jobs:
         run: python scripts/normalize_wheel_build_paths.py numdist-gates/*.whl
       - name: Audit numeric kernel wheel for retained build identity
         run: python scripts/check_wheel_privacy.py numdist-gates/*.whl
+      # ── Fold the eg-pyengine in-process engine binding INTO this same gates wheel,
+      #    the identical pattern as the numeric kernel just above (CONCEPT:BUG-PE-002).
+      #    A separate maturin target (`crates/eg-pyengine --features python`), a
+      #    separate pyo3 cdylib, folded in by `scripts/inject_pyengine.py`.
+      - name: Build gates pyengine kernel wheel (feature python)
+        run: maturin build --release -m crates/eg-pyengine/Cargo.toml --features python --out enginedist-gates
+      - name: Normalize build-local SBOM references (pyengine kernel wheel)
+        run: python scripts/normalize_wheel_sbom.py enginedist-gates/*.whl
+      - name: Normalize retained native build paths (pyengine kernel wheel)
+        run: python scripts/normalize_wheel_build_paths.py enginedist-gates/*.whl
+      - name: Audit pyengine kernel wheel for retained build identity
+        run: python scripts/check_wheel_privacy.py enginedist-gates/*.whl
       # Deliberately NOT `--release --features "$MATURIN_FEATURES"`. This wheel is a
       # FOLD TARGET: everything asserted about it downstream — that the numeric
       # kernel injects, that RECORD stays valid, that the console script keeps its
@@ -199,13 +211,16 @@ jobs:
       - name: Fold the numeric kernel into the gates epistemic-graph wheel (EG-346)
         run: |
           python scripts/inject_numeric_kernel.py "$(ls dist-gates/epistemic_graph-*.whl)" "$(ls numdist-gates/*.whl)"
+      - name: Fold the pyengine kernel into the gates epistemic-graph wheel (BUG-PE-002)
+        run: |
+          python scripts/inject_pyengine.py "$(ls dist-gates/epistemic_graph-*.whl)" "$(ls enginedist-gates/*.whl)"
       - name: Normalize and audit the folded gates wheel
         run: |
           python scripts/normalize_wheel_sbom.py dist-gates/*.whl
           python scripts/normalize_wheel_build_paths.py dist-gates/*.whl
           python scripts/check_wheel_privacy.py dist-gates/*.whl
-      - name: Require a complete gates wheel (kernel + executable binary + RECORD)
-        run: python scripts/check_wheel_completeness.py dist-gates/*.whl
+      - name: Require a complete gates wheel (numeric + engine kernels + executable binary + RECORD)
+        run: python scripts/check_wheel_completeness.py --require-engine-kernel dist-gates/*.whl
       - name: Install the folded epistemic-graph wheel into a clean throwaway venv
         run: |
           python -m venv .gates-wheel-venv
@@ -245,6 +260,16 @@ jobs:
           cd "$(mktemp -d)"
           PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -m pytest \
             "$REPO/crates/eg-numeric/tests/test_builtin_boundary.py" --noconftest -q
+      # BUG-PE-002: `import epistemic_graph.engine` must succeed from the INSTALLED
+      # wheel, exactly the same shadowing-avoidance discipline as the numeric smoke
+      # check above (a bare `python -c` at the repo root would resolve the SOURCE
+      # tree instead of the venv's installed wheel).
+      - name: engine kernel smoke test (import epistemic_graph.engine)
+        run: |
+          REPO="$PWD"
+          cd "$(mktemp -d)"
+          PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -c \
+            "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
 
   # ── STAGE 2: the ONE main wheel (CONCEPT:EG-371), built for every
   # supported native target — release-critical item: wheel build +
@@ -396,6 +421,34 @@ jobs:
         run: |
           python scripts/inject_numeric_kernel.py "$(ls dist-primary/epistemic_graph-*.whl)" "$(ls numdist-primary/*.whl)"
 
+      # ── Fold the eg-pyengine in-process engine binding INTO this same wheel
+      #    (BUG-PE-002: `import epistemic_graph.engine` fails in the live shipped
+      #    image because nothing built and folded this extension). Identical shape
+      #    to the numeric kernel fold immediately above — a distinct maturin pyo3
+      #    cdylib target (`crates/eg-pyengine --features python`), injected by
+      #    `scripts/inject_pyengine.py`. The two injections compose freely and are
+      #    order-independent (each only reads/rewrites the target wheel's RECORD,
+      #    never the other's extension member) — folded here right after numeric so
+      #    one normalize/audit/completeness pass below covers both grafts.
+      - name: Build primary eg-pyengine kernel (same target)
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target
+        with:
+          target: ${{ matrix.target }}
+          args: >-
+            --release
+            --out enginedist-primary
+            -m crates/eg-pyengine/Cargo.toml
+            --features python
+          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          sccache: 'false'
+
+      - name: Fold primary pyengine kernel into the epistemic-graph wheel
+        shell: bash
+        run: |
+          python scripts/inject_pyengine.py "$(ls dist-primary/epistemic_graph-*.whl)" "$(ls enginedist-primary/*.whl)"
+
       - name: Normalize and audit primary wheel
         shell: bash
         run: |
@@ -409,9 +462,9 @@ jobs:
       # is silent when it fails. Running the gate on the build leg localizes such a
       # regression to the platform that produced it; `publish-pypi` re-runs it on the
       # downloaded artifacts as the actual publish boundary.
-      - name: Require a complete primary wheel (kernel + executable binary + RECORD)
+      - name: Require a complete primary wheel (numeric + engine kernels + executable binary + RECORD)
         shell: bash
-        run: python scripts/check_wheel_completeness.py dist-primary/*.whl
+        run: python scripts/check_wheel_completeness.py --require-engine-kernel dist-primary/*.whl
 
       - name: Remove primary native build state
         shell: bash
@@ -457,6 +510,25 @@ jobs:
         run: |
           python scripts/inject_numeric_kernel.py "$(ls dist-reproduction/epistemic_graph-*.whl)" "$(ls numdist-reproduction/*.whl)"
 
+      - name: Build reproduction eg-pyengine kernel (same target)
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target
+        with:
+          target: ${{ matrix.target }}
+          args: >-
+            --release
+            --out enginedist-reproduction
+            -m crates/eg-pyengine/Cargo.toml
+            --features python
+          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          sccache: 'false'
+
+      - name: Fold reproduction pyengine kernel into the epistemic-graph wheel
+        shell: bash
+        run: |
+          python scripts/inject_pyengine.py "$(ls dist-reproduction/epistemic_graph-*.whl)" "$(ls enginedist-reproduction/*.whl)"
+
       - name: Normalize and audit reproduction wheel
         shell: bash
         run: |
@@ -466,7 +538,7 @@ jobs:
 
       - name: Require a complete reproduction wheel
         shell: bash
-        run: python scripts/check_wheel_completeness.py dist-reproduction/*.whl
+        run: python scripts/check_wheel_completeness.py --require-engine-kernel dist-reproduction/*.whl
 
       # Diagnostic replacement for the former bare inline `python -c` (three
       # `assert`s, no output on failure -- exactly what made the
@@ -488,15 +560,19 @@ jobs:
           cp dist-primary/epistemic_graph-*.whl dist/
 
       # Smoke test: install the wheel, run the server `--help`, AND prove the folded-in
-      # kernel imports AND computes (`epistemic_graph.numeric`). Skipped for the
-      # cross-only leg (linux-aarch64 on an x86 host) where the binary can't execute on
-      # the runner. Two independent regressions this asserts (both were real):
+      # kernels import (`epistemic_graph.numeric`, computing; `epistemic_graph.engine`,
+      # BUG-PE-002). Skipped for the cross-only leg (linux-aarch64 on an x86 host) where
+      # the binary can't execute on the runner. Three independent regressions this
+      # asserts (the first two were real, shipped regressions; the third is BUG-PE-002 —
+      # `import epistemic_graph.engine` failing in the live shipped image because
+      # nothing built and folded this extension before this lane):
       #   1) the server console binary must stay EXECUTABLE — the numeric inject repacks
       #      the wheel zip and MUST preserve the 0755 mode on
       #      `*.data/scripts/epistemic-graph-server`; dropping the exec bit made pip
       #      install a non-runnable binary that died with "Permission denied".
-      #   2) the folded-in kernel must import AND compute from the INSTALLED wheel.
-      - name: Smoke test (server --help + import epistemic_graph.numeric + compute)
+      #   2) the numeric kernel must import AND compute from the INSTALLED wheel.
+      #   3) the engine kernel must import from the INSTALLED wheel.
+      - name: Smoke test (server --help + import epistemic_graph.{numeric,engine})
         if: ${{ matrix.name != 'linux-aarch64' && matrix.experimental != true }}
         shell: bash
         run: |
@@ -525,6 +601,7 @@ jobs:
           ), requirements
           PY
           python -c "import epistemic_graph.numeric as n; values=[1.,2.,3.,4.]; assert n.sum(values)==10.0 and n.mean(values)==2.5, (n.sum(values), n.mean(values)); print('numeric kernel OK:', n.__file__, '| sum=', n.sum(values), 'mean=', n.mean(values), 'std=', n.std(values))"
+          python -c "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
 
       - name: Upload wheel artifact
         if: ${{ matrix.experimental != true }}
@@ -633,7 +710,8 @@ jobs:
         with:
           python-version: '3.12'
       # ── THE PUBLISH BOUNDARY GATE. Every wheel about to be uploaded must carry the
-      #    folded numeric kernel, an EXECUTABLE server binary, the full python surface,
+      #    folded numeric AND engine kernels (BUG-PE-002 — the `build` job above now
+      #    always folds both), an EXECUTABLE server binary, the full python surface,
       #    and a self-consistent RECORD. This runs on the DOWNLOADED artifacts, so it
       #    catches an incomplete wheel no matter which upstream step regressed.
       - name: Require every distribution to be complete before upload
@@ -641,7 +719,7 @@ jobs:
           python -m pip install --upgrade pip
           echo "Distributions staged for upload:"
           ls -1 dist/
-          python scripts/check_wheel_completeness.py dist/*.whl
+          python scripts/check_wheel_completeness.py --require-engine-kernel dist/*.whl
 
       - name: Publish to PyPI (token)
         env:
@@ -668,7 +746,7 @@ jobs:
               echo "OK: epistemic-graph ${VER} is published (PyPI returned 200)."
               python -m pip download --no-deps --only-binary :all: \
                 "epistemic-graph==${VER}" -d pypi-verify
-              python scripts/check_wheel_completeness.py pypi-verify/*.whl
+              python scripts/check_wheel_completeness.py --require-engine-kernel pypi-verify/*.whl
               echo "OK: the wheel PyPI serves for ${VER} is complete."
               exit 0
             fi
