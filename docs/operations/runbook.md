@@ -119,9 +119,23 @@ a global stop-the-world. Each attempt brackets the per-shard MVCC copies with
 cryptographic change tokens for the admin saga ledger and cross-shard
 prepare/decision state. A transition during the copy leaves the attempt unpublished
 and the caller retries. A complete bundle contains the portable graph shard set,
-`admin-mutations.redb`, and `MANIFEST.json` with aggregate graph, receipt, encrypted
-recovery-plan and cross-shard-decision counts plus exact portable-file digests. The
-manifest is file-synced and atomically published only after those stores validate.
+`admin-mutations.redb`, the non-shard durable stores a restore is incomplete without
+(`rbac.redb`, `kv.redb`, `node_info.redb`, `catalog.redb`), and `MANIFEST.json` with
+aggregate graph, receipt, encrypted recovery-plan and cross-shard-decision counts plus
+exact portable-file digests. The manifest is file-synced and atomically published only
+after those stores validate.
+
+**Read the manifest's scope before trusting a restore.** `bundled_stores` lists every
+non-shard durable store the bundle carries, with its copied row count; `excluded_stores`
+names every durable store the bundle deliberately does NOT carry, with the reason. The
+notable exclusion is `blob.redb` — content-addressed blob bytes are unbounded in size
+and are not copied into a bundle, so a restore leaves blob references dangling until an
+operator copies `blob.redb` alongside the bundle. A bundle whose `bundled_stores` map is
+**empty** was written before this scope was declared: restoring it brings back graph
+shards and coordinator receipts only, and the engine comes up with NO RBAC/identity
+state — no roles, no grants, no registered identities, and a `Consumed` bootstrap that
+cannot be reopened. Treat such a bundle as a graph-only recovery point and re-establish
+identity out of band.
 
 Normal startup accepts only a contiguous canonical `graph-<n>.redb` set and fails on
 the retired unindexed `graph.redb`. With the engine stopped, convert that one-time
