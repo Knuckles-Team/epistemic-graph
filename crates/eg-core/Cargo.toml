@@ -85,6 +85,12 @@ aho-corasick = "1.1"
 tracing = { version = "0.1" }
 # CONCEPT:EG-014 — all-core parallel brute-force fallback (only under `ann`).
 rayon = { version = "1.10", optional = true }
+# Advisory file locking for the single-writer persist-dir guard (`persist_lock`),
+# hoisted down from the facade's own BASE (non-optional) `fs4 = "0.8"` dependency
+# (root `Cargo.toml`) so `crates/eg-pyengine` can take the same `engine.lock` a
+# second embedded engine on the same persist dir is refused (plans/pyengine/
+# EG-PYENGINE-PLAN.md §4.2 gap item 8). Same version pin as the facade's copy.
+fs4 = "0.8"
 # CONCEPT:EG-303 — durable RBAC/identity persistence: the `security` feature persists
 # the RbacPolicy + registered AgentIdentities to a redb table so roles/grants/
 # identities survive a restart. Same redb 4.1 the durable tiers link; only pulled in
