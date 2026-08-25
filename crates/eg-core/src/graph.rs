@@ -607,6 +607,14 @@ pub struct GraphCore {
     /// `security`-gated half of `project_core` (`src/server/access.rs`).
     #[cfg(feature = "security")]
     rls_projection_cache: crate::rls_projection_cache::ProjectionCache,
+    /// perf/cold-query-floor-analysis (UNCOMPILED proposal, not yet wired into any
+    /// caller) — bounded per-actor cache of the RLS-FILTERED `GraphView`
+    /// `Method::CypherQuery`'s cache-miss path would build, sibling of
+    /// `rls_projection_cache` immediately above (same invalidate-on-version-change +
+    /// whole-image `generation` idiom) but holding the lighter-weight `GraphView`
+    /// instead of a second whole `GraphCore`. See `crate::rls_view_cache`.
+    #[cfg(feature = "security")]
+    rls_view_cache: crate::rls_view_cache::FilteredViewCache,
     /// A18 TBox/ABox RLS distinction (BUG A3, 2026-08-12): reverse index counting
     /// LIVE ontology schema-defining triples per node id — `iri -> count of
     /// live schema-defining triples`. A node is TBox (schema-exempt from
@@ -2318,6 +2326,8 @@ impl GraphCore {
             graph_projections: Arc::new(crate::projection_catalog::ProjectionCatalog::new()),
             #[cfg(feature = "security")]
             rls_projection_cache: crate::rls_projection_cache::ProjectionCache::default(),
+            #[cfg(feature = "security")]
+            rls_view_cache: crate::rls_view_cache::FilteredViewCache::default(),
             schema_refs: DashMap::new(),
             ledger_dropped_total: std::sync::atomic::AtomicU64::new(0),
         }
@@ -3036,6 +3046,51 @@ impl GraphCore {
     #[cfg(feature = "security")]
     fn invalidate_projection_cache(&self) {
         self.rls_projection_cache.invalidate_all();
+    }
+
+    /// perf/cold-query-floor-analysis (UNCOMPILED proposal) — look up a cached
+    /// RLS-filtered `GraphView` for `actor`, valid only at exactly `current_version`.
+    /// Mirrors [`Self::cached_projection`] exactly, one layer lighter. See
+    /// `crate::rls_view_cache` for the full rationale.
+    #[cfg(feature = "security")]
+    pub fn cached_filtered_view(
+        &self,
+        actor: &str,
+        current_version: u64,
+    ) -> Option<Arc<GraphView>> {
+        self.rls_view_cache.get(actor, current_version)
+    }
+
+    /// perf/cold-query-floor-analysis (UNCOMPILED proposal) — the filtered-view cache's
+    /// current whole-image generation. Capture BEFORE starting an unlocked
+    /// `analysis_snapshot_versioned` + `filter_view` build and hand the same value back
+    /// to [`Self::put_cached_filtered_view`]. Mirrors [`Self::projection_cache_generation`].
+    #[cfg(feature = "security")]
+    pub fn filtered_view_cache_generation(&self) -> u64 {
+        self.rls_view_cache.generation()
+    }
+
+    /// perf/cold-query-floor-analysis (UNCOMPILED proposal) — store a freshly filtered
+    /// view for `actor` at `version`, only if `generation` is still current. Mirrors
+    /// [`Self::put_cached_projection`] exactly.
+    #[cfg(feature = "security")]
+    pub fn put_cached_filtered_view(
+        &self,
+        actor: String,
+        version: u64,
+        generation: u64,
+        view: Arc<GraphView>,
+    ) {
+        self.rls_view_cache.put(actor, version, generation, view);
+    }
+
+    /// perf/cold-query-floor-analysis (UNCOMPILED proposal) — advance the filtered-view
+    /// cache's whole-image generation and drop every cached entry. Called alongside
+    /// [`Self::invalidate_projection_cache`] at every one of its call sites (same
+    /// same-version whole-image transitions apply identically to this cache).
+    #[cfg(feature = "security")]
+    fn invalidate_filtered_view_cache(&self) {
+        self.rls_view_cache.invalidate_all();
     }
 
     /// Atomically read-and-clear the dirty flag. The checkpoint calls this BEFORE
@@ -5335,6 +5390,10 @@ impl GraphCore {
         // `Self::invalidate_projection_cache`'s doc.
         #[cfg(feature = "security")]
         self.invalidate_projection_cache();
+        // perf/cold-query-floor-analysis (UNCOMPILED proposal): the filtered-view cache
+        // is subject to the exact same same-version whole-image race.
+        #[cfg(feature = "security")]
+        self.invalidate_filtered_view_cache();
         Ok(())
     }
 
@@ -5401,6 +5460,10 @@ impl GraphCore {
         // pre-wipe projection as "current". See `Self::invalidate_projection_cache`.
         #[cfg(feature = "security")]
         self.invalidate_projection_cache();
+        // perf/cold-query-floor-analysis (UNCOMPILED proposal): same reasoning, applied
+        // to the filtered-view cache.
+        #[cfg(feature = "security")]
+        self.invalidate_filtered_view_cache();
     }
 
     /// Hibernate this graph's in-memory state (CONCEPT:EG-KG.storage.100m-tenant — cold-tenant
@@ -5822,6 +5885,10 @@ impl GraphCore {
             // so a fresh, empty cache costs nothing and stays correct by construction.
             #[cfg(feature = "security")]
             rls_projection_cache: crate::rls_projection_cache::ProjectionCache::default(),
+            // Same reasoning as `rls_projection_cache` immediately above: a fork's own
+            // fresh OCC version line can never hit an entry cached against the parent's.
+            #[cfg(feature = "security")]
+            rls_view_cache: crate::rls_view_cache::FilteredViewCache::default(),
             // A fork deep-clones the parent's DATA (node/edge properties above), so
             // its TBox/ABox reverse index (BUG A3) must mirror the parent's live
             // schema-triple counts at fork time too -- schema-ness is content-

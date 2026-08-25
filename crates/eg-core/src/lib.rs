@@ -70,6 +70,14 @@ pub mod result_cache;
 /// only ever consulted from the `security`-gated half of `project_core`.
 #[cfg(feature = "security")]
 pub(crate) mod rls_projection_cache;
+/// CONCEPT:EG-KG.sharding.row-level-security (perf/cold-query-floor-analysis) — bounded
+/// per-actor cache of the RLS-FILTERED `GraphView` `Method::CypherQuery`'s cache-miss
+/// path builds, structurally a sibling of `rls_projection_cache` (same per-actor +
+/// whole-image-`generation` idiom) but caching the lighter-weight `GraphView` instead of
+/// a second whole `GraphCore`. See `crate::rls_view_cache` for the full rationale —
+/// UNCOMPILED proposed fix, not yet wired into any caller.
+#[cfg(feature = "security")]
+pub(crate) mod rls_view_cache;
 /// CONCEPT:EG-KG.compute.scene-graph-primitives — scene-graph / 3D world-model primitives (poses, transform
 /// composition, AABBs). Pure deterministic math; the `GraphCore` scene methods
 /// (`add_scene_object`, `world_transform`, spatial relations) live in `graph`.
