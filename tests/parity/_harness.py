@@ -30,10 +30,55 @@ import msgpack
 @dataclass(frozen=True)
 class TransportPair:
     """One (socket, embedded) client pair, both bound to the same identity
-    and target graph -- what `assert_parity`/`assert_rls_isolation` compare."""
+    and target graph -- what `assert_parity`/`assert_rls_isolation` compare.
+
+    `embedded` is typically a `BoundEmbeddedTransport` (below), NOT a raw
+    `EmbeddedTransport` -- see that class's doc for why (BUG-PE-022)."""
 
     socket: Any
     embedded: Any
+
+
+class BoundEmbeddedTransport:
+    """Binds ONE agent_id's per-call override onto a SHARED
+    `EmbeddedTransport` (one native `Engine`/one `persist_dir`) -- the
+    one-engine-two-identities shape BUG-PE-022 needed.
+
+    Two principals can only observe each other's writes if they share one
+    embedded `Engine`: the Rust lane's `src/persist_lock.rs` advisory flock
+    is scoped to the OS open-file-description, not the process, so a SECOND
+    same-process open of one `persist_dir` (what building a separate
+    `EmbeddedTransport` per principal used to do, `EG-PYENGINE-PLAN.md`'s
+    BUG-PE-022) is denied outright -- it can never reach the point of
+    comparing what two principals see. `crates/eg-pyengine` closed the
+    actual gap this exists to bridge by adding a per-call `agent_id`
+    override to the RLS-relevant `PyEngine` methods (commit `b48ee56c`,
+    `authority::EmbeddedAuthority::can_see_properties`); `tests/parity/
+    conftest.py`'s `pair_factory` builds ONE `EmbeddedTransport` per test and
+    hands out one `BoundEmbeddedTransport` per agent_id, each forwarding to
+    the same underlying transport with its own identity as the `agent_id`
+    override on every `_send` call.
+
+    Matches `EmbeddedTransport._send`'s own `(method, params=None, *,
+    graph=None)` shape exactly, so `assert_parity`/`assert_rls_isolation`'s
+    `_try_send` calls it identically to any other transport -- callers never
+    need to know whether an embedded pair member is bound or not.
+    """
+
+    def __init__(self, shared: Any, agent_id: str) -> None:
+        self._shared = shared
+        self._agent_id = agent_id
+
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        *,
+        graph: str | None = None,
+    ) -> Any:
+        return await self._shared._send(
+            method, params, graph=graph, agent_id=self._agent_id
+        )
 
 
 def _decode(value: Any) -> Any:
@@ -78,12 +123,18 @@ async def assert_parity(
 
     NOTE on scope: the plan's own sketch (§4.6) additionally names a
     `principal=` keyword on this function. It is intentionally NOT
-    implemented here: `EmbeddedTransport`'s identity is fixed at
-    CONSTRUCTION time only (plan §4.3, `epistemic_graph/embedded.py`), so a
-    per-call `principal` override would have nothing to bind to on the
-    embedded side. Multi-principal comparison is `assert_rls_isolation`'s
-    job -- it takes two already-built `TransportPair`s (one per principal)
-    instead of a per-call identity switch.
+    implemented here, even though `EmbeddedTransport`/`PyEngine` gained a
+    per-call `agent_id` override since this was first written (BUG-PE-022,
+    `crates/eg-pyengine` commit `b48ee56c`): `assert_parity` compares ONE
+    identity's view across two transports, and `pair.socket`/`pair.embedded`
+    are already bound to that one identity (a `BoundEmbeddedTransport` for
+    the embedded side, see `TransportPair`'s doc) -- a `principal=` keyword
+    here would only ever re-bind both sides to the SAME identity `pair` was
+    already built with, which is not a useful capability. Multi-principal
+    comparison stays `assert_rls_isolation`'s job -- it takes two already-
+    built `TransportPair`s (one per principal, both now safely sharing one
+    embedded `Engine`/`persist_dir`, see `pair_factory`) instead of a
+    per-call identity switch.
     """
     socket_result, socket_exc = await _try_send(pair.socket, method, params, graph)
     embedded_result, embedded_exc = await _try_send(

@@ -15,6 +15,11 @@ from scripts.check_rustfmt_scope import (
     build_rustfmt_command,
 )
 
+# Pure/static test -- never needs the shared native engine (see
+# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# which this marker exempts this module from triggering).
+pytestmark = pytest.mark.no_engine
+
 
 def test_guard_uses_pinned_check_only_rustfmt_without_cargo_workspace_sweep() -> None:
     command = build_rustfmt_command("1.96.0", "2021", ["src/server/mod.rs"])
