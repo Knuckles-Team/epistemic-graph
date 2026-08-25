@@ -171,7 +171,7 @@
 | `CatalogList` | false | None | `admin:cluster-read` | true | false | false | Snapshot |  |
 | `RebalancePlan` | false | None | `admin:cluster-read` | true | false | false | Snapshot |  |
 | `RebalanceExecute` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
-| `PlacementRoute` | false | None | `admin:cluster-read` | true | false | false | Snapshot | engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader |
+| `PlacementRoute` | false | None | `cluster:placement-read` | true | false | false | Snapshot | engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader; GOC-15/BUG-030 narrowed off admin:cluster-read (2026-08-17) -- ordinary kg:read/kg:write routes their OWN tenant, handlers::placement::handle_route requires kg:admin for any other tenant's route |
 | `RaftAddLearner` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | leader-only openraft add_learner; attaches a non-voting replica without changing the voter set |
 | `RaftChangeMembership` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | leader-only openraft change_membership; sets the group's exact voter set (the usual way to promote a learner added via RaftAddLearner) |
 | `ClusterMembers` | false | None | `cluster:topology-read` | true | false | false | Snapshot | ADR-1/W1.1 engine-authoritative client topology; deliberately NOT admin:cluster-read -- ordinary service roles need it to re-resolve after a failover; answered from any node, not just the leader |
@@ -193,6 +193,7 @@
 | `Shutdown` | true | VolatileControl | `service:admin` | true | false | false | None | explicitly ephemeral process control; never acknowledges a user-data commit |
 | `CancelRequest` | false | None | `service:control` | true | false | false | None |  |
 | `ResourceStats` | false | None | `service:control` | true | false | false | None |  |
+| `ResourceStatsPage` | false | None | `service:control` | true | false | false | None | bounded ACL-filtered keyset page; summary suppresses detail arrays |
 | `Reconcile` | true | GraphRedb | `graph:write` | false | true | true | Saga | state-backed MutationBatch commits the merged image |
 | `ApplyMutation` | true | GraphRedb | `graph:write` | false | true | true | Atomic | state-backed MutationBatch |
 | `Vf2SubgraphMatch` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
