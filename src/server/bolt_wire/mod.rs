@@ -597,8 +597,19 @@ async fn run_read(
     })?;
     let (graph, context) = graph_context(session).await?;
     let (_, read_authority) = authorize_cypher(verified, &graph, &context, false)?;
-    let mut view = context.core.analysis_snapshot();
-    read_authority.filter_view(&mut view);
+    // perf/row-visibility-index (B-sweep): Bolt autocommit reads (no explicit
+    // transaction, no write-set overlay) are exactly the plain-read shape
+    // `GraphReadAuthority::cached_filter_view` targets — see its doc. Under a
+    // `security`-less build that method doesn't exist (nothing to cache); fall
+    // back to the pre-existing snapshot + no-op `filter_view` exactly as before.
+    #[cfg(feature = "security")]
+    let view = read_authority.cached_filter_view(&context.core);
+    #[cfg(not(feature = "security"))]
+    let view = {
+        let mut view = context.core.analysis_snapshot();
+        read_authority.filter_view(&mut view);
+        view
+    };
     tokio::task::spawn_blocking(move || eg_query::exec_cypher_params(&view, &query, &params))
         .await
         .map_err(|_| {

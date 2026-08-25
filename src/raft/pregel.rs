@@ -125,7 +125,20 @@ async fn gather_shards(
     }
     drop(s);
 
+    // perf/row-visibility-index (B-sweep): one job submission commonly gathers
+    // several shards at the SAME actor+version — `GraphReadAuthority::
+    // cached_filter_view` amortizes the per-node RLS decode across them (a
+    // per-CORE cache, so distinct shards never collide) instead of re-decoding
+    // every node of every shard on every job.
+    #[cfg(feature = "security")]
+    let mut snaps: Vec<std::sync::Arc<eg_core::graph::GraphView>> = Vec::with_capacity(cores.len());
+    #[cfg(feature = "security")]
+    for core in &cores {
+        snaps.push(read_authority.cached_filter_view(core));
+    }
+    #[cfg(not(feature = "security"))]
     let mut snaps: Vec<eg_core::graph::GraphView> = Vec::with_capacity(cores.len());
+    #[cfg(not(feature = "security"))]
     for core in cores {
         let mut view = core.analysis_snapshot();
         read_authority.filter_view(&mut view);
