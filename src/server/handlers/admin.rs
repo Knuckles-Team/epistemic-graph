@@ -327,11 +327,38 @@ pub(crate) async fn try_handle(
                 Err(error) => return Ok(Response::err(req_id, error)),
             };
             let ts = now_secs();
+            // Durable stores this backend does NOT own but a restore is incomplete
+            // without. redb's exclusive per-file lock means the backup path cannot open
+            // them itself, so the live handles are handed in from here. `rbac.redb` is
+            // the one that made a restore dangerous: without it a rebuilt engine comes
+            // up with NO roles, grants or registered identities.
+            #[cfg(feature = "security")]
+            let rbac_store = {
+                let guard = state.read().await;
+                guard
+                    .isolation
+                    .policy_store()
+                    .map(crate::server::persistence::durable_stores::RbacBundledStore)
+            };
+            #[cfg(feature = "kv")]
+            let kv_store = { state.read().await.kv.clone() };
+            let mut extra_stores: Vec<
+                &dyn crate::server::persistence::durable_stores::BundledStoreSource,
+            > = Vec::new();
+            #[cfg(feature = "security")]
+            if let Some(rbac_store) = rbac_store.as_ref() {
+                extra_stores.push(rbac_store);
+            }
+            #[cfg(feature = "kv")]
+            if let Some(kv_store) = kv_store.as_deref() {
+                extra_stores.push(kv_store);
+            }
             match backend.backup(
                 &stage,
                 env!("CARGO_PKG_VERSION"),
                 ts,
                 label.as_deref().unwrap_or(""),
+                &extra_stores,
             ) {
                 Ok(r) => {
                     if let Err(error) = std::fs::rename(&stage, &destination) {
@@ -358,6 +385,7 @@ pub(crate) async fn try_handle(
                             "global": r.global,
                             "xshard_prepares": r.xshard_prepares,
                             "xshard_decisions": r.xshard_decisions,
+                            "bundled_stores": r.bundled_stores,
                             "admin_batches": r.admin_mutations.batches,
                             "prepared_parents": r.admin_mutations.prepared,
                             "encrypted_recovery_plans": r.admin_mutations.encrypted_private_payloads,

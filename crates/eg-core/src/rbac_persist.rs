@@ -24,7 +24,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 
-use redb::{Database, ReadableDatabase, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use sha2::{Digest, Sha256};
 
 use crate::acl::AgentIdentity;
@@ -118,6 +118,22 @@ pub trait RbacPolicyStore: Send + Sync {
         identities: &BTreeMap<String, AgentIdentity>,
         bootstrap: IdentityBootstrapState,
     ) -> Result<(), RbacPersistError>;
+
+    /// Copy this store's durable image verbatim into a FRESH bundle file at
+    /// `destination`, returning the number of rows copied.
+    ///
+    /// `None` ⇒ this adapter has no on-disk file to bundle (the in-memory store).
+    /// An online backup that omits this file restores an engine with NO RBAC or
+    /// identity state at all — every sign-in fails closed — so the durable
+    /// implementation MUST override this.
+    fn backup_into(&self, _destination: &Path) -> Option<Result<u64, String>> {
+        None
+    }
+
+    /// `true` when this adapter owns an on-disk file that a backup must capture.
+    fn has_durable_file(&self) -> bool {
+        false
+    }
 }
 
 /// Current in-process policy store used by embedded/test isolation layers that do not
@@ -189,6 +205,54 @@ impl RbacStore {
         let store = Self { db: Arc::new(db) };
         store.bootstrap_current_state()?;
         Ok(store)
+    }
+
+    /// Copy the durable RBAC/identity image verbatim into a FRESH file at
+    /// `destination` (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
+    ///
+    /// Taken off a `begin_read()` MVCC snapshot of the LIVE handle and streamed
+    /// table-by-table, exactly like the graph-shard bundle copy: value blobs move
+    /// byte-for-byte, so nothing is decoded and no key is needed. Refuses to
+    /// overwrite an existing file.
+    ///
+    /// The RBAC table AND the mutation-store bookkeeping that shares this file are
+    /// both copied — `RegisterIdentity`/`RbacAdmin` commit their MutationBatch
+    /// metadata in the same write txn as the identity snapshot, so restoring one
+    /// without the other would reopen an already-acknowledged admission.
+    pub fn backup_into(&self, destination: &Path) -> Result<u64, String> {
+        if destination.exists() {
+            return Err("bundled store file already exists (refusing to overwrite)".to_string());
+        }
+        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
+        let target = Database::create(destination).map_err(|e| e.to_string())?;
+        let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
+        wtx.set_durability(redb::Durability::Immediate)
+            .map_err(|e| e.to_string())?;
+        let mut rows = 0u64;
+        macro_rules! copy_table {
+            ($definition:expr) => {{
+                let mut destination_table =
+                    wtx.open_table($definition).map_err(|e| e.to_string())?;
+                if let Ok(source_table) = rtx.open_table($definition) {
+                    for row in source_table.iter().map_err(|e| e.to_string())? {
+                        let (key, value) = row.map_err(|e| e.to_string())?;
+                        destination_table
+                            .insert(key.value(), value.value())
+                            .map_err(|e| e.to_string())?;
+                        rows += 1;
+                    }
+                }
+            }};
+        }
+        copy_table!(RBAC_TABLE);
+        copy_table!(eg_mutation_store::BATCHES);
+        copy_table!(eg_mutation_store::IDEMPOTENCY);
+        copy_table!(eg_mutation_store::VERSIONS);
+        copy_table!(eg_mutation_store::FENCES);
+        copy_table!(eg_mutation_store::OUTBOX);
+        copy_table!(eg_mutation_store::PRIVATE_PAYLOADS);
+        wtx.commit().map_err(|e| e.to_string())?;
+        Ok(rows)
     }
 
     /// Atomically create the explicit current bootstrap image for a brand-new store.
@@ -443,6 +507,14 @@ impl RbacPolicyStore for RbacStore {
         bootstrap: IdentityBootstrapState,
     ) -> Result<(), RbacPersistError> {
         RbacStore::save(self, policy, identities, bootstrap)
+    }
+
+    fn backup_into(&self, destination: &Path) -> Option<Result<u64, String>> {
+        Some(RbacStore::backup_into(self, destination))
+    }
+
+    fn has_durable_file(&self) -> bool {
+        true
     }
 }
 
