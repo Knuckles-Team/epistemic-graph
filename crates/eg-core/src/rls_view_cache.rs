@@ -192,7 +192,12 @@ mod tests {
         let cache = FilteredViewCache::default();
         let alice_view = view();
         let bob_view = view();
-        cache.put("alice".to_string(), 1, cache.generation(), alice_view.clone());
+        cache.put(
+            "alice".to_string(),
+            1,
+            cache.generation(),
+            alice_view.clone(),
+        );
         cache.put("bob".to_string(), 1, cache.generation(), bob_view.clone());
         assert!(Arc::ptr_eq(&cache.get("alice", 1).unwrap(), &alice_view));
         assert!(Arc::ptr_eq(&cache.get("bob", 1).unwrap(), &bob_view));
@@ -232,7 +237,12 @@ mod tests {
         assert!(cache.get("alice", 0).is_none());
 
         let fresh_result = view();
-        cache.put("alice".to_string(), 0, cache.generation(), fresh_result.clone());
+        cache.put(
+            "alice".to_string(),
+            0,
+            cache.generation(),
+            fresh_result.clone(),
+        );
         assert!(Arc::ptr_eq(&cache.get("alice", 0).unwrap(), &fresh_result));
     }
 }
