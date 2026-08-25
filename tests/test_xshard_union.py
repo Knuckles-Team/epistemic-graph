@@ -12,6 +12,11 @@ from conftest import request_context
 
 from epistemic_graph.pool import ShardRouter
 
+# Fake-client unit tests only -- never needs the shared native engine (see
+# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# which this marker exempts this module from triggering).
+pytestmark = pytest.mark.no_engine
+
 
 def test_authority_can_co_locate_ingest_lanes() -> None:
     # The fake engine authority returns the same route for the co-resident set.

@@ -5,6 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import scripts.check_scale_documentation as scale_claims
+import pytest
+
+# Pure/static test -- never needs the shared native engine (see
+# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# which this marker exempts this module from triggering).
+pytestmark = pytest.mark.no_engine
 
 ROOT = Path(__file__).resolve().parents[1]
 

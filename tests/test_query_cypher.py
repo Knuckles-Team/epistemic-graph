@@ -11,6 +11,11 @@ import pytest
 
 from epistemic_graph.client import QueryClient
 
+# Fake-client unit tests only -- never needs the shared native engine (see
+# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# which this marker exempts this module from triggering).
+pytestmark = pytest.mark.no_engine
+
 
 class _FakeClient:
     """Mimics the engine's decoded `Raw(QueryResult)` reply: `_send` returns the

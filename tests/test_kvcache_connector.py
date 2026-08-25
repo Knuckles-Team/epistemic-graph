@@ -5,9 +5,9 @@ Runs a tiny in-process HTTP server implementing the EG-187 ``/kv`` surface
 mandatory bearer-token enforcement, and exercises the driver end-to-end over a
 real socket — no mocking of the HTTP layer, no third-party test deps.
 
-Run standalone (bypass the slow engine-build conftest fixture)::
-
-    python3 -m pytest tests/test_kvcache_connector.py --noconftest -q
+Marked ``no_engine`` below: the shared native graph engine is never needed,
+so this file runs fine in a combined session (the old ``--noconftest``
+standalone workaround is no longer necessary).
 """
 
 from __future__ import annotations
@@ -29,6 +29,12 @@ from epistemic_graph.kvcache import (
     RemoteKVL2Connector,
     UrllibTransport,
 )
+
+# This module runs its own throwaway in-process HTTP server (see the module
+# docstring) -- it never talks to the shared native graph engine, so it never
+# needs conftest.py's session-scoped `start_epistemic_graph_server` fixture.
+# Marker replaces the docstring's old `--noconftest` standalone-run workaround.
+pytestmark = pytest.mark.no_engine
 
 _TEST_TOKEN = "test-kvcache-token"
 

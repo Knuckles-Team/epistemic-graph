@@ -8,6 +8,11 @@ import pytest
 
 from epistemic_graph.client import KnowledgeStreamClient, ServedModalityClient
 
+# Fake-client unit tests only -- never needs the shared native engine (see
+# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# which this marker exempts this module from triggering).
+pytestmark = pytest.mark.no_engine
+
 
 def _ref(namespace: str, token: str) -> str:
     return f"eg:{namespace}:{token * 32}"
