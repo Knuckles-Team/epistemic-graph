@@ -4,6 +4,11 @@ import json
 
 import pytest
 
+# Fake-client unit tests only -- never needs the shared native engine (see
+# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# which this marker exempts this module from triggering).
+pytestmark = pytest.mark.no_engine
+
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_request_addnode_roundtrip():

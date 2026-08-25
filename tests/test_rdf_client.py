@@ -8,6 +8,11 @@ import pytest
 
 from epistemic_graph.client import RdfClient
 
+# Fake-client unit tests only -- never needs the shared native engine (see
+# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# which this marker exempts this module from triggering).
+pytestmark = pytest.mark.no_engine
+
 
 class _FakeClient:
     def __init__(self, result: Any) -> None:

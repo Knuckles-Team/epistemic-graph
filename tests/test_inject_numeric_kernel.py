@@ -13,6 +13,13 @@ import pytest
 
 from scripts.inject_numeric_kernel import inject
 
+# Pure zip-file surgery, exactly like sibling test_check_wheel_completeness.py
+# -- never needs the shared native engine (see conftest.py's session-scoped
+# `start_epistemic_graph_server` fixture, which this marker exempts this
+# module from triggering). BUG-PE-018: this was the module that hung a
+# combined run by omitting the marker.
+pytestmark = pytest.mark.no_engine
+
 
 def _hash(data: bytes) -> str:
     digest = hashlib.sha256(data).digest()

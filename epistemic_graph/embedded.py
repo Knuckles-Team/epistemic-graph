@@ -1,4 +1,4 @@
-"""`EmbeddedTransport` -- the in-process (pyo3) transport for `epistemic_graph
+"""`EmbeddedTransport` -- the in-process (native-extension) transport for `epistemic_graph
 .client`'s existing sub-client surface (`NodeClient`, `EdgeClient`, `QueryClient`,
 ...). See `docs/architecture/unified-inprocess-engine.md` §4 ("Same client API
 surface -- only the transport swaps") and `plans/pyengine/EG-PYENGINE-PLAN.md`
@@ -11,7 +11,7 @@ single most important inherited decision (plan §1.1/§2.1) is that `client.py`'
 a live `EpistemicGraphClient` (which owns the UDS/TCP socket AND implements
 ``_send`` itself, `epistemic_graph/client.py:13260`). `EmbeddedTransport` is a
 second, from-scratch implementation of that same ``_send(method, params=None,
-*, graph=None)`` shape, calling straight into the in-process pyo3 extension
+*, graph=None)`` shape, calling straight into the in-process native extension
 (`epistemic_graph.engine`, built from `crates/eg-pyengine`) instead of a socket.
 See the bottom of this file for the EXACT seam a future `client.py` change would
 use to accept either transport -- not made here, by design.
@@ -155,11 +155,17 @@ class EmbeddedTransport:
     round-trip floor, so no per-call module import/introspection/logging
     belongs on this path).
 
-    ``agent_id``/``tenant`` bind a FIXED identity for the lifetime of this
-    instance -- the common case for a genuinely single-tenant embedded
-    deployment (plan §4.3). There is no per-call identity override in this
-    Wave-0 shape; see plan §4.3's own note that a per-call override remains a
-    possible future extension, not a Wave-0 requirement.
+    ``agent_id``/``tenant`` bind the DEFAULT identity for the lifetime of
+    this instance -- the common case for a genuinely single-tenant embedded
+    deployment (plan §4.3). ``_send``'s own ``agent_id`` keyword (below) is a
+    PER-CALL override of that default, added once `crates/eg-pyengine`
+    started accepting one on its RLS-relevant methods
+    (`authority::EmbeddedAuthority::can_see_properties`, commit
+    `b48ee56c`): the mechanism BUG-PE-022 needed so two principals can share
+    ONE embedded engine/`persist_dir` (a second same-process open of one
+    `persist_dir` is denied at the OS advisory-lock level, so two
+    `EmbeddedTransport`s can never observe each other's writes -- see
+    `tests/parity/conftest.py`'s `pair_factory`).
     """
 
     def __init__(
@@ -170,7 +176,7 @@ class EmbeddedTransport:
         agent_id: str | None = None,
         tenant: str | None = None,
     ) -> None:
-        # Dynamic (not `from . import engine`): the compiled pyo3 extension
+        # Dynamic (not `from . import engine`): the compiled native extension
         # (`crates/eg-pyengine --features python`) is not always present in
         # the source tree mypy statically analyzes (this repo's own `.mypy
         # .ini`-equivalent config has no stub for it, and Wave 0 does not
@@ -185,7 +191,15 @@ class EmbeddedTransport:
         )
         self._graph_name = graph_name
         self._engine.create_graph(graph_name)
-        self._dispatch: dict[str, Callable[[str, dict[str, Any]], Any]] = {}
+        # `Callable[..., Any]` (not a fixed arity) deliberately: most domain
+        # modules' `build_dispatch` return an empty dict (Wave-1 stubs, never
+        # actually called), and the one Wave-0 module with real closures
+        # (`_embedded_ops/graph_ops.py`) accepts the extra `agent_id`
+        # parameter `_send` passes below -- a fixed 2-arg `Callable` type
+        # here would force every stub file to also declare the 3rd
+        # parameter it never uses, for no runtime benefit (their handlers
+        # are never invoked; `_send` raises `NotImplementedError` first).
+        self._dispatch: dict[str, Callable[..., Any]] = {}
         for _mod_name in _EMBEDDED_OP_MODULES:
             _mod = importlib.import_module(f"epistemic_graph._embedded_ops.{_mod_name}")
             self._dispatch.update(_mod.build_dispatch(self._engine))
@@ -196,11 +210,21 @@ class EmbeddedTransport:
         params: dict[str, Any] | None = None,
         *,
         graph: str | None = None,
+        agent_id: str | None = None,
     ) -> Any:
+        """``agent_id``, when given, OVERRIDES this transport's construction-time
+        identity for THIS call only -- threaded straight through to the
+        dispatch handler, which passes it to whichever native `PyEngine`
+        method accepts an `agent_id` override (currently
+        `get_node_properties`/`has_node`, `crates/eg-pyengine/src/lib.rs`).
+        `None` (the default) preserves today's construction-time-only
+        behavior byte-for-byte. A handler for a method with no override
+        support simply ignores the extra argument.
+        """
         handler = self._dispatch.get(method)
         if handler is None:
             raise NotImplementedError(f"EmbeddedTransport: {method} not yet ported")
-        return handler(graph or self._graph_name, params or {})
+        return handler(graph or self._graph_name, params or {}, agent_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────

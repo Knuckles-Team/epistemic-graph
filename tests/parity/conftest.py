@@ -25,7 +25,7 @@ import pytest
 # module, not a package submodule. A relative `from ._harness import ...`
 # would fail here with "attempted relative import with no known parent
 # package"; every module in this directory imports `_harness` the same way.
-from _harness import TransportPair
+from _harness import BoundEmbeddedTransport, TransportPair
 
 from epistemic_graph.client import EpistemicGraphClient
 from epistemic_graph.embedded import EmbeddedTransport
@@ -95,24 +95,31 @@ def embedded_persist_dir(tmp_path) -> str:
 @pytest.fixture
 def pair_factory(embedded_persist_dir):
     """Factory: build a matched `TransportPair` (socket + embedded) for one
-    agent_id, against the shared session server (socket) and a fresh
-    in-process engine (embedded).
+    agent_id, against the shared session server (socket) and ONE shared
+    in-process engine (embedded) for the whole test.
 
-    KNOWN GAP (flagged in the Wave 0 report, not fixed here): `Embedded
-    Transport` binds identity at CONSTRUCTION time only (plan §4.3), with no
-    per-call override, so two DIFFERENT agent_ids each need their OWN
-    `EmbeddedTransport`/native `Engine` instance -- and whether two `Engine`
-    instances may concurrently open the SAME `persist_dir` (needed for them
-    to observe each other's writes) depends on the Rust single-writer-per-
-    persist-dir guard (plan §4.2), which is landing concurrently with this
-    file and is not something this fixture can verify. This factory shares
-    one `embedded_persist_dir` across every pair it builds in a test on the
-    assumption that sequential/concurrent same-process opens are supported;
-    if that assumption is wrong, the first real (post-native-build) run of
-    `test_parity_graph_ops.py`'s RLS case will fail loudly at construction,
-    which is the correct, non-silent signal (GOC-70 rule 4).
+    BUG-PE-022 (fixed here): the previous shape built a SEPARATE
+    `EmbeddedTransport`/native `Engine` per agent_id, all pointed at the same
+    `embedded_persist_dir`. That cannot work: `src/persist_lock.rs`'s
+    advisory flock is scoped to the OS open-file-description, not the
+    process, so a second same-process `Engine(persist_dir=...)` open of one
+    `persist_dir` is denied outright (confirmed by the Rust lane's
+    throwaway `fs4` probe) -- two principals could never even get far enough
+    to compare what they see. `crates/eg-pyengine` (commit `b48ee56c`) closed
+    the actual gap instead: `get_node_properties`/`has_node` now accept a
+    per-call `agent_id` override (`authority::EmbeddedAuthority`), so ONE
+    engine can answer for many principals. This factory now opens exactly
+    ONE `EmbeddedTransport` per `embedded_persist_dir` (cached below,
+    keyed on that path -- `embedded_persist_dir` is one-per-test, so in
+    practice this cache never holds more than one entry) and hands out a
+    `BoundEmbeddedTransport` (`_harness.py`) per agent_id, each threading its
+    own identity through as the per-call override. The shared engine itself
+    is constructed with `agent_id=None` (the trusted-caller default) so no
+    single principal is implicitly favored -- every real read goes through
+    an explicit per-call override on the bound wrapper.
     """
     socket_clients: list[EpistemicGraphClient] = []
+    shared_embedded: dict[str, EmbeddedTransport] = {}
 
     async def _make(agent_id: str, graph_name: str) -> TransportPair:
         socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
@@ -122,11 +129,16 @@ def pair_factory(embedded_persist_dir):
             verified_context=_context(agent_id),
         )
         socket_clients.append(socket_client)
-        embedded = EmbeddedTransport(
-            graph_name=graph_name,
-            persist_dir=embedded_persist_dir,
-            agent_id=agent_id,
-        )
+
+        shared = shared_embedded.get(embedded_persist_dir)
+        if shared is None:
+            shared = EmbeddedTransport(
+                graph_name=graph_name,
+                persist_dir=embedded_persist_dir,
+                agent_id=None,
+            )
+            shared_embedded[embedded_persist_dir] = shared
+        embedded = BoundEmbeddedTransport(shared, agent_id)
         return TransportPair(socket=socket_client, embedded=embedded)
 
     yield _make

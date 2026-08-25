@@ -80,17 +80,23 @@ async def test_get_node_properties_rls_isolation(
     no grant for; `other` must see nothing reading it back, on BOTH
     transports, while `owner` sees it on both.
 
-    KNOWN GAP -- expected NOT to pass yet even once the native module is
-    built: `EmbeddedTransport` has no per-call identity override (plan §4.3;
-    see `epistemic_graph/embedded.py`'s module docstring and `conftest.py`'s
-    `pair_factory` docstring), so `other`'s embedded read currently has
-    nothing to distinguish it from `owner`'s embedded read. This is expected
-    to make `assert_rls_isolation`'s cross-transport shape comparison fail
-    until Wave 0's Rust RLS threading (plan §4.3) lands with either a
-    per-call override or an equivalent mechanism -- see the Wave 0 report's
-    BUGS FOUND section. Kept as a real, non-skipped assertion (not
-    `xfail`/`skip`) per GOC-70 rule 4: a test that cannot yet construct the
-    condition it needs must fail loudly, not pass vacuously.
+    UPDATE (BUG-PE-022, fixed): this used to be a documented KNOWN GAP --
+    `EmbeddedTransport` bound identity at CONSTRUCTION time only, so `other`
+    and `owner` each needed their own `EmbeddedTransport`/native `Engine`,
+    and two `Engine`s can never share one `persist_dir` (`src/persist_lock
+    .rs`'s advisory flock is scoped to the OS open-file-description, not the
+    process -- a second same-process open is denied outright). Fixed by
+    `crates/eg-pyengine` (commit `b48ee56c`) adding a per-call `agent_id`
+    override to `get_node_properties`/`has_node`, and `conftest.py`'s
+    `pair_factory` now builds ONE shared `EmbeddedTransport` per test and
+    hands `owner`/`other` a `BoundEmbeddedTransport` each (`_harness.py`),
+    threading their distinct identities through as that override. This test
+    is UNCHANGED otherwise and is still not forced green (no `xfail`/`skip`,
+    GOC-70 rule 4): it now has what it needs to construct the two-principal
+    condition, but whether it actually PASSES still depends on the native
+    `epistemic_graph.engine` extension being built (`crates/eg-pyengine
+    --features python`), which this session does not do -- see the Wave 0
+    report.
     """
     owner = await pair_factory(owner_agent_id, parity_graph)
     other = await pair_factory(other_agent_id, parity_graph)
