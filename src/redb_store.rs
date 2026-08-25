@@ -164,6 +164,67 @@ fn native_retry_operations(operations: &[MutationOperation]) -> Option<Vec<Mutat
     )
 }
 
+/// Encode the derived projection wake-up for an immutable operation list.
+///
+/// Native resource retries compare this derived intent after normalizing the
+/// authority-owned lifecycle timestamp. Keeping the digest construction here
+/// prevents the retry path from drifting from the producer in
+/// `server::mutation_batch::finish_batch`.
+///
+/// BUG-PE-037: moved here from `server::mutation_batch` (which imports Tokio
+/// and is gated on `server`) -- this and `projection_payload_for_operations`
+/// below are pure (sha2/rmp_serde/serde_json only) and this module's own doc
+/// comment above is explicit that it "compiles under `--features redb`
+/// ALONE (no `server`)"; the prior location broke exactly that contract for
+/// `native_retry_outbox_match`, below, one of this module's own callers.
+/// `server::mutation_batch::finish_batch` now calls
+/// `crate::redb_store::projection_payload_for_operations` instead of
+/// keeping a second copy.
+pub(crate) fn projection_summary_for_operations(
+    operations: &[MutationOperation],
+) -> Result<Vec<u8>, String> {
+    let encoded_operations = rmp_serde::to_vec_named(operations).map_err(|e| e.to_string())?;
+    use sha2::{Digest, Sha256};
+    rmp_serde::to_vec_named(&serde_json::json!({
+        "schema": "epistemic.mutation.projection.v1",
+        "operations": operations.len(),
+        "operations_sha256": hex::encode(Sha256::digest(&encoded_operations)),
+    }))
+    .map_err(|e| e.to_string())
+}
+
+/// Encode the feature-aware projection wake-up payload for an operation list.
+///
+/// `epistemic-tms` replaces the ordinary summary with a typed
+/// `ReasoningProjectionWakeup`. Retry reconciliation must derive the same
+/// payload as the producer, including that feature-specific shape.
+pub(crate) fn projection_payload_for_operations(
+    operations: &[MutationOperation],
+) -> Result<Vec<u8>, String> {
+    #[cfg(feature = "epistemic-tms")]
+    {
+        use sha2::{Digest, Sha256};
+
+        let encoded_operations =
+            rmp_serde::to_vec_named(operations).map_err(|error| error.to_string())?;
+        let methods = operations
+            .iter()
+            .map(|operation| operation.method.clone())
+            .collect::<Vec<_>>();
+        let wakeup = eg_epistemic::ReasoningProjectionWakeup::new(
+            operations.len(),
+            hex::encode(Sha256::digest(encoded_operations)),
+            eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),
+        )?;
+        rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(feature = "epistemic-tms"))]
+    {
+        projection_summary_for_operations(operations)
+    }
+}
+
 /// Compare the derived projection wake-up for a retry.  Native resource
 /// operations contain one authority-owned `now_ms`, so the raw outbox digest
 /// changes when a retry is admitted at a later leader time even though the
@@ -186,10 +247,8 @@ fn native_retry_outbox_match(
     if !operations_match || stored_outbox.len() != proposed_outbox.len() {
         return Ok(false);
     }
-    let stored_normalized_payload =
-        crate::server::mutation_batch::projection_payload_for_operations(&stored_normalized)?;
-    let proposed_normalized_payload =
-        crate::server::mutation_batch::projection_payload_for_operations(&proposed_normalized)?;
+    let stored_normalized_payload = projection_payload_for_operations(&stored_normalized)?;
+    let proposed_normalized_payload = projection_payload_for_operations(&proposed_normalized)?;
     if stored_normalized_payload != proposed_normalized_payload {
         return Ok(false);
     }
@@ -197,10 +256,8 @@ fn native_retry_outbox_match(
     // authority-owned timestamp. Authenticate each stored/proposed intent against
     // its own operation list before comparing the normalized retry meaning; never
     // require an original intent to equal a digest that the producer did not emit.
-    let stored_original_payload =
-        crate::server::mutation_batch::projection_payload_for_operations(stored_operations)?;
-    let proposed_original_payload =
-        crate::server::mutation_batch::projection_payload_for_operations(proposed_operations)?;
+    let stored_original_payload = projection_payload_for_operations(stored_operations)?;
+    let proposed_original_payload = projection_payload_for_operations(proposed_operations)?;
     Ok(stored_outbox
         .iter()
         .zip(proposed_outbox)
@@ -5863,7 +5920,7 @@ fn apply_submit_work_item_rows(
     }
     let context_tenant = request.context.tenant_id.as_str();
     let context_graph = request.context.graph.as_str();
-    if context_tenant.trim().is_empty() || crate::persist::sanitize(context_graph) != graph {
+    if context_tenant.trim().is_empty() || sanitize(context_graph) != graph {
         return Err("SubmitWorkItem context graph/tenant is invalid".to_string());
     }
     for (field, value) in [
@@ -6262,9 +6319,7 @@ fn apply_submit_work_items_rows(
     {
         return Err("SubmitWorkItems batch is outside native bounds".to_string());
     }
-    if request.idempotency_key.trim().is_empty()
-        || crate::persist::sanitize(&request.context.graph) != graph
-    {
+    if request.idempotency_key.trim().is_empty() || sanitize(&request.context.graph) != graph {
         return Err("SubmitWorkItems context/idempotency is invalid".to_string());
     }
     let changed_bound = request
@@ -6283,7 +6338,7 @@ fn apply_submit_work_items_rows(
     let mut changed = Vec::with_capacity(request.requests.len());
     for child in &request.requests {
         if child.context.tenant_id != request.context.tenant_id
-            || crate::persist::sanitize(&child.context.graph) != graph
+            || sanitize(&child.context.graph) != graph
         {
             return Err("SubmitWorkItems child context scope mismatch".to_string());
         }
