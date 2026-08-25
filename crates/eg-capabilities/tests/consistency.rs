@@ -1004,7 +1004,16 @@ fn all_methods_table_has_the_expected_variant_count() {
     // Plus the `GetIdentity` identity read-back (CONCEPT:EG-KG.compute.feature,
     // unconditional -- closes the RegisterIdentity blind-upsert gap; matching the
     // sibling constant in `lib.rs::all_methods_table_matches_policy_fn...`): 395 + 1 = 396.
-    let expected = 396
+    //
+    // BUG-PE-033: 396 was already stale the moment it landed -- the
+    // 'native-capacity-submit-work-item' merge (`125e1045`) carried a fully-formed,
+    // correctly-classified `Method::ResourceStatsPage` (mirrors `ResourceStats`;
+    // `cost`-gated in the enum but force-enabled on this crate's own `eg-types`
+    // dependency, so unconditional here) without bumping this literal -- see the
+    // matching note on the sibling constant in `lib.rs::
+    // all_methods_table_matches_policy_fn_and_has_no_duplicates`. No policy work
+    // needed, only the count was wrong: 396 + 1 = 397.
+    let expected = 397
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
