@@ -8974,7 +8974,11 @@ mod admin_scope_tests {
             ),
         )
         .await;
-        assert!(registered.error.is_none(), "register dave: {:?}", registered.error);
+        assert!(
+            registered.error.is_none(),
+            "register dave: {:?}",
+            registered.error
+        );
 
         let r = dispatch_on_heap(
             &state,
@@ -8988,16 +8992,12 @@ mod admin_scope_tests {
         )
         .await;
         assert!(r.error.is_none(), "GetIdentity: {:?}", r.error);
-        let ResultPayload::Json(value) = r.result.expect("GetIdentity must return a result")
-        else {
+        let ResultPayload::Json(value) = r.result.expect("GetIdentity must return a result") else {
             panic!("GetIdentity must return ResultPayload::Json");
         };
         assert_eq!(value["agent_id"], "dave");
         assert_eq!(value["teams"], serde_json::json!(["alpha"]));
-        assert_eq!(
-            value["roles"],
-            serde_json::json!(["sysadmin", "auditor"])
-        );
+        assert_eq!(value["roles"], serde_json::json!(["sysadmin", "auditor"]));
     }
 
     /// An unregistered principal's `GetIdentity` returns JSON `null` (`None`) — NOT an
