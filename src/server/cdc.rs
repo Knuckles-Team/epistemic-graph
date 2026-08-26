@@ -21,7 +21,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-#[cfg(feature = "owl")]
+#[cfg(any(feature = "owl", feature = "cdc-kafka"))]
 use std::sync::OnceLock;
 
 use parking_lot::Mutex;
@@ -99,6 +99,26 @@ struct Trigger {
     fire_count: u64,
 }
 
+/// External sink hook installed at startup by CA-11's Kafka bridge (feature
+/// `cdc-kafka`). A tiny in-crate trait — NOT `eg_stream::sink::CdcSink`
+/// directly — so `cdc.rs` (read by every `streaming` consumer, not just
+/// `cdc-kafka` builds) takes on no new dependency; `crate::server::cdc_sink`
+/// owns the real Kafka producer and the DEC-CA-03 envelope shape, and
+/// adapts itself onto this trait before calling [`CdcHub::install_sink`].
+#[cfg(feature = "cdc-kafka")]
+pub trait ExternalCdcSink: Send + Sync {
+    /// Forward one ordered change. MUST NOT block (`CdcHub::emit` runs on
+    /// the durable-commit path) — an implementation queues/drops, never
+    /// waits on the network. Best-effort: a failure here never fails the
+    /// commit that produced `event` (`DEC-CA-01`/`DEC-CA-03`: "Kafka is
+    /// transport only").
+    fn emit(&self, event: &CdcEvent);
+
+    /// Block up to `timeout_ms` for every queued event to reach the broker.
+    /// For graceful shutdown / tests, never the commit path. Default no-op.
+    fn flush(&self, _timeout_ms: u64) {}
+}
+
 /// The CDC hub on `ServerState`. One per engine; routes by graph name.
 pub struct CdcHub {
     feeds: Mutex<HashMap<String, GraphFeed>>,
@@ -133,6 +153,16 @@ pub struct CdcHub {
     /// set-once-from-outside idiom as `cep` above.
     #[cfg(feature = "owl")]
     reasoning_cascade: OnceLock<Arc<crate::server::reasoning_cascade::ReasoningCascade>>,
+    /// CA-11's external Kafka sink (feature `cdc-kafka`), installed once at
+    /// startup by `cdc_sink::install_from_env` ONLY when
+    /// `EPISTEMIC_GRAPH_CDC_KAFKA_BROKERS` is set. `None` (every build
+    /// without `cdc-kafka`, and every `cdc-kafka` build with the env var
+    /// unset) means `emit` pays one `OnceLock::get()` and nothing else —
+    /// same cost-gate idiom as `cep`/`reasoning_cascade` above, and the
+    /// "feature off ⇒ zero behavior change" contract the lane brief
+    /// requires.
+    #[cfg(feature = "cdc-kafka")]
+    sink: OnceLock<Arc<dyn ExternalCdcSink>>,
 }
 
 impl Default for CdcHub {
@@ -158,6 +188,26 @@ impl CdcHub {
             cep: std::sync::OnceLock::new(),
             #[cfg(feature = "owl")]
             reasoning_cascade: OnceLock::new(),
+            #[cfg(feature = "cdc-kafka")]
+            sink: OnceLock::new(),
+        }
+    }
+
+    /// Install the external Kafka sink (CA-11). Called at most once, at
+    /// startup, from `cdc_sink::install_from_env`. A second call is a
+    /// silent no-op — same idiom as `install_reasoning_cascade` below.
+    #[cfg(feature = "cdc-kafka")]
+    pub fn install_sink(&self, sink: Arc<dyn ExternalCdcSink>) {
+        let _ = self.sink.set(sink);
+    }
+
+    /// Flush the installed sink (if any), blocking up to `timeout_ms` for
+    /// delivery. For graceful shutdown / delivery-proving tests, NOT the
+    /// commit path — `emit` never calls this.
+    #[cfg(feature = "cdc-kafka")]
+    pub fn flush_sink(&self, timeout_ms: u64) {
+        if let Some(sink) = self.sink.get() {
+            sink.flush(timeout_ms);
         }
     }
 
@@ -246,6 +296,17 @@ impl CdcHub {
             #[cfg(feature = "stream")]
             if let Some(cep) = self.cep.get() {
                 cep.feed_change(&event);
+            }
+            // CA-11: forward to the external Kafka sink if one is installed
+            // (`DEC-CA-03`'s `eg.cdc.<graph>`). Lock-free check when unset
+            // (every build without `cdc-kafka`, and every `cdc-kafka` build
+            // with no broker configured); `KafkaCdcSink::emit` itself is
+            // non-blocking (queues into librdkafka's local buffer, never
+            // waits on the network), so this stays inside the feeds lock on
+            // the same footing as `maintain`/`fire_triggers`/`cep` above.
+            #[cfg(feature = "cdc-kafka")]
+            if let Some(sink) = self.sink.get() {
+                sink.emit(&event);
             }
             let notify = feed.notify.clone();
             #[cfg(feature = "matview")]

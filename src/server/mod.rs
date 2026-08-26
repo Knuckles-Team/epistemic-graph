@@ -646,7 +646,11 @@ mod ca17_feature_stub_contract {
 
     /// `(feature name, the exact dependency list its owning lane builds on)`.
     const RESERVED: [(&str, &str); 6] = [
-        ("cdc-kafka", "[\"streaming\"]"),
+        // CA-11 widened this from `["streaming"]` (CA-17's original stub) to route
+        // `dep:eg-stream`/`eg-stream/cdc-kafka` -- see the Cargo.toml comment on the
+        // `cdc-kafka` line and CA-11's report for why (the `CdcSink` trait/`rdkafka`
+        // producer live in `eg-stream`, which nothing else pulls in without `stream`).
+        ("cdc-kafka", "[\"streaming\", \"dep:eg-stream\", \"eg-stream/cdc-kafka\"]"),
         ("sparql-fuseki", "[\"sparql\"]"),
         ("obda-wire", "[\"obda\"]"),
         ("federation-opensearch", "[\"federation-search\"]"),

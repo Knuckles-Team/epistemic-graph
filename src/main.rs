@@ -768,7 +768,15 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         // `streaming` build. The dispatch shell emits a change into it after every
         // durable mutation; the streaming handler reads/maintains/serves off it.
         #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
+        cdc: Some({
+            let hub = Arc::new(epistemic_graph::server::cdc::CdcHub::new());
+            // CA-11 (DEC-CA-03): install the Kafka sink if configured. A no-op
+            // when `EPISTEMIC_GRAPH_CDC_KAFKA_BROKERS` is unset -- see
+            // `cdc_sink`'s module doc for the exact rollback contract.
+            #[cfg(feature = "cdc-kafka")]
+            epistemic_graph::server::cdc_sink::install_from_env(&hub);
+            hub
+        }),
         #[cfg(feature = "wasm-udf")]
         udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
         #[cfg(feature = "compute-dist")]
