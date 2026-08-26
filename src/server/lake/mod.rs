@@ -50,6 +50,13 @@
 //! pure-Rust `ureq` client `sparql-service`/`federation-search` already link.
 
 pub mod lineage;
+// OpenLineage transport (CA-15, feature `lineage-transport`, off by default). Reserved
+// and EMPTY until CA-15 implements it; landed by CA-17's single feature-stub commit so
+// CA-15 never edits this shared module list. NOTE for CA-15: a best-effort HTTP push to
+// `EPISTEMIC_GRAPH_OPENLINEAGE_URL` ALREADY EXISTS at `lineage::maybe_push_http` -- wire
+// or extend it, do not reimplement it.
+#[cfg(feature = "lineage-transport")]
+pub mod lineage_transport;
 #[cfg(feature = "lake-rest")]
 pub mod rest;
 
