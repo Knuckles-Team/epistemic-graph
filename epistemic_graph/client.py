@@ -5847,6 +5847,57 @@ class GraphOperationsClient:
             },
         )
 
+    async def cluster_hierarchy_refresh(
+        self,
+        label: str | None = None,
+        resolution: float = 1.0,
+        seed: int = 0,
+    ) -> dict:
+        """(Re)compute + durably cache this graph's hierarchical Leiden cluster
+        tree (VIZ-1, CONCEPT:EG-KG.compute.leiden-hierarchy) — server-side clustering for
+        million-node graph visualization: a client renders
+        ``cluster_hierarchy_clusters()``'s few thousand top-level cluster nodes
+        instead of every node, and drills in with ``cluster_hierarchy_expand()``.
+
+        Call this once (or on a refresh cadence); ``cluster_hierarchy_clusters``/
+        ``cluster_hierarchy_expand`` serve the cached result until the next call —
+        never recomputed per read. Returns a summary
+        ``{levels, base_node_count, base_edge_count, top_level_clusters, cached}``.
+        """
+        return await self._client._send(
+            "ClusterHierarchyRefresh",
+            {"label": label, "resolution": resolution, "seed": seed},
+        )
+
+    async def cluster_hierarchy_clusters(
+        self, level: int, parent_cluster_id: str | None = None
+    ) -> dict:
+        """One level of the cached cluster hierarchy (VIZ-1) — ``GET
+        clusters(graph, level, parent_cluster_id?)`` from the shared contract.
+        ``level`` 1 is the finest computed level; pass ``parent_cluster_id`` to
+        get only that cluster's children at ``level``. Returns
+        ``{level, clusters: [{id, label, node_count, edge_count, top_node_types}],
+        inter_cluster_edges: [{src_idx, dst_idx, weight}]}`` with array-local
+        indices. Raises if no hierarchy is cached yet — call
+        ``cluster_hierarchy_refresh`` first.
+        """
+        return await self._client._send(
+            "ClusterHierarchyClusters",
+            {"level": level, "parent_cluster_id": parent_cluster_id},
+        )
+
+    async def cluster_hierarchy_expand(self, cluster_id: str) -> dict:
+        """Expand one cluster one level down (VIZ-1) — ``GET expand(graph,
+        cluster_id)``. For a level-1 cluster: its real member nodes/edges, read
+        live off the graph (``{nodes, edges, child_clusters: []}``). For a
+        coarser cluster: its immediate child clusters, one level finer
+        (``{nodes: [], edges: [], child_clusters: [...]}``) — call again on a
+        child to keep drilling toward level 1.
+        """
+        return await self._client._send(
+            "ClusterHierarchyExpand", {"cluster_id": cluster_id}
+        )
+
 
 class AnalyticsClient:
     """CONCEPT:AU-KG.research.research-pipeline-runner — Analytics and Centrality Namespace"""

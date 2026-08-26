@@ -21,7 +21,7 @@ surface behind someone else's API churn).
 | **V3b** | `server::viz_interactive` | Interactive WebGPU/WebGL2 client + binary tile protocol | **Shipped this change** |
 | **V4** | `server::viz_engine` / `server::viz_provenance` | Persistent engine state: content-addressed render cache + durable provenance | **Shipped this change** |
 | **V6** | `eg-viz-export::graph_layout` + `resolve_graph` | Graph-native marks (force-directed layout) | Shipped (static export only, nodes-only — see VIZ-2 below) |
-| **VIZ-2** | `eg-viz-graph-tiles` + `server::graph_tile_server` | Binary chunk-streamable tile protocol for `{nodes, edges}` graph payloads, cluster-id addressed | **Shipped this change** (demo `GraphSource`; real GraphCore-backed clustering pending VIZ-1) |
+| **VIZ-2** | `eg-viz-graph-tiles` + `server::graph_tile_server` + `server::graph_tile_source` | Binary chunk-streamable tile protocol for `{nodes, edges}` graph payloads, cluster-id addressed | **Shipped**, real GraphCore-backed clustering (VIZ-1) wired in as the default `GraphSource`; demo generator kept as an opt-in `?demo=1` fallback |
 | **V7/V8** | — | Temporal repository visualization; agent-webui adoption | Not started |
 
 **Production feature-set note (2026-08-26).** `viz`/`viz-columnstore`/
@@ -307,17 +307,26 @@ structure rather than aggregate it honestly. Nothing here calls either
 kernel — see `crates/eg-viz-graph-tiles/src/wire.rs`'s module doc for the
 full reasoning.
 
-**Data source today.** VIZ-1's real GraphCore-backed `clusters()`/`expand()`
-had not merged at the time this lane shipped. `server::graph_tile_server`
-therefore serves `eg_viz_graph_tiles::demo::DemoGraph` — a deterministic,
-seeded, in-memory graph built fresh per request from query-param-controlled
-`node_count`/`edge_count`/`seed`/`top_clusters`/`sub_clusters_per_top` (all
-clamped, same "engine-side generated, clearly labeled, capped" idiom
-`VizDatasetSource::SyntheticGraph` already uses in production). This proves
-the wire protocol has a real, live, over-the-wire caller today; swapping in
-VIZ-1's real clustering means constructing a different `impl GraphSource`
-here — the routes, the wire encoding, and the streaming behavior do not
-change.
+**Data source.** VIZ-1's real `GraphCore`-backed hierarchical Leiden
+clustering (`Method::ClusterHierarchyRefresh`, `eg_compute::graph_algos::
+leiden_hierarchy`) is now the DEFAULT source: `server::graph_tile_source::
+RealClusterSource` wraps an already-computed, already-cached
+`eg_compute::algorithms::ClusterHierarchyResult` (loaded off
+`PersistenceBackend::load_cluster_hierarchy` — `GraphSource`'s methods are
+synchronous, so every async step happens in `graph_tile_server::
+resolve_source` BEFORE a `GraphSource` method runs) plus the live
+`Arc<GraphCore>` `expand()`'s level-1 branch reads real node/edge content off.
+`?graph=` names which cached tenant graph to serve (default `__commons__`);
+a graph with no cached hierarchy yet (call `ClusterHierarchyRefresh` first)
+degrades to an honest empty tile — never a 500 — via `RealClusterSource::
+empty()`. `eg_viz_graph_tiles::demo::DemoGraph` — the deterministic, seeded,
+in-memory generator this lane originally shipped as its only source — is now
+opt-in via `?demo=1`, kept for local dev/testing against a graph with no
+populated tenant. Cluster ids are the SAME `(level, local_index)` pair the
+RPC surface's string id (`"L{level}-{idx}"`) already names, just packed into
+this contract's `u64` (`level << 32 | local_index`,
+`server::graph_tile_source::cluster_id_u64`) — one identity scheme, two wire
+encodings.
 
 **Measured: binary vs. JSON, same values** (`cargo run -p eg-viz-graph-tiles
 --example bench_tile_wire`, one `ClusterExpansion` per row, `3×node_count`
@@ -331,12 +340,10 @@ edges, debug numbers below — see the example for a release run):
 
 **Remaining before this is fully live in production:**
 
-1. VIZ-1's real `clusters()`/`expand()` needs to merge and replace
-   `DemoGraph` behind `GraphSource` in `server::graph_tile_server`.
-2. `agent-webui` needs a client (VIZ-3 / the `engineGraphRender.ts` seam) that
+1. `agent-webui` needs a client (VIZ-3 / the `engineGraphRender.ts` seam) that
    speaks this binary protocol against `/graph_tile/*` — today that file only
    calls the nodes-only static-export path this lane does not touch.
-3. `viz-interactive` (and therefore `viz-graph-tiles`) is now compiled into
+2. `viz-interactive` (and therefore `viz-graph-tiles`) is now compiled into
    the production wheel, but the listener itself is still off unless an
    operator passes `--viz-interactive-addr` — a production deployment needs
    that flag (and a route from wherever `agent-webui` runs to that loopback
@@ -380,4 +387,5 @@ edges, debug numbers below — see the example for a release run):
 | `src/server/viz_interactive.rs` | V3b — HTTP listener, tile protocol |
 | `src/server/viz_interactive_client.html` | V3b — reference WebGPU/WebGL2 client |
 | `crates/eg-viz-graph-tiles/` | VIZ-2 — contract types, binary tile encoder/decoder, streaming frames, demo `GraphSource` |
+| `src/server/graph_tile_source.rs` | VIZ-1/VIZ-2 bridge — `RealClusterSource`, the real `GraphCore`-backed `GraphSource` |
 | `src/server/graph_tile_server.rs` | VIZ-2 — `/graph_tile/{clusters,expand,stream}` routes on the V3b listener |
