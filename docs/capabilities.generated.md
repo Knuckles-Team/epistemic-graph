@@ -352,6 +352,9 @@
 | `TsAsofJoin` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
 | `TsWindow` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
 | `TsGapFill` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
+| `TsEvict` | true | SeriesRedb | `timeseries:write` | true | false | false | Atomic | content-idempotent unlike TsAppend: re-evicting an already-past cutoff is a safe no-op (see SeriesStore::evict_before) |
+| `TsDeleteSeries` | true | SeriesRedb | `timeseries:write` | true | false | false | Atomic | content-idempotent unlike TsAppend: re-deleting an already-gone series is a safe no-op (see SeriesStore::delete_series) |
+| `TsListSeries` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
 | `BlobBegin` | true | BlobRedb | `blob:write` | false | false | false | Saga | multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op |
 | `BlobChunkPut` | true | BlobRedb | `blob:write` | false | false | false | Saga | durable via its own blob.redb (group-committed Immediate); self-routes before dispatch_graph_op |
 | `BlobCommit` | true | BlobRedb | `blob:write` | false | false | false | Saga | multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op |
