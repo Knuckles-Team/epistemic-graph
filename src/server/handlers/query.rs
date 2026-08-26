@@ -452,6 +452,13 @@ pub(crate) async fn try_handle(
                 Some((tenant, graph)) => (Some(tenant), Some(graph)),
                 None => (None, None),
             };
+            // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
+            // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
+            // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
+            // leg through `ServerState::foreign_sources` instead of erroring on every named
+            // source `Method::RegisterForeignSource` accepted.
+            #[cfg(feature = "federation")]
+            let foreign_sources = state.read().await.foreign_sources.clone();
             let resp = match compute_off_lock(req_id, move || {
                 #[cfg(feature = "text")]
                 let served_text =
@@ -469,6 +476,8 @@ pub(crate) async fn try_handle(
                         text: Some(&served_text),
                         #[cfg(feature = "geo")]
                         spatial: Some(&served_spatial),
+                        #[cfg(feature = "federation")]
+                        foreign: Some(&*foreign_sources),
                         #[cfg(not(any(feature = "text", feature = "geo")))]
                         _marker: std::marker::PhantomData,
                     },
@@ -610,6 +619,13 @@ pub(crate) async fn try_handle(
                 Some((tenant, graph)) => (Some(tenant), Some(graph)),
                 None => (None, None),
             };
+            // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
+            // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
+            // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
+            // leg through `ServerState::foreign_sources` instead of erroring on every named
+            // source `Method::RegisterForeignSource` accepted.
+            #[cfg(feature = "federation")]
+            let foreign_sources = state.read().await.foreign_sources.clone();
             let resp = match compute_off_lock(req_id, move || {
                 #[cfg(feature = "text")]
                 let served_text =
@@ -627,6 +643,8 @@ pub(crate) async fn try_handle(
                         text: Some(&served_text),
                         #[cfg(feature = "geo")]
                         spatial: Some(&served_spatial),
+                        #[cfg(feature = "federation")]
+                        foreign: Some(&*foreign_sources),
                         #[cfg(not(any(feature = "text", feature = "geo")))]
                         _marker: std::marker::PhantomData,
                     },
@@ -1291,6 +1309,13 @@ pub(crate) async fn try_handle(
                 Some((tenant, graph)) => (Some(tenant), Some(graph)),
                 None => (None, None),
             };
+            // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
+            // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
+            // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
+            // leg through `ServerState::foreign_sources` instead of erroring on every named
+            // source `Method::RegisterForeignSource` accepted.
+            #[cfg(feature = "federation")]
+            let foreign_sources = state.read().await.foreign_sources.clone();
             let resp = match compute_off_lock(req_id, move || {
                 #[cfg(feature = "text")]
                 let served_text =
@@ -1308,6 +1333,8 @@ pub(crate) async fn try_handle(
                         text: Some(&served_text),
                         #[cfg(feature = "geo")]
                         spatial: Some(&served_spatial),
+                        #[cfg(feature = "federation")]
+                        foreign: Some(&*foreign_sources),
                         #[cfg(not(any(feature = "text", feature = "geo")))]
                         _marker: std::marker::PhantomData,
                     },
@@ -1815,6 +1842,42 @@ fn plan_needs_spatial(ops: &[eg_plan::Op]) -> bool {
     })
 }
 
+/// Does `ops` NAME a registered foreign source — an `Op::Foreign` (the UQL
+/// `FOREIGN "<name>"` marker) or a `Named` `Op::ForeignScan`, at the top level or nested
+/// inside an `Op::FuseRrf` branch (CONCEPT:EG-KG.query.closure-backed-source, mirroring
+/// `plan_needs_text`)? Drives whether `run_unified` builds+binds the foreign-source
+/// registry at all, so a non-federated plan pays nothing. A self-describing (inline-spec)
+/// `Op::ForeignScan` resolves without a registry, so it does not need the binding.
+#[cfg(all(feature = "query", feature = "federation"))]
+fn plan_needs_foreign(ops: &[eg_plan::Op]) -> bool {
+    ops.iter().any(|op| match op {
+        eg_plan::Op::Foreign { .. } => true,
+        eg_plan::Op::ForeignScan { source, .. } => {
+            matches!(**source, eg_types::wire::ForeignSourceSpec::Named { .. })
+        }
+        eg_plan::Op::FuseRrf { branches, .. } => branches.iter().any(|b| plan_needs_foreign(b)),
+        _ => false,
+    })
+}
+
+/// CONCEPT:EG-KG.query.closure-backed-source — turn the server's REGISTERED foreign-source
+/// specs (`ServerState::foreign_sources`, keyed by the name `Method::RegisterForeignSource`
+/// recorded) into the [`eg_plan::federation::ForeignSourceRegistry`] the executor resolves
+/// a named foreign op through. Each spec is registered with `register_spec`, so a named
+/// source runs through the EXACT SAME remote-engine / HTTP-JSON / external-SQL machinery
+/// the inline-spec `Op::ForeignScan` path already used — ONE federation mechanism reached
+/// two ways (by name, or by inline spec), not two parallel ones.
+#[cfg(all(feature = "query", feature = "federation"))]
+fn foreign_registry_from(
+    specs: &dashmap::DashMap<String, eg_types::wire::ForeignSourceSpec>,
+) -> eg_plan::federation::ForeignSourceRegistry {
+    let mut registry = eg_plan::federation::ForeignSourceRegistry::new();
+    for entry in specs.iter() {
+        registry.register_spec(entry.key().clone(), entry.value().clone());
+    }
+    registry
+}
+
 /// Build a BM25 [`eg_text::TextIndex`] from a graph snapshot's node blobs
 /// (CONCEPT:EG-KG.query.served-text-index-binding) — the served lexical index for `Op::RankText` /
 /// `Op::FuseRrf`. Each node's indexable text is the concatenation of every STRING leaf in its
@@ -1870,6 +1933,17 @@ pub(crate) struct ServedIndexes<'a> {
     pub text: Option<&'a crate::server::secondary_indexes::ServedTextIndex>,
     #[cfg(feature = "geo")]
     pub spatial: Option<&'a crate::server::secondary_indexes::ServedSpatialIndex>,
+    /// CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources
+    /// (`ServerState::foreign_sources`, the map `Method::RegisterForeignSource` writes),
+    /// threaded down so `run_unified` can build the
+    /// [`eg_plan::federation::ForeignSourceRegistry`] an `Op::Foreign` (the UQL
+    /// `FOREIGN "<name>"` marker) / a `Named` `Op::ForeignScan` resolves through. Before
+    /// this binding NOTHING in the server ever read `foreign_sources`, so every
+    /// successfully-registered source was inert and every named foreign op errored.
+    /// `None` ⇒ no registry is bound and a name-resolving op stays a clean typed error —
+    /// never a silent empty set, never silently-local rows.
+    #[cfg(feature = "federation")]
+    pub foreign: Option<&'a dashmap::DashMap<String, eg_types::wire::ForeignSourceSpec>>,
     // Keeps `'a` used even when neither `text` nor `geo` is built, so `ServedIndexes<'_>`
     // stays a valid (zero-field-active) type in every feature combination.
     #[cfg(not(any(feature = "text", feature = "geo")))]
@@ -1930,6 +2004,22 @@ pub(crate) fn run_unified(
     // answer-preserving within the EG-405 non-empty guard.
     let ops = plan.ops;
 
+    // CONCEPT:EG-KG.query.closure-backed-source — bind the server's REGISTERED foreign
+    // sources so a served `Op::Foreign` (`FOREIGN "<name>"`) / a `Named`
+    // `Op::ForeignScan` actually RESOLVES its name instead of the
+    // documented-but-unreachable "FOREIGN requires a bound foreign-source registry" /
+    // "no ForeignSourceRegistry is attached to the PlanCtx" error it deterministically
+    // returned before. `Method::RegisterForeignSource` has always written
+    // `ServerState::foreign_sources`, and until this binding NOTHING in `src/` ever read
+    // that map — so a caller could register a source successfully and then have every
+    // query against it fail. Same shape as the `with_tensor_store` binding below.
+    #[cfg(feature = "federation")]
+    let foreign_registry: Option<eg_plan::federation::ForeignSourceRegistry> =
+        match served.foreign {
+            Some(specs) if plan_needs_foreign(&ops) => Some(foreign_registry_from(specs)),
+            _ => None,
+        };
+
     // CONCEPT:EG-KG.query.served-text-index-binding — bind a live BM25 lexical search surface into the
     // served `PlanCtx` so a served `UnifiedQuery`/`UnifiedQueryText` whose plan carries
     // `Op::RankText` or an `Op::FuseRrf` text branch gets REAL lexical scores (it
@@ -1978,6 +2068,11 @@ pub(crate) fn run_unified(
         }
     } else {
         ctx
+    };
+    #[cfg(feature = "federation")]
+    let ctx = match foreign_registry.as_ref() {
+        Some(registry) => ctx.with_foreign(registry),
+        None => ctx,
     };
     // CONCEPT:EG-KG.query.bind-server-side-text — bind the server-side text→vector embedder so a UQL `RANK BY ~ "text"`
     // (`Op::RankEmbed`) resolves its query vector at exec time (the NL→vector seam,
@@ -2079,6 +2174,8 @@ mod tensor_served_round_trip_tests {
             text: None,
             #[cfg(feature = "geo")]
             spatial: None,
+            #[cfg(feature = "federation")]
+            foreign: None,
             #[cfg(not(any(feature = "text", feature = "geo")))]
             _marker: std::marker::PhantomData,
         }
@@ -3441,6 +3538,13 @@ async fn run_unified_overlaid(
         Some((tenant, graph)) => (Some(tenant), Some(graph)),
         None => (None, None),
     };
+    // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
+    // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
+    // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
+    // leg through `ServerState::foreign_sources` instead of erroring on every named
+    // source `Method::RegisterForeignSource` accepted.
+    #[cfg(feature = "federation")]
+    let foreign_sources = state.read().await.foreign_sources.clone();
     // CONCEPT:EG-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`
     // from the txn's OWN staged, uncommitted `GraphTxnState.measurements` so an in-txn
     // `Op::TsScan` sees its own points (merged BEFORE the committed store), while an
@@ -3496,6 +3600,8 @@ async fn run_unified_overlaid(
                     text: Some(&served_text),
                     #[cfg(feature = "geo")]
                     spatial: Some(&served_spatial),
+                    #[cfg(feature = "federation")]
+                    foreign: Some(&*foreign_sources),
                     #[cfg(not(any(feature = "text", feature = "geo")))]
                     _marker: std::marker::PhantomData,
                 },
@@ -3519,6 +3625,8 @@ async fn run_unified_overlaid(
                     text: Some(&served_text),
                     #[cfg(feature = "geo")]
                     spatial: Some(&served_spatial),
+                    #[cfg(feature = "federation")]
+                    foreign: Some(&*foreign_sources),
                     #[cfg(not(any(feature = "text", feature = "geo")))]
                     _marker: std::marker::PhantomData,
                 },

@@ -4357,6 +4357,16 @@ fn gather_plan_rows(
             text: Some(&served_text),
             #[cfg(feature = "geo")]
             spatial: Some(&served_spatial),
+            // CONCEPT:EG-KG.query.closure-backed-source — `gather_plan_rows` runs off a bare
+            // `Arc<GraphCore>` (the WAL-replay-compatible signature), with NO `ServerState`
+            // in hand, so the registered foreign sources cannot be threaded here without
+            // widening `build_vectors`/`build_anomaly_rows` too. A mining-sourced plan with
+            // a NAMED foreign leg therefore still returns the clean "no registry attached"
+            // typed error rather than silently-local rows — the served `UnifiedQuery`
+            // /`UnifiedQueryText`/NL/in-txn/wire paths all bind it. Threading it into the
+            // mining source is a follow-up.
+            #[cfg(feature = "federation")]
+            foreign: None,
             #[cfg(not(any(feature = "text", feature = "geo")))]
             _marker: std::marker::PhantomData,
         },

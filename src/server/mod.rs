@@ -1535,18 +1535,14 @@ mod tests {
 
     // ── Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, Lane P) ───────
 
-    /// THE federation compose proof through TWO in-process engines: a LOCAL engine A
-    /// runs a `UnifiedQuery` whose plan `ForeignScan`s a REMOTE engine B (served over
-    /// TCP, queried with the engine's own length-prefixed-MessagePack + HMAC transport),
-    /// JOINS B's rows with A's local graph, ranks, and limits. The fused result equals
-    /// the MANUAL join done by hand. This is the cross-engine federation seam: ONE plan,
-    /// TWO engines, no Python round-trip. (CONCEPT:EG-KG.query.query-federation)
+    /// Stand up the REMOTE engine (B) the query-federation tests read from: a
+    /// `test_state()` carrying the `agent:federation-test` identity, the shared unified
+    /// fixture, and its TCP listener served in the background. Returns the live state
+    /// handle plus its `host:port`. The accept loop is UNBOUNDED (not the single
+    /// `accept()` this setup started as), so one remote can serve MANY foreign
+    /// round-trips — what the by-name federation proof below needs.
     #[cfg(feature = "federation")]
-    #[tokio::test]
-    async fn test_federated_query_two_engines_equals_manual_join() {
-        use eg_plan::{Op, Pred};
-
-        // ── engine B (the REMOTE), served over TCP ──
+    async fn spawn_federation_remote() -> (Arc<RwLock<ServerState>>, String) {
         let remote = test_state();
         // The federated sub-query's `RequestContextClaims` (below) authenticates as
         // "agent:federation-test". Two independent gates require this identity be
@@ -1613,23 +1609,30 @@ mod tests {
         let remote_addr = listener.local_addr().unwrap().to_string();
         let remote_for_serve = remote.clone();
         tokio::spawn(async move {
-            // One connection is enough for the single foreign round-trip the test makes.
-            if let Ok((stream, _)) = listener.accept().await {
-                handle_connection(stream, remote_for_serve).await;
+            // UNBOUNDED accept loop: a by-name federation proof issues SEVERAL foreign
+            // round-trips against the same remote (inline spec, `Named` spec, and the
+            // `Op::Foreign` marker), so the single-`accept()` form this started as would
+            // hang the second one. Each connection is served on its own task.
+            while let Ok((stream, _)) = listener.accept().await {
+                let serve = remote_for_serve.clone();
+                tokio::spawn(async move { handle_connection(stream, serve).await });
             }
         });
 
-        // ── engine A (the LOCAL) ──
-        let local = test_state();
-        build_unified_fixture(&local).await;
+        (remote, remote_addr)
+    }
 
-        // The remote returns the ids of Docs it CITES-reaches from the year>2024 seed (a
-        // remote graph traversal): UQL `MATCH (:Doc) WHERE year>2024 |> TRAVERSE
-        // -[:CITES]->{1,2}` → over B's fixture the seed is {d1,d2,d5} (years 2025) and
-        // CITES-reaching 1..2 hops gives {d2,d3,d4} (d1→d2→d3, d1→d4). The foreign source
-        // pulls those ids; A then JOINS them with its OWN local filter `year > 2023`.
-        let foreign = eg_types::wire::ForeignSourceSpec::RemoteEngine {
-            endpoint: remote_addr,
+    /// The `RemoteEngine` [`eg_types::wire::ForeignSourceSpec`] pointed at
+    /// [`spawn_federation_remote`]'s engine. Its UQL
+    /// (`MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]->{1,2}`) returns
+    /// `{d2, d3, d4}` over the shared fixture. ONE spec, used BOTH inline (as an
+    /// `Op::ForeignScan { source }`) and BY NAME (registered with
+    /// `Method::RegisterForeignSource`, then referenced as a `Named` spec /
+    /// `Op::Foreign`) — the two reach the SAME federation machinery.
+    #[cfg(feature = "federation")]
+    fn federation_remote_spec(endpoint: String) -> eg_types::wire::ForeignSourceSpec {
+        eg_types::wire::ForeignSourceSpec::RemoteEngine {
+            endpoint,
             graph: "__commons__".into(),
             secret: SECRET.into(),
             context: Box::new(eg_types::acl::RequestContextClaims {
@@ -1647,7 +1650,33 @@ mod tests {
             uql: "MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]->{1,2}".into(),
             cypher: String::new(),
             id_field: String::new(),
-        };
+        }
+    }
+
+    /// THE federation compose proof through TWO in-process engines: a LOCAL engine A
+    /// runs a `UnifiedQuery` whose plan `ForeignScan`s a REMOTE engine B (served over
+    /// TCP, queried with the engine's own length-prefixed-MessagePack + HMAC transport),
+    /// JOINS B's rows with A's local graph, ranks, and limits. The fused result equals
+    /// the MANUAL join done by hand. This is the cross-engine federation seam: ONE plan,
+    /// TWO engines, no Python round-trip. (CONCEPT:EG-KG.query.query-federation)
+    #[cfg(feature = "federation")]
+    #[tokio::test]
+    async fn test_federated_query_two_engines_equals_manual_join() {
+        use eg_plan::{Op, Pred};
+
+        // ── engine B (the REMOTE), served over TCP ──
+        let (_remote, remote_addr) = spawn_federation_remote().await;
+
+        // ── engine A (the LOCAL) ──
+        let local = test_state();
+        build_unified_fixture(&local).await;
+
+        // The remote returns the ids of Docs it CITES-reaches from the year>2024 seed (a
+        // remote graph traversal): UQL `MATCH (:Doc) WHERE year>2024 |> TRAVERSE
+        // -[:CITES]->{1,2}` → over B's fixture the seed is {d1,d2,d5} (years 2025) and
+        // CITES-reaching 1..2 hops gives {d2,d3,d4} (d1→d2→d3, d1→d4). The foreign source
+        // pulls those ids; A then JOINS them with its OWN local filter `year > 2023`.
+        let foreign = federation_remote_spec(remote_addr);
 
         let query = vec![1.0f32, 0.0, 0.0, 0.0]; // ranks d2 > d4 > d3
         let plan = vec![
@@ -1751,6 +1780,214 @@ mod tests {
         assert!(
             s.foreign_sources.contains_key("papers_api"),
             "the source must be recorded on ServerState"
+        );
+    }
+
+    /// CONCEPT:EG-KG.query.closure-backed-source — the READ side of `RegisterForeignSource`.
+    ///
+    /// `Method::RegisterForeignSource` has always WRITTEN `ServerState::foreign_sources`
+    /// (proven by `test_register_foreign_source_served` above), but until `run_unified`
+    /// bound that map into the executor's `eg_plan::federation::ForeignSourceRegistry`
+    /// NOTHING in `src/` ever READ it: a caller could register a source successfully,
+    /// exactly as the client/MCP surface and the agent-utilities skill reference
+    /// document, and then have EVERY query naming it fail with "no ForeignSourceRegistry
+    /// is attached to the PlanCtx". This test closes that loop end to end, through the
+    /// FULL served dispatch chain:
+    ///
+    ///   1. register a `RemoteEngine` source under the name `remote_docs`;
+    ///   2. run a `UnifiedQuery` whose plan carries `Op::ForeignScan { Named, join }`,
+    ///      and assert it equals the byte-identical INLINE-spec federated result
+    ///      (`["d2", "d4"]`, the manual-join oracle
+    ///      `test_federated_query_two_engines_equals_manual_join` proves) — the
+    ///      by-name and inline surfaces reach the SAME federation machinery, one
+    ///      mechanism, not two;
+    ///   3. run the UQL `FOREIGN "<name>"` marker (`Op::Foreign`) against the same
+    ///      registered name and get the remote's rows.
+    #[cfg(feature = "federation")]
+    #[tokio::test]
+    async fn test_registered_foreign_source_is_queryable_by_name() {
+        use eg_plan::{Op, Pred};
+
+        let (_remote, remote_addr) = spawn_federation_remote().await;
+        let local = test_state();
+        build_unified_fixture(&local).await;
+
+        // (1) REGISTER — the surface the client/MCP/skill docs expose.
+        let resp = dispatch_on_heap(
+            &local,
+            request(
+                700,
+                "__commons__",
+                None,
+                Method::RegisterForeignSource {
+                    name: "remote_docs".into(),
+                    source: federation_remote_spec(remote_addr),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+
+        // (2) QUERY BY NAME — a `Named` spec carries ONLY the registry key; resolving it
+        // is exactly the read that did not exist before.
+        let named_plan = vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2023.0,
+                }],
+            },
+            Op::ForeignScan {
+                source: Box::new(eg_types::wire::ForeignSourceSpec::Named {
+                    name: "remote_docs".into(),
+                }),
+                join: true,
+            },
+            Op::Rank {
+                query: vec![1.0f32, 0.0, 0.0, 0.0],
+            },
+            Op::Limit { k: 10 },
+        ];
+        let resp = dispatch_on_heap(
+            &local,
+            request(
+                701,
+                "__commons__",
+                None,
+                Method::UnifiedQuery {
+                    plan: eg_plan::Plan::new(named_plan),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        assert_eq!(
+            unified_ids(&resp),
+            vec!["d2".to_string(), "d4".to_string()],
+            "a REGISTERED foreign source must be queryable BY NAME, and must return the \
+             byte-identical result the inline-spec ForeignScan returns"
+        );
+
+        // (3) the UQL `FOREIGN "<name>"` marker (`Op::Foreign`) — a pure SOURCE: the
+        // remote's CITES-traversal set {d2, d3, d4} REPLACES the seed.
+        let resp = dispatch_on_heap(
+            &local,
+            request(
+                702,
+                "__commons__",
+                None,
+                Method::UnifiedQuery {
+                    plan: eg_plan::Plan::new(vec![
+                        Op::Foreign {
+                            name: "remote_docs".into(),
+                        },
+                        Op::Limit { k: 10 },
+                    ]),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        let mut marker_ids = unified_ids(&resp);
+        marker_ids.sort();
+        assert_eq!(
+            marker_ids,
+            vec!["d2".to_string(), "d3".to_string(), "d4".to_string()],
+            "the UQL FOREIGN \"<name>\" marker must resolve through the same registry"
+        );
+    }
+
+    /// CONCEPT:EG-KG.query.closure-backed-source — the NEGATIVE half: naming a source that
+    /// was never registered must still fail, CLEANLY and loudly. Binding the registry
+    /// must not turn an unbound name into silently-local rows (a `Named` `ForeignScan`
+    /// with `join: true` degrading to "just the local candidate set" would be a silent
+    /// correctness hole), and the error must name BOTH the missing source and what IS
+    /// registered so the caller can see the typo.
+    #[cfg(feature = "federation")]
+    #[tokio::test]
+    async fn test_unregistered_foreign_source_errors_cleanly() {
+        use eg_plan::{Op, Pred};
+
+        let (_remote, remote_addr) = spawn_federation_remote().await;
+        let local = test_state();
+        build_unified_fixture(&local).await;
+        let resp = dispatch_on_heap(
+            &local,
+            request(
+                710,
+                "__commons__",
+                None,
+                Method::RegisterForeignSource {
+                    name: "remote_docs".into(),
+                    source: federation_remote_spec(remote_addr),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+
+        // A `Named` `ForeignScan` for a name nobody registered.
+        let resp = dispatch_on_heap(
+            &local,
+            request(
+                711,
+                "__commons__",
+                None,
+                Method::UnifiedQuery {
+                    plan: eg_plan::Plan::new(vec![
+                        Op::Scan {
+                            label: "Doc".into(),
+                        },
+                        Op::Filter {
+                            preds: vec![Pred::GtNum {
+                                prop: "year".into(),
+                                n: 2023.0,
+                            }],
+                        },
+                        Op::ForeignScan {
+                            source: Box::new(eg_types::wire::ForeignSourceSpec::Named {
+                                name: "typo_docs".into(),
+                            }),
+                            join: true,
+                        },
+                    ]),
+                },
+            ),
+        )
+        .await;
+        let err = resp.error.expect(
+            "an unregistered foreign source must ERROR, never silently degrade to the \
+             local candidate set",
+        );
+        assert!(
+            err.contains("typo_docs") && err.contains("remote_docs"),
+            "the error must name the missing source AND list what IS registered, got: {err}"
+        );
+
+        // The same for the UQL `FOREIGN "<name>"` marker.
+        let resp = dispatch_on_heap(
+            &local,
+            request(
+                712,
+                "__commons__",
+                None,
+                Method::UnifiedQuery {
+                    plan: eg_plan::Plan::new(vec![Op::Foreign {
+                        name: "typo_docs".into(),
+                    }]),
+                },
+            ),
+        )
+        .await;
+        let err = resp
+            .error
+            .expect("an unregistered FOREIGN \"<name>\" marker must error");
+        assert!(
+            err.contains("typo_docs"),
+            "the marker's error must name the missing source, got: {err}"
         );
     }
 
