@@ -35,11 +35,13 @@ feature-depth = 1
 # ─────────────────────────────────────────────────────────────────────────────
 [advisories]
 ignore = [
-    # Format (kept in lockstep with `.cargo-audit-allow.txt` — see that file):
-    #   "RUSTSEC-YYYY-NNNN",  # justification; ledger entry expires=YYYY-MM-DD
-    # Do NOT add an entry here without a matching justified, unexpired line in
-    # `.cargo-audit-allow.txt` — `scripts/check_cargo_advisories.sh` fails the
-    # build if the two drift apart in either direction.
+    # GOC-76-W01 / CA-18 (2026-08-26): adding the official `iceberg` +
+    # `iceberg-storage-opendal` 0.10.x crates (as the lane contract specifies
+    # verbatim) pulls three advisories with no available fix AT THIS PIN today.
+    # See `.cargo-audit-allow.txt` for the full justification and review date.
+    "RUSTSEC-2024-0436", # paste (unmaintained) via iceberg -> parquet 58.4.0
+    "RUSTSEC-2026-0194", # quick-xml 0.39.4 quadratic-scan DoS, pinned by opendal-core 0.57.0
+    "RUSTSEC-2026-0195", # quick-xml 0.39.4 unbounded-alloc DoS, same pin as above
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
