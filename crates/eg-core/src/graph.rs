@@ -1342,11 +1342,11 @@ impl<'a> GraphTxn<'a> {
     ) -> Result<(), String> {
         let source_idx = match self.topo.node_map.get(&source_id) {
             Some(&idx) => idx,
-            None => return Err(format!("Source node '{}' not found", source_id)),
+            None => return Err(format!("Cannot add edge: source node '{}' is not in this graph (cross-graph edges are structurally impossible)", source_id)),
         };
         let target_idx = match self.topo.node_map.get(&target_id) {
             Some(&idx) => idx,
-            None => return Err(format!("Target node '{}' not found", target_id)),
+            None => return Err(format!("Cannot add edge: target node '{}' is not in this graph (cross-graph edges are structurally impossible)", target_id)),
         };
         self.topo.graph.add_edge(
             source_idx,
@@ -5151,11 +5151,11 @@ impl GraphCore {
             let source_idx = *topo
                 .node_map
                 .get(&source_id)
-                .ok_or_else(|| format!("Source node '{}' not found", source_id))?;
+                .ok_or_else(|| format!("Cannot add edge: source node '{}' is not in this graph (cross-graph edges are structurally impossible)", source_id))?;
             let target_idx = *topo
                 .node_map
                 .get(&target_id)
-                .ok_or_else(|| format!("Target node '{}' not found", target_id))?;
+                .ok_or_else(|| format!("Cannot add edge: target node '{}' is not in this graph (cross-graph edges are structurally impossible)", target_id))?;
             topo.graph.add_edge(
                 source_idx,
                 target_idx,
