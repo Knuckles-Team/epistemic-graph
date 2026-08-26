@@ -700,10 +700,17 @@ otel-export = ["obs", "metrics", "traces", "dep:prost", "dep:snap", "dep:ureq"]
 # included in the one main build. Needs `server` (the handler routes
 # through dispatch); `eg-types/streaming` carries the Method variants + wire DTOs.
 streaming = ["server", "eg-types/streaming"]
-# CDC -> Kafka sink (CA-11), off by default and EMPTY until CA-11 implements it. Declared
-# here by CA-17's single feature-stub commit so that CA-11 never edits this shared table.
-# Implies `streaming` -- the engine-side CDC stream it sinks from.
-cdc-kafka = ["streaming"]
+# CDC -> Kafka sink (CA-11, DEC-CA-03), off by default. Originally declared as
+# `["streaming"]` by CA-17's single feature-stub commit; CA-11 widened the parent
+# list to `dep:eg-stream, eg-stream/cdc-kafka` -- flagged in CA-11's report per the
+# `ca17_feature_stub_contract` test's own escape hatch ("a lane changing its own
+# feature's parents must say so"). This is the ONLY way the `CdcSink`
+# trait/`rdkafka` producer (living in the leaf crate `eg-stream`, per the lane
+# brief's own file list) becomes reachable when `cdc-kafka` is armed WITHOUT also
+# requiring the unrelated `stream` feature (the only other path that currently
+# pulls `dep:eg-stream`). Implies `streaming` -- the engine-side CDC stream it
+# sinks from.
+cdc-kafka = ["streaming", "dep:eg-stream", "eg-stream/cdc-kafka"]
 # Version-keyed query-RESULT cache (CONCEPT:KG-2.233): caches the serialized bytes
 # of a read query (Sql/Cypher/Sparql/UnifiedQuery) on `GraphCore`, keyed by
 # `(query-hash, version())`. A repeated identical query on an UNCHANGED graph hits;

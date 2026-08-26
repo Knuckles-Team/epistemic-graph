@@ -449,7 +449,15 @@ impl ServerState {
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
             #[cfg(feature = "streaming")]
-            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
+            cdc: Some({
+                let hub = Arc::new(crate::server::cdc::CdcHub::new());
+                // CA-11 (DEC-CA-03): install the Kafka sink if configured. See
+                // `main.rs`'s equivalent construction site and `cdc_sink`'s
+                // module doc for the no-op-when-unset rollback contract.
+                #[cfg(feature = "cdc-kafka")]
+                crate::server::cdc_sink::install_from_env(&hub);
+                hub
+            }),
             #[cfg(feature = "wasm-udf")]
             udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
             #[cfg(feature = "compute-dist")]
