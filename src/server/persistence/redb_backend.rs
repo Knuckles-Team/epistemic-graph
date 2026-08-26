@@ -1353,6 +1353,12 @@ pub struct RedbBackend {
     /// only when a clustered node self-reports at startup (`raft::node::start`).
     /// See `server::persistence::node_info_store` for the replication story.
     node_info: Arc<super::node_info_store::NodeInfoStore>,
+    /// Durable cluster-hierarchy cache (CONCEPT:EG-KG.compute.leiden-hierarchy, VIZ-1). Own-file,
+    /// like `node_info` above, but carries no replication story — a cache entry
+    /// is node-local and always safely recomputable. See
+    /// `server::persistence::cluster_hierarchy_store` for why membership never
+    /// rides graph nodes/edges.
+    cluster_hierarchy: Arc<super::cluster_hierarchy_store::ClusterHierarchyStore>,
 }
 
 impl RedbBackend {
@@ -1559,12 +1565,16 @@ impl RedbBackend {
         );
         eg_mutation_store::initialize(&admin_mutations)?;
         let node_info = Arc::new(super::node_info_store::NodeInfoStore::open(&persist_dir)?);
+        let cluster_hierarchy = Arc::new(
+            super::cluster_hierarchy_store::ClusterHierarchyStore::open(&persist_dir)?,
+        );
         Ok(Self {
             shards,
             catalog: None,
             routing_epoch: Arc::new(RwLock::new(())),
             admin_mutations,
             node_info,
+            cluster_hierarchy,
         })
     }
 
@@ -2305,6 +2315,18 @@ impl PersistenceBackend for RedbBackend {
 
     fn supports_native_work_item_submission(&self) -> bool {
         true
+    }
+
+    fn supports_cluster_hierarchy_cache(&self) -> bool {
+        true
+    }
+
+    async fn save_cluster_hierarchy(&self, graph_fname: &str, blob: Vec<u8>) -> Result<(), String> {
+        self.cluster_hierarchy.put(graph_fname, blob)
+    }
+
+    async fn load_cluster_hierarchy(&self, graph_fname: &str) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.cluster_hierarchy.get(graph_fname))
     }
 
     async fn load_all(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {

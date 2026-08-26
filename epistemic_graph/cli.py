@@ -187,6 +187,61 @@ def cmd_graphs_list(args: argparse.Namespace) -> None:
     asyncio.run(_list())
 
 
+def cmd_cluster_refresh(args: argparse.Namespace) -> None:
+    """(Re)compute + cache a graph's hierarchical cluster tree (VIZ-1)."""
+    from .client import EpistemicGraphClient
+
+    async def _refresh() -> None:
+        client = await EpistemicGraphClient.connect(
+            socket_path=args.socket_path,
+            graph_name=args.graph,
+            verified_context=_request_context(args.request_context_json),
+        )
+        summary = await client.graph.cluster_hierarchy_refresh(
+            label=args.label, resolution=args.resolution, seed=args.seed
+        )
+        print(json.dumps(summary, indent=2))
+        await client.close()
+
+    asyncio.run(_refresh())
+
+
+def cmd_cluster_list(args: argparse.Namespace) -> None:
+    """List the cached hierarchy's clusters at one level (VIZ-1)."""
+    from .client import EpistemicGraphClient
+
+    async def _list() -> None:
+        client = await EpistemicGraphClient.connect(
+            socket_path=args.socket_path,
+            graph_name=args.graph,
+            verified_context=_request_context(args.request_context_json),
+        )
+        result = await client.graph.cluster_hierarchy_clusters(
+            level=args.level, parent_cluster_id=args.parent
+        )
+        print(json.dumps(result, indent=2))
+        await client.close()
+
+    asyncio.run(_list())
+
+
+def cmd_cluster_expand(args: argparse.Namespace) -> None:
+    """Expand one cluster one level down (VIZ-1)."""
+    from .client import EpistemicGraphClient
+
+    async def _expand() -> None:
+        client = await EpistemicGraphClient.connect(
+            socket_path=args.socket_path,
+            graph_name=args.graph,
+            verified_context=_request_context(args.request_context_json),
+        )
+        result = await client.graph.cluster_hierarchy_expand(args.cluster_id)
+        print(json.dumps(result, indent=2))
+        await client.close()
+
+    asyncio.run(_expand())
+
+
 def main() -> None:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -229,6 +284,36 @@ def main() -> None:
     graphs_sub = sp_graphs.add_subparsers(dest="graphs_command", required=True)
     sp_gl = graphs_sub.add_parser("list", help="List registered graphs")
     sp_gl.set_defaults(func=cmd_graphs_list)
+
+    # cluster (VIZ-1: server-side hierarchical clustering for visualization)
+    sp_cluster = subparsers.add_parser(
+        "cluster", help="Hierarchical cluster tree for graph visualization (VIZ-1)"
+    )
+    cluster_sub = sp_cluster.add_subparsers(dest="cluster_command", required=True)
+
+    sp_cr = cluster_sub.add_parser(
+        "refresh", help="(Re)compute + cache the cluster hierarchy"
+    )
+    sp_cr.add_argument("--graph", default="__commons__", help="Graph name")
+    sp_cr.add_argument("--label", help="Restrict clustering to one node type")
+    sp_cr.add_argument(
+        "--resolution", type=float, default=1.0, help="Leiden resolution (gamma)"
+    )
+    sp_cr.add_argument("--seed", type=int, default=0, help="Leiden RNG seed")
+    sp_cr.set_defaults(func=cmd_cluster_refresh)
+
+    sp_cl = cluster_sub.add_parser("list", help="List cached clusters at one level")
+    sp_cl.add_argument("--graph", default="__commons__", help="Graph name")
+    sp_cl.add_argument(
+        "--level", type=int, required=True, help="Hierarchy level (1 = finest)"
+    )
+    sp_cl.add_argument("--parent", help="Restrict to this parent cluster's children")
+    sp_cl.set_defaults(func=cmd_cluster_list)
+
+    sp_ce = cluster_sub.add_parser("expand", help="Expand one cluster one level down")
+    sp_ce.add_argument("--graph", default="__commons__", help="Graph name")
+    sp_ce.add_argument("cluster_id", help="Cluster id, e.g. L1-0")
+    sp_ce.set_defaults(func=cmd_cluster_expand)
 
     args = parser.parse_args()
     args.func(args)

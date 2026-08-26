@@ -61,6 +61,18 @@ pub mod tenant_catalog;
 #[cfg(feature = "redb")]
 pub mod node_info_store;
 
+// VIZ-1: durable cache for the computed hierarchical-Leiden cluster tree
+// (CONCEPT:EG-KG.compute.leiden-hierarchy) one graph's `Method::ClusterHierarchyRefresh`
+// produces. Own-file, own-table, keyed by graph name -- mirrors `node_info_store`'s
+// shape (own redb file under the same `persist_dir`) but carries NO replication
+// story (unlike node_info's Raft self-report): this is a plain per-node cache of a
+// value that is always re-derivable from the live graph, never authoritative,
+// never a KG node/edge write (see the `Method::ClusterHierarchyRefresh` doc for
+// why membership is deliberately NOT represented as graph edges). Redb-only, like
+// every other own-file side store in this module.
+#[cfg(feature = "redb")]
+pub mod cluster_hierarchy_store;
+
 // M3 keystone (CONCEPT:EG-KG.backend.catalog-shard-resolve / EG-034). Both redb-only:
 //   * `online_reshard` — move ONE graph between shards while the engine RUNS (verbatim
 //     row copy + catalog route flip + source GC), building on EG-030's copy + EG-031's
@@ -178,6 +190,34 @@ pub trait PersistenceBackend: Send + Sync {
     /// while development preserves eager recovery.
     async fn load_catalog(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
         self.load_all(state).await
+    }
+
+    // ── VIZ-1: hierarchical cluster-tree cache (CONCEPT:EG-KG.compute.leiden-hierarchy) ──
+    //
+    // Fail-closed defaults, per this trait's own "capability discovery must not
+    // infer support from a backend merely being present" convention (see
+    // `supports_native_resource_reservations` above): a test/memory backend simply
+    // never caches, and `Method::ClusterHierarchyRefresh` still WORKS against one
+    // (it just recomputes on every call instead of serving a cache) rather than
+    // failing outright. Only `RedbBackend` overrides these, delegating to
+    // `cluster_hierarchy_store::ClusterHierarchyStore`.
+
+    /// Whether this backend durably caches computed cluster hierarchies.
+    fn supports_cluster_hierarchy_cache(&self) -> bool {
+        false
+    }
+
+    /// Replace the cached hierarchy for `graph_fname` with `blob` (a MessagePack-
+    /// encoded `eg_compute::algorithms::ClusterHierarchyResult`). Not a graph
+    /// mutation — see the trait section doc above.
+    async fn save_cluster_hierarchy(&self, _graph_fname: &str, _blob: Vec<u8>) -> Result<(), String> {
+        Err("persistence backend does not support cluster hierarchy caching".to_string())
+    }
+
+    /// Fetch the cached hierarchy blob for `graph_fname`, if any has been
+    /// computed (and not since evicted/superseded) for it.
+    async fn load_cluster_hierarchy(&self, _graph_fname: &str) -> Result<Option<Vec<u8>>, String> {
+        Ok(None)
     }
 
     /// Record a single DATA mutation and await its durable commit
