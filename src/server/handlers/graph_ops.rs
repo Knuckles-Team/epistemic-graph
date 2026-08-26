@@ -2413,21 +2413,6 @@ pub(crate) async fn try_handle_gateway(
     Ok(resp)
 }
 
-/// Parse a VIZ-1 cluster id of the form `"L{level}-{local_index}"` (see
-/// `ClusterMeta::id`'s doc) into `(level, local_index)`. Returns `None` for
-/// anything else — a caller-supplied cluster_id is untrusted input, so this
-/// never panics on a malformed string.
-fn parse_cluster_id(id: &str) -> Option<(usize, usize)> {
-    let rest = id.strip_prefix('L')?;
-    let (level_str, idx_str) = rest.split_once('-')?;
-    let level: usize = level_str.parse().ok()?;
-    let idx: usize = idx_str.parse().ok()?;
-    if level == 0 {
-        return None;
-    }
-    Some((level, idx))
-}
-
 /// Dispatch a graph-targeted method. This is the terminal handler in the routing
 /// chain (it owns the catch-all), so it returns a `Response` directly.
 pub(crate) async fn try_handle(
@@ -3531,7 +3516,7 @@ pub(crate) async fn try_handle(
             )
         }
         Method::ClusterHierarchyExpand { cluster_id } => {
-            let Some((level, local_idx)) = parse_cluster_id(&cluster_id) else {
+            let Some((level, local_idx)) = crate::algorithms::parse_cluster_id(&cluster_id) else {
                 return Response::err(req_id, format!("malformed cluster_id: {cluster_id}"));
             };
             let persistence = { state.read().await.persistence.clone() };

@@ -323,6 +323,12 @@ pub mod viz_interactive;
 // synchronous `(status, content_type, Vec<u8>)` return cannot express).
 #[cfg(feature = "viz-graph-tiles")]
 pub mod graph_tile_server;
+// VIZ-1/VIZ-2 bridge: the real GraphCore-backed `GraphSource` graph_tile_server
+// serves once a graph has a cached cluster hierarchy, replacing the `DemoGraph`
+// placeholder VIZ-2 shipped pending this lane. Same feature gate as
+// graph_tile_server (its only caller) since it depends on eg_viz_graph_tiles.
+#[cfg(feature = "viz-graph-tiles")]
+pub(crate) mod graph_tile_source;
 // Fleet server registry stale-lease reaper (CONCEPT:EG-KG.sharding.server-registry, W2.5): periodic
 // sweep that expires a `:Server` node whose `Method::RegisterServer`-issued
 // lease has lapsed. Always declared (mirrors `ann_warm` above) — the sweep is a

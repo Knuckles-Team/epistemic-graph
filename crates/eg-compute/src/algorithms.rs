@@ -619,6 +619,30 @@ pub struct ClusterHierarchyResult {
     pub base_edge_count: usize,
 }
 
+/// Format a VIZ-1 cluster id — the single source of truth for `ClusterMeta::id`'s
+/// `"L{level}-{local_index}"` shape, shared by every consumer (the
+/// `Method::ClusterHierarchy*` RPC handlers AND VIZ-2's `graph_tile_server`,
+/// which packs the same `(level, idx)` pair into its own `u64` cluster id --
+/// see `server::graph_tile_source`) so the format can never drift between them.
+pub fn format_cluster_id(level: usize, idx: usize) -> String {
+    format!("L{level}-{idx}")
+}
+
+/// Parse a VIZ-1 cluster id of the form [`format_cluster_id`] produces, back
+/// into `(level, local_index)`. Returns `None` for anything else — a
+/// caller-supplied cluster_id is untrusted input, so this never panics on a
+/// malformed string.
+pub fn parse_cluster_id(id: &str) -> Option<(usize, usize)> {
+    let rest = id.strip_prefix('L')?;
+    let (level_str, idx_str) = rest.split_once('-')?;
+    let level: usize = level_str.parse().ok()?;
+    let idx: usize = idx_str.parse().ok()?;
+    if level == 0 {
+        return None;
+    }
+    Some((level, idx))
+}
+
 /// Extract a node's type/label from its property blob — same key precedence
 /// as `server::handlers::mining::node_type_label` (kept as an independent
 /// small copy: that one reads a `GraphCore` node blob directly under the
@@ -776,7 +800,7 @@ pub fn cluster_hierarchy(
                     *type_counts.entry(node_types[m].clone()).or_insert(0) += 1;
                 }
                 let top = top_types(&type_counts, 5);
-                let id = format!("L{level}-{c}");
+                let id = format_cluster_id(level, c);
                 let label = top
                     .first()
                     .map(|(t, _)| format!("{t} cluster ({c})"))
@@ -786,7 +810,7 @@ pub fn cluster_hierarchy(
                     label,
                     node_count: members.len(),
                     edge_count: internal_weight[c],
-                    parent_id: parent[c].map(|p| format!("L{}-{p}", level + 1)),
+                    parent_id: parent[c].map(|p| format_cluster_id(level + 1, p)),
                     top_node_types: top,
                 }
             })

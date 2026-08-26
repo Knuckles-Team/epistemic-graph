@@ -37,11 +37,21 @@ use epistemic_graph::server::viz_interactive::serve;
 /// return its address. The server task is detached (test-process lifetime is
 /// short enough that this is fine, matching this crate's other served-surface
 /// tests).
+///
+/// `viz_interactive::serve` now also takes an OPTIONAL graph-registry handle
+/// (VIZ-1/VIZ-2 bridge: `/graph_tile/*` resolves a real cluster hierarchy off
+/// it when present -- `None` here since this file's `ServerState` is a
+/// `pub(crate)`/`#[cfg(test)]` type this EXTERNAL integration test crate
+/// cannot construct, and has no need to: every request below passes
+/// `?demo=1`, so this file proves the WIRE PROTOCOL end-to-end against the
+/// demo generator, not real-graph clustering (that is
+/// `src/server/graph_tile_source.rs`'s own in-crate unit tests, which DO
+/// construct a real `ServerState` via `ServerState::new_for_test`).
 async fn start_server() -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let engine = Arc::new(VizEngineState::new(None));
-    tokio::spawn(serve(listener, engine));
+    tokio::spawn(serve(listener, engine, None));
     addr
 }
 
@@ -72,7 +82,7 @@ async fn clusters_route_round_trips_a_real_binary_tile_over_tcp() {
     let addr = start_server().await;
     let (head, body) = get_full(
         addr,
-        "/graph_tile/clusters?level=0&node_count=300&edge_count=900&top_clusters=6&seed=11",
+        "/graph_tile/clusters?demo=1&level=0&node_count=300&edge_count=900&top_clusters=6&seed=11",
     )
     .await;
     assert!(head.starts_with("HTTP/1.1 200 OK"), "head was: {head}");
@@ -95,7 +105,7 @@ async fn expand_route_round_trips_a_real_binary_tile_over_tcp() {
     let addr = start_server().await;
     let (_head, level_body) = get_full(
         addr,
-        "/graph_tile/clusters?level=0&node_count=300&edge_count=900&top_clusters=6&seed=11",
+        "/graph_tile/clusters?demo=1&level=0&node_count=300&edge_count=900&top_clusters=6&seed=11",
     )
     .await;
     let level = decode_cluster_level(&level_body).unwrap();
@@ -104,7 +114,7 @@ async fn expand_route_round_trips_a_real_binary_tile_over_tcp() {
     let (head, body) = get_full(
         addr,
         &format!(
-            "/graph_tile/expand?cluster_id={first_cluster_id}&node_count=300&edge_count=900&top_clusters=6&seed=11"
+            "/graph_tile/expand?demo=1&cluster_id={first_cluster_id}&node_count=300&edge_count=900&top_clusters=6&seed=11"
         ),
     )
     .await;
@@ -212,7 +222,7 @@ async fn stream_route_delivers_the_first_expand_tile_from_a_strict_prefix_of_the
     // A large enough demo graph that the level tile plus 3 comparably-sized
     // expand tiles make the "first frame decodable well before the whole
     // response" property meaningful rather than trivial.
-    let request = "GET /graph_tile/stream?node_count=60000&edge_count=180000&top_clusters=6&top_k=3&seed=5 HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    let request = "GET /graph_tile/stream?demo=1&node_count=60000&edge_count=180000&top_clusters=6&top_k=3&seed=5 HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
     stream.write_all(request.as_bytes()).await.unwrap();
 
     let (offsets, total_len) = read_chunked_and_track_frame_offsets(&mut stream).await;
