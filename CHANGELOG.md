@@ -27,13 +27,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   then a per-cluster expand tile for the `top_k` largest clusters, each
   flushed as computed, then a `StreamEnd` sentinel), proven end-to-end by
   `tests/graph_tile_stream.rs` against a real TCP socket, not an in-process
-  call. Data source today is a deterministic, seeded, in-memory
-  `eg_viz_graph_tiles::demo::DemoGraph` — the same "engine-side generated,
-  clearly labeled, capped" idiom `VizDatasetSource::SyntheticGraph` already
-  uses in production — until VIZ-1's real GraphCore-backed clustering lands
-  behind the same `GraphSource` trait. Measured (binary vs. JSON, same
-  values, `cargo run -p eg-viz-graph-tiles --example bench_tile_wire`):
-  ~3.0x smaller and 5-10x faster to decode at 1k/10k/100k nodes.
+  call. Data source is now VIZ-1's real `GraphCore`-backed hierarchical
+  clustering (`server::graph_tile_source::RealClusterSource`, see the VIZ-1
+  entry below) by default, `?graph=` selecting the tenant; the original
+  deterministic, seeded, in-memory `eg_viz_graph_tiles::demo::DemoGraph` — the
+  same "engine-side generated, clearly labeled, capped" idiom
+  `VizDatasetSource::SyntheticGraph` already uses in production — remains
+  available opt-in via `?demo=1` for local dev/testing against an unpopulated
+  tenant. Measured (binary vs. JSON, same values, `cargo run -p
+  eg-viz-graph-tiles --example bench_tile_wire`): ~3.0x smaller and 5-10x
+  faster to decode at 1k/10k/100k nodes.
+- **Hierarchical Leiden clustering with expand-on-demand (VIZ-1, million-node
+  graph visualization program)** — server-side community detection so a
+  client renders a few thousand top-level CLUSTER nodes for a million-node
+  graph and drills in on demand, instead of laying out every node client-side.
+  `eg_compute::graph_algos::leiden_hierarchy` keeps every intermediate level
+  of Leiden's own local-moving/refine/aggregate loop (level 1 = finest
+  coarsening of the original nodes, each higher level a strict union of the
+  level below) instead of collapsing to the final flat partition; Leiden (not
+  Louvain) specifically for its refinement-phase guarantee that every returned
+  community induces a CONNECTED subgraph. `eg_compute::algorithms::
+  cluster_hierarchy` projects a `GraphView` (optional node-type filter) into
+  the hierarchy plus per-cluster metadata (node/edge counts, top node types,
+  array-local inter-cluster edges). Exposed as three new unconditional
+  `Method::ClusterHierarchy{Refresh,Clusters,Expand}` RPCs (`compute:graph-algo`,
+  same read-only bucket as `CommunityDetection`) durably cached in a new
+  own-file redb table (`server::persistence::cluster_hierarchy_store`) keyed
+  by graph name — deliberately NOT graph nodes/edges: the engine holds at
+  most one edge per ordered node pair and `upsert_edge` replaces the
+  relationship type, so cluster membership as edges between existing nodes
+  would silently destroy asserted relationships. Reachable via
+  `EpistemicGraphClient.graph.cluster_hierarchy_{refresh,clusters,expand}`
+  and a new `epistemic-graph-service cluster {refresh,list,expand}` CLI
+  subcommand. Also backs VIZ-2's `graph_tile_server` as the real
+  `GraphSource` (`server::graph_tile_source::RealClusterSource`), replacing
+  its `DemoGraph` placeholder. Benchmarked (debug/test profile): 25k nodes/
+  196k edges in 370ms, 100k/785k in 1.68s, 1M nodes/7.8M edges in 23.5s
+  (~1GB RSS) — see `crates/eg-compute/src/graph_algos/leiden.rs`'s
+  `hierarchy_tests::bench_*` tests.
 - **`viz`/`viz-columnstore`/`viz-static-export`/`viz-interactive`/
   `viz-graph-tiles` now ship in `full`** (root `Cargo.toml`), and therefore in
   the production wheel (`--features full,ast-extended`). Previously excluded

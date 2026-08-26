@@ -567,6 +567,270 @@ pub fn community_detection(core: &GraphView, resolution: f64) -> Vec<Vec<String>
     out
 }
 
+// ── VIZ-1: hierarchical Leiden clustering for graph visualization ──────────
+//
+// UNLIKE `community_detection` above (a hand-rolled Louvain kept for its own
+// call sites), this delegates to `crate::graph_algos::leiden_hierarchy` — the
+// tested, GDS-parity, multi-level kernel — rather than duplicating it. It also
+// reads `node_properties` (which `community_detection` never needs, since it's
+// topology-only) for label filtering and the `top_node_types` summary, so it
+// takes the SAME `GraphView` shape `ComputeSimilarityEdges`/MST already read
+// (`analysis_snapshot`, not `topology_snapshot`).
+
+/// One cluster at one level of a computed [`ClusterHierarchyResult`]
+/// (CONCEPT:EG-KG.compute.leiden-hierarchy, VIZ-1). `Serialize`/`Deserialize` so the whole
+/// result can be MessagePack-encoded directly into
+/// `server::persistence::cluster_hierarchy_store` — the wire/persisted shape
+/// IS the compute shape, no separate DTO layer.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ClusterMeta {
+    /// Stable, globally-addressable id: `"L{level}-{local_index}"`.
+    pub id: String,
+    pub label: String,
+    pub node_count: usize,
+    /// Sum of internal-edge weight (directed, NOT symmetrized — the graph's
+    /// own edge direction, so this is directly comparable to a live
+    /// `GetEdges` count, unlike a modularity-style doubled undirected count).
+    pub edge_count: f64,
+    /// This cluster's parent id at `level + 1`. `None` only at the root level.
+    pub parent_id: Option<String>,
+    /// Up to 5 most common node types among this cluster's members, descending.
+    pub top_node_types: Vec<(String, usize)>,
+}
+
+/// One level of a [`ClusterHierarchyResult`]. `inter_cluster_edges` indices are
+/// LOCAL to `clusters` (array-local, per the VIZ-1 program contract).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ClusterLevelResult {
+    pub level: usize,
+    pub clusters: Vec<ClusterMeta>,
+    pub inter_cluster_edges: Vec<(u32, u32, f64)>,
+}
+
+/// Full computed hierarchy (CONCEPT:EG-KG.compute.leiden-hierarchy, VIZ-1). `levels[0]` is
+/// level 1 (finest). `leaf_membership` maps every clustered node id to its
+/// LOCAL index into `levels[0].clusters` — the lookup `expand` needs to answer
+/// "which level-1 cluster is node X in" without re-running Leiden.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ClusterHierarchyResult {
+    pub levels: Vec<ClusterLevelResult>,
+    pub leaf_membership: Vec<(String, u32)>,
+    pub base_node_count: usize,
+    pub base_edge_count: usize,
+}
+
+/// Format a VIZ-1 cluster id — the single source of truth for `ClusterMeta::id`'s
+/// `"L{level}-{local_index}"` shape, shared by every consumer (the
+/// `Method::ClusterHierarchy*` RPC handlers AND VIZ-2's `graph_tile_server`,
+/// which packs the same `(level, idx)` pair into its own `u64` cluster id --
+/// see `server::graph_tile_source`) so the format can never drift between them.
+pub fn format_cluster_id(level: usize, idx: usize) -> String {
+    format!("L{level}-{idx}")
+}
+
+/// Parse a VIZ-1 cluster id of the form [`format_cluster_id`] produces, back
+/// into `(level, local_index)`. Returns `None` for anything else — a
+/// caller-supplied cluster_id is untrusted input, so this never panics on a
+/// malformed string.
+pub fn parse_cluster_id(id: &str) -> Option<(usize, usize)> {
+    let rest = id.strip_prefix('L')?;
+    let (level_str, idx_str) = rest.split_once('-')?;
+    let level: usize = level_str.parse().ok()?;
+    let idx: usize = idx_str.parse().ok()?;
+    if level == 0 {
+        return None;
+    }
+    Some((level, idx))
+}
+
+/// Extract a node's type/label from its property blob — same key precedence
+/// as `server::handlers::mining::node_type_label` (kept as an independent
+/// small copy: that one reads a `GraphCore` node blob directly under the
+/// server crate, this one reads a `GraphView::node_properties` blob from
+/// eg-compute; duplicating a 6-line lookup is cheaper than a new cross-crate
+/// dependency for it).
+fn node_type_label(blob: &[u8]) -> Option<String> {
+    let val = eg_types::msgpack::decode_property_value(blob).ok()?;
+    for key in ["type", "node_type", "label"] {
+        if let Some(s) = val.get(key).and_then(|v| v.as_str()) {
+            return Some(s.to_string());
+        }
+    }
+    None
+}
+
+/// Top-`limit` `(type, count)` pairs by descending count, ties broken by type
+/// name for determinism.
+fn top_types(counts: &HashMap<String, usize>, limit: usize) -> Vec<(String, usize)> {
+    let mut v: Vec<(String, usize)> = counts.iter().map(|(k, &c)| (k.clone(), c)).collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    v.truncate(limit);
+    v
+}
+
+/// Compute the hierarchical Leiden cluster tree over `view` (CONCEPT:EG-KG.compute.leiden-hierarchy,
+/// VIZ-1) — the engine-side half of "server-side hierarchical clustering with
+/// expand-on-demand": a client renders `levels[k].clusters` (a few thousand
+/// nodes even for a million-node graph) instead of every node, and calls
+/// `ClusterHierarchyExpand` to drill into one level-1 cluster's real members.
+///
+/// `label` optionally restricts the clustered projection to one node type
+/// (mirrors `MineCommunity`/`community_detection`'s own `label` filter).
+/// `resolution`/`seed` are Leiden's own knobs (`graph_algos::LeidenConfig`).
+///
+/// A graph too small/sparse to coarsen at all (few nodes, or Leiden's local-
+/// moving never improves) still gets a level 1 — synthesized as one singleton
+/// cluster per node — so `ClusterHierarchyClusters`/`Expand` always have
+/// something to serve rather than erroring on a small graph.
+pub fn cluster_hierarchy(
+    view: &GraphView,
+    label: Option<&str>,
+    resolution: f64,
+    seed: u64,
+) -> ClusterHierarchyResult {
+    // 1) Project: filtered node id list + directed adjacency over dense indices.
+    let mut ids: Vec<String> = view.node_map.keys().cloned().collect();
+    if let Some(want) = label {
+        ids.retain(|id| {
+            view.node_properties
+                .get(id)
+                .and_then(|b| node_type_label(b))
+                .as_deref()
+                == Some(want)
+        });
+    }
+    ids.sort_unstable();
+    let index: HashMap<&str, usize> = ids.iter().enumerate().map(|(i, s)| (s.as_str(), i)).collect();
+    let node_types: Vec<String> = ids
+        .iter()
+        .map(|id| {
+            view.node_properties
+                .get(id)
+                .and_then(|b| node_type_label(b))
+                .unwrap_or_else(|| "_".to_string())
+        })
+        .collect();
+
+    let mut adjacency: Vec<Vec<(usize, f64)>> = vec![Vec::new(); ids.len()];
+    let mut base_edge_count = 0usize;
+    for e in view.graph.edge_references() {
+        let s = view.graph[e.source()].as_str();
+        let t = view.graph[e.target()].as_str();
+        if let (Some(&si), Some(&ti)) = (index.get(s), index.get(t)) {
+            adjacency[si].push((ti, 1.0));
+            base_edge_count += 1;
+        }
+    }
+    let base_node_count = ids.len();
+    let graph: crate::graph_algos::AdjacencyGraph<usize> =
+        crate::graph_algos::AdjacencyGraph::from_adjacency(
+            adjacency.into_iter().enumerate(),
+        );
+
+    // 2) Cluster: the tested, connectivity-guaranteeing hierarchical kernel.
+    let cfg = crate::graph_algos::LeidenConfig {
+        resolution: if resolution > 0.0 { resolution } else { 1.0 },
+        seed: Some(seed),
+        ..Default::default()
+    };
+    let raw = crate::graph_algos::leiden_hierarchy(&graph, &cfg);
+
+    // Fall back to singleton level 1 when Leiden found no coarsening at all
+    // (too few/sparse nodes) — see the function doc.
+    let synthetic_singleton_level = raw.levels.is_empty() && base_node_count > 0;
+    let level_count = if synthetic_singleton_level {
+        1
+    } else {
+        raw.levels.len()
+    };
+
+    let mut levels: Vec<ClusterLevelResult> = Vec::with_capacity(level_count);
+    let mut leaf_membership: Vec<(String, u32)> = Vec::new();
+
+    for level_idx in 0..level_count {
+        let level = level_idx + 1;
+        let (communities, parent): (Vec<Vec<usize>>, Vec<Option<usize>>) =
+            if synthetic_singleton_level {
+                ((0..base_node_count).map(|i| vec![i]).collect(), vec![None; base_node_count])
+            } else {
+                (
+                    raw.levels[level_idx].communities.clone(),
+                    raw.levels[level_idx].parent.clone(),
+                )
+            };
+
+        // Local orig_idx -> this-level-cluster-local-idx, for the O(E) edge pass.
+        let mut membership: Vec<u32> = vec![0u32; base_node_count];
+        for (c, members) in communities.iter().enumerate() {
+            for &m in members {
+                membership[m] = c as u32;
+            }
+        }
+        if level == 1 {
+            leaf_membership = ids
+                .iter()
+                .enumerate()
+                .map(|(i, id)| (id.clone(), membership[i]))
+                .collect();
+        }
+
+        let mut internal_weight = vec![0.0f64; communities.len()];
+        let mut inter: HashMap<(u32, u32), f64> = HashMap::new();
+        for i in 0..base_node_count {
+            let ci = membership[i];
+            for &(j, w) in graph.out_edges(i) {
+                let cj = membership[j];
+                if ci == cj {
+                    internal_weight[ci as usize] += w;
+                } else {
+                    *inter.entry((ci, cj)).or_insert(0.0) += w;
+                }
+            }
+        }
+        let mut inter_cluster_edges: Vec<(u32, u32, f64)> =
+            inter.into_iter().map(|((s, d), w)| (s, d, w)).collect();
+        inter_cluster_edges.sort_unstable_by_key(|&(s, d, _)| (s, d));
+
+        let clusters: Vec<ClusterMeta> = communities
+            .iter()
+            .enumerate()
+            .map(|(c, members)| {
+                let mut type_counts: HashMap<String, usize> = HashMap::new();
+                for &m in members {
+                    *type_counts.entry(node_types[m].clone()).or_insert(0) += 1;
+                }
+                let top = top_types(&type_counts, 5);
+                let id = format_cluster_id(level, c);
+                let label = top
+                    .first()
+                    .map(|(t, _)| format!("{t} cluster ({c})"))
+                    .unwrap_or_else(|| id.clone());
+                ClusterMeta {
+                    id,
+                    label,
+                    node_count: members.len(),
+                    edge_count: internal_weight[c],
+                    parent_id: parent[c].map(|p| format_cluster_id(level + 1, p)),
+                    top_node_types: top,
+                }
+            })
+            .collect();
+
+        levels.push(ClusterLevelResult {
+            level,
+            clusters,
+            inter_cluster_edges,
+        });
+    }
+
+    ClusterHierarchyResult {
+        levels,
+        leaf_membership,
+        base_node_count,
+        base_edge_count,
+    }
+}
+
 /// Weighted degree of each node (a self-loop counts twice, per the modularity
 /// convention), and `2m = Σ degrees`.
 fn weighted_degrees(adjacency: &[Vec<(usize, f64)>]) -> Vec<f64> {
@@ -2377,6 +2641,156 @@ mod community_tests {
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
             .unwrap();
         assert_eq!(top.0, "hub", "the cut vertex must have the max betweenness");
+    }
+}
+
+#[cfg(test)]
+mod cluster_hierarchy_tests {
+    use super::*;
+
+    fn p(node_type: &str) -> Vec<u8> {
+        rmp_serde::to_vec_named(&serde_json::json!({"type": node_type})).unwrap()
+    }
+
+    fn build_typed(nodes: &[(&str, &str)], edges: &[(&str, &str)]) -> GraphView {
+        let g = GraphCore::new();
+        for (id, ty) in nodes {
+            g.add_node((*id).to_string(), p(ty));
+        }
+        for (s, t) in edges {
+            g.add_edge((*s).to_string(), (*t).to_string(), p("_")).unwrap();
+        }
+        g.analysis_snapshot()
+    }
+
+    #[test]
+    fn two_bridged_cliques_yield_two_level1_clusters_with_no_parent_at_the_root() {
+        let mut nodes: Vec<(&str, &str)> = Vec::new();
+        let mut edges: Vec<(&str, &str)> = Vec::new();
+        for c in [["a", "b", "c", "d"], ["w", "x", "y", "z"]] {
+            for id in c {
+                nodes.push((id, "Doc"));
+            }
+            for i in 0..c.len() {
+                for j in (i + 1)..c.len() {
+                    edges.push((c[i], c[j]));
+                }
+            }
+        }
+        edges.push(("d", "w"));
+        let g = build_typed(&nodes, &edges);
+        let result = cluster_hierarchy(&g, None, 1.0, 0);
+
+        assert_eq!(result.base_node_count, 8);
+        let level1 = &result.levels[0];
+        assert_eq!(level1.level, 1);
+        assert_eq!(level1.clusters.len(), 2, "{:?}", level1.clusters);
+        let total_members: usize = level1.clusters.iter().map(|c| c.node_count).sum();
+        assert_eq!(total_members, 8);
+        for c in &level1.clusters {
+            assert_eq!(c.top_node_types, vec![("Doc".to_string(), c.node_count)]);
+        }
+        // The root level's clusters must all have no parent.
+        let root = result.levels.last().unwrap();
+        assert!(root.clusters.iter().all(|c| c.parent_id.is_none()));
+        // Every non-root cluster's parent must be a real cluster id at the next level.
+        for w in result.levels.windows(2) {
+            let (lower, upper) = (&w[0], &w[1]);
+            let upper_ids: std::collections::BTreeSet<&str> =
+                upper.clusters.iter().map(|c| c.id.as_str()).collect();
+            for c in &lower.clusters {
+                let parent = c.parent_id.as_deref().expect("non-root cluster needs a parent");
+                assert!(upper_ids.contains(parent), "dangling parent {parent}");
+            }
+        }
+        // leaf_membership covers every base node exactly once, into a valid
+        // level-1 cluster local index.
+        assert_eq!(result.leaf_membership.len(), 8);
+        for (_, idx) in &result.leaf_membership {
+            assert!((*idx as usize) < level1.clusters.len());
+        }
+    }
+
+    #[test]
+    fn label_filter_restricts_the_clustered_projection() {
+        let nodes = [("a", "Doc"), ("b", "Doc"), ("c", "Doc"), ("z", "Other")];
+        let edges = [("a", "b"), ("b", "c"), ("a", "c"), ("a", "z")];
+        let g = build_typed(&nodes, &edges);
+        let result = cluster_hierarchy(&g, Some("Doc"), 1.0, 0);
+        assert_eq!(result.base_node_count, 3);
+        assert_eq!(
+            result.leaf_membership.len(),
+            3,
+            "the Other-typed node must be excluded"
+        );
+        assert!(result.leaf_membership.iter().all(|(id, _)| id != "z"));
+    }
+
+    #[test]
+    fn single_edge_merges_into_one_level1_cluster() {
+        // A single edge DOES give local-moving one improving merge (both nodes
+        // sharing a community beats two singletons), so this is one real level
+        // with one 2-member cluster -- not the singleton-fallback path (that
+        // path is exercised below, on nodes with no edges at all).
+        let g = build_typed(&[("a", "Doc"), ("b", "Doc")], &[("a", "b")]);
+        let result = cluster_hierarchy(&g, None, 1.0, 0);
+        assert_eq!(result.levels.len(), 1);
+        assert_eq!(result.levels[0].clusters.len(), 1);
+        assert_eq!(result.levels[0].clusters[0].node_count, 2);
+        assert!(result.levels[0].clusters[0].parent_id.is_none());
+    }
+
+    #[test]
+    fn edgeless_graph_gets_a_synthesized_singleton_level_1() {
+        // No edges at all ⇒ `leiden_hierarchy` returns zero levels (nothing to
+        // coarsen) ⇒ `cluster_hierarchy` synthesizes one singleton cluster per
+        // node so callers always have a level 1 to serve.
+        let g = build_typed(&[("a", "Doc"), ("b", "Doc"), ("c", "Doc")], &[]);
+        let result = cluster_hierarchy(&g, None, 1.0, 0);
+        assert_eq!(result.levels.len(), 1);
+        assert_eq!(result.levels[0].clusters.len(), 3);
+        assert!(result.levels[0]
+            .clusters
+            .iter()
+            .all(|c| c.node_count == 1 && c.parent_id.is_none() && c.edge_count == 0.0));
+        assert_eq!(result.leaf_membership.len(), 3);
+    }
+
+    #[test]
+    fn empty_graph_yields_no_levels() {
+        let g = GraphCore::new().analysis_snapshot();
+        let result = cluster_hierarchy(&g, None, 1.0, 0);
+        assert!(result.levels.is_empty());
+        assert!(result.leaf_membership.is_empty());
+        assert_eq!(result.base_node_count, 0);
+    }
+
+    #[test]
+    fn deterministic_across_runs() {
+        let mut nodes: Vec<(&str, &str)> = Vec::new();
+        let mut edges: Vec<(&str, &str)> = Vec::new();
+        for c in [["a1", "a2", "a3"], ["b1", "b2", "b3"], ["c1", "c2", "c3"]] {
+            for id in c {
+                nodes.push((id, "Doc"));
+            }
+            edges.push((c[0], c[1]));
+            edges.push((c[1], c[2]));
+            edges.push((c[0], c[2]));
+        }
+        edges.push(("a3", "b1"));
+        edges.push(("b3", "c1"));
+        edges.push(("c3", "a1"));
+        let g = build_typed(&nodes, &edges);
+        let r1 = cluster_hierarchy(&g, None, 1.0, 7);
+        let r2 = cluster_hierarchy(&g, None, 1.0, 7);
+        let ids = |r: &ClusterHierarchyResult| -> Vec<Vec<String>> {
+            r.levels
+                .iter()
+                .map(|l| l.clusters.iter().map(|c| c.id.clone()).collect())
+                .collect()
+        };
+        assert_eq!(ids(&r1), ids(&r2));
+        assert_eq!(r1.leaf_membership, r2.leaf_membership);
     }
 }
 

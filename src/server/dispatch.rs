@@ -7767,6 +7767,7 @@ async fn dispatch_graph_op_inner(
             state,
             req_id,
             caller,
+            graph_name,
             read_authority,
             core.clone(),
             method,

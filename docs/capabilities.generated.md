@@ -135,6 +135,9 @@
 | `GraphColoring` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
 | `ComputeSimilarityEdges` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
 | `ResolveCandidates` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
+| `ClusterHierarchyRefresh` | false | None | `compute:graph-algo` | true | false | false | Snapshot | VIZ-1 hierarchical Leiden clustering for million-node graph visualization: (re)computes and durably caches the cluster hierarchy in its own non-authoritative store (server::persistence::cluster_hierarchy_store), never as graph nodes/edges -- see ClusterHierarchyClusters/ClusterHierarchyExpand |
+| `ClusterHierarchyClusters` | false | None | `compute:graph-algo` | true | false | false | Snapshot | VIZ-1: GET clusters(graph, level, parent_cluster_id?) from the cached hierarchy |
+| `ClusterHierarchyExpand` | false | None | `compute:graph-algo` | true | false | false | Snapshot | VIZ-1: GET expand(graph, cluster_id) -- a level-1 cluster's member nodes/edges read live off the graph |
 | `PruneByLifecycle` | true | GraphRedb | `node:admin` | false | false | false | Atomic | state-backed MutationBatch commits the resulting authoritative image |
 | `GetContextView` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `BatchUpdate` | true | GraphRedb | `node:write` | false | true | false | Atomic |  |

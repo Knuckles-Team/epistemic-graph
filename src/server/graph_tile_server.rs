@@ -26,28 +26,38 @@
 //!
 //! ## Data source
 //!
-//! VIZ-1's real GraphCore-backed hierarchical clustering has not merged yet
-//! (see `eg_viz_graph_tiles::demo`'s doc) — this module serves a deterministic
-//! [`DemoGraph`], built fresh per request from query-param-controlled
-//! [`DemoParams`] (`node_count`/`edge_count`/`seed`/`top_clusters`/
-//! `sub_clusters_per_top`, all clamped to `eg_viz_graph_tiles::demo`'s bounds).
-//! This is the SAME "engine-side generated, clearly labeled, capped" idiom
+//! VIZ-1's real `GraphCore`-backed hierarchical clustering
+//! (`Method::ClusterHierarchyRefresh`/`server::graph_tile_source::RealClusterSource`)
+//! is now the DEFAULT source: `?graph=` names which cached tenant graph to
+//! serve (default `__commons__`, matching `EpistemicGraphClient.connect`'s own
+//! default), and a route returns an honestly EMPTY tile — never an error page,
+//! matching this trait's infallible contract — when that graph has no cached
+//! hierarchy yet (call `ClusterHierarchyRefresh` first, e.g. via
+//! `epistemic-graph-service cluster refresh --graph <name>`). Passing `?demo=1`
+//! opts back into the original deterministic [`DemoGraph`] (query-param
+//! controlled [`DemoParams`]) for local dev/testing without a populated tenant —
+//! the SAME "engine-side generated, clearly labeled, capped" idiom
 //! `VizDatasetSource::SyntheticGraph`/`SyntheticScatterClusters` already use in
-//! production. Swapping in real data means constructing a real
-//! `impl GraphSource` here instead of a `DemoGraph` — the routes, the wire
-//! encoding, and the streaming behavior below do not change.
+//! production, now opt-in rather than the only option. The routes, the wire
+//! encoding, and the streaming behavior below are unchanged either way — only
+//! which `impl GraphSource` gets constructed changes, per the contract's own
+//! design (`eg_viz_graph_tiles::contract`'s module doc).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
+use tokio::sync::RwLock;
 
 use eg_viz_graph_tiles::demo::{DemoGraph, DemoParams};
 use eg_viz_graph_tiles::{
     encode_cluster_expansion, encode_cluster_level, write_frame, write_stream_end, GraphSource,
 };
 
+use super::graph_tile_source::RealClusterSource;
 use super::viz_interactive::{parse_param, parse_query};
+use super::ServerState;
 
 const GRAPH_TILE_CONTENT_TYPE: &str = "application/octet-stream";
 /// Bound on `top_k` for `/graph_tile/stream` — a request-forgeable knob, so it
@@ -150,10 +160,63 @@ async fn end_chunked(stream: &mut TcpStream) {
     let _ = stream.shutdown().await;
 }
 
+/// Resolve which [`GraphSource`] a request should be served from — see the
+/// module doc's "Data source" section. `?demo=1` opts into the original
+/// deterministic [`DemoGraph`]; otherwise `?graph=` (default `__commons__`,
+/// matching `EpistemicGraphClient.connect`'s own default) names a tenant
+/// graph, and this resolves its LIVE `Arc<GraphCore>` plus its cached
+/// hierarchy (`Method::ClusterHierarchyRefresh`'s output) off the registry —
+/// every async step this function needs happens HERE, before any
+/// `GraphSource` method runs (that trait is deliberately synchronous, see
+/// `graph_tile_source`'s doc). A graph that doesn't exist, a build with no
+/// persistence backend, or a graph with no cached hierarchy yet all resolve
+/// to [`RealClusterSource::empty`] — an honest empty tile, never a 500.
+async fn resolve_source(
+    state: Option<&Arc<RwLock<ServerState>>>,
+    params: &HashMap<String, String>,
+) -> Box<dyn GraphSource + Send + Sync> {
+    if parse_param::<u32>(params, "demo") == Some(1) {
+        return Box::new(DemoGraph::build(demo_params_from_query(params)));
+    }
+    let Some(state) = state else {
+        // No registry to resolve a graph against (see `viz_interactive::
+        // serve`'s doc on when this is `None`) -- degrade honestly, same as
+        // an unregistered graph name below.
+        return Box::new(RealClusterSource::empty());
+    };
+    let graph_name = params
+        .get("graph")
+        .cloned()
+        .unwrap_or_else(|| "__commons__".to_string());
+    let (core, persistence) = {
+        let s = state.read().await;
+        let core = s.registry.get(&graph_name).map(|entry| entry.core.clone());
+        (core, s.persistence.clone())
+    };
+    let (Some(core), Some(persistence)) = (core, persistence) else {
+        return Box::new(RealClusterSource::empty());
+    };
+    let hierarchy = match persistence.load_cluster_hierarchy(&graph_name).await {
+        Ok(Some(blob)) => {
+            rmp_serde::from_slice::<crate::algorithms::ClusterHierarchyResult>(&blob).ok()
+        }
+        _ => None,
+    };
+    match hierarchy {
+        Some(hierarchy) => Box::new(RealClusterSource::new(Arc::new(hierarchy), core)),
+        None => Box::new(RealClusterSource::empty()),
+    }
+}
+
 /// Handle one request already routed here by [`handles`]. Never panics on a
 /// malformed query -- every missing/invalid param is a `400`, matching
 /// `viz_interactive::resolve_tile`'s own contract.
-pub async fn serve(stream: &mut TcpStream, method: &str, target: &str) {
+pub async fn serve(
+    stream: &mut TcpStream,
+    method: &str,
+    target: &str,
+    state: Option<&Arc<RwLock<ServerState>>>,
+) {
     if method != "GET" {
         write_fixed_body(stream, "405 Method Not Allowed", b"GET only").await;
         return;
@@ -168,7 +231,7 @@ pub async fn serve(stream: &mut TcpStream, method: &str, target: &str) {
         GraphTileRoute::Clusters => {
             let level: u32 = parse_param(&params, "level").unwrap_or(0);
             let parent: Option<u64> = parse_param(&params, "parent");
-            let graph = DemoGraph::build(demo_params_from_query(&params));
+            let graph = resolve_source(state, &params).await;
             let response = graph.clusters(level, parent);
             match encode_cluster_level(&response) {
                 Ok(bytes) => write_fixed_body(stream, "200 OK", &bytes).await,
@@ -187,7 +250,7 @@ pub async fn serve(stream: &mut TcpStream, method: &str, target: &str) {
                 .await;
                 return;
             };
-            let graph = DemoGraph::build(demo_params_from_query(&params));
+            let graph = resolve_source(state, &params).await;
             let response = graph.expand(cluster_id);
             match encode_cluster_expansion(&response) {
                 Ok(bytes) => write_fixed_body(stream, "200 OK", &bytes).await,
@@ -201,7 +264,7 @@ pub async fn serve(stream: &mut TcpStream, method: &str, target: &str) {
             let top_k: usize = parse_param(&params, "top_k")
                 .unwrap_or(3usize)
                 .min(MAX_STREAM_TOP_K);
-            let graph = DemoGraph::build(demo_params_from_query(&params));
+            let graph = resolve_source(state, &params).await;
 
             if write_chunked_head(stream, "200 OK").await.is_err() {
                 return;
@@ -275,5 +338,61 @@ mod tests {
             clamped.node_count,
             eg_viz_graph_tiles::demo::MAX_DEMO_NODE_COUNT
         );
+    }
+
+    fn test_state() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState::new_for_test(
+            "graph-tile-source-test-secret",
+            crate::isolation::IsolationLayer::new(),
+        )))
+    }
+
+    #[tokio::test]
+    async fn resolve_source_demo_param_opts_into_demo_graph() {
+        let state = test_state();
+        let mut params = HashMap::new();
+        params.insert("demo".to_string(), "1".to_string());
+        let source = resolve_source(Some(&state), &params).await;
+        // DemoGraph is deterministic and always produces a non-empty level 0
+        // (its own numbering, unrelated to the real source's 1-indexing) --
+        // this is the one behavior that distinguishes it from an empty source.
+        let level = source.clusters(0, None);
+        assert!(
+            !level.clusters.is_empty(),
+            "?demo=1 must reach DemoGraph, not an empty real source"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_source_degrades_honestly_with_no_persistence_backend() {
+        // `ServerState::new_for_test` sets `persistence: None` -- exactly the
+        // "this build has no durable cache" case `resolve_source` must
+        // degrade from, never panic or 500 on.
+        let state = test_state();
+        let mut params = HashMap::new();
+        params.insert("graph".to_string(), "__commons__".to_string());
+        let source = resolve_source(Some(&state), &params).await;
+        let level = source.clusters(1, None);
+        assert!(level.clusters.is_empty());
+    }
+
+    #[tokio::test]
+    async fn resolve_source_degrades_honestly_for_an_unregistered_graph() {
+        let state = test_state();
+        let mut params = HashMap::new();
+        params.insert("graph".to_string(), "no-such-tenant".to_string());
+        let source = resolve_source(Some(&state), &params).await;
+        let level = source.clusters(1, None);
+        assert!(level.clusters.is_empty());
+    }
+
+    #[tokio::test]
+    async fn resolve_source_degrades_honestly_with_no_state_at_all() {
+        // `viz_interactive::serve(..., None)` -- e.g. an external integration
+        // test with no `ServerState` to construct (see that fn's own doc).
+        let params = HashMap::new();
+        let source = resolve_source(None, &params).await;
+        let level = source.clusters(1, None);
+        assert!(level.clusters.is_empty());
     }
 }
