@@ -4168,6 +4168,159 @@ mod tests {
         assert_eq!(ids(&anon, 0), vec!["res:a1", "res:a2"]);
     }
 
+    /// Two servers, each providing one resource. `srv:a`'s edge is a genuine
+    /// inference (`inferred: true`, `inferred_from: 'rule-42'`); `srv:b`'s edge
+    /// carries neither field — the negative control that a correct filter must
+    /// exclude, and that the pre-fix "matches everything" bug would wrongly include.
+    fn relationship_property_fixture() -> GraphView {
+        let core = GraphCore::new();
+        core.add_node(
+            "srv:a".into(),
+            pbytes(serde_json::json!({"node_type":"Server","name":"a-mcp"})),
+        );
+        core.add_node(
+            "srv:b".into(),
+            pbytes(serde_json::json!({"node_type":"Server","name":"b-mcp"})),
+        );
+        core.add_node(
+            "res:a1".into(),
+            pbytes(serde_json::json!({"node_type":"CallableResource","name":"res:a1"})),
+        );
+        core.add_node(
+            "res:b1".into(),
+            pbytes(serde_json::json!({"node_type":"CallableResource","name":"res:b1"})),
+        );
+        core.add_edge(
+            "srv:a".into(),
+            "res:a1".into(),
+            pbytes(serde_json::json!({
+                "relationship":"PROVIDES",
+                "inferred": true,
+                "inferred_from": "rule-42",
+            })),
+        )
+        .unwrap();
+        core.add_edge(
+            "srv:b".into(),
+            "res:b1".into(),
+            pbytes(serde_json::json!({"relationship":"PROVIDES"})),
+        )
+        .unwrap();
+        core.analysis_snapshot()
+    }
+
+    /// BUG (this module): `RETURN r.inferred` proves the property IS readable off
+    /// the bound relationship — this is the control the four regression tests below
+    /// contrast against. Before the fix, WHERE-clause filtering on that SAME
+    /// property returned `[]` regardless (see the tests immediately following).
+    #[test]
+    fn relationship_property_is_readable_via_return_projection() {
+        let v = relationship_property_fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (:Server)-[r:PROVIDES]->(:CallableResource {name:'res:a1'}) RETURN r.inferred AS inferred",
+        )
+        .unwrap();
+        assert_eq!(qr.rows.len(), 1);
+        assert_eq!(cells_of(&qr, 0), vec![Value::Bool(true)]);
+    }
+
+    /// WHERE-clause equality on a relationship property (`r.inferred = true`) must
+    /// match the edge that carries it and exclude the one that doesn't — before the
+    /// fix this returned `[]` for every row, including the positive control.
+    #[test]
+    fn where_relationship_property_equality_filters_relationships() {
+        let v = relationship_property_fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (s:Server)-[r:PROVIDES]->(res:CallableResource) WHERE r.inferred = true RETURN s.name AS name",
+        )
+        .unwrap();
+        assert_eq!(
+            ids(&qr, 0),
+            vec!["a-mcp"],
+            "positive control (srv:a, inferred=true) must match; negative control (srv:b, no `inferred` field) must not"
+        );
+    }
+
+    /// Same defect, string-equality form (`r.inferred_from = '…'`).
+    #[test]
+    fn where_relationship_property_string_equality_filters_relationships() {
+        let v = relationship_property_fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (s:Server)-[r:PROVIDES]->(res:CallableResource) WHERE r.inferred_from = 'rule-42' RETURN s.name AS name",
+        )
+        .unwrap();
+        assert_eq!(ids(&qr, 0), vec!["a-mcp"]);
+    }
+
+    /// Same defect, `IS NOT NULL` form — before the fix this always evaluated
+    /// false (an edge var never resolved through `node_prop_checked`), so it
+    /// returned `[]` even for the edge that genuinely carries the property.
+    #[test]
+    fn where_relationship_property_is_not_null_filters_relationships() {
+        let v = relationship_property_fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (s:Server)-[r:PROVIDES]->(res:CallableResource) WHERE r.inferred IS NOT NULL RETURN s.name AS name",
+        )
+        .unwrap();
+        assert_eq!(ids(&qr, 0), vec!["a-mcp"]);
+    }
+
+    /// `IS NULL` is the exact mirror: must hold for the edge WITHOUT the property
+    /// and must NOT hold for the edge that has it.
+    #[test]
+    fn where_relationship_property_is_null_filters_relationships() {
+        let v = relationship_property_fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (s:Server)-[r:PROVIDES]->(res:CallableResource) WHERE r.inferred IS NULL RETURN s.name AS name",
+        )
+        .unwrap();
+        assert_eq!(ids(&qr, 0), vec!["b-mcp"]);
+    }
+
+    /// The inline map form `-[r {inferred: true}]->` must be a REAL filter, not a
+    /// silently-ignored no-op. Before the fix this matched BOTH edges (including
+    /// `srv:b`'s edge, which does not have the property at all) — the "returns
+    /// plausible rows rather than none" failure mode the brief calls out as the
+    /// more dangerous half of this defect.
+    #[test]
+    fn inline_relationship_propmap_filters_relationships_not_ignored() {
+        let v = relationship_property_fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (s:Server)-[r:PROVIDES {inferred: true}]->(res:CallableResource) RETURN s.name AS name",
+        )
+        .unwrap();
+        assert_eq!(
+            ids(&qr, 0),
+            vec!["a-mcp"],
+            "inline relationship propmap must exclude the edge lacking the property \
+             (pre-fix this matched every edge regardless of the map)"
+        );
+    }
+
+    /// The inline map form's negative control in isolation: an inline map that can
+    /// never match (wrong literal) must exclude EVERY edge, proving the map is
+    /// actually consulted rather than parsed-and-discarded.
+    #[test]
+    fn inline_relationship_propmap_excludes_all_when_no_edge_matches() {
+        let v = relationship_property_fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (s:Server)-[r:PROVIDES {inferred: false}]->(res:CallableResource) RETURN s.name AS name",
+        )
+        .unwrap();
+        assert!(
+            qr.rows.is_empty(),
+            "no PROVIDES edge has inferred=false; the inline map must reject both, got {:?}",
+            ids(&qr, 0)
+        );
+    }
+
     /// A plain (non-var-length) undirected relationship also walks either direction
     /// — `bob` reaches `alice` only via the INCOMING alice->bob edge.
     #[test]
