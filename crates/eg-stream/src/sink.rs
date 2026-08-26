@@ -52,10 +52,13 @@
 
 use std::fmt;
 #[cfg(feature = "cdc-kafka")]
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "cdc-kafka")]
+use std::sync::Arc;
+#[cfg(feature = "cdc-kafka")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "cdc-kafka")]
 use serde::Serialize;
 
 #[cfg(feature = "cdc-kafka")]
@@ -79,6 +82,7 @@ pub enum SinkOp {
     Tombstone,
 }
 
+#[cfg(feature = "cdc-kafka")]
 impl SinkOp {
     fn as_str(self) -> &'static str {
         match self {
@@ -109,6 +113,7 @@ pub struct SinkEvent {
 /// The wire envelope actually published to `eg.cdc.<graph>` — DEC-CA-03's
 /// schema minus the four fields the module doc explains are not fabricable
 /// from what reaches this sink today.
+#[cfg(feature = "cdc-kafka")]
 #[derive(Serialize)]
 struct Envelope<'a> {
     seq: u64,
@@ -398,6 +403,7 @@ impl CdcSink for KafkaCdcSink {
 /// `RFC3339` UTC timestamp for `now()`, hand-rolled (no `chrono`/`time` dep —
 /// this crate stays Pi-lean; see the crate doc). Civil-from-days conversion
 /// is Howard Hinnant's well-known constant-time algorithm.
+#[cfg(feature = "cdc-kafka")]
 fn rfc3339_utc_now() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -405,7 +411,11 @@ fn rfc3339_utc_now() -> String {
         .as_secs();
     let days = (secs / 86_400) as i64;
     let time_of_day = secs % 86_400;
-    let (h, m, s) = (time_of_day / 3600, (time_of_day / 60) % 60, time_of_day % 60);
+    let (h, m, s) = (
+        time_of_day / 3600,
+        (time_of_day / 60) % 60,
+        time_of_day % 60,
+    );
 
     // Howard Hinnant's `civil_from_days`.
     let z = days + 719_468;
@@ -422,7 +432,7 @@ fn rfc3339_utc_now() -> String {
     format!("{y:04}-{m_num:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cdc-kafka"))]
 mod tests {
     use super::*;
 
