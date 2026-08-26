@@ -11,6 +11,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 > **Documentation clarification (2026-07-23):** The `epistemic-tms` (paraconsistent truth-maintenance + Dung argumentation) and `epistemic-causal` (Pearl do-calculus) features are **included in the default `full` build as of 2.23.1** (EG-P0-6). Both features are unconditionally present in any served deployment; there is no configuration or flag to disable them.
 
 ### Added
+- **Binary tile/streaming protocol for graph payloads (VIZ-2, million-node
+  graph visualization program)** — `crates/eg-viz-graph-tiles` (feature
+  `viz-graph-tiles`, implies `viz-interactive`): a compact binary wire
+  encoding for `{nodes, edges}` graph tiles, the wire form of the shared
+  VIZ-1/VIZ-2/VIZ-3 `clusters(graph, level, parent?)`/`expand(graph,
+  cluster_id)` contract. Edges reference nodes by `u32` array index rather
+  than repeating string ids; node/edge type and label strings are
+  dictionary-encoded once per tile. Addressed by cluster id (composes
+  directly with VIZ-1's hierarchical clustering, which returns the same
+  array-index-local edge shape). New routes on the existing `viz_interactive`
+  loopback HTTP listener: `GET /graph_tile/clusters`, `GET
+  /graph_tile/expand`, and `GET /graph_tile/stream` — the last streams over
+  genuine HTTP/1.1 chunked transfer encoding (cluster summary tile first,
+  then a per-cluster expand tile for the `top_k` largest clusters, each
+  flushed as computed, then a `StreamEnd` sentinel), proven end-to-end by
+  `tests/graph_tile_stream.rs` against a real TCP socket, not an in-process
+  call. Data source today is a deterministic, seeded, in-memory
+  `eg_viz_graph_tiles::demo::DemoGraph` — the same "engine-side generated,
+  clearly labeled, capped" idiom `VizDatasetSource::SyntheticGraph` already
+  uses in production — until VIZ-1's real GraphCore-backed clustering lands
+  behind the same `GraphSource` trait. Measured (binary vs. JSON, same
+  values, `cargo run -p eg-viz-graph-tiles --example bench_tile_wire`):
+  ~3.0x smaller and 5-10x faster to decode at 1k/10k/100k nodes.
+- **`viz`/`viz-columnstore`/`viz-static-export`/`viz-interactive`/
+  `viz-graph-tiles` now ship in `full`** (root `Cargo.toml`), and therefore in
+  the production wheel (`--features full,ast-extended`). Previously excluded
+  from `full` entirely — `epistemic-graph-server` shipped zero
+  `VizRenderRequest`/`eg_viz_*`/`ColumnStoreExportBackend` symbols, and
+  `/api/enhanced/graph/viz/capabilities` 500'd in production as a result.
+  `viz-interactive`'s loopback HTTP listener remains off at runtime unless an
+  operator passes `--viz-interactive-addr` (opt-in, unchanged).
 - **Native ASR provider — `Method::Asr` (GOC-33, `OWNER-VOICE-ASR`)** — a
   first-party Rust speech-to-text provider (`crates/eg-asr-whisper`, feature
   `asr-whisper`, off by default/not in `full`) implementing

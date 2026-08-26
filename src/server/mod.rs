@@ -314,6 +314,15 @@ mod compute;
 mod dispatch;
 #[cfg(feature = "viz-interactive")]
 pub mod viz_interactive;
+// VIZ-2: the binary tile/streaming protocol for GRAPH payloads (nodes + edges
+// together, edges by node index rather than repeated string ids), served over
+// the SAME loopback listener as `viz_interactive` above (see that module's own
+// entry point calling into this one, and this module's doc for why it is a
+// separate file rather than more routes inline in `viz_interactive::route`:
+// genuine HTTP chunked-transfer streaming needs `async` socket writes a plain
+// synchronous `(status, content_type, Vec<u8>)` return cannot express).
+#[cfg(feature = "viz-graph-tiles")]
+pub mod graph_tile_server;
 // Fleet server registry stale-lease reaper (CONCEPT:EG-KG.sharding.server-registry, W2.5): periodic
 // sweep that expires a `:Server` node whose `Method::RegisterServer`-issued
 // lease has lapsed. Always declared (mirrors `ann_warm` above) — the sweep is a
