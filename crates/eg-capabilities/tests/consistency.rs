@@ -700,6 +700,8 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("StreamPublish", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("StreamTrim", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("TsAppend", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
+    ("TsDeleteSeries", "UNASSIGNED", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
+    ("TsEvict", "UNASSIGNED", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("TxnAddEdge", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("TxnAddEmbedding", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("TxnAddMeasurement", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
