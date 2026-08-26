@@ -51,9 +51,9 @@
 //! follow-up lane threading `CarrierAuthority` through `CdcHub::emit`.
 
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(feature = "cdc-kafka")]
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -405,7 +405,11 @@ fn rfc3339_utc_now() -> String {
         .as_secs();
     let days = (secs / 86_400) as i64;
     let time_of_day = secs % 86_400;
-    let (h, m, s) = (time_of_day / 3600, (time_of_day / 60) % 60, time_of_day % 60);
+    let (h, m, s) = (
+        time_of_day / 3600,
+        (time_of_day / 60) % 60,
+        time_of_day % 60,
+    );
 
     // Howard Hinnant's `civil_from_days`.
     let z = days + 719_468;

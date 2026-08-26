@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use eg_stream::sink::{CdcSink, KafkaConfig, KafkaCdcSink, SinkEvent, SinkOp};
+use eg_stream::sink::{CdcSink, KafkaCdcSink, KafkaConfig, SinkEvent, SinkOp};
 
 use crate::server::cdc::{CdcHub, ExternalCdcSink};
 use crate::wire::{CdcEvent, CdcKind};
@@ -85,7 +85,10 @@ impl ExternalCdcSink for Bridge {
         let sink_event = translate(event);
         if let Err(e) = self.inner.emit(&sink_event) {
             crate::metrics::cdc_kafka_sink_send_failed();
-            eprintln!("cdc-kafka sink: emit failed for graph={} seq={}: {e}", event.graph, event.seq);
+            eprintln!(
+                "cdc-kafka sink: emit failed for graph={} seq={}: {e}",
+                event.graph, event.seq
+            );
         }
         crate::metrics::cdc_kafka_sink_lag(self.inner.lag() as i64);
     }
@@ -144,8 +147,7 @@ mod tests {
             target_id: String::new(),
             label: "Person".to_string(),
             before: Vec::new(),
-            after: rmp_serde::to_vec(&serde_json::json!({"type": "Person", "name": "a"}))
-                .unwrap(),
+            after: rmp_serde::to_vec(&serde_json::json!({"type": "Person", "name": "a"})).unwrap(),
             had_before: false,
             had_after: true,
         }
