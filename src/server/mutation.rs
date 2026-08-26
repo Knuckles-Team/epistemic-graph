@@ -1404,6 +1404,35 @@ async fn commit_finalize(
         idempotency_store().insert(key, response.clone());
     }
 
+    // 9. Refresh the per-graph size gauges.
+    //
+    // This is the UNIVERSAL mutation gateway -- essentially every current write
+    // routes through here (see the `GATEWAY_ROUTED` unreachable arms on
+    // AddNode/AddEmbedding). The refresh previously existed ONLY in the legacy
+    // non-gateway branch (`dispatch.rs`) and in Raft snapshot-install
+    // (`raft/store.rs`), so a graph whose counts changed only via gateway-routed
+    // writes never refreshed its gauge -- it froze at its last snapshot-install
+    // value and silently diverged from reality.
+    //
+    // Measured on the live pod before this fix, same engine process, same
+    // 10-minute window: the gauge read 56,882 nodes / 29,992 edges while the
+    // NodeCount RPC, a Cypher count(n), and a full 47-label enumeration ALL
+    // independently agreed on 25,122. The gauge had not moved in ten minutes
+    // despite ~30,000 graph ops on that graph. That divergence was read as
+    // evidence three separate times before being traced here.
+    //
+    // Both petgraph counts are O(1), so this costs nothing meaningful on the
+    // write path -- the same reasoning the dispatch.rs call site already records.
+    #[cfg(feature = "metrics")]
+    if response.error.is_none() {
+        let topo = ctx.core.topo.read();
+        crate::metrics::set_graph_size(
+            ctx.graph_name,
+            topo.graph.node_count() as i64,
+            topo.graph.edge_count() as i64,
+        );
+    }
+
     response
 }
 
