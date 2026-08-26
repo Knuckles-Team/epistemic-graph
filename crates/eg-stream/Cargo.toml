@@ -32,10 +32,25 @@ stream = ["dep:tokio"]
 # any tier aggregate (pi/node/full) — it is a capability-discovery/testing seam, not
 # a serving feature. `cargo test -p eg-stream --features contract` runs the suite.
 contract = ["dep:eg-modality"]
+# CA-11 — CDC-to-Kafka sink (DEC-CA-03). Default OFF, reserved by CA-17's stub
+# commit (root `Cargo.toml`'s `cdc-kafka = ["streaming", "dep:eg-stream",
+# "eg-stream/cdc-kafka"]` -- the `dep:eg-stream`/`eg-stream/cdc-kafka` edge is
+# THIS lane's one addition to that line, called out in the CA-11 report).
+# Pulls `rdkafka` -- the only C dependency this otherwise pure-Rust leaf crate
+# ever takes. `cmake-build` vendors + compiles librdkafka's C source locally
+# (no system `librdkafka-dev` package required, just a C toolchain + cmake,
+# both already on every eg build host); `ssl`+`sasl` link Cyrus SASL so
+# DEC-CA-03's SASL/SCRAM producer-config surface actually works at runtime
+# once armed -- the broker itself stays PLAINTEXT until CA-51, this only
+# makes the CONFIG OPTION real rather than a no-op string.
+cdc-kafka = ["dep:rdkafka"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# CA-11's Kafka producer (feature `cdc-kafka` only). See the feature's doc
+# above for why `cmake-build` + `ssl` + `sasl`.
+rdkafka = { version = "0.39", default-features = false, features = ["cmake-build", "ssl", "sasl"], optional = true }
 # Async runtime for the LIVE standing-query engine ONLY (feature `stream`): broadcast
 # channels for per-subscription match fan-out + backpressure, and the source bus-drain
 # task. Optional + referenced only under #[cfg(feature = "stream")], so a default / Pi

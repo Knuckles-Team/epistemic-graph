@@ -240,6 +240,20 @@ mod imp {
             "epistemic_graph_access_denied_total",
             "Graph operations denied by the isolation ACL",
         );
+        // CA-11 CDC-to-Kafka sink backpressure (feature `cdc-kafka`, DEC-CA-03).
+        // W05: "paused broker doesn't block commits" — these two observe that
+        // without ever gating the write path on the broker being reachable.
+        static ref CDC_KAFKA_SINK_LAG: IntGauge = gauge(
+            "epistemic_graph_cdc_kafka_sink_lag",
+            "CA-11 CDC-to-Kafka sink: events queued locally but not yet \
+             broker-acknowledged (rdkafka in-flight count)",
+        );
+        static ref CDC_KAFKA_SINK_SEND_FAILURES: IntCounter = counter(
+            "epistemic_graph_cdc_kafka_sink_send_failures_total",
+            "CA-11 CDC-to-Kafka sink: emit() calls that failed (queue-full or \
+             broker error) — the CDC ring still has the event, never lost, \
+             just not (yet) forwarded to eg.cdc.<graph>",
+        );
         // Per-graph write-coalescer observability (CONCEPT:EG-KG.sharding.per-graph-write-coalescer). The win is
         // visible as ops/batch > 1: BATCHES counts topology-lock acquisitions on the
         // coalesced path, OPS counts the writes those acquisitions applied, so
@@ -640,6 +654,16 @@ mod imp {
         ACCESS_DENIED.inc();
     }
 
+    /// CA-11: publish the Kafka sink's current queued-but-unacked count.
+    pub fn cdc_kafka_sink_lag(events: i64) {
+        CDC_KAFKA_SINK_LAG.set(events);
+    }
+
+    /// CA-11: count one failed `CdcSink::emit` call (queue-full/broker error).
+    pub fn cdc_kafka_sink_send_failed() {
+        CDC_KAFKA_SINK_SEND_FAILURES.inc();
+    }
+
     /// Record one committed coalesced write batch of `ops` single-op writes against
     /// `graph` (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): +1 lock acquisition, +`ops` applied writes.
     pub fn write_batch_committed(graph: &str, ops: usize) {
@@ -790,6 +814,8 @@ mod imp {
     pub fn set_analytics_job_counts(_ready: i64, _active: i64, _publishing: i64) {}
     pub fn auth_failure() {}
     pub fn access_denied() {}
+    pub fn cdc_kafka_sink_lag(_events: i64) {}
+    pub fn cdc_kafka_sink_send_failed() {}
     pub fn write_batch_committed(_graph: &str, _ops: usize) {}
     pub fn observe_write_lock_wait(_graph: &str, _seconds: f64) {}
     pub fn observe_write_lock_hold(_graph: &str, _seconds: f64) {}
