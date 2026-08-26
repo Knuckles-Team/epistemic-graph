@@ -1385,6 +1385,42 @@ async fn commit_finalize(
         }
     }
 
+    // 6.5. Refresh the per-graph node/edge size gauges. `commit_finalize` is
+    // the universal mutation gateway essentially all current writes route
+    // through (GATEWAY_ROUTED) -- the refresh previously lived ONLY in the
+    // legacy non-gateway dispatch tail (`dispatch.rs`'s post-`'dispatch`
+    // block) and Raft snapshot-install (`raft/store.rs`), so a graph mutated
+    // exclusively via gateway-routed writes (the common case -- AddNode/
+    // AddEmbedding/etc.) never refreshed its gauge at all and silently froze
+    // at its last snapshot-install value. Confirmed live: the `/metrics`
+    // gauge sat at 56,882 nodes while a live `NodeCount` RPC, a Cypher
+    // `count(n)`, and full label enumeration all independently agreed on
+    // 25,122 -- unchanged across two scrapes ten minutes apart despite
+    // `graph_ops_total` advancing by ~30k in that window.
+    //
+    // Placed AFTER the durable-commit step (not alongside `mark_dirty` in
+    // step 5) so it only fires once a mutation is confirmed durable, and
+    // gated on `plan.mutates` exactly like `mark_dirty` above and
+    // `dispatch.rs`'s equivalent `AccessLevel::Write` gate, so a read-only
+    // gateway call never pays for it. Both counts are O(1) (`GraphCore::
+    // node_count`/`edge_count` read the already-resident `StableGraph`'s own
+    // cardinality, no full scan) -- the same cost `dispatch.rs` already
+    // accepted on every mutation ("both petgraph counts are O(1), so this
+    // adds no meaningful write-path cost"), so refreshing unconditionally on
+    // every commit (rather than on a bounded cadence) is the right choice
+    // here too: a gauge that costs an O(1) read on the write path is strictly
+    // better than one that silently freezes, and there is no hot-loop
+    // concern (this fires once per already-durably-committed mutation, not
+    // once per poll).
+    #[cfg(feature = "metrics")]
+    if plan.mutates {
+        crate::metrics::set_graph_size(
+            ctx.graph_name,
+            ctx.core.node_count() as i64,
+            ctx.core.edge_count() as i64,
+        );
+    }
+
     // 7. CDC emit -- only AFTER the authoritative durable commit succeeds.
     #[cfg(feature = "streaming")]
     if plan.emits_cdc {
@@ -2554,6 +2590,103 @@ mod tests {
             1,
             "expected exactly one CDC event, got {events:?}"
         );
+    }
+
+    /// Regression: `commit_finalize` must refresh the per-graph `epistemic_graph_
+    /// graph_nodes`/`epistemic_graph_graph_edges` gauges. Before the fix, that
+    /// refresh existed only in the legacy non-gateway dispatch tail and Raft
+    /// snapshot-install -- NOT in `commit_finalize`, the universal gateway
+    /// essentially all current writes (including `AddNode`, GATEWAY_ROUTED) route
+    /// through -- so a graph mutated exclusively via gateway-routed writes never
+    /// refreshed its gauge and silently froze at its last snapshot-install value
+    /// (confirmed live: `/metrics` reported 56,882 nodes while a live `NodeCount`
+    /// RPC, a Cypher `count(n)`, and full label enumeration all independently
+    /// agreed on 25,122). This drives two REAL `AddNode` calls through
+    /// `commit_mutation` (never touching `set_graph_size` directly) and asserts
+    /// the rendered gauge tracks the actual count after each one.
+    #[cfg(all(feature = "redb", feature = "security", feature = "streaming"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn commit_finalize_refreshes_the_graph_size_gauges() {
+        let dir = temp_dir("gauge-refresh");
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend =
+            RedbBackend::open(dir_s, DurabilityPolicy::Each, 64).expect("open redb backend");
+        let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
+
+        let core = Arc::new(GraphCore::new());
+        let isolation = isolation_with_system_agent();
+        let graph_name = "g-eg-p0-2-gauge-refresh";
+
+        fn gauge_value(metric: &str, graph_name: &str) -> Option<i64> {
+            let rendered = crate::metrics::render();
+            let needle = format!("{metric}{{graph=\"{graph_name}\"}} ");
+            rendered.lines().find_map(|line| {
+                line.strip_prefix(&needle)
+                    .and_then(|rest| rest.trim().parse::<i64>().ok())
+            })
+        }
+
+        async fn add_node(
+            core: &Arc<GraphCore>,
+            isolation: &IsolationLayer,
+            persistence: &Arc<dyn PersistenceBackend>,
+            graph_name: &'static str,
+            node_id: &str,
+        ) {
+            let method = Method::AddNode {
+                node_id: node_id.to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"v": 1}))
+                    .unwrap(),
+            };
+            let plan = MutationPlan::for_method(&method);
+            let ctx = MutationCtx {
+                req_id: 1,
+                caller: Some("system-agent"),
+                tenant_scope: "opaque-test-tenant",
+                graph_name,
+                graph_type: GraphType::Commons,
+                owner: None,
+                isolation,
+                core,
+                persistence: Some(persistence),
+                cdc: None,
+                materialization_manifest: None,
+                write_coalescer: None,
+            };
+            let node_id_owned = node_id.to_string();
+            let props = match &method {
+                Method::AddNode {
+                    properties_msgpack, ..
+                } => properties_msgpack.clone(),
+                _ => unreachable!(),
+            };
+            let resp = commit_mutation(&ctx, &plan, &method, move |core| {
+                core.add_node(node_id_owned, props);
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await;
+            assert!(resp.error.is_none(), "AddNode failed: {:?}", resp.error);
+        }
+
+        // Before any write, either unset (no series yet) or zero -- never stale.
+        add_node(&core, &isolation, &persistence, graph_name, "n1").await;
+        assert_eq!(
+            gauge_value("epistemic_graph_graph_nodes", graph_name),
+            Some(1),
+            "gauge must reflect the ACTUAL count (1) immediately after the first \
+             gateway-routed AddNode, not a frozen/absent value"
+        );
+
+        add_node(&core, &isolation, &persistence, graph_name, "n2").await;
+        assert_eq!(
+            gauge_value("epistemic_graph_graph_nodes", graph_name),
+            Some(2),
+            "a SECOND gateway-routed AddNode must advance the gauge again -- this \
+             is exactly what stayed frozen before the fix (measured live: the \
+             gauge was unchanged across two scrapes ten minutes apart despite \
+             graph_ops_total advancing by ~30k)"
+        );
+        assert_eq!(core.node_count(), 2, "sanity: the graph really has 2 nodes");
     }
 
     /// (a2) A GATEWAY_ROUTED durable + audited BUT NON-CDC mutation (`Reinforce`)
