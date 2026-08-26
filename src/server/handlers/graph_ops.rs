@@ -3531,7 +3531,7 @@ pub(crate) async fn try_handle(
             )
         }
         Method::ClusterHierarchyExpand { cluster_id } => {
-            let Some((level, _local_idx)) = parse_cluster_id(&cluster_id) else {
+            let Some((level, local_idx)) = parse_cluster_id(&cluster_id) else {
                 return Response::err(req_id, format!("malformed cluster_id: {cluster_id}"));
             };
             let persistence = { state.read().await.persistence.clone() };
@@ -3573,7 +3573,7 @@ pub(crate) async fn try_handle(
                 let member_ids: Vec<String> = hierarchy
                     .leaf_membership
                     .iter()
-                    .filter(|(_, idx)| format!("L1-{idx}") == cluster_id)
+                    .filter(|(_, idx)| *idx as usize == local_idx)
                     .map(|(id, _)| id.clone())
                     .collect();
                 if member_ids.is_empty() {
