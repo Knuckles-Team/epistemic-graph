@@ -38,9 +38,10 @@
 use serde_json::Value;
 
 use super::plan::{
-    AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr,
-    NodePat, OrderKey, Pattern, PropVal, QuantifiedGroup, ReadStage, RemoveItem, ReturnItem,
-    ReturnSpec, SetItem, Statement, Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
+    Accessor, AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr,
+    ListExpr, NodePat, OrderKey, Pattern, PropVal, QuantifiedGroup, ReadStage, RemoveItem,
+    ReturnItem, ReturnSpec, SetItem, Statement, Test, WhereExpr, WithItem, WriteOp, WriteQuery,
+    YieldItem,
 };
 
 /// A flat token. The tokenizer is whitespace-insensitive; punctuation is matched
@@ -586,12 +587,49 @@ impl Parser {
         Ok(WhereExpr::Cond(self.parse_condition()?))
     }
 
+    /// A leaf WHERE condition: either the `type(var)`/`labels(var)` accessor
+    /// functions applied as the left-hand operand (CONCEPT:EG-KG.query.eg-extend-read-side) — the
+    /// SAME two RETURN-side accessors [`Self::parse_proj_expr`] recognizes, so `WHERE
+    /// type(r) = 'KNOWS'`/`WHERE labels(n) = [...]` parse exactly like their RETURN
+    /// counterparts — or the plain `var.prop` shape.
     fn parse_condition(&mut self) -> Result<Condition, String> {
+        if let Some(Tok::Ident(name)) = self.peek() {
+            if matches!(self.peek2(), Some(Tok::LParen)) {
+                if name.eq_ignore_ascii_case("type") {
+                    self.next(); // `type`
+                    self.expect(&Tok::LParen)?;
+                    let var = self.ident()?;
+                    self.expect(&Tok::RParen)?;
+                    let test = self.parse_test()?;
+                    return Ok(Condition {
+                        var,
+                        accessor: Accessor::RelType,
+                        test,
+                    });
+                }
+                if name.eq_ignore_ascii_case("labels") {
+                    self.next(); // `labels`
+                    self.expect(&Tok::LParen)?;
+                    let var = self.ident()?;
+                    self.expect(&Tok::RParen)?;
+                    let test = self.parse_test()?;
+                    return Ok(Condition {
+                        var,
+                        accessor: Accessor::Labels,
+                        test,
+                    });
+                }
+            }
+        }
         let var = self.ident()?;
         self.expect(&Tok::Dot)?;
         let prop = self.ident()?;
         let test = self.parse_test()?;
-        Ok(Condition { var, prop, test })
+        Ok(Condition {
+            var,
+            accessor: Accessor::Prop(prop),
+            test,
+        })
     }
 
     fn parse_test(&mut self) -> Result<Test, String> {
@@ -1555,7 +1593,7 @@ mod tests {
         match where_c.as_ref().unwrap() {
             WhereExpr::Cond(c) => {
                 assert_eq!(c.var, "p");
-                assert_eq!(c.prop, "id");
+                assert_eq!(c.accessor, Accessor::Prop("id".to_string()));
                 assert_eq!(c.test, Test::StartsWith(PropVal::Param("prefix".into())));
             }
             other => panic!("expected a single STARTS WITH condition, found {other:?}"),

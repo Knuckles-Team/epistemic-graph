@@ -213,12 +213,31 @@ pub enum WhereExpr {
     Cond(Condition),
 }
 
-/// A leaf WHERE condition over a `var.prop` access (CONCEPT:EG-KG.query.eg-extend-read-side).
+/// A leaf WHERE condition over a `var.prop` access, or over one of the two
+/// RETURN-side accessor functions (`type(var)`/`labels(var)`) applied as a WHERE
+/// predicate operand (CONCEPT:EG-KG.query.eg-extend-read-side) — `WHERE type(r) = 'KNOWS'`/
+/// `WHERE labels(n) = [...]` parse and evaluate the SAME accessors [`Expr::RelType`]/
+/// [`Expr::Labels`] already project in RETURN, just resolved as this condition's
+/// left-hand value instead of a projected column.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Condition {
     pub var: String,
-    pub prop: String,
+    pub accessor: Accessor,
     pub test: Test,
+}
+
+/// The left-hand accessor a [`Condition`] resolves before testing
+/// (CONCEPT:EG-KG.query.eg-extend-read-side).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Accessor {
+    /// `var.prop` — a plain node/edge property read.
+    Prop(String),
+    /// `type(var)` — the relationship-type accessor over a bound edge variable
+    /// (mirrors [`Expr::RelType`]).
+    RelType,
+    /// `labels(var)` — the node-label accessor over a bound node variable
+    /// (mirrors [`Expr::Labels`]).
+    Labels,
 }
 
 /// What a [`Condition`] tests against the resolved `var.prop` value (CONCEPT:EG-KG.query.eg-extend-read-side).
