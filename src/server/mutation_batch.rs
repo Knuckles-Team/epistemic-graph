@@ -351,7 +351,9 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> MutationD
             MutationDomain::KvStore
         }
         #[cfg(feature = "tsdb")]
-        Method::TsAppend { .. } => MutationDomain::TimeSeries,
+        Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. } => {
+            MutationDomain::TimeSeries
+        }
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => MutationDomain::AnalyticsJob,
         Method::SubmitWorkItem { .. }
