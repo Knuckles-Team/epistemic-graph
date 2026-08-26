@@ -36,6 +36,12 @@
 //!   rows + a `metadata` block). Reuses the same hand-rolled HTTP framing idiom as
 //!   `sparql_http` (no new HTTP dep).
 
+// OpenSearch adapter for this fan-out (CA-14, feature `federation-opensearch`, off by
+// default). Reserved and EMPTY until CA-14 implements it; landed by CA-17's single
+// feature-stub commit so CA-14 never edits the root `Cargo.toml` or this module list.
+#[cfg(feature = "federation-opensearch")]
+pub mod opensearch;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;

@@ -253,6 +253,11 @@ pub mod kv;
 // dep, folds into pi/node/cluster/full). A build without it compiles none of it.
 #[cfg(feature = "streaming")]
 pub mod cdc;
+// CDC -> Kafka sink (CA-11, feature `cdc-kafka`, off by default). Reserved and EMPTY
+// until CA-11 implements it; landed by CA-17's single feature-stub commit so CA-11 never
+// edits this shared module list.
+#[cfg(feature = "cdc-kafka")]
+pub mod cdc_sink;
 // Live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types): the PUSH half of the event-stream +
 // CEP modality (CONCEPT:EG-KG.query.pipelined-execution). Owns an `eg_stream::live::CepEngine` (feature `stream`)
 // adapted onto the CDC feed (feature `streaming`) — register a CEP pattern once, then
@@ -452,6 +457,24 @@ pub mod s3;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-KG.query.named-graph-support, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
+// SPARQL graph publication to an external Fuseki endpoint (CA-12, feature
+// `sparql-fuseki`, off by default). Reserved and EMPTY until CA-12 implements it; landed
+// by CA-17's single feature-stub commit so CA-12 never edits this shared module list.
+// Named for its own lane's surface -- NOT the pre-existing `sparql-service` FEATURE,
+// which gates the inbound SERVICE federation client inside `sparql_http`.
+#[cfg(feature = "sparql-fuseki")]
+pub mod sparql_service;
+// OBDA wire method + Python client seam (CA-13, feature `obda-wire`, off by default).
+// Reserved and EMPTY until CA-13 implements it; landed by CA-17's single feature-stub
+// commit so CA-13 never edits this shared module list. The OBDA mapping/rewrite engine
+// itself already exists behind the `obda` feature this one implies.
+#[cfg(feature = "obda-wire")]
+pub mod obda;
+// RLS marking-predicate export (CA-16, feature `policy_export`, off by default).
+// Reserved and EMPTY until CA-16 implements it; landed by CA-17's single feature-stub
+// commit so CA-16 never edits this shared module list.
+#[cfg(feature = "policy_export")]
+pub mod policy_export;
 
 /// LTAP lakehouse materialization tier (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns engine-side seam, feature
 /// `lake`, INT-P2-3): converts real `eg_tsdb` series into `eg_lake::LakeBatch`es,
@@ -589,6 +612,128 @@ pub use transport::serve_uds;
 // up front on every platform, even though the mode itself is only applied by
 // serve_uds on unix.
 pub use transport::parse_unix_socket_mode;
+
+/// CA-17-W00 feature-stub contract.
+///
+/// Six features are declared empty and default-off so that lanes CA-11..CA-16 each edit
+/// only their own `src/server/<feature>/` directory and their owning crate's manifest,
+/// never the root `Cargo.toml` `[features]` table or this file's module list -- both of
+/// which a dozen concurrent eg lanes share. These tests pin the two properties that make
+/// that safe: each reserved feature keeps the parent its owning lane builds on, and none
+/// of them leaks into a release bundle before its lane has implemented anything.
+///
+/// The check is textual against the manifest (rather than `cfg!(feature = ..)`) so that
+/// it reports the same verdict no matter which `--features` the test run itself was
+/// built with.
+#[cfg(test)]
+mod ca17_feature_stub_contract {
+    const CARGO_TOML: &str = include_str!("../../Cargo.toml");
+
+    /// `(feature name, the exact dependency list its owning lane builds on)`.
+    const RESERVED: [(&str, &str); 6] = [
+        ("cdc-kafka", "[\"streaming\"]"),
+        ("sparql-fuseki", "[\"sparql\"]"),
+        ("obda-wire", "[\"obda\"]"),
+        ("federation-opensearch", "[\"federation-search\"]"),
+        ("lineage-transport", "[\"lake\"]"),
+        ("policy_export", "[\"security\"]"),
+    ];
+
+    /// Release/aggregate bundles a reserved feature must not appear in. Each is an
+    /// existing `[features]` key whose value transitively defines a shipped artifact.
+    const BUNDLES: [&str; 5] = ["default", "full", "all", "full-extras", "cluster"];
+
+    fn declaration(feature: &str) -> &'static str {
+        let prefix = format!("{feature} = ");
+        let mut found = CARGO_TOML.lines().filter(|line| line.starts_with(&prefix));
+        let line = found.next().unwrap_or_else(|| {
+            panic!("reserved feature {feature:?} is not declared in Cargo.toml")
+        });
+        assert!(
+            found.next().is_none(),
+            "reserved feature {feature:?} is declared more than once"
+        );
+        line
+    }
+
+    #[test]
+    fn every_reserved_feature_keeps_the_parent_its_lane_builds_on() {
+        for (feature, parent) in RESERVED {
+            let line = declaration(feature);
+            assert_eq!(
+                line,
+                format!("{feature} = {parent}"),
+                "reserved feature {feature:?} no longer implies exactly {parent}; a lane \
+                 changing its own feature's parents must say so in its report"
+            );
+        }
+    }
+
+    #[test]
+    fn no_reserved_feature_leaks_into_a_release_bundle() {
+        for bundle in BUNDLES {
+            let line = declaration(bundle);
+            for (feature, _) in RESERVED {
+                assert!(
+                    !line.contains(&format!("\"{feature}\"")),
+                    "bundle {bundle:?} enables reserved feature {feature:?}, which is still \
+                     an empty placeholder -- a lane adding it to a bundle must land its \
+                     implementation in the same commit"
+                );
+            }
+        }
+    }
+
+    /// The point of the stub commit is that the shared module lists already carry every
+    /// gate, so no later lane has to touch them. Pin that the gate lines are present.
+    #[test]
+    fn every_reserved_module_gate_is_already_declared_in_its_shared_module_list() {
+        for (file, source, gate, module) in [
+            (
+                "src/server/mod.rs",
+                include_str!("mod.rs"),
+                "cdc-kafka",
+                "pub mod cdc_sink;",
+            ),
+            (
+                "src/server/mod.rs",
+                include_str!("mod.rs"),
+                "sparql-fuseki",
+                "pub mod sparql_service;",
+            ),
+            (
+                "src/server/mod.rs",
+                include_str!("mod.rs"),
+                "obda-wire",
+                "pub mod obda;",
+            ),
+            (
+                "src/server/mod.rs",
+                include_str!("mod.rs"),
+                "policy_export",
+                "pub mod policy_export;",
+            ),
+            (
+                "src/server/federation/mod.rs",
+                include_str!("federation/mod.rs"),
+                "federation-opensearch",
+                "pub mod opensearch;",
+            ),
+            (
+                "src/server/lake/mod.rs",
+                include_str!("lake/mod.rs"),
+                "lineage-transport",
+                "pub mod lineage_transport;",
+            ),
+        ] {
+            let expected = format!("#[cfg(feature = \"{gate}\")]\n{module}");
+            assert!(
+                source.contains(&expected),
+                "{file} is missing the CA-17-W00 gate for {gate:?}: {expected:?}"
+            );
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

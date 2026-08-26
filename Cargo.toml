@@ -670,6 +670,10 @@ otel-export = ["obs", "metrics", "traces", "dep:prost", "dep:snap", "dep:ureq"]
 # included in the one main build. Needs `server` (the handler routes
 # through dispatch); `eg-types/streaming` carries the Method variants + wire DTOs.
 streaming = ["server", "eg-types/streaming"]
+# CDC -> Kafka sink (CA-11), off by default and EMPTY until CA-11 implements it. Declared
+# here by CA-17's single feature-stub commit so that CA-11 never edits this shared table.
+# Implies `streaming` -- the engine-side CDC stream it sinks from.
+cdc-kafka = ["streaming"]
 # Version-keyed query-RESULT cache (CONCEPT:KG-2.233): caches the serialized bytes
 # of a read query (Sql/Cypher/Sparql/UnifiedQuery) on `GraphCore`, keyed by
 # `(query-hash, version())`. A repeated identical query on an UNCHANGED graph hits;
@@ -954,6 +958,10 @@ lake = ["server", "blob", "tsdb", "dep:eg-lake", "eg-lake/lake", "dep:ureq"]
 # are exercised through the feature's own `serve()` (non-security) test suite in
 # `src/server/lake/rest.rs`.
 lake-rest = ["lake", "oidc"]
+# OpenLineage transport for the lake tier's already-emitted run events (CA-15), off by
+# default and EMPTY until CA-15 implements it. Declared here by CA-17's single feature-
+# stub commit so that CA-15 never edits this shared table. Implies `lake`.
+lineage-transport = ["lake"]
 # Remote KV-cache HTTP surface (CONCEPT:EG-187) — exposes the `eg-kvcache` shared,
 # content-addressed backend (EG-186) over HTTP so parallel vLLM/LMCache instances SHARE
 # KV blocks by token-hash (GET/PUT/HEAD /kv/<hash> + /kv/stats, bearer-token guard). A
@@ -986,6 +994,12 @@ rdf = ["server", "dep:eg-rdf", "eg-rdf/rdf", "eg-types/rdf"]
 # Native SPARQL 1.1 surface (CONCEPT:KG-2.218): compiles spargebra's algebra to
 # GraphView scans (eg-rdf). IMPLIES `rdf`; pure-Rust (spargebra), no native dep.
 sparql = ["rdf", "eg-rdf/sparql", "eg-types/sparql"]
+# SPARQL graph publication to an external Fuseki endpoint (CA-12), off by default and
+# EMPTY until CA-12 implements it. Declared here by CA-17's single feature-stub commit so
+# that CA-12 never edits this shared table. Implies `sparql`. NOTE: distinct from the
+# pre-existing `sparql-service` feature below, which is the inbound SERVICE federation
+# CLIENT; this one publishes this engine's graphs OUT to a Fuseki server.
+sparql-fuseki = ["sparql"]
 # SPARQL standards completeness (CONCEPT:EG-127/130/131) forwarded from eg-rdf. All
 # pure-Rust (RustCrypto hashes; quick-xml/oxjsonld; oxrdf/oxttl/spargebra rdf-12 flags)
 # and included in the one main build.
@@ -1020,6 +1034,10 @@ sparql-service = ["sparql-http", "federation", "dep:ureq"]
 # other federation surfaces link (NO new HTTP crate enters the tree); SSRF-vetted with the
 # SAME allowlist/internal-range guard as EG-052. Included in the one main build.
 federation-search = ["server", "dep:ureq"]
+# OpenSearch adapter for the federated-search fan-out (CA-14), off by default and EMPTY
+# until CA-14 implements it. Declared here by CA-17's single feature-stub commit so that
+# CA-14 never edits this shared table. Implies `federation-search`.
+federation-opensearch = ["federation-search"]
 # ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-325). Bridges engine
 # CDC events ↔ ROS2 topics by talking the standard `rosbridge_suite` JSON-over-WebSocket
 # protocol (advertise/subscribe/publish/unsubscribe) to a `rosbridge_server` — so NO
@@ -1099,6 +1117,10 @@ owl-plan = ["owl", "query", "eg-plan/owl", "eg-types/owl-plan"]
 # wiring it to user tables needs DataFusion). No new external dependency; included in
 # the one main build.
 obda = ["sparql", "query", "eg-types/obda"]
+# OBDA wire method + Python client seam (CA-13), off by default and EMPTY until CA-13
+# implements it. Declared here by CA-17's single feature-stub commit so that CA-13 never
+# edits this shared table. Implies `obda` -- the mapping/rewrite engine already exists.
+obda-wire = ["obda"]
 # SHACL Core validation (CONCEPT:EG-132) — the pure-Rust eg-shacl engine over the
 # RDF term/graph model. IMPLIES `rdf` (it validates RDF data against an RDF shapes
 # graph); the `Method::ShaclValidate` handler is gated on this feature. Pure Rust —
@@ -1137,6 +1159,11 @@ compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlear
 # Security is mandatory in the one main `full` build and remains present in both
 # source-built layers.
 security = ["redb", "oidc", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
+# RLS marking-predicate export (CA-16), off by default and EMPTY until CA-16 implements
+# it. Declared here by CA-17's single feature-stub commit so that CA-16 never edits this
+# shared table. Implies `security`. Underscore, not hyphen, so the feature name and its
+# module path `src/server/policy_export/` are the same identifier.
+policy_export = ["security"]
 # Shared OIDC/JWKS bearer-token verification core (`src/server/oidc.rs`):
 # RSA-signature-against-JWKS, issuer/audience/expiry, Keycloak-compatible. A small,
 # dependency-bounded feature so the RSA/JWT crates are linked exactly once and reused
