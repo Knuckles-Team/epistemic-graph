@@ -96,6 +96,13 @@ pub const DURABLE_STORES: &[DurableStore] = &[
          carry no recovery value, so they are deliberately not restored",
     ),
     excluded(
+        "cluster_hierarchy.redb",
+        "VIZ-1 Leiden cluster hierarchy is DERIVED from the graph's own nodes and \
+         edges and is fully recomputable by ClusterHierarchyRefresh (measured 23.5s \
+         for 1M nodes / 7.8M edges), so it is a cache rather than a source of truth; \
+         a restore rebuilds it on the next refresh instead of carrying it",
+    ),
+    excluded(
         "series.redb",
         "timeseries store (feature `tsdb`) is a separate durability domain with its own \
          retention policy and is not captured by the graph bundle",
