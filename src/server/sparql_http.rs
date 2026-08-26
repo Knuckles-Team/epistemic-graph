@@ -648,8 +648,14 @@ fn run_dataset_query(ds: &Dataset, query: &str) -> Result<QueryOutcome, String> 
 
 /// A `ureq`-backed [`eg_rdf::sparql::RemoteSparql`] with an SSRF allowlist. Reuses the SAME
 /// pure-Rust rustls `ureq` stack `federation` already links (no new crate enters the tree).
+///
+/// `pub(crate)` (CA-12, feature `sparql-fuseki`): `server::sparql_service`'s Fuseki startup
+/// health-check and qualification-test harness reuse this EXACT guarded client rather than
+/// re-implementing the SSRF allowlist a second time — the type and `from_env` need
+/// crate-visibility for that reuse. No behavior changed; `select`'s dispatch is unchanged
+/// (trait-method visibility already follows `RemoteSparql`, which is `pub`).
 #[cfg(feature = "sparql-service")]
-struct ServiceClient {
+pub(crate) struct ServiceClient {
     /// Allowed hosts / `scheme://host:port` origins (lower-cased), from `SERVICE_ALLOW_ENV`.
     allow: Vec<String>,
 }
@@ -662,8 +668,22 @@ impl ServiceClient {
     const READ_TIMEOUT_SECS: u64 = 30;
     const MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
 
+    /// Build directly from an explicit allowlist, bypassing the process environment.
+    /// `pub(crate)` (CA-12): lets `server::sparql_service`'s qualification tests exercise
+    /// the exact same guarded client production code uses WITHOUT mutating the shared,
+    /// process-global `SERVICE_ALLOW_ENV` var — several of those tests run concurrently in
+    /// the same test binary, and env-var mutation is not per-test-thread isolated in Rust,
+    /// so racing `std::env::set_var` calls would make the suite flaky. Not used by
+    /// production code (which always goes through `from_env`, so a live deploy's
+    /// fail-closed default is untouched by this constructor's existence).
+    #[cfg(test)]
+    pub(crate) fn with_allow(allow: Vec<String>) -> Self {
+        Self { allow }
+    }
+
     /// Build from `SERVICE_ALLOW_ENV`. Empty / unset ⇒ `None` (SERVICE disabled, fail-closed).
-    fn from_env() -> Option<Self> {
+    /// `pub(crate)`: see the CA-12 note on the struct above.
+    pub(crate) fn from_env() -> Option<Self> {
         let raw = std::env::var(SERVICE_ALLOW_ENV).ok()?;
         let allow: Vec<String> = raw
             .split(',')
