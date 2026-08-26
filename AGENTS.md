@@ -963,3 +963,28 @@ was replaced with a plain `version = "0.14.1"` registry dependency and the comme
 to drop the now-satisfied "replace once published" instruction. The `check-crates-io-only`
 pre-commit hook fails the build if a `git = `/out-of-workspace `path = ` dependency or a
 `Cargo.lock` `git+` source reappears.
+
+## Provenance citations — `reports/*.md` resolves OUTSIDE this repo
+
+Code and docs here cite planning artifacts as `reports/issue-register.md`,
+`reports/seam-identity-closure.md`, `reports/waveN/ADR-*.md`, and similar.
+**These are workspace-level documents; they are NOT paths in this repository.**
+They resolve under the workspace root:
+
+- `reports/issue-register.md`, `reports/seam-*.md`, `reports/waveN/ADR-*.md`
+  → `plans/_archive/au-eg-program/`
+- GOC-numbered items → `plans/graph-os-completion-program/`
+
+`git log --all -- 'reports/issue-register.md'` in this repo correctly returns
+**zero commits**. That is expected and is *not* evidence the citation is
+fabricated — a per-repo git log cannot see a workspace-level document. That
+exact absence-of-evidence was misread as evidence-of-absence on 2026-08-25,
+and valid provenance was deleted from ~11 sites before it was caught and
+restored.
+
+**Before concluding any citation is fake, resolve the filename against the
+workspace root.** New citations should use the qualified path
+(e.g. `plans/_archive/au-eg-program/issue-register.md`) rather than the bare
+`reports/...` form; existing bare citations are upgraded opportunistically,
+not in a bulk sweep (a mass rewrite risks mis-mapping GOC-numbered items into
+the wrong archive directory).
