@@ -913,6 +913,36 @@ impl GraphSnapshot {
     }
 }
 
+/// The error `add_edge`/`add_edge_no_ledger` return when an endpoint id is
+/// absent from THIS graph's own `node_map`.
+///
+/// A `GraphCore`/`GraphView` has no notion of "which graph am I" — it is a
+/// bare topology keyed only by node id, with no graph name or cross-graph
+/// reference of any kind. Every request is dispatched to exactly one graph's
+/// core (resolved by graph name at the registry, one layer above this
+/// module), and each graph keeps its own independent node-id namespace, so
+/// there is no code path by which an id genuinely belonging to a DIFFERENT
+/// graph could ever be looked up here. "Not found" therefore always means
+/// one of: a typo/stale id, a node not yet added on this write path, OR —
+/// the case this message exists to head off — a caller trying to link two
+/// endpoints that live in different graphs, which this API structurally
+/// cannot do (an edge cannot span graphs; add both endpoints to the same
+/// graph, or use a cross-graph query/reference mechanism instead of a native
+/// edge). Without this framing the bare "node not found" reads as a missing-
+/// data bug and sends readers hunting for a deleted/never-written node,
+/// exactly the confusion this wording is meant to prevent.
+fn edge_endpoint_not_found(role: &str, id: &str) -> String {
+    format!(
+        "{role} node '{id}' not found in this graph. Edges cannot span \
+         graphs — each graph has its own independent node namespace, so \
+         `add_edge` only ever looks up '{id}' within the one graph this \
+         call is targeting. If '{id}' exists, it is either a typo/stale id \
+         or it belongs to a DIFFERENT graph than the one you're writing to; \
+         add both edge endpoints to the same graph, or use a cross-graph \
+         query/reference instead of a native edge.",
+    )
+}
+
 impl GraphView {
     /// Does a directed edge source→target exist in this view? (Used by VF2
     /// subgraph matching, which runs on a snapshot.)
@@ -1342,11 +1372,11 @@ impl<'a> GraphTxn<'a> {
     ) -> Result<(), String> {
         let source_idx = match self.topo.node_map.get(&source_id) {
             Some(&idx) => idx,
-            None => return Err(format!("Cannot add edge: source node '{}' is not in this graph (cross-graph edges are structurally impossible)", source_id)),
+            None => return Err(edge_endpoint_not_found("Source", &source_id)),
         };
         let target_idx = match self.topo.node_map.get(&target_id) {
             Some(&idx) => idx,
-            None => return Err(format!("Cannot add edge: target node '{}' is not in this graph (cross-graph edges are structurally impossible)", target_id)),
+            None => return Err(edge_endpoint_not_found("Target", &target_id)),
         };
         self.topo.graph.add_edge(
             source_idx,
@@ -5151,11 +5181,11 @@ impl GraphCore {
             let source_idx = *topo
                 .node_map
                 .get(&source_id)
-                .ok_or_else(|| format!("Cannot add edge: source node '{}' is not in this graph (cross-graph edges are structurally impossible)", source_id))?;
+                .ok_or_else(|| edge_endpoint_not_found("Source", &source_id))?;
             let target_idx = *topo
                 .node_map
                 .get(&target_id)
-                .ok_or_else(|| format!("Cannot add edge: target node '{}' is not in this graph (cross-graph edges are structurally impossible)", target_id))?;
+                .ok_or_else(|| edge_endpoint_not_found("Target", &target_id))?;
             topo.graph.add_edge(
                 source_idx,
                 target_idx,
