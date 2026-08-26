@@ -944,6 +944,21 @@ fn walk_hops(
         // (CONCEPT:EG-KG.query.cypher-where-pushdown). A group/var-len hop carries none
         // (its vars fall to the post-walk filter), so this is a no-op there.
         let preds = hop_preds.get(j).map(Vec::as_slice).unwrap_or(&[]);
+        // An inline relationship property map (`-[r*1..3 {k: v}]->`) on a
+        // variable-length hop is deliberately UNSUPPORTED rather than silently
+        // ignored (which edge, of possibly several in the path, would `k: v`
+        // even apply to? Cypher itself doesn't define this) — loud failure here
+        // beats the alternative this module already regressed on once: a
+        // property map that parses but is never consulted, matching every edge
+        // (CONCEPT:EG-KG.query.eg-extend-read-side). Use `WHERE all(x IN
+        // relationships(path) WHERE x.k = v)` instead.
+        if edge.var_len.is_some() && edge.props.is_some() {
+            return Err(format!(
+                "inline relationship property maps are not supported on a variable-length \
+                 hop (`-[{}*..]-{{..}}`); filter with WHERE over each relationship instead",
+                edge.rel_type.as_deref().unwrap_or("")
+            ));
+        }
         let mut next: Vec<(Binding, String)> = Vec::new();
         for (b, cur) in &partials {
             if let Some(group) = &edge.group {
@@ -968,7 +983,7 @@ fn walk_hops(
 
             let targets = match edge.var_len {
                 Some((min, max)) => bfs_reachable(view, cur, edge, min, max),
-                None => neighbors(view, cur, edge),
+                None => neighbors(view, cur, edge, b, params),
             };
             for t in targets {
                 walk_metrics::note_hop_expansion();
@@ -1047,9 +1062,17 @@ impl DfsWalk<'_> {
             .get(hop_idx)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
+        // Same unsupported-combination guard as `walk_hops` — see its comment.
+        if edge.var_len.is_some() && edge.props.is_some() {
+            return Err(format!(
+                "inline relationship property maps are not supported on a variable-length \
+                 hop (`-[{}*..]-{{..}}`); filter with WHERE over each relationship instead",
+                edge.rel_type.as_deref().unwrap_or("")
+            ));
+        }
         let targets = match edge.var_len {
             Some((min, max)) => bfs_reachable(self.view, cur, edge, min, max),
-            None => neighbors(self.view, cur, edge),
+            None => neighbors(self.view, cur, edge, binding, self.params),
         };
         for t in targets {
             if out.len() >= self.budget {
@@ -1289,7 +1312,13 @@ fn petgraph_directions(direction: Direction) -> &'static [petgraph::Direction] {
 }
 
 /// Relationship-typed neighbours of `cur` in `edge.direction` (a single fixed hop).
-fn neighbors(view: &GraphView, cur: &str, edge: &EdgePat) -> Vec<String> {
+fn neighbors(
+    view: &GraphView,
+    cur: &str,
+    edge: &EdgePat,
+    binding: &Binding,
+    params: &Params,
+) -> Vec<String> {
     let Some(&idx) = view.node_map.get(cur) else {
         return Vec::new();
     };
@@ -1300,6 +1329,9 @@ fn neighbors(view: &GraphView, cur: &str, edge: &EdgePat) -> Vec<String> {
             let from_id = &view.graph[e.source()];
             let to_id = &view.graph[e.target()];
             if !rel_matches(view, from_id, to_id, edge.rel_type.as_deref()) {
+                continue;
+            }
+            if !edge_props_match(view, from_id, to_id, edge, binding, params) {
                 continue;
             }
             let nbr = match dir {
@@ -1315,6 +1347,38 @@ fn neighbors(view: &GraphView, cur: &str, edge: &EdgePat) -> Vec<String> {
         }
     }
     out
+}
+
+/// Does the stored edge `(from→to)` satisfy an inline relationship property map
+/// (`-[r {k: v, …}]->`, CONCEPT:EG-KG.query.eg-extend-read-side)? `None`/an
+/// unconstrained pattern always matches — mirrors [`node_props_match`]'s contract
+/// exactly (an unresolvable `$param`/bound-var operand reads as "does not match",
+/// never as an error, for parity with the node case). Before this existed, the
+/// read path (`neighbors`) parsed `EdgePat::props` but never consulted it, so an
+/// inline relationship property map silently matched every edge regardless of
+/// whether it carried the property — the write path (`apply_create`) was, and
+/// remains, the only consumer of `edge.props` prior to this fix.
+fn edge_props_match(
+    view: &GraphView,
+    from: &str,
+    to: &str,
+    edge: &EdgePat,
+    binding: &Binding,
+    params: &Params,
+) -> bool {
+    let Some(props) = &edge.props else {
+        return true;
+    };
+    let edge_id = format!("{from}\u{0}{to}");
+    for (key, pv) in props {
+        let Ok(expected) = resolve_prop_val(binding, params, pv) else {
+            return false;
+        };
+        if edge_prop_value(view, &edge_id, key).as_ref() != Some(&expected) {
+            return false;
+        }
+    }
+    true
 }
 
 /// BFS from `src` over REL-typed edges in `edge.direction`, returning every node
@@ -1456,6 +1520,41 @@ fn edge_value(view: &GraphView, edge: &str) -> Value {
 
 fn edge_prop_value(view: &GraphView, edge: &str, prop: &str) -> Option<Value> {
     edge_value(view, edge).get(prop).cloned()
+}
+
+/// [`edge_prop_value`]'s WHERE-clause counterpart — the relationship analogue of
+/// [`node_prop_checked`] (BUG-035 hardening), used exclusively by [`cond_holds`].
+/// Distinguishes a genuinely ABSENT relationship property (`Ok(None)` — no stored
+/// blob, or the blob decodes but has no such key) from an UNDECODABLE stored blob
+/// (`Err`), so a corrupted/unreadable edge cannot silently read as "matches" (`IS
+/// NULL`) or "doesn't match" (`=`/`IN`) — the same failure class `node_prop_checked`
+/// closes for nodes. `source`/`target` are supplied exactly as `edge_value` supplies
+/// them (never undecodable, so always `Ok`), keeping WHERE-clause reads of those two
+/// virtual fields consistent with the RETURN-projection path.
+fn edge_prop_checked(view: &GraphView, edge: &str, prop: &str) -> Result<Option<Value>, String> {
+    let Some((from, to)) = edge.split_once('\u{0}') else {
+        return Ok(None);
+    };
+    if prop == "source" {
+        return Ok(Some(Value::String(from.to_string())));
+    }
+    if prop == "target" {
+        return Ok(Some(Value::String(to.to_string())));
+    }
+    let Some(blob) = view
+        .edge_properties
+        .get(&(from.to_string(), to.to_string()))
+        .and_then(|props| props.first())
+    else {
+        return Ok(None);
+    };
+    match eg_types::msgpack::decode_property_value(blob) {
+        Ok(val) => Ok(val.get(prop).cloned()),
+        Err(e) => Err(format!(
+            "cannot evaluate WHERE predicate on `{prop}`: relationship `{from}->{to}`'s \
+             stored property blob is undecodable ({e:?}) — refusing to silently treat it as NULL"
+        )),
+    }
 }
 
 // ── path / WITH plumbing (CONCEPT:EG-KG.query.eg-extend-read-side / EG-063) ───────────────────────────
@@ -1647,9 +1746,17 @@ fn cond_holds(
     params: &Params,
     c: &Condition,
 ) -> Result<bool, String> {
+    // `c.var` may be bound to a NODE (stored under the plain var name) or to a
+    // RELATIONSHIP (stored under `edge_key(var)`, CONCEPT:EG-KG.query.eg-extend-read-side)
+    // — mirrors `eval_scalar`'s `Expr::Prop` node→edge fallback, which is why
+    // `RETURN r.prop` already worked while `WHERE r.prop = …` did not: this arm was
+    // simply missing here. A var bound to neither reads as a genuinely absent value.
     let actual = match binding.get(&c.var) {
         Some(id) => node_prop_checked(view, id, &c.prop)?,
-        None => None,
+        None => match binding.get(&edge_key(&c.var)) {
+            Some(edge) => edge_prop_checked(view, edge, &c.prop)?,
+            None => None,
+        },
     };
     test_holds(actual.as_ref(), &c.test, binding, params)
 }
