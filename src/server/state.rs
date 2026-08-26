@@ -290,8 +290,12 @@ pub struct ServerState {
     pub matviews: Arc<Mutex<crate::raft::pregel::MatViewStore>>,
     /// Registered FOREIGN sources for query federation (CONCEPT:EG-KG.query.query-federation, feature
     /// `federation`), keyed by name. `RegisterForeignSource` inserts a
-    /// [`eg_types::wire::ForeignSourceSpec`] here so it can be reused by name; the
-    /// inline-spec `Op::ForeignScan` path does not need it. Process-global (a foreign
+    /// [`eg_types::wire::ForeignSourceSpec`] here so it can be reused by name, and
+    /// `handlers::query::run_unified` READS it back into the executor's
+    /// `eg_plan::federation::ForeignSourceRegistry` so a `Named` `Op::ForeignScan` / an
+    /// `Op::Foreign` marker actually resolves (CONCEPT:EG-KG.query.closure-backed-source);
+    /// the inline-spec `Op::ForeignScan` path carries its own spec and does not need it.
+    /// Process-global (a foreign
     /// endpoint is not per-graph), lock-free on read. Always present (empty) with the
     /// feature on.
     #[cfg(feature = "federation")]
