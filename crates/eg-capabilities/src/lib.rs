@@ -3019,7 +3019,12 @@ mod smoke_tests {
         // `ClusterHierarchyExpand` (hierarchical Leiden clustering for
         // million-node graph visualization, 3 unconditional methods --
         // `compute:graph-algo`, same bucket as `CommunityDetection`): 397 + 3 = 400.
-        let expected = 400
+        // Plus the tsdb retention-reachability wiring's 3 unconditional methods --
+        // `TsEvict`/`TsDeleteSeries` (native `series.redb` retention, same
+        // `Ts*` family as `TsAppend`) and `TsListSeries` (the enumeration
+        // primitive a retention sweep needs to discover what to evict/delete):
+        // 400 + 3 = 403.
+        let expected = 403
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
@@ -3122,18 +3127,23 @@ mod smoke_tests {
             .iter()
             .filter(|row| row.primitive == "timeseries")
             .collect();
-        assert_eq!(ts.len(), 5);
+        // TsAppend/TsRange/TsAsofJoin/TsWindow/TsGapFill (5) plus the retention-
+        // reachability wiring's TsEvict/TsDeleteSeries/TsListSeries (3) = 8.
+        assert_eq!(ts.len(), 8);
         assert_eq!(
             ts.iter()
                 .filter(|row| row.access == PolicyAccess::Write)
                 .count(),
-            1
+            // TsAppend, plus TsEvict/TsDeleteSeries (content-idempotent unlike
+            // TsAppend, but still series.redb WRITES -- see their MethodPolicy).
+            3
         );
         assert_eq!(
             ts.iter()
                 .filter(|row| row.access == PolicyAccess::Read)
                 .count(),
-            4
+            // TsRange/TsAsofJoin/TsWindow/TsGapFill, plus TsListSeries.
+            5
         );
     }
 }
