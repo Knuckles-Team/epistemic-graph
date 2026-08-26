@@ -2446,7 +2446,25 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
 // no dispatch.rs routing arm at all. They are now genuinely dispatch-routed (see
 // `REASON_NATIVE_DEVELOPMENT_LANE_READ` in `NON_ROW_SCOPED` above), so this list returns to its
 // intended empty end state.
-const NOT_YET_AUDITED: &[(&str, &str)] = &[];
+const NOT_YET_AUDITED: &[(&str, &str)] = &[
+    // VIZ-1 hierarchical clustering (merged in 6fc8c552). These read the
+    // non-authoritative `cluster_hierarchy_store`, not graph rows, so they do not
+    // construct a GraphView -- which argues for NON_ROW_SCOPED. But cluster
+    // MEMBERSHIP is derived from graph structure, so a cluster listing can reveal
+    // that two nodes are connected without the caller being able to read either
+    // node. Whether that is a disclosure worth gating has NOT been traced end to
+    // end, so these are parked here deliberately rather than asserted safe.
+    // Burn down by tracing the handler to a project_core/filter_view call and
+    // moving them to RLS_ROUTED, or by justifying NON_ROW_SCOPED with a cited
+    // call site.
+    // Declared mutates:false because it writes only the derived cache, never
+    // graph rows -- but it READS the entire graph to compute the clustering,
+    // which is the widest read in this group. Same untraced question, higher
+    // stakes: park it, do not assume it safe.
+    ("ClusterHierarchyRefresh", "VIZ-1: recomputes the hierarchy by reading the whole graph; writes only the derived cluster_hierarchy store. Widest read of the three; disclosure question untraced"),
+    ("ClusterHierarchyClusters", "VIZ-1: reads the derived cluster_hierarchy store, not graph rows; cluster membership still reflects graph structure, and that disclosure question is untraced"),
+    ("ClusterHierarchyExpand", "VIZ-1: same store and same untraced disclosure question as ClusterHierarchyClusters"),
+];
 #[cfg(test)]
 mod read_rls_coverage_tests {
     use super::*;
