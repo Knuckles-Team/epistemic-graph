@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-asr-whisper", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads", "crates/eg-tts-piper", "crates/eg-resource"]
+members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-asr-whisper", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-viz-graph-tiles", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads", "crates/eg-tts-piper", "crates/eg-resource"]
 # D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
 # governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
 # QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
@@ -400,12 +400,26 @@ program-optimization = ["jobs", "dep:eg-program", "eg-types/program-optimization
 # does not pull `server`/`eg-capabilities`), keeping `policy()`'s exhaustive
 # `Method` match in lockstep whenever both happen to be active together. `cargo
 # build`'s DEFAULT feature set still gains no `eg-viz-core` dependency at all --
-# `viz` (and everything below it) remains deliberately EXCLUDED from `full`,
-# confirmed by `cargo tree` (no `--features viz`). `viz-gpu-export` is reserved
-# for a future GPU-accelerated static export variant (V3a's CPU static export
-# landed below as `viz-static-export`, lane V1's ColumnStore as
-# `viz-columnstore` -- both still gate real, dependency-free/minimal-dependency
-# work, not placeholders).
+# bare `viz` needs an explicit `--features viz` (or `full`, see below).
+#
+# VIZ-2 (million-node graph visualization program, 2026-08): `viz`/
+# `viz-columnstore`/`viz-static-export`/`viz-interactive`/`viz-graph-tiles` were
+# ALL previously excluded from `full` -- this is WHY `epistemic-graph-server` had
+# zero `VizRenderRequest`/`ColumnStoreExportBackend`/`eg_viz_*` strings and
+# `/api/enhanced/graph/viz/capabilities` 500'd in production: the production wheel
+# builds `--features full,ast-extended` (see `pyproject.toml`, `scripts/
+# wheel_privacy_gate.sh`, `scripts/promote_engine.sh`), and none of this DAG was
+# reachable from it. Re-verified against a fresh worktree at the time of this
+# change: confirmed by `cargo tree` (no eg-viz-* hit without an explicit `--features
+# viz...`) prior to this edit. Folded into `full` now because every tier below is
+# real, bounded, dependency-light work (never a placeholder -- see each feature's
+# own comment), `viz-interactive`'s loopback HTTP listener stays OFF at runtime
+# unless an operator passes `--viz-interactive-addr` (opt-in, not opt-out, see
+# `src/main.rs`), and there is no other route to a working `Method::Viz`/graph-tile
+# surface in a wheel built the way this repo actually ships one. `viz-gpu-export`
+# stays excluded -- it gates nothing but a reserved, unimplemented trait slot, so
+# folding it in would cost nothing but would also prove nothing; it joins `full`
+# once V3a/V6 GPU work actually lands behind it.
 viz = ["dep:eg-viz-core", "eg-types/viz", "eg-capabilities?/viz"]
 viz-gpu-export = ["viz"]
 # GOC-34 (`OWNER-VOICE-TTS`) -- native Piper-ONNX text-to-speech PROVIDER behind the
@@ -465,6 +479,22 @@ viz-static-export = ["viz-columnstore", "dep:eg-viz-export", "server"]
 # itself; `viz-static-export`/`eg-viz-export` alone would only bring it in
 # transitively, not name it for THIS crate's own `use`).
 viz-interactive = ["viz-static-export", "dep:eg-viz-kernels"]
+# VIZ-2 (million-node graph visualization program, lane VIZ-2): the binary
+# tile/streaming protocol for GRAPH payloads (nodes + edges together, edges
+# referencing nodes by array index rather than repeating string ids), addressed
+# by cluster id -- this is the wire form of the shared `clusters(graph, level,
+# parent?)`/`expand(graph, cluster_id)` contract VIZ-1's server-side
+# hierarchical clustering and VIZ-3's client both build against (see
+# `crates/eg-viz-graph-tiles`'s own doc for the format and why it does NOT reuse
+# `eg_viz_kernels::lttb_reduce`/`m4_reduce` -- those are ordered-x-axis
+# time-series kernels, "LTTB over edges is nonsense"). Deliberately a SEPARATE
+# feature from bare `viz-interactive` (not folded directly into it) because it
+# names its own crate dependency and its own routes
+# (`src/server/graph_tile_server.rs`) inside that SAME loopback listener --
+# implying `viz-interactive` rather than duplicating a second listener/port.
+# Pure Rust, zero new external crates.io dependencies beyond serde/serde_json
+# already resolved workspace-wide (see that crate's own Cargo.toml).
+viz-graph-tiles = ["viz-interactive", "dep:eg-viz-graph-tiles"]
 # D-DE-0 (lane w6-de0-contracts, `plans/au-eg-program/program/durable-execution-native.md`)
 # -- the durable-execution ROUTING contract. `durable` links `eg-durable` alone (the
 # CallShape/WorkShape/DurableBackendKind routing table + the DurableExecutionUnitMirror
@@ -1171,7 +1201,7 @@ policy_export = ["security"]
 # `eg2.` protocol identity binding and `kvcache-server`'s KV-cache HTTP bearer auth —
 # rather than each surface vendoring its own copy.
 oidc = ["dep:jsonwebtoken", "dep:ureq"]
-full = ["compute", "server", "server-tls", "query", "knowledge-batch", "cypher", "cypher-plan", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "statechart", "modality-serving", "embedded", "matview", "lake", "lake-rest"]
+full = ["compute", "server", "server-tls", "query", "knowledge-batch", "cypher", "cypher-plan", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "statechart", "modality-serving", "embedded", "matview", "lake", "lake-rest", "viz", "viz-columnstore", "viz-static-export", "viz-interactive", "viz-graph-tiles"]
 all = ["full"]
 # D4 (CONCEPT:EG-KG.epistemic.epistemic-substrate): `epistemic` (the eg-epistemic
 # claims/evidence/belief-state layer, E6/E2/D3/D5) is folded into `full` above so a
@@ -1481,6 +1511,12 @@ eg-viz-export = { path = "crates/eg-viz-export", optional = true }
 # `src/server/viz_interactive.rs` (feature `viz-interactive`) calls
 # `eg_viz_kernels::lttb_reduce` itself for the interactive tile protocol.
 eg-viz-kernels = { path = "crates/eg-viz-kernels", optional = true }
+# VIZ-2 -- the binary tile/streaming protocol for graph payloads (feature
+# `viz-graph-tiles`): contract types + binary encoder/decoder + a deterministic
+# demo `GraphSource`, consumed by `src/server/graph_tile_server.rs`. Named
+# directly here (not just pulled in transitively) for the same reason
+# `eg-viz-kernels` is: the facade's own server module calls into it directly.
+eg-viz-graph-tiles = { path = "crates/eg-viz-graph-tiles", optional = true }
 # D-DE-0 (feature `durable`, see that feature's own comment above): the
 # durable-execution routing contract -- CallShape/WorkShape/DurableBackendKind + the
 # DurableExecutionUnitMirror DTO. Pure serde (already resolved workspace-wide); no

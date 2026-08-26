@@ -20,8 +20,21 @@ surface behind someone else's API churn).
 | **V3a** | `eg-viz-export` | Static PNG/SVG/PDF export | Shipped (now wired to V2's M4) |
 | **V3b** | `server::viz_interactive` | Interactive WebGPU/WebGL2 client + binary tile protocol | **Shipped this change** |
 | **V4** | `server::viz_engine` / `server::viz_provenance` | Persistent engine state: content-addressed render cache + durable provenance | **Shipped this change** |
-| **V6** | `eg-viz-export::graph_layout` + `resolve_graph` | Graph-native marks (force-directed layout) | Shipped (static export only) |
+| **V6** | `eg-viz-export::graph_layout` + `resolve_graph` | Graph-native marks (force-directed layout) | Shipped (static export only, nodes-only — see VIZ-2 below) |
+| **VIZ-2** | `eg-viz-graph-tiles` + `server::graph_tile_server` | Binary chunk-streamable tile protocol for `{nodes, edges}` graph payloads, cluster-id addressed | **Shipped this change** (demo `GraphSource`; real GraphCore-backed clustering pending VIZ-1) |
 | **V7/V8** | — | Temporal repository visualization; agent-webui adoption | Not started |
+
+**Production feature-set note (2026-08-26).** `viz`/`viz-columnstore`/
+`viz-static-export`/`viz-interactive`/`viz-graph-tiles` were previously excluded
+from the `full` feature bundle the production wheel builds
+(`--features full,ast-extended`) — this whole lane map above shipped in-tree but
+was compiled OUT of `epistemic-graph-server`, which is why
+`/api/enhanced/graph/viz/capabilities` 500'd in production and no
+`VizRenderRequest`/`eg_viz_*` symbol existed in the shipped binary. All five are
+now part of `full` (root `Cargo.toml`, see that feature's own comment for the
+re-verification and rationale); `viz-interactive`'s loopback HTTP listener still
+stays off at runtime unless an operator passes `--viz-interactive-addr` — being
+compiled in only makes it reachable, never makes it listen unasked.
 
 ## Architecture
 
@@ -240,6 +253,97 @@ every returned point is a real row, so "here are some of the real points,
 zoom in for more" carries no synthetic-aggregate lie the way a min/max marker
 would.
 
+## VIZ-2 — binary tile protocol for graph payloads
+
+`agent-webui`'s `engineGraphRender.ts` documents the gap this closes: a
+`VizRenderRequest` carries exactly one `dataset` field, so a caller-supplied
+`MarkKind::Graph` render was NODES-ONLY — there was no wire path for a caller
+to also submit edges. `eg-viz-graph-tiles` (a leaf crate next to
+`eg-viz-core`, feature `viz-graph-tiles`, implies `viz-interactive`) is a
+SEPARATE binary protocol built for graph payloads specifically, not a second
+`dataset` field bolted onto `VizRenderRequest`:
+
+- **Wire types mirror the shared VIZ-1/VIZ-2/VIZ-3 contract exactly**:
+  `ClusterLevel` for `clusters(graph, level, parent_cluster_id?)`,
+  `ClusterExpansion` for `expand(graph, cluster_id)` — see
+  `crates/eg-viz-graph-tiles/src/contract.rs`.
+- **Addressing is by cluster id** (not spatial region or hop-neighbourhood):
+  VIZ-1's server-side hierarchical clustering returns `clusters()`/`expand()`
+  with array-index-local edges over the SAME shape, so the two compose
+  directly — a client walks `clusters(0, None)` for an overview, then
+  `expand(cluster_id)` per cluster the user drills into, purely by id, with no
+  coordinate system or hop-distance metric either lane has to agree on
+  separately.
+- **Edges reference nodes by `u32` array index**, never by string id — the
+  entire reason a flat JSON array of `{src_idx, dst_idx, type: "knows"}`
+  objects costs several times what the binary form does at scale (see the
+  measurements below): a million-node graph's edges outnumber its nodes
+  several-fold, and repeating even a short string id or type name on every
+  edge is the dominant cost. `ClusterExpansion`'s `TileNode.id` still carries
+  the real string id — that cost exists once per NODE in the tile (bounded by
+  cluster size), never once per edge.
+- **A per-tile dictionary** deduplicates every distinct node/edge type string
+  to one entry, referenced everywhere else by `u16` index — the other half of
+  the size win.
+- **Chunk-streamed over genuine HTTP/1.1 chunked transfer encoding**
+  (`GET /graph_tile/stream`, same loopback listener as V3b): the level's
+  cluster-summary tile is written and flushed first, then an expand tile per
+  top-`top_k` cluster (by `node_count`), each flushed as computed, then a
+  `StreamEnd` sentinel carrying the true frame count (so a client can detect a
+  truncated stream instead of mistaking "connection closed early" for "graph
+  fully loaded"). `tests/graph_tile_stream.rs` proves this is REAL streaming,
+  not just a streamable format: a client reading the raw socket incrementally
+  decodes the first expand tile from a byte offset well short of the total
+  response length — a structural, non-flaky proof, not a timing guess.
+- **Single-tile routes** `GET /graph_tile/clusters?level=&parent=` and
+  `GET /graph_tile/expand?cluster_id=` return one binary tile as the whole
+  response body (mirrors `/tile`'s shape) for a client that already knows
+  exactly which tile it wants.
+
+**Why not reuse `lttb_reduce`/`m4_reduce`.** Both are ordered-x-axis
+time-series kernels; a graph has no x-axis to sort edges along, and
+"decimating" a random subset of edges from a cluster would silently drop
+structure rather than aggregate it honestly. Nothing here calls either
+kernel — see `crates/eg-viz-graph-tiles/src/wire.rs`'s module doc for the
+full reasoning.
+
+**Data source today.** VIZ-1's real GraphCore-backed `clusters()`/`expand()`
+had not merged at the time this lane shipped. `server::graph_tile_server`
+therefore serves `eg_viz_graph_tiles::demo::DemoGraph` — a deterministic,
+seeded, in-memory graph built fresh per request from query-param-controlled
+`node_count`/`edge_count`/`seed`/`top_clusters`/`sub_clusters_per_top` (all
+clamped, same "engine-side generated, clearly labeled, capped" idiom
+`VizDatasetSource::SyntheticGraph` already uses in production). This proves
+the wire protocol has a real, live, over-the-wire caller today; swapping in
+VIZ-1's real clustering means constructing a different `impl GraphSource`
+here — the routes, the wire encoding, and the streaming behavior do not
+change.
+
+**Measured: binary vs. JSON, same values** (`cargo run -p eg-viz-graph-tiles
+--example bench_tile_wire`, one `ClusterExpansion` per row, `3×node_count`
+edges, debug numbers below — see the example for a release run):
+
+| nodes | binary bytes | JSON bytes | ratio | binary decode | JSON decode |
+|---|---|---|---|---|---|
+| 1,000 | 85,985 | 256,275 | 2.98× | 0.26 ms | 1.48 ms |
+| 10,000 | 868,985 | 2,632,234 | 3.03× | 2.93 ms | 16.03 ms |
+| 100,000 | 8,788,985 | 27,020,782 | 3.07× | 29.36 ms | 157.79 ms |
+
+**Remaining before this is fully live in production:**
+
+1. VIZ-1's real `clusters()`/`expand()` needs to merge and replace
+   `DemoGraph` behind `GraphSource` in `server::graph_tile_server`.
+2. `agent-webui` needs a client (VIZ-3 / the `engineGraphRender.ts` seam) that
+   speaks this binary protocol against `/graph_tile/*` — today that file only
+   calls the nodes-only static-export path this lane does not touch.
+3. `viz-interactive` (and therefore `viz-graph-tiles`) is now compiled into
+   the production wheel, but the listener itself is still off unless an
+   operator passes `--viz-interactive-addr` — a production deployment needs
+   that flag (and a route from wherever `agent-webui` runs to that loopback
+   address, e.g. a sidecar/reverse-proxy hop) to actually reach it from a
+   browser. Proving that hop is a deployment/ingress change, not a code
+   change, and is out of this lane's scope.
+
 ## Honest gaps
 
 - **Density/Tiled-tier interactive tiles.** V3b's `/tile` endpoint only
@@ -275,3 +379,5 @@ would.
 | `src/server/viz_provenance.rs` | V4 — durable provenance |
 | `src/server/viz_interactive.rs` | V3b — HTTP listener, tile protocol |
 | `src/server/viz_interactive_client.html` | V3b — reference WebGPU/WebGL2 client |
+| `crates/eg-viz-graph-tiles/` | VIZ-2 — contract types, binary tile encoder/decoder, streaming frames, demo `GraphSource` |
+| `src/server/graph_tile_server.rs` | VIZ-2 — `/graph_tile/{clusters,expand,stream}` routes on the V3b listener |

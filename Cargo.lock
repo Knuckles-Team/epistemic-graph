@@ -3080,6 +3080,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-viz-graph-tiles"
+version = "0.1.0"
+dependencies = [
+ "eg-viz-core",
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-viz-kernels"
 version = "0.1.0"
 dependencies = [
@@ -3182,6 +3192,7 @@ dependencies = [
  "eg-viz-columnstore",
  "eg-viz-core",
  "eg-viz-export",
+ "eg-viz-graph-tiles",
  "eg-viz-kernels",
  "eg-wasm",
  "fs4 0.8.4",
