@@ -110,6 +110,21 @@ pub async fn serve(listener: TcpListener, engine: Arc<VizEngineState>) {
             let Some(request) = read_request(&mut stream).await else {
                 return;
             };
+            // VIZ-2: `/graph_tile/*` needs genuine async chunked-transfer
+            // streaming (see `graph_tile_server`'s doc) that this function's
+            // own buffered `(status, content_type, Vec<u8>)` `route()` below
+            // cannot express -- dispatch to it first, before falling back to
+            // the synchronous single-buffer path every other route here uses.
+            #[cfg(feature = "viz-graph-tiles")]
+            if crate::server::graph_tile_server::handles(&request.target) {
+                crate::server::graph_tile_server::serve(
+                    &mut stream,
+                    &request.method,
+                    &request.target,
+                )
+                .await;
+                return;
+            }
             let (status_line, content_type, body) = route(&engine, &request);
             let mut head = format!(
                 "HTTP/1.1 {status_line}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n",
@@ -197,7 +212,7 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).to_string()
 }
 
-fn parse_query(target: &str) -> (&str, HashMap<String, String>) {
+pub(crate) fn parse_query(target: &str) -> (&str, HashMap<String, String>) {
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     let mut params = HashMap::new();
     for pair in query.split('&').filter(|p| !p.is_empty()) {
@@ -236,7 +251,10 @@ fn route(engine: &VizEngineState, request: &HttpRequest) -> (&'static str, &'sta
     }
 }
 
-fn parse_param<T: std::str::FromStr>(params: &HashMap<String, String>, key: &str) -> Option<T> {
+pub(crate) fn parse_param<T: std::str::FromStr>(
+    params: &HashMap<String, String>,
+    key: &str,
+) -> Option<T> {
     params.get(key).and_then(|v| v.parse::<T>().ok())
 }
 

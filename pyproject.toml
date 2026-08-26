@@ -157,7 +157,11 @@ exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
 # toolchain: durable redb-authoritative store + cypher + SQL (query/DataFusion) + graphql
 # + ann + tsdb + blob + the full compute domains (finance/datascience/reasoning/ast) +
 # the security stack + the whole hand-rolled wire family (pgwire/mysql/mssql/sqlite/bolt/
-# redis/amqp/mqtt/stomp). It also adds `ast-extended` so the `ParseFiles`/`ParseFile` ops
+# redis/amqp/mqtt/stomp) + native visualization (viz/viz-columnstore/viz-static-export/
+# viz-interactive/viz-graph-tiles — the ColumnStore + LOD kernels + static PNG/SVG/PDF
+# export + loopback interactive/graph-tile HTTP listeners; the listeners themselves stay
+# off at runtime unless an operator passes their own `--*-addr` flag). It also adds
+# `ast-extended` so the `ParseFiles`/`ParseFile` ops
 # compile the full grammar tier (python/js/ts/go/rust/java/c/cpp/c#/ruby/php/bash/scala/
 # lua) — making the engine the ONE code-parsing implementation (agent-utilities delegates
 # and ships no Python tree-sitter wheels). This is `default`, so `cargo build` and this

@@ -1,0 +1,34 @@
+[package]
+name = "eg-viz-graph-tiles"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Binary tile/streaming protocol for graph payloads (VIZ-2): a compact, chunk-streamable wire encoding for {nodes, edges} tiles addressed by cluster id, carrying edges as node-index pairs (never repeated string ids). This is the wire form of the shared `clusters(graph, level, parent?)` / `expand(graph, cluster_id)` contract VIZ-1's server-side hierarchical clustering and VIZ-3's client both build against. A leaf crate: depends only on `eg-viz-core` (mirrors the sibling `eg-viz-columnstore`/`eg-viz-kernels` DAG position), zero new external crates.io dependencies beyond serde/serde_json already resolved workspace-wide."
+license = "MIT"
+
+[lib]
+name = "eg_viz_graph_tiles"
+
+# Sits directly right of V0 in the DAG (`eg-viz-core -> eg-viz-graph-tiles`), the
+# same posture eg-viz-columnstore/eg-viz-kernels take: this crate does not depend
+# on GraphCore/eg-core itself (mirrors eg-viz-core's own "no eg-types/eg-core
+# dependency" leaf posture, see that crate's Cargo.toml doc) -- it defines the
+# contract types (`ClusterLevel`/`ClusterExpansion`/`GraphSource`), the binary
+# encoder/decoder, and a deterministic in-memory demo `GraphSource` proving the
+# wire protocol end-to-end without waiting on VIZ-1's real GraphCore-backed
+# clustering to land. The real implementation plugs in later purely as a second
+# `GraphSource` impl -- the wire format does not change.
+[dependencies]
+eg-viz-core = { path = "../eg-viz-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+proptest = "1"
+
+[features]
+default = []
+# No-op marker mirroring the sibling viz crates' own `viz` feature -- the facade's
+# `viz-graph-tiles` feature is the actual on/off switch for whether this crate
+# links into a given epistemic-graph build.
+viz = []
