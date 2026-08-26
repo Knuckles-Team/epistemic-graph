@@ -578,8 +578,11 @@ pub fn community_detection(core: &GraphView, resolution: f64) -> Vec<Vec<String>
 // (`analysis_snapshot`, not `topology_snapshot`).
 
 /// One cluster at one level of a computed [`ClusterHierarchyResult`]
-/// (CONCEPT:EG-KG.compute.leiden-hierarchy, VIZ-1).
-#[derive(Debug, Clone)]
+/// (CONCEPT:EG-KG.compute.leiden-hierarchy, VIZ-1). `Serialize`/`Deserialize` so the whole
+/// result can be MessagePack-encoded directly into
+/// `server::persistence::cluster_hierarchy_store` — the wire/persisted shape
+/// IS the compute shape, no separate DTO layer.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ClusterMeta {
     /// Stable, globally-addressable id: `"L{level}-{local_index}"`.
     pub id: String,
@@ -597,7 +600,7 @@ pub struct ClusterMeta {
 
 /// One level of a [`ClusterHierarchyResult`]. `inter_cluster_edges` indices are
 /// LOCAL to `clusters` (array-local, per the VIZ-1 program contract).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ClusterLevelResult {
     pub level: usize,
     pub clusters: Vec<ClusterMeta>,
@@ -608,7 +611,7 @@ pub struct ClusterLevelResult {
 /// level 1 (finest). `leaf_membership` maps every clustered node id to its
 /// LOCAL index into `levels[0].clusters` — the lookup `expand` needs to answer
 /// "which level-1 cluster is node X in" without re-running Leiden.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ClusterHierarchyResult {
     pub levels: Vec<ClusterLevelResult>,
     pub leaf_membership: Vec<(String, u32)>,

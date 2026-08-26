@@ -2413,12 +2413,35 @@ pub(crate) async fn try_handle_gateway(
     Ok(resp)
 }
 
+/// Parse a VIZ-1 cluster id of the form `"L{level}-{local_index}"` (see
+/// `ClusterMeta::id`'s doc) into `(level, local_index)`. Returns `None` for
+/// anything else — a caller-supplied cluster_id is untrusted input, so this
+/// never panics on a malformed string.
+fn parse_cluster_id(id: &str) -> Option<(usize, usize)> {
+    let rest = id.strip_prefix('L')?;
+    let (level_str, idx_str) = rest.split_once('-')?;
+    let level: usize = level_str.parse().ok()?;
+    let idx: usize = idx_str.parse().ok()?;
+    if level == 0 {
+        return None;
+    }
+    Some((level, idx))
+}
+
 /// Dispatch a graph-targeted method. This is the terminal handler in the routing
 /// chain (it owns the catch-all), so it returns a `Response` directly.
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     _caller: Option<&str>,
+    // VIZ-1: `ClusterHierarchyRefresh`/`Clusters`/`Expand` key their durable
+    // side-cache (`server::persistence::cluster_hierarchy_store`) by graph
+    // name — nothing else in this terminal handler previously needed it. Placed
+    // BEFORE `read_authority` (not after) so every call site keeps
+    // `read_authority,` immediately followed by `core.clone(),` — pinned
+    // verbatim by `scripts/check_universal_read_rls.py`'s literal-adjacency
+    // check, which a between-them insertion would otherwise break.
+    graph_name: &str,
     read_authority: &GraphReadAuthority,
     core: Arc<GraphCore>,
     method: Method,
@@ -3366,6 +3389,262 @@ pub(crate) async fn try_handle(
             {
                 Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
+            }
+        }
+        // ── VIZ-1: hierarchical cluster-tree RPCs (CONCEPT:EG-KG.compute.leiden-hierarchy) ──
+        // Same off-lock discipline as CommunityDetection/ResolveCandidates above —
+        // `analysis_snapshot` under the topo READ lock, the actual clustering runs
+        // on the blocking pool. See `Method::ClusterHierarchyRefresh`'s doc for why
+        // the persisted result is NOT a graph mutation (no GATEWAY_ROUTED routing,
+        // no WAL/CDC/audit — a plain durable side-cache keyed by graph name).
+        Method::ClusterHierarchyRefresh {
+            label,
+            resolution,
+            seed,
+        } => {
+            let snap = { core.analysis_snapshot() };
+            let computed = match compute_off_lock(req_id, move || {
+                crate::algorithms::cluster_hierarchy(&snap, label.as_deref(), resolution, seed)
+            })
+            .await
+            {
+                Ok(v) => v,
+                Err(resp) => return resp,
+            };
+            let persistence = { state.read().await.persistence.clone() };
+            let cached = if let Some(p) = persistence.as_ref() {
+                let blob = match rmp_serde::to_vec_named(&computed) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        return Response::err(
+                            req_id,
+                            format!("failed to encode cluster hierarchy: {e}"),
+                        )
+                    }
+                };
+                match p.save_cluster_hierarchy(graph_name, blob).await {
+                    Ok(()) => true,
+                    Err(e) => {
+                        return Response::err(
+                            req_id,
+                            format!("failed to persist cluster hierarchy: {e}"),
+                        )
+                    }
+                }
+            } else {
+                false
+            };
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({
+                    "graph": graph_name,
+                    "levels": computed.levels.len(),
+                    "base_node_count": computed.base_node_count,
+                    "base_edge_count": computed.base_edge_count,
+                    "top_level_clusters": computed.levels.last().map(|l| l.clusters.len()).unwrap_or(0),
+                    "cached": cached,
+                })),
+            )
+        }
+        Method::ClusterHierarchyClusters {
+            level,
+            parent_cluster_id,
+        } => {
+            let persistence = { state.read().await.persistence.clone() };
+            let Some(p) = persistence.as_ref() else {
+                return Response::err(
+                    req_id,
+                    "cluster hierarchy cache unavailable on this backend".to_string(),
+                );
+            };
+            let blob = match p.load_cluster_hierarchy(graph_name).await {
+                Ok(Some(b)) => b,
+                Ok(None) => {
+                    return Response::err(
+                        req_id,
+                        "no cluster hierarchy cached for this graph -- call \
+                         ClusterHierarchyRefresh first"
+                            .to_string(),
+                    )
+                }
+                Err(e) => {
+                    return Response::err(req_id, format!("failed to load cluster hierarchy: {e}"))
+                }
+            };
+            let hierarchy: crate::algorithms::ClusterHierarchyResult =
+                match rmp_serde::from_slice(&blob) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        return Response::err(
+                            req_id,
+                            format!("cached cluster hierarchy is corrupt: {e}"),
+                        )
+                    }
+                };
+            if level == 0 || level > hierarchy.levels.len() {
+                return Response::err(
+                    req_id,
+                    format!(
+                        "level {level} out of range (cached hierarchy has {} level(s))",
+                        hierarchy.levels.len()
+                    ),
+                );
+            }
+            let level_data = &hierarchy.levels[level - 1];
+            // Local (array-local, per the VIZ-1 contract) indices: unfiltered ⇒
+            // identity map; filtered by `parent_cluster_id` ⇒ remapped to the
+            // returned subset's own 0..k positions, and `inter_cluster_edges` is
+            // filtered down to edges between two clusters BOTH still present.
+            let mut remap: std::collections::HashMap<usize, u32> = std::collections::HashMap::new();
+            let mut clusters_json: Vec<serde_json::Value> = Vec::new();
+            for (i, c) in level_data.clusters.iter().enumerate() {
+                if let Some(pid) = &parent_cluster_id {
+                    if c.parent_id.as_deref() != Some(pid.as_str()) {
+                        continue;
+                    }
+                }
+                remap.insert(i, clusters_json.len() as u32);
+                clusters_json.push(serde_json::json!({
+                    "id": c.id,
+                    "label": c.label,
+                    "node_count": c.node_count,
+                    "edge_count": c.edge_count,
+                    "top_node_types": c.top_node_types,
+                }));
+            }
+            let inter_cluster_edges: Vec<serde_json::Value> = level_data
+                .inter_cluster_edges
+                .iter()
+                .filter_map(|&(s, d, w)| {
+                    let ls = remap.get(&(s as usize))?;
+                    let ld = remap.get(&(d as usize))?;
+                    Some(serde_json::json!({ "src_idx": ls, "dst_idx": ld, "weight": w }))
+                })
+                .collect();
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({
+                    "level": level,
+                    "clusters": clusters_json,
+                    "inter_cluster_edges": inter_cluster_edges,
+                })),
+            )
+        }
+        Method::ClusterHierarchyExpand { cluster_id } => {
+            let Some((level, _local_idx)) = parse_cluster_id(&cluster_id) else {
+                return Response::err(req_id, format!("malformed cluster_id: {cluster_id}"));
+            };
+            let persistence = { state.read().await.persistence.clone() };
+            let Some(p) = persistence.as_ref() else {
+                return Response::err(
+                    req_id,
+                    "cluster hierarchy cache unavailable on this backend".to_string(),
+                );
+            };
+            let blob = match p.load_cluster_hierarchy(graph_name).await {
+                Ok(Some(b)) => b,
+                Ok(None) => {
+                    return Response::err(
+                        req_id,
+                        "no cluster hierarchy cached for this graph -- call \
+                         ClusterHierarchyRefresh first"
+                            .to_string(),
+                    )
+                }
+                Err(e) => {
+                    return Response::err(req_id, format!("failed to load cluster hierarchy: {e}"))
+                }
+            };
+            let hierarchy: crate::algorithms::ClusterHierarchyResult =
+                match rmp_serde::from_slice(&blob) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        return Response::err(
+                            req_id,
+                            format!("cached cluster hierarchy is corrupt: {e}"),
+                        )
+                    }
+                };
+            if level == 1 {
+                // Finest computed level: drill all the way to real graph nodes,
+                // read LIVE off the (already RLS-projected) core rather than any
+                // stale snapshot inside the cache -- membership is what's frozen
+                // until the next refresh, never the member nodes' own content.
+                let member_ids: Vec<String> = hierarchy
+                    .leaf_membership
+                    .iter()
+                    .filter(|(_, idx)| format!("L1-{idx}") == cluster_id)
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                if member_ids.is_empty() {
+                    return Response::err(req_id, format!("unknown cluster_id: {cluster_id}"));
+                }
+                let g = &*core;
+                let sub = g.get_subgraph(&member_ids);
+                let nodes: Vec<serde_json::Value> = sub
+                    .node_properties
+                    .iter()
+                    .map(|(id, blob)| {
+                        let props = eg_types::msgpack::decode_property_value(blob)
+                            .unwrap_or(serde_json::Value::Null);
+                        serde_json::json!({ "id": id, "properties": props })
+                    })
+                    .collect();
+                let mut edges: Vec<serde_json::Value> = Vec::new();
+                for ((src, tgt), blobs) in &sub.edge_properties {
+                    for blob in blobs {
+                        let props = eg_types::msgpack::decode_property_value(blob)
+                            .unwrap_or(serde_json::Value::Null);
+                        let relationship = props
+                            .get("relationship")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("_");
+                        edges.push(serde_json::json!({
+                            "src_id": src, "dst_id": tgt, "type": relationship,
+                        }));
+                    }
+                }
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!({
+                        "nodes": nodes,
+                        "edges": edges,
+                        "child_clusters": Vec::<serde_json::Value>::new(),
+                    })),
+                )
+            } else {
+                // A coarser cluster: drill down ONE level at a time -- hand back
+                // its children (from level - 1) rather than raw nodes, matching
+                // "expand-on-demand" (the caller `expand`s again on one child to
+                // go further, instead of every level materializing every node).
+                let Some(child_level) = hierarchy.levels.get(level - 2) else {
+                    return Response::err(req_id, format!("malformed cluster_id: {cluster_id}"));
+                };
+                let child_clusters: Vec<serde_json::Value> = child_level
+                    .clusters
+                    .iter()
+                    .filter(|c| c.parent_id.as_deref() == Some(cluster_id.as_str()))
+                    .map(|c| {
+                        serde_json::json!({
+                            "id": c.id,
+                            "label": c.label,
+                            "node_count": c.node_count,
+                            "edge_count": c.edge_count,
+                            "top_node_types": c.top_node_types,
+                        })
+                    })
+                    .collect();
+                if child_clusters.is_empty() {
+                    return Response::err(req_id, format!("unknown cluster_id: {cluster_id}"));
+                }
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!({
+                        "nodes": Vec::<serde_json::Value>::new(),
+                        "edges": Vec::<serde_json::Value>::new(),
+                        "child_clusters": child_clusters,
+                    })),
+                )
             }
         }
         // PruneByLifecycle (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED —

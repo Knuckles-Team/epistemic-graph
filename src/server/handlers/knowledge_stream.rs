@@ -387,6 +387,7 @@ async fn execute_family(
                 state,
                 req_id,
                 Some(caller),
+                graph_name,
                 read_authority,
                 core.clone(),
                 Method::Discover {
