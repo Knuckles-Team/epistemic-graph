@@ -31,9 +31,9 @@ pub use eg_types::protocol::QueryResult;
 
 use super::parser;
 use super::plan::{
-    AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr,
-    NodePat, Pattern, PropVal, QuantifiedGroup, ReadStage, RemoveItem, ReturnItem, ReturnSpec,
-    SetItem, Statement, Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
+    Accessor, AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr,
+    ListExpr, NodePat, Pattern, PropVal, QuantifiedGroup, ReadStage, RemoveItem, ReturnItem,
+    ReturnSpec, SetItem, Statement, Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
 };
 use super::plan_cache;
 use super::proc::{registry, YieldValue};
@@ -1740,23 +1740,42 @@ fn all_where_hold(
     Ok(true)
 }
 
+/// Resolve a [`Condition`]'s left-hand accessor against `binding`, then evaluate its
+/// `Test`. `Accessor::Prop` is the plain `var.prop` read; `Accessor::RelType`/`Labels`
+/// mirror [`eval_scalar`]'s `Expr::RelType`/`Expr::Labels` handling exactly — `type(r)`/
+/// `labels(n)` resolve identically whether they appear in RETURN or in WHERE.
 fn cond_holds(
     view: &GraphView,
     binding: &Binding,
     params: &Params,
     c: &Condition,
 ) -> Result<bool, String> {
-    // `c.var` may be bound to a NODE (stored under the plain var name) or to a
-    // RELATIONSHIP (stored under `edge_key(var)`, CONCEPT:EG-KG.query.eg-extend-read-side)
-    // — mirrors `eval_scalar`'s `Expr::Prop` node→edge fallback, which is why
-    // `RETURN r.prop` already worked while `WHERE r.prop = …` did not: this arm was
-    // simply missing here. A var bound to neither reads as a genuinely absent value.
-    let actual = match binding.get(&c.var) {
-        Some(id) => node_prop_checked(view, id, &c.prop)?,
-        None => match binding.get(&edge_key(&c.var)) {
-            Some(edge) => edge_prop_checked(view, edge, &c.prop)?,
-            None => None,
+    let actual: Option<Value> = match &c.accessor {
+        // `c.var` may be bound to a NODE (stored under the plain var name) or to a
+        // RELATIONSHIP (stored under `edge_key(var)`, CONCEPT:EG-KG.query.eg-extend-read-side)
+        // — mirrors `eval_scalar`'s `Expr::Prop` node→edge fallback, which is why
+        // `RETURN r.prop` already worked while `WHERE r.prop = …` did not (fixed
+        // separately). A var bound to neither reads as a genuinely absent value.
+        Accessor::Prop(prop) => match binding.get(&c.var) {
+            Some(id) => node_prop_checked(view, id, prop)?,
+            None => match binding.get(&edge_key(&c.var)) {
+                Some(edge) => edge_prop_checked(view, edge, prop)?,
+                None => None,
+            },
         },
+        Accessor::RelType => binding
+            .get(&edge_key(&c.var))
+            .and_then(|edge| edge.split_once('\u{0}'))
+            .and_then(|(from, to)| edge_rel_type(view, from, to))
+            .map(Value::String),
+        Accessor::Labels => binding.get(&c.var).map(|id| {
+            Value::Array(
+                node_labels(view, id)
+                    .into_iter()
+                    .map(Value::String)
+                    .collect(),
+            )
+        }),
     };
     test_holds(actual.as_ref(), &c.test, binding, params)
 }
@@ -2427,11 +2446,18 @@ fn indexed_inline_props(
 /// declines — the caller then tries the next conjunct, if any, before giving up.
 fn indexed_where_cond(index: Option<IndexSource<'_>>, c: &Condition) -> Option<Vec<String>> {
     let _ = &index; // referenced unconditionally so a `result-cache`-off build doesn't warn
+    // Only a plain `var.prop` condition is ever indexable — `type(r)`/`labels(n)`
+    // have no property-index entry to consult, so they decline here (`None`) and the
+    // caller falls back to the full start-candidate scan, same as any other
+    // non-indexable conjunct.
+    let Accessor::Prop(prop) = &c.accessor else {
+        return None;
+    };
     match &c.test {
-        Test::Cmp(CompareOp::Eq, value) if c.prop == "id" => {
+        Test::Cmp(CompareOp::Eq, value) if prop == "id" => {
             Some(vec![value.as_str()?.to_string()])
         }
-        Test::In(values) if !values.is_empty() && c.prop == "id" => {
+        Test::In(values) if !values.is_empty() && prop == "id" => {
             let mut out = Vec::with_capacity(values.len());
             for v in values {
                 out.push(v.as_str()?.to_string());
@@ -2444,12 +2470,12 @@ fn indexed_where_cond(index: Option<IndexSource<'_>>, c: &Condition) -> Option<V
         Test::Cmp(CompareOp::Eq, value) => {
             let index = index?;
             let canon = GraphCore::property_value_key(value)?;
-            lookup_property_eq(index, &c.prop, &canon)
+            lookup_property_eq(index, prop, &canon)
         }
         #[cfg(feature = "result-cache")]
         Test::In(values) if !values.is_empty() => {
             let index = index?;
-            lookup_property_in(index, &c.prop, values)
+            lookup_property_in(index, prop, values)
         }
         _ => None,
     }
@@ -6403,12 +6429,12 @@ mod tests {
         let start_preds = vec![WhereExpr::Or(vec![
             WhereExpr::Cond(Condition {
                 var: "n".to_string(),
-                prop: "tenant_id".to_string(),
+                accessor: Accessor::Prop("tenant_id".to_string()),
                 test: Test::Cmp(CompareOp::Eq, Value::String("homelab".to_string())),
             }),
             WhereExpr::Cond(Condition {
                 var: "n".to_string(),
-                prop: "tenant_id".to_string(),
+                accessor: Accessor::Prop("tenant_id".to_string()),
                 test: Test::Cmp(CompareOp::Eq, Value::String("other".to_string())),
             }),
         ])];
@@ -6458,7 +6484,7 @@ mod tests {
         // Indexed, real predicate, zero matches ⇒ Some(vec![]).
         let no_match_preds = vec![WhereExpr::Cond(Condition {
             var: "n".to_string(),
-            prop: "tenant_id".to_string(),
+            accessor: Accessor::Prop("tenant_id".to_string()),
             test: Test::Cmp(
                 CompareOp::Eq,
                 Value::String("nonexistent-tenant".to_string()),
@@ -6485,7 +6511,7 @@ mod tests {
         // A real match ⇒ Some(vec![the matching ids]).
         let match_preds = vec![WhereExpr::Cond(Condition {
             var: "n".to_string(),
-            prop: "tenant_id".to_string(),
+            accessor: Accessor::Prop("tenant_id".to_string()),
             test: Test::Cmp(CompareOp::Eq, Value::String("homelab".to_string())),
         })];
         let mut hit = indexed_start_candidates(
@@ -6515,7 +6541,7 @@ mod tests {
         };
         let no_such_node = vec![WhereExpr::Cond(Condition {
             var: "n".to_string(),
-            prop: "id".to_string(),
+            accessor: Accessor::Prop("id".to_string()),
             test: Test::Cmp(CompareOp::Eq, Value::String("nobody".to_string())),
         })];
         assert_eq!(
@@ -6528,7 +6554,7 @@ mod tests {
         // the fast path declines rather than fabricating a non-string candidate.
         let numeric_id = vec![WhereExpr::Cond(Condition {
             var: "n".to_string(),
-            prop: "id".to_string(),
+            accessor: Accessor::Prop("id".to_string()),
             test: Test::Cmp(CompareOp::Eq, Value::Number(7.into())),
         })];
         assert_eq!(
@@ -6556,7 +6582,7 @@ mod tests {
         };
         let preds = vec![WhereExpr::Cond(Condition {
             var: "n".to_string(),
-            prop: "tenant_id".to_string(),
+            accessor: Accessor::Prop("tenant_id".to_string()),
             test: Test::Cmp(CompareOp::Eq, Value::String("homelab".to_string())),
         })];
         let stale = indexed_start_candidates(
@@ -6599,7 +6625,7 @@ mod tests {
     /// start's WHERE `id` equality DOES resolve through the same
     /// no-`IndexSource`-needed fast path an unlabeled start gets (label is
     /// NOT consulted by `indexed_start_candidates`/`indexed_where_cond`
-    /// at all — see `indexed_where_cond`'s `Test::Cmp(Eq, _) if c.prop ==
+    /// at all — see `indexed_where_cond`'s `Test::Cmp(Eq, _) if prop ==
     /// "id"` arm, which never reads `node.label`), and the label constraint
     /// is still enforced afterward by `resolve_match`'s own post-filter
     /// (`node_has_label_point`, since this candidate source sets
@@ -6615,7 +6641,7 @@ mod tests {
         let anchor = Binding::new();
         let preds = vec![WhereExpr::Cond(Condition {
             var: "n".to_string(),
-            prop: "id".to_string(),
+            accessor: Accessor::Prop("id".to_string()),
             test: Test::Cmp(CompareOp::Eq, Value::String("bob".to_string())),
         })];
 
@@ -6844,12 +6870,12 @@ mod tests {
         let preds = vec![WhereExpr::Or(vec![
             WhereExpr::Cond(Condition {
                 var: "n".to_string(),
-                prop: "tenant_id".to_string(),
+                accessor: Accessor::Prop("tenant_id".to_string()),
                 test: Test::Cmp(CompareOp::Eq, Value::String("homelab".to_string())),
             }),
             WhereExpr::Cond(Condition {
                 var: "n".to_string(),
-                prop: "tenant_id".to_string(),
+                accessor: Accessor::Prop("tenant_id".to_string()),
                 test: Test::Cmp(CompareOp::Eq, Value::String("other".to_string())),
             }),
         ])];
@@ -7103,5 +7129,246 @@ mod tests {
             target_ids.len(),
             elapsed / RUNS as u32
         );
+    }
+
+    // ── D-MQR reported-defect regression fixtures (CONCEPT:EG-KG.query.eg-extend-read-side) ──
+    //
+    // A production report claimed native Cypher returns ZERO rows for any
+    // non-aggregate projection — `MATCH (n:Skill) RETURN n.name AS name LIMIT 5`
+    // and `MATCH (a)-[r]->(b) RETURN a.id AS s, b.id AS o` both allegedly answered
+    // `[]`, while adding `count(*)` to either made the identical query work; a
+    // `WHERE` clause was also reported to break the aggregate path
+    // (`WHERE type(r)='SERVES' … count(*)` → 0 rows), and `collect()` was reported
+    // to 500.
+    //
+    // Investigation (this lane): the four tests below run the EXACT reported query
+    // shapes through `exec_cypher_params_indexed` — the precise call the RPC
+    // `Method::CypherQuery` handler (`src/server/handlers/query.rs`) makes, property
+    // index and all — over a fixture sized like the live report (dozens of labeled
+    // nodes, a chain of typed edges). Every one of them returns the CORRECT
+    // non-aggregate row set: labeled node projection + LIMIT, unlabeled two-hop edge
+    // projection, WHERE + aggregate, and `collect()`. This matches the crate's other
+    // 180+ pre-existing Cypher tests, which already cover non-aggregate node/edge
+    // projection extensively. **The primary "zero rows for any non-aggregate
+    // projection" defect does not reproduce in this engine at HEAD.**
+    //
+    // The one thing that WAS real: `WHERE type(r) = 'SERVES'` — the literal
+    // "WHERE clause kills the aggregate path" repro query — failed to PARSE at all
+    // (`expected Dot, found Some(LParen)`), because `type(...)`/`labels(...)` were
+    // wired into the RETURN-item expression parser only, never into the WHERE
+    // condition parser (`parse_condition` unconditionally expected `var.prop`). That
+    // is a real, narrow, separate defect (a hard parse error, not a silent empty
+    // result) — fixed below by extending `Condition`/`parse_condition` to accept the
+    // same two accessors WHERE already accepts in RETURN. `collect()` itself was
+    // already fine at the engine level; nothing here explains an HTTP 500 for it.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn reported_nonaggregate_node_projection_with_limit_does_not_reproduce() {
+        let core = GraphCore::new();
+        for i in 0..40 {
+            core.add_node(
+                format!("skill-{i}"),
+                pbytes(serde_json::json!({"node_type":"Skill","name":format!("skill-name-{i}")})),
+            );
+        }
+        let (view, version) = core.analysis_snapshot_versioned();
+
+        let r = exec_cypher_params_indexed(
+            &view,
+            "MATCH (n:Skill) RETURN n.name AS name LIMIT 5",
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(
+            r.rows.len(),
+            5,
+            "non-aggregate labeled-node projection with LIMIT must return rows, \
+             not the reported []"
+        );
+
+        let r_agg = exec_cypher_params_indexed(
+            &view,
+            "MATCH (n:Skill) RETURN n.name AS name, count(*) AS c",
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(r_agg.rows.len(), 40, "its aggregate sibling groups by name");
+    }
+
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn reported_nonaggregate_edge_projection_does_not_reproduce() {
+        let core = GraphCore::new();
+        for i in 0..40 {
+            core.add_node(format!("skill-{i}"), pbytes(serde_json::json!({})));
+        }
+        for i in 0..39 {
+            core.add_edge(
+                format!("skill-{i}"),
+                format!("skill-{}", i + 1),
+                pbytes(serde_json::json!({"relationship":"SERVES"})),
+            )
+            .unwrap();
+        }
+        let (view, version) = core.analysis_snapshot_versioned();
+
+        let r = exec_cypher_params_indexed(
+            &view,
+            "MATCH (a)-[r]->(b) RETURN a.id AS s, b.id AS o",
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(
+            r.rows.len(),
+            39,
+            "non-aggregate unlabeled edge projection must return one row per edge, \
+             not the reported []"
+        );
+
+        let r_agg = exec_cypher_params_indexed(
+            &view,
+            "MATCH (a)-[r]->(b) RETURN a.id AS s, b.id AS o, count(*) AS c",
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(r_agg.rows.len(), 39, "its aggregate sibling groups by (s, o)");
+    }
+
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn where_plus_aggregate_with_a_plain_property_predicate_does_not_reproduce() {
+        let core = GraphCore::new();
+        for i in 0..5 {
+            core.add_node(format!("skill-{i}"), pbytes(serde_json::json!({})));
+        }
+        for i in 0..4 {
+            core.add_edge(
+                format!("skill-{i}"),
+                format!("skill-{}", i + 1),
+                pbytes(serde_json::json!({"relationship":"SERVES"})),
+            )
+            .unwrap();
+        }
+        let (view, version) = core.analysis_snapshot_versioned();
+
+        let r = exec_cypher_params_indexed(
+            &view,
+            "MATCH (a)-[r]->(b) WHERE b.id = 'skill-3' RETURN count(*) AS c",
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(r.rows.len(), 1);
+        assert_eq!(cells_of(&r, 0)[0], Value::Number(1.into()));
+    }
+
+    /// The genuine adjacent defect this lane found and fixed: `type(r)`/`labels(n)`
+    /// were parseable ONLY as a RETURN-item expression (`parse_proj_expr`), not as a
+    /// WHERE condition's left-hand side (`parse_condition` unconditionally expected
+    /// `var.prop`). `WHERE type(r) = 'SERVES'` — the exact reported repro — used to
+    /// fail `exec_cypher_params_indexed` outright with `expected Dot, found
+    /// Some(LParen)`; it now parses and evaluates identically to the RETURN-side
+    /// accessor.
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn where_type_accessor_now_parses_and_filters_correctly() {
+        let core = GraphCore::new();
+        core.add_node("a".into(), pbytes(serde_json::json!({})));
+        core.add_node("b".into(), pbytes(serde_json::json!({})));
+        core.add_node("c".into(), pbytes(serde_json::json!({})));
+        core.add_edge(
+            "a".into(),
+            "b".into(),
+            pbytes(serde_json::json!({"relationship":"SERVES"})),
+        )
+        .unwrap();
+        core.add_edge(
+            "a".into(),
+            "c".into(),
+            pbytes(serde_json::json!({"relationship":"OWNS"})),
+        )
+        .unwrap();
+        let (view, version) = core.analysis_snapshot_versioned();
+
+        let r = exec_cypher_params_indexed(
+            &view,
+            "MATCH (a)-[r]->(b) WHERE type(r) = 'SERVES' RETURN count(*) AS c",
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(r.rows.len(), 1);
+        assert_eq!(
+            cells_of(&r, 0)[0],
+            Value::Number(1.into()),
+            "only the SERVES edge matches; OWNS is excluded"
+        );
+
+        // Non-aggregate projection through the same WHERE accessor, to pin the
+        // parser fix independent of the aggregate path.
+        let r2 = exec_cypher_params_indexed(
+            &view,
+            "MATCH (a)-[r]->(b) WHERE type(r) = 'SERVES' RETURN b.id AS o",
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(r2.rows.len(), 1);
+        assert_eq!(cells_of(&r2, 0)[0], Value::String("b".to_string()));
+
+        // labels(n) as a WHERE condition too — the sibling accessor, same parser
+        // path (`Test::IsNotNull`, not `Cmp`: a list-literal `= [...]` RHS is a
+        // separate, pre-existing `parse_literal` gap out of scope here — `labels(n)`
+        // is documented to project a list, never null, for a bound node var, so this
+        // pins that the accessor now resolves through WHERE at all without erroring).
+        let core2 = GraphCore::new();
+        core2.add_node(
+            "p1".into(),
+            pbytes(serde_json::json!({"node_type":"Person"})),
+        );
+        core2.add_node("d1".into(), pbytes(serde_json::json!({"node_type":"Doc"})));
+        let (view2, version2) = core2.analysis_snapshot_versioned();
+        let r3 = exec_cypher_params_indexed(
+            &view2,
+            "MATCH (n) WHERE labels(n) IS NOT NULL RETURN n.id AS id",
+            &Params::new(),
+            IndexSource::new(&core2, version2),
+        )
+        .unwrap();
+        assert_eq!(r3.rows.len(), 2, "labels(n) is a list, never null, for a bound node");
+    }
+
+    #[test]
+    #[cfg(feature = "result-cache")]
+    fn reported_collect_returning_500_does_not_reproduce() {
+        let core = GraphCore::new();
+        for i in 0..40 {
+            core.add_node(
+                format!("skill-{i}"),
+                pbytes(serde_json::json!({"node_type":"Skill","name":format!("skill-name-{i}")})),
+            );
+        }
+        let (view, version) = core.analysis_snapshot_versioned();
+
+        let r = exec_cypher_params_indexed(
+            &view,
+            "MATCH (n:Skill) RETURN collect(n.name) AS names",
+            &Params::new(),
+            IndexSource::new(&core, version),
+        )
+        .unwrap();
+        assert_eq!(r.rows.len(), 1);
+        let cells = cells_of(&r, 0);
+        let names = cells[0].as_array().expect("collect() projects a list");
+        assert_eq!(names.len(), 40);
+
+        // Also prove the exact wire-encode step the server performs on the result
+        // (`rmp_serde::to_vec_named`) round-trips cleanly — ruling out an
+        // engine-adjacent encode panic as the 500's source.
+        let _ = rmp_serde::to_vec_named(&r).expect("QueryResult must encode for the wire");
     }
 }
