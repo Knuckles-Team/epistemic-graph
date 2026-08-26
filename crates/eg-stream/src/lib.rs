@@ -52,6 +52,13 @@ pub mod live;
 // the crate's own opt-in `contract` feature (default OFF). See module docs.
 #[cfg(feature = "contract")]
 mod contract;
+// CA-11 — CDC-to-Kafka sink (DEC-CA-03), feature `cdc-kafka`, default OFF. See
+// the module's own doc for the trait/envelope shape and the DEC-CA-03 field
+// gap this lane found. `pub` unconditionally (not `#[cfg]`-gated at the
+// `mod` level) so `SinkEvent`/`SinkOp`/`CdcSink`/`SinkError` stay visible for
+// documentation/tests even without `cdc-kafka`; `KafkaCdcSink` itself is
+// `#[cfg(feature = "cdc-kafka")]`-gated inside the module (needs `rdkafka`).
+pub mod sink;
 
 pub use cep::{run, CepPattern, Match, Window, MAX_ACTIVE_RUNS};
 pub use event::{AttrPredicate, Event, EventMatcher};
