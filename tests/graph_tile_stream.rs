@@ -50,9 +50,7 @@ async fn start_server() -> std::net::SocketAddr {
 /// the property under test.
 async fn get_full(addr: std::net::SocketAddr, target: &str) -> (String, Vec<u8>) {
     let mut stream = TcpStream::connect(addr).await.unwrap();
-    let request = format!(
-        "GET {target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
-    );
+    let request = format!("GET {target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
     stream.write_all(request.as_bytes()).await.unwrap();
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw).await.unwrap();
@@ -78,13 +76,18 @@ async fn clusters_route_round_trips_a_real_binary_tile_over_tcp() {
     )
     .await;
     assert!(head.starts_with("HTTP/1.1 200 OK"), "head was: {head}");
-    assert!(head.to_lowercase().contains("content-type: application/octet-stream"));
+    assert!(head
+        .to_lowercase()
+        .contains("content-type: application/octet-stream"));
 
     let decoded = decode_cluster_level(&body).expect("decode over-the-wire bytes");
     assert_eq!(decoded.level, 0);
     assert_eq!(decoded.clusters.len(), 6);
     let total_nodes: u32 = decoded.clusters.iter().map(|c| c.node_count).sum();
-    assert_eq!(total_nodes, 300, "every node must land in exactly one top-level cluster");
+    assert_eq!(
+        total_nodes, 300,
+        "every node must land in exactly one top-level cluster"
+    );
 }
 
 #[tokio::test]
@@ -215,7 +218,11 @@ async fn stream_route_delivers_the_first_expand_tile_from_a_strict_prefix_of_the
     let (offsets, total_len) = read_chunked_and_track_frame_offsets(&mut stream).await;
 
     // level tile + 3 expand tiles + StreamEnd sentinel.
-    assert_eq!(offsets.len(), 5, "expected 1 ClusterLevel + 3 ClusterExpansion + 1 StreamEnd frame");
+    assert_eq!(
+        offsets.len(),
+        5,
+        "expected 1 ClusterLevel + 3 ClusterExpansion + 1 StreamEnd frame"
+    );
     assert_eq!(offsets[0].0, TileKind::ClusterLevel);
     assert_eq!(offsets[1].0, TileKind::ClusterExpansion);
     assert_eq!(offsets[2].0, TileKind::ClusterExpansion);

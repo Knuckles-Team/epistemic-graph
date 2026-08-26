@@ -251,7 +251,10 @@ fn route(engine: &VizEngineState, request: &HttpRequest) -> (&'static str, &'sta
     }
 }
 
-pub(crate) fn parse_param<T: std::str::FromStr>(params: &HashMap<String, String>, key: &str) -> Option<T> {
+pub(crate) fn parse_param<T: std::str::FromStr>(
+    params: &HashMap<String, String>,
+    key: &str,
+) -> Option<T> {
     params.get(key).and_then(|v| v.parse::<T>().ok())
 }
 

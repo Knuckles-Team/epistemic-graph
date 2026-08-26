@@ -55,7 +55,14 @@ fn median_secs(mut samples: Vec<f64>) -> f64 {
 fn main() {
     println!(
         "{:>10} | {:>14} | {:>14} | {:>8} | {:>12} | {:>12} | {:>12} | {:>12}",
-        "nodes", "binary bytes", "json bytes", "ratio", "bin encode", "json encode", "bin decode", "json decode"
+        "nodes",
+        "binary bytes",
+        "json bytes",
+        "ratio",
+        "bin encode",
+        "json encode",
+        "bin decode",
+        "json decode"
     );
     println!("{}", "-".repeat(112));
 
