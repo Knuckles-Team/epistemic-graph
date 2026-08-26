@@ -845,6 +845,28 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("--sparql-addr ignored: binary built without the `sparql-http` feature");
     }
 
+    // ── Fuseki SERVICE-federation startup health-check (CA-12, feature `sparql-fuseki`) ──
+    // Best-effort and LOGGED, not enforced (matches the lane's W03 completion evidence:
+    // "Startup log shows reachability result", not "startup refuses to serve"). Runs the
+    // SAME guarded `sparql_http::ServiceClient` the live `SERVICE <ep> {…}` dispatch path
+    // uses, so a green log line here is real evidence the federation path works, not a
+    // separate check that could pass while the real path is broken. No-op unless BOTH
+    // `EPISTEMIC_GRAPH_FUSEKI_HEALTH_CHECK_ENDPOINT` (which endpoint to probe) and
+    // `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW` (the fail-closed allowlist) are set.
+    #[cfg(feature = "sparql-fuseki")]
+    {
+        let outcome = epistemic_graph::server::sparql_service::startup_health_check();
+        match outcome {
+            epistemic_graph::server::sparql_service::HealthCheckOutcome::Reachable { .. } => {
+                info!("{}", outcome.summary());
+            }
+            epistemic_graph::server::sparql_service::HealthCheckOutcome::NotConfigured => {
+                tracing::debug!("{}", outcome.summary());
+            }
+            _ => tracing::warn!("{}", outcome.summary()),
+        }
+    }
+
     // ── Super-cluster federated search (CONCEPT:EG-KG.ontology.federation-client) ──────────────────
     // Opt-in AND feature-gated: the `/federated` listener starts ONLY when built
     // `--features federation-search` AND --federated-addr / EPISTEMIC_GRAPH_FEDERATED_ADDR
