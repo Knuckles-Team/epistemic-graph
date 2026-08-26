@@ -66,6 +66,13 @@ fn default_min_confidence() -> f64 {
     0.5
 }
 
+/// serde default for [`Method::ClusterHierarchyRefresh::resolution`] (VIZ-1) —
+/// GDS-parity default, matching Leiden/Louvain's own default resolution (γ=1.0)
+/// everywhere else in this file.
+fn default_cluster_hierarchy_resolution() -> f64 {
+    1.0
+}
+
 /// serde default for `Method::ResolveConflict::semantics` (EPI-P3-7) — the unique,
 /// always-defined skeptical (grounded) Dung extension, matching every other
 /// epistemic op's "narrowest, always-answerable default" convention (mirrors
@@ -1213,6 +1220,56 @@ pub enum Method {
         merge_threshold: f64,
         #[serde(default)]
         node_type: Option<String>,
+    },
+
+    // ── Hierarchical cluster visualization (VIZ-1, CONCEPT:EG-KG.compute.leiden-hierarchy) ──
+    // Server-side hierarchical (Leiden) clustering, exposed for million-node
+    // graph visualization: a client renders a few thousand top-level CLUSTER
+    // nodes and drills in on demand instead of laying out every node/edge
+    // client-side. Deliberately NOT `mutation::GATEWAY_ROUTED` and NOT a KG
+    // write — the computed hierarchy is durably cached in its OWN store
+    // (`server::persistence::cluster_hierarchy_store`, `PersistenceBackend::
+    // save_cluster_hierarchy`/`load_cluster_hierarchy`), never as graph nodes
+    // or edges: the engine holds at most one edge per ordered node pair and
+    // `upsert_edge` REPLACES the relationship type, so representing cluster
+    // membership as edges between existing nodes would silently destroy
+    // asserted relationships (measured defect on this program). Sits in the
+    // SAME "Graph Algorithms" read-only bucket as `CommunityDetection` above
+    // (`compute:graph-algo`, `mutates: false` in `eg_capabilities::policy` —
+    // the cache is a non-authoritative, always-recomputable-from-the-graph
+    // derived artifact, exactly like the plan-backed matview result cache).
+    /// (Re)compute the hierarchy for the request's graph and persist it,
+    /// replacing any previously cached hierarchy for the same graph.
+    /// `ClusterHierarchyClusters`/`ClusterHierarchyExpand` serve the cached
+    /// result until this is called again — "refreshable", not
+    /// recomputed-per-request.
+    ClusterHierarchyRefresh {
+        /// Optional: restrict the clustered projection to nodes of this one
+        /// type — mirrors `MineCommunity::label`.
+        #[serde(default)]
+        label: Option<String>,
+        /// Leiden resolution γ (higher ⇒ more, smaller clusters).
+        #[serde(default = "default_cluster_hierarchy_resolution")]
+        resolution: f64,
+        #[serde(default)]
+        seed: u64,
+    },
+    /// `GET clusters(graph, level, parent_cluster_id?)` — one level of the
+    /// cached hierarchy, optionally restricted to one parent's children.
+    /// `level` 1 is the finest computed level; `parent_cluster_id` unset
+    /// returns every cluster at `level`. Errors if no hierarchy is cached yet
+    /// (call `ClusterHierarchyRefresh` first).
+    ClusterHierarchyClusters {
+        level: usize,
+        #[serde(default)]
+        parent_cluster_id: Option<String>,
+    },
+    /// `GET expand(graph, cluster_id)` — a level-1 cluster's individual member
+    /// nodes/edges (read live off the current graph, keyed by the cached
+    /// membership) plus its child clusters (empty for a level-1 cluster, since
+    /// level 1 is the finest computed level).
+    ClusterHierarchyExpand {
+        cluster_id: String,
     },
 
     // ── Lifecycle ────────────────────────────────────────────────────

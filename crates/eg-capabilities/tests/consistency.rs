@@ -1013,7 +1013,12 @@ fn all_methods_table_has_the_expected_variant_count() {
     // matching note on the sibling constant in `lib.rs::
     // all_methods_table_matches_policy_fn_and_has_no_duplicates`. No policy work
     // needed, only the count was wrong: 396 + 1 = 397.
-    let expected = 397
+    // Plus VIZ-1 `ClusterHierarchyRefresh`/`ClusterHierarchyClusters`/
+    // `ClusterHierarchyExpand` (hierarchical Leiden clustering for
+    // million-node graph visualization, 3 unconditional methods; matching the
+    // sibling constant in `lib.rs::all_methods_table_matches_policy_fn...`):
+    // 397 + 3 = 400.
+    let expected = 400
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

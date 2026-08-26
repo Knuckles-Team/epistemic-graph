@@ -731,7 +731,17 @@ pub fn policy(m: &Method) -> MethodPolicy {
         | Method::CommunityDetectEphemeral { .. }
         | Method::GraphColoring
         | Method::ComputeSimilarityEdges { .. }
-        | Method::ResolveCandidates { .. } => MethodPolicy {
+        | Method::ResolveCandidates { .. }
+        // VIZ-1: hierarchical Leiden clustering for graph visualization. All
+        // three sit in this SAME read-only "graph algo" bucket as
+        // `CommunityDetection` above -- `ClusterHierarchyRefresh` durably
+        // caches its result, but into its OWN non-authoritative, always-
+        // recomputable-from-the-graph store (never a KG node/edge write, never
+        // WAL/CDC/audit), the same non-mutation classification the
+        // plan-backed matview result cache already gets.
+        | Method::ClusterHierarchyRefresh { .. }
+        | Method::ClusterHierarchyClusters { .. }
+        | Method::ClusterHierarchyExpand { .. } => MethodPolicy {
             mutates: false,
             durability_domain: DurabilityDomain::None,
             authz_action: "compute:graph-algo",
@@ -2538,6 +2548,9 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("GraphColoring", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:graph-algo", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("ComputeSimilarityEdges", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:graph-algo", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("ResolveCandidates", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:graph-algo", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
+        ("ClusterHierarchyRefresh", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:graph-algo", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "VIZ-1 hierarchical Leiden clustering for million-node graph visualization: (re)computes and durably caches the cluster hierarchy in its own non-authoritative store (server::persistence::cluster_hierarchy_store), never as graph nodes/edges -- see ClusterHierarchyClusters/ClusterHierarchyExpand"),
+        ("ClusterHierarchyClusters", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:graph-algo", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "VIZ-1: GET clusters(graph, level, parent_cluster_id?) from the cached hierarchy"),
+        ("ClusterHierarchyExpand", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:graph-algo", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "VIZ-1: GET expand(graph, cluster_id) -- a level-1 cluster's member nodes/edges read live off the graph"),
         ("PruneByLifecycle", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "node:admin", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch commits the resulting authoritative image"),
         ("GetContextView", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "node:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("BatchUpdate", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "node:write", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),
@@ -2986,7 +2999,11 @@ mod smoke_tests {
         // behind reality (the SAME "silent auto-merge trap" class as the a1f4025/GOC-33
         // incident this comment chain already documents). No policy work is needed --
         // ResourceStatsPage already has one; only the count was wrong: 396 + 1 = 397.
-        let expected = 397
+        // Plus VIZ-1 `ClusterHierarchyRefresh`/`ClusterHierarchyClusters`/
+        // `ClusterHierarchyExpand` (hierarchical Leiden clustering for
+        // million-node graph visualization, 3 unconditional methods --
+        // `compute:graph-algo`, same bucket as `CommunityDetection`): 397 + 3 = 400.
+        let expected = 400
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
