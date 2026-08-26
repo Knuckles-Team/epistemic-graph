@@ -1996,7 +1996,8 @@ pub fn policy(m: &Method) -> MethodPolicy {
         Method::TsRange { .. }
         | Method::TsAsofJoin { .. }
         | Method::TsWindow { .. }
-        | Method::TsGapFill { .. } => MethodPolicy {
+        | Method::TsGapFill { .. }
+        | Method::TsListSeries => MethodPolicy {
             mutates: false,
             durability_domain: DurabilityDomain::None,
             authz_action: "timeseries:read",
@@ -2004,6 +2005,18 @@ pub fn policy(m: &Method) -> MethodPolicy {
             audited: false,
             emits_cdc: false,
             txn_participation: TxnParticipation::Snapshot,
+        },
+        // Unlike `TsAppend`, retention is content-idempotent: re-evicting an
+        // already-past cutoff, or re-deleting an already-gone series, is a safe
+        // no-op that returns 0 (see `SeriesStore::evict_before`/`delete_series`).
+        Method::TsEvict { .. } | Method::TsDeleteSeries { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::SeriesRedb,
+            authz_action: "timeseries:write",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
         },
         Method::BlobBegin { .. } | Method::BlobChunkPut { .. } | Method::BlobCommit { .. } => {
             MethodPolicy {
@@ -2777,6 +2790,9 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("TsAsofJoin", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "timeseries:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("TsWindow", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "timeseries:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("TsGapFill", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "timeseries:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
+        ("TsEvict", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::SeriesRedb, authz_action: "timeseries:write", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "content-idempotent unlike TsAppend: re-evicting an already-past cutoff is a safe no-op (see SeriesStore::evict_before)"),
+        ("TsDeleteSeries", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::SeriesRedb, authz_action: "timeseries:write", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "content-idempotent unlike TsAppend: re-deleting an already-gone series is a safe no-op (see SeriesStore::delete_series)"),
+        ("TsListSeries", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "timeseries:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("BlobBegin", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::BlobRedb, authz_action: "blob:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op"),
         ("BlobChunkPut", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::BlobRedb, authz_action: "blob:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "durable via its own blob.redb (group-committed Immediate); self-routes before dispatch_graph_op"),
         ("BlobCommit", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::BlobRedb, authz_action: "blob:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op"),

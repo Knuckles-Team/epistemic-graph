@@ -3234,6 +3234,35 @@ pub enum Method {
         /// Grid step (ns) for the LOCF densification.
         step: i64,
     },
+    /// Retention: drop every point of `series_id` strictly older than `cutoff` (ns).
+    /// A whole-series-empty legal hold blocks this (`SeriesStore::evict_before`) --
+    /// held data survives a retention sweep, provably. Returns the number of WHOLE
+    /// chunk buckets removed (`ResultPayload::Count`); a straddling bucket is
+    /// trimmed in place rather than counted as removed. This is the SECOND durable
+    /// write in the `Ts*` family (alongside `TsAppend`) -- routed through the same
+    /// `MutationBatch`-compiled path so retention is commit-before-ack durable, not
+    /// a best-effort background trim.
+    TsEvict {
+        series_id: String,
+        cutoff: i64,
+    },
+    /// Retention: drop `series_id` ENTIRELY -- every chunk plus its meta row -- in
+    /// one durable write. Same legal-hold boundary as `TsEvict`. Returns the number
+    /// of chunks removed (`ResultPayload::Count`; `0` for an unknown or held
+    /// series). Unlike `TsEvict`, a subsequently re-appended series with the same
+    /// id starts fresh (no stale count/span carried over).
+    TsDeleteSeries {
+        series_id: String,
+    },
+    /// Enumerate every series id under the CALLER's own tenant+graph scope (never
+    /// cross-tenant/cross-graph -- mirrors every other `Ts*` method's `scoped_key`
+    /// derivation). Returns the caller-facing series ids as `ResultPayload::raw`
+    /// (`Vec<String>`), decoded server-side from the store's internally-encoded
+    /// `SeriesKey`s and filtered to this scope -- the encoded key itself never
+    /// crosses the wire. This is what makes `TsEvict`/`TsDeleteSeries` reachable
+    /// for a multi-series retention sweep: without an enumeration primitive a
+    /// caller has no way to discover which series exist to retain/evict at all.
+    TsListSeries,
 
     // ── Blob (CONCEPT:EG-KG.storage.blob-namespace — streamed content-addressed media substrate) ──
     // Streamed transfer of a large media blob as MANY ordinary one-Response-per-

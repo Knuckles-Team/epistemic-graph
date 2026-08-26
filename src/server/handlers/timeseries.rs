@@ -416,6 +416,94 @@ pub(crate) async fn try_handle(
             Ok(resp)
         }
 
+        // Retention (CONCEPT:EG-KG.storage.series-retention-reachability): `evict_before`/
+        // `delete_series` are naturally idempotent at the CONTENT level (re-evicting an
+        // already-past cutoff, or re-deleting an already-gone series, is a safe no-op that
+        // returns `0`) — unlike `TsAppend`, which would double points on a blind retry. So
+        // unlike `TsAppend`'s `append_scoped_batch`, these route through the store's plain
+        // `evict_before_scoped`/`delete_scoped` (one redb write txn each, still commit-
+        // before-ack durable) rather than the `eg_mutation_store` idempotency-batch
+        // machinery — there is no replay hazard here for that machinery to guard against.
+        Method::TsEvict { series_id, cutoff } => {
+            let store = match store_of(state, req_id).await {
+                Ok(s) => s,
+                Err(r) => return Ok(r),
+            };
+            let graph = graph.to_string();
+            let authority = authority.clone();
+            let resp = match compute_off_lock(req_id, move || {
+                let key = scoped_key(&authority, &graph, &series_id)?;
+                store
+                    .evict_before_scoped(&key, cutoff)
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            {
+                Ok(Ok(dropped)) => Response::ok(req_id, ResultPayload::Count(dropped as u64)),
+                Ok(Err(e)) => Response::err(req_id, e.to_string()),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+
+        Method::TsDeleteSeries { series_id } => {
+            let store = match store_of(state, req_id).await {
+                Ok(s) => s,
+                Err(r) => return Ok(r),
+            };
+            let graph = graph.to_string();
+            let authority = authority.clone();
+            let resp = match compute_off_lock(req_id, move || {
+                let key = scoped_key(&authority, &graph, &series_id)?;
+                store.delete_scoped(&key).map_err(|e| e.to_string())
+            })
+            .await
+            {
+                Ok(Ok(dropped)) => Response::ok(req_id, ResultPayload::Count(dropped as u64)),
+                Ok(Err(e)) => Response::err(req_id, e.to_string()),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+
+        // Enumeration (CONCEPT:EG-KG.storage.series-retention-reachability): the primitive a
+        // multi-series retention sweep needs to discover WHAT to evict/delete in the first
+        // place — without this, `TsEvict`/`TsDeleteSeries` are only reachable one
+        // already-known `series_id` at a time. `SeriesStore::list_series` returns every
+        // series id in the WHOLE store (cross-tenant, cross-graph — it has no scope of its
+        // own); this decodes each one back to a `SeriesKey` and keeps only the rows whose
+        // `(tenant, graph)` match the CALLER's own derived scope (same `scoped_key`
+        // derivation every other `Ts*` method uses), returning just the bare caller-facing
+        // series ids. The encoded storage key never crosses the wire.
+        Method::TsListSeries => {
+            let store = match store_of(state, req_id).await {
+                Ok(s) => s,
+                Err(r) => return Ok(r),
+            };
+            let graph = graph.to_string();
+            let authority = authority.clone();
+            let resp = match compute_off_lock(req_id, move || {
+                let expected_tenant = authority.tenant_scope().to_string();
+                let expected_graph = authority.namespace("timeseries-graph", &graph);
+                let all = store.list_series().map_err(|e| e.to_string())?;
+                let mut series_ids: Vec<String> = all
+                    .into_iter()
+                    .filter_map(|encoded| SeriesKey::decode(&encoded))
+                    .filter(|key| key.tenant == expected_tenant && key.graph == expected_graph)
+                    .map(|key| key.series)
+                    .collect();
+                series_ids.sort_unstable();
+                Ok::<_, String>(series_ids)
+            })
+            .await
+            {
+                Ok(Ok(series_ids)) => Response::ok(req_id, ResultPayload::raw(&series_ids)),
+                Ok(Err(e)) => Response::err(req_id, e.to_string()),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+
         other => Err(other),
     }
 }
