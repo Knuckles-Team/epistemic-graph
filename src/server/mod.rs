@@ -650,7 +650,10 @@ mod ca17_feature_stub_contract {
         // `dep:eg-stream`/`eg-stream/cdc-kafka` -- see the Cargo.toml comment on the
         // `cdc-kafka` line and CA-11's report for why (the `CdcSink` trait/`rdkafka`
         // producer live in `eg-stream`, which nothing else pulls in without `stream`).
-        ("cdc-kafka", "[\"streaming\", \"dep:eg-stream\", \"eg-stream/cdc-kafka\"]"),
+        (
+            "cdc-kafka",
+            "[\"streaming\", \"dep:eg-stream\", \"eg-stream/cdc-kafka\"]",
+        ),
         ("sparql-fuseki", "[\"sparql\"]"),
         ("obda-wire", "[\"obda\"]"),
         ("federation-opensearch", "[\"federation-search\"]"),
