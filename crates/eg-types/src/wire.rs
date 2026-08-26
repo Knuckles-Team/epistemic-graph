@@ -534,8 +534,10 @@ pub enum Op {
     /// [`ForeignSourceSpec`] and actually fetches+joins). The UQL `FOREIGN "<name>"`
     /// clause (CONCEPT:EG-KG.query.sparql-completeness) instead lowers to the lighter [`Op::Foreign`] name
     /// MARKER below — the parser only has a name, and resolving that name to a concrete
-    /// `ForeignSourceSpec` requires the server-side `foreign_sources` registry that
-    /// eg-plan (below the server) cannot reach. The two are complementary: `Foreign`
+    /// `ForeignSourceSpec` goes through the server-side `foreign_sources` map, which the
+    /// served query handler turns into eg-plan's own `ForeignSourceRegistry` and binds
+    /// onto the `PlanCtx` (CONCEPT:EG-KG.query.closure-backed-source). The two are
+    /// complementary: `Foreign`
     /// is the named-reference surface, `ForeignScan` is the resolved executor a
     /// server/planner constructs.
     #[cfg(feature = "federation")]

@@ -3,10 +3,15 @@
 //! `RegisterForeignSource` records a named EXTERNAL source (a remote epistemic-graph
 //! engine or an HTTP/JSON API — [`eg_types::wire::ForeignSourceSpec`]) in the
 //! process-global `foreign_sources` map on `ServerState`, so it can be reused by name.
-//! The actual cross-engine / HTTP fetch is driven by the unified-query handler when an
-//! `Op::ForeignScan` runs (the inline-spec path); this handler is the registration
-//! surface. Process-global (a foreign endpoint is not graph-scoped), so it takes
-//! `state`. A lightweight, non-blocking insert — no off-reactor work needed.
+//! The actual cross-engine / HTTP fetch is driven by the unified-query handler: an
+//! inline-spec `Op::ForeignScan` resolves itself, and a `Named` `Op::ForeignScan` / an
+//! `Op::Foreign` (the UQL `FOREIGN "<name>"` marker) resolves THIS map through the
+//! `eg_plan::federation::ForeignSourceRegistry` `run_unified` builds from it
+//! (`handlers::query::foreign_registry_from`, CONCEPT:EG-KG.query.closure-backed-source)
+//! — so a source registered here is genuinely queryable, not merely recorded. This
+//! handler is the registration surface. Process-global (a foreign endpoint is not
+//! graph-scoped), so it takes `state`. A lightweight, non-blocking insert — no
+//! off-reactor work needed.
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
