@@ -172,19 +172,28 @@ pub async fn serve(stream: &mut TcpStream, method: &str, target: &str) {
             let response = graph.clusters(level, parent);
             match encode_cluster_level(&response) {
                 Ok(bytes) => write_fixed_body(stream, "200 OK", &bytes).await,
-                Err(err) => write_json_error(stream, "500 Internal Server Error", &err.to_string()).await,
+                Err(err) => {
+                    write_json_error(stream, "500 Internal Server Error", &err.to_string()).await
+                }
             }
         }
         GraphTileRoute::Expand => {
             let Some(cluster_id) = parse_param::<u64>(&params, "cluster_id") else {
-                write_json_error(stream, "400 Bad Request", "missing required query param `cluster_id`").await;
+                write_json_error(
+                    stream,
+                    "400 Bad Request",
+                    "missing required query param `cluster_id`",
+                )
+                .await;
                 return;
             };
             let graph = DemoGraph::build(demo_params_from_query(&params));
             let response = graph.expand(cluster_id);
             match encode_cluster_expansion(&response) {
                 Ok(bytes) => write_fixed_body(stream, "200 OK", &bytes).await,
-                Err(err) => write_json_error(stream, "500 Internal Server Error", &err.to_string()).await,
+                Err(err) => {
+                    write_json_error(stream, "500 Internal Server Error", &err.to_string()).await
+                }
             }
         }
         GraphTileRoute::Stream => {
@@ -262,6 +271,9 @@ mod tests {
             (eg_viz_graph_tiles::demo::MAX_DEMO_NODE_COUNT + 1).to_string(),
         );
         let clamped = demo_params_from_query(&over);
-        assert_eq!(clamped.node_count, eg_viz_graph_tiles::demo::MAX_DEMO_NODE_COUNT);
+        assert_eq!(
+            clamped.node_count,
+            eg_viz_graph_tiles::demo::MAX_DEMO_NODE_COUNT
+        );
     }
 }
