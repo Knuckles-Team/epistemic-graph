@@ -99,13 +99,22 @@ or the catalog address is also configured.
 - **Delta readers** point at the `_delta_log` table path on the object store.
 - **Iceberg readers** point a catalog at the Iceberg-REST endpoint.
 - **Time-travel** reads pin a snapshot that corresponds to an engine LSN (`Op::AsOf`).
-- **Known gap (W4.8, `reports/issue-register.md`):** the production listener wiring
-  (`serve_with_security`) currently denies every Iceberg-REST request via the shared,
-  cross-cutting `server::unauthenticated_carrier_denied` stub — the same pre-existing gap affects
-  `obs`/`s3-api`/`sparql-http`/`federation-search`/`kvcache-server`, not something specific to lake. The
-  endpoint shapes are correct and covered by `src/server/lake/rest.rs`'s own (non-security) test suite and by
-  `tests/test_lake_iceberg_delta_parity.py`'s pyiceberg/deltalake read-parity tests, which drive the real
-  `eg-lake` write path directly rather than through the gated listener.
+- **Fixed (A17/A18, `plans/_archive/au-eg-program/issue-register.md`):** the shared,
+  cross-cutting `server::unauthenticated_carrier_denied` stub that used to deny EVERY request on
+  EVERY `serve_with_security`-wired auxiliary surface unconditionally (`obs`/`s3-api`/
+  `sparql-http`/`federation-search`/`kvcache-server`/`lake-rest` — never something specific to
+  lake) is gone. `unauthenticated_carrier_denied` now really checks for a verified
+  `CarrierAuthority` (`src/server/access.rs`). The Iceberg-REST catalog surface mints one from a
+  verified OAuth2 bearer (`server::auth::mint_iceberg_carrier`, `src/server/lake/rest.rs`) the
+  SAME way `s3-api` (SigV4), `kvcache-server` (bearer/JWT) and the `sparql-http`
+  SELECT/CONSTRUCT/ASK leg (bearer/JWT, `server::auth::mint_fixed_service_carrier`) do — one
+  shared policy, protocol-specific adapters. `obs`, `federation-search`, and SPARQL's own `/nl`
+  and Graph Store Protocol GET/HEAD read legs still have no protocol-native credential to verify
+  and correctly stay fail-closed (see AGENTS.md "Provenance citations" and the A18 register entry
+  for the per-surface disposition). The endpoint shapes are covered by `src/server/lake/rest.rs`'s
+  own (non-security) test suite and by `tests/test_lake_iceberg_delta_parity.py`'s
+  pyiceberg/deltalake read-parity tests, which drive the real `eg-lake` write path directly rather
+  than through the gated listener.
 
 See the [capability matrix](../capabilities.md#lakehouse-interop-eg-lake-ltap) row and
 [concepts](../concepts.md) `CONCEPT:EG-KG.storage.lsn-as-snapshot-returns` for the authoritative definition, and
