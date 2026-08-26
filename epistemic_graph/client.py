@@ -10286,6 +10286,31 @@ class TimeSeriesClient:
             out.append((int(ts), v, bool(filled)))
         return out
 
+    async def evict_before(self, series_id: str, cutoff_ts: int) -> int:
+        """Retention: drop every point of ``series_id`` strictly older than
+        ``cutoff_ts`` (ns). Returns the number of WHOLE chunk buckets removed (a
+        bucket straddling the cutoff is trimmed in place rather than counted).
+        A series under legal hold is left untouched and this returns ``0``.
+        Content-idempotent: re-evicting an already-past cutoff is a safe no-op."""
+        return await self._client._send(
+            "TsEvict", {"series_id": series_id, "cutoff": int(cutoff_ts)}
+        )
+
+    async def delete_series(self, series_id: str) -> int:
+        """Retention: drop ``series_id`` ENTIRELY (every chunk plus its meta row).
+        Returns the number of chunks removed (``0`` for an unknown or held
+        series). A subsequently re-appended series with the same id starts fresh.
+        Content-idempotent: re-deleting an already-gone series is a safe no-op."""
+        return await self._client._send("TsDeleteSeries", {"series_id": series_id})
+
+    async def list_series(self) -> list[str]:
+        """Enumerate every series id under the caller's own tenant+graph scope
+        (never cross-tenant/cross-graph). This is the discovery primitive a
+        retention sweep needs to know what to evict/delete in the first place —
+        see :meth:`evict_before`/:meth:`delete_series`."""
+        rows = await self._client._send("TsListSeries", {})
+        return [str(s) for s in (rows or [])]
+
 
 class RdfClient:
     """CONCEPT:EG-KG.ontology.kg-native-rdf-sparql / KG-2.218 — Native RDF/SPARQL Namespace.

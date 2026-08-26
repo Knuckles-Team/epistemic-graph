@@ -1182,6 +1182,8 @@ pub const NATIVE_CONSENSUS_METHODS: &[&str] = &[
     "KvDelete",
     "KvCas",
     "TsAppend",
+    "TsEvict",
+    "TsDeleteSeries",
     "AnalyticsJob",
     "ImportSqliteFile",
     "CreateChannel",
@@ -1344,7 +1346,9 @@ fn native_domain(method: &Method) -> Option<NativeMutationDomain> {
         }
 
         #[cfg(feature = "tsdb")]
-        Method::TsAppend { .. } => Some(NativeMutationDomain::TimeSeries),
+        Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. } => {
+            Some(NativeMutationDomain::TimeSeries)
+        }
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => Some(NativeMutationDomain::AnalyticsJob),
         // Not graph-scoped (own `statecharts.redb`, keyed by def_id/instance_id) --

@@ -2408,6 +2408,7 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_TENANT_KEY_SCOPED_SERIES
     ("TsAsofJoin", REASON_TENANT_KEY_SCOPED_SERIES),
     ("TsGapFill", REASON_TENANT_KEY_SCOPED_SERIES),
+    ("TsListSeries", REASON_TENANT_KEY_SCOPED_SERIES),
     ("TsRange", REASON_TENANT_KEY_SCOPED_SERIES),
     ("TsWindow", REASON_TENANT_KEY_SCOPED_SERIES),
     // REASON_BLOB_OWNER_SCOPED
@@ -2548,14 +2549,22 @@ mod read_rls_coverage_tests {
         );
     }
 
-    /// The exact, task-named gap this gate exists to close: `timeseries.rs`'s 4
-    /// read methods must be a DOCUMENTED, justified `NON_ROW_SCOPED` exception --
+    /// The exact, task-named gap this gate exists to close: `timeseries.rs`'s 5
+    /// read methods (the original 4 query primitives plus `TsListSeries`, the
+    /// tenant/graph-scoped series enumeration retention needs to discover what
+    /// to sweep) must be a DOCUMENTED, justified `NON_ROW_SCOPED` exception --
     /// never `RLS_ROUTED` (they never construct a `GraphView`) and never
     /// silently absent from every bucket.
     #[test]
     fn timeseries_read_methods_are_a_documented_non_row_scoped_exception() {
         let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
-        for method in ["TsRange", "TsAsofJoin", "TsWindow", "TsGapFill"] {
+        for method in [
+            "TsRange",
+            "TsAsofJoin",
+            "TsWindow",
+            "TsGapFill",
+            "TsListSeries",
+        ] {
             assert!(
                 non_row.contains_key(method),
                 "'{method}' must be a documented NON_ROW_SCOPED exception"

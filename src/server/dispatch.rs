@@ -6189,8 +6189,16 @@ async fn dispatch_graph_op_inner(
 
     // TsAppend used to self-route before this boundary, which accidentally classified
     // it as neither a graph read nor write. It is now graph-scoped and requires the
-    // same Write ACL as every other mutation; all other Ts methods require Read.
-    let access = if requires_write(&method) || matches!(&method, Method::TsAppend { .. }) {
+    // same Write ACL as every other mutation; so do the other two `series.redb`
+    // mutations, TsEvict/TsDeleteSeries (retention) -- a Read-only caller must not be
+    // able to evict points or delete a whole series any more than they could append
+    // to one. All other Ts methods (including the read-only TsListSeries enumeration)
+    // require only Read.
+    let access = if requires_write(&method)
+        || matches!(
+            &method,
+            Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. }
+        ) {
         AccessLevel::Write
     } else {
         AccessLevel::Read
@@ -7103,12 +7111,16 @@ async fn dispatch_graph_op_inner(
         };
     }
 
-    // `TsAppend` is not yet a Raft state-machine command, so it cannot rely on the
-    // durable-mutation barrier below. Still fence it to the current placement
-    // leader: accepting a follower-local append would create a divergent
-    // `series.redb` projection and acknowledge a write on the wrong replica.
+    // `TsAppend`/`TsEvict`/`TsDeleteSeries` are not yet Raft state-machine commands, so none
+    // can rely on the durable-mutation barrier below. Still fence every `series.redb` WRITE
+    // to the current placement leader: accepting a follower-local append, retention evict, or
+    // whole-series delete would create a divergent `series.redb` projection and acknowledge a
+    // write on the wrong replica. (`TsListSeries` is a read and is intentionally excluded.)
     #[cfg(all(feature = "raft", feature = "tsdb"))]
-    if matches!(&method, Method::TsAppend { .. }) {
+    if matches!(
+        &method,
+        Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. }
+    ) {
         if let Some(routed) = routed_raft.as_ref() {
             let leader = routed.handle.current_leader().await;
             if leader != Some(routed.handle.node_id) {
@@ -7193,6 +7205,9 @@ async fn dispatch_graph_op_inner(
             | Method::TsAsofJoin { .. }
             | Method::TsWindow { .. }
             | Method::TsGapFill { .. }
+            | Method::TsEvict { .. }
+            | Method::TsDeleteSeries { .. }
+            | Method::TsListSeries
     ) {
         let carrier = match CarrierAuthority::from_verified(verified_context) {
             Ok(authority) => authority,
@@ -8612,6 +8627,362 @@ mod eg318_dispatch_tests {
             other => panic!("expected scoped TsRange result, got {other:?}"),
         };
         assert_eq!(points, vec![(1, vec![10.0])]);
+        drop(state);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// End-to-end reachability proof for `TsListSeries`/`TsEvict`/`TsDeleteSeries`
+    /// (CONCEPT:EG-KG.storage.series-retention-reachability): before this test's
+    /// production code existed, `SeriesStore::evict_before`/`delete_series`/
+    /// `list_series` were reachable ONLY from `eg-tsdb`'s own crate-internal unit
+    /// tests — no `Method` variant, no RPC route, no caller anywhere in `src/`. This
+    /// drives all three through the SAME `dispatch()` entrypoint a wire request
+    /// hits, against a REAL `SeriesStore`/redb file, proving: (1) `TsListSeries`
+    /// enumerates a just-appended series scoped to the caller's own tenant/graph
+    /// (never cross-tenant, mirroring `timeseries_is_graph_authorized_and_tenant_scoped`
+    /// above); (2) `TsEvict` actually removes only the points before its cutoff,
+    /// verified by reading the survivors back with `TsRange`; (3) `TsDeleteSeries`
+    /// removes the series entirely -- it drops off `TsListSeries` and `TsRange`
+    /// against it comes back empty, not an error (an unknown series is legal, per
+    /// `SeriesStore::range_scoped`'s existing "empty for an unknown series"
+    /// contract).
+    #[cfg(feature = "tsdb")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn timeseries_retention_evict_delete_and_list_are_scoped_and_reachable() {
+        let state = state_min();
+        let path = std::env::temp_dir().join(format!(
+            "eg-ts-retention-{}-{}.redb",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        {
+            let mut s = state.write().await;
+            s.tsdb_store = Some(Arc::new(eg_tsdb::store::SeriesStore::open(&path).unwrap()));
+            #[cfg(feature = "security")]
+            {
+                use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+                s.isolation.add_role(Role::new("owner-acme-private"));
+                s.isolation.add_role(Role::new("owner-other-private"));
+                let grant = |role: &str, graph: &str, action: RbacAction| Grant {
+                    role: role.to_string(),
+                    resource: ResourceSelector::Graph(graph.to_string()),
+                    action,
+                    effect: GrantEffect::Allow,
+                };
+                for action in [RbacAction::Read, RbacAction::Write] {
+                    s.isolation
+                        .add_grant(grant("owner-acme-private", "acme:private", action));
+                    s.isolation
+                        .add_grant(grant("owner-other-private", "other:private", action));
+                }
+            }
+            s.isolation.register_agent(AgentIdentity {
+                agent_id: "alice".into(),
+                role: AgentRole::Agent,
+                teams: vec![],
+                #[cfg(feature = "security")]
+                roles: vec!["owner-acme-private".into()],
+                #[cfg(not(feature = "security"))]
+                roles: vec![],
+            });
+            s.isolation.register_agent(AgentIdentity {
+                agent_id: "bob".into(),
+                role: AgentRole::Agent,
+                teams: vec![],
+                #[cfg(feature = "security")]
+                roles: vec!["owner-other-private".into()],
+                #[cfg(not(feature = "security"))]
+                roles: vec![],
+            });
+            let _ = s.registry.create_graph(
+                "acme:private",
+                crate::protocol::GraphType::Agent,
+                Some("alice".into()),
+            );
+            let _ = s.registry.create_graph(
+                "other:private",
+                crate::protocol::GraphType::Agent,
+                Some("bob".into()),
+            );
+        }
+        let request = |id: u64, graph: &str, agent: &str, method: Method| {
+            sign_current_test_request(
+                SECRET,
+                Request {
+                    id,
+                    graph: graph.into(),
+                    auth_token: String::new(),
+                    agent_id: Some(agent.into()),
+                    method,
+                },
+            )
+        };
+        // Two points a full bucket apart (bucket_ns = 1_000) so evicting one leaves
+        // the other in a surviving bucket rather than trimming inside a shared one.
+        let append = Method::TsAppend {
+            series_id: "cpu".into(),
+            n_fields: 1,
+            bucket_ns: 1_000,
+            field_names: vec!["value".into()],
+            points_msgpack: rmp_serde::to_vec(&vec![(1i64, vec![10.0]), (2_000i64, vec![20.0])])
+                .unwrap(),
+        };
+        assert!(
+            dispatch_on_heap(&state, request(1, "acme:private", "alice", append))
+                .await
+                .error
+                .is_none()
+        );
+
+        // (1) TsListSeries: the just-appended series is visible to its own tenant...
+        let listed = dispatch_on_heap(
+            &state,
+            request(2, "acme:private", "alice", Method::TsListSeries),
+        )
+        .await;
+        let series_ids: Vec<String> = match listed.result {
+            Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+            other => panic!("expected TsListSeries result, got {other:?}"),
+        };
+        assert_eq!(series_ids, vec!["cpu".to_string()]);
+        // ...and invisible (denied, not merely empty) to a caller with no access to
+        // that graph at all -- the SAME cross-tenant graph ACL boundary
+        // `timeseries_is_graph_authorized_and_tenant_scoped` proves for TsRange.
+        let cross_tenant = dispatch_on_heap(
+            &state,
+            request(3, "other:private", "alice", Method::TsListSeries),
+        )
+        .await;
+        assert!(
+            cross_tenant.error.is_some(),
+            "cross-tenant TsListSeries must be denied"
+        );
+
+        // (2) TsEvict: cutoff = 1_000 drops the bucket containing ts=1 (< 1_000) and
+        // keeps the bucket containing ts=2_000 (>= 1_000).
+        let evicted = dispatch_on_heap(
+            &state,
+            request(
+                4,
+                "acme:private",
+                "alice",
+                Method::TsEvict {
+                    series_id: "cpu".into(),
+                    cutoff: 1_000,
+                },
+            ),
+        )
+        .await;
+        match evicted.result {
+            Some(ResultPayload::Count(dropped)) => {
+                assert_eq!(dropped, 1, "exactly one whole bucket must be evicted")
+            }
+            other => panic!(
+                "expected TsEvict Count result, got {other:?} / {:?}",
+                evicted.error
+            ),
+        }
+        let after_evict = dispatch_on_heap(
+            &state,
+            request(
+                5,
+                "acme:private",
+                "alice",
+                Method::TsRange {
+                    series_id: "cpu".into(),
+                    from: 0,
+                    to: 10_000,
+                },
+            ),
+        )
+        .await;
+        let survivors: Vec<(i64, Vec<f64>)> = match after_evict.result {
+            Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+            other => panic!("expected scoped TsRange result, got {other:?}"),
+        };
+        assert_eq!(
+            survivors,
+            vec![(2_000, vec![20.0])],
+            "the point at ts=1 must be gone; the point at ts=2_000 must survive"
+        );
+
+        // (3) TsDeleteSeries: removes the series entirely.
+        let deleted = dispatch_on_heap(
+            &state,
+            request(
+                6,
+                "acme:private",
+                "alice",
+                Method::TsDeleteSeries {
+                    series_id: "cpu".into(),
+                },
+            ),
+        )
+        .await;
+        match deleted.result {
+            Some(ResultPayload::Count(dropped)) => {
+                assert_eq!(dropped, 1, "the one surviving bucket must be removed")
+            }
+            other => panic!(
+                "expected TsDeleteSeries Count result, got {other:?} / {:?}",
+                deleted.error
+            ),
+        }
+        let listed_after_delete = dispatch_on_heap(
+            &state,
+            request(7, "acme:private", "alice", Method::TsListSeries),
+        )
+        .await;
+        let series_ids_after_delete: Vec<String> = match listed_after_delete.result {
+            Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+            other => panic!("expected TsListSeries result, got {other:?}"),
+        };
+        assert!(
+            series_ids_after_delete.is_empty(),
+            "the deleted series must no longer be listed"
+        );
+        let range_after_delete = dispatch_on_heap(
+            &state,
+            request(
+                8,
+                "acme:private",
+                "alice",
+                Method::TsRange {
+                    series_id: "cpu".into(),
+                    from: 0,
+                    to: 10_000,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            range_after_delete.error.is_none(),
+            "TsRange against a deleted series is legal (empty), not an error"
+        );
+        let empty: Vec<(i64, Vec<f64>)> = match range_after_delete.result {
+            Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+            other => panic!("expected scoped TsRange result, got {other:?}"),
+        };
+        assert!(empty.is_empty());
+
+        drop(state);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// The ACL fix this task made: `TsEvict`/`TsDeleteSeries` are `series.redb`
+    /// MUTATIONS and must require the same Write access level as `TsAppend` -- a
+    /// caller granted only Read on a graph must be able to enumerate/read its
+    /// series (`TsListSeries`/`TsRange`) but must NOT be able to evict or delete
+    /// one. Before the fix to the `access` computation in this file (the
+    /// `matches!` alongside `requires_write`), `TsEvict`/`TsDeleteSeries` fell to
+    /// the `else` branch and were silently classified `AccessLevel::Read`, so a
+    /// Read-only caller could destroy retained data.
+    #[cfg(all(feature = "tsdb", feature = "security"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn timeseries_retention_mutations_require_write_not_read() {
+        use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+
+        let state = state_min();
+        let path = std::env::temp_dir().join(format!(
+            "eg-ts-retention-acl-{}-{}.redb",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        {
+            let mut s = state.write().await;
+            s.tsdb_store = Some(Arc::new(eg_tsdb::store::SeriesStore::open(&path).unwrap()));
+            s.isolation.add_role(Role::new("reader-acme-private"));
+            s.isolation.add_grant(Grant {
+                role: "reader-acme-private".to_string(),
+                resource: ResourceSelector::Graph("acme:private".to_string()),
+                action: RbacAction::Read,
+                effect: GrantEffect::Allow,
+            });
+            s.isolation.register_agent(AgentIdentity {
+                agent_id: "reader".into(),
+                role: AgentRole::Agent,
+                teams: vec![],
+                roles: vec!["reader-acme-private".into()],
+            });
+            let _ = s.registry.create_graph(
+                "acme:private",
+                crate::protocol::GraphType::Agent,
+                Some("owner".into()),
+            );
+        }
+        let request = |id: u64, method: Method| {
+            sign_current_test_request(
+                SECRET,
+                Request {
+                    id,
+                    graph: "acme:private".into(),
+                    auth_token: String::new(),
+                    agent_id: Some("reader".into()),
+                    method,
+                },
+            )
+        };
+
+        let list = dispatch_on_heap(&state, request(1, Method::TsListSeries)).await;
+        assert!(
+            list.error.is_none(),
+            "a Read-granted caller must be able to list series: {:?}",
+            list.error
+        );
+        let range = dispatch_on_heap(
+            &state,
+            request(
+                2,
+                Method::TsRange {
+                    series_id: "cpu".into(),
+                    from: 0,
+                    to: 10,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            range.error.is_none(),
+            "a Read-granted caller must be able to range-read series: {:?}",
+            range.error
+        );
+
+        let evict = dispatch_on_heap(
+            &state,
+            request(
+                3,
+                Method::TsEvict {
+                    series_id: "cpu".into(),
+                    cutoff: i64::MAX,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            evict.error.is_some(),
+            "a Read-only caller must NOT be able to evict series data"
+        );
+        let delete = dispatch_on_heap(
+            &state,
+            request(
+                4,
+                Method::TsDeleteSeries {
+                    series_id: "cpu".into(),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            delete.error.is_some(),
+            "a Read-only caller must NOT be able to delete a series"
+        );
+
         drop(state);
         let _ = std::fs::remove_file(path);
     }

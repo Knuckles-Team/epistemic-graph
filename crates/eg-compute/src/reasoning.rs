@@ -51,12 +51,63 @@ fn extract_facts(core: &GraphCore) -> (Vec<(String, String)>, Vec<(String, Strin
     (node_types, edge_types)
 }
 
+/// SAFE-MODE invariant (CONCEPT:EG-KG.compute.reasoning-connect-only): materialisation of a
+/// derived edge fact may only CONNECT a pair of nodes that currently has **no** edge between
+/// them. It must never modify an edge between a pair that already has one — not its
+/// relationship type, not its properties, not an `inferred` stamp.
+///
+/// This is the fix for a measured defect: the native graph stores edge properties as a `Vec`
+/// per ordered `(source, target)` pair (`GraphCore::edge_properties`), and downstream readers
+/// that expect a single "current" relationship per pair (temporal/latest-wins reads, exports,
+/// simple pattern matches) observe whichever entry was written LAST. Before this guard,
+/// reasoning would unconditionally `push` a new properties entry for a pair the moment the
+/// closure derived a fact over it — e.g. an ontology's `PART_OF ⊑ DEPENDS_ON` subsumption
+/// turned an asserted `a -PART_OF-> b` edge into what reads back as `a -DEPENDS_ON-> b`
+/// (`inferred: true`), even though the topology graph never gained a second physical edge (its
+/// own `find_edge` guard already skipped that). That silent relabeling of an ASSERTED fact by a
+/// process the user turned on for its READ-ONLY inference value is exactly why the calling
+/// wiring was shipped disabled.
+///
+/// A pair counts as "already connected" if EITHER the topology graph has an edge between the
+/// two node indices OR `edge_properties` already holds a (possibly out-of-band) entry for the
+/// pair — checking both sides defends against the very mismatch this bug can itself produce.
+///
+/// This is not a flag. The one-edge-per-ordered-pair *read* model (whatever a caller treats as
+/// "the" relationship for a pair) is a hard invariant elsewhere in this codebase already (see
+/// `GraphTxn::remove_edge`'s "pair removal replaces all" note, and `BatchOperation::AddEdge`'s
+/// `upsert` semantics, which explicitly `remove_edge` before `add_edge` to replace a pair's
+/// state); a reasoning pass has no basis to treat that invariant as optional just because its
+/// own write is "only" an inference. Connect-only is therefore the only behaviour this function
+/// has — there is no opt-out, in keeping with this codebase's native-by-default convention: a
+/// safety property is not something a caller can forget to ask for.
+fn pair_already_connected(
+    txn: &crate::graph::GraphTxn<'_>,
+    core: &GraphCore,
+    src: &str,
+    tgt: &str,
+) -> bool {
+    let topology_connected = match (txn.topo.node_map.get(src), txn.topo.node_map.get(tgt)) {
+        (Some(&src_idx), Some(&tgt_idx)) => txn.topo.graph.find_edge(src_idx, tgt_idx).is_some(),
+        _ => false,
+    };
+    topology_connected
+        || core
+            .edge_properties
+            .get(&(src.to_string(), tgt.to_string()))
+            .is_some_and(|props| !props.is_empty())
+}
+
 /// Run forward-chaining Datalog reasoning until fixpoint.
 ///
 /// Returns a list of inferred triples as `HashMap<String, String>` with keys:
-/// - `subject`, `predicate`, `object`, `inference_type`
+/// - `subject`, `predicate`, `object`, `inference_type`, and `materialized` (`"true"`/`"false"`)
 ///
-/// Also mutates the graph in-place by adding inferred edges and type annotations.
+/// Also mutates the graph in-place by adding inferred edges (SAFE-MODE: only between pairs with
+/// no existing edge — see [`pair_already_connected`]) and type annotations. A derived edge fact
+/// over a pair that already has an edge is still reported in the returned triples (it IS a true
+/// logical consequence of the base facts and the ontology, and the caller may want to know that
+/// — e.g. for audit/provenance), but with `materialized: "false"`: the graph itself is left
+/// untouched for that pair.
 pub fn run_datalog_reasoning(
     core: &GraphCore,
     subclass_relations: Vec<(String, String)>,
@@ -118,17 +169,24 @@ pub fn run_datalog_reasoning(
             fact.insert("predicate".to_string(), new_prop.clone());
             fact.insert("object".to_string(), tgt.clone());
             fact.insert("inference_type".to_string(), "rust_datalog".to_string());
+
+            // SAFE-MODE (see `pair_already_connected`): a pair that already has an edge is
+            // reported as a logical consequence but left untouched -- never relabeled.
+            if pair_already_connected(&txn, core, src, tgt) {
+                fact.insert("materialized".to_string(), "false".to_string());
+                inferred_triples.push(fact);
+                continue;
+            }
+            fact.insert("materialized".to_string(), "true".to_string());
             inferred_triples.push(fact);
 
             // Safe access — only add edge if both nodes exist
             if let (Some(&src_idx), Some(&tgt_idx)) =
                 (txn.topo.node_map.get(src), txn.topo.node_map.get(tgt))
             {
-                if txn.topo.graph.find_edge(src_idx, tgt_idx).is_none() {
-                    txn.topo
-                        .graph
-                        .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
-                }
+                txn.topo
+                    .graph
+                    .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
             }
 
             let val = serde_json::json!({
@@ -258,7 +316,10 @@ pub fn infer_property_chains(
     chains: Vec<(String, String, String)>,
 ) -> Vec<HashMap<String, String>> {
     let mut inferred = Vec::new();
-    let mut new_edges: Vec<(String, String, String)> = Vec::new();
+    // (src, tgt, inferred_prop, fact_index) — `fact_index` into `inferred` lets the
+    // materialization loop below correct that fact's `materialized` flag once it knows
+    // whether the pair was already connected (SAFE-MODE, see `pair_already_connected`).
+    let mut new_edges: Vec<(String, String, String, usize)> = Vec::new();
 
     // Index edges by canonical relationship for fast lookup.
     let mut edges_by_type: HashMap<String, Vec<(String, String)>> = HashMap::new();
@@ -309,13 +370,17 @@ pub fn infer_property_chains(
                         .unwrap_or(false);
 
                     if !exists {
-                        new_edges.push((a.clone(), c.clone(), inferred_prop.clone()));
                         let mut fact = HashMap::new();
                         fact.insert("subject".to_string(), a.clone());
                         fact.insert("predicate".to_string(), inferred_prop.clone());
                         fact.insert("object".to_string(), c.clone());
                         fact.insert("inference_type".to_string(), "property_chain".to_string());
+                        // Corrected to "false" below if the pair turns out to already be
+                        // connected (SAFE-MODE: connect-only materialization).
+                        fact.insert("materialized".to_string(), "true".to_string());
+                        let fact_index = inferred.len();
                         inferred.push(fact);
+                        new_edges.push((a.clone(), c.clone(), inferred_prop.clone(), fact_index));
                     }
                 }
             }
@@ -323,17 +388,24 @@ pub fn infer_property_chains(
     }
 
     // Apply inferred edges to graph under one write txn (atomic topology edits;
-    // edge_properties push via the interior-mutable DashMap).
+    // edge_properties push via the interior-mutable DashMap). SAFE-MODE: a pair that
+    // already has an edge (topology OR edge_properties) is left completely untouched —
+    // never relabeled, never given a second properties entry — including a pair that a
+    // PRIOR chain in this same call just connected (`pair_already_connected` re-checks
+    // live state each iteration, so it also blocks a later chain in this batch from
+    // stacking a second edge over a pair one earlier in the batch just created).
     let mut txn = core.txn();
-    for (src, tgt, prop) in &new_edges {
+    for (src, tgt, prop, fact_index) in &new_edges {
+        if pair_already_connected(&txn, core, src, tgt) {
+            inferred[*fact_index].insert("materialized".to_string(), "false".to_string());
+            continue;
+        }
         if let (Some(&src_idx), Some(&tgt_idx)) =
             (txn.topo.node_map.get(src), txn.topo.node_map.get(tgt))
         {
-            if txn.topo.graph.find_edge(src_idx, tgt_idx).is_none() {
-                txn.topo
-                    .graph
-                    .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
-            }
+            txn.topo
+                .graph
+                .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
         }
         let val = serde_json::json!({
             "relationship": prop.clone(),
@@ -412,5 +484,148 @@ mod tests {
             t.get("subject").map(String::as_str) == Some("rex")
                 && t.get("object").map(String::as_str) == Some("Animal")
         }));
+    }
+
+    /// SAFE-MODE regression test (CONCEPT:EG-KG.compute.reasoning-connect-only): this is the
+    /// test that would have caught the relabel. `a -PART_OF-> b` is ASSERTED (a real, non-
+    /// inferred edge). The ontology says `PART_OF` is a sub-property of `DEPENDS_ON`, so a
+    /// reasoning pass over this graph legitimately entails `a -DEPENDS_ON-> b` — and, before
+    /// the SAFE-MODE guard, materialisation pushed that entailed fact straight into
+    /// `edge_properties` for the SAME pair, so a "current relationship" read of `(a, b)` (last
+    /// entry wins) came back `DEPENDS_ON`/`inferred: true` instead of the asserted `PART_OF`.
+    /// Assert the asserted edge is BYTE-FOR-BYTE unchanged after reasoning: still exactly one
+    /// properties entry, still `PART_OF`, still no `inferred` stamp — and that the topology
+    /// still has exactly the one edge it started with (no phantom second parallel edge either).
+    #[test]
+    fn subproperty_inference_never_relabels_an_asserted_edge() {
+        let core = GraphCore::new();
+        core.add_node("a".into(), props(serde_json::json!({"type": "Thing"})));
+        core.add_node("b".into(), props(serde_json::json!({"type": "Thing"})));
+        core.add_edge(
+            "a".into(),
+            "b".into(),
+            props(serde_json::json!({"relationship": "PART_OF"})),
+        )
+        .unwrap();
+
+        let before = core.get_edge_properties("a", "b");
+        assert_eq!(
+            before.len(),
+            1,
+            "exactly one asserted edge before reasoning"
+        );
+
+        let inferred = run_datalog_reasoning(
+            &core,
+            vec![],
+            vec![("PART_OF".into(), "DEPENDS_ON".into())],
+            vec![],
+            vec![],
+            vec![],
+        )
+        .unwrap();
+
+        // The subsumption WAS a true logical consequence -- it must still be reported...
+        let depends_on_fact = inferred
+            .iter()
+            .find(|t| {
+                t.get("subject").map(String::as_str) == Some("a")
+                    && t.get("predicate").map(String::as_str) == Some("DEPENDS_ON")
+                    && t.get("object").map(String::as_str) == Some("b")
+            })
+            .expect("DEPENDS_ON over (a, b) is a true entailment and must be reported");
+        // ...but explicitly marked as NOT materialized, because the pair already had an edge.
+        assert_eq!(
+            depends_on_fact.get("materialized").map(String::as_str),
+            Some("false"),
+            "an inferred fact over an already-connected pair must be reported unmaterialized"
+        );
+
+        // The graph itself: untouched. Still exactly one properties entry for (a, b), and it is
+        // still the original asserted PART_OF -- not relabeled, not restamped `inferred: true`.
+        let after = core.get_edge_properties("a", "b");
+        assert_eq!(
+            after.len(),
+            1,
+            "reasoning must not add a second properties entry over an already-connected pair"
+        );
+        let decoded =
+            eg_types::msgpack::decode_property_value(&after[0]).expect("decode surviving edge");
+        assert_eq!(
+            decoded.get("relationship").and_then(|v| v.as_str()),
+            Some("PART_OF"),
+            "the asserted relationship type must survive the reasoning pass unchanged"
+        );
+        assert!(
+            decoded.get("inferred").is_none(),
+            "an asserted edge must never gain an `inferred` stamp from a reasoning pass"
+        );
+
+        // Topology: still exactly the one edge that was asserted -- no phantom parallel edge.
+        assert!(core.has_edge("a", "b"));
+    }
+
+    /// Same SAFE-MODE guarantee, exercised through `infer_property_chains`: a chain rule that
+    /// would derive a NEW relationship type over a pair that already has a DIFFERENT asserted
+    /// edge must not touch that pair either.
+    #[test]
+    fn property_chain_inference_never_relabels_an_asserted_edge() {
+        let core = GraphCore::new();
+        core.add_node("a".into(), props(serde_json::json!({"type": "Thing"})));
+        core.add_node("b".into(), props(serde_json::json!({"type": "Thing"})));
+        core.add_node("c".into(), props(serde_json::json!({"type": "Thing"})));
+        core.add_edge(
+            "a".into(),
+            "b".into(),
+            props(serde_json::json!({"relationship": "hasPart"})),
+        )
+        .unwrap();
+        core.add_edge(
+            "b".into(),
+            "c".into(),
+            props(serde_json::json!({"relationship": "isPartOf"})),
+        )
+        .unwrap();
+        // (a, c) is ALREADY asserted with an unrelated relationship type.
+        core.add_edge(
+            "a".into(),
+            "c".into(),
+            props(serde_json::json!({"relationship": "unrelated"})),
+        )
+        .unwrap();
+
+        let inferred = infer_property_chains(
+            &core,
+            vec![("hasPart".into(), "isPartOf".into(), "composedOf".into())],
+        );
+
+        let fact = inferred
+            .iter()
+            .find(|t| {
+                t.get("subject").map(String::as_str) == Some("a")
+                    && t.get("predicate").map(String::as_str) == Some("composedOf")
+                    && t.get("object").map(String::as_str) == Some("c")
+            })
+            .expect("composedOf over (a, c) is a true chain entailment and must be reported");
+        assert_eq!(
+            fact.get("materialized").map(String::as_str),
+            Some("false"),
+            "an inferred chain fact over an already-connected pair must be reported unmaterialized"
+        );
+
+        let after = core.get_edge_properties("a", "c");
+        assert_eq!(
+            after.len(),
+            1,
+            "property-chain inference must not add a second properties entry over an \
+             already-connected pair"
+        );
+        let decoded =
+            eg_types::msgpack::decode_property_value(&after[0]).expect("decode surviving edge");
+        assert_eq!(
+            decoded.get("relationship").and_then(|v| v.as_str()),
+            Some("unrelated"),
+            "the asserted relationship type must survive the chain-inference pass unchanged"
+        );
     }
 }
