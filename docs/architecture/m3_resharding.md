@@ -6,10 +6,15 @@
 > workload reports are `1M-CERTIFIED`. This handoff contains no `LIVE` or
 > `1M-CERTIFIED` claim. Historical branch names below identify provenance only.
 
-> **Scope.** M3 is the "horizontal scale spine" wave from
-> `reports/epistemic-graph-master-engine-gaps-2026-06-23.md` (see workspace/reports/)
-> — the two **P0** gaps "Elastic sharding / resharding-rebalancing with live data
-> migration" and "Scalable tenant catalog". This document reconciles current
+> **Scope.** M3 is the "horizontal scale spine" wave addressing two **P0** gaps —
+> "Elastic sharding / resharding-rebalancing with live data migration" and
+> "Scalable tenant catalog". These gaps were originally scoped in a
+> `epistemic-graph-master-engine-gaps-2026-06-23.md` planning document; that
+> document could not be located in this repo's history or in any known
+> workspace archive as of 2026-08-25 (an audit found several sibling
+> `reports/*.md` citations from the same era that DO survive under
+> `plans/_archive/` — this one apparently did not). Treat the gap scope above
+> as the operative statement of intent; this document reconciles current
 > source paths, focused repository evidence, and the remaining cross-node/object-tier work.
 >
 > **Concept IDs:** `CONCEPT:EG-KG.sharding.atomic-shard-swap` (offline K-shard migration tool), `CONCEPT:EG-KG.sharding.empty-catalog-routing`
@@ -299,8 +304,9 @@ EG-030's verbatim copy the `blob.redb` tables so blobs ride resharding; and (c)
 record lab/live/1M evidence against exact promoted artifacts. These are not
 claims that the current source has been deployed or certified.
 
-Ground every change in `reports/epistemic-graph-master-engine-gaps-2026-06-23.md` (Wave 4/5
-P0s) and the EG-KG.backend.sharded-k-way-durable sharding contract in [`engine.md`](engine.md).
+Ground every change in the Wave 4/5 P0 gap scope stated above (its originating
+planning doc is not locatable — see the note at the top of this file) and the
+EG-KG.backend.sharded-k-way-durable sharding contract in [`engine.md`](engine.md).
 
 ---
 
