@@ -16,3 +16,25 @@
 # Cargo.lock (see the W0.12 gate-proof report). Add a line here -- AND the
 # matching `[advisories].ignore` entry in deny.toml -- only when a real
 # advisory has no released fix and the risk is genuinely accepted.
+
+# GOC-76-W01 / CA-18 (2026-08-26): adding `iceberg` + `iceberg-storage-opendal`
+# 0.10.x under eg-lake's `lake` feature per the lane's verbatim scope pulls these
+# three advisories at the CURRENT pin, with no available fix today:
+#   - RUSTSEC-2024-0436: `iceberg` depends on `parquet` 58.4.0, which depends on
+#     the unmaintained `paste` crate. No safe upgrade exists (advisory says so
+#     explicitly). This is exactly the risk this crate's own doc comment already
+#     flagged as the reason eg's native Parquet path avoids the `parquet` crate
+#     (see crates/eg-lake/Cargo.toml's `polars-io` comment) -- the official
+#     `iceberg` crate reintroduces it as a transitive dependency, which is a real,
+#     measured cost of this adoption that GOC-76-W02+ (columnar-stack decision)
+#     should weigh alongside the binary-size delta.
+#   - RUSTSEC-2026-0194 / RUSTSEC-2026-0195: `iceberg-storage-opendal` 0.10.1 pins
+#     `opendal = "^0.57"`, and `opendal-core` 0.57.0 pins `quick-xml = "^0.39.3"`
+#     strictly (verified: `cargo update -p quick-xml@0.39.4 --precise 0.41.0`
+#     fails with "failed to select a version ... required by opendal-core
+#     v0.57.0"). opendal-core 0.58.2 exists on crates.io but iceberg-storage-opendal
+#     0.10.1's own `^0.57` requirement cannot reach it. No compatible bump exists
+#     until iceberg-rust or opendal ships a release pinning quick-xml >=0.41.
+RUSTSEC-2024-0436 expires=2026-11-24 # iceberg->parquet->paste unmaintained, no fix upstream at this pin
+RUSTSEC-2026-0194 expires=2026-11-24 # quick-xml 0.39.4 pinned by opendal-core 0.57.0, no compatible bump yet
+RUSTSEC-2026-0195 expires=2026-11-24 # quick-xml 0.39.4 pinned by opendal-core 0.57.0, no compatible bump yet
