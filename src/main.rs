@@ -1047,8 +1047,14 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
                      viewport-tile protocol on http://{}",
                     viz_interactive_addr
                 );
+                let viz_state = state.clone();
                 tokio::spawn(async move {
-                    epistemic_graph::server::viz_interactive::serve(listener, engine).await;
+                    epistemic_graph::server::viz_interactive::serve(
+                        listener,
+                        engine,
+                        Some(viz_state),
+                    )
+                    .await;
                 });
             }
             Err(e) => tracing::error!(

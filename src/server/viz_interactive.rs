@@ -100,12 +100,31 @@ const CLIENT_HTML: &str = include_str!("viz_interactive_client.html");
 /// persistent ColumnStore/render-cache/provenance with the RPC path (see
 /// `handlers::viz::engine_state`'s doc for why this is the SAME engine, not a
 /// second one).
-pub async fn serve(listener: TcpListener, engine: Arc<VizEngineState>) {
+pub async fn serve(
+    listener: TcpListener,
+    engine: Arc<VizEngineState>,
+    // VIZ-1/VIZ-2 bridge: `graph_tile_server`'s routes need the graph
+    // registry + persistence backend to resolve a real cluster hierarchy
+    // (see `graph_tile_source`'s doc); every other route on this listener
+    // ignores it. `None` ⇒ every `/graph_tile/*` request not opting into
+    // `?demo=1` degrades to an honest empty tile (no registry to resolve a
+    // graph against) -- `main.rs` always passes `Some`; `None` is for a
+    // caller (e.g. an external integration test) with no `ServerState` to
+    // hand in, per that type's own `pub(crate)`/`#[cfg(test)]` construction
+    // boundary.
+    state: Option<Arc<tokio::sync::RwLock<crate::server::ServerState>>>,
+) {
     loop {
         let Ok((mut stream, _)) = listener.accept().await else {
             continue;
         };
         let engine = engine.clone();
+        // Only `graph_tile_server`'s routes (below) read this -- avoid an
+        // unused-clone/unused-param warning in a build without `viz-graph-tiles`.
+        #[cfg(feature = "viz-graph-tiles")]
+        let state = state.clone();
+        #[cfg(not(feature = "viz-graph-tiles"))]
+        let _ = &state;
         tokio::spawn(async move {
             let Some(request) = read_request(&mut stream).await else {
                 return;
@@ -121,6 +140,7 @@ pub async fn serve(listener: TcpListener, engine: Arc<VizEngineState>) {
                     &mut stream,
                     &request.method,
                     &request.target,
+                    state.as_ref(),
                 )
                 .await;
                 return;
