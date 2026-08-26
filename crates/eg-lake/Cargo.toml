@@ -31,7 +31,19 @@ default = []
 # `apache-avro` is pure-Rust (default-features off → no snappy/zstd/bzip/xz C codecs),
 # so it stays in the Pi-contract spirit. OUT of pi (eg-lake is not a pi member) — the
 # same `lake` gate the Parquet transcode already lives behind.
-lake = ["dep:polars-core", "dep:polars-io", "dep:apache-avro"]
+#
+# GOC-76-W01 / CA-18: the official `iceberg` + `iceberg-storage-opendal` crates
+# (0.10.x, apache/iceberg-rust) are added under this SAME `lake` gate rather than a
+# new sub-feature — GOC-76's design note allows a new sub-feature "if isolation from
+# the legacy path proves necessary"; it is not: `iceberg`/`iceberg-storage-opendal`
+# resolve to the identical workspace `arrow = "58.3"` line already pulled by
+# `eg-query`/`eg-tsdb`'s `datafusion = "54"` (`cargo tree -d` below shows a single
+# resolved `arrow`), so there is no ABI-isolation reason to gate them separately.
+# The legacy hand-written `iceberg.rs`/`iceberg_avro.rs` metadata/manifest writers
+# (GOC-76-W03/W07 scope) are UNCHANGED by this — this crate only becomes buildable
+# against the official crate family; nothing yet calls it (GOC-76-W02..W07, off this
+# lane's scope per the CA-18 lane contract).
+lake = ["dep:polars-core", "dep:polars-io", "dep:apache-avro", "dep:iceberg", "dep:iceberg-storage-opendal"]
 # ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for LakeBatch` +
 # the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
 # into any tier aggregate (default/lake) — it is a capability-discovery/testing seam,
@@ -58,6 +70,20 @@ polars-io = { version = "0.54.4", optional = true, default-features = false, fea
 # with the always-available NULL codec, which every Iceberg reader (Spark/Trino/DuckDB)
 # opens. Only referenced under `#[cfg(feature = "lake")]`; OUT of pi.
 apache-avro = { version = "0.21", default-features = false, optional = true }
+
+# GOC-76-W01 (Ref, CA-18): the official Apache `iceberg-rust` crate family, added
+# under `lake` alongside the existing hand-written metadata/manifest writer. This
+# lane's deliverable is the dependency landing with a single resolved `arrow`
+# version workspace-wide (proven by `cargo tree -d`, attached in the lane log) — it
+# does NOT wire a caller (GOC-76-W02..W07 own the Transaction-API rewrite,
+# partitioning, schema evolution, and legacy-writer retirement decision).
+# `default-features = false` on `iceberg-storage-opendal` drops its default
+# `opendal-memory`/`opendal-fs` object-store backends we don't need in-tree yet
+# (the S3-compatible SeaweedFS backend `iceberg` reaches today goes through
+# Lakekeeper/Trino, not this crate); `opendal-s3` is kept explicit since W02+ will
+# need it once a real writer lands.
+iceberg = { version = "0.10", optional = true }
+iceberg-storage-opendal = { version = "0.10", optional = true, default-features = false, features = ["opendal-s3"] }
 
 [dev-dependencies]
 tempfile = "3"
