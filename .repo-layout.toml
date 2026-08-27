@@ -1,0 +1,65 @@
+# Repository-root directory-justification manifest, read by
+# scripts/check_root_hygiene.py.
+#
+# This is NOT a ratchet. A ratchet (a "baseline" a gate compares against
+# instead of an absolute standard) hides existing findings from view and only
+# ever grows by a gate silently re-recording whatever is currently true. This
+# file does the opposite on both counts:
+#   * it hides no finding -- every tracked root entry not listed here is a
+#     gate FAILURE, not a suppressed one;
+#   * it grows only by a deliberate human (or human-reviewed) edit that adds
+#     a one-line reason, never by a tool re-writing it to match the tree;
+#   * a listed entry that stops being tracked is ALSO a gate failure (see
+#     check_root_hygiene.py's stale-entry check) -- so unlike a baseline, this
+#     file cannot rot into fiction by silently outliving what it describes.
+#
+# Every tracked root directory, and every tracked non-dot root file, must have
+# a line here. Conventional, self-describing dot-FILES (.gitignore,
+# .pre-commit-config.yaml, ...) are instead enumerated in
+# scripts/check_root_hygiene.py's ALLOWED_DOTFILES -- see that module's
+# docstring for why the split.
+#
+# NOTE on `src` + `crates` both existing: this repo is a maturin hybrid, and
+# that is idiomatic, not a defect to fix. `src/` is the root Rust package
+# (server binary + PyO3 facade, 193 files / ~231k LOC) that maturin builds the
+# wheel from; `crates/` is the 48-member cargo workspace of library crates
+# `src/` composes. Ported from the agent-utilities original of this gate per
+# CX-HYG-01; see that repo's own .repo-layout.toml for the shared conventions
+# (scripts/, .github, .security, .specify, ...).
+
+[dirs]
+src = "root epistemic-graph package: server binary (src/bin/main.rs) + PyO3 facade that maturin builds the wheel from"
+crates = "the 48-member cargo workspace; the library surface src/ composes (see Cargo.toml [workspace].members)"
+epistemic_graph = "the pure-Python client package (parser/cli/client/pool/asr_provider/quant/...) shipped alongside the compiled extension; maturin's python-source root"
+benches = "criterion benchmarks: cold/warm reopen, massive-scale, pyo3 in-process vs UDS transport, redb group-commit, provenance-anchor"
+clients = "hand-maintained out-of-tree client SDKs: clients/go (Go) and clients/js (JS/TS), each with its own README, tests, and lockfile"
+docker = "Dockerfile(s) + compose stacks for the standalone/test engine image, plus the docker/wheels/ COPY target for the CI-built wheel"
+docs = "mkdocs documentation source: architecture, benchmarks, generated capability docs"
+examples = "runnable Rust examples (embedded usage, a neighbors-batch benchmark)"
+protocols = "versioned wire-protocol schemas (epistemic-operations, performance) consumed by client generators"
+scripts = "gate scripts (check_*.py) and release/bench tooling invoked by pre-commit/CI"
+tests = "the Rust integration test suite (adopt_*, characterization_*, advanced_*, ...)"
+".cargo" = "cargo config: the opt-in x86-64-v3/AVX2 target-cpu flag (EG-014/EG-015/EG-016) and the isolated target-dir default this repo's worktree-per-lane convention depends on"
+".config" = "nextest.toml: per-process test-runner config for the D-PERF-1 test-suite acceleration program"
+".github" = "GitHub Actions workflow definitions"
+".security" = "adversarial security-gate scripts (authenticated_negative.py, repository_fuzz.py) and security-contract.json read by the security CI gate"
+".specify" = "spec-kit state for SDD-governed feature work: reports/specs"
+
+[files]
+"AGENTS.md" = "agent-facing repo guide"
+"CHANGELOG.md" = "release changelog, updated by the bump2version release flow"
+"CLAUDE.md" = "Claude Code project instructions"
+"CONTRIBUTING.md" = "contributor guide"
+"LICENSE" = "license text"
+"README.md" = "project readme"
+"build_backend.py" = "PEP 517 composition build backend: folds the separately-built eg-numeric PyO3 module into the one maturin-built server wheel, so workspace/editable installs also get epistemic_graph.numeric"
+"build.rs" = "cargo build script -- currently a documented no-op (records that no external BLAS link is needed since nalgebra's serde feature is pure-Rust); kept as the standard maturin/cargo extension point"
+"Cargo.lock" = "workspace-wide dependency lockfile"
+"Cargo.toml" = "workspace manifest: the 48 [workspace].members plus the root package's own dependencies/features"
+"deny.toml" = "cargo-deny config: the fail-closed RUSTSEC/OSV advisory gate, the Rust twin of .cargo-audit-allow.txt / agent-utilities' .security-audit-allow.txt"
+"pyproject.toml" = "maturin/package metadata plus tool config; version is sourced dynamically from Cargo.toml [package].version so the wheel always matches the release tag"
+"requirements.txt" = "pinned runtime deps for non-uv installs"
+"rust-toolchain.toml" = "pinned rustc channel (1.96.0) and components (clippy, rustfmt) for reproducible builds"
+"mkdocs.yml" = "mkdocs site config"
+"pytest.ini" = "pytest configuration"
+"uv.lock" = "uv lockfile"
