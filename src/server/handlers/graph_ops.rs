@@ -145,6 +145,1022 @@ where
     .await
 }
 
+/// Shared conversion tail every `Mine*` gateway closure ends with (CONCEPT:EG-KG.mining.tsdb-typed-absent):
+/// a mining `Response` carries its own `error`/`result`, so folding it into the
+/// `apply: FnOnce(&GraphCore) -> Result<ResultPayload, String>` shape `commit_conditional_mutation`
+/// expects is identical work at every one of the 17 `Mine*` call sites, plus the
+/// GraphLearn*/MiningPipeline* families (same `commit_conditional_mutation` shape,
+/// gated on different features). Pure extract-method, no behaviour change:
+/// byte-identical to what each closure did inline before this extraction. Not
+/// itself `mining`-gated since GraphLearn*/MiningPipeline* need it under their
+/// own, different features.
+fn mining_response_to_gateway_result(resp: Response) -> Result<ResultPayload, String> {
+    match resp.error {
+        Some(e) => Err(e),
+        None => Ok(resp
+            .result
+            .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+    }
+}
+
+/// BUG-193: stamp the BUG-052/GOC-61 canonical `_owner_id` onto a brand-new
+/// node's property blob when the caller did not already supply an ownership
+/// key, so a genuinely natively-written row is no longer permanently unowned
+/// (the gap BUG-193 names: `_owner`/`isolation.rs`'s own native key had no
+/// production writer at all). Mutating `method` HERE — before either arm below
+/// clones it for the durable-commit path AND the `apply` closure — keeps the
+/// persisted blob and the applied RAM blob byte-identical, which is required
+/// for crash-recovery replay to reproduce the same row. Scoped to the two
+/// methods that hand the gateway a caller-supplied node property blob directly
+/// (`AddNode`, `CreateNodeIfAbsent`); the coalescable batch surface
+/// (`BatchUpdate`) and the staged Cypher/RDF/GraphQL write path are explicitly
+/// OUT of scope for this lane — see `plans/graph-os-completion-program/
+/// BUG-LEDGER.md#BUG-193` for the documented boundary. A `System`-role caller
+/// (bootstrap/migration/internal maintenance) is exempt: it is not a real
+/// per-agent owner and must not be stamped as one. An absent `caller`
+/// (state-machine-authorized replicated apply) is likewise exempt — there is no
+/// per-request identity to stamp with there. Pure extract-method from
+/// `try_handle_gateway`'s preamble, byte-identical behaviour, no signature
+/// change.
+#[cfg(feature = "security")]
+fn stamp_owner_id_if_applicable(
+    method: Method,
+    caller: Option<&str>,
+    isolation: &crate::isolation::IsolationLayer,
+) -> Method {
+    let mut method = method;
+    if matches!(
+        method,
+        Method::AddNode { .. } | Method::CreateNodeIfAbsent { .. }
+    ) {
+        if let Some(caller_id) = caller {
+            if !isolation.is_system(caller_id) {
+                let blob = match &method {
+                    Method::AddNode {
+                        properties_msgpack, ..
+                    }
+                    | Method::CreateNodeIfAbsent {
+                        properties_msgpack, ..
+                    } => properties_msgpack,
+                    _ => unreachable!("matched above"),
+                };
+                if let Some(stamped) = crate::isolation::stamp_owner_id_if_absent(blob, caller_id) {
+                    match &mut method {
+                        Method::AddNode {
+                            properties_msgpack, ..
+                        }
+                        | Method::CreateNodeIfAbsent {
+                            properties_msgpack, ..
+                        } => *properties_msgpack = stamped,
+                        _ => unreachable!("matched above"),
+                    }
+                }
+            }
+        }
+    }
+    method
+}
+
+/// Eviction changes RAM RESIDENCY ONLY — never durable content.
+///
+/// It used to run `core.evict_lru()` on the gateway's STAGED copy. The gateway
+/// then diffs `base_snapshot` (the live core, which holds the node) against the
+/// staged image (which no longer does) and publishes that delta, so every
+/// eviction durably DELETED exactly the rows it evicted. That is silent data
+/// loss, and it made the read-through seam unreachable by construction:
+/// `read_node_blocking`'s own contract says "eviction is durability-gated ... so
+/// an evicted node is always served here", and both
+/// `delete_then_recreate_same_name_keeps_new_writes` and
+/// `evicted_graph_lazy_reopens_with_data_intact` assert the row survives.
+/// Measured directly: read_node_blocking returned Some(4) before an EvictLRU and
+/// None immediately after it.
+///
+/// So the staged image is left UNTOUCHED (an eviction is not a content change,
+/// so the correct delta is the empty one), and the residency change is applied
+/// to the LIVE core afterwards — durability-gated exactly like the background
+/// evictor in `persist::evict_oversized_all`, which never had this bug because
+/// it never went through the gateway. The gateway call stays so the op keeps its
+/// `node:admin` authz, its fencing, and its version/plan semantics. Pure
+/// extract-method from `try_handle_gateway`'s `EvictLRU` arm: the original early
+/// `return Ok(response)` on a failed staged commit is equivalent to this
+/// function returning `response` directly, since nothing ran after the match in
+/// the caller besides wrapping the arm's value in `Ok(..)`.
+async fn apply_evict_lru(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    max_nodes: usize,
+) -> Response {
+    let response = commit_gateway(ctx, plan, method, move |_staged| {
+        Ok(ResultPayload::Json(serde_json::json!(0)))
+    })
+    .await;
+    if response.error.is_some() {
+        return response;
+    }
+    let candidates = ctx.core.lru_eviction_candidates(max_nodes);
+    let evicted = if candidates.is_empty() {
+        0
+    } else if let Some(backend) = ctx.persistence {
+        let fname = crate::persist::sanitize(ctx.graph_name);
+        match backend.durable_node_presence(&fname, &candidates) {
+            Ok(presence) if presence.len() == candidates.len() => {
+                let durable = candidates
+                    .into_iter()
+                    .zip(presence)
+                    .filter_map(|(node_id, present)| present.then_some(node_id))
+                    .collect::<Vec<_>>();
+                ctx.core.evict_resident_nodes(&durable)
+            }
+            // Durability unconfirmed: keep the nodes resident rather than
+            // risk evicting something that is not on disk yet.
+            Ok(_) | Err(_) => 0,
+        }
+    } else {
+        // No durable tier to fall back to, so eviction would lose the node.
+        0
+    };
+    Response::ok(ctx.req_id, ResultPayload::Json(serde_json::json!(evicted)))
+}
+
+/// `ApplyMutation` (SPARQL UPDATE): pure extract-method from `try_handle_gateway`'s
+/// closure, byte-identical behaviour, no signature change.
+fn apply_apply_mutation(
+    core: &GraphCore,
+    event_type: String,
+    query: String,
+) -> Result<ResultPayload, String> {
+    #[cfg(feature = "sparql")]
+    {
+        let _ = event_type;
+        struct SingleCoreStore(std::sync::Arc<GraphCore>);
+        impl eg_rdf::update::GraphStore for SingleCoreStore {
+            fn core(&self, graph: Option<&str>) -> Option<std::sync::Arc<GraphCore>> {
+                graph.is_none().then(|| self.0.clone())
+            }
+        }
+        #[cfg(feature = "shacl")]
+        {
+            let update = eg_rdf::update::parse_update(&query)
+                .map_err(|error| format!("ApplyMutation: {error}"))?;
+            if !eg_rdf::update::referenced_named_graphs(&update).is_empty() {
+                return Err(
+                    "ApplyMutation: graph-scoped updates cannot address a named RDF graph"
+                        .to_string(),
+                );
+            }
+            // GraphStore requires an owned Arc. Clone the isolated
+            // gateway image, execute there, then copy the successful
+            // result back into that same staged image. The live core is
+            // never exposed before the authoritative commit succeeds.
+            let update_core =
+                std::sync::Arc::new(GraphCore::from_snapshot(core.snapshot(), core.version())?);
+            let store = SingleCoreStore(update_core.clone());
+            let guard = crate::server::icv_guard::CoreIcvGuard::single(update_core.as_ref());
+            let report = eg_rdf::update::execute(
+                &update,
+                &store,
+                &eg_rdf::sparql::Projection::raw(),
+                &guard,
+            )
+            .map_err(|error| format!("ApplyMutation: {error}"))?;
+            core.replace_snapshot(update_core.snapshot())?;
+            serde_json::to_value(&report)
+                .map(ResultPayload::Json)
+                .map_err(|error| error.to_string())
+        }
+        #[cfg(not(feature = "shacl"))]
+        {
+            Err("ApplyMutation requires the shacl integrity-guard feature".to_string())
+        }
+    }
+    #[cfg(not(feature = "sparql"))]
+    {
+        let _ = (event_type, query, core);
+        Err("ApplyMutation (SPARQL UPDATE) requires the `sparql` feature".to_string())
+    }
+}
+
+/// `RunDatalogReasoning`: pure extract-method from `try_handle_gateway`'s closure,
+/// byte-identical behaviour, no signature change.
+#[allow(clippy::too_many_arguments)]
+fn apply_run_datalog_reasoning(
+    core: &GraphCore,
+    subclass_relations: Vec<(String, String)>,
+    subproperty_relations: Vec<(String, String)>,
+    symmetric_properties: Vec<String>,
+    transitive_properties: Vec<String>,
+    inverse_properties: Vec<(String, String)>,
+    domain_rules: Vec<(String, String)>,
+    range_rules: Vec<(String, String)>,
+    property_chains: Vec<(String, String, String)>,
+) -> Result<ResultPayload, String> {
+    let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
+    match crate::reasoning::run_datalog_reasoning(
+        core,
+        subclass_relations,
+        subproperty_relations,
+        symmetric_properties,
+        transitive_properties,
+        inverse_properties,
+    ) {
+        Ok(triples) => all_inferred.extend(triples),
+        Err(e) => return Err(e),
+    }
+    if !domain_rules.is_empty() || !range_rules.is_empty() {
+        all_inferred.extend(crate::reasoning::infer_domain_range(
+            core,
+            domain_rules,
+            range_rules,
+        ));
+    }
+    if !property_chains.is_empty() {
+        all_inferred.extend(crate::reasoning::infer_property_chains(
+            core,
+            property_chains,
+        ));
+    }
+    Ok(ResultPayload::Json(serde_json::json!({
+        "inferred_count": all_inferred.len(),
+        "inferred_triples": all_inferred,
+    })))
+}
+
+/// `ClaimNext`: pure extract-method from `try_handle_gateway`'s closure,
+/// byte-identical behaviour, no signature change.
+fn apply_claim_next(
+    core: &GraphCore,
+    label: &str,
+    updates_msgpack: &[u8],
+) -> Result<ResultPayload, String> {
+    let updates = match eg_types::msgpack::decode_property_object(updates_msgpack) {
+        Ok(m) => m,
+        Err(_) => {
+            return Ok(ResultPayload::raw(
+                &Option::<(String, serde_json::Value)>::None,
+            ))
+        }
+    };
+    let claimed = core.claim_next_fields(label, &updates);
+    Ok(ResultPayload::raw(&claimed))
+}
+
+/// `AddSceneObject`: pure extract-method from `try_handle_gateway`'s closure,
+/// byte-identical behaviour, no signature change.
+fn apply_add_scene_object(
+    core: &GraphCore,
+    pose_msgpack: &[u8],
+    parent: Option<&str>,
+) -> Result<ResultPayload, String> {
+    let Some(pose) = decode_pose(pose_msgpack) else {
+        return Err("AddSceneObject: undecodable pose_msgpack".to_string());
+    };
+    let id = core.add_scene_object(&pose, parent);
+    Ok(ResultPayload::String(id))
+}
+
+/// `SetPose`: pure extract-method from `try_handle_gateway`'s closure,
+/// byte-identical behaviour, no signature change.
+fn apply_set_pose(
+    core: &GraphCore,
+    node_id: &str,
+    pose_msgpack: &[u8],
+) -> Result<ResultPayload, String> {
+    let Some(pose) = decode_pose(pose_msgpack) else {
+        return Err("SetPose: undecodable pose_msgpack".to_string());
+    };
+    let ok = core.set_pose(node_id, &pose);
+    Ok(ResultPayload::Bool(ok))
+}
+
+/// `AddEmbedding`: pure extract-method from `try_handle_gateway`'s closure,
+/// byte-identical behaviour, no signature change.
+fn apply_add_embedding(
+    core: &GraphCore,
+    node_id: String,
+    embedding: Vec<f32>,
+) -> Result<ResultPayload, String> {
+    let source_version = core.version();
+    core.semantic_store
+        .write()
+        .add_embedding(node_id, embedding)
+        .map_err(|error| error.to_string())?;
+    // Content-derived indexes are unchanged by a vector-only mutation, but their
+    // completeness manifest must advance with the graph version that
+    // commit_finalize publishes.
+    core.maintain_indexes_at(
+        &crate::index::ChangeSet::new(),
+        source_version.saturating_add(1),
+        core.node_count(),
+        core.edge_count(),
+    );
+    Ok(ResultPayload::String("ok".to_string()))
+}
+
+/// `SupersedeEdge`: pure extract-method from `try_handle_gateway`'s closure,
+/// byte-identical behaviour, no signature change.
+#[allow(clippy::too_many_arguments)]
+fn apply_supersede_edge(
+    core: &GraphCore,
+    source_id: String,
+    target_id: String,
+    properties_msgpack: Vec<u8>,
+    prior_source: String,
+    prior_target: String,
+    prior_relationship: String,
+    valid_at: u64,
+    tx_now: u64,
+) -> Result<ResultPayload, String> {
+    match core.supersede_edge(
+        source_id,
+        target_id,
+        properties_msgpack,
+        &prior_source,
+        &prior_target,
+        &prior_relationship,
+        valid_at,
+        tx_now,
+    ) {
+        Ok(()) => Ok(ResultPayload::String("ok".to_string())),
+        Err(e) => Err(e),
+    }
+}
+
+/// `BatchUpdate`: pure extract-method from `try_handle_gateway`'s closure,
+/// byte-identical behaviour, no signature change.
+fn apply_batch_update(
+    core: &GraphCore,
+    operations_msgpack: &[u8],
+) -> Result<ResultPayload, String> {
+    match crate::algorithms::batch_update(core, operations_msgpack) {
+        Ok(res) => eg_types::msgpack::decode_property_value(&res)
+            .map(ResultPayload::Json)
+            .map_err(|_| "Invalid batch result".to_string()),
+        Err(e) => Err(e),
+    }
+}
+
+/// `DeclareExchange`: pure extract-method from `try_handle_gateway`'s closure,
+/// byte-identical behaviour, no signature change.
+#[cfg(feature = "broker")]
+fn apply_declare_exchange(
+    core: &GraphCore,
+    exchange: &str,
+    kind: &str,
+) -> Result<ResultPayload, String> {
+    let Some(k) = crate::broker::ExchangeKind::parse(kind) else {
+        return Err(format!(
+            "unknown exchange kind '{kind}' (want direct/topic/fanout)"
+        ));
+    };
+    crate::broker::declare_exchange(core, exchange, k)
+        .map(|()| ResultPayload::String("ok".to_string()))
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_associate(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineAssociate {
+        transactions,
+        source,
+        min_support,
+        min_confidence,
+        algorithm,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_associate(
+        req_id,
+        core,
+        transactions,
+        source,
+        min_support,
+        min_confidence,
+        algorithm,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_cluster(
+    core: &Arc<GraphCore>,
+    req_id: u64,
+    method_owned: Method,
+    tsdb_bind: super::mining::MiningTsdbBind<'_>,
+) -> Result<ResultPayload, String> {
+    let Method::MineCluster {
+        features,
+        source,
+        #[cfg(feature = "query")]
+        plan,
+        algorithm,
+        eps,
+        min_pts,
+        k,
+        linkage,
+        max_iter,
+        seed,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_cluster(
+        req_id,
+        core,
+        features,
+        source,
+        #[cfg(feature = "query")]
+        plan,
+        algorithm,
+        eps,
+        min_pts,
+        k,
+        linkage,
+        max_iter,
+        seed,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+        #[cfg(all(feature = "query", feature = "tsdb"))]
+        tsdb_bind,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_anomaly(
+    core: &Arc<GraphCore>,
+    req_id: u64,
+    method_owned: Method,
+    tsdb_bind: super::mining::MiningTsdbBind<'_>,
+) -> Result<ResultPayload, String> {
+    let Method::MineAnomaly {
+        features,
+        values,
+        source,
+        #[cfg(feature = "query")]
+        plan,
+        algorithm,
+        k,
+        n_trees,
+        sample_size,
+        seed,
+        nu,
+        gamma,
+        kernel,
+        threshold,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_anomaly(
+        req_id,
+        core,
+        features,
+        values,
+        source,
+        #[cfg(feature = "query")]
+        plan,
+        algorithm,
+        k,
+        n_trees,
+        sample_size,
+        seed,
+        nu,
+        gamma,
+        kernel,
+        threshold,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+        #[cfg(all(feature = "query", feature = "tsdb"))]
+        tsdb_bind,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_classify_predict(
+    core: &Arc<GraphCore>,
+    req_id: u64,
+    method_owned: Method,
+    tsdb_bind: super::mining::MiningTsdbBind<'_>,
+) -> Result<ResultPayload, String> {
+    let Method::MineClassifyPredict {
+        model,
+        x,
+        source,
+        #[cfg(feature = "query")]
+        plan,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_classify_predict(
+        req_id,
+        core,
+        model,
+        x,
+        source,
+        #[cfg(feature = "query")]
+        plan,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+        #[cfg(all(feature = "query", feature = "tsdb"))]
+        tsdb_bind,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_reduce(
+    core: &Arc<GraphCore>,
+    req_id: u64,
+    method_owned: Method,
+    tsdb_bind: super::mining::MiningTsdbBind<'_>,
+) -> Result<ResultPayload, String> {
+    let Method::MineReduce {
+        x,
+        source,
+        #[cfg(feature = "query")]
+        plan,
+        labels,
+        algorithm,
+        n_components,
+        n_neighbors,
+        min_dist,
+        perplexity,
+        epochs,
+        lr,
+        seed,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_reduce(
+        req_id,
+        core,
+        x,
+        source,
+        #[cfg(feature = "query")]
+        plan,
+        labels,
+        algorithm,
+        n_components,
+        n_neighbors,
+        min_dist,
+        perplexity,
+        epochs,
+        lr,
+        seed,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+        #[cfg(all(feature = "query", feature = "tsdb"))]
+        tsdb_bind,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_sequence(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineSequence {
+        sequences,
+        source,
+        min_support,
+        algorithm,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_sequence(
+        req_id,
+        core,
+        sequences,
+        source,
+        min_support,
+        algorithm,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_forecast(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineForecast {
+        values,
+        algorithm,
+        horizon,
+        p,
+        d,
+        q,
+        period,
+        alpha,
+        beta,
+        gamma,
+        confidence,
+        series_id,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_forecast(
+        req_id,
+        core,
+        values,
+        algorithm,
+        horizon,
+        p,
+        d,
+        q,
+        period,
+        alpha,
+        beta,
+        gamma,
+        confidence,
+        series_id,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_text(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineText {
+        docs,
+        source,
+        algorithm,
+        k,
+        alpha,
+        beta,
+        iterations,
+        seed,
+        top_n,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_text(
+        req_id,
+        core,
+        docs,
+        source,
+        algorithm,
+        k,
+        alpha,
+        beta,
+        iterations,
+        seed,
+        top_n,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_subgraph(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineSubgraph {
+        label,
+        min_support,
+        max_edges,
+        algorithm,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_subgraph(
+        req_id,
+        core,
+        label,
+        min_support,
+        max_edges,
+        algorithm,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_entity_resolve(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineEntityResolve {
+        records,
+        block_keys,
+        vectors,
+        source,
+        ids,
+        bucket_precision,
+        threshold,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_entity_resolve(
+        req_id,
+        core,
+        records,
+        block_keys,
+        vectors,
+        source,
+        ids,
+        bucket_precision,
+        threshold,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_causal_impact(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineCausalImpact {
+        series,
+        control,
+        intervention_index,
+        series_id,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_causal_impact(
+        req_id,
+        core,
+        series,
+        control,
+        intervention_index,
+        series_id,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_process(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineProcess {
+        traces,
+        process_id,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_process(
+        req_id,
+        core,
+        traces,
+        process_id,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_root_cause(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineRootCause {
+        nodes,
+        scores,
+        edges,
+        symptom,
+        max_hops,
+        decay,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_root_cause(
+        req_id,
+        core,
+        nodes,
+        scores,
+        edges,
+        symptom,
+        max_hops,
+        decay,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_risk_propagation(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineRiskPropagation {
+        nodes,
+        seed,
+        edges,
+        damping,
+        tolerance,
+        max_iterations,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_risk_propagation(
+        req_id,
+        core,
+        nodes,
+        seed,
+        edges,
+        damping,
+        tolerance,
+        max_iterations,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_ontology_gap(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineOntologyGap {
+        label,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_ontology_gap(
+        req_id,
+        core,
+        label,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_retrieval_quality(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineRetrievalQuality {
+        traces,
+        k,
+        query_id,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_retrieval_quality(
+        req_id,
+        core,
+        traces,
+        k,
+        query_id,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
+#[cfg(feature = "mining")]
+fn apply_mine_community(
+    core: &GraphCore,
+    req_id: u64,
+    method_owned: Method,
+) -> Result<ResultPayload, String> {
+    let Method::MineCommunity {
+        label,
+        algorithm,
+        resolution,
+        max_iterations,
+        seed,
+        weighted,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    } = method_owned
+    else {
+        unreachable!()
+    };
+    let resp = super::mining::handle_community(
+        req_id,
+        core,
+        label,
+        algorithm,
+        resolution,
+        max_iterations,
+        seed,
+        weighted,
+        writeback,
+        #[cfg(feature = "epistemic")]
+        as_claim,
+    );
+    mining_response_to_gateway_result(resp)
+}
+
 /// Read a node's human-readable `(name, description, type)` triple from its
 /// MessagePack property blob (CONCEPT:EG-KG.retrieval.one-round-trip-discovery), used to hydrate `Discover` hits.
 /// `name` falls back to the node id, `type` falls back to a `node_type` field, and
@@ -400,56 +1416,8 @@ pub(crate) async fn try_handle_gateway(
         "dispatch_graph_op must capture a GatewayAuthzCtx for every mutation::is_gateway_routed method",
     );
 
-    // BUG-193: stamp the BUG-052/GOC-61 canonical `_owner_id` onto a brand-new
-    // node's property blob when the caller did not already supply an
-    // ownership key, so a genuinely natively-written row is no longer
-    // permanently unowned (the gap BUG-193 names: `_owner`/`isolation.rs`'s
-    // own native key had no production writer at all). Mutating `method`
-    // HERE — before either arm below clones it for the durable-commit path
-    // AND the `apply` closure — keeps the persisted blob and the applied RAM
-    // blob byte-identical, which is required for crash-recovery replay to
-    // reproduce the same row. Scoped to the two methods that hand the
-    // gateway a caller-supplied node property blob directly (`AddNode`,
-    // `CreateNodeIfAbsent`); the coalescable batch surface (`BatchUpdate`)
-    // and the staged Cypher/RDF/GraphQL write path are explicitly OUT of
-    // scope for this lane — see `plans/graph-os-completion-program/
-    // BUG-LEDGER.md#BUG-193` for the documented boundary. A `System`-role
-    // caller (bootstrap/migration/internal maintenance) is exempt: it is not
-    // a real per-agent owner and must not be stamped as one. An absent
-    // `caller` (state-machine-authorized replicated apply) is likewise
-    // exempt — there is no per-request identity to stamp with there.
     #[cfg(feature = "security")]
-    let mut method = method;
-    #[cfg(feature = "security")]
-    if matches!(
-        method,
-        Method::AddNode { .. } | Method::CreateNodeIfAbsent { .. }
-    ) {
-        if let Some(caller_id) = caller {
-            if !isolation.is_system(caller_id) {
-                let blob = match &method {
-                    Method::AddNode {
-                        properties_msgpack, ..
-                    }
-                    | Method::CreateNodeIfAbsent {
-                        properties_msgpack, ..
-                    } => properties_msgpack,
-                    _ => unreachable!("matched above"),
-                };
-                if let Some(stamped) = crate::isolation::stamp_owner_id_if_absent(blob, caller_id) {
-                    match &mut method {
-                        Method::AddNode {
-                            properties_msgpack, ..
-                        }
-                        | Method::CreateNodeIfAbsent {
-                            properties_msgpack, ..
-                        } => *properties_msgpack = stamped,
-                        _ => unreachable!("matched above"),
-                    }
-                }
-            }
-        }
-    }
+    let method = stamp_owner_id_if_applicable(method, caller, isolation);
 
     let plan = MutationPlan::for_method(&method);
     let ctx = MutationCtx {
@@ -561,16 +1529,7 @@ pub(crate) async fn try_handle_gateway(
         } => {
             let (label, updates_msgpack) = (label.clone(), updates_msgpack.clone());
             commit_gateway(&ctx, &plan, &method, move |core| {
-                let updates = match eg_types::msgpack::decode_property_object(&updates_msgpack) {
-                    Ok(m) => m,
-                    Err(_) => {
-                        return Ok(ResultPayload::raw(
-                            &Option::<(String, serde_json::Value)>::None,
-                        ))
-                    }
-                };
-                let claimed = core.claim_next_fields(&label, &updates);
-                Ok(ResultPayload::raw(&claimed))
+                apply_claim_next(core, &label, &updates_msgpack)
             })
             .await
         }
@@ -636,11 +1595,7 @@ pub(crate) async fn try_handle_gateway(
         } => {
             let (pose_msgpack, parent) = (pose_msgpack.clone(), parent.clone());
             commit_gateway(&ctx, &plan, &method, move |core| {
-                let Some(pose) = decode_pose(&pose_msgpack) else {
-                    return Err("AddSceneObject: undecodable pose_msgpack".to_string());
-                };
-                let id = core.add_scene_object(&pose, parent.as_deref());
-                Ok(ResultPayload::String(id))
+                apply_add_scene_object(core, &pose_msgpack, parent.as_deref())
             })
             .await
         }
@@ -650,11 +1605,7 @@ pub(crate) async fn try_handle_gateway(
         } => {
             let (node_id, pose_msgpack) = (node_id.clone(), pose_msgpack.clone());
             commit_gateway(&ctx, &plan, &method, move |core| {
-                let Some(pose) = decode_pose(&pose_msgpack) else {
-                    return Err("SetPose: undecodable pose_msgpack".to_string());
-                };
-                let ok = core.set_pose(&node_id, &pose);
-                Ok(ResultPayload::Bool(ok))
+                apply_set_pose(core, &node_id, &pose_msgpack)
             })
             .await
         }
@@ -712,21 +1663,7 @@ pub(crate) async fn try_handle_gateway(
         Method::AddEmbedding { node_id, embedding } => {
             let (node_id, embedding) = (node_id.clone(), embedding.clone());
             commit_gateway(&ctx, &plan, &method, move |core| {
-                let source_version = core.version();
-                core.semantic_store
-                    .write()
-                    .add_embedding(node_id, embedding)
-                    .map_err(|error| error.to_string())?;
-                // Content-derived indexes are unchanged by a vector-only
-                // mutation, but their completeness manifest must advance with
-                // the graph version that commit_finalize publishes.
-                core.maintain_indexes_at(
-                    &crate::index::ChangeSet::new(),
-                    source_version.saturating_add(1),
-                    core.node_count(),
-                    core.edge_count(),
-                );
-                Ok(ResultPayload::String("ok".to_string()))
+                apply_add_embedding(core, node_id, embedding)
             })
             .await
         }
@@ -781,19 +1718,17 @@ pub(crate) async fn try_handle_gateway(
                 *tx_now,
             );
             commit_gateway(&ctx, &plan, &method, move |core| {
-                match core.supersede_edge(
+                apply_supersede_edge(
+                    core,
                     source_id,
                     target_id,
                     properties_msgpack,
-                    &prior_source,
-                    &prior_target,
-                    &prior_relationship,
+                    prior_source,
+                    prior_target,
+                    prior_relationship,
                     valid_at,
                     tx_now,
-                ) {
-                    Ok(()) => Ok(ResultPayload::String("ok".to_string())),
-                    Err(e) => Err(e),
-                }
+                )
             })
             .await
         }
@@ -804,60 +1739,7 @@ pub(crate) async fn try_handle_gateway(
             })
             .await
         }
-        Method::EvictLRU { max_nodes } => {
-            let max_nodes = *max_nodes;
-            // Eviction changes RAM RESIDENCY ONLY — never durable content.
-            //
-            // It used to run `core.evict_lru()` on the gateway's STAGED copy. The
-            // gateway then diffs `base_snapshot` (the live core, which holds the
-            // node) against the staged image (which no longer does) and publishes
-            // that delta, so every eviction durably DELETED exactly the rows it
-            // evicted. That is silent data loss, and it made the read-through seam
-            // unreachable by construction: `read_node_blocking`'s own contract says
-            // "eviction is durability-gated ... so an evicted node is always served
-            // here", and both `delete_then_recreate_same_name_keeps_new_writes` and
-            // `evicted_graph_lazy_reopens_with_data_intact` assert the row survives.
-            // Measured directly: read_node_blocking returned Some(4) before an
-            // EvictLRU and None immediately after it.
-            //
-            // So the staged image is left UNTOUCHED (an eviction is not a content
-            // change, so the correct delta is the empty one), and the residency
-            // change is applied to the LIVE core afterwards — durability-gated
-            // exactly like the background evictor in `persist::evict_oversized_all`,
-            // which never had this bug because it never went through the gateway.
-            // The gateway call stays so the op keeps its `node:admin` authz, its
-            // fencing, and its version/plan semantics.
-            let response = commit_gateway(&ctx, &plan, &method, move |_staged| {
-                Ok(ResultPayload::Json(serde_json::json!(0)))
-            })
-            .await;
-            if response.error.is_some() {
-                return Ok(response);
-            }
-            let candidates = ctx.core.lru_eviction_candidates(max_nodes);
-            let evicted = if candidates.is_empty() {
-                0
-            } else if let Some(backend) = ctx.persistence {
-                let fname = crate::persist::sanitize(ctx.graph_name);
-                match backend.durable_node_presence(&fname, &candidates) {
-                    Ok(presence) if presence.len() == candidates.len() => {
-                        let durable = candidates
-                            .into_iter()
-                            .zip(presence)
-                            .filter_map(|(node_id, present)| present.then_some(node_id))
-                            .collect::<Vec<_>>();
-                        ctx.core.evict_resident_nodes(&durable)
-                    }
-                    // Durability unconfirmed: keep the nodes resident rather than
-                    // risk evicting something that is not on disk yet.
-                    Ok(_) | Err(_) => 0,
-                }
-            } else {
-                // No durable tier to fall back to, so eviction would lose the node.
-                0
-            };
-            Response::ok(ctx.req_id, ResultPayload::Json(serde_json::json!(evicted)))
-        }
+        Method::EvictLRU { max_nodes } => apply_evict_lru(&ctx, &plan, &method, *max_nodes).await,
         Method::DecaySweep {
             half_life_secs,
             floor,
@@ -909,58 +1791,7 @@ pub(crate) async fn try_handle_gateway(
         Method::ApplyMutation { event_type, query } => {
             let (event_type, query) = (event_type.clone(), query.clone());
             commit_gateway(&ctx, &plan, &method, move |core| {
-                #[cfg(feature = "sparql")]
-                {
-                    let _ = event_type;
-                    struct SingleCoreStore(std::sync::Arc<GraphCore>);
-                    impl eg_rdf::update::GraphStore for SingleCoreStore {
-                        fn core(&self, graph: Option<&str>) -> Option<std::sync::Arc<GraphCore>> {
-                            graph.is_none().then(|| self.0.clone())
-                        }
-                    }
-                    #[cfg(feature = "shacl")]
-                    {
-                        let update = eg_rdf::update::parse_update(&query)
-                            .map_err(|error| format!("ApplyMutation: {error}"))?;
-                        if !eg_rdf::update::referenced_named_graphs(&update).is_empty() {
-                            return Err(
-                                "ApplyMutation: graph-scoped updates cannot address a named RDF graph"
-                                    .to_string(),
-                            );
-                        }
-                        // GraphStore requires an owned Arc. Clone the isolated
-                        // gateway image, execute there, then copy the successful
-                        // result back into that same staged image. The live core is
-                        // never exposed before the authoritative commit succeeds.
-                        let update_core = std::sync::Arc::new(GraphCore::from_snapshot(
-                            core.snapshot(),
-                            core.version(),
-                        )?);
-                        let store = SingleCoreStore(update_core.clone());
-                        let guard =
-                            crate::server::icv_guard::CoreIcvGuard::single(update_core.as_ref());
-                        let report = eg_rdf::update::execute(
-                            &update,
-                            &store,
-                            &eg_rdf::sparql::Projection::raw(),
-                            &guard,
-                        )
-                        .map_err(|error| format!("ApplyMutation: {error}"))?;
-                        core.replace_snapshot(update_core.snapshot())?;
-                        serde_json::to_value(&report)
-                            .map(ResultPayload::Json)
-                            .map_err(|error| error.to_string())
-                    }
-                    #[cfg(not(feature = "shacl"))]
-                    {
-                        Err("ApplyMutation requires the shacl integrity-guard feature".to_string())
-                    }
-                }
-                #[cfg(not(feature = "sparql"))]
-                {
-                    let _ = (event_type, query, core);
-                    Err("ApplyMutation (SPARQL UPDATE) requires the `sparql` feature".to_string())
-                }
+                apply_apply_mutation(core, event_type, query)
             })
             .await
         }
@@ -1017,35 +1848,17 @@ pub(crate) async fn try_handle_gateway(
                 property_chains.clone(),
             );
             commit_gateway(&ctx, &plan, &method, move |core| {
-                let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
-                match crate::reasoning::run_datalog_reasoning(
+                apply_run_datalog_reasoning(
                     core,
                     subclass_relations,
                     subproperty_relations,
                     symmetric_properties,
                     transitive_properties,
                     inverse_properties,
-                ) {
-                    Ok(triples) => all_inferred.extend(triples),
-                    Err(e) => return Err(e),
-                }
-                if !domain_rules.is_empty() || !range_rules.is_empty() {
-                    all_inferred.extend(crate::reasoning::infer_domain_range(
-                        core,
-                        domain_rules,
-                        range_rules,
-                    ));
-                }
-                if !property_chains.is_empty() {
-                    all_inferred.extend(crate::reasoning::infer_property_chains(
-                        core,
-                        property_chains,
-                    ));
-                }
-                Ok(ResultPayload::Json(serde_json::json!({
-                    "inferred_count": all_inferred.len(),
-                    "inferred_triples": all_inferred,
-                })))
+                    domain_rules,
+                    range_rules,
+                    property_chains,
+                )
             })
             .await
         }
@@ -1064,17 +1877,9 @@ pub(crate) async fn try_handle_gateway(
         }
         Method::BatchUpdate { operations_msgpack } => {
             let operations_msgpack = operations_msgpack.clone();
-            commit_gateway(
-                &ctx,
-                &plan,
-                &method,
-                move |core| match crate::algorithms::batch_update(core, &operations_msgpack) {
-                    Ok(res) => eg_types::msgpack::decode_property_value(&res)
-                        .map(ResultPayload::Json)
-                        .map_err(|_| "Invalid batch result".to_string()),
-                    Err(e) => Err(e),
-                },
-            )
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                apply_batch_update(core, &operations_msgpack)
+            })
             .await
         }
         Method::ClearLedger => {
@@ -1111,13 +1916,7 @@ pub(crate) async fn try_handle_gateway(
         Method::DeclareExchange { exchange, kind } => {
             let (exchange, kind) = (exchange.clone(), kind.clone());
             commit_gateway(&ctx, &plan, &method, move |core| {
-                let Some(k) = crate::broker::ExchangeKind::parse(&kind) else {
-                    return Err(format!(
-                        "unknown exchange kind '{kind}' (want direct/topic/fanout)"
-                    ));
-                };
-                crate::broker::declare_exchange(core, &exchange, k)
-                    .map(|()| ResultPayload::String("ok".to_string()))
+                apply_declare_exchange(core, &exchange, &kind)
             })
             .await
         }
@@ -1504,12 +2303,7 @@ pub(crate) async fn try_handle_gateway(
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
                 let resp = super::graphlearn::handle_fit(req_id, core, source, params, writeback);
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                mining_response_to_gateway_result(resp)
             })
             .await
         }
@@ -1539,12 +2333,7 @@ pub(crate) async fn try_handle_gateway(
                     top_k,
                     writeback,
                 );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                mining_response_to_gateway_result(resp)
             })
             .await
         }
@@ -1574,12 +2363,7 @@ pub(crate) async fn try_handle_gateway(
                 let resp = super::pipeline::handle_train(
                     req_id, core, name, source, x, y, spec, writeback,
                 );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                mining_response_to_gateway_result(resp)
             })
             .await
         }
@@ -1589,12 +2373,7 @@ pub(crate) async fn try_handle_gateway(
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, true, move |core| {
                 let resp = super::pipeline::handle_serve(req_id, core, name, version);
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                mining_response_to_gateway_result(resp)
             })
             .await
         }
@@ -1618,12 +2397,7 @@ pub(crate) async fn try_handle_gateway(
                 let resp = super::pipeline::handle_predict(
                     req_id, core, name, version, source, x, writeback,
                 );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                mining_response_to_gateway_result(resp)
             })
             .await
         }
@@ -1642,37 +2416,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineAssociate {
-                    transactions,
-                    source,
-                    min_support,
-                    min_confidence,
-                    algorithm,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_associate(
-                    req_id,
-                    core,
-                    transactions,
-                    source,
-                    min_support,
-                    min_confidence,
-                    algorithm,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_associate(core, req_id, method_owned)
             })
             .await
         }
@@ -1689,51 +2433,7 @@ pub(crate) async fn try_handle_gateway(
                 tsdb_store,
             };
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
-                let Method::MineCluster {
-                    features,
-                    source,
-                    #[cfg(feature = "query")]
-                    plan,
-                    algorithm,
-                    eps,
-                    min_pts,
-                    k,
-                    linkage,
-                    max_iter,
-                    seed,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_cluster(
-                    req_id,
-                    core_arc,
-                    features,
-                    source,
-                    #[cfg(feature = "query")]
-                    plan,
-                    algorithm,
-                    eps,
-                    min_pts,
-                    k,
-                    linkage,
-                    max_iter,
-                    seed,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                    #[cfg(all(feature = "query", feature = "tsdb"))]
-                    tsdb_bind,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_cluster(core_arc, req_id, method_owned, tsdb_bind)
             })
             .await
         }
@@ -1750,57 +2450,7 @@ pub(crate) async fn try_handle_gateway(
                 tsdb_store,
             };
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
-                let Method::MineAnomaly {
-                    features,
-                    values,
-                    source,
-                    #[cfg(feature = "query")]
-                    plan,
-                    algorithm,
-                    k,
-                    n_trees,
-                    sample_size,
-                    seed,
-                    nu,
-                    gamma,
-                    kernel,
-                    threshold,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_anomaly(
-                    req_id,
-                    core_arc,
-                    features,
-                    values,
-                    source,
-                    #[cfg(feature = "query")]
-                    plan,
-                    algorithm,
-                    k,
-                    n_trees,
-                    sample_size,
-                    seed,
-                    nu,
-                    gamma,
-                    kernel,
-                    threshold,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                    #[cfg(all(feature = "query", feature = "tsdb"))]
-                    tsdb_bind,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_anomaly(core_arc, req_id, method_owned, tsdb_bind)
             })
             .await
         }
@@ -1817,39 +2467,7 @@ pub(crate) async fn try_handle_gateway(
                 tsdb_store,
             };
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
-                let Method::MineClassifyPredict {
-                    model,
-                    x,
-                    source,
-                    #[cfg(feature = "query")]
-                    plan,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_classify_predict(
-                    req_id,
-                    core_arc,
-                    model,
-                    x,
-                    source,
-                    #[cfg(feature = "query")]
-                    plan,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                    #[cfg(all(feature = "query", feature = "tsdb"))]
-                    tsdb_bind,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_classify_predict(core_arc, req_id, method_owned, tsdb_bind)
             })
             .await
         }
@@ -1866,55 +2484,7 @@ pub(crate) async fn try_handle_gateway(
                 tsdb_store,
             };
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
-                let Method::MineReduce {
-                    x,
-                    source,
-                    #[cfg(feature = "query")]
-                    plan,
-                    labels,
-                    algorithm,
-                    n_components,
-                    n_neighbors,
-                    min_dist,
-                    perplexity,
-                    epochs,
-                    lr,
-                    seed,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_reduce(
-                    req_id,
-                    core_arc,
-                    x,
-                    source,
-                    #[cfg(feature = "query")]
-                    plan,
-                    labels,
-                    algorithm,
-                    n_components,
-                    n_neighbors,
-                    min_dist,
-                    perplexity,
-                    epochs,
-                    lr,
-                    seed,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                    #[cfg(all(feature = "query", feature = "tsdb"))]
-                    tsdb_bind,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_reduce(core_arc, req_id, method_owned, tsdb_bind)
             })
             .await
         }
@@ -1924,35 +2494,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineSequence {
-                    sequences,
-                    source,
-                    min_support,
-                    algorithm,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_sequence(
-                    req_id,
-                    core,
-                    sequences,
-                    source,
-                    min_support,
-                    algorithm,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_sequence(core, req_id, method_owned)
             })
             .await
         }
@@ -1962,51 +2504,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineForecast {
-                    values,
-                    algorithm,
-                    horizon,
-                    p,
-                    d,
-                    q,
-                    period,
-                    alpha,
-                    beta,
-                    gamma,
-                    confidence,
-                    series_id,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_forecast(
-                    req_id,
-                    core,
-                    values,
-                    algorithm,
-                    horizon,
-                    p,
-                    d,
-                    q,
-                    period,
-                    alpha,
-                    beta,
-                    gamma,
-                    confidence,
-                    series_id,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_forecast(core, req_id, method_owned)
             })
             .await
         }
@@ -2016,45 +2514,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineText {
-                    docs,
-                    source,
-                    algorithm,
-                    k,
-                    alpha,
-                    beta,
-                    iterations,
-                    seed,
-                    top_n,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_text(
-                    req_id,
-                    core,
-                    docs,
-                    source,
-                    algorithm,
-                    k,
-                    alpha,
-                    beta,
-                    iterations,
-                    seed,
-                    top_n,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_text(core, req_id, method_owned)
             })
             .await
         }
@@ -2064,35 +2524,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineSubgraph {
-                    label,
-                    min_support,
-                    max_edges,
-                    algorithm,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_subgraph(
-                    req_id,
-                    core,
-                    label,
-                    min_support,
-                    max_edges,
-                    algorithm,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_subgraph(core, req_id, method_owned)
             })
             .await
         }
@@ -2102,41 +2534,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineEntityResolve {
-                    records,
-                    block_keys,
-                    vectors,
-                    source,
-                    ids,
-                    bucket_precision,
-                    threshold,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_entity_resolve(
-                    req_id,
-                    core,
-                    records,
-                    block_keys,
-                    vectors,
-                    source,
-                    ids,
-                    bucket_precision,
-                    threshold,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_entity_resolve(core, req_id, method_owned)
             })
             .await
         }
@@ -2146,35 +2544,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineCausalImpact {
-                    series,
-                    control,
-                    intervention_index,
-                    series_id,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_causal_impact(
-                    req_id,
-                    core,
-                    series,
-                    control,
-                    intervention_index,
-                    series_id,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_causal_impact(core, req_id, method_owned)
             })
             .await
         }
@@ -2184,31 +2554,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineProcess {
-                    traces,
-                    process_id,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_process(
-                    req_id,
-                    core,
-                    traces,
-                    process_id,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_process(core, req_id, method_owned)
             })
             .await
         }
@@ -2218,39 +2564,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineRootCause {
-                    nodes,
-                    scores,
-                    edges,
-                    symptom,
-                    max_hops,
-                    decay,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_root_cause(
-                    req_id,
-                    core,
-                    nodes,
-                    scores,
-                    edges,
-                    symptom,
-                    max_hops,
-                    decay,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_root_cause(core, req_id, method_owned)
             })
             .await
         }
@@ -2260,39 +2574,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineRiskPropagation {
-                    nodes,
-                    seed,
-                    edges,
-                    damping,
-                    tolerance,
-                    max_iterations,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_risk_propagation(
-                    req_id,
-                    core,
-                    nodes,
-                    seed,
-                    edges,
-                    damping,
-                    tolerance,
-                    max_iterations,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_risk_propagation(core, req_id, method_owned)
             })
             .await
         }
@@ -2302,29 +2584,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineOntologyGap {
-                    label,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_ontology_gap(
-                    req_id,
-                    core,
-                    label,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_ontology_gap(core, req_id, method_owned)
             })
             .await
         }
@@ -2334,33 +2594,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineRetrievalQuality {
-                    traces,
-                    k,
-                    query_id,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_retrieval_quality(
-                    req_id,
-                    core,
-                    traces,
-                    k,
-                    query_id,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_retrieval_quality(core, req_id, method_owned)
             })
             .await
         }
@@ -2370,39 +2604,7 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
-                let Method::MineCommunity {
-                    label,
-                    algorithm,
-                    resolution,
-                    max_iterations,
-                    seed,
-                    weighted,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                } = method_owned
-                else {
-                    unreachable!()
-                };
-                let resp = super::mining::handle_community(
-                    req_id,
-                    core,
-                    label,
-                    algorithm,
-                    resolution,
-                    max_iterations,
-                    seed,
-                    weighted,
-                    writeback,
-                    #[cfg(feature = "epistemic")]
-                    as_claim,
-                );
-                match resp.error {
-                    Some(e) => Err(e),
-                    None => Ok(resp
-                        .result
-                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                }
+                apply_mine_community(core, req_id, method_owned)
             })
             .await
         }
@@ -2411,6 +2613,955 @@ pub(crate) async fn try_handle_gateway(
         ),
     };
     Ok(resp)
+}
+
+/// `InDegree`: pure extract-method from `try_handle`'s match arm, byte-identical
+/// behaviour, no signature change.
+fn handle_in_degree(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> Response {
+    let g = &**core;
+    match g.in_degree(node_id) {
+        Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
+        Err(e) => Response::err(req_id, e),
+    }
+}
+
+/// `OutDegree`: pure extract-method from `try_handle`'s match arm, byte-identical
+/// behaviour, no signature change.
+fn handle_out_degree(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> Response {
+    let g = &**core;
+    match g.out_degree(node_id) {
+        Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
+        Err(e) => Response::err(req_id, e),
+    }
+}
+
+/// `GetPredecessors`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+fn handle_get_predecessors(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> Response {
+    let g = &**core;
+    match g.get_predecessors(node_id) {
+        Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
+        Err(e) => Response::err(req_id, e),
+    }
+}
+
+/// `GetSuccessors`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+fn handle_get_successors(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> Response {
+    let g = &**core;
+    match g.get_successors(node_id) {
+        Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
+        Err(e) => Response::err(req_id, e),
+    }
+}
+
+/// `GetNeighbors`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+fn handle_get_neighbors(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> Response {
+    let g = &**core;
+    match g.get_neighbors(node_id) {
+        Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
+        Err(e) => Response::err(req_id, e),
+    }
+}
+
+/// `DegreeCentrality`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+fn handle_degree_centrality(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> Response {
+    let g = core.topology_snapshot();
+    match crate::algorithms::compute_degree_centrality(&g, node_id) {
+        Ok(val) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(val))),
+        Err(e) => Response::err(req_id, e),
+    }
+}
+
+/// `GetSubgraph`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+fn handle_get_subgraph(req_id: u64, core: &Arc<GraphCore>, node_ids: &[String]) -> Response {
+    // Batched subgraph read: return the induced nodes (with DECODED
+    // properties) and the edges among them in ONE round-trip, so callers
+    // never loop per-node `GetNodeProperties` or pull the whole edge set.
+    // (Previously serialized to msgpack then mis-parsed as JSON → error.)
+    let g = &**core;
+    let sub = g.get_subgraph(node_ids);
+    let mut nodes = Vec::with_capacity(sub.node_properties.len());
+    for (id, blob) in &sub.node_properties {
+        let props =
+            eg_types::msgpack::decode_property_value(blob).unwrap_or(serde_json::Value::Null);
+        nodes.push(serde_json::json!({ "id": id, "properties": props }));
+    }
+    let mut edges = Vec::new();
+    for ((src, tgt), blobs) in &sub.edge_properties {
+        for blob in blobs {
+            let props =
+                eg_types::msgpack::decode_property_value(blob).unwrap_or(serde_json::Value::Null);
+            edges.push(serde_json::json!({
+                "source": src, "target": tgt, "properties": props
+            }));
+        }
+    }
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({ "nodes": nodes, "edges": edges })),
+    )
+}
+
+/// `Fork`: pure extract-method from `try_handle`'s match arm, byte-identical
+/// behaviour, no signature change.
+fn handle_fork(req_id: u64, core: &Arc<GraphCore>) -> Response {
+    // Cannot return the forked GraphCore directly because it needs to be registered.
+    // A true fork method in the registry might be better.
+    // For now, we return the JSON representation of the fork.
+    let g = &**core;
+    let sub = g.fork();
+    match sub.to_msgpack() {
+        Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
+            Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
+            Err(e) => Response::err(req_id, e.to_string()),
+        },
+        Err(e) => Response::err(req_id, e),
+    }
+}
+
+/// `UnionGetNodeProperties`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_union_get_node_properties(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    read_authority: &GraphReadAuthority,
+    graphs: Vec<String>,
+    node_id: String,
+) -> Response {
+    // First-found across the graph set (in order); point reads, no
+    // snapshot. Registry lock released before any per-core read.
+    let cores = match resolve_union_cores(state, read_authority, &graphs).await {
+        Ok(c) => c,
+        Err(denied) => return Response::err(req_id, denied),
+    };
+    for c in &cores {
+        if let Some(props) = c.get_node_properties(&node_id) {
+            return Response::ok(req_id, ResultPayload::PropertiesMsgpack(props));
+        }
+    }
+    Response::ok(req_id, ResultPayload::Json(serde_json::Value::Null))
+}
+
+/// `DiffAgainst`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_diff_against(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    read_authority: &GraphReadAuthority,
+    core: &Arc<GraphCore>,
+    other_graph: String,
+) -> Response {
+    let s_lock = state.read().await;
+    let other_entry = match s_lock.registry.get(&other_graph) {
+        Some(e) => e,
+        None => return Response::err(req_id, format!("Other graph '{}' not found", other_graph)),
+    };
+    // Diffing reads the other graph's content — gate it as a read.
+    if let Err(denied) = check_graph_access(
+        &s_lock.isolation,
+        read_authority.actor(),
+        &other_graph,
+        other_entry.graph_type,
+        other_entry.owner.as_deref(),
+        AccessLevel::Read,
+    ) {
+        return Response::err(req_id, denied);
+    }
+    let other_core = other_entry.core.clone();
+    drop(s_lock);
+
+    // Snapshot the other graph first, then diff under only THIS
+    // graph's lock — never hold two graph locks at once (two
+    // concurrent opposite-direction diffs plus a queued writer can
+    // deadlock a write-preferring RwLock). The diff itself is a
+    // single O(V+E) comparison, so it stays under-lock (KG-2.51).
+    let other_core = read_authority.project_core(&other_core);
+    let other_snap = { other_core.analysis_snapshot() };
+    let g1 = &**core;
+    let diff_str = g1.diff_against(&other_snap);
+    match serde_json::from_slice::<serde_json::Value>(diff_str.as_bytes()) {
+        Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
+        Err(e) => Response::err(req_id, e.to_string()),
+    }
+}
+
+/// `GetNeighborsBatch`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+fn handle_get_neighbors_batch(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    node_ids: Vec<String>,
+) -> Response {
+    if node_ids.len() > MAX_BATCH_IDS {
+        return Response::err(
+            req_id,
+            format!(
+                "batch too large: {} ids (max {})",
+                node_ids.len(),
+                MAX_BATCH_IDS
+            ),
+        );
+    }
+    let g = &**core;
+    // [node_id, Vec<neighbor_id>] in input order — one round-trip and one
+    // topo-lock acquisition for N nodes (D-DPF-1) instead of N of each.
+    let out = g.get_neighbors_batch(node_ids);
+    Response::ok(req_id, ResultPayload::raw(&out))
+}
+
+/// `BetweennessCentrality`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_betweenness_centrality(req_id: u64, core: &Arc<GraphCore>) -> Response {
+    // O(V·E) Brandes — snapshot topology, compute off-lock (KG-2.51).
+    let snap = { core.topology_snapshot() };
+    match compute_off_lock(req_id, move || {
+        crate::algorithms::betweenness_centrality(&snap)
+    })
+    .await
+    {
+        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Err(resp) => resp,
+    }
+}
+
+/// `PersonalizedPageRank`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_personalized_page_rank(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    seed_nodes: Vec<(String, f64)>,
+    damping: f64,
+    iterations: usize,
+) -> Response {
+    // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
+    let snap = { core.topology_snapshot() };
+    match compute_off_lock(req_id, move || {
+        crate::algorithms::personalized_pagerank(&snap, &seed_nodes, damping, iterations)
+    })
+    .await
+    {
+        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Err(resp) => resp,
+    }
+}
+
+/// `CommunityDetection`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_community_detection(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    resolution: f64,
+) -> Response {
+    // Label propagation has an internal 15s wall-clock budget — that
+    // budget used to burn entirely UNDER the read lock, stalling every
+    // writer on the graph. Snapshot topology, compute off-lock
+    // (KG-2.51).
+    let snap = { core.topology_snapshot() };
+    match compute_off_lock(req_id, move || {
+        crate::algorithms::community_detection(&snap, resolution)
+    })
+    .await
+    {
+        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Err(resp) => resp,
+    }
+}
+
+/// `ComputeSimilarityEdges`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_compute_similarity_edges(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    threshold: f64,
+) -> Response {
+    // O(V²·d) all-pairs cosine on rayon — must never run under the
+    // graph lock OR on the tokio runtime threads. Snapshot the
+    // property blobs it reads, compute off-lock (KG-2.51).
+    let snap = { core.analysis_snapshot() };
+    match compute_off_lock(req_id, move || {
+        crate::algorithms::compute_similarity_edges(&snap, threshold)
+    })
+    .await
+    {
+        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Err(resp) => resp,
+    }
+}
+
+/// `ResolveCandidates`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_resolve_candidates(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    sim_threshold: f64,
+    merge_threshold: f64,
+    node_type: Option<String>,
+) -> Response {
+    // Entity-resolution candidate generation (KG-2.260): embedding
+    // similarity + clustering composed into one READ/propose op. Same
+    // off-lock discipline as ComputeSimilarityEdges (it shares the O(V²)
+    // cosine pass). Returns merge proposals; never mutates the graph.
+    let snap = { core.analysis_snapshot() };
+    match compute_off_lock(req_id, move || {
+        crate::algorithms::resolve_candidates(
+            &snap,
+            sim_threshold,
+            merge_threshold,
+            node_type.as_deref(),
+        )
+    })
+    .await
+    {
+        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Err(resp) => resp,
+    }
+}
+
+/// `TopologicalSort`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+fn handle_topological_sort(req_id: u64, core: &Arc<GraphCore>) -> Response {
+    let g = core.topology_snapshot();
+    match crate::algorithms::topological_sort(&g) {
+        Ok(order) => Response::ok(req_id, ResultPayload::raw(&order)),
+        Err(e) => Response::err(req_id, e.to_string()),
+    }
+}
+
+/// `PageRank`: pure extract-method from `try_handle`'s match arm, byte-identical
+/// behaviour, no signature change.
+async fn handle_page_rank(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    damping: f64,
+    iterations: usize,
+) -> Response {
+    // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
+    let snap = { core.topology_snapshot() };
+    match compute_off_lock(req_id, move || {
+        crate::algorithms::pagerank(&snap, damping, iterations)
+    })
+    .await
+    {
+        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Err(resp) => resp,
+    }
+}
+
+/// `MinimumSpanningTree`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_minimum_spanning_tree(req_id: u64, core: &Arc<GraphCore>) -> Response {
+    // O(E log E) + per-edge JSON weight parsing — snapshot (incl. the
+    // edge property blobs it reads), compute off-lock (KG-2.51).
+    let snap = { core.analysis_snapshot() };
+    match compute_off_lock(req_id, move || {
+        crate::algorithms::minimum_spanning_tree(&snap)
+    })
+    .await
+    {
+        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Err(resp) => resp,
+    }
+}
+
+/// `Metrics`: pure extract-method from `try_handle`'s match arm, byte-identical
+/// behaviour, no signature change.
+async fn handle_metrics(req_id: u64, core: &Arc<GraphCore>, raw_ledger_len: u64) -> Response {
+    // Parses every node's property JSON — memcpy snapshot under the
+    // lock is cheaper than O(V) JSON parsing under it (KG-2.51). The
+    // ledger is not snapshotted; `raw_ledger_len` (captured off the
+    // UN-projected core, above) is the total_mutations field — the
+    // projected `core` in scope here carries no ledger at all (see the
+    // comment above `project_core`).
+    let snap = core.analysis_snapshot();
+    let ledger_len = raw_ledger_len;
+    let m = match compute_off_lock(req_id, move || {
+        let mut m = crate::algorithms::compute_metrics(&snap);
+        m.total_mutations = ledger_len;
+        m
+    })
+    .await
+    {
+        Ok(m) => m,
+        Err(resp) => return resp,
+    };
+    match serde_json::to_value(&m) {
+        Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+        Err(e) => Response::err(req_id, e.to_string()),
+    }
+}
+
+/// `ToMsgpack`: pure extract-method from `try_handle`'s match arm, byte-identical
+/// behaviour, no signature change.
+fn handle_to_msgpack(req_id: u64, core: &Arc<GraphCore>) -> Response {
+    let g = &**core;
+    match g.to_msgpack() {
+        Ok(json) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(json))),
+        Err(e) => Response::err(req_id, e.to_string()),
+    }
+}
+
+/// `GetEdgePropertiesBatch`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+fn handle_get_edge_properties_batch(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    edges: Vec<(String, String)>,
+) -> Response {
+    if edges.len() > MAX_BATCH_IDS {
+        return Response::err(
+            req_id,
+            format!(
+                "batch too large: {} edges (max {})",
+                edges.len(),
+                MAX_BATCH_IDS
+            ),
+        );
+    }
+    let g = &**core;
+    // One round-trip for N edges. Each entry is the list of property blobs
+    // for that (src, tgt) pair (a pair may have multiple edges), in input
+    // order; an empty inner list ⇒ no such edge.
+    let out: Vec<Vec<serde_bytes::ByteBuf>> = edges
+        .into_iter()
+        .map(|(src, tgt)| {
+            g.get_edge_properties(&src, &tgt)
+                .into_iter()
+                .map(serde_bytes::ByteBuf::from)
+                .collect()
+        })
+        .collect();
+    Response::ok(req_id, ResultPayload::raw(&out))
+}
+
+/// `GetNodePropertiesBatch`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+fn handle_get_node_properties_batch(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    node_ids: Vec<String>,
+) -> Response {
+    if node_ids.len() > MAX_BATCH_IDS {
+        return Response::err(
+            req_id,
+            format!(
+                "batch too large: {} ids (max {})",
+                node_ids.len(),
+                MAX_BATCH_IDS
+            ),
+        );
+    }
+    let g = &**core;
+    // [id, properties_msgpack | nil] in input order — one round-trip for N
+    // nodes; nil preserves which ids were absent. serde_bytes keeps the
+    // property blobs as MessagePack `bin`, not int arrays.
+    let out: Vec<(String, Option<serde_bytes::ByteBuf>)> = node_ids
+        .into_iter()
+        .map(|id| {
+            let props = g.get_node_properties(&id).map(serde_bytes::ByteBuf::from);
+            (id, props)
+        })
+        .collect();
+    Response::ok(req_id, ResultPayload::raw(&out))
+}
+
+/// `HasNodesBatch`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+fn handle_has_nodes_batch(req_id: u64, core: &Arc<GraphCore>, node_ids: &[String]) -> Response {
+    if node_ids.len() > MAX_BATCH_IDS {
+        return Response::err(
+            req_id,
+            format!(
+                "batch too large: {} ids (max {})",
+                node_ids.len(),
+                MAX_BATCH_IDS
+            ),
+        );
+    }
+    let g = &**core;
+    let out: Vec<bool> = node_ids.iter().map(|id| g.has_node(id)).collect();
+    Response::ok(req_id, ResultPayload::raw(&out))
+}
+
+/// `GetNodeProperties`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+fn handle_get_node_properties(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    raw_core: &Arc<GraphCore>,
+    read_authority: &GraphReadAuthority,
+    node_id: &str,
+) -> Response {
+    let g = &**core;
+    let val = match g.get_node_properties(node_id) {
+        Some(props_msgpack) => ResultPayload::PropertiesMsgpack(props_msgpack),
+        // The RLS projection is RAM-topology-only and can never see a node
+        // `EvictLRU` fully evicted from the live topology (see `raw_core`'s
+        // doc comment above) — fall back to the RAW core, whose
+        // `read_through` seam is intact, then re-check row visibility on
+        // exactly this one row before returning it.
+        None => match raw_core.get_node_properties(node_id) {
+            // BUG A3 (2026-08-12): TBox membership is DERIVED from
+            // `raw_core.is_schema_node`, not decoded from the blob
+            // (see `can_see_node`'s doc) — `node_id` is exactly the
+            // one row this fallback is checking, so the live lookup
+            // is as cheap as reading a single DashMap entry.
+            Some(props_msgpack)
+                if read_authority
+                    .can_see_node(&props_msgpack, raw_core.is_schema_node(node_id)) =>
+            {
+                ResultPayload::PropertiesMsgpack(props_msgpack)
+            }
+            _ => ResultPayload::Json(serde_json::Value::Null),
+        },
+    };
+    Response::ok(req_id, val)
+}
+
+/// `UnionGetNodesByLabel`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_union_get_nodes_by_label(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    read_authority: &GraphReadAuthority,
+    graphs: Vec<String>,
+    label: String,
+    limit: usize,
+) -> Response {
+    let cores = match resolve_union_cores(state, read_authority, &graphs).await {
+        Ok(c) => c,
+        Err(denied) => return Response::err(req_id, denied),
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut nodes: Vec<(String, serde_json::Value)> = Vec::new();
+    'outer: for c in &cores {
+        for (k, p) in c.get_nodes_by_label(&label, limit) {
+            if seen.insert(k.clone()) {
+                let val =
+                    eg_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}));
+                nodes.push((k, val));
+                if limit != 0 && nodes.len() >= limit {
+                    break 'outer;
+                }
+            }
+        }
+    }
+    Response::ok(req_id, ResultPayload::NodeList(nodes))
+}
+
+/// `UnionGetNeighbors`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_union_get_neighbors(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    read_authority: &GraphReadAuthority,
+    graphs: Vec<String>,
+    node_id: String,
+) -> Response {
+    let cores = match resolve_union_cores(state, read_authority, &graphs).await {
+        Ok(c) => c,
+        Err(denied) => return Response::err(req_id, denied),
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    for c in &cores {
+        if let Ok(ns) = c.get_neighbors(&node_id) {
+            for n in ns {
+                if seen.insert(n.clone()) {
+                    out.push(n);
+                }
+            }
+        }
+    }
+    Response::ok(req_id, ResultPayload::Ids(out))
+}
+
+/// `Vf2SubgraphMatch`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_vf2_subgraph_match(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    read_authority: &GraphReadAuthority,
+    core: &Arc<GraphCore>,
+    pattern_graph_name: String,
+    max_results: usize,
+    max_steps: usize,
+) -> Response {
+    let s = state.read().await;
+    // The pattern graph is read too — gate it like any other read.
+    if let Some(entry) = s.registry.get(&pattern_graph_name) {
+        if let Err(denied) = check_graph_access(
+            &s.isolation,
+            read_authority.actor(),
+            &pattern_graph_name,
+            entry.graph_type,
+            entry.owner.as_deref(),
+            AccessLevel::Read,
+        ) {
+            return Response::err(req_id, denied);
+        }
+    }
+    let pattern_core = s
+        .registry
+        .get(&pattern_graph_name)
+        .map(|entry| entry.core.clone());
+    drop(s);
+    if let Some(p_core) = pattern_core {
+        // Exponential-worst-case matching never runs under either
+        // graph's lock: snapshot pattern then host SEQUENTIALLY (no
+        // nested cross-graph locks), compute off-lock (KG-2.51).
+        let p_core = read_authority.project_core(&p_core);
+        let p_snap = p_core.analysis_snapshot();
+        // vf2_subgraph_match snapshots the host internally, so the
+        // NP-hard backtracking (bounded by max_results/max_steps) runs
+        // entirely off-lock.
+        let host = core.clone();
+        match compute_off_lock(req_id, move || {
+            host.vf2_subgraph_match(&p_snap, max_results, max_steps)
+        })
+        .await
+        {
+            Ok((matches, truncated)) => Response::ok(
+                req_id,
+                ResultPayload::raw(&Vf2MatchResult { matches, truncated }),
+            ),
+            Err(resp) => resp,
+        }
+    } else {
+        Response::err(
+            req_id,
+            format!("Pattern graph '{}' not found", pattern_graph_name),
+        )
+    }
+}
+
+/// `CommunityDetectEphemeral`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_community_detect_ephemeral(
+    req_id: u64,
+    node_ids: Vec<String>,
+    edges: Vec<(String, String)>,
+    resolution: f64,
+) -> Response {
+    match compute_off_lock(req_id, move || {
+        let g = crate::graph::GraphCore::new();
+        for id in &node_ids {
+            g.add_node(id.clone(), Vec::new());
+        }
+        for (s, t) in &edges {
+            let _ = g.add_edge(s.clone(), t.clone(), Vec::new());
+        }
+        crate::algorithms::community_detection(&g.analysis_snapshot(), resolution)
+    })
+    .await
+    {
+        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Err(resp) => resp,
+    }
+}
+
+/// `SemanticSearch`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_semantic_search(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    query_embedding: Vec<f32>,
+    n_results: usize,
+) -> Response {
+    // CONCEPT:EG-KG.txn.per-graph-write-isolation / Phase C-D — the HNSW index is now maintained
+    // incrementally, so the ANN query is O(log n): hold the embedding read
+    // lock only for the query itself (no whole-store clone, no per-query
+    // index rebuild — at most a one-time lazy rebuild after load). The
+    // per-candidate Ebbinghaus decay scoring still runs off-lock below.
+    // Fetch more results initially to account for filtered-out nodes.
+    let raw_results = {
+        core.semantic_store
+            .read()
+            .semantic_search(&query_embedding, n_results * 2)
+    };
+
+    // Bounded candidate-metadata fetch: only the hit ids, not the graph.
+    let candidates: Vec<(String, f32, Option<Vec<u8>>)> = {
+        let g = &**core;
+        raw_results
+            .into_iter()
+            .map(|(id, sim)| {
+                let props = g.get_node_properties(&id);
+                (id, sim, props)
+            })
+            .collect()
+    };
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    match compute_off_lock(req_id, move || {
+        weight_semantic_results(candidates, now, n_results)
+    })
+    .await
+    {
+        Ok(weighted_results) => Response::ok(req_id, ResultPayload::raw(&weighted_results)),
+        Err(resp) => resp,
+    }
+}
+
+/// `ClusterHierarchyRefresh`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_cluster_hierarchy_refresh(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &str,
+    core: &Arc<GraphCore>,
+    label: Option<String>,
+    resolution: f64,
+    seed: u64,
+) -> Response {
+    let snap = { core.analysis_snapshot() };
+    let computed = match compute_off_lock(req_id, move || {
+        crate::algorithms::cluster_hierarchy(&snap, label.as_deref(), resolution, seed)
+    })
+    .await
+    {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let persistence = { state.read().await.persistence.clone() };
+    let cached = if let Some(p) = persistence.as_ref() {
+        let blob = match rmp_serde::to_vec_named(&computed) {
+            Ok(b) => b,
+            Err(e) => {
+                return Response::err(req_id, format!("failed to encode cluster hierarchy: {e}"))
+            }
+        };
+        match p.save_cluster_hierarchy(graph_name, blob).await {
+            Ok(()) => true,
+            Err(e) => {
+                return Response::err(req_id, format!("failed to persist cluster hierarchy: {e}"))
+            }
+        }
+    } else {
+        false
+    };
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "graph": graph_name,
+            "levels": computed.levels.len(),
+            "base_node_count": computed.base_node_count,
+            "base_edge_count": computed.base_edge_count,
+            "top_level_clusters": computed.levels.last().map(|l| l.clusters.len()).unwrap_or(0),
+            "cached": cached,
+        })),
+    )
+}
+
+/// `ClusterHierarchyClusters`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_cluster_hierarchy_clusters(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &str,
+    level: usize,
+    parent_cluster_id: Option<String>,
+) -> Response {
+    let persistence = { state.read().await.persistence.clone() };
+    let Some(p) = persistence.as_ref() else {
+        return Response::err(
+            req_id,
+            "cluster hierarchy cache unavailable on this backend".to_string(),
+        );
+    };
+    let blob = match p.load_cluster_hierarchy(graph_name).await {
+        Ok(Some(b)) => b,
+        Ok(None) => {
+            return Response::err(
+                req_id,
+                "no cluster hierarchy cached for this graph -- call \
+                 ClusterHierarchyRefresh first"
+                    .to_string(),
+            )
+        }
+        Err(e) => return Response::err(req_id, format!("failed to load cluster hierarchy: {e}")),
+    };
+    let hierarchy: crate::algorithms::ClusterHierarchyResult = match rmp_serde::from_slice(&blob) {
+        Ok(h) => h,
+        Err(e) => {
+            return Response::err(req_id, format!("cached cluster hierarchy is corrupt: {e}"))
+        }
+    };
+    if level == 0 || level > hierarchy.levels.len() {
+        return Response::err(
+            req_id,
+            format!(
+                "level {level} out of range (cached hierarchy has {} level(s))",
+                hierarchy.levels.len()
+            ),
+        );
+    }
+    let level_data = &hierarchy.levels[level - 1];
+    // Local (array-local, per the VIZ-1 contract) indices: unfiltered ⇒
+    // identity map; filtered by `parent_cluster_id` ⇒ remapped to the
+    // returned subset's own 0..k positions, and `inter_cluster_edges` is
+    // filtered down to edges between two clusters BOTH still present.
+    let mut remap: std::collections::HashMap<usize, u32> = std::collections::HashMap::new();
+    let mut clusters_json: Vec<serde_json::Value> = Vec::new();
+    for (i, c) in level_data.clusters.iter().enumerate() {
+        if let Some(pid) = &parent_cluster_id {
+            if c.parent_id.as_deref() != Some(pid.as_str()) {
+                continue;
+            }
+        }
+        remap.insert(i, clusters_json.len() as u32);
+        clusters_json.push(serde_json::json!({
+            "id": c.id,
+            "label": c.label,
+            "node_count": c.node_count,
+            "edge_count": c.edge_count,
+            "top_node_types": c.top_node_types,
+        }));
+    }
+    let inter_cluster_edges: Vec<serde_json::Value> = level_data
+        .inter_cluster_edges
+        .iter()
+        .filter_map(|&(s, d, w)| {
+            let ls = remap.get(&(s as usize))?;
+            let ld = remap.get(&(d as usize))?;
+            Some(serde_json::json!({ "src_idx": ls, "dst_idx": ld, "weight": w }))
+        })
+        .collect();
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "level": level,
+            "clusters": clusters_json,
+            "inter_cluster_edges": inter_cluster_edges,
+        })),
+    )
+}
+
+/// `ClusterHierarchyExpand`: pure extract-method from `try_handle`'s match arm,
+/// byte-identical behaviour, no signature change.
+async fn handle_cluster_hierarchy_expand(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &str,
+    core: &Arc<GraphCore>,
+    cluster_id: String,
+) -> Response {
+    let Some((level, local_idx)) = crate::algorithms::parse_cluster_id(&cluster_id) else {
+        return Response::err(req_id, format!("malformed cluster_id: {cluster_id}"));
+    };
+    let persistence = { state.read().await.persistence.clone() };
+    let Some(p) = persistence.as_ref() else {
+        return Response::err(
+            req_id,
+            "cluster hierarchy cache unavailable on this backend".to_string(),
+        );
+    };
+    let blob = match p.load_cluster_hierarchy(graph_name).await {
+        Ok(Some(b)) => b,
+        Ok(None) => {
+            return Response::err(
+                req_id,
+                "no cluster hierarchy cached for this graph -- call \
+                 ClusterHierarchyRefresh first"
+                    .to_string(),
+            )
+        }
+        Err(e) => return Response::err(req_id, format!("failed to load cluster hierarchy: {e}")),
+    };
+    let hierarchy: crate::algorithms::ClusterHierarchyResult = match rmp_serde::from_slice(&blob) {
+        Ok(h) => h,
+        Err(e) => {
+            return Response::err(req_id, format!("cached cluster hierarchy is corrupt: {e}"))
+        }
+    };
+    if level == 1 {
+        // Finest computed level: drill all the way to real graph nodes,
+        // read LIVE off the (already RLS-projected) core rather than any
+        // stale snapshot inside the cache -- membership is what's frozen
+        // until the next refresh, never the member nodes' own content.
+        let member_ids: Vec<String> = hierarchy
+            .leaf_membership
+            .iter()
+            .filter(|(_, idx)| *idx as usize == local_idx)
+            .map(|(id, _)| id.clone())
+            .collect();
+        if member_ids.is_empty() {
+            return Response::err(req_id, format!("unknown cluster_id: {cluster_id}"));
+        }
+        let g = &**core;
+        let sub = g.get_subgraph(&member_ids);
+        let nodes: Vec<serde_json::Value> = sub
+            .node_properties
+            .iter()
+            .map(|(id, blob)| {
+                let props = eg_types::msgpack::decode_property_value(blob)
+                    .unwrap_or(serde_json::Value::Null);
+                serde_json::json!({ "id": id, "properties": props })
+            })
+            .collect();
+        let mut edges: Vec<serde_json::Value> = Vec::new();
+        for ((src, tgt), blobs) in &sub.edge_properties {
+            for blob in blobs {
+                let props = eg_types::msgpack::decode_property_value(blob)
+                    .unwrap_or(serde_json::Value::Null);
+                let relationship = props
+                    .get("relationship")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("_");
+                edges.push(serde_json::json!({
+                    "src_id": src, "dst_id": tgt, "type": relationship,
+                }));
+            }
+        }
+        Response::ok(
+            req_id,
+            ResultPayload::Json(serde_json::json!({
+                "nodes": nodes,
+                "edges": edges,
+                "child_clusters": Vec::<serde_json::Value>::new(),
+            })),
+        )
+    } else {
+        // A coarser cluster: drill down ONE level at a time -- hand back
+        // its children (from level - 1) rather than raw nodes, matching
+        // "expand-on-demand" (the caller `expand`s again on one child to
+        // go further, instead of every level materializing every node).
+        let Some(child_level) = hierarchy.levels.get(level - 2) else {
+            return Response::err(req_id, format!("malformed cluster_id: {cluster_id}"));
+        };
+        let child_clusters: Vec<serde_json::Value> = child_level
+            .clusters
+            .iter()
+            .filter(|c| c.parent_id.as_deref() == Some(cluster_id.as_str()))
+            .map(|c| {
+                serde_json::json!({
+                    "id": c.id,
+                    "label": c.label,
+                    "node_count": c.node_count,
+                    "edge_count": c.edge_count,
+                    "top_node_types": c.top_node_types,
+                })
+            })
+            .collect();
+        if child_clusters.is_empty() {
+            return Response::err(req_id, format!("unknown cluster_id: {cluster_id}"));
+        }
+        Response::ok(
+            req_id,
+            ResultPayload::Json(serde_json::json!({
+                "nodes": Vec::<serde_json::Value>::new(),
+                "edges": Vec::<serde_json::Value>::new(),
+                "child_clusters": child_clusters,
+            })),
+        )
+    }
 }
 
 /// Dispatch a graph-targeted method. This is the terminal handler in the routing
@@ -2561,30 +3712,7 @@ pub(crate) async fn try_handle(
             Response::ok(req_id, ResultPayload::NodeList(nodes))
         }
         Method::GetNodeProperties { node_id } => {
-            let g = &*core;
-            let val = match g.get_node_properties(&node_id) {
-                Some(props_msgpack) => ResultPayload::PropertiesMsgpack(props_msgpack),
-                // The RLS projection is RAM-topology-only and can never see a node
-                // `EvictLRU` fully evicted from the live topology (see `raw_core`'s
-                // doc comment above) — fall back to the RAW core, whose
-                // `read_through` seam is intact, then re-check row visibility on
-                // exactly this one row before returning it.
-                None => match raw_core.get_node_properties(&node_id) {
-                    // BUG A3 (2026-08-12): TBox membership is DERIVED from
-                    // `raw_core.is_schema_node`, not decoded from the blob
-                    // (see `can_see_node`'s doc) — `node_id` is exactly the
-                    // one row this fallback is checking, so the live lookup
-                    // is as cheap as reading a single DashMap entry.
-                    Some(props_msgpack)
-                        if read_authority
-                            .can_see_node(&props_msgpack, raw_core.is_schema_node(&node_id)) =>
-                    {
-                        ResultPayload::PropertiesMsgpack(props_msgpack)
-                    }
-                    _ => ResultPayload::Json(serde_json::Value::Null),
-                },
-            };
-            Response::ok(req_id, val)
+            handle_get_node_properties(req_id, &core, &raw_core, read_authority, &node_id)
         }
         // CompareAndSetNodeFields/ClaimNext (CONCEPT:EG-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
@@ -2809,44 +3937,9 @@ pub(crate) async fn try_handle(
             ResultPayload::raw(&core.best_trajectory(&traj_ids, gamma)),
         ),
         Method::GetNodePropertiesBatch { node_ids } => {
-            if node_ids.len() > MAX_BATCH_IDS {
-                return Response::err(
-                    req_id,
-                    format!(
-                        "batch too large: {} ids (max {})",
-                        node_ids.len(),
-                        MAX_BATCH_IDS
-                    ),
-                );
-            }
-            let g = &*core;
-            // [id, properties_msgpack | nil] in input order — one round-trip for N
-            // nodes; nil preserves which ids were absent. serde_bytes keeps the
-            // property blobs as MessagePack `bin`, not int arrays.
-            let out: Vec<(String, Option<serde_bytes::ByteBuf>)> = node_ids
-                .into_iter()
-                .map(|id| {
-                    let props = g.get_node_properties(&id).map(serde_bytes::ByteBuf::from);
-                    (id, props)
-                })
-                .collect();
-            Response::ok(req_id, ResultPayload::raw(&out))
+            handle_get_node_properties_batch(req_id, &core, node_ids)
         }
-        Method::HasNodesBatch { node_ids } => {
-            if node_ids.len() > MAX_BATCH_IDS {
-                return Response::err(
-                    req_id,
-                    format!(
-                        "batch too large: {} ids (max {})",
-                        node_ids.len(),
-                        MAX_BATCH_IDS
-                    ),
-                );
-            }
-            let g = &*core;
-            let out: Vec<bool> = node_ids.iter().map(|id| g.has_node(id)).collect();
-            Response::ok(req_id, ResultPayload::raw(&out))
-        }
+        Method::HasNodesBatch { node_ids } => handle_has_nodes_batch(req_id, &core, &node_ids),
         Method::NodeCount => {
             let g = &*core;
             Response::ok(req_id, ResultPayload::Count(g.node_count() as u64))
@@ -2869,45 +3962,7 @@ pub(crate) async fn try_handle(
         Method::SemanticSearch {
             query_embedding,
             n_results,
-        } => {
-            // CONCEPT:EG-KG.txn.per-graph-write-isolation / Phase C-D — the HNSW index is now maintained
-            // incrementally, so the ANN query is O(log n): hold the embedding read
-            // lock only for the query itself (no whole-store clone, no per-query
-            // index rebuild — at most a one-time lazy rebuild after load). The
-            // per-candidate Ebbinghaus decay scoring still runs off-lock below.
-            // Fetch more results initially to account for filtered-out nodes.
-            let raw_results = {
-                core.semantic_store
-                    .read()
-                    .semantic_search(&query_embedding, n_results * 2)
-            };
-
-            // Bounded candidate-metadata fetch: only the hit ids, not the graph.
-            let candidates: Vec<(String, f32, Option<Vec<u8>>)> = {
-                let g = &*core;
-                raw_results
-                    .into_iter()
-                    .map(|(id, sim)| {
-                        let props = g.get_node_properties(&id);
-                        (id, sim, props)
-                    })
-                    .collect()
-            };
-
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-
-            match compute_off_lock(req_id, move || {
-                weight_semantic_results(candidates, now, n_results)
-            })
-            .await
-            {
-                Ok(weighted_results) => Response::ok(req_id, ResultPayload::raw(&weighted_results)),
-                Err(resp) => resp,
-            }
-        }
+        } => handle_semantic_search(req_id, &core, query_embedding, n_results).await,
         Method::Discover {
             keywords,
             query_embedding,
@@ -2999,30 +4054,7 @@ pub(crate) async fn try_handle(
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
         }
         Method::GetEdgePropertiesBatch { edges } => {
-            if edges.len() > MAX_BATCH_IDS {
-                return Response::err(
-                    req_id,
-                    format!(
-                        "batch too large: {} edges (max {})",
-                        edges.len(),
-                        MAX_BATCH_IDS
-                    ),
-                );
-            }
-            let g = &*core;
-            // One round-trip for N edges. Each entry is the list of property blobs
-            // for that (src, tgt) pair (a pair may have multiple edges), in input
-            // order; an empty inner list ⇒ no such edge.
-            let out: Vec<Vec<serde_bytes::ByteBuf>> = edges
-                .into_iter()
-                .map(|(src, tgt)| {
-                    g.get_edge_properties(&src, &tgt)
-                        .into_iter()
-                        .map(serde_bytes::ByteBuf::from)
-                        .collect()
-                })
-                .collect();
-            Response::ok(req_id, ResultPayload::raw(&out))
+            handle_get_edge_properties_batch(req_id, &core, edges)
         }
         // ClearGraph (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
         // the AddNode/RemoveNode comment above.
@@ -3038,13 +4070,7 @@ pub(crate) async fn try_handle(
         // radius / degree centrality are single-pass O(V+E); they run on a cheap
         // topology snapshot (Phase C-B: the read algorithms take an unlocked
         // GraphView, so the structural copy replaces the held read lock).
-        Method::TopologicalSort => {
-            let g = core.topology_snapshot();
-            match crate::algorithms::topological_sort(&g) {
-                Ok(order) => Response::ok(req_id, ResultPayload::raw(&order)),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
+        Method::TopologicalSort => handle_topological_sort(req_id, &core),
         Method::FindCycle => {
             let g = core.topology_snapshot();
             Response::ok(
@@ -3067,18 +4093,7 @@ pub(crate) async fn try_handle(
         Method::PageRank {
             damping,
             iterations,
-        } => {
-            // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.topology_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::pagerank(&snap, damping, iterations)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
-        }
+        } => handle_page_rank(req_id, &core, damping, iterations).await,
         Method::ConnectedComponents => {
             let g = core.topology_snapshot();
             Response::ok(
@@ -3097,43 +4112,8 @@ pub(crate) async fn try_handle(
                 )),
             )
         }
-        Method::MinimumSpanningTree => {
-            // O(E log E) + per-edge JSON weight parsing — snapshot (incl. the
-            // edge property blobs it reads), compute off-lock (KG-2.51).
-            let snap = { core.analysis_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::minimum_spanning_tree(&snap)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
-        }
-        Method::Metrics => {
-            // Parses every node's property JSON — memcpy snapshot under the
-            // lock is cheaper than O(V) JSON parsing under it (KG-2.51). The
-            // ledger is not snapshotted; `raw_ledger_len` (captured off the
-            // UN-projected core, above) is the total_mutations field — the
-            // projected `core` in scope here carries no ledger at all (see the
-            // comment above `project_core`).
-            let snap = core.analysis_snapshot();
-            let ledger_len = raw_ledger_len;
-            let m = match compute_off_lock(req_id, move || {
-                let mut m = crate::algorithms::compute_metrics(&snap);
-                m.total_mutations = ledger_len;
-                m
-            })
-            .await
-            {
-                Ok(m) => m,
-                Err(resp) => return resp,
-            };
-            match serde_json::to_value(&m) {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
+        Method::MinimumSpanningTree => handle_minimum_spanning_tree(req_id, &core).await,
+        Method::Metrics => handle_metrics(req_id, &core, raw_ledger_len).await,
         // EvictLRU/DecaySweep/TouchNodes/FromMsgpack/Reconcile (CONCEPT:EG-P0-2
         // bypass guard, L11): GATEWAY_ROUTED — see the AddNode/RemoveNode
         // comment above. `ToMsgpack` is a pure read and keeps its normal arm.
@@ -3149,13 +4129,7 @@ pub(crate) async fn try_handle(
             "TouchNodes is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
              through try_handle_gateway before it ever reaches this terminal handler"
         ),
-        Method::ToMsgpack => {
-            let g = &*core;
-            match g.to_msgpack() {
-                Ok(json) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(json))),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
+        Method::ToMsgpack => handle_to_msgpack(req_id, &core),
         Method::FromMsgpack { .. } => unreachable!(
             "FromMsgpack is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
              through try_handle_gateway before it ever reaches this terminal handler"
@@ -3183,57 +4157,13 @@ pub(crate) async fn try_handle(
             "RunDatalogReasoning is mutation::GATEWAY_ROUTED; dispatch_graph_op \
              must route it through try_handle_gateway before it ever reaches this terminal handler"
         ),
-        Method::InDegree { node_id } => {
-            let g = &*core;
-            match g.in_degree(&node_id) {
-                Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::OutDegree { node_id } => {
-            let g = &*core;
-            match g.out_degree(&node_id) {
-                Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::GetPredecessors { node_id } => {
-            let g = &*core;
-            match g.get_predecessors(&node_id) {
-                Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::GetSuccessors { node_id } => {
-            let g = &*core;
-            match g.get_successors(&node_id) {
-                Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::GetNeighbors { node_id } => {
-            let g = &*core;
-            match g.get_neighbors(&node_id) {
-                Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
+        Method::InDegree { node_id } => handle_in_degree(req_id, &core, &node_id),
+        Method::OutDegree { node_id } => handle_out_degree(req_id, &core, &node_id),
+        Method::GetPredecessors { node_id } => handle_get_predecessors(req_id, &core, &node_id),
+        Method::GetSuccessors { node_id } => handle_get_successors(req_id, &core, &node_id),
+        Method::GetNeighbors { node_id } => handle_get_neighbors(req_id, &core, &node_id),
         Method::GetNeighborsBatch { node_ids } => {
-            if node_ids.len() > MAX_BATCH_IDS {
-                return Response::err(
-                    req_id,
-                    format!(
-                        "batch too large: {} ids (max {})",
-                        node_ids.len(),
-                        MAX_BATCH_IDS
-                    ),
-                );
-            }
-            let g = &*core;
-            // [node_id, Vec<neighbor_id>] in input order — one round-trip and one
-            // topo-lock acquisition for N nodes (D-DPF-1) instead of N of each.
-            let out = g.get_neighbors_batch(node_ids);
-            Response::ok(req_id, ResultPayload::raw(&out))
+            handle_get_neighbors_batch(req_id, &core, node_ids)
         }
         Method::GetBlastRadius { node_id, max_depth } => {
             let g = core.topology_snapshot();
@@ -3244,13 +4174,7 @@ pub(crate) async fn try_handle(
                 ))),
             )
         }
-        Method::DegreeCentrality { node_id } => {
-            let g = core.topology_snapshot();
-            match crate::algorithms::compute_degree_centrality(&g, &node_id) {
-                Ok(val) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(val))),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
+        Method::DegreeCentrality { node_id } => handle_degree_centrality(req_id, &core, &node_id),
         Method::DegreeCentralityAll => {
             let g = core.topology_snapshot();
             Response::ok(
@@ -3260,48 +4184,14 @@ pub(crate) async fn try_handle(
                 ))),
             )
         }
-        Method::BetweennessCentrality => {
-            // O(V·E) Brandes — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.topology_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::betweenness_centrality(&snap)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
-        }
+        Method::BetweennessCentrality => handle_betweenness_centrality(req_id, &core).await,
         Method::PersonalizedPageRank {
             seed_nodes,
             damping,
             iterations,
-        } => {
-            // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.topology_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::personalized_pagerank(&snap, &seed_nodes, damping, iterations)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
-        }
+        } => handle_personalized_page_rank(req_id, &core, seed_nodes, damping, iterations).await,
         Method::CommunityDetection { resolution } => {
-            // Label propagation has an internal 15s wall-clock budget — that
-            // budget used to burn entirely UNDER the read lock, stalling every
-            // writer on the graph. Snapshot topology, compute off-lock
-            // (KG-2.51).
-            let snap = { core.topology_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::community_detection(&snap, resolution)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
+            handle_community_detection(req_id, &core, resolution).await
         }
         // Stateless community detection over an inline call graph — no tenant load,
         // no persistence, no graph lock. Builds a throwaway in-memory graph from the
@@ -3312,23 +4202,7 @@ pub(crate) async fn try_handle(
             node_ids,
             edges,
             resolution,
-        } => {
-            match compute_off_lock(req_id, move || {
-                let g = crate::graph::GraphCore::new();
-                for id in &node_ids {
-                    g.add_node(id.clone(), Vec::new());
-                }
-                for (s, t) in &edges {
-                    let _ = g.add_edge(s.clone(), t.clone(), Vec::new());
-                }
-                crate::algorithms::community_detection(&g.analysis_snapshot(), resolution)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
-        }
+        } => handle_community_detect_ephemeral(req_id, node_ids, edges, resolution).await,
         // GraphColoring: greedy coloring is a single O(V+E) sweep over a cheap
         // topology snapshot (Phase C-B: read algorithms take an unlocked view).
         Method::GraphColoring => {
@@ -3339,42 +4213,15 @@ pub(crate) async fn try_handle(
             )
         }
         Method::ComputeSimilarityEdges { threshold } => {
-            // O(V²·d) all-pairs cosine on rayon — must never run under the
-            // graph lock OR on the tokio runtime threads. Snapshot the
-            // property blobs it reads, compute off-lock (KG-2.51).
-            let snap = { core.analysis_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::compute_similarity_edges(&snap, threshold)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
+            handle_compute_similarity_edges(req_id, &core, threshold).await
         }
         Method::ResolveCandidates {
             sim_threshold,
             merge_threshold,
             node_type,
         } => {
-            // Entity-resolution candidate generation (KG-2.260): embedding
-            // similarity + clustering composed into one READ/propose op. Same
-            // off-lock discipline as ComputeSimilarityEdges (it shares the O(V²)
-            // cosine pass). Returns merge proposals; never mutates the graph.
-            let snap = { core.analysis_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::resolve_candidates(
-                    &snap,
-                    sim_threshold,
-                    merge_threshold,
-                    node_type.as_deref(),
-                )
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
+            handle_resolve_candidates(req_id, &core, sim_threshold, merge_threshold, node_type)
+                .await
         }
         // ── VIZ-1: hierarchical cluster-tree RPCs (CONCEPT:EG-KG.compute.leiden-hierarchy) ──
         // Same off-lock discipline as CommunityDetection/ResolveCandidates above —
@@ -3387,250 +4234,20 @@ pub(crate) async fn try_handle(
             resolution,
             seed,
         } => {
-            let snap = { core.analysis_snapshot() };
-            let computed = match compute_off_lock(req_id, move || {
-                crate::algorithms::cluster_hierarchy(&snap, label.as_deref(), resolution, seed)
-            })
-            .await
-            {
-                Ok(v) => v,
-                Err(resp) => return resp,
-            };
-            let persistence = { state.read().await.persistence.clone() };
-            let cached = if let Some(p) = persistence.as_ref() {
-                let blob = match rmp_serde::to_vec_named(&computed) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        return Response::err(
-                            req_id,
-                            format!("failed to encode cluster hierarchy: {e}"),
-                        )
-                    }
-                };
-                match p.save_cluster_hierarchy(graph_name, blob).await {
-                    Ok(()) => true,
-                    Err(e) => {
-                        return Response::err(
-                            req_id,
-                            format!("failed to persist cluster hierarchy: {e}"),
-                        )
-                    }
-                }
-            } else {
-                false
-            };
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!({
-                    "graph": graph_name,
-                    "levels": computed.levels.len(),
-                    "base_node_count": computed.base_node_count,
-                    "base_edge_count": computed.base_edge_count,
-                    "top_level_clusters": computed.levels.last().map(|l| l.clusters.len()).unwrap_or(0),
-                    "cached": cached,
-                })),
+            handle_cluster_hierarchy_refresh(
+                state, req_id, graph_name, &core, label, resolution, seed,
             )
+            .await
         }
         Method::ClusterHierarchyClusters {
             level,
             parent_cluster_id,
         } => {
-            let persistence = { state.read().await.persistence.clone() };
-            let Some(p) = persistence.as_ref() else {
-                return Response::err(
-                    req_id,
-                    "cluster hierarchy cache unavailable on this backend".to_string(),
-                );
-            };
-            let blob = match p.load_cluster_hierarchy(graph_name).await {
-                Ok(Some(b)) => b,
-                Ok(None) => {
-                    return Response::err(
-                        req_id,
-                        "no cluster hierarchy cached for this graph -- call \
-                         ClusterHierarchyRefresh first"
-                            .to_string(),
-                    )
-                }
-                Err(e) => {
-                    return Response::err(req_id, format!("failed to load cluster hierarchy: {e}"))
-                }
-            };
-            let hierarchy: crate::algorithms::ClusterHierarchyResult =
-                match rmp_serde::from_slice(&blob) {
-                    Ok(h) => h,
-                    Err(e) => {
-                        return Response::err(
-                            req_id,
-                            format!("cached cluster hierarchy is corrupt: {e}"),
-                        )
-                    }
-                };
-            if level == 0 || level > hierarchy.levels.len() {
-                return Response::err(
-                    req_id,
-                    format!(
-                        "level {level} out of range (cached hierarchy has {} level(s))",
-                        hierarchy.levels.len()
-                    ),
-                );
-            }
-            let level_data = &hierarchy.levels[level - 1];
-            // Local (array-local, per the VIZ-1 contract) indices: unfiltered ⇒
-            // identity map; filtered by `parent_cluster_id` ⇒ remapped to the
-            // returned subset's own 0..k positions, and `inter_cluster_edges` is
-            // filtered down to edges between two clusters BOTH still present.
-            let mut remap: std::collections::HashMap<usize, u32> = std::collections::HashMap::new();
-            let mut clusters_json: Vec<serde_json::Value> = Vec::new();
-            for (i, c) in level_data.clusters.iter().enumerate() {
-                if let Some(pid) = &parent_cluster_id {
-                    if c.parent_id.as_deref() != Some(pid.as_str()) {
-                        continue;
-                    }
-                }
-                remap.insert(i, clusters_json.len() as u32);
-                clusters_json.push(serde_json::json!({
-                    "id": c.id,
-                    "label": c.label,
-                    "node_count": c.node_count,
-                    "edge_count": c.edge_count,
-                    "top_node_types": c.top_node_types,
-                }));
-            }
-            let inter_cluster_edges: Vec<serde_json::Value> = level_data
-                .inter_cluster_edges
-                .iter()
-                .filter_map(|&(s, d, w)| {
-                    let ls = remap.get(&(s as usize))?;
-                    let ld = remap.get(&(d as usize))?;
-                    Some(serde_json::json!({ "src_idx": ls, "dst_idx": ld, "weight": w }))
-                })
-                .collect();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!({
-                    "level": level,
-                    "clusters": clusters_json,
-                    "inter_cluster_edges": inter_cluster_edges,
-                })),
-            )
+            handle_cluster_hierarchy_clusters(state, req_id, graph_name, level, parent_cluster_id)
+                .await
         }
         Method::ClusterHierarchyExpand { cluster_id } => {
-            let Some((level, local_idx)) = crate::algorithms::parse_cluster_id(&cluster_id) else {
-                return Response::err(req_id, format!("malformed cluster_id: {cluster_id}"));
-            };
-            let persistence = { state.read().await.persistence.clone() };
-            let Some(p) = persistence.as_ref() else {
-                return Response::err(
-                    req_id,
-                    "cluster hierarchy cache unavailable on this backend".to_string(),
-                );
-            };
-            let blob = match p.load_cluster_hierarchy(graph_name).await {
-                Ok(Some(b)) => b,
-                Ok(None) => {
-                    return Response::err(
-                        req_id,
-                        "no cluster hierarchy cached for this graph -- call \
-                         ClusterHierarchyRefresh first"
-                            .to_string(),
-                    )
-                }
-                Err(e) => {
-                    return Response::err(req_id, format!("failed to load cluster hierarchy: {e}"))
-                }
-            };
-            let hierarchy: crate::algorithms::ClusterHierarchyResult =
-                match rmp_serde::from_slice(&blob) {
-                    Ok(h) => h,
-                    Err(e) => {
-                        return Response::err(
-                            req_id,
-                            format!("cached cluster hierarchy is corrupt: {e}"),
-                        )
-                    }
-                };
-            if level == 1 {
-                // Finest computed level: drill all the way to real graph nodes,
-                // read LIVE off the (already RLS-projected) core rather than any
-                // stale snapshot inside the cache -- membership is what's frozen
-                // until the next refresh, never the member nodes' own content.
-                let member_ids: Vec<String> = hierarchy
-                    .leaf_membership
-                    .iter()
-                    .filter(|(_, idx)| *idx as usize == local_idx)
-                    .map(|(id, _)| id.clone())
-                    .collect();
-                if member_ids.is_empty() {
-                    return Response::err(req_id, format!("unknown cluster_id: {cluster_id}"));
-                }
-                let g = &*core;
-                let sub = g.get_subgraph(&member_ids);
-                let nodes: Vec<serde_json::Value> = sub
-                    .node_properties
-                    .iter()
-                    .map(|(id, blob)| {
-                        let props = eg_types::msgpack::decode_property_value(blob)
-                            .unwrap_or(serde_json::Value::Null);
-                        serde_json::json!({ "id": id, "properties": props })
-                    })
-                    .collect();
-                let mut edges: Vec<serde_json::Value> = Vec::new();
-                for ((src, tgt), blobs) in &sub.edge_properties {
-                    for blob in blobs {
-                        let props = eg_types::msgpack::decode_property_value(blob)
-                            .unwrap_or(serde_json::Value::Null);
-                        let relationship = props
-                            .get("relationship")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("_");
-                        edges.push(serde_json::json!({
-                            "src_id": src, "dst_id": tgt, "type": relationship,
-                        }));
-                    }
-                }
-                Response::ok(
-                    req_id,
-                    ResultPayload::Json(serde_json::json!({
-                        "nodes": nodes,
-                        "edges": edges,
-                        "child_clusters": Vec::<serde_json::Value>::new(),
-                    })),
-                )
-            } else {
-                // A coarser cluster: drill down ONE level at a time -- hand back
-                // its children (from level - 1) rather than raw nodes, matching
-                // "expand-on-demand" (the caller `expand`s again on one child to
-                // go further, instead of every level materializing every node).
-                let Some(child_level) = hierarchy.levels.get(level - 2) else {
-                    return Response::err(req_id, format!("malformed cluster_id: {cluster_id}"));
-                };
-                let child_clusters: Vec<serde_json::Value> = child_level
-                    .clusters
-                    .iter()
-                    .filter(|c| c.parent_id.as_deref() == Some(cluster_id.as_str()))
-                    .map(|c| {
-                        serde_json::json!({
-                            "id": c.id,
-                            "label": c.label,
-                            "node_count": c.node_count,
-                            "edge_count": c.edge_count,
-                            "top_node_types": c.top_node_types,
-                        })
-                    })
-                    .collect();
-                if child_clusters.is_empty() {
-                    return Response::err(req_id, format!("unknown cluster_id: {cluster_id}"));
-                }
-                Response::ok(
-                    req_id,
-                    ResultPayload::Json(serde_json::json!({
-                        "nodes": Vec::<serde_json::Value>::new(),
-                        "edges": Vec::<serde_json::Value>::new(),
-                        "child_clusters": child_clusters,
-                    })),
-                )
-            }
+            handle_cluster_hierarchy_expand(state, req_id, graph_name, &core, cluster_id).await
         }
         // PruneByLifecycle (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED —
         // see the AddNode/RemoveNode comment above.
@@ -3660,52 +4277,16 @@ pub(crate) async fn try_handle(
             max_results,
             max_steps,
         } => {
-            let s = state.read().await;
-            // The pattern graph is read too — gate it like any other read.
-            if let Some(entry) = s.registry.get(&pattern_graph_name) {
-                if let Err(denied) = check_graph_access(
-                    &s.isolation,
-                    read_authority.actor(),
-                    &pattern_graph_name,
-                    entry.graph_type,
-                    entry.owner.as_deref(),
-                    AccessLevel::Read,
-                ) {
-                    return Response::err(req_id, denied);
-                }
-            }
-            let pattern_core = s
-                .registry
-                .get(&pattern_graph_name)
-                .map(|entry| entry.core.clone());
-            drop(s);
-            if let Some(p_core) = pattern_core {
-                // Exponential-worst-case matching never runs under either
-                // graph's lock: snapshot pattern then host SEQUENTIALLY (no
-                // nested cross-graph locks), compute off-lock (KG-2.51).
-                let p_core = read_authority.project_core(&p_core);
-                let p_snap = p_core.analysis_snapshot();
-                // vf2_subgraph_match snapshots the host internally, so the
-                // NP-hard backtracking (bounded by max_results/max_steps) runs
-                // entirely off-lock.
-                let host = core.clone();
-                match compute_off_lock(req_id, move || {
-                    host.vf2_subgraph_match(&p_snap, max_results, max_steps)
-                })
-                .await
-                {
-                    Ok((matches, truncated)) => Response::ok(
-                        req_id,
-                        ResultPayload::raw(&Vf2MatchResult { matches, truncated }),
-                    ),
-                    Err(resp) => resp,
-                }
-            } else {
-                Response::err(
-                    req_id,
-                    format!("Pattern graph '{}' not found", pattern_graph_name),
-                )
-            }
+            handle_vf2_subgraph_match(
+                state,
+                req_id,
+                read_authority,
+                &core,
+                pattern_graph_name,
+                max_results,
+                max_steps,
+            )
+            .await
         }
         // BUG A1 (2026-08-12): this used to read `core.get_ledger()` off the
         // RLS-projected `core` shadowed above (`read_authority.project_core`),
@@ -3767,143 +4348,24 @@ pub(crate) async fn try_handle(
             "ApplyLedger is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
              through try_handle_gateway before it ever reaches this terminal handler"
         ),
-        Method::GetSubgraph { node_ids } => {
-            // Batched subgraph read: return the induced nodes (with DECODED
-            // properties) and the edges among them in ONE round-trip, so callers
-            // never loop per-node `GetNodeProperties` or pull the whole edge set.
-            // (Previously serialized to msgpack then mis-parsed as JSON → error.)
-            let g = &*core;
-            let sub = g.get_subgraph(&node_ids);
-            let mut nodes = Vec::with_capacity(sub.node_properties.len());
-            for (id, blob) in &sub.node_properties {
-                let props = eg_types::msgpack::decode_property_value(blob)
-                    .unwrap_or(serde_json::Value::Null);
-                nodes.push(serde_json::json!({ "id": id, "properties": props }));
-            }
-            let mut edges = Vec::new();
-            for ((src, tgt), blobs) in &sub.edge_properties {
-                for blob in blobs {
-                    let props = eg_types::msgpack::decode_property_value(blob)
-                        .unwrap_or(serde_json::Value::Null);
-                    edges.push(serde_json::json!({
-                        "source": src, "target": tgt, "properties": props
-                    }));
-                }
-            }
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!({ "nodes": nodes, "edges": edges })),
-            )
-        }
-        Method::Fork => {
-            // Cannot return the forked GraphCore directly because it needs to be registered.
-            // A true fork method in the registry might be better.
-            // For now, we return the JSON representation of the fork.
-            let g = &*core;
-            let sub = g.fork();
-            match sub.to_msgpack() {
-                Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
-                    Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                    Err(e) => Response::err(req_id, e.to_string()),
-                },
-                Err(e) => Response::err(req_id, e),
-            }
-        }
+        Method::GetSubgraph { node_ids } => handle_get_subgraph(req_id, &core, &node_ids),
+        Method::Fork => handle_fork(req_id, &core),
         Method::UnionGetNodeProperties { graphs, node_id } => {
-            // First-found across the graph set (in order); point reads, no
-            // snapshot. Registry lock released before any per-core read.
-            let cores = match resolve_union_cores(state, read_authority, &graphs).await {
-                Ok(c) => c,
-                Err(denied) => return Response::err(req_id, denied),
-            };
-            for c in &cores {
-                if let Some(props) = c.get_node_properties(&node_id) {
-                    return Response::ok(req_id, ResultPayload::PropertiesMsgpack(props));
-                }
-            }
-            Response::ok(req_id, ResultPayload::Json(serde_json::Value::Null))
+            handle_union_get_node_properties(state, req_id, read_authority, graphs, node_id).await
         }
         Method::UnionGetNodesByLabel {
             graphs,
             label,
             limit,
         } => {
-            let cores = match resolve_union_cores(state, read_authority, &graphs).await {
-                Ok(c) => c,
-                Err(denied) => return Response::err(req_id, denied),
-            };
-            let mut seen = std::collections::HashSet::new();
-            let mut nodes: Vec<(String, serde_json::Value)> = Vec::new();
-            'outer: for c in &cores {
-                for (k, p) in c.get_nodes_by_label(&label, limit) {
-                    if seen.insert(k.clone()) {
-                        let val = eg_types::msgpack::decode_property_value(&p)
-                            .unwrap_or(serde_json::json!({}));
-                        nodes.push((k, val));
-                        if limit != 0 && nodes.len() >= limit {
-                            break 'outer;
-                        }
-                    }
-                }
-            }
-            Response::ok(req_id, ResultPayload::NodeList(nodes))
+            handle_union_get_nodes_by_label(state, req_id, read_authority, graphs, label, limit)
+                .await
         }
         Method::UnionGetNeighbors { graphs, node_id } => {
-            let cores = match resolve_union_cores(state, read_authority, &graphs).await {
-                Ok(c) => c,
-                Err(denied) => return Response::err(req_id, denied),
-            };
-            let mut seen = std::collections::HashSet::new();
-            let mut out: Vec<String> = Vec::new();
-            for c in &cores {
-                if let Ok(ns) = c.get_neighbors(&node_id) {
-                    for n in ns {
-                        if seen.insert(n.clone()) {
-                            out.push(n);
-                        }
-                    }
-                }
-            }
-            Response::ok(req_id, ResultPayload::Ids(out))
+            handle_union_get_neighbors(state, req_id, read_authority, graphs, node_id).await
         }
         Method::DiffAgainst { other_graph } => {
-            let s_lock = state.read().await;
-            let other_entry = match s_lock.registry.get(&other_graph) {
-                Some(e) => e,
-                None => {
-                    return Response::err(
-                        req_id,
-                        format!("Other graph '{}' not found", other_graph),
-                    )
-                }
-            };
-            // Diffing reads the other graph's content — gate it as a read.
-            if let Err(denied) = check_graph_access(
-                &s_lock.isolation,
-                read_authority.actor(),
-                &other_graph,
-                other_entry.graph_type,
-                other_entry.owner.as_deref(),
-                AccessLevel::Read,
-            ) {
-                return Response::err(req_id, denied);
-            }
-            let other_core = other_entry.core.clone();
-            drop(s_lock);
-
-            // Snapshot the other graph first, then diff under only THIS
-            // graph's lock — never hold two graph locks at once (two
-            // concurrent opposite-direction diffs plus a queued writer can
-            // deadlock a write-preferring RwLock). The diff itself is a
-            // single O(V+E) comparison, so it stays under-lock (KG-2.51).
-            let other_core = read_authority.project_core(&other_core);
-            let other_snap = { other_core.analysis_snapshot() };
-            let g1 = &*core;
-            let diff_str = g1.diff_against(&other_snap);
-            match serde_json::from_slice::<serde_json::Value>(diff_str.as_bytes()) {
-                Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
+            handle_diff_against(state, req_id, read_authority, &core, other_graph).await
         }
         // CompactNodesByType (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED
         // — see the AddNode/RemoveNode comment above.

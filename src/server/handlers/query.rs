@@ -107,10 +107,53 @@ pub(crate) fn served_tsdb_scope(
     )))
 }
 
+/// Bundled context every extracted per-method arm of `try_handle` below needs, so
+/// each stays a plain function of its own destructured request fields plus this
+/// one shared bundle (CONCEPT:EG-KG.query.dispatch-convention). Pure grouping,
+/// mirroring `TryHandleContext` plus the pieces the arm bodies additionally close
+/// over (`state`, `core`, and -- security builds only -- `rls`): no field renamed
+/// or dropped from what `try_handle` already threaded through by hand before this
+/// extraction, no behaviour change.
+struct QueryHandlerCtx<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &'a str,
+    read_authority: Option<&'a GraphReadAuthority>,
+    caller: &'a str,
+    core: &'a Arc<GraphCore>,
+    #[cfg(feature = "security")]
+    rls: &'a Arc<crate::isolation::IsolationLayer>,
+}
+
 /// Handle `Method::Sql` / `Method::CypherQuery`. `Err(method)` hands a non-query
 /// method (or a query method whose feature is off) back to the dispatcher
 /// (routing fall-through). (CONCEPT:EG-KG.query.dispatch-convention — server dispatch convention)
-pub(crate) async fn try_handle(
+///
+/// Explicitly boxed (rather than a bare `async fn`) so its return type is a
+/// concrete `Pin<Box<dyn Future>>` instead of an inferred opaque type: this
+/// function now `.await`s ~24 small extracted per-arm helpers (the CX
+/// CCN-reduction refactor), and the resulting deeply-nested opaque `impl Future`
+/// chain overflowed rustc's recursion limit proving `Send` at this function's own
+/// caller's `Box::pin` site in `transport.rs` (`error[E0275]`) — the same
+/// class of issue documented on `raft::store::apply_request`, fixed the same way.
+pub(crate) fn try_handle<'a>(
+    state: &'a Arc<RwLock<ServerState>>,
+    ctx: super::TryHandleContext<'a>,
+    core: Arc<GraphCore>,
+    method: Method,
+    #[cfg(feature = "security")] rls: &'a Arc<crate::isolation::IsolationLayer>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, Method>> + Send + 'a>> {
+    Box::pin(try_handle_inner(
+        state,
+        ctx,
+        core,
+        method,
+        #[cfg(feature = "security")]
+        rls,
+    ))
+}
+
+async fn try_handle_inner(
     state: &Arc<RwLock<ServerState>>,
     ctx: super::TryHandleContext<'_>,
     core: Arc<GraphCore>,
@@ -135,674 +178,40 @@ pub(crate) async fn try_handle(
     // warning fires.
     #[cfg(not(feature = "graphql"))]
     let _ = graph_name;
+    let hctx = QueryHandlerCtx {
+        state,
+        req_id,
+        graph_name,
+        read_authority,
+        caller,
+        core: &core,
+        #[cfg(feature = "security")]
+        rls,
+    };
+
     match method {
         #[cfg(feature = "query")]
         Method::Sql {
             query,
             params_msgpack,
-        } => {
-            let sql_method = Method::Sql {
-                query: query.clone(),
-                params_msgpack,
-            };
-            // CONCEPT:EG-KG.query.mirrors-pgwire — `Method::Sql` now routes BOTH reads AND writes (was
-            // SELECT-only). Classify the statement with the SAME `eg_query::classify`
-            // the pgwire shim uses, then:
-            //   * a write (graph-node DML on `nodes`, or user-table DDL/DML) → the
-            //     classify+execute path pgwire uses (graph core writes + the shared
-            //     `TableStore`), so agent-utilities `graph_table`/`sql_exec` writes
-            //     LAND over the wire — see `exec_sql_write`;
-            //   * a read / transaction-control / unparseable statement → the
-            //     DataFusion read path, run tables-aware (`exec_sql_typed_with_tables`)
-            //     so a `SELECT` sees BOTH the graph AND user tables in one plan.
-            //
-            // SQL catalogs are owned by the current verified tenant+principal. Reads
-            // and writes resolve the same owner store; there is no shared catalog or
-            // unsigned lookup path.
-            let Some(read_authority) = read_authority else {
-                crate::metrics::access_denied();
-                return Ok(Response::err(
-                    req_id,
-                    "ACCESS_DENIED: current signed tenant authority is required".to_string(),
-                ));
-            };
-            let Some(authority) = read_authority.carrier() else {
-                crate::metrics::access_denied();
-                return Ok(Response::err(
-                    req_id,
-                    "ACCESS_DENIED: current signed tenant authority is required".to_string(),
-                ));
-            };
-            let persist_dir = state.read().await.persist_dir.clone();
-            let store = match crate::server::sql_tables::user_table_store(
-                authority,
-                persist_dir.as_deref().map(std::path::Path::new),
-            ) {
-                Ok(s) => s,
-                Err(e) => return Ok(Response::err(req_id, format!("SQL error: {e}"))),
-            };
-            match eg_query::classify(&query) {
-                Ok(kind) if !matches!(kind, eg_query::StatementKind::Read) => Ok(exec_sql_write(
-                    req_id,
-                    SqlWriteScope {
-                        graph_name,
-                        tenant_scope: authority.tenant_scope(),
-                        caller: Some(authority.actor_scope()),
-                    },
-                    read_authority,
-                    sql_method,
-                    &core,
-                    &store,
-                    kind,
-                )
-                .await),
-                _ => {
-                    // Read (or an unparseable statement — exec surfaces the precise
-                    // parse error). RLS-filter the off-lock snapshot to the caller's
-                    // visible rows BEFORE execution so a SELECT cannot exfiltrate a
-                    // forbidden row. `analysis_snapshot_versioned` (not the bare
-                    // `analysis_snapshot`) so the OCC version used to key the served
-                    // context cache below is taken ATOMICALLY with the snapshot it
-                    // describes — they can never drift apart.
-                    let (snap, graph_version) = {
-                        #[cfg(feature = "result-cache")]
-                        {
-                            // perf/row-visibility-index (B-sweep): this path has no
-                            // whole-RESULT byte cache to probe first (the SQL served
-                            // context/table cache further below is keyed on
-                            // `graph_version`, not on this query's bytes), so EVERY
-                            // read pays for a filtered view — exactly why amortizing
-                            // the per-node RLS decode via `FilteredViewCache` (the
-                            // SAME per-(actor,version) cache `Method::CypherQuery`
-                            // uses) matters here.
-                            #[cfg(feature = "security")]
-                            let (snap, version) = {
-                                let probe_version = core.version();
-                                match core.cached_filtered_view(caller, probe_version) {
-                                    Some(cached) => (cached, probe_version),
-                                    None => {
-                                        let generation = core.filtered_view_cache_generation();
-                                        let (mut fresh, built_version) =
-                                            core.analysis_snapshot_versioned();
-                                        rls.filter_view(caller, &mut fresh);
-                                        let fresh = Arc::new(fresh);
-                                        core.put_cached_filtered_view(
-                                            caller.to_string(),
-                                            built_version,
-                                            generation,
-                                            fresh.clone(),
-                                        );
-                                        (fresh, built_version)
-                                    }
-                                }
-                            };
-                            #[cfg(not(feature = "security"))]
-                            let (snap, version) = core.analysis_snapshot_versioned();
-                            (snap, version)
-                        }
-                        #[cfg(not(feature = "result-cache"))]
-                        {
-                            let snap = rls_snapshot(
-                                &core,
-                                #[cfg(feature = "security")]
-                                caller,
-                                #[cfg(feature = "security")]
-                                rls,
-                            );
-                            let version = core.version();
-                            (snap, version)
-                        }
-                    };
-                    // W1.6/P7 site 3: the node epoch gates the SQL-context node-batch sub-cache so a
-                    // pure-edge / catalog-only write reuses the O(V) node scan. The dependency clock
-                    // folds the coarse floor into it, keeping it sound for bypass writes; without
-                    // result-cache, fall back to graph_version (correct, no reuse).
-                    #[cfg(feature = "result-cache")]
-                    let node_epoch = core.dep_clock().node_epoch();
-                    #[cfg(not(feature = "result-cache"))]
-                    let node_epoch = graph_version;
-                    // CONCEPT:EG-KG.query.served-context-cache — the whole-`SessionContext` cache (UDFs,
-                    // durable views, synthesized system catalogs), amortized across every
-                    // served SQL read for this owner. One instance PER owner-scoped SQL
-                    // catalog (the same registry key `user_table_store` resolves `store`
-                    // by), so repeated calls from the SAME tenant+actor actually reuse
-                    // it — not just within one request.
-                    let context_cache = match crate::server::sql_tables::sql_context_cache(
-                        authority,
-                        persist_dir.as_deref().map(std::path::Path::new),
-                    ) {
-                        Ok(c) => c,
-                        Err(e) => return Ok(Response::err(req_id, format!("SQL error: {e}"))),
-                    };
-                    let tenant_scope = authority.tenant_scope().to_string();
-                    let graph_name_owned = graph_name.to_string();
-                    let caller_owned = caller.to_string();
-                    // L36 (CONCEPT:EG-KG.query.streaming-spillable-collect) — a REAL, request-scoped
-                    // `CancellationToken`: registered under THIS request's `req_id` for the
-                    // duration of the call so an explicit client `Method::CancelRequest` or a
-                    // server-side per-request deadline (`EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS`,
-                    // via `spawn_timeout`) can trip it — observed by `collect_streaming` at its
-                    // NEXT batch boundary, stopping the stream short instead of the always-fresh,
-                    // never-cancelled token this handler built internally before this fix. The
-                    // guard removes the registry entry when this arm returns (success, error, or
-                    // panic-unwind), so a completed request is never left cancellable.
-                    let cancel = eg_query::CancellationToken::new();
-                    let _cancel_guard =
-                        crate::server::request_cancel::register(req_id, cancel.clone());
-                    let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
-                    let cancel_for_task = cancel.clone();
-                    let resp = match compute_off_lock(req_id, move || {
-                        eg_query::exec_sql_typed_with_tables_cached_cancellable(
-                            &snap,
-                            graph_version,
-                            node_epoch,
-                            &tenant_scope,
-                            &graph_name_owned,
-                            &caller_owned,
-                            &store,
-                            &context_cache,
-                            &query,
-                            &cancel_for_task,
-                        )
-                    })
-                    .await
-                    {
-                        Ok(Ok(typed)) => {
-                            let result = crate::protocol::QueryResult {
-                                columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
-                                rows: typed
-                                    .rows
-                                    .iter()
-                                    .map(|r| rmp_serde::to_vec_named(r).unwrap_or_default())
-                                    .collect(),
-                            };
-                            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                            Response::ok(req_id, ResultPayload::Raw(bytes))
-                        }
-                        Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
-                        Err(resp) => resp,
-                    };
-                    if let Some(t) = timeout_task {
-                        t.abort();
-                    }
-                    Ok(resp)
-                }
-            }
-        }
+        } => handle_sql(&hctx, query, params_msgpack).await,
         #[cfg(feature = "query")]
-        Method::UnifiedQuery { plan } => {
-            #[cfg(feature = "tsdb")]
-            let tsdb_scope = match served_tsdb_scope(&plan, graph_name, read_authority) {
-                Ok(scope) => scope,
-                Err(denied) => return Ok(Response::err(req_id, denied)),
-            };
-            // ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209): filter (DataFusion) →
-            // traverse (BFS) → rank (kNN) over ONE consistent off-lock snapshot. Take
-            // BOTH the GraphView (topology + property blobs) and a SemanticStore clone
-            // under a brief read each — same point-in-time, so the cross-modal read is
-            // snapshot-isolated — then run the whole pipeline on the blocking pool.
-            // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): key
-            // on the plan bytes + the caller's RLS context. The plan + semantic store
-            // both reflect `version`, so a write retires the entry; the
-            // RLS-context salt keeps agent A's fused result out of agent B's lookups.
-            // Dependency-scoped invalidation (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation,
-            // W1.6/P7): a plan reducible to a bounded node read (Scan/Filter/Limit) is cached in
-            // the dependency-scoped namespace, so it survives every write DISJOINT from its
-            // labels; any other plan shape keeps the coarse version-keyed path unchanged.
-            #[cfg(feature = "result-cache")]
-            let dep = plan_dependency_set(&plan);
-            #[cfg(feature = "result-cache")]
-            let (snap, version, hash) = {
-                let mut payload = rmp_serde::to_vec_named(&plan).unwrap_or_default();
-                #[cfg(feature = "tsdb")]
-                if let Some((tenant, graph)) = tsdb_scope.as_ref() {
-                    payload.extend_from_slice(tenant.as_bytes());
-                    payload.extend_from_slice(graph.as_bytes());
-                }
-                let hash = rls_cache_hash(
-                    "unified",
-                    &payload,
-                    #[cfg(feature = "security")]
-                    caller,
-                    #[cfg(feature = "security")]
-                    rls,
-                );
-                // BUG-267: probe the cache BEFORE paying for the O(V+E)
-                // `analysis_snapshot_versioned()` clone. `version()` is a bare
-                // atomic load and `dep_clock()` a cheap ref, so a HIT never
-                // materializes the graph at all. This is the ONLY counted
-                // cache lookup on this request's path (BUG-267 follow-up: an
-                // earlier version of this fix re-checked the cache a SECOND
-                // time after the snapshot, on the theory that a concurrent
-                // request might have populated it in between -- but
-                // `ResultCache::get`/`get_dep` bump the hit/miss counters on
-                // EVERY call, so that second check double-counted every miss
-                // and broke `result_cache_dispatch_tests::
-                // hit_on_unchanged_then_write_invalidates` +
-                // `rls_aware_cache_no_cross_agent_leak::
-                // agent_a_cached_result_is_not_served_to_agent_b`, both of
-                // which assert an EXACT miss delta of 1 per served request.
-                // A miss here just proceeds to compute+cache below; the rare
-                // concurrent-populate race is a redundant recompute, not a
-                // correctness issue -- `put`/`put_dep` after the compute
-                // still stores under the FRESH version/deps this call's own
-                // snapshot reflects, so a stale or cross-actor entry can
-                // never result).
-                let probe = match &dep {
-                    Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
-                    None => core.result_cache().get(hash, core.version()),
-                };
-                if let Some(bytes) = probe {
-                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
-                }
-                // perf/row-visibility-index (B-sweep): a result-cache MISS still
-                // used to unconditionally pay for `filter_view`'s full per-node RLS
-                // decode — mirror `Method::CypherQuery`'s per-(actor,version)
-                // `FilteredViewCache` probe-then-build here too.
-                #[cfg(feature = "security")]
-                let (snap, version) = {
-                    let probe_version = core.version();
-                    match core.cached_filtered_view(caller, probe_version) {
-                        Some(cached) => (cached, probe_version),
-                        None => {
-                            let generation = core.filtered_view_cache_generation();
-                            let (mut fresh, built_version) = core.analysis_snapshot_versioned();
-                            rls.filter_view(caller, &mut fresh);
-                            let fresh = Arc::new(fresh);
-                            core.put_cached_filtered_view(
-                                caller.to_string(),
-                                built_version,
-                                generation,
-                                fresh.clone(),
-                            );
-                            (fresh, built_version)
-                        }
-                    }
-                };
-                #[cfg(not(feature = "security"))]
-                let (snap, version) = core.analysis_snapshot_versioned();
-                (snap, version, hash)
-            };
-            #[cfg(not(feature = "result-cache"))]
-            let snap = rls_snapshot(
-                &core,
-                #[cfg(feature = "security")]
-                caller,
-                #[cfg(feature = "security")]
-                rls,
-            );
-            // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
-            // vector kNN AND lexical legs down into the LIVE persistent indexes instead
-            // of cloning/rebuilding them per request: `core` (an `Arc`, cheap to clone)
-            // is moved into the off-lock closure so the `SemanticStore` read guard is
-            // taken THERE, on the blocking pool, never here on the async task — see
-            // `run_unified`'s new `served_text` param doc for why this replaces the old
-            // `core.semantic_store.read().clone()` (which forced a full HNSW rebuild on
-            // the clone's first search under the default backend).
-            let core_for_ctx = core.clone();
-            // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
-            #[cfg(feature = "tsdb")]
-            let tsdb = if tsdb_scope.is_some() {
-                state.read().await.tsdb_store.clone()
-            } else {
-                None
-            };
-            #[cfg(feature = "tsdb")]
-            let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
-                Some((tenant, graph)) => (Some(tenant), Some(graph)),
-                None => (None, None),
-            };
-            // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
-            // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
-            // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
-            // leg through `ServerState::foreign_sources` instead of erroring on every named
-            // source `Method::RegisterForeignSource` accepted.
-            #[cfg(feature = "federation")]
-            let foreign_sources = state.read().await.foreign_sources.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                #[cfg(feature = "text")]
-                let served_text =
-                    crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
-                #[cfg(feature = "geo")]
-                let served_spatial =
-                    crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
-                let semantic_guard = core_for_ctx.semantic_store.read();
-                run_unified(
-                    plan,
-                    &snap,
-                    &semantic_guard,
-                    ServedIndexes {
-                        #[cfg(feature = "text")]
-                        text: Some(&served_text),
-                        #[cfg(feature = "geo")]
-                        spatial: Some(&served_spatial),
-                        #[cfg(feature = "federation")]
-                        foreign: Some(&*foreign_sources),
-                        #[cfg(not(any(feature = "text", feature = "geo")))]
-                        _marker: std::marker::PhantomData,
-                    },
-                    #[cfg(feature = "tsdb")]
-                    TsdbLegBind {
-                        tsdb: tsdb.as_deref(),
-                        tsdb_tenant: tsdb_tenant.as_deref(),
-                        tsdb_graph: tsdb_graph.as_deref(),
-                        // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
-                        staged_series: None,
-                    },
-                )
-            })
-            .await
-            {
-                Ok(Ok(rows)) => {
-                    let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-                    #[cfg(feature = "result-cache")]
-                    match &dep {
-                        // Dependency-scoped store: computed against `version`, tagged with the
-                        // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
-                        Some(deps) => core.result_cache().put_dep(
-                            hash,
-                            0,
-                            version,
-                            deps.clone(),
-                            bytes.clone(),
-                        ),
-                        None => core.result_cache().put(hash, version, bytes.clone()),
-                    }
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        Method::UnifiedQuery { plan } => handle_unified_query(&hctx, plan).await,
         #[cfg(feature = "query")]
-        Method::UnifiedQueryText { text } => {
-            let plan = match eg_plan::uql::parse(&text) {
-                Ok(plan) => plan,
-                Err(e) => return Ok(Response::err(req_id, e.render(&text))),
-            };
-            #[cfg(feature = "tsdb")]
-            let tsdb_scope = match served_tsdb_scope(&plan, graph_name, read_authority) {
-                Ok(scope) => scope,
-                Err(denied) => return Ok(Response::err(req_id, denied)),
-            };
-            // UQL (CONCEPT:AU-KG.query.top-nodes-by-degree): parse the TEXT query into the SAME `wire::Plan`
-            // `UnifiedQuery` carries, then run the IDENTICAL `run_unified` executor —
-            // a pure front-end, no new execution path. A parse error is a clear,
-            // caret-annotated error Response (never a panic).
-            // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): key
-            // on the text + the caller's RLS context (the parse is deterministic, so
-            // caching pre-parse is sound and skips the parse on a hit too). The
-            // RLS-context salt keeps agent A's result out of agent B's lookups.
-            // Dependency-scoped invalidation (W1.6/P7): identical to the `UnifiedQuery` arm — a
-            // Scan/Filter/Limit plan is cached in the dependency-scoped namespace (survives
-            // disjoint writes); any other shape keeps the version-keyed path.
-            #[cfg(feature = "result-cache")]
-            let dep = plan_dependency_set(&plan);
-            #[cfg(feature = "result-cache")]
-            let (snap, version, hash) = {
-                let mut payload = text.clone().into_bytes();
-                #[cfg(feature = "tsdb")]
-                if let Some((tenant, graph)) = tsdb_scope.as_ref() {
-                    payload.extend_from_slice(tenant.as_bytes());
-                    payload.extend_from_slice(graph.as_bytes());
-                }
-                let hash = rls_cache_hash(
-                    "unified-text",
-                    &payload,
-                    #[cfg(feature = "security")]
-                    caller,
-                    #[cfg(feature = "security")]
-                    rls,
-                );
-                // BUG-267: same cheap-probe-before-snapshot ordering as the
-                // `UnifiedQuery` arm above — see its comment for the invariant
-                // AND for why there is only ONE counted cache lookup here (a
-                // second post-snapshot check double-counts misses against
-                // `ResultCache`'s hit/miss stats).
-                let probe = match &dep {
-                    Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
-                    None => core.result_cache().get(hash, core.version()),
-                };
-                if let Some(bytes) = probe {
-                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
-                }
-                // perf/row-visibility-index (B-sweep): a result-cache MISS still
-                // used to unconditionally pay for `filter_view`'s full per-node RLS
-                // decode — mirror `Method::CypherQuery`'s per-(actor,version)
-                // `FilteredViewCache` probe-then-build here too.
-                #[cfg(feature = "security")]
-                let (snap, version) = {
-                    let probe_version = core.version();
-                    match core.cached_filtered_view(caller, probe_version) {
-                        Some(cached) => (cached, probe_version),
-                        None => {
-                            let generation = core.filtered_view_cache_generation();
-                            let (mut fresh, built_version) = core.analysis_snapshot_versioned();
-                            rls.filter_view(caller, &mut fresh);
-                            let fresh = Arc::new(fresh);
-                            core.put_cached_filtered_view(
-                                caller.to_string(),
-                                built_version,
-                                generation,
-                                fresh.clone(),
-                            );
-                            (fresh, built_version)
-                        }
-                    }
-                };
-                #[cfg(not(feature = "security"))]
-                let (snap, version) = core.analysis_snapshot_versioned();
-                (snap, version, hash)
-            };
-            #[cfg(not(feature = "result-cache"))]
-            let snap = rls_snapshot(
-                &core,
-                #[cfg(feature = "security")]
-                caller,
-                #[cfg(feature = "security")]
-                rls,
-            );
-            // See the `UnifiedQuery` arm above: push the vector + lexical legs down
-            // into the live persistent indexes via a guard taken INSIDE the off-lock
-            // closure, instead of pre-cloning the whole `SemanticStore` here.
-            let core_for_ctx = core.clone();
-            // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
-            #[cfg(feature = "tsdb")]
-            let tsdb = if tsdb_scope.is_some() {
-                state.read().await.tsdb_store.clone()
-            } else {
-                None
-            };
-            #[cfg(feature = "tsdb")]
-            let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
-                Some((tenant, graph)) => (Some(tenant), Some(graph)),
-                None => (None, None),
-            };
-            // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
-            // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
-            // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
-            // leg through `ServerState::foreign_sources` instead of erroring on every named
-            // source `Method::RegisterForeignSource` accepted.
-            #[cfg(feature = "federation")]
-            let foreign_sources = state.read().await.foreign_sources.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                #[cfg(feature = "text")]
-                let served_text =
-                    crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
-                #[cfg(feature = "geo")]
-                let served_spatial =
-                    crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
-                let semantic_guard = core_for_ctx.semantic_store.read();
-                run_unified(
-                    plan,
-                    &snap,
-                    &semantic_guard,
-                    ServedIndexes {
-                        #[cfg(feature = "text")]
-                        text: Some(&served_text),
-                        #[cfg(feature = "geo")]
-                        spatial: Some(&served_spatial),
-                        #[cfg(feature = "federation")]
-                        foreign: Some(&*foreign_sources),
-                        #[cfg(not(any(feature = "text", feature = "geo")))]
-                        _marker: std::marker::PhantomData,
-                    },
-                    #[cfg(feature = "tsdb")]
-                    TsdbLegBind {
-                        tsdb: tsdb.as_deref(),
-                        tsdb_tenant: tsdb_tenant.as_deref(),
-                        tsdb_graph: tsdb_graph.as_deref(),
-                        // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
-                        staged_series: None,
-                    },
-                )
-            })
-            .await
-            {
-                Ok(Ok(rows)) => {
-                    let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-                    #[cfg(feature = "result-cache")]
-                    match &dep {
-                        // Dependency-scoped store: computed against `version`, tagged with the
-                        // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
-                        Some(deps) => core.result_cache().put_dep(
-                            hash,
-                            0,
-                            version,
-                            deps.clone(),
-                            bytes.clone(),
-                        ),
-                        None => core.result_cache().put(hash, version, bytes.clone()),
-                    }
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        Method::UnifiedQueryText { text } => handle_unified_query_text(&hctx, text).await,
         // ── EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────────
         #[cfg(feature = "query")]
-        Method::ExplainPlan { plan } => {
-            let snap = explain_snapshot(
-                &core,
-                #[cfg(feature = "security")]
-                caller,
-                #[cfg(feature = "security")]
-                rls,
-            );
-            // L34: reuse the served `UnifiedQuery` idiom instead of a per-request
-            // `SemanticStore` clone — move the cheap `Arc<GraphCore>` clone into the
-            // off-lock closure and take the read guard THERE, on the blocking pool. This
-            // diagnostic surface is low-traffic, but the fix costs nothing (same clone
-            // count: an `Arc` clone instead of a whole-store clone) so there is no reason
-            // to keep the heavier path.
-            let core_for_ctx = core.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let semantic = core_for_ctx.semantic_store.read();
-                explain_plan(plan, &snap, &semantic)
-            })
-            .await
-            {
-                Ok(Ok(result)) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("ExplainPlan error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        Method::ExplainPlan { plan } => handle_explain_plan(&hctx, plan).await,
         #[cfg(feature = "query")]
-        Method::ExplainProvenance { plan } => {
-            let snap = explain_snapshot(
-                &core,
-                #[cfg(feature = "security")]
-                caller,
-                #[cfg(feature = "security")]
-                rls,
-            );
-            // L34: see `ExplainPlan` above — clone the cheap `Arc<GraphCore>` into the
-            // closure and take the `SemanticStore` read guard inside it, instead of
-            // cloning the whole store per request.
-            let core_for_ctx = core.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let semantic = core_for_ctx.semantic_store.read();
-                explain_provenance(req_id, plan, &snap, &semantic)
-            })
-            .await
-            {
-                Ok(Ok(result)) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenance error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        Method::ExplainProvenance { plan } => handle_explain_provenance(&hctx, plan).await,
         // CONCEPT:EG-KB-CURRENCY — ID-seeded sibling of `ExplainProvenance`: same
         // per-row epistemic wire shape, no `Op` plan needed.
         #[cfg(feature = "query")]
         Method::ExplainProvenanceByIds { ids } => {
-            let snap = explain_snapshot(
-                &core,
-                #[cfg(feature = "security")]
-                caller,
-                #[cfg(feature = "security")]
-                rls,
-            );
-            let core_for_ctx = core.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let semantic = core_for_ctx.semantic_store.read();
-                explain_provenance_by_ids(req_id, ids, &snap, &semantic)
-            })
-            .await
-            {
-                Ok(Ok(result)) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => {
-                    Response::err(req_id, format!("ExplainProvenanceByIds error: {msg}"))
-                }
-                Err(resp) => resp,
-            };
-            Ok(resp)
+            handle_explain_provenance_by_ids(&hctx, ids).await
         }
         #[cfg(feature = "query")]
-        Method::ExplainPolicy { plan } => {
-            // BOTH the unfiltered snapshot and the caller's RLS-filtered one, so the
-            // diagnostic can report exactly which rows the policy denied (reuses the
-            // SAME `IsolationLayer::filter_view` every other read path applies).
-            let full = core.analysis_snapshot();
-            let filtered = explain_snapshot(
-                &core,
-                #[cfg(feature = "security")]
-                caller,
-                #[cfg(feature = "security")]
-                rls,
-            );
-            // L34: see `ExplainPlan` above — clone the cheap `Arc<GraphCore>` into the
-            // closure and take the `SemanticStore` read guard inside it, instead of
-            // cloning the whole store per request.
-            let core_for_ctx = core.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let semantic = core_for_ctx.semantic_store.read();
-                explain_policy(plan, &full, &filtered, &semantic)
-            })
-            .await
-            {
-                Ok(Ok(result)) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("ExplainPolicy error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        Method::ExplainPolicy { plan } => handle_explain_policy(&hctx, plan).await,
         // L51: redaction-aware arm. Handles BOTH `disclosure_level: None` (byte-for-
         // byte the classic path below) AND `Some(_)` (routes through
         // `eg_epistemic::redact::explain_belief_redacted_capped` under the caller's
@@ -812,36 +221,7 @@ pub(crate) async fn try_handle(
         Method::ExplainBelief {
             node_id,
             disclosure_level,
-        } => {
-            let snap = core.analysis_snapshot();
-            let caller_id = caller.to_string();
-            let rls = rls.clone();
-            let resp = match disclosure_level {
-                None => {
-                    match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
-                        Ok(result) => {
-                            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                            Response::ok(req_id, ResultPayload::Raw(bytes))
-                        }
-                        Err(resp) => resp,
-                    }
-                }
-                Some(cap) => {
-                    match compute_off_lock(req_id, move || {
-                        explain_belief_redacted_wire(&node_id, &snap, cap, &rls, &caller_id)
-                    })
-                    .await
-                    {
-                        Ok(result) => {
-                            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                            Response::ok(req_id, ResultPayload::Raw(bytes))
-                        }
-                        Err(resp) => resp,
-                    }
-                }
-            };
-            Ok(resp)
-        }
+        } => handle_explain_belief(&hctx, node_id, disclosure_level).await,
         // Classic-only arm: compiled when `epistemic` is on but `epistemic-redaction`
         // is off. `disclosure_level: Some(_)` gets an explicit error — never a silent
         // fall-back to the un-redacted tree, which would leak exactly what redaction
@@ -850,60 +230,14 @@ pub(crate) async fn try_handle(
         Method::ExplainBelief {
             node_id,
             disclosure_level,
-        } => {
-            if disclosure_level.is_some() {
-                return Ok(Response::err(
-                    req_id,
-                    "ExplainBelief.disclosure_level requires the epistemic-redaction \
-                     feature, not enabled in this build"
-                        .to_string(),
-                ));
-            }
-            let snap = core.analysis_snapshot();
-            let resp = match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await
-            {
-                Ok(result) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        } => handle_explain_belief(&hctx, node_id, disclosure_level).await,
         // L53 (EPI-P3-5): the acceptance capstone.
         #[cfg(feature = "epistemic-tms")]
-        Method::EpistemicStatus { node_id } => {
-            let snap = core.analysis_snapshot();
-            let resp = match compute_off_lock(req_id, move || {
-                epistemic_status_wire(&node_id, &snap)
-            })
-            .await
-            {
-                Ok(result) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        Method::EpistemicStatus { node_id } => handle_epistemic_status(&hctx, node_id).await,
         // L53 (EPI-P3-5): the one facet not subsumed by `EpistemicStatus` — a
         // whole-graph bitemporal diff between two transaction times.
         #[cfg(feature = "epistemic-tms")]
-        Method::WhatChanged { tx_from, tx_to } => {
-            let snap = core.analysis_snapshot();
-            let resp =
-                match compute_off_lock(req_id, move || what_changed_wire(&snap, tx_from, tx_to))
-                    .await
-                {
-                    Ok(result) => {
-                        let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                        Response::ok(req_id, ResultPayload::Raw(bytes))
-                    }
-                    Err(resp) => resp,
-                };
-            Ok(resp)
-        }
+        Method::WhatChanged { tx_from, tx_to } => handle_what_changed(&hctx, tx_from, tx_to).await,
         // Fenced recompute/writeback against the durable per-graph projection. The
         // graph snapshot supplies current provenance; request data cannot choose the
         // dependency set or generator persisted by the projection.
@@ -912,143 +246,14 @@ pub(crate) async fn try_handle(
             derived_id,
             expected_source_graph_version,
         } => {
-            #[cfg(feature = "raft")]
-            if crate::server::dispatch::is_replicated_apply() {
-                let method = Method::RecomputeMaterialization {
-                    derived_id: derived_id.clone(),
-                    expected_source_graph_version,
-                };
-                let persistence = state.read().await.persistence.clone();
-                let Some(persistence) = persistence else {
-                    return Ok(Response::err(
-                        req_id,
-                        "reasoning recompute requires an authoritative MutationBatch backend",
-                    ));
-                };
-                let graph_fname = crate::persist::sanitize(graph_name);
-                let authoritative_graph_version =
-                    match crate::server::mutation_batch::authoritative_graph_version(
-                        &persistence,
-                        &graph_fname,
-                        &core,
-                    )
-                    .await
-                    {
-                        Ok(version) => version,
-                        Err(error) => return Ok(Response::err(req_id, error)),
-                    };
-                if authoritative_graph_version != expected_source_graph_version {
-                    return Ok(Response::err(
-                        req_id,
-                        "STALE_RECOMPUTE_FENCE: authoritative graph version changed",
-                    ));
-                }
-                let Some(target_graph_version) = expected_source_graph_version.checked_add(1)
-                else {
-                    return Ok(Response::err(
-                        req_id,
-                        "reasoning recompute graph version exhausted",
-                    ));
-                };
-                let result = crate::protocol::RecomputeMaterializationResult {
-                    id: eg_epistemic::projection_identity(&derived_id),
-                    depends_on: Vec::new(),
-                    generating_activity: None,
-                    status: "Queued".to_string(),
-                    source_graph_version: target_graph_version,
-                    fence_epoch: 0,
-                    projection_pending: true,
-                };
-                let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                let payload = ResultPayload::Raw(bytes.clone());
-                let batch_id = crate::server::mutation_batch::opaque_request_key(
-                    "reasoning-recompute",
-                    graph_name,
-                    req_id,
-                    &method,
-                );
-                if let Err(error) = crate::server::mutation_batch::commit_internal_graph_methods(
-                    Some(&persistence),
-                    &core,
-                    req_id,
-                    Some(caller),
-                    graph_name,
-                    &batch_id,
-                    vec![method],
-                    &payload,
-                )
-                .await
-                {
-                    return Ok(Response::err(req_id, error));
-                }
-                return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
-            }
-            let authoritative_graph_version = core.version();
-            let snap = core.analysis_snapshot();
-            let persist_dir = state.read().await.persist_dir.clone();
-            let (materialization, fence_epoch) =
-                match crate::server::reasoning_projection::recompute_materialization(
-                    persist_dir.as_deref(),
-                    graph_name,
-                    &snap,
-                    authoritative_graph_version,
-                    &derived_id,
-                    expected_source_graph_version,
-                ) {
-                    Ok(value) => value,
-                    Err(error) => return Ok(Response::err(req_id, error)),
-                };
-            let result = crate::protocol::RecomputeMaterializationResult {
-                id: materialization.materialization_ref,
-                depends_on: materialization.dependency_refs,
-                generating_activity: materialization.generator_ref,
-                status: format!("{:?}", materialization.status),
-                source_graph_version: materialization.source_graph_version,
-                fence_epoch,
-                projection_pending: false,
-            };
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+            handle_recompute_materialization(&hctx, derived_id, expected_source_graph_version).await
         }
         // Read-only status lookup on the durable per-graph projection.
         #[cfg(feature = "epistemic-tms")]
-        Method::MaterializationStatus { id } => {
-            let persist_dir = state.read().await.persist_dir.clone();
-            let (status, source_graph_version) =
-                match crate::server::reasoning_projection::materialization_status(
-                    persist_dir.as_deref(),
-                    graph_name,
-                    &id,
-                ) {
-                    Ok(value) => value,
-                    Err(error) => return Ok(Response::err(req_id, error)),
-                };
-            let result = crate::protocol::MaterializationStatusResult {
-                status: status.map(|status| format!("{status:?}")),
-                source_graph_version,
-            };
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
-        }
+        Method::MaterializationStatus { id } => handle_materialization_status(&hctx, id).await,
         // Bulk "what's stale" read on the same durable per-graph projection.
         #[cfg(feature = "epistemic-tms")]
-        Method::StaleMaterializations => {
-            let persist_dir = state.read().await.persist_dir.clone();
-            let (ids, source_graph_version) =
-                match crate::server::reasoning_projection::stale_materializations(
-                    persist_dir.as_deref(),
-                    graph_name,
-                ) {
-                    Ok(value) => value,
-                    Err(error) => return Ok(Response::err(req_id, error)),
-                };
-            let result = crate::protocol::StaleMaterializationsResult {
-                ids,
-                source_graph_version,
-            };
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
-        }
+        Method::StaleMaterializations => handle_stale_materializations(&hctx).await,
         // EPI-P3-7 (gap-fill): standalone Dung argumentation conflict resolution. A
         // pure classification over a `BeliefGraph` snapshot — no writes. Gated
         // `epistemic-tms` at the handler (same fallback convention as
@@ -1064,25 +269,7 @@ pub(crate) async fn try_handle(
         Method::ResolveConflict {
             node_ids,
             semantics,
-        } => {
-            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-            let mut snap = core.analysis_snapshot();
-            #[cfg(feature = "security")]
-            rls.filter_view(caller, &mut snap);
-            let resp = match compute_off_lock(req_id, move || {
-                resolve_conflict_wire(&node_ids, &semantics, &snap)
-            })
-            .await
-            {
-                Ok(Ok(result)) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("ResolveConflict error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        } => handle_resolve_conflict(&hctx, node_ids, semantics).await,
         // X-1 (CONCEPT:EG-X1): the multimodal-evidence citation resolver. Gated
         // `evidence-graph` at the handler; the wire `Method` variant itself is gated
         // only `epistemic` (see its doc comment), so a build with `epistemic` but not
@@ -1099,44 +286,9 @@ pub(crate) async fn try_handle(
         // applies, so a hidden node (and the edges naming it) never enters
         // `BeliefGraph::from_graph_view` at all.
         #[cfg(all(feature = "evidence-graph", feature = "alignment"))]
-        Method::ExplainEvidence { node_id } => {
-            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-            let mut snap = core.analysis_snapshot();
-            #[cfg(feature = "security")]
-            rls.filter_view(caller, &mut snap);
-            let blob_store = state.read().await.blob.as_ref().map(|b| b.store.clone());
-            let resp = match compute_off_lock(req_id, move || {
-                explain_evidence_wire(&node_id, &snap, blob_store)
-            })
-            .await
-            {
-                Ok(result) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        Method::ExplainEvidence { node_id } => handle_explain_evidence(&hctx, node_id).await,
         #[cfg(all(feature = "evidence-graph", not(feature = "alignment")))]
-        Method::ExplainEvidence { node_id } => {
-            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-            let mut snap = core.analysis_snapshot();
-            #[cfg(feature = "security")]
-            rls.filter_view(caller, &mut snap);
-            let resp = match compute_off_lock(req_id, move || {
-                explain_evidence_wire(&node_id, &snap)
-            })
-            .await
-            {
-                Ok(result) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        Method::ExplainEvidence { node_id } => handle_explain_evidence(&hctx, node_id).await,
         // EPI-P3-3/P3-6: do-calculus intervention OR observational conditioning
         // (selected by `mode`) over a request-carried SCM. A pure function over
         // `variables`/`do_values`/`mode` — no graph snapshot needed. Gated
@@ -1146,21 +298,7 @@ pub(crate) async fn try_handle(
             variables,
             do_values,
             mode,
-        } => {
-            let resp = match compute_off_lock(req_id, move || {
-                causal_estimate_wire(&variables, &do_values, mode)
-            })
-            .await
-            {
-                Ok(Ok(result)) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("CausalEstimate error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        } => handle_causal_estimate(&hctx, variables, do_values, mode).await,
         // EPI-P3-6: Pearl's point-counterfactual recipe over a request-carried SCM +
         // a fully-observed `actual` unit. A pure function over request-carried
         // inputs — no graph snapshot needed. Gated `epistemic-causal` at the
@@ -1170,21 +308,7 @@ pub(crate) async fn try_handle(
             variables,
             actual,
             do_values,
-        } => {
-            let resp = match compute_off_lock(req_id, move || {
-                causal_counterfactual_wire(&variables, &actual, &do_values)
-            })
-            .await
-            {
-                Ok(Ok(result)) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("CausalCounterfactual error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        } => handle_causal_counterfactual(&hctx, variables, actual, do_values).await,
         // EPI-P3-3: provenance-aware retrieval ranking. A pure function over
         // request-carried inputs — no graph snapshot needed. Gated `epistemic-causal`
         // at the handler (same fallback convention as above).
@@ -1192,20 +316,7 @@ pub(crate) async fn try_handle(
         Method::RankByProvenance {
             candidates,
             weights,
-        } => {
-            let resp = match compute_off_lock(req_id, move || {
-                rank_by_provenance_wire(&candidates, weights)
-            })
-            .await
-            {
-                Ok(result) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        } => handle_rank_by_provenance(&hctx, candidates, weights).await,
         // ── In-transaction cross-modal read-your-own-writes (CONCEPT:EG-KG.query.txn-cross-modal-ryow) ──
         // Run the SAME unified cross-modal plan as `UnifiedQuery`, but over a
         // snapshot OVERLAID with the open txn's staged (uncommitted) write-set +
@@ -1228,529 +339,1611 @@ pub(crate) async fn try_handle(
         .await),
         #[cfg(feature = "query")]
         Method::TxnUnifiedQueryText { txn_id, text } => {
-            // UQL front-end: parse to the SAME `wire::Plan`, then run the IDENTICAL
-            // overlaid in-txn executor. A parse error is a caret-annotated Response.
-            let plan = match eg_plan::uql::parse(&text) {
-                Ok(p) => p,
-                Err(e) => return Ok(Response::err(req_id, e.render(&text))),
-            };
-            Ok(run_unified_overlaid(
-                state,
-                req_id,
-                &txn_id,
-                plan,
-                read_authority,
-                caller,
-                #[cfg(feature = "security")]
-                rls,
-            )
-            .await)
+            handle_txn_unified_query_text(&hctx, txn_id, text).await
         }
         #[cfg(feature = "nl-query")]
-        Method::NlQuery { text, graph } => {
-            // CONCEPT:EG-KG.query.core-query-input/EG-080 — natural-language → executable query → rows. Resolve
-            // the configured/injected `NlPlanner`, turn the NL into a UQL query STRING,
-            // then run it through the IDENTICAL `UnifiedQueryText` pipeline
-            // (`eg_plan::uql::parse` + `run_unified`). NO LLM in the engine core and NO
-            // new execution path — the produced query rides the deterministic pipeline.
-            // The graph was already used for routing; the handler runs against `core`.
-            let _ = graph;
-            let planner = match crate::server::nl::resolve_planner() {
-                Some(p) => p,
-                None => {
-                    return Ok(Response::err(
-                        req_id,
-                        "NlQuery: no NL planner configured — set an OpenAI-compatible \
-                         endpoint in agent-utilities config.json (or \
-                         EPISTEMIC_GRAPH_NL_ENDPOINT), or inject one via \
-                         server::set_nl_planner"
-                            .to_string(),
-                    ))
-                }
-            };
-            let hint = nl_schema_hint(&core);
-            let uql = match planner.plan(&text, &hint) {
-                Ok(q) => q,
-                Err(e) => return Ok(Response::err(req_id, format!("NlQuery planner error: {e}"))),
-            };
-            let plan = match eg_plan::uql::parse(&uql) {
-                Ok(p) => p,
-                Err(e) => {
-                    return Ok(Response::err(
-                        req_id,
-                        format!("NlQuery produced invalid UQL: {}", e.render(&uql)),
-                    ))
-                }
-            };
-            #[cfg(feature = "tsdb")]
-            let tsdb_scope = match served_tsdb_scope(&plan, graph_name, read_authority) {
-                Ok(scope) => scope,
-                Err(denied) => return Ok(Response::err(req_id, denied)),
-            };
-            // RLS-filtered off-lock snapshot, exactly like the Sql/UnifiedQueryText reads.
-            // NOT result-cached: an LLM plan is non-deterministic, so keying a cache on the
-            // NL text would risk serving a stale/foreign result.
-            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-            let mut snap = core.analysis_snapshot();
-            #[cfg(feature = "security")]
-            rls.filter_view(caller, &mut snap);
-            // See the `UnifiedQuery` arm: push vector + lexical legs into the live
-            // persistent indexes via a guard taken INSIDE the off-lock closure.
-            let core_for_ctx = core.clone();
-            // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
-            #[cfg(feature = "tsdb")]
-            let tsdb = if tsdb_scope.is_some() {
-                state.read().await.tsdb_store.clone()
-            } else {
-                None
-            };
-            #[cfg(feature = "tsdb")]
-            let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
-                Some((tenant, graph)) => (Some(tenant), Some(graph)),
-                None => (None, None),
-            };
-            // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
-            // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
-            // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
-            // leg through `ServerState::foreign_sources` instead of erroring on every named
-            // source `Method::RegisterForeignSource` accepted.
-            #[cfg(feature = "federation")]
-            let foreign_sources = state.read().await.foreign_sources.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                #[cfg(feature = "text")]
-                let served_text =
-                    crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
-                #[cfg(feature = "geo")]
-                let served_spatial =
-                    crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
-                let semantic_guard = core_for_ctx.semantic_store.read();
-                run_unified(
-                    plan,
-                    &snap,
-                    &semantic_guard,
-                    ServedIndexes {
-                        #[cfg(feature = "text")]
-                        text: Some(&served_text),
-                        #[cfg(feature = "geo")]
-                        spatial: Some(&served_spatial),
-                        #[cfg(feature = "federation")]
-                        foreign: Some(&*foreign_sources),
-                        #[cfg(not(any(feature = "text", feature = "geo")))]
-                        _marker: std::marker::PhantomData,
-                    },
-                    #[cfg(feature = "tsdb")]
-                    TsdbLegBind {
-                        tsdb: tsdb.as_deref(),
-                        tsdb_tenant: tsdb_tenant.as_deref(),
-                        tsdb_graph: tsdb_graph.as_deref(),
-                        // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
-                        staged_series: None,
-                    },
-                )
-            })
-            .await
-            {
-                Ok(Ok(rows)) => {
-                    let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        Method::NlQuery { text, graph } => handle_nl_query(&hctx, text, graph).await,
         #[cfg(feature = "graphql")]
-        Method::GraphQl { query, variables } => {
-            // GraphQL WRITE surface (CONCEPT:EG-KG.query.mutation/EG-023): a `mutation { … }` document
-            // maps onto eg-core's native write ops over the LIVE `GraphCore` via
-            // `execute_mutation` (which bumps the OCC version / `mark_dirty` once it
-            // lands). NOT cached (it is a write) and NOT RLS pre-filtered (writes are
-            // graph-ACL-gated in `dispatch_graph_op` — this method classified Write).
-            if super::super::access::graphql_is_mutation(&query) {
-                let carrier = match read_authority.and_then(GraphReadAuthority::carrier) {
-                    Some(carrier) => carrier,
-                    None => {
-                        crate::metrics::access_denied();
-                        return Ok(Response::err(
-                            req_id,
-                            "ACCESS_DENIED: GraphQL mutation requires verified tenant+actor authority",
-                        ));
-                    }
-                };
-                // Cross-modal transaction routing (CONCEPT:EG-KG.query.eg-9/419). A GraphQL mutation
-                // is one of three shapes: a `commitTransaction` — landed DURABLY via
-                // `commit_cross_modal_txn` (ONE redb WriteTransaction across graph + vector
-                // + tsdb + axioms), exactly as pgwire's commit path; a begin/stage/read/
-                // rollback cross-modal verb — run in-memory over the process-wide
-                // `CrossModalTxnRegistry` (staging + read-your-own-writes, no durable side
-                // effect until commit); or an ordinary mutation — the native `execute_mutation`
-                // write path. `classify_crossmodal` picks the route with ONE parse.
-                match eg_graphql::classify_crossmodal(&query) {
-                    eg_graphql::CrossModalRoute::Commit(txn_id) => {
-                        let committed = super::txn::commit_graphql_cross_modal(
-                            state,
-                            req_id,
-                            graph_name,
-                            &core,
-                            graphql_crossmodal_registry(),
-                            &txn_id,
-                            carrier,
-                        )
-                        .await;
-                        let resp = match committed {
-                            Ok(committed) => Response::ok(
-                                req_id,
-                                ResultPayload::Raw(
-                                    rmp_serde::to_vec_named(&serde_json::json!({
-                                        "data": {"commitTransaction": {"committed": committed}}
-                                    }))
-                                    .unwrap_or_default(),
-                                ),
-                            ),
-                            Err(msg) => Response::err(
-                                req_id,
-                                format!("GraphQL commitTransaction error: {msg}"),
-                            ),
-                        };
-                        return Ok(resp);
-                    }
-                    eg_graphql::CrossModalRoute::Staging => {
-                        let core_w = read_authority
-                            .expect("GraphQL mutation authority checked above")
-                            .project_core(&core);
-                        let owner_scope = carrier.owner_scope().to_string();
-                        let reg = graphql_crossmodal_registry();
-                        let resp = match compute_off_lock(req_id, move || {
-                            eg_graphql::execute_crossmodal(&core_w, reg, &owner_scope, &query)
-                        })
-                        .await
-                        {
-                            Ok(Ok(value)) => Response::ok(
-                                req_id,
-                                ResultPayload::Raw(
-                                    rmp_serde::to_vec_named(&value).unwrap_or_default(),
-                                ),
-                            ),
-                            Ok(Err(msg)) => {
-                                Response::err(req_id, format!("GraphQL cross-modal error: {msg}"))
-                            }
-                            Err(resp) => resp,
-                        };
-                        return Ok(resp);
-                    }
-                    eg_graphql::CrossModalRoute::Invalid(message) => {
-                        return Ok(Response::err(req_id, message));
-                    }
-                    eg_graphql::CrossModalRoute::NotCrossModal => {
-                        let core_w = core.clone();
-                        let resp = match compute_off_lock(req_id, move || {
-                            eg_graphql::execute_mutation(&core_w, &query)
-                        })
-                        .await
-                        {
-                            Ok(Ok(value)) => Response::ok(
-                                req_id,
-                                ResultPayload::Raw(
-                                    rmp_serde::to_vec_named(&value).unwrap_or_default(),
-                                ),
-                            ),
-                            Ok(Err(msg)) => {
-                                Response::err(req_id, format!("GraphQL mutation error: {msg}"))
-                            }
-                            Err(resp) => resp,
-                        };
-                        return Ok(resp);
-                    }
-                }
-            }
-            // A `subscription { … }` is a read-only POLL of the current matches (a full
-            // push transport is a documented eg-graphql deferral); a `query { … }` is the
-            // ordinary read. Both run over the SAME RLS-filtered off-lock snapshot below.
-            let is_subscription = matches!(
-                eg_graphql::parse_operation(&query),
-                Ok(eg_graphql::Operation::Subscription(_))
-            );
-            // GraphQL READ surface (CONCEPT:EG-KG.query.sparql-completeness): compile the GraphQL query to
-            // scans + BFS over the SAME off-lock snapshot the Cypher path uses, via the
-            // pure-Rust eg-graphql resolver (NO async-graphql / DataFusion). The result
-            // is the GraphQL `{"data": …}` JSON, returned via `ResultPayload::Raw`.
-            //
-            // GraphQL runs under the SAME version-keyed, RLS-aware result cache the
-            // SQL/Cypher/SPARQL paths do (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): the cache KEY
-            // folds in the caller's RLS context so agent A's filtered `{data}` is NEVER
-            // served to agent B for the same GraphQL query text, and the snapshot is
-            // RLS-FILTERED to the caller's visible rows BEFORE the resolver runs — a
-            // GraphQL read cannot leak rows across agents any more than a Cypher read.
-            // Bind the request's GraphQL `$variables` (task #23): a `query { … }` runs
-            // through `execute_with_variables` so `$var` args + `@skip`/`@include`
-            // resolve (CONCEPT:EG-KG.query.fragments-variables-directives); absent ⇒ an empty object, byte-identical to the
-            // no-vars path. (A `subscription { … }` stays a poll of the current matches.)
-            let vars = variables.unwrap_or_else(|| serde_json::json!({}));
-            #[cfg(feature = "result-cache")]
-            let (snap, version, hash) = {
-                // Fold the bound variables INTO the cache key: the same query text with
-                // different `$variables` can produce different `{data}`, so the key must
-                // distinguish them or a variables-bound read would serve a stale result.
-                // An empty `{}` serializes to `{}` — byte-stable for the no-vars path.
-                let mut key_payload = query.as_bytes().to_vec();
-                key_payload.push(0);
-                key_payload.extend_from_slice(&serde_json::to_vec(&vars).unwrap_or_default());
-                let hash = rls_cache_hash(
-                    "graphql",
-                    &key_payload,
-                    #[cfg(feature = "security")]
-                    caller,
-                    #[cfg(feature = "security")]
-                    rls,
-                );
-                // perf/row-visibility-index (B-sweep): probe the whole-RESULT
-                // cache FIRST via a cheap `core.version()` read — no snapshot at
-                // all on a hit (mirrors `Method::CypherQuery`'s exact two-tier
-                // shape; the previous code here built+filtered a snapshot before
-                // ever checking for a hit). Only a genuine MISS reaches the
-                // per-(actor,version) `FilteredViewCache` probe-then-build below.
-                if let Some(bytes) = core.result_cache().get(hash, core.version()) {
-                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
-                }
-                #[cfg(feature = "security")]
-                let (snap, version) = {
-                    let probe_version = core.version();
-                    match core.cached_filtered_view(caller, probe_version) {
-                        Some(cached) => (cached, probe_version),
-                        None => {
-                            let generation = core.filtered_view_cache_generation();
-                            let (mut fresh, built_version) = core.analysis_snapshot_versioned();
-                            rls.filter_view(caller, &mut fresh);
-                            let fresh = Arc::new(fresh);
-                            core.put_cached_filtered_view(
-                                caller.to_string(),
-                                built_version,
-                                generation,
-                                fresh.clone(),
-                            );
-                            (fresh, built_version)
-                        }
-                    }
-                };
-                #[cfg(not(feature = "security"))]
-                let (snap, version) = core.analysis_snapshot_versioned();
-                (snap, version, hash)
-            };
-            #[cfg(not(feature = "result-cache"))]
-            let snap = rls_snapshot(
-                &core,
-                #[cfg(feature = "security")]
-                caller,
-                #[cfg(feature = "security")]
-                rls,
-            );
-            let resp = match compute_off_lock(req_id, move || {
-                if is_subscription {
-                    eg_graphql::subscribe(&snap, &query)
-                } else {
-                    eg_graphql::execute_with_variables(&snap, &query, &vars)
-                }
-            })
-            .await
-            {
-                Ok(Ok(value)) => {
-                    let bytes = rmp_serde::to_vec_named(&value).unwrap_or_default();
-                    #[cfg(feature = "result-cache")]
-                    core.result_cache().put(hash, version, bytes.clone());
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("GraphQL error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        Method::GraphQl { query, variables } => handle_graphql(&hctx, query, variables).await,
         #[cfg(feature = "cypher")]
-        Method::CypherQuery { query, mode } => {
-            // Cypher WRITE surface (CONCEPT:EG-KG.query.register-each-user-table/EG-023): a `CREATE`/`MERGE`/`SET`/
-            // `DELETE`/`REMOVE` statement is applied to the LIVE `GraphCore` via
-            // `exec_cypher_write` (native eg-core write ops — NO DataFusion; it calls
-            // `mark_dirty` once after the mutation). NOT cached, NOT RLS pre-filtered
-            // (writes are graph-ACL-gated upstream — this method classified Write). A
-            // read falls through to the RLS-aware cached snapshot path below.
-            let validation_method = Method::CypherQuery {
-                query: query.clone(),
-                mode,
-            };
-            if let Err(error) = validate_cypher_mode(&validation_method) {
-                return Ok(Response::err(req_id, error));
-            }
-            if matches!(mode, crate::protocol::CypherMode::Write) {
-                let core_w = core.clone();
-                let resp = match compute_off_lock(req_id, move || {
-                    eg_query::exec_cypher_write(&core_w, &query)
-                })
-                .await
-                {
-                    Ok(Ok(result)) => Response::ok(
-                        req_id,
-                        ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
-                    ),
-                    Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
-                    Err(resp) => resp,
-                };
-                return Ok(resp);
-            }
-            // Same off-lock snapshot + blocking-pool idiom as SQL — but DEP-FREE
-            // (label index / VF2 / BFS), so it runs in a no-DataFusion Pi build.
-            // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231) wraps
-            // it identically; this is the lean-Pi cached query path. The cache KEY folds
-            // in the caller's RLS context so agent A's filtered rows are never served to
-            // agent B, and the snapshot is RLS-filtered before execution.
-            #[cfg(feature = "result-cache")]
-            let (snap, version, hash) = {
-                let hash = rls_cache_hash(
-                    "cypher",
-                    query.as_bytes(),
-                    #[cfg(feature = "security")]
-                    caller,
-                    #[cfg(feature = "security")]
-                    rls,
-                );
-                // BUG-267: `analysis_snapshot()` was materialized unconditionally
-                // BEFORE this cache lookup — an O(V+E) clone of the entire
-                // node_map/node_properties/edge_properties paid on every call
-                // regardless of cache hit or miss, defeating the cache that
-                // follows it (measured p99 2.49s on plain cached reads). Probe
-                // with the cheap `core.version()` atomic load first; only a MISS
-                // pays for `analysis_snapshot_versioned()`. The fresh `version`
-                // it returns (not the one used for this probe) is what `put`
-                // stores under below, so an entry can never claim a version
-                // newer than the data it reflects.
-                //
-                // BUG-267 follow-up (regression caught by
-                // `result_cache_dispatch_tests::hit_on_unchanged_then_write_invalidates`
-                // and `rls_aware_cache_no_cross_agent_leak::
-                // agent_a_cached_result_is_not_served_to_agent_b`, both of which assert
-                // an EXACT miss delta of 1 per served request): an earlier version of
-                // this fix re-checked the cache a SECOND time after the snapshot too, to
-                // guard a concurrent-populate race. `ResultCache::get` bumps the
-                // hit/miss counters on EVERY call — including a probe that finds
-                // nothing — so that second check silently double-counted every miss.
-                // There is only ONE counted lookup on this path now; a rare concurrent
-                // populate between the probe and the snapshot just costs a redundant
-                // recompute (the `put` below still lands under this call's own fresh
-                // `version`, so nothing stale or cross-actor is ever served).
-                if let Some(bytes) = core.result_cache().get(hash, core.version()) {
-                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
-                }
-                // perf/cold-query-floor-analysis (UNCOMPILED PROPOSAL — see
-                // `crate::rls_view_cache` in eg-core, not yet exercised by any test or
-                // build): a whole-RESULT-cache MISS used to unconditionally pay for
-                // `analysis_snapshot_versioned()` (an O(V+E) clone of every node/edge
-                // property blob's Arc handle) PLUS `rls.filter_view` — which, per node
-                // in the ENTIRE snapshot (not just the rows this query's WHERE clause
-                // ultimately matches), fully msgpack-decodes that node's property blob
-                // (`IsolationLayer::can_see_node` -> `row_visibility`) just to read 2-3
-                // small RLS metadata keys. That is architecturally the SAME bug
-                // `build_cypher_label_index` had before `perf/warm-label-index`
-                // (`2662713b`) fixed it for the label index, except unmemoized: this
-                // filtered view is a pure function of (graph content, actor's ACL
-                // grants) at one `version()`, so a same-(actor, version) repeat pays the
-                // full O(V) decode again on every distinct query text (a whole-result
-                // cache miss), which is exactly the reported ~900ms fixed floor —
-                // measured live via the structurally identical `project_core` cache's
-                // own `epistemic_graph_projection_cache_miss_build_seconds` (298
-                // misses, mean 1.10s/miss). Probe the per-actor filtered-view cache
-                // FIRST; only a genuine cold (actor, version) pair pays for the
-                // snapshot + filter, exactly mirroring the `result_cache` probe just
-                // above (BUG-267) and `GraphReadAuthority::project_core`'s existing
-                // cache-then-build shape (`src/server/access.rs`). RLS safety: keyed by
-                // (actor, version) exactly like `project_core`'s cache — never a
-                // cross-actor share — and invalidated on every whole-image transition
-                // `project_core`'s cache is (`GraphCore::invalidate_filtered_view_cache`,
-                // called alongside `invalidate_projection_cache` at both its sites).
-                // `version` MUST be the exact version the returned `snap` reflects (the
-                // same BUG-267 invariant the `result_cache.put` below relies on: an
-                // entry can never claim a version newer than the data it reflects) —
-                // NOT a fresh `core.version()` re-read after the cache probe, which
-                // could have raced a concurrent commit. The hit branch reuses
-                // `probe_version` (what `cached_filtered_view` matched against); the
-                // miss branch reuses `built_version` (what `analysis_snapshot_versioned`
-                // itself captured), exactly as the pre-existing code did.
-                #[cfg(feature = "security")]
-                let (snap, version): (Arc<crate::graph::GraphView>, u64) = {
-                    let probe_version = core.version();
-                    match core.cached_filtered_view(caller, probe_version) {
-                        Some(cached) => (cached, probe_version),
-                        None => {
-                            let generation = core.filtered_view_cache_generation();
-                            let (mut fresh, built_version) = core.analysis_snapshot_versioned();
-                            rls.filter_view(caller, &mut fresh);
-                            let fresh = Arc::new(fresh);
-                            core.put_cached_filtered_view(
-                                caller.to_string(),
-                                built_version,
-                                generation,
-                                fresh.clone(),
-                            );
-                            (fresh, built_version)
-                        }
-                    }
-                };
-                #[cfg(not(feature = "security"))]
-                let (snap, version) = core.analysis_snapshot_versioned();
-                (snap, version, hash)
-            };
-            #[cfg(not(feature = "result-cache"))]
-            let snap = rls_snapshot(
-                &core,
-                #[cfg(feature = "security")]
-                caller,
-                #[cfg(feature = "security")]
-                rls,
-            );
-            // `version`-paired snapshot (`result-cache` build only, see above): hand
-            // `exec_cypher_params_indexed` an `IndexSource` so an unlabeled `MATCH (n)
-            // WHERE n.id = …`/`IN […]` — the fleet/tool-registration slow-query shape —
-            // can narrow through the bounded property index instead of a whole-graph
-            // scan (CONCEPT:EG-KG.storage.index-manager-seam). The index answers off `core`'s LIVE
-            // state, so `exec_cypher_params_indexed` brackets it against `core.version()`
-            // and discards the answer (full-scan fallback) if a concurrent commit raced
-            // this snapshot; the SERVED result is identical to plain `exec_cypher` either
-            // way — only the work to reach it differs.
-            #[cfg(feature = "result-cache")]
-            let core_for_index = core.clone();
-            #[cfg(feature = "result-cache")]
-            let resp = match compute_off_lock(req_id, move || {
-                eg_query::exec_cypher_params_indexed(
-                    &snap,
-                    &query,
-                    &eg_query::Params::new(),
-                    eg_query::IndexSource::new(&core_for_index, version),
-                )
-            })
-            .await
-            {
-                Ok(Ok(result)) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    core.result_cache().put(hash, version, bytes.clone());
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
-                Err(resp) => resp,
-            };
-            #[cfg(not(feature = "result-cache"))]
-            let resp = match compute_off_lock(req_id, move || eg_query::exec_cypher(&snap, &query))
-                .await
-            {
-                Ok(Ok(result)) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
+        Method::CypherQuery { query, mode } => handle_cypher_query(&hctx, query, mode).await,
         other => Err(other),
     }
 }
 
+#[cfg(feature = "query")]
+async fn handle_sql(
+    ctx: &QueryHandlerCtx<'_>,
+    query: String,
+    params_msgpack: Vec<u8>,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let read_authority = ctx.read_authority;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    let sql_method = Method::Sql {
+        query: query.clone(),
+        params_msgpack,
+    };
+    // CONCEPT:EG-KG.query.mirrors-pgwire — `Method::Sql` now routes BOTH reads AND writes (was
+    // SELECT-only). Classify the statement with the SAME `eg_query::classify`
+    // the pgwire shim uses, then:
+    //   * a write (graph-node DML on `nodes`, or user-table DDL/DML) → the
+    //     classify+execute path pgwire uses (graph core writes + the shared
+    //     `TableStore`), so agent-utilities `graph_table`/`sql_exec` writes
+    //     LAND over the wire — see `exec_sql_write`;
+    //   * a read / transaction-control / unparseable statement → the
+    //     DataFusion read path, run tables-aware (`exec_sql_typed_with_tables`)
+    //     so a `SELECT` sees BOTH the graph AND user tables in one plan.
+    //
+    // SQL catalogs are owned by the current verified tenant+principal. Reads
+    // and writes resolve the same owner store; there is no shared catalog or
+    // unsigned lookup path.
+    let Some(read_authority) = read_authority else {
+        crate::metrics::access_denied();
+        return Ok(Response::err(
+            req_id,
+            "ACCESS_DENIED: current signed tenant authority is required".to_string(),
+        ));
+    };
+    let Some(authority) = read_authority.carrier() else {
+        crate::metrics::access_denied();
+        return Ok(Response::err(
+            req_id,
+            "ACCESS_DENIED: current signed tenant authority is required".to_string(),
+        ));
+    };
+    let persist_dir = state.read().await.persist_dir.clone();
+    let store = match crate::server::sql_tables::user_table_store(
+        authority,
+        persist_dir.as_deref().map(std::path::Path::new),
+    ) {
+        Ok(s) => s,
+        Err(e) => return Ok(Response::err(req_id, format!("SQL error: {e}"))),
+    };
+    match eg_query::classify(&query) {
+        Ok(kind) if !matches!(kind, eg_query::StatementKind::Read) => Ok(exec_sql_write(
+            req_id,
+            SqlWriteScope {
+                graph_name,
+                tenant_scope: authority.tenant_scope(),
+                caller: Some(authority.actor_scope()),
+            },
+            read_authority,
+            sql_method,
+            &core,
+            &store,
+            kind,
+        )
+        .await),
+        _ => {
+            // Read (or an unparseable statement — exec surfaces the precise
+            // parse error). RLS-filter the off-lock snapshot to the caller's
+            // visible rows BEFORE execution so a SELECT cannot exfiltrate a
+            // forbidden row. `analysis_snapshot_versioned` (not the bare
+            // `analysis_snapshot`) so the OCC version used to key the served
+            // context cache below is taken ATOMICALLY with the snapshot it
+            // describes — they can never drift apart.
+            let (snap, graph_version) = {
+                #[cfg(feature = "result-cache")]
+                {
+                    // perf/row-visibility-index (B-sweep): this path has no
+                    // whole-RESULT byte cache to probe first (the SQL served
+                    // context/table cache further below is keyed on
+                    // `graph_version`, not on this query's bytes), so EVERY
+                    // read pays for a filtered view — exactly why amortizing
+                    // the per-node RLS decode via `FilteredViewCache` (the
+                    // SAME per-(actor,version) cache `Method::CypherQuery`
+                    // uses) matters here.
+                    #[cfg(feature = "security")]
+                    let (snap, version) = versioned_rls_snapshot(&core, caller, rls);
+                    #[cfg(not(feature = "security"))]
+                    let (snap, version) = core.analysis_snapshot_versioned();
+                    (snap, version)
+                }
+                #[cfg(not(feature = "result-cache"))]
+                {
+                    let snap = rls_snapshot(
+                        &core,
+                        #[cfg(feature = "security")]
+                        caller,
+                        #[cfg(feature = "security")]
+                        rls,
+                    );
+                    let version = core.version();
+                    (snap, version)
+                }
+            };
+            // W1.6/P7 site 3: the node epoch gates the SQL-context node-batch sub-cache so a
+            // pure-edge / catalog-only write reuses the O(V) node scan. The dependency clock
+            // folds the coarse floor into it, keeping it sound for bypass writes; without
+            // result-cache, fall back to graph_version (correct, no reuse).
+            #[cfg(feature = "result-cache")]
+            let node_epoch = core.dep_clock().node_epoch();
+            #[cfg(not(feature = "result-cache"))]
+            let node_epoch = graph_version;
+            // CONCEPT:EG-KG.query.served-context-cache — the whole-`SessionContext` cache (UDFs,
+            // durable views, synthesized system catalogs), amortized across every
+            // served SQL read for this owner. One instance PER owner-scoped SQL
+            // catalog (the same registry key `user_table_store` resolves `store`
+            // by), so repeated calls from the SAME tenant+actor actually reuse
+            // it — not just within one request.
+            let context_cache = match crate::server::sql_tables::sql_context_cache(
+                authority,
+                persist_dir.as_deref().map(std::path::Path::new),
+            ) {
+                Ok(c) => c,
+                Err(e) => return Ok(Response::err(req_id, format!("SQL error: {e}"))),
+            };
+            let tenant_scope = authority.tenant_scope().to_string();
+            let graph_name_owned = graph_name.to_string();
+            let caller_owned = caller.to_string();
+            // L36 (CONCEPT:EG-KG.query.streaming-spillable-collect) — a REAL, request-scoped
+            // `CancellationToken`: registered under THIS request's `req_id` for the
+            // duration of the call so an explicit client `Method::CancelRequest` or a
+            // server-side per-request deadline (`EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS`,
+            // via `spawn_timeout`) can trip it — observed by `collect_streaming` at its
+            // NEXT batch boundary, stopping the stream short instead of the always-fresh,
+            // never-cancelled token this handler built internally before this fix. The
+            // guard removes the registry entry when this arm returns (success, error, or
+            // panic-unwind), so a completed request is never left cancellable.
+            let cancel = eg_query::CancellationToken::new();
+            let _cancel_guard = crate::server::request_cancel::register(req_id, cancel.clone());
+            let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
+            let cancel_for_task = cancel.clone();
+            let resp = match compute_off_lock(req_id, move || {
+                eg_query::exec_sql_typed_with_tables_cached_cancellable(
+                    &snap,
+                    graph_version,
+                    node_epoch,
+                    &tenant_scope,
+                    &graph_name_owned,
+                    &caller_owned,
+                    &store,
+                    &context_cache,
+                    &query,
+                    &cancel_for_task,
+                )
+            })
+            .await
+            {
+                Ok(Ok(typed)) => {
+                    let result = crate::protocol::QueryResult {
+                        columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                        rows: typed
+                            .rows
+                            .iter()
+                            .map(|r| rmp_serde::to_vec_named(r).unwrap_or_default())
+                            .collect(),
+                    };
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
+                Err(resp) => resp,
+            };
+            if let Some(t) = timeout_task {
+                t.abort();
+            }
+            Ok(resp)
+        }
+    }
+}
+
+#[cfg(feature = "query")]
+async fn handle_unified_query(
+    ctx: &QueryHandlerCtx<'_>,
+    plan: eg_plan::Plan,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let read_authority = ctx.read_authority;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    #[cfg(feature = "tsdb")]
+    let tsdb_scope = match served_tsdb_scope(&plan, graph_name, read_authority) {
+        Ok(scope) => scope,
+        Err(denied) => return Ok(Response::err(req_id, denied)),
+    };
+    // ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209): filter (DataFusion) →
+    // traverse (BFS) → rank (kNN) over ONE consistent off-lock snapshot. Take
+    // BOTH the GraphView (topology + property blobs) and a SemanticStore clone
+    // under a brief read each — same point-in-time, so the cross-modal read is
+    // snapshot-isolated — then run the whole pipeline on the blocking pool.
+    // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): key
+    // on the plan bytes + the caller's RLS context. The plan + semantic store
+    // both reflect `version`, so a write retires the entry; the
+    // RLS-context salt keeps agent A's fused result out of agent B's lookups.
+    // Dependency-scoped invalidation (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation,
+    // W1.6/P7): a plan reducible to a bounded node read (Scan/Filter/Limit) is cached in
+    // the dependency-scoped namespace, so it survives every write DISJOINT from its
+    // labels; any other plan shape keeps the coarse version-keyed path unchanged.
+    #[cfg(feature = "result-cache")]
+    let dep = plan_dependency_set(&plan);
+    #[cfg(feature = "result-cache")]
+    let (snap, version, hash) = {
+        let mut payload = rmp_serde::to_vec_named(&plan).unwrap_or_default();
+        #[cfg(feature = "tsdb")]
+        if let Some((tenant, graph)) = tsdb_scope.as_ref() {
+            payload.extend_from_slice(tenant.as_bytes());
+            payload.extend_from_slice(graph.as_bytes());
+        }
+        let hash = rls_cache_hash(
+            "unified",
+            &payload,
+            #[cfg(feature = "security")]
+            caller,
+            #[cfg(feature = "security")]
+            rls,
+        );
+        // BUG-267: probe the cache BEFORE paying for the O(V+E)
+        // `analysis_snapshot_versioned()` clone. `version()` is a bare
+        // atomic load and `dep_clock()` a cheap ref, so a HIT never
+        // materializes the graph at all. This is the ONLY counted
+        // cache lookup on this request's path (BUG-267 follow-up: an
+        // earlier version of this fix re-checked the cache a SECOND
+        // time after the snapshot, on the theory that a concurrent
+        // request might have populated it in between -- but
+        // `ResultCache::get`/`get_dep` bump the hit/miss counters on
+        // EVERY call, so that second check double-counted every miss
+        // and broke `result_cache_dispatch_tests::
+        // hit_on_unchanged_then_write_invalidates` +
+        // `rls_aware_cache_no_cross_agent_leak::
+        // agent_a_cached_result_is_not_served_to_agent_b`, both of
+        // which assert an EXACT miss delta of 1 per served request.
+        // A miss here just proceeds to compute+cache below; the rare
+        // concurrent-populate race is a redundant recompute, not a
+        // correctness issue -- `put`/`put_dep` after the compute
+        // still stores under the FRESH version/deps this call's own
+        // snapshot reflects, so a stale or cross-actor entry can
+        // never result).
+        let probe = match &dep {
+            Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
+            None => core.result_cache().get(hash, core.version()),
+        };
+        if let Some(bytes) = probe {
+            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+        }
+        // perf/row-visibility-index (B-sweep): a result-cache MISS still
+        // used to unconditionally pay for `filter_view`'s full per-node RLS
+        // decode — mirror `Method::CypherQuery`'s per-(actor,version)
+        // `FilteredViewCache` probe-then-build here too.
+        #[cfg(feature = "security")]
+        let (snap, version) = versioned_rls_snapshot(&core, caller, rls);
+        #[cfg(not(feature = "security"))]
+        let (snap, version) = core.analysis_snapshot_versioned();
+        (snap, version, hash)
+    };
+    #[cfg(not(feature = "result-cache"))]
+    let snap = rls_snapshot(
+        &core,
+        #[cfg(feature = "security")]
+        caller,
+        #[cfg(feature = "security")]
+        rls,
+    );
+    // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
+    // vector kNN AND lexical legs down into the LIVE persistent indexes instead
+    // of cloning/rebuilding them per request, via the shared off-lock runner.
+    let resp = match run_unified_off_lock(
+        state,
+        req_id,
+        &core,
+        snap,
+        plan,
+        #[cfg(feature = "tsdb")]
+        tsdb_scope,
+    )
+    .await
+    {
+        Ok(Ok(rows)) => {
+            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
+            #[cfg(feature = "result-cache")]
+            match &dep {
+                // Dependency-scoped store: computed against `version`, tagged with the
+                // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
+                Some(deps) => {
+                    core.result_cache()
+                        .put_dep(hash, 0, version, deps.clone(), bytes.clone())
+                }
+                None => core.result_cache().put(hash, version, bytes.clone()),
+            }
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+#[cfg(feature = "query")]
+async fn handle_unified_query_text(
+    ctx: &QueryHandlerCtx<'_>,
+    text: String,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let read_authority = ctx.read_authority;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    let plan = match eg_plan::uql::parse(&text) {
+        Ok(plan) => plan,
+        Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+    };
+    #[cfg(feature = "tsdb")]
+    let tsdb_scope = match served_tsdb_scope(&plan, graph_name, read_authority) {
+        Ok(scope) => scope,
+        Err(denied) => return Ok(Response::err(req_id, denied)),
+    };
+    // UQL (CONCEPT:AU-KG.query.top-nodes-by-degree): parse the TEXT query into the SAME `wire::Plan`
+    // `UnifiedQuery` carries, then run the IDENTICAL `run_unified` executor —
+    // a pure front-end, no new execution path. A parse error is a clear,
+    // caret-annotated error Response (never a panic).
+    // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): key
+    // on the text + the caller's RLS context (the parse is deterministic, so
+    // caching pre-parse is sound and skips the parse on a hit too). The
+    // RLS-context salt keeps agent A's result out of agent B's lookups.
+    // Dependency-scoped invalidation (W1.6/P7): identical to the `UnifiedQuery` arm — a
+    // Scan/Filter/Limit plan is cached in the dependency-scoped namespace (survives
+    // disjoint writes); any other shape keeps the version-keyed path.
+    #[cfg(feature = "result-cache")]
+    let dep = plan_dependency_set(&plan);
+    #[cfg(feature = "result-cache")]
+    let (snap, version, hash) = {
+        let mut payload = text.clone().into_bytes();
+        #[cfg(feature = "tsdb")]
+        if let Some((tenant, graph)) = tsdb_scope.as_ref() {
+            payload.extend_from_slice(tenant.as_bytes());
+            payload.extend_from_slice(graph.as_bytes());
+        }
+        let hash = rls_cache_hash(
+            "unified-text",
+            &payload,
+            #[cfg(feature = "security")]
+            caller,
+            #[cfg(feature = "security")]
+            rls,
+        );
+        // BUG-267: same cheap-probe-before-snapshot ordering as the
+        // `UnifiedQuery` arm above — see its comment for the invariant
+        // AND for why there is only ONE counted cache lookup here (a
+        // second post-snapshot check double-counts misses against
+        // `ResultCache`'s hit/miss stats).
+        let probe = match &dep {
+            Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
+            None => core.result_cache().get(hash, core.version()),
+        };
+        if let Some(bytes) = probe {
+            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+        }
+        // perf/row-visibility-index (B-sweep): a result-cache MISS still
+        // used to unconditionally pay for `filter_view`'s full per-node RLS
+        // decode — mirror `Method::CypherQuery`'s per-(actor,version)
+        // `FilteredViewCache` probe-then-build here too.
+        #[cfg(feature = "security")]
+        let (snap, version) = versioned_rls_snapshot(&core, caller, rls);
+        #[cfg(not(feature = "security"))]
+        let (snap, version) = core.analysis_snapshot_versioned();
+        (snap, version, hash)
+    };
+    #[cfg(not(feature = "result-cache"))]
+    let snap = rls_snapshot(
+        &core,
+        #[cfg(feature = "security")]
+        caller,
+        #[cfg(feature = "security")]
+        rls,
+    );
+    // See the `UnifiedQuery` arm above: push the vector + lexical legs down
+    // into the live persistent indexes via the shared off-lock runner, instead
+    // of pre-cloning the whole `SemanticStore` here.
+    let resp = match run_unified_off_lock(
+        state,
+        req_id,
+        &core,
+        snap,
+        plan,
+        #[cfg(feature = "tsdb")]
+        tsdb_scope,
+    )
+    .await
+    {
+        Ok(Ok(rows)) => {
+            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
+            #[cfg(feature = "result-cache")]
+            match &dep {
+                // Dependency-scoped store: computed against `version`, tagged with the
+                // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
+                Some(deps) => {
+                    core.result_cache()
+                        .put_dep(hash, 0, version, deps.clone(), bytes.clone())
+                }
+                None => core.result_cache().put(hash, version, bytes.clone()),
+            }
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+// ── EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────────
+#[cfg(feature = "query")]
+async fn handle_explain_plan(
+    ctx: &QueryHandlerCtx<'_>,
+    plan: eg_plan::Plan,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    let snap = explain_snapshot(
+        &core,
+        #[cfg(feature = "security")]
+        caller,
+        #[cfg(feature = "security")]
+        rls,
+    );
+    // L34: reuse the served `UnifiedQuery` idiom instead of a per-request
+    // `SemanticStore` clone — move the cheap `Arc<GraphCore>` clone into the
+    // off-lock closure and take the read guard THERE, on the blocking pool. This
+    // diagnostic surface is low-traffic, but the fix costs nothing (same clone
+    // count: an `Arc` clone instead of a whole-store clone) so there is no reason
+    // to keep the heavier path.
+    let core_for_ctx = core.clone();
+    let resp = match compute_off_lock(req_id, move || {
+        let semantic = core_for_ctx.semantic_store.read();
+        explain_plan(plan, &snap, &semantic)
+    })
+    .await
+    {
+        Ok(Ok(result)) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("ExplainPlan error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+#[cfg(feature = "query")]
+async fn handle_explain_provenance(
+    ctx: &QueryHandlerCtx<'_>,
+    plan: eg_plan::Plan,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    let snap = explain_snapshot(
+        &core,
+        #[cfg(feature = "security")]
+        caller,
+        #[cfg(feature = "security")]
+        rls,
+    );
+    // L34: see `ExplainPlan` above — clone the cheap `Arc<GraphCore>` into the
+    // closure and take the `SemanticStore` read guard inside it, instead of
+    // cloning the whole store per request.
+    let core_for_ctx = core.clone();
+    let resp = match compute_off_lock(req_id, move || {
+        let semantic = core_for_ctx.semantic_store.read();
+        explain_provenance(req_id, plan, &snap, &semantic)
+    })
+    .await
+    {
+        Ok(Ok(result)) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenance error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+// CONCEPT:EG-KB-CURRENCY — ID-seeded sibling of `ExplainProvenance`: same
+// per-row epistemic wire shape, no `Op` plan needed.
+#[cfg(feature = "query")]
+async fn handle_explain_provenance_by_ids(
+    ctx: &QueryHandlerCtx<'_>,
+    ids: Vec<String>,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    let snap = explain_snapshot(
+        &core,
+        #[cfg(feature = "security")]
+        caller,
+        #[cfg(feature = "security")]
+        rls,
+    );
+    let core_for_ctx = core.clone();
+    let resp = match compute_off_lock(req_id, move || {
+        let semantic = core_for_ctx.semantic_store.read();
+        explain_provenance_by_ids(req_id, ids, &snap, &semantic)
+    })
+    .await
+    {
+        Ok(Ok(result)) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenanceByIds error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+#[cfg(feature = "query")]
+async fn handle_explain_policy(
+    ctx: &QueryHandlerCtx<'_>,
+    plan: eg_plan::Plan,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    // BOTH the unfiltered snapshot and the caller's RLS-filtered one, so the
+    // diagnostic can report exactly which rows the policy denied (reuses the
+    // SAME `IsolationLayer::filter_view` every other read path applies).
+    let full = core.analysis_snapshot();
+    let filtered = explain_snapshot(
+        &core,
+        #[cfg(feature = "security")]
+        caller,
+        #[cfg(feature = "security")]
+        rls,
+    );
+    // L34: see `ExplainPlan` above — clone the cheap `Arc<GraphCore>` into the
+    // closure and take the `SemanticStore` read guard inside it, instead of
+    // cloning the whole store per request.
+    let core_for_ctx = core.clone();
+    let resp = match compute_off_lock(req_id, move || {
+        let semantic = core_for_ctx.semantic_store.read();
+        explain_policy(plan, &full, &filtered, &semantic)
+    })
+    .await
+    {
+        Ok(Ok(result)) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("ExplainPolicy error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+// L51: redaction-aware arm. Handles BOTH `disclosure_level: None` (byte-for-
+// byte the classic path below) AND `Some(_)` (routes through
+// `eg_epistemic::redact::explain_belief_redacted_capped` under the caller's
+// own RLS actor). Mutually exclusive with the arm below via `cfg` — exactly
+// one of the two is ever compiled for a given `Method::ExplainBelief` pattern.
+#[cfg(feature = "epistemic-redaction")]
+async fn handle_explain_belief(
+    ctx: &QueryHandlerCtx<'_>,
+    node_id: String,
+    disclosure_level: Option<crate::protocol::DisclosureLevelWire>,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    let snap = core.analysis_snapshot();
+    let caller_id = caller.to_string();
+    let rls = rls.clone();
+    let resp = match disclosure_level {
+        None => match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
+            Ok(result) => {
+                let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                Response::ok(req_id, ResultPayload::Raw(bytes))
+            }
+            Err(resp) => resp,
+        },
+        Some(cap) => {
+            match compute_off_lock(req_id, move || {
+                explain_belief_redacted_wire(&node_id, &snap, cap, &rls, &caller_id)
+            })
+            .await
+            {
+                Ok(result) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Err(resp) => resp,
+            }
+        }
+    };
+    Ok(resp)
+}
+
+// Classic-only arm: compiled when `epistemic` is on but `epistemic-redaction`
+// is off. `disclosure_level: Some(_)` gets an explicit error — never a silent
+// fall-back to the un-redacted tree, which would leak exactly what redaction
+// exists to hide.
+#[cfg(all(feature = "epistemic", not(feature = "epistemic-redaction")))]
+async fn handle_explain_belief(
+    ctx: &QueryHandlerCtx<'_>,
+    node_id: String,
+    disclosure_level: Option<crate::protocol::DisclosureLevelWire>,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let core = ctx.core.clone();
+    if disclosure_level.is_some() {
+        return Ok(Response::err(
+            req_id,
+            "ExplainBelief.disclosure_level requires the epistemic-redaction \
+                     feature, not enabled in this build"
+                .to_string(),
+        ));
+    }
+    let snap = core.analysis_snapshot();
+    let resp = match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
+        Ok(result) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+// L53 (EPI-P3-5): the acceptance capstone.
+#[cfg(feature = "epistemic-tms")]
+async fn handle_epistemic_status(
+    ctx: &QueryHandlerCtx<'_>,
+    node_id: String,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let core = ctx.core.clone();
+    let snap = core.analysis_snapshot();
+    let resp = match compute_off_lock(req_id, move || epistemic_status_wire(&node_id, &snap)).await
+    {
+        Ok(result) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+// L53 (EPI-P3-5): the one facet not subsumed by `EpistemicStatus` — a
+// whole-graph bitemporal diff between two transaction times.
+#[cfg(feature = "epistemic-tms")]
+async fn handle_what_changed(
+    ctx: &QueryHandlerCtx<'_>,
+    tx_from: u64,
+    tx_to: u64,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let core = ctx.core.clone();
+    let snap = core.analysis_snapshot();
+    let resp =
+        match compute_off_lock(req_id, move || what_changed_wire(&snap, tx_from, tx_to)).await {
+            Ok(result) => {
+                let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                Response::ok(req_id, ResultPayload::Raw(bytes))
+            }
+            Err(resp) => resp,
+        };
+    Ok(resp)
+}
+
+// Fenced recompute/writeback against the durable per-graph projection. The
+// graph snapshot supplies current provenance; request data cannot choose the
+// dependency set or generator persisted by the projection.
+#[cfg(feature = "epistemic-tms")]
+async fn handle_recompute_materialization(
+    ctx: &QueryHandlerCtx<'_>,
+    derived_id: String,
+    expected_source_graph_version: u64,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let caller = ctx.caller;
+    // `caller` is consumed only by the `raft`-gated replicated-apply fast path
+    // below; keep it referenced in a non-`raft` build so no dead-param warning
+    // fires (mirrors the SAME convention `try_handle`'s own preamble already
+    // used for `state`/`read_authority`/`graph_name` before this extraction).
+    #[cfg(not(feature = "raft"))]
+    let _ = caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "raft")]
+    if crate::server::dispatch::is_replicated_apply() {
+        let method = Method::RecomputeMaterialization {
+            derived_id: derived_id.clone(),
+            expected_source_graph_version,
+        };
+        let persistence = state.read().await.persistence.clone();
+        let Some(persistence) = persistence else {
+            return Ok(Response::err(
+                req_id,
+                "reasoning recompute requires an authoritative MutationBatch backend",
+            ));
+        };
+        let graph_fname = crate::persist::sanitize(graph_name);
+        let authoritative_graph_version =
+            match crate::server::mutation_batch::authoritative_graph_version(
+                &persistence,
+                &graph_fname,
+                &core,
+            )
+            .await
+            {
+                Ok(version) => version,
+                Err(error) => return Ok(Response::err(req_id, error)),
+            };
+        if authoritative_graph_version != expected_source_graph_version {
+            return Ok(Response::err(
+                req_id,
+                "STALE_RECOMPUTE_FENCE: authoritative graph version changed",
+            ));
+        }
+        let Some(target_graph_version) = expected_source_graph_version.checked_add(1) else {
+            return Ok(Response::err(
+                req_id,
+                "reasoning recompute graph version exhausted",
+            ));
+        };
+        let result = crate::protocol::RecomputeMaterializationResult {
+            id: eg_epistemic::projection_identity(&derived_id),
+            depends_on: Vec::new(),
+            generating_activity: None,
+            status: "Queued".to_string(),
+            source_graph_version: target_graph_version,
+            fence_epoch: 0,
+            projection_pending: true,
+        };
+        let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+        let payload = ResultPayload::Raw(bytes.clone());
+        let batch_id = crate::server::mutation_batch::opaque_request_key(
+            "reasoning-recompute",
+            graph_name,
+            req_id,
+            &method,
+        );
+        if let Err(error) = crate::server::mutation_batch::commit_internal_graph_methods(
+            Some(&persistence),
+            &core,
+            req_id,
+            Some(caller),
+            graph_name,
+            &batch_id,
+            vec![method],
+            &payload,
+        )
+        .await
+        {
+            return Ok(Response::err(req_id, error));
+        }
+        return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+    }
+    let authoritative_graph_version = core.version();
+    let snap = core.analysis_snapshot();
+    let persist_dir = state.read().await.persist_dir.clone();
+    let (materialization, fence_epoch) =
+        match crate::server::reasoning_projection::recompute_materialization(
+            persist_dir.as_deref(),
+            graph_name,
+            &snap,
+            authoritative_graph_version,
+            &derived_id,
+            expected_source_graph_version,
+        ) {
+            Ok(value) => value,
+            Err(error) => return Ok(Response::err(req_id, error)),
+        };
+    let result = crate::protocol::RecomputeMaterializationResult {
+        id: materialization.materialization_ref,
+        depends_on: materialization.dependency_refs,
+        generating_activity: materialization.generator_ref,
+        status: format!("{:?}", materialization.status),
+        source_graph_version: materialization.source_graph_version,
+        fence_epoch,
+        projection_pending: false,
+    };
+    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+    Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+}
+
+// Read-only status lookup on the durable per-graph projection.
+#[cfg(feature = "epistemic-tms")]
+async fn handle_materialization_status(
+    ctx: &QueryHandlerCtx<'_>,
+    id: String,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let persist_dir = state.read().await.persist_dir.clone();
+    let (status, source_graph_version) =
+        match crate::server::reasoning_projection::materialization_status(
+            persist_dir.as_deref(),
+            graph_name,
+            &id,
+        ) {
+            Ok(value) => value,
+            Err(error) => return Ok(Response::err(req_id, error)),
+        };
+    let result = crate::protocol::MaterializationStatusResult {
+        status: status.map(|status| format!("{status:?}")),
+        source_graph_version,
+    };
+    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+    Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+}
+
+// Bulk "what's stale" read on the same durable per-graph projection.
+#[cfg(feature = "epistemic-tms")]
+async fn handle_stale_materializations(ctx: &QueryHandlerCtx<'_>) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let persist_dir = state.read().await.persist_dir.clone();
+    let (ids, source_graph_version) =
+        match crate::server::reasoning_projection::stale_materializations(
+            persist_dir.as_deref(),
+            graph_name,
+        ) {
+            Ok(value) => value,
+            Err(error) => return Ok(Response::err(req_id, error)),
+        };
+    let result = crate::protocol::StaleMaterializationsResult {
+        ids,
+        source_graph_version,
+    };
+    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+    Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+}
+
+// EPI-P3-7 (gap-fill): standalone Dung argumentation conflict resolution. A
+// pure classification over a `BeliefGraph` snapshot — no writes. Gated
+// `epistemic-tms` at the handler (same fallback convention as
+// `EpistemicStatus`/`WhatChanged`). L-RLS-1 (RLS_ROUTED): `node_ids` are
+// caller-supplied, and the grounded/preferred/stable extension is computed
+// over the WHOLE argumentation graph before `node_ids` is partitioned against
+// it — an RLS-invisible node's own status would otherwise be classified
+// directly, and its attack/support edges would still shape OTHER (visible)
+// nodes' computed status. `rls.filter_view` the snapshot first, the SAME
+// idiom every other read arm in this file applies, so an invisible node (and
+// its edges) never enters `BeliefGraph::from_graph_view` at all.
+#[cfg(feature = "epistemic-tms")]
+async fn handle_resolve_conflict(
+    ctx: &QueryHandlerCtx<'_>,
+    node_ids: Vec<String>,
+    semantics: String,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+    let mut snap = core.analysis_snapshot();
+    #[cfg(feature = "security")]
+    rls.filter_view(caller, &mut snap);
+    let resp = match compute_off_lock(req_id, move || {
+        resolve_conflict_wire(&node_ids, &semantics, &snap)
+    })
+    .await
+    {
+        Ok(Ok(result)) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("ResolveConflict error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+// X-1 (CONCEPT:EG-X1): the multimodal-evidence citation resolver. Gated
+// `evidence-graph` at the handler; the wire `Method` variant itself is gated
+// only `epistemic` (see its doc comment), so a build with `epistemic` but not
+// `evidence-graph` falls through to the not-built catch-all. SURPASS
+// gap-closure ("unify the two evidence resolvers"): with `alignment` ALSO
+// compiled in, resolve the configured blob store (if any) BEFORE entering
+// the off-lock closure (needs `state.read().await`, not available inside a
+// `spawn_blocking` closure) and thread it through so citations carry REAL
+// resolved content, not just locus metadata. L-RLS-1 (RLS_ROUTED): `node_id`
+// is caller-supplied and `evidence_citations` walks the graph's incoming
+// support/attack edges transitively — an unfiltered snapshot would resolve
+// (and return) an RLS-invisible evidence node's citation. `rls.filter_view`
+// the snapshot first, the SAME idiom every other read arm in this file
+// applies, so a hidden node (and the edges naming it) never enters
+// `BeliefGraph::from_graph_view` at all.
+#[cfg(all(feature = "evidence-graph", feature = "alignment"))]
+async fn handle_explain_evidence(
+    ctx: &QueryHandlerCtx<'_>,
+    node_id: String,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+    let mut snap = core.analysis_snapshot();
+    #[cfg(feature = "security")]
+    rls.filter_view(caller, &mut snap);
+    let blob_store = state.read().await.blob.as_ref().map(|b| b.store.clone());
+    let resp = match compute_off_lock(req_id, move || {
+        explain_evidence_wire(&node_id, &snap, blob_store)
+    })
+    .await
+    {
+        Ok(result) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+#[cfg(all(feature = "evidence-graph", not(feature = "alignment")))]
+async fn handle_explain_evidence(
+    ctx: &QueryHandlerCtx<'_>,
+    node_id: String,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+    let mut snap = core.analysis_snapshot();
+    #[cfg(feature = "security")]
+    rls.filter_view(caller, &mut snap);
+    let resp = match compute_off_lock(req_id, move || explain_evidence_wire(&node_id, &snap)).await
+    {
+        Ok(result) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+// EPI-P3-3/P3-6: do-calculus intervention OR observational conditioning
+// (selected by `mode`) over a request-carried SCM. A pure function over
+// `variables`/`do_values`/`mode` — no graph snapshot needed. Gated
+// `epistemic-causal` at the handler (same fallback convention as above).
+#[cfg(feature = "epistemic-causal")]
+async fn handle_causal_estimate(
+    ctx: &QueryHandlerCtx<'_>,
+    variables: Vec<crate::protocol::StructuralEquationWire>,
+    do_values: std::collections::BTreeMap<String, f64>,
+    mode: crate::protocol::CausalQueryModeWire,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let resp = match compute_off_lock(req_id, move || {
+        causal_estimate_wire(&variables, &do_values, mode)
+    })
+    .await
+    {
+        Ok(Ok(result)) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("CausalEstimate error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+// EPI-P3-6: Pearl's point-counterfactual recipe over a request-carried SCM +
+// a fully-observed `actual` unit. A pure function over request-carried
+// inputs — no graph snapshot needed. Gated `epistemic-causal` at the
+// handler (same fallback convention as `CausalEstimate`).
+#[cfg(feature = "epistemic-causal")]
+async fn handle_causal_counterfactual(
+    ctx: &QueryHandlerCtx<'_>,
+    variables: Vec<crate::protocol::StructuralEquationWire>,
+    actual: std::collections::BTreeMap<String, f64>,
+    do_values: std::collections::BTreeMap<String, f64>,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let resp = match compute_off_lock(req_id, move || {
+        causal_counterfactual_wire(&variables, &actual, &do_values)
+    })
+    .await
+    {
+        Ok(Ok(result)) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("CausalCounterfactual error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+// EPI-P3-3: provenance-aware retrieval ranking. A pure function over
+// request-carried inputs — no graph snapshot needed. Gated `epistemic-causal`
+// at the handler (same fallback convention as above).
+#[cfg(feature = "epistemic-causal")]
+async fn handle_rank_by_provenance(
+    ctx: &QueryHandlerCtx<'_>,
+    candidates: Vec<crate::protocol::RetrievalCandidateWire>,
+    weights: crate::protocol::RankWeightsWire,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let resp = match compute_off_lock(req_id, move || {
+        rank_by_provenance_wire(&candidates, weights)
+    })
+    .await
+    {
+        Ok(result) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+#[cfg(feature = "query")]
+async fn handle_txn_unified_query_text(
+    ctx: &QueryHandlerCtx<'_>,
+    txn_id: String,
+    text: String,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let read_authority = ctx.read_authority;
+    let caller = ctx.caller;
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    // UQL front-end: parse to the SAME `wire::Plan`, then run the IDENTICAL
+    // overlaid in-txn executor. A parse error is a caret-annotated Response.
+    let plan = match eg_plan::uql::parse(&text) {
+        Ok(p) => p,
+        Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+    };
+    Ok(run_unified_overlaid(
+        state,
+        req_id,
+        &txn_id,
+        plan,
+        read_authority,
+        caller,
+        #[cfg(feature = "security")]
+        rls,
+    )
+    .await)
+}
+
+#[cfg(feature = "nl-query")]
+async fn handle_nl_query(
+    ctx: &QueryHandlerCtx<'_>,
+    text: String,
+    graph: String,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let read_authority = ctx.read_authority;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    // CONCEPT:EG-KG.query.core-query-input/EG-080 — natural-language → executable query → rows. Resolve
+    // the configured/injected `NlPlanner`, turn the NL into a UQL query STRING,
+    // then run it through the IDENTICAL `UnifiedQueryText` pipeline
+    // (`eg_plan::uql::parse` + `run_unified`). NO LLM in the engine core and NO
+    // new execution path — the produced query rides the deterministic pipeline.
+    // The graph was already used for routing; the handler runs against `core`.
+    let _ = graph;
+    let planner = match crate::server::nl::resolve_planner() {
+        Some(p) => p,
+        None => {
+            return Ok(Response::err(
+                req_id,
+                "NlQuery: no NL planner configured — set an OpenAI-compatible \
+                         endpoint in agent-utilities config.json (or \
+                         EPISTEMIC_GRAPH_NL_ENDPOINT), or inject one via \
+                         server::set_nl_planner"
+                    .to_string(),
+            ))
+        }
+    };
+    let hint = nl_schema_hint(&core);
+    let uql = match planner.plan(&text, &hint) {
+        Ok(q) => q,
+        Err(e) => return Ok(Response::err(req_id, format!("NlQuery planner error: {e}"))),
+    };
+    let plan = match eg_plan::uql::parse(&uql) {
+        Ok(p) => p,
+        Err(e) => {
+            return Ok(Response::err(
+                req_id,
+                format!("NlQuery produced invalid UQL: {}", e.render(&uql)),
+            ))
+        }
+    };
+    #[cfg(feature = "tsdb")]
+    let tsdb_scope = match served_tsdb_scope(&plan, graph_name, read_authority) {
+        Ok(scope) => scope,
+        Err(denied) => return Ok(Response::err(req_id, denied)),
+    };
+    // RLS-filtered off-lock snapshot, exactly like the Sql/UnifiedQueryText reads.
+    // NOT result-cached: an LLM plan is non-deterministic, so keying a cache on the
+    // NL text would risk serving a stale/foreign result.
+    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+    let mut snap = core.analysis_snapshot();
+    #[cfg(feature = "security")]
+    rls.filter_view(caller, &mut snap);
+    // See the `UnifiedQuery` arm: push vector + lexical legs into the live
+    // persistent indexes via a guard taken INSIDE the off-lock closure.
+    let core_for_ctx = core.clone();
+    // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
+    #[cfg(feature = "tsdb")]
+    let tsdb = if tsdb_scope.is_some() {
+        state.read().await.tsdb_store.clone()
+    } else {
+        None
+    };
+    #[cfg(feature = "tsdb")]
+    let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
+        Some((tenant, graph)) => (Some(tenant), Some(graph)),
+        None => (None, None),
+    };
+    // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
+    // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
+    // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
+    // leg through `ServerState::foreign_sources` instead of erroring on every named
+    // source `Method::RegisterForeignSource` accepted.
+    #[cfg(feature = "federation")]
+    let foreign_sources = state.read().await.foreign_sources.clone();
+    let resp = match compute_off_lock(req_id, move || {
+        #[cfg(feature = "text")]
+        let served_text =
+            crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
+        #[cfg(feature = "geo")]
+        let served_spatial =
+            crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
+        let semantic_guard = core_for_ctx.semantic_store.read();
+        run_unified(
+            plan,
+            &snap,
+            &semantic_guard,
+            ServedIndexes {
+                #[cfg(feature = "text")]
+                text: Some(&served_text),
+                #[cfg(feature = "geo")]
+                spatial: Some(&served_spatial),
+                #[cfg(feature = "federation")]
+                foreign: Some(&*foreign_sources),
+                #[cfg(not(any(feature = "text", feature = "geo")))]
+                _marker: std::marker::PhantomData,
+            },
+            #[cfg(feature = "tsdb")]
+            TsdbLegBind {
+                tsdb: tsdb.as_deref(),
+                tsdb_tenant: tsdb_tenant.as_deref(),
+                tsdb_graph: tsdb_graph.as_deref(),
+                // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
+                staged_series: None,
+            },
+        )
+    })
+    .await
+    {
+        Ok(Ok(rows)) => {
+            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+/// The GraphQL WRITE surface — a `mutation { … }` document, one of three shapes
+/// (`commitTransaction`, another cross-modal staging verb, or an ordinary
+/// mutation) resolved by `classify_crossmodal`. Pure extract-method out of
+/// `handle_graphql`'s `graphql_is_mutation` branch, no behaviour change: every
+/// original `return Ok(resp)`/`return Ok(Response::err(...))` in that branch is
+/// now this function's own return (same `Result<Response, Method>` shape).
+#[cfg(feature = "graphql")]
+async fn handle_graphql_mutation(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &str,
+    read_authority: Option<&GraphReadAuthority>,
+    core: &Arc<GraphCore>,
+    query: String,
+) -> Result<Response, Method> {
+    let carrier = match read_authority.and_then(GraphReadAuthority::carrier) {
+        Some(carrier) => carrier,
+        None => {
+            crate::metrics::access_denied();
+            return Ok(Response::err(
+                req_id,
+                "ACCESS_DENIED: GraphQL mutation requires verified tenant+actor authority",
+            ));
+        }
+    };
+    // Cross-modal transaction routing (CONCEPT:EG-KG.query.eg-9/419). A GraphQL mutation
+    // is one of three shapes: a `commitTransaction` — landed DURABLY via
+    // `commit_cross_modal_txn` (ONE redb WriteTransaction across graph + vector
+    // + tsdb + axioms), exactly as pgwire's commit path; a begin/stage/read/
+    // rollback cross-modal verb — run in-memory over the process-wide
+    // `CrossModalTxnRegistry` (staging + read-your-own-writes, no durable side
+    // effect until commit); or an ordinary mutation — the native `execute_mutation`
+    // write path. `classify_crossmodal` picks the route with ONE parse.
+    match eg_graphql::classify_crossmodal(&query) {
+        eg_graphql::CrossModalRoute::Commit(txn_id) => {
+            let committed = super::txn::commit_graphql_cross_modal(
+                state,
+                req_id,
+                graph_name,
+                core,
+                graphql_crossmodal_registry(),
+                &txn_id,
+                carrier,
+            )
+            .await;
+            let resp = match committed {
+                Ok(committed) => Response::ok(
+                    req_id,
+                    ResultPayload::Raw(
+                        rmp_serde::to_vec_named(&serde_json::json!({
+                            "data": {"commitTransaction": {"committed": committed}}
+                        }))
+                        .unwrap_or_default(),
+                    ),
+                ),
+                Err(msg) => {
+                    Response::err(req_id, format!("GraphQL commitTransaction error: {msg}"))
+                }
+            };
+            Ok(resp)
+        }
+        eg_graphql::CrossModalRoute::Staging => {
+            let core_w = read_authority
+                .expect("GraphQL mutation authority checked above")
+                .project_core(core);
+            let owner_scope = carrier.owner_scope().to_string();
+            let reg = graphql_crossmodal_registry();
+            let resp = match compute_off_lock(req_id, move || {
+                eg_graphql::execute_crossmodal(&core_w, reg, &owner_scope, &query)
+            })
+            .await
+            {
+                Ok(Ok(value)) => Response::ok(
+                    req_id,
+                    ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
+                ),
+                Ok(Err(msg)) => Response::err(req_id, format!("GraphQL cross-modal error: {msg}")),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+        eg_graphql::CrossModalRoute::Invalid(message) => Ok(Response::err(req_id, message)),
+        eg_graphql::CrossModalRoute::NotCrossModal => {
+            let core_w = core.clone();
+            let resp = match compute_off_lock(req_id, move || {
+                eg_graphql::execute_mutation(&core_w, &query)
+            })
+            .await
+            {
+                Ok(Ok(value)) => Response::ok(
+                    req_id,
+                    ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
+                ),
+                Ok(Err(msg)) => Response::err(req_id, format!("GraphQL mutation error: {msg}")),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+    }
+}
+
+#[cfg(feature = "graphql")]
+async fn handle_graphql(
+    ctx: &QueryHandlerCtx<'_>,
+    query: String,
+    variables: Option<serde_json::Value>,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let read_authority = ctx.read_authority;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    // GraphQL WRITE surface (CONCEPT:EG-KG.query.mutation/EG-023): a `mutation { … }` document
+    // maps onto eg-core's native write ops over the LIVE `GraphCore` via
+    // `execute_mutation` (which bumps the OCC version / `mark_dirty` once it
+    // lands). NOT cached (it is a write) and NOT RLS pre-filtered (writes are
+    // graph-ACL-gated in `dispatch_graph_op` — this method classified Write).
+    if super::super::access::graphql_is_mutation(&query) {
+        return handle_graphql_mutation(state, req_id, graph_name, read_authority, &core, query)
+            .await;
+    }
+    // A `subscription { … }` is a read-only POLL of the current matches (a full
+    // push transport is a documented eg-graphql deferral); a `query { … }` is the
+    // ordinary read. Both run over the SAME RLS-filtered off-lock snapshot below.
+    let is_subscription = matches!(
+        eg_graphql::parse_operation(&query),
+        Ok(eg_graphql::Operation::Subscription(_))
+    );
+    // GraphQL READ surface (CONCEPT:EG-KG.query.sparql-completeness): compile the GraphQL query to
+    // scans + BFS over the SAME off-lock snapshot the Cypher path uses, via the
+    // pure-Rust eg-graphql resolver (NO async-graphql / DataFusion). The result
+    // is the GraphQL `{"data": …}` JSON, returned via `ResultPayload::Raw`.
+    //
+    // GraphQL runs under the SAME version-keyed, RLS-aware result cache the
+    // SQL/Cypher/SPARQL paths do (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): the cache KEY
+    // folds in the caller's RLS context so agent A's filtered `{data}` is NEVER
+    // served to agent B for the same GraphQL query text, and the snapshot is
+    // RLS-FILTERED to the caller's visible rows BEFORE the resolver runs — a
+    // GraphQL read cannot leak rows across agents any more than a Cypher read.
+    // Bind the request's GraphQL `$variables` (task #23): a `query { … }` runs
+    // through `execute_with_variables` so `$var` args + `@skip`/`@include`
+    // resolve (CONCEPT:EG-KG.query.fragments-variables-directives); absent ⇒ an empty object, byte-identical to the
+    // no-vars path. (A `subscription { … }` stays a poll of the current matches.)
+    let vars = variables.unwrap_or_else(|| serde_json::json!({}));
+    #[cfg(feature = "result-cache")]
+    let (snap, version, hash) = {
+        // Fold the bound variables INTO the cache key: the same query text with
+        // different `$variables` can produce different `{data}`, so the key must
+        // distinguish them or a variables-bound read would serve a stale result.
+        // An empty `{}` serializes to `{}` — byte-stable for the no-vars path.
+        let mut key_payload = query.as_bytes().to_vec();
+        key_payload.push(0);
+        key_payload.extend_from_slice(&serde_json::to_vec(&vars).unwrap_or_default());
+        let hash = rls_cache_hash(
+            "graphql",
+            &key_payload,
+            #[cfg(feature = "security")]
+            caller,
+            #[cfg(feature = "security")]
+            rls,
+        );
+        // perf/row-visibility-index (B-sweep): probe the whole-RESULT
+        // cache FIRST via a cheap `core.version()` read — no snapshot at
+        // all on a hit (mirrors `Method::CypherQuery`'s exact two-tier
+        // shape; the previous code here built+filtered a snapshot before
+        // ever checking for a hit). Only a genuine MISS reaches the
+        // per-(actor,version) `FilteredViewCache` probe-then-build below.
+        if let Some(bytes) = core.result_cache().get(hash, core.version()) {
+            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+        }
+        #[cfg(feature = "security")]
+        let (snap, version) = versioned_rls_snapshot(&core, caller, rls);
+        #[cfg(not(feature = "security"))]
+        let (snap, version) = core.analysis_snapshot_versioned();
+        (snap, version, hash)
+    };
+    #[cfg(not(feature = "result-cache"))]
+    let snap = rls_snapshot(
+        &core,
+        #[cfg(feature = "security")]
+        caller,
+        #[cfg(feature = "security")]
+        rls,
+    );
+    let resp = match compute_off_lock(req_id, move || {
+        if is_subscription {
+            eg_graphql::subscribe(&snap, &query)
+        } else {
+            eg_graphql::execute_with_variables(&snap, &query, &vars)
+        }
+    })
+    .await
+    {
+        Ok(Ok(value)) => {
+            let bytes = rmp_serde::to_vec_named(&value).unwrap_or_default();
+            #[cfg(feature = "result-cache")]
+            core.result_cache().put(hash, version, bytes.clone());
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("GraphQL error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+#[cfg(feature = "cypher")]
+async fn handle_cypher_query(
+    ctx: &QueryHandlerCtx<'_>,
+    query: String,
+    mode: crate::protocol::CypherMode,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let caller = ctx.caller;
+    let core = ctx.core.clone();
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    // Cypher WRITE surface (CONCEPT:EG-KG.query.register-each-user-table/EG-023): a `CREATE`/`MERGE`/`SET`/
+    // `DELETE`/`REMOVE` statement is applied to the LIVE `GraphCore` via
+    // `exec_cypher_write` (native eg-core write ops — NO DataFusion; it calls
+    // `mark_dirty` once after the mutation). NOT cached, NOT RLS pre-filtered
+    // (writes are graph-ACL-gated upstream — this method classified Write). A
+    // read falls through to the RLS-aware cached snapshot path below.
+    let validation_method = Method::CypherQuery {
+        query: query.clone(),
+        mode,
+    };
+    if let Err(error) = validate_cypher_mode(&validation_method) {
+        return Ok(Response::err(req_id, error));
+    }
+    if matches!(mode, crate::protocol::CypherMode::Write) {
+        let core_w = core.clone();
+        let resp =
+            match compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query))
+                .await
+            {
+                Ok(Ok(result)) => Response::ok(
+                    req_id,
+                    ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
+                ),
+                Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
+                Err(resp) => resp,
+            };
+        return Ok(resp);
+    }
+    // Same off-lock snapshot + blocking-pool idiom as SQL — but DEP-FREE
+    // (label index / VF2 / BFS), so it runs in a no-DataFusion Pi build.
+    // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231) wraps
+    // it identically; this is the lean-Pi cached query path. The cache KEY folds
+    // in the caller's RLS context so agent A's filtered rows are never served to
+    // agent B, and the snapshot is RLS-filtered before execution.
+    #[cfg(feature = "result-cache")]
+    let (snap, version, hash) = {
+        let hash = rls_cache_hash(
+            "cypher",
+            query.as_bytes(),
+            #[cfg(feature = "security")]
+            caller,
+            #[cfg(feature = "security")]
+            rls,
+        );
+        // BUG-267: `analysis_snapshot()` was materialized unconditionally
+        // BEFORE this cache lookup — an O(V+E) clone of the entire
+        // node_map/node_properties/edge_properties paid on every call
+        // regardless of cache hit or miss, defeating the cache that
+        // follows it (measured p99 2.49s on plain cached reads). Probe
+        // with the cheap `core.version()` atomic load first; only a MISS
+        // pays for `analysis_snapshot_versioned()`. The fresh `version`
+        // it returns (not the one used for this probe) is what `put`
+        // stores under below, so an entry can never claim a version
+        // newer than the data it reflects.
+        //
+        // BUG-267 follow-up (regression caught by
+        // `result_cache_dispatch_tests::hit_on_unchanged_then_write_invalidates`
+        // and `rls_aware_cache_no_cross_agent_leak::
+        // agent_a_cached_result_is_not_served_to_agent_b`, both of which assert
+        // an EXACT miss delta of 1 per served request): an earlier version of
+        // this fix re-checked the cache a SECOND time after the snapshot too, to
+        // guard a concurrent-populate race. `ResultCache::get` bumps the
+        // hit/miss counters on EVERY call — including a probe that finds
+        // nothing — so that second check silently double-counted every miss.
+        // There is only ONE counted lookup on this path now; a rare concurrent
+        // populate between the probe and the snapshot just costs a redundant
+        // recompute (the `put` below still lands under this call's own fresh
+        // `version`, so nothing stale or cross-actor is ever served).
+        if let Some(bytes) = core.result_cache().get(hash, core.version()) {
+            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+        }
+        // perf/cold-query-floor-analysis (UNCOMPILED PROPOSAL — see
+        // `crate::rls_view_cache` in eg-core, not yet exercised by any test or
+        // build): a whole-RESULT-cache MISS used to unconditionally pay for
+        // `analysis_snapshot_versioned()` (an O(V+E) clone of every node/edge
+        // property blob's Arc handle) PLUS `rls.filter_view` — which, per node
+        // in the ENTIRE snapshot (not just the rows this query's WHERE clause
+        // ultimately matches), fully msgpack-decodes that node's property blob
+        // (`IsolationLayer::can_see_node` -> `row_visibility`) just to read 2-3
+        // small RLS metadata keys. That is architecturally the SAME bug
+        // `build_cypher_label_index` had before `perf/warm-label-index`
+        // (`2662713b`) fixed it for the label index, except unmemoized: this
+        // filtered view is a pure function of (graph content, actor's ACL
+        // grants) at one `version()`, so a same-(actor, version) repeat pays the
+        // full O(V) decode again on every distinct query text (a whole-result
+        // cache miss), which is exactly the reported ~900ms fixed floor —
+        // measured live via the structurally identical `project_core` cache's
+        // own `epistemic_graph_projection_cache_miss_build_seconds` (298
+        // misses, mean 1.10s/miss). Probe the per-actor filtered-view cache
+        // FIRST; only a genuine cold (actor, version) pair pays for the
+        // snapshot + filter, exactly mirroring the `result_cache` probe just
+        // above (BUG-267) and `GraphReadAuthority::project_core`'s existing
+        // cache-then-build shape (`src/server/access.rs`). RLS safety: keyed by
+        // (actor, version) exactly like `project_core`'s cache — never a
+        // cross-actor share — and invalidated on every whole-image transition
+        // `project_core`'s cache is (`GraphCore::invalidate_filtered_view_cache`,
+        // called alongside `invalidate_projection_cache` at both its sites).
+        // `version` MUST be the exact version the returned `snap` reflects (the
+        // same BUG-267 invariant the `result_cache.put` below relies on: an
+        // entry can never claim a version newer than the data it reflects) —
+        // NOT a fresh `core.version()` re-read after the cache probe, which
+        // could have raced a concurrent commit. The hit branch reuses
+        // `probe_version` (what `cached_filtered_view` matched against); the
+        // miss branch reuses `built_version` (what `analysis_snapshot_versioned`
+        // itself captured), exactly as the pre-existing code did.
+        #[cfg(feature = "security")]
+        let (snap, version): (Arc<crate::graph::GraphView>, u64) =
+            versioned_rls_snapshot(&core, caller, rls);
+        #[cfg(not(feature = "security"))]
+        let (snap, version) = core.analysis_snapshot_versioned();
+        (snap, version, hash)
+    };
+    #[cfg(not(feature = "result-cache"))]
+    let snap = rls_snapshot(
+        &core,
+        #[cfg(feature = "security")]
+        caller,
+        #[cfg(feature = "security")]
+        rls,
+    );
+    // `version`-paired snapshot (`result-cache` build only, see above): hand
+    // `exec_cypher_params_indexed` an `IndexSource` so an unlabeled `MATCH (n)
+    // WHERE n.id = …`/`IN […]` — the fleet/tool-registration slow-query shape —
+    // can narrow through the bounded property index instead of a whole-graph
+    // scan (CONCEPT:EG-KG.storage.index-manager-seam). The index answers off `core`'s LIVE
+    // state, so `exec_cypher_params_indexed` brackets it against `core.version()`
+    // and discards the answer (full-scan fallback) if a concurrent commit raced
+    // this snapshot; the SERVED result is identical to plain `exec_cypher` either
+    // way — only the work to reach it differs.
+    #[cfg(feature = "result-cache")]
+    let core_for_index = core.clone();
+    #[cfg(feature = "result-cache")]
+    let resp = match compute_off_lock(req_id, move || {
+        eg_query::exec_cypher_params_indexed(
+            &snap,
+            &query,
+            &eg_query::Params::new(),
+            eg_query::IndexSource::new(&core_for_index, version),
+        )
+    })
+    .await
+    {
+        Ok(Ok(result)) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            core.result_cache().put(hash, version, bytes.clone());
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
+        Err(resp) => resp,
+    };
+    #[cfg(not(feature = "result-cache"))]
+    let resp = match compute_off_lock(req_id, move || eg_query::exec_cypher(&snap, &query)).await {
+        Ok(Ok(result)) => {
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
 /// The process-wide server-side text→vector embedder for the UQL `RANK BY ~ "text"`
 /// (`Op::RankEmbed`) NL→vector seam (CONCEPT:EG-KG.query.bind-server-side-text / EG-411) — the FACADE injection point.
 /// Returns the bound embedder, or `None` when none is configured (an `Op::RankEmbed` then
@@ -2014,11 +2207,11 @@ pub(crate) fn run_unified(
     // that map — so a caller could register a source successfully and then have every
     // query against it fail. Same shape as the `with_tensor_store` binding below.
     #[cfg(feature = "federation")]
-    let foreign_registry: Option<eg_plan::federation::ForeignSourceRegistry> =
-        match served.foreign {
-            Some(specs) if plan_needs_foreign(&ops) => Some(foreign_registry_from(specs)),
-            _ => None,
-        };
+    let foreign_registry: Option<eg_plan::federation::ForeignSourceRegistry> = match served.foreign
+    {
+        Some(specs) if plan_needs_foreign(&ops) => Some(foreign_registry_from(specs)),
+        _ => None,
+    };
 
     // CONCEPT:EG-KG.query.served-text-index-binding — bind a live BM25 lexical search surface into the
     // served `PlanCtx` so a served `UnifiedQuery`/`UnifiedQueryText` whose plan carries
@@ -2130,6 +2323,73 @@ pub(crate) fn run_unified(
         .iter()
         .map(|r| (r.id.clone(), r.score))
         .collect())
+}
+
+/// Resolve the tsdb/text/geo/federation legs and run `plan` off-lock via
+/// `run_unified`, exactly as `UnifiedQuery`/`UnifiedQueryText`/`NlQuery` already
+/// did inline — pure extract-method out of those three arms' bodies (identical
+/// duplicated code in each), no behaviour change. Returns `compute_off_lock`'s
+/// raw nested result unchanged; callers keep doing their own
+/// `Ok(Ok(rows))`/`Ok(Err(msg))`/`Err(resp)` handling (result-cache storage and
+/// the error message text differ per caller, so that stays out of here).
+#[cfg(feature = "query")]
+async fn run_unified_off_lock(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    snap: Arc<crate::graph::GraphView>,
+    plan: eg_plan::Plan,
+    #[cfg(feature = "tsdb")] tsdb_scope: Option<(String, String)>,
+) -> Result<Result<Vec<(String, Option<f32>)>, String>, Response> {
+    let core_for_ctx = core.clone();
+    #[cfg(feature = "tsdb")]
+    let tsdb = if tsdb_scope.is_some() {
+        state.read().await.tsdb_store.clone()
+    } else {
+        None
+    };
+    #[cfg(feature = "tsdb")]
+    let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
+        Some((tenant, graph)) => (Some(tenant), Some(graph)),
+        None => (None, None),
+    };
+    #[cfg(feature = "federation")]
+    let foreign_sources = state.read().await.foreign_sources.clone();
+    #[cfg(not(feature = "tsdb"))]
+    let _ = state;
+    compute_off_lock(req_id, move || {
+        #[cfg(feature = "text")]
+        let served_text =
+            crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
+        #[cfg(feature = "geo")]
+        let served_spatial =
+            crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
+        let semantic_guard = core_for_ctx.semantic_store.read();
+        run_unified(
+            plan,
+            &snap,
+            &semantic_guard,
+            ServedIndexes {
+                #[cfg(feature = "text")]
+                text: Some(&served_text),
+                #[cfg(feature = "geo")]
+                spatial: Some(&served_spatial),
+                #[cfg(feature = "federation")]
+                foreign: Some(&*foreign_sources),
+                #[cfg(not(any(feature = "text", feature = "geo")))]
+                _marker: std::marker::PhantomData,
+            },
+            #[cfg(feature = "tsdb")]
+            TsdbLegBind {
+                tsdb: tsdb.as_deref(),
+                tsdb_tenant: tsdb_tenant.as_deref(),
+                tsdb_graph: tsdb_graph.as_deref(),
+                // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
+                staged_series: None,
+            },
+        )
+    })
+    .await
 }
 
 /// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — served-path proof that
@@ -3721,6 +3981,422 @@ struct SqlWriteScope<'a> {
     caller: Option<&'a str>,
 }
 
+/// Execute `Method::Sql`'s `INSERT INTO nodes …` DML — pure extract-method out of
+/// `exec_sql_write`'s `K::InsertNodes` arm, no behaviour change.
+#[cfg(feature = "query")]
+async fn exec_sql_write_insert_nodes(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    read_core: &Arc<GraphCore>,
+    ins: eg_query::InsertNodes,
+) -> Response {
+    let core = core.clone();
+    let visible = read_core.clone();
+    let r = compute_off_lock(req_id, move || {
+        let mut n = 0usize;
+        for node in ins.rows {
+            if core.has_node(&node.node_id) && !visible.has_node(&node.node_id) {
+                crate::metrics::access_denied();
+                return Err(
+                    "ACCESS_DENIED: node write is outside the visible row scope".to_string()
+                );
+            }
+            let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(node.properties))
+                .map_err(|e| format!("encode node properties: {e}"))?;
+            core.add_node(node.node_id, blob);
+            n += 1;
+        }
+        Ok::<usize, String>(n)
+    })
+    .await;
+    sql_write_ack(req_id, "INSERT", r)
+}
+
+/// Execute `Method::Sql`'s `UPDATE nodes …` DML — pure extract-method out of
+/// `exec_sql_write`'s `K::UpdateNodes` arm, no behaviour change.
+#[cfg(feature = "query")]
+async fn exec_sql_write_update_nodes(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    read_core: Arc<GraphCore>,
+    upd: eg_query::UpdateNodes,
+) -> Response {
+    let core = core.clone();
+    let r = compute_off_lock(req_id, move || {
+        let ids = matched_node_ids(&read_core, &upd.selector);
+        let conditions = serde_json::Map::new();
+        // CONCEPT:EG-KG.query.compound-predicate-decode — re-check a compound predicate under the write guard.
+        let pred = match &upd.selector {
+            eg_query::WhereEq::Predicate { pred, .. } => Some(pred.clone()),
+            eg_query::WhereEq::Id(_) => None,
+        };
+        let mut n = 0usize;
+        for id in ids {
+            let applied = match &pred {
+                Some(p) => core.compare_and_set_fields_if(&id, p, &conditions, &upd.set),
+                None => core.compare_and_set_fields(&id, &conditions, &upd.set),
+            };
+            if applied {
+                n += 1;
+            }
+        }
+        Ok::<usize, String>(n)
+    })
+    .await;
+    sql_write_ack(req_id, "UPDATE", r)
+}
+
+/// Execute `Method::Sql`'s `DELETE FROM nodes …` DML — pure extract-method out of
+/// `exec_sql_write`'s `K::DeleteNodes` arm, no behaviour change.
+#[cfg(feature = "query")]
+async fn exec_sql_write_delete_nodes(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    read_core: Arc<GraphCore>,
+    del: eg_query::DeleteNodes,
+) -> Response {
+    let core = core.clone();
+    let r = compute_off_lock(req_id, move || {
+        let ids = matched_node_ids(&read_core, &del.selector);
+        // CONCEPT:EG-KG.query.compound-predicate-decode — re-check a compound predicate under the write guard.
+        let pred = match &del.selector {
+            eg_query::WhereEq::Predicate { pred, .. } => Some(pred.clone()),
+            eg_query::WhereEq::Id(_) => None,
+        };
+        let mut n = 0usize;
+        for id in ids {
+            let removed = match &pred {
+                Some(p) => core.remove_node_if(&id, p),
+                None => {
+                    core.remove_node(id);
+                    true
+                }
+            };
+            if removed {
+                n += 1;
+            }
+        }
+        Ok::<usize, String>(n)
+    })
+    .await;
+    sql_write_ack(req_id, "DELETE", r)
+}
+
+/// Execute `Method::Sql`'s `INSERT … SELECT` DML (into a user table) — pure
+/// extract-method out of `exec_sql_write`'s `K::InsertSelect` arm, no behaviour
+/// change. The SELECT half runs through the SAME tables-aware DataFusion path (so
+/// it can JOIN user tables AND the graph); its projected rows are then durably
+/// inserted. Column COUNT must match the insert column list.
+#[cfg(feature = "query")]
+async fn exec_sql_write_insert_select(
+    req_id: u64,
+    scope: SqlWriteScope<'_>,
+    sql_method: Method,
+    read_core: Arc<GraphCore>,
+    store: &eg_query::TableStore,
+    ins: eg_query::InsertSelect,
+) -> Response {
+    let eg_query::InsertSelect {
+        table,
+        columns,
+        select_sql,
+    } = ins;
+    let read_store = store.clone();
+    let snap = read_core.analysis_snapshot();
+    let expected_columns = columns.len();
+    let r = compute_off_lock(req_id, move || {
+        let read = eg_query::exec_sql_typed_with_tables(&snap, &read_store, &select_sql)?;
+        if read.columns.len() != expected_columns {
+            return Err(format!(
+                "INSERT … SELECT column count mismatch: {} target columns, {} selected",
+                expected_columns,
+                read.columns.len()
+            ));
+        }
+        Ok::<_, String>(read.rows)
+    })
+    .await;
+    let rows = match r {
+        Ok(Ok(rows)) => rows,
+        Ok(Err(error)) => return Response::err(req_id, format!("SQL error: {error}")),
+        Err(response) => return response,
+    };
+    let mut txn = eg_query::TableTxn::new();
+    txn.push(eg_query::TxnOp::Insert {
+        table,
+        col_order: columns,
+        rows,
+    });
+    commit_sql_catalog_txn(req_id, scope, sql_method, store, txn, "INSERT").await
+}
+
+/// Execute `Method::Sql`'s `INSERT INTO nodes (id, …) SELECT …` DML — pure
+/// extract-method out of `exec_sql_write`'s `K::InsertNodesSelect` arm, no
+/// behaviour change.
+#[cfg(feature = "query")]
+/// Apply one resolved `INSERT INTO nodes … SELECT` row: build `id`/`props` from
+/// the row, enforce the visible-row-scope `ACCESS_DENIED` guard, and honor
+/// `ON CONFLICT`. Returns `1` if the row counted as written (a fresh insert or a
+/// `DO UPDATE`), `0` if skipped (`DO NOTHING`). Pure extract-method out of
+/// `exec_sql_write_insert_nodes_select`'s off-lock closure loop body, no
+/// behaviour change.
+#[cfg(feature = "query")]
+fn apply_insert_nodes_select_row(
+    core: &Arc<GraphCore>,
+    visible: &Arc<GraphCore>,
+    id_pos: usize,
+    columns: &[String],
+    on_conflict: Option<&eg_query::OnConflict>,
+    row: Vec<serde_json::Value>,
+) -> Result<usize, String> {
+    let node_id = cell_to_node_id(&row[id_pos])?;
+    let mut props = serde_json::Map::new();
+    for (i, col) in columns.iter().enumerate() {
+        if i != id_pos {
+            props.insert(col.clone(), row[i].clone());
+        }
+    }
+    if core.has_node(&node_id) && !visible.has_node(&node_id) {
+        crate::metrics::access_denied();
+        return Err("ACCESS_DENIED: node write is outside the visible row scope".to_string());
+    }
+    if visible.has_node(&node_id) {
+        match on_conflict.map(|oc| &oc.action) {
+            Some(eg_query::OnConflictAction::DoNothing) => return Ok(0),
+            Some(eg_query::OnConflictAction::DoUpdate(set)) => {
+                let empty = serde_json::Map::new();
+                core.compare_and_set_fields(&node_id, &empty, set);
+                return Ok(1);
+            }
+            None => {}
+        }
+    }
+    let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props))
+        .map_err(|e| format!("encode node properties: {e}"))?;
+    core.add_node(node_id, blob);
+    Ok(1)
+}
+
+/// Resolve the `SELECT` half and apply every row via [`apply_insert_nodes_select_row`] — pure extract-method out of
+/// `exec_sql_write_insert_nodes_select`'s off-lock closure, no behaviour change.
+#[cfg(feature = "query")]
+fn resolve_insert_nodes_select(
+    core: &Arc<GraphCore>,
+    visible: &Arc<GraphCore>,
+    snap: &crate::graph::GraphView,
+    store: &eg_query::TableStore,
+    ins: eg_query::InsertNodesSelect,
+) -> Result<usize, String> {
+    let read = eg_query::exec_sql_typed_with_tables(snap, store, &ins.select_sql)?;
+    if read.columns.len() != ins.columns.len() {
+        return Err(format!(
+            "INSERT INTO nodes … SELECT column count mismatch: {} target columns, {} selected",
+            ins.columns.len(),
+            read.columns.len()
+        ));
+    }
+    let id_pos = ins
+        .columns
+        .iter()
+        .position(|c| c.eq_ignore_ascii_case("id"))
+        .ok_or("INSERT INTO nodes … SELECT must include the `id` column")?;
+    let mut n = 0usize;
+    for row in read.rows {
+        n += apply_insert_nodes_select_row(
+            core,
+            visible,
+            id_pos,
+            &ins.columns,
+            ins.on_conflict.as_ref(),
+            row,
+        )?;
+    }
+    Ok(n)
+}
+
+#[cfg(feature = "query")]
+async fn exec_sql_write_insert_nodes_select(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    read_core: Arc<GraphCore>,
+    store: &eg_query::TableStore,
+    ins: eg_query::InsertNodesSelect,
+) -> Response {
+    let core = core.clone();
+    let store = store.clone();
+    let visible = read_core;
+    let snap = visible.analysis_snapshot();
+    let r = compute_off_lock(req_id, move || {
+        resolve_insert_nodes_select(&core, &visible, &snap, &store, ins)
+    })
+    .await;
+    sql_write_ack(req_id, "INSERT", r)
+}
+
+/// Execute `Method::Sql`'s `UPDATE nodes … FROM …` DML — pure extract-method out
+/// of `exec_sql_write`'s `K::UpdateNodesJoin` arm, no behaviour change.
+#[cfg(feature = "query")]
+async fn exec_sql_write_update_nodes_join(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    read_core: &Arc<GraphCore>,
+    store: &eg_query::TableStore,
+    upd: eg_query::UpdateNodesJoin,
+) -> Response {
+    let core = core.clone();
+    let store = store.clone();
+    let snap = read_core.analysis_snapshot();
+    let r = compute_off_lock(req_id, move || {
+        let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &upd.resolve_sql)?;
+        if read.columns.len() != upd.set_targets.len() + 1 {
+            return Err(format!(
+                "UPDATE … FROM resolution shape mismatch: expected id + {} set columns, got {}",
+                upd.set_targets.len(),
+                read.columns.len()
+            ));
+        }
+        let empty = serde_json::Map::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut n = 0usize;
+        for row in read.rows {
+            let id = cell_to_node_id(&row[0])?;
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            let mut updates = serde_json::Map::new();
+            for (i, col) in upd.set_targets.iter().enumerate() {
+                updates.insert(col.clone(), row[i + 1].clone());
+            }
+            if core.compare_and_set_fields(&id, &empty, &updates) {
+                n += 1;
+            }
+        }
+        Ok::<usize, String>(n)
+    })
+    .await;
+    sql_write_ack(req_id, "UPDATE", r)
+}
+
+/// Execute `Method::Sql`'s `DELETE FROM nodes … USING …` DML — pure
+/// extract-method out of `exec_sql_write`'s `K::DeleteNodesJoin` arm, no
+/// behaviour change.
+#[cfg(feature = "query")]
+async fn exec_sql_write_delete_nodes_join(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    read_core: &Arc<GraphCore>,
+    store: &eg_query::TableStore,
+    del: eg_query::DeleteNodesJoin,
+) -> Response {
+    let core = core.clone();
+    let store = store.clone();
+    let snap = read_core.analysis_snapshot();
+    let r = compute_off_lock(req_id, move || {
+        let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &del.resolve_sql)?;
+        let mut seen = std::collections::HashSet::new();
+        let mut n = 0usize;
+        for row in read.rows {
+            let id = cell_to_node_id(&row[0])?;
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            core.remove_node(id);
+            n += 1;
+        }
+        Ok::<usize, String>(n)
+    })
+    .await;
+    sql_write_ack(req_id, "DELETE", r)
+}
+
+/// Execute `Method::Sql`'s Apache-AGE-style `cypher()` table function — pure
+/// extract-method out of `exec_sql_write`'s `K::CypherCall` arm, no behaviour
+/// change. A read (run + projected onto the AS columns), gated on the `cypher`
+/// feature exactly like before.
+#[cfg(feature = "query")]
+async fn exec_sql_write_cypher_call(
+    req_id: u64,
+    read_core: &Arc<GraphCore>,
+    plan: eg_query::CypherCallPlan,
+) -> Response {
+    #[cfg(feature = "cypher")]
+    {
+        let core = read_core.clone();
+        let r = compute_off_lock(req_id, move || {
+            let snap = core.analysis_snapshot();
+            let result = eg_query::exec_cypher(&snap, &plan.cypher)?;
+            let typed =
+                eg_query::project_cypher_rows(&result, &plan.columns, plan.projection.as_deref())?;
+            Ok::<_, String>(crate::protocol::QueryResult {
+                columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                rows: typed
+                    .rows
+                    .iter()
+                    .map(|row| rmp_serde::to_vec_named(row).unwrap_or_default())
+                    .collect(),
+            })
+        })
+        .await;
+        match r {
+            Ok(Ok(result)) => Response::ok(
+                req_id,
+                ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
+            ),
+            Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
+            Err(resp) => resp,
+        }
+    }
+    #[cfg(not(feature = "cypher"))]
+    {
+        let _ = (read_core, plan);
+        Response::err(
+            req_id,
+            "SQL error: cypher() (Apache AGE) requires the engine's `cypher` feature".to_string(),
+        )
+    }
+}
+
+/// Execute `Method::Sql`'s `CREATE TABLE …` DDL — pure extract-method out of
+/// `exec_sql_write`'s `K::CreateTable` arm, no behaviour change.
+#[cfg(feature = "query")]
+async fn exec_sql_write_create_table(
+    req_id: u64,
+    scope: SqlWriteScope<'_>,
+    sql_method: Method,
+    store: &eg_query::TableStore,
+    plan: eg_query::CreateTablePlan,
+) -> Response {
+    let columns = match to_store_columns(&plan.columns) {
+        Ok(columns) => columns,
+        Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+    };
+    let mut txn = eg_query::TableTxn::new();
+    txn.push(eg_query::TxnOp::CreateTable {
+        schema: eg_query::TableSchema::new(plan.name, columns),
+        if_not_exists: plan.if_not_exists,
+    });
+    commit_sql_catalog_txn(req_id, scope, sql_method, store, txn, "CREATE TABLE").await
+}
+
+/// Execute `Method::Sql`'s `ALTER TABLE …` DDL — pure extract-method out of
+/// `exec_sql_write`'s `K::AlterTable` arm, no behaviour change.
+#[cfg(feature = "query")]
+async fn exec_sql_write_alter_table(
+    req_id: u64,
+    scope: SqlWriteScope<'_>,
+    sql_method: Method,
+    store: &eg_query::TableStore,
+    plan: eg_query::AlterTablePlan,
+) -> Response {
+    let op = match alter_table_txn_op(plan) {
+        Ok(op) => op,
+        Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+    };
+    let mut txn = eg_query::TableTxn::new();
+    txn.push(op);
+    commit_sql_catalog_txn(req_id, scope, sql_method, store, txn, "ALTER TABLE").await
+}
+
 #[cfg(feature = "query")]
 async fn exec_sql_write(
     req_id: u64,
@@ -3739,90 +4415,15 @@ async fn exec_sql_write(
     use eg_query::StatementKind as K;
     let read_core = read_authority.project_core(core);
     match kind {
-        K::InsertNodes(ins) => {
-            let core = core.clone();
-            let visible = read_core.clone();
-            let r = compute_off_lock(req_id, move || {
-                let mut n = 0usize;
-                for node in ins.rows {
-                    if core.has_node(&node.node_id) && !visible.has_node(&node.node_id) {
-                        crate::metrics::access_denied();
-                        return Err("ACCESS_DENIED: node write is outside the visible row scope"
-                            .to_string());
-                    }
-                    let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(node.properties))
-                        .map_err(|e| format!("encode node properties: {e}"))?;
-                    core.add_node(node.node_id, blob);
-                    n += 1;
-                }
-                Ok::<usize, String>(n)
-            })
-            .await;
-            sql_write_ack(req_id, "INSERT", r)
-        }
+        K::InsertNodes(ins) => exec_sql_write_insert_nodes(req_id, core, &read_core, ins).await,
         K::UpdateNodes(upd) => {
-            let core = core.clone();
-            let r = compute_off_lock(req_id, move || {
-                let ids = matched_node_ids(&read_core, &upd.selector);
-                let conditions = serde_json::Map::new();
-                // CONCEPT:EG-KG.query.compound-predicate-decode — re-check a compound predicate under the write guard.
-                let pred = match &upd.selector {
-                    eg_query::WhereEq::Predicate { pred, .. } => Some(pred.clone()),
-                    eg_query::WhereEq::Id(_) => None,
-                };
-                let mut n = 0usize;
-                for id in ids {
-                    let applied = match &pred {
-                        Some(p) => core.compare_and_set_fields_if(&id, p, &conditions, &upd.set),
-                        None => core.compare_and_set_fields(&id, &conditions, &upd.set),
-                    };
-                    if applied {
-                        n += 1;
-                    }
-                }
-                Ok::<usize, String>(n)
-            })
-            .await;
-            sql_write_ack(req_id, "UPDATE", r)
+            exec_sql_write_update_nodes(req_id, core, read_core.clone(), upd).await
         }
         K::DeleteNodes(del) => {
-            let core = core.clone();
-            let r = compute_off_lock(req_id, move || {
-                let ids = matched_node_ids(&read_core, &del.selector);
-                // CONCEPT:EG-KG.query.compound-predicate-decode — re-check a compound predicate under the write guard.
-                let pred = match &del.selector {
-                    eg_query::WhereEq::Predicate { pred, .. } => Some(pred.clone()),
-                    eg_query::WhereEq::Id(_) => None,
-                };
-                let mut n = 0usize;
-                for id in ids {
-                    let removed = match &pred {
-                        Some(p) => core.remove_node_if(&id, p),
-                        None => {
-                            core.remove_node(id);
-                            true
-                        }
-                    };
-                    if removed {
-                        n += 1;
-                    }
-                }
-                Ok::<usize, String>(n)
-            })
-            .await;
-            sql_write_ack(req_id, "DELETE", r)
+            exec_sql_write_delete_nodes(req_id, core, read_core.clone(), del).await
         }
         K::CreateTable(plan) => {
-            let columns = match to_store_columns(&plan.columns) {
-                Ok(columns) => columns,
-                Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
-            };
-            let mut txn = eg_query::TableTxn::new();
-            txn.push(eg_query::TxnOp::CreateTable {
-                schema: eg_query::TableSchema::new(plan.name, columns),
-                if_not_exists: plan.if_not_exists,
-            });
-            commit_sql_catalog_txn(
+            exec_sql_write_create_table(
                 req_id,
                 SqlWriteScope {
                     graph_name,
@@ -3831,8 +4432,7 @@ async fn exec_sql_write(
                 },
                 sql_method,
                 store,
-                txn,
-                "CREATE TABLE",
+                plan,
             )
             .await
         }
@@ -3858,13 +4458,7 @@ async fn exec_sql_write(
         }
         // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — one dispatch helper.
         K::AlterTable(plan) => {
-            let op = match alter_table_txn_op(plan) {
-                Ok(op) => op,
-                Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
-            };
-            let mut txn = eg_query::TableTxn::new();
-            txn.push(op);
-            commit_sql_catalog_txn(
+            exec_sql_write_alter_table(
                 req_id,
                 SqlWriteScope {
                     graph_name,
@@ -3873,8 +4467,7 @@ async fn exec_sql_write(
                 },
                 sql_method,
                 store,
-                txn,
-                "ALTER TABLE",
+                plan,
             )
             .await
         }
@@ -3900,42 +4493,7 @@ async fn exec_sql_write(
             .await
         }
         K::InsertSelect(ins) => {
-            // The SELECT half runs through the SAME tables-aware DataFusion path (so it
-            // can JOIN user tables AND the graph); its projected rows are then durably
-            // inserted. Column COUNT must match the insert column list.
-            let eg_query::InsertSelect {
-                table,
-                columns,
-                select_sql,
-            } = ins;
-            let read_store = store.clone();
-            let snap = read_core.analysis_snapshot();
-            let expected_columns = columns.len();
-            let r = compute_off_lock(req_id, move || {
-                let read =
-                    eg_query::exec_sql_typed_with_tables(&snap, &read_store, &select_sql)?;
-                if read.columns.len() != expected_columns {
-                    return Err(format!(
-                        "INSERT … SELECT column count mismatch: {} target columns, {} selected",
-                        expected_columns,
-                        read.columns.len()
-                    ));
-                }
-                Ok::<_, String>(read.rows)
-            })
-            .await;
-            let rows = match r {
-                Ok(Ok(rows)) => rows,
-                Ok(Err(error)) => return Response::err(req_id, format!("SQL error: {error}")),
-                Err(response) => return response,
-            };
-            let mut txn = eg_query::TableTxn::new();
-            txn.push(eg_query::TxnOp::Insert {
-                table,
-                col_order: columns,
-                rows,
-            });
-            commit_sql_catalog_txn(
+            exec_sql_write_insert_select(
                 req_id,
                 SqlWriteScope {
                     graph_name,
@@ -3943,9 +4501,9 @@ async fn exec_sql_write(
                     caller,
                 },
                 sql_method,
+                read_core.clone(),
                 store,
-                txn,
-                "INSERT",
+                ins,
             )
             .await
         }
@@ -4000,118 +4558,15 @@ async fn exec_sql_write(
         ),
         // CONCEPT:EG-KG.query.insert-into-nodes-select — INSERT INTO nodes … SELECT over the RPC wire (write-ack; no RETURNING).
         K::InsertNodesSelect(ins) => {
-            let core = core.clone();
-            let store = store.clone();
-            let visible = read_core.clone();
-            let snap = visible.analysis_snapshot();
-            let r = compute_off_lock(req_id, move || {
-                let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &ins.select_sql)?;
-                if read.columns.len() != ins.columns.len() {
-                    return Err(format!(
-                        "INSERT INTO nodes … SELECT column count mismatch: {} target columns, {} selected",
-                        ins.columns.len(),
-                        read.columns.len()
-                    ));
-                }
-                let id_pos = ins
-                    .columns
-                    .iter()
-                    .position(|c| c.eq_ignore_ascii_case("id"))
-                    .ok_or("INSERT INTO nodes … SELECT must include the `id` column")?;
-                let empty = serde_json::Map::new();
-                let mut n = 0usize;
-                for row in read.rows {
-                    let node_id = cell_to_node_id(&row[id_pos])?;
-                    let mut props = serde_json::Map::new();
-                    for (i, col) in ins.columns.iter().enumerate() {
-                        if i != id_pos {
-                            props.insert(col.clone(), row[i].clone());
-                        }
-                    }
-                    if core.has_node(&node_id) && !visible.has_node(&node_id) {
-                        crate::metrics::access_denied();
-                        return Err(
-                            "ACCESS_DENIED: node write is outside the visible row scope"
-                                .to_string(),
-                        );
-                    }
-                    if visible.has_node(&node_id) {
-                        match ins.on_conflict.as_ref().map(|oc| &oc.action) {
-                            Some(eg_query::OnConflictAction::DoNothing) => continue,
-                            Some(eg_query::OnConflictAction::DoUpdate(set)) => {
-                                core.compare_and_set_fields(&node_id, &empty, set);
-                                n += 1;
-                                continue;
-                            }
-                            None => {}
-                        }
-                    }
-                    let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props))
-                        .map_err(|e| format!("encode node properties: {e}"))?;
-                    core.add_node(node_id, blob);
-                    n += 1;
-                }
-                Ok::<usize, String>(n)
-            })
-            .await;
-            sql_write_ack(req_id, "INSERT", r)
+            exec_sql_write_insert_nodes_select(req_id, core, read_core.clone(), store, ins).await
         }
         // CONCEPT:EG-KG.query.update-delete-from — UPDATE nodes … FROM … over the RPC wire.
         K::UpdateNodesJoin(upd) => {
-            let core = core.clone();
-            let store = store.clone();
-            let snap = read_core.analysis_snapshot();
-            let r = compute_off_lock(req_id, move || {
-                let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &upd.resolve_sql)?;
-                if read.columns.len() != upd.set_targets.len() + 1 {
-                    return Err(format!(
-                        "UPDATE … FROM resolution shape mismatch: expected id + {} set columns, got {}",
-                        upd.set_targets.len(),
-                        read.columns.len()
-                    ));
-                }
-                let empty = serde_json::Map::new();
-                let mut seen = std::collections::HashSet::new();
-                let mut n = 0usize;
-                for row in read.rows {
-                    let id = cell_to_node_id(&row[0])?;
-                    if !seen.insert(id.clone()) {
-                        continue;
-                    }
-                    let mut updates = serde_json::Map::new();
-                    for (i, col) in upd.set_targets.iter().enumerate() {
-                        updates.insert(col.clone(), row[i + 1].clone());
-                    }
-                    if core.compare_and_set_fields(&id, &empty, &updates) {
-                        n += 1;
-                    }
-                }
-                Ok::<usize, String>(n)
-            })
-            .await;
-            sql_write_ack(req_id, "UPDATE", r)
+            exec_sql_write_update_nodes_join(req_id, core, &read_core, store, upd).await
         }
         // CONCEPT:EG-KG.query.update-delete-from — DELETE FROM nodes … USING … over the RPC wire.
         K::DeleteNodesJoin(del) => {
-            let core = core.clone();
-            let store = store.clone();
-            let snap = read_core.analysis_snapshot();
-            let r = compute_off_lock(req_id, move || {
-                let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &del.resolve_sql)?;
-                let mut seen = std::collections::HashSet::new();
-                let mut n = 0usize;
-                for row in read.rows {
-                    let id = cell_to_node_id(&row[0])?;
-                    if !seen.insert(id.clone()) {
-                        continue;
-                    }
-                    core.remove_node(id);
-                    n += 1;
-                }
-                Ok::<usize, String>(n)
-            })
-            .await;
-            sql_write_ack(req_id, "DELETE", r)
+            exec_sql_write_delete_nodes_join(req_id, core, &read_core, store, del).await
         }
         // CONCEPT:EG-KG.query.create-drop-view — CREATE/DROP VIEW over the RPC wire.
         K::CreateView(plan) => {
@@ -4240,47 +4695,7 @@ async fn exec_sql_write(
         // ── Postgres-family extension parity (wave 19) ──────────────────────────
         // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE cypher() is a read; run it + project the agtype
         // result onto the AS columns, returning a result set (like the read path).
-        K::CypherCall(plan) => {
-            #[cfg(feature = "cypher")]
-            {
-                let core = read_core.clone();
-                let r = compute_off_lock(req_id, move || {
-                    let snap = core.analysis_snapshot();
-                    let result = eg_query::exec_cypher(&snap, &plan.cypher)?;
-                    let typed = eg_query::project_cypher_rows(
-                        &result,
-                        &plan.columns,
-                        plan.projection.as_deref(),
-                    )?;
-                    Ok::<_, String>(crate::protocol::QueryResult {
-                        columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
-                        rows: typed
-                            .rows
-                            .iter()
-                            .map(|row| rmp_serde::to_vec_named(row).unwrap_or_default())
-                            .collect(),
-                    })
-                })
-                .await;
-                match r {
-                    Ok(Ok(result)) => Response::ok(
-                        req_id,
-                        ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
-                    ),
-                    Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
-                    Err(resp) => resp,
-                }
-            }
-            #[cfg(not(feature = "cypher"))]
-            {
-                let _ = plan;
-                Response::err(
-                    req_id,
-                    "SQL error: cypher() (Apache AGE) requires the engine's `cypher` feature"
-                        .to_string(),
-                )
-            }
-        }
+        K::CypherCall(plan) => exec_sql_write_cypher_call(req_id, &read_core, plan).await,
         // CONCEPT:EG-KG.query.real-ann-top-k — persist the pgvector ANN index used
         // by the native eg-ann pushdown planner.
         K::CreateAnnIndex(plan) => {
@@ -4613,6 +5028,42 @@ fn nl_schema_hint(core: &Arc<GraphCore>) -> String {
     }
 }
 
+/// The per-(actor,version) `FilteredViewCache` probe-then-build used by every
+/// `result-cache` MISS across the Sql/UnifiedQuery/UnifiedQueryText/GraphQl/
+/// CypherQuery arms (mirrors `rls_snapshot` below, which is the SAME idiom for a
+/// `not(result-cache)` build) — pure extract-method out of each of those arms'
+/// bodies, no behaviour change. The `not(feature = "security")` fallback
+/// (`core.analysis_snapshot_versioned()`, no filtering) stays inline at each call
+/// site — it is a single unbranched call, so extracting it here would only add an
+/// indirection, not remove any complexity.
+#[cfg(all(
+    feature = "result-cache",
+    any(feature = "query", feature = "cypher", feature = "graphql")
+))]
+fn versioned_rls_snapshot(
+    core: &Arc<GraphCore>,
+    caller: &str,
+    rls: &Arc<crate::isolation::IsolationLayer>,
+) -> (Arc<crate::graph::GraphView>, u64) {
+    let probe_version = core.version();
+    match core.cached_filtered_view(caller, probe_version) {
+        Some(cached) => (cached, probe_version),
+        None => {
+            let generation = core.filtered_view_cache_generation();
+            let (mut fresh, built_version) = core.analysis_snapshot_versioned();
+            rls.filter_view(caller, &mut fresh);
+            let fresh = Arc::new(fresh);
+            core.put_cached_filtered_view(
+                caller.to_string(),
+                built_version,
+                generation,
+                fresh.clone(),
+            );
+            (fresh, built_version)
+        }
+    }
+}
+
 #[cfg(all(
     any(feature = "query", feature = "cypher", feature = "graphql"),
     not(feature = "result-cache")
@@ -4659,12 +5110,7 @@ fn rls_snapshot(
         let mut fresh = core.analysis_snapshot();
         rls.filter_view(caller, &mut fresh);
         let fresh = Arc::new(fresh);
-        core.put_cached_filtered_view(
-            caller.to_string(),
-            probe_version,
-            generation,
-            fresh.clone(),
-        );
+        core.put_cached_filtered_view(caller.to_string(), probe_version, generation, fresh.clone());
         fresh
     }
     #[cfg(not(feature = "security"))]
@@ -6092,6 +6538,80 @@ mod dispatch_write_tests {
         let (_c2, rows2) = query_result(&cy);
         assert_eq!(rows2.len(), 1);
         assert_eq!(rows2[0][0], serde_json::json!("Zed"));
+    }
+
+    /// CX WB1-EG-01 characterization: `UPDATE nodes SET …` and `DELETE FROM
+    /// nodes …` over `Method::Sql` had no dedicated dispatch-level test before
+    /// this refactor extracted `exec_sql_write_update_nodes`/
+    /// `exec_sql_write_delete_nodes` out of `exec_sql_write`'s
+    /// `K::UpdateNodes`/`K::DeleteNodes` arms — added per the Phase B
+    /// discipline ("write one for a branch nothing covers before moving it").
+    #[tokio::test]
+    async fn wire_sql_update_then_delete_node_via_dispatch() {
+        let state = state();
+        let sql = |q: String| Method::Sql {
+            query: q,
+            params_msgpack: Vec::new(),
+        };
+        let id = format!("sqlupd_{}", std::process::id());
+
+        let i = dispatch_on_heap(
+            &state,
+            req(
+                1,
+                sql(format!(
+                    "INSERT INTO nodes (id, type, rank) VALUES ('{id}', 'Agent', 1)"
+                )),
+            ),
+        )
+        .await;
+        assert!(i.error.is_none(), "INSERT failed: {:?}", i.error);
+
+        // `UPDATE nodes SET …` (`exec_sql_write_update_nodes`).
+        let u = dispatch_on_heap(
+            &state,
+            req(
+                2,
+                sql(format!("UPDATE nodes SET rank = 42 WHERE id = '{id}'")),
+            ),
+        )
+        .await;
+        assert!(u.error.is_none(), "UPDATE failed: {:?}", u.error);
+
+        let s = dispatch_on_heap(
+            &state,
+            req(3, sql(format!("SELECT rank FROM nodes WHERE id = '{id}'"))),
+        )
+        .await;
+        assert!(
+            s.error.is_none(),
+            "SELECT after UPDATE failed: {:?}",
+            s.error
+        );
+        let (_c, rows) = query_result(&s);
+        assert_eq!(rows.len(), 1, "the updated node is still present");
+        assert_eq!(rows[0][0], serde_json::json!(42));
+
+        // `DELETE FROM nodes …` (`exec_sql_write_delete_nodes`).
+        let d = dispatch_on_heap(
+            &state,
+            req(4, sql(format!("DELETE FROM nodes WHERE id = '{id}'"))),
+        )
+        .await;
+        assert!(d.error.is_none(), "DELETE failed: {:?}", d.error);
+
+        let s2 = dispatch_on_heap(
+            &state,
+            req(5, sql(format!("SELECT id FROM nodes WHERE id = '{id}'"))),
+        )
+        .await;
+        assert!(
+            s2.error.is_none(),
+            "SELECT after DELETE failed: {:?}",
+            s2.error
+        );
+        let (_c2, rows2) = query_result(&s2);
+        assert_eq!(rows2.len(), 0, "the deleted node is gone");
     }
 }
 
