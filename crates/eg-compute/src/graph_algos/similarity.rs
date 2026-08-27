@@ -217,6 +217,44 @@ where
         .collect()
 }
 
+/// Score node `a` against every other node under `metric`, keep only scores
+/// `> cutoff`, and truncate to the top-`k` (descending score, ascending id).
+/// Pure extraction from [`knn_similarity`]'s per-node loop body -- identical
+/// scoring/filter/truncate/sort logic, no behaviour change; pulled out solely
+/// to keep [`knn_similarity`]'s own cyclomatic complexity within the repo's
+/// gate cap. CONCEPT:EG-KG.compute.node-similarity
+fn top_k_for_node(
+    a: usize,
+    n: usize,
+    k: usize,
+    cutoff: f64,
+    metric: Metric,
+    neighbors: &[Cow<'_, [(usize, f64)]>],
+    norms: &[f64],
+) -> Vec<(usize, f64)> {
+    let mut scored: Vec<(usize, f64)> = (0..n)
+        .filter(|&b| b != a)
+        .map(|b| {
+            let s = match metric {
+                Metric::Jaccard => jaccard_from_neighbors(&neighbors[a], &neighbors[b]),
+                Metric::Cosine => {
+                    cosine_from_neighbors(&neighbors[a], &neighbors[b], norms[a], norms[b])
+                }
+            };
+            (b, s)
+        })
+        .filter(|&(_, s)| s > cutoff)
+        .collect();
+    if scored.len() > k {
+        scored.select_nth_unstable_by(k, neighbor_score_cmp);
+        scored.truncate(k);
+    }
+    // The public result is ordered, but the discarded V-k neighbors are not:
+    // only sort the exact selected prefix under the established score/id order.
+    scored.sort_by(neighbor_score_cmp);
+    scored
+}
+
 /// Per-node top-`k` nearest-neighbour similarity edges (CONCEPT:EG-KG.compute.node-similarity),
 /// `gds.knn` parity. Distinct from [`all_pairs_similarity`]'s GLOBAL cutoff sweep
 /// (`gds.nodeSimilarity`): each node independently keeps its `top_k` best-scoring
@@ -249,26 +287,7 @@ where
     };
     let mut pair_best: HashMap<(usize, usize), f64> = HashMap::new();
     for a in 0..n {
-        let mut scored: Vec<(usize, f64)> = (0..n)
-            .filter(|&b| b != a)
-            .map(|b| {
-                let s = match metric {
-                    Metric::Jaccard => jaccard_from_neighbors(&neighbors[a], &neighbors[b]),
-                    Metric::Cosine => {
-                        cosine_from_neighbors(&neighbors[a], &neighbors[b], norms[a], norms[b])
-                    }
-                };
-                (b, s)
-            })
-            .filter(|&(_, s)| s > cutoff)
-            .collect();
-        if scored.len() > k {
-            scored.select_nth_unstable_by(k, neighbor_score_cmp);
-            scored.truncate(k);
-        }
-        // The public result is ordered, but the discarded V-k neighbors are not:
-        // only sort the exact selected prefix under the established score/id order.
-        scored.sort_by(neighbor_score_cmp);
+        let scored = top_k_for_node(a, n, k, cutoff, metric, &neighbors, &norms);
         for (b, s) in scored {
             let key = if a < b { (a, b) } else { (b, a) };
             let e = pair_best.entry(key).or_insert(f64::MIN);
