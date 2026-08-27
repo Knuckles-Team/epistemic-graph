@@ -255,8 +255,8 @@ gates:
   # land undetected, mirroring `bf748fa`'s clippy fix one gate over.
   #
   # `tier: fast`, not `slow`: the ~9-minute cost that justified the pre-commit
-  # hook's opt-in staging was measured on the shared, saturated host; on r820
-  # (idle, 64c) the same command completes fast enough to gate the queue for
+  # hook's opt-in staging was measured on the shared, saturated host; on an
+  # idle 64-core host the same command completes fast enough to gate the queue for
   # real rather than being declared-but-bypassed like `cargo-test` above.
   #
   # `compare: lines`, not `exit`: a whole-suite exit-code compare would block

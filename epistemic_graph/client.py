@@ -9719,7 +9719,7 @@ class QueryClient:
         sql-mcp alone cannot give). Federation SQL is included in the mandatory main build::
 
             {"Sql": {
-                "dsn": "postgres://user:pw@host:5432/papers",
+                "dsn": "postgres://user:changeme@host:5432/papers",
                 "query": "SELECT doi, relevance FROM cited WHERE published > 2023",
                 "id_field": "doi",
                 "score_field": "relevance",

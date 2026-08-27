@@ -34,7 +34,7 @@ assert the result.
 The extension is built ``abi3`` (``pyo3`` ``abi3-py39``), so ONE artifact serves
 every CPython >= 3.9 in the fleet — verified live against pods running 3.11 and
 3.14 off the same mount. It is, however, platform- and architecture-specific:
-build it on (or for) the host whose ``/home/apps/workspace`` the pods mount.
+build it on (or for) the host whose shared workspace mount the pods use.
 
 Usage::
 
