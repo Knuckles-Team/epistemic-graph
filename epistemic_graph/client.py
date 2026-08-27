@@ -25,7 +25,7 @@ import struct
 import threading
 import time
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import Any, Literal, NamedTuple, TypedDict, cast
+from typing import Any, Literal, NamedTuple, NoReturn, TypedDict, cast
 
 import msgpack
 
@@ -169,6 +169,95 @@ _REQUIRED_REQUEST_CONTEXT_FIELDS = frozenset(
 _ALLOWED_REQUEST_CONTEXT_FIELDS = frozenset(RequestContextClaims.__annotations__)
 
 
+_OPTIONAL_REQUEST_CONTEXT_CLAIMS = ("node", "priority", "oidc_token")
+_SCALAR_REQUEST_CONTEXT_CLAIMS = (
+    "principal",
+    "tenant",
+    "audience",
+    "agent_id",
+    "policy_version",
+)
+_LIST_REQUEST_CONTEXT_CLAIMS = ("roles", "scopes", "delegation")
+
+
+def _validate_request_context_fields(context: dict[str, Any]) -> None:
+    """Reject a context whose claim NAMES are wrong (missing or unsupported)."""
+    present = set(context)
+    missing = sorted(_REQUIRED_REQUEST_CONTEXT_FIELDS - present)
+    if missing:
+        raise ValueError(
+            "verified_context is missing required claims: " + ", ".join(missing)
+        )
+    unexpected = sorted(present - _ALLOWED_REQUEST_CONTEXT_FIELDS)
+    if unexpected:
+        raise ValueError(
+            "verified_context contains unsupported claims: " + ", ".join(unexpected)
+        )
+
+
+def _validate_request_context_optional_claims(context: dict[str, Any]) -> None:
+    """Optional scalar claims must be non-empty strings WHEN PRESENT."""
+    for name in _OPTIONAL_REQUEST_CONTEXT_CLAIMS:
+        if name not in context:
+            continue
+        claim = context[name]
+        if not isinstance(claim, str) or not claim.strip():
+            raise ValueError(
+                f"verified_context.{name} must be a non-empty string when present"
+            )
+
+
+def _validate_request_context_scalars(value: dict[str, Any]) -> None:
+    """Required scalar claims must be non-empty strings."""
+    for name in _SCALAR_REQUEST_CONTEXT_CLAIMS:
+        claim = value[name]
+        if not isinstance(claim, str) or not claim.strip():
+            raise ValueError(f"verified_context.{name} must be a non-empty string")
+
+
+def _validate_request_context_string_list(name: str, claims: Any) -> None:
+    """One list claim: a list of unique, non-empty strings."""
+    if not isinstance(claims, list):
+        raise TypeError(f"verified_context.{name} must be a list of strings")
+    seen: set[str] = set()
+    for claim in claims:
+        if not isinstance(claim, str) or not claim.strip():
+            raise ValueError(
+                f"verified_context.{name} entries must be non-empty strings"
+            )
+        if claim in seen:
+            raise ValueError(
+                f"verified_context.{name} contains duplicate entry {claim!r}"
+            )
+        seen.add(claim)
+
+
+def _validate_request_context_lists(value: dict[str, Any]) -> None:
+    for name in _LIST_REQUEST_CONTEXT_CLAIMS:
+        _validate_request_context_string_list(name, value[name])
+
+
+def _validate_request_context_delegation(value: dict[str, Any]) -> None:
+    """The delegation chain must connect the principal to the effective agent."""
+    principal = value["principal"]
+    agent_id = value["agent_id"]
+    delegation = value["delegation"]
+    if principal == agent_id:
+        if delegation:
+            raise ValueError(
+                "verified_context.delegation must be empty when principal is the agent"
+            )
+        return
+    if (
+        len(delegation) < 2
+        or delegation[0] != principal
+        or delegation[-1] != agent_id
+    ):
+        raise ValueError(
+            "verified_context.delegation must run from principal to effective agent"
+        )
+
+
 def validate_request_context(
     context: RequestContextClaims | dict[str, Any],
 ) -> RequestContextClaims:
@@ -185,72 +274,13 @@ def validate_request_context(
 
     if not isinstance(context, dict):
         raise TypeError("verified_context must be a mapping")
-    present = set(context)
-    missing = sorted(_REQUIRED_REQUEST_CONTEXT_FIELDS - present)
-    if missing:
-        raise ValueError(
-            "verified_context is missing required claims: " + ", ".join(missing)
-        )
-    unexpected = sorted(present - _ALLOWED_REQUEST_CONTEXT_FIELDS)
-    if unexpected:
-        raise ValueError(
-            "verified_context contains unsupported claims: " + ", ".join(unexpected)
-        )
-    if "node" in context:
-        node = context["node"]
-        if not isinstance(node, str) or not node.strip():
-            raise ValueError(
-                "verified_context.node must be a non-empty string when present"
-            )
-    if "priority" in context:
-        priority = context["priority"]
-        if not isinstance(priority, str) or not priority.strip():
-            raise ValueError(
-                "verified_context.priority must be a non-empty string when present"
-            )
-    if "oidc_token" in context:
-        oidc_token = context["oidc_token"]
-        if not isinstance(oidc_token, str) or not oidc_token.strip():
-            raise ValueError(
-                "verified_context.oidc_token must be a non-empty string when present"
-            )
+    _validate_request_context_fields(context)
+    _validate_request_context_optional_claims(context)
 
     value: dict[str, Any] = copy.deepcopy(dict(context))
-    for name in ("principal", "tenant", "audience", "agent_id", "policy_version"):
-        claim = value[name]
-        if not isinstance(claim, str) or not claim.strip():
-            raise ValueError(f"verified_context.{name} must be a non-empty string")
-
-    for name in ("roles", "scopes", "delegation"):
-        claims = value[name]
-        if not isinstance(claims, list):
-            raise TypeError(f"verified_context.{name} must be a list of strings")
-        seen: set[str] = set()
-        for claim in claims:
-            if not isinstance(claim, str) or not claim.strip():
-                raise ValueError(
-                    f"verified_context.{name} entries must be non-empty strings"
-                )
-            if claim in seen:
-                raise ValueError(
-                    f"verified_context.{name} contains duplicate entry {claim!r}"
-                )
-            seen.add(claim)
-
-    principal = value["principal"]
-    agent_id = value["agent_id"]
-    delegation = value["delegation"]
-    if principal == agent_id:
-        if delegation:
-            raise ValueError(
-                "verified_context.delegation must be empty when principal is the agent"
-            )
-    elif (
-        len(delegation) < 2 or delegation[0] != principal or delegation[-1] != agent_id
-    ):
-        raise ValueError(
-            "verified_context.delegation must run from principal to effective agent"
-        )
+    _validate_request_context_scalars(value)
+    _validate_request_context_lists(value)
+    _validate_request_context_delegation(value)
     return cast(RequestContextClaims, value)
 
 
@@ -9312,6 +9342,88 @@ _WRITE_TIMEOUT = float(os.environ.get("GRAPH_SERVICE_WRITE_TIMEOUT", "30") or 30
 #: transport must never make `close()` itself hang forever.
 _CLOSE_TIMEOUT = float(os.environ.get("GRAPH_SERVICE_CLOSE_TIMEOUT", "5") or 5)
 #: Methods whose work is O(graph) / batch-sized and may legitimately run long.
+# The two RPCs whose params carry a change envelope that must be bound to the
+# request id + target graph before signing.  Dispatch table, not a branch chain.
+_CHANGE_ENVELOPE_BINDERS = {
+    "ApplyChangeEnvelope": "_bind_change_envelope",
+    "ApplyChangeEnvelopes": "_bind_change_envelopes",
+}
+
+_OPERATION_RESULT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "operation_id",
+        "status",
+        "result_kind",
+        "result_ref",
+        "error",
+        "redirect",
+    }
+)
+_OPERATION_REDIRECT_FIELDS = frozenset(
+    {
+        "kind",
+        "target_ref",
+        "group",
+        "epoch",
+        "fencing_token",
+        "leader_ref",
+    }
+)
+
+
+def _send_error_detail(detail: Any, err_msg: Any) -> Any:
+    """Best-effort decode of the structured detail carried by an error response."""
+    if isinstance(detail, (bytes, bytearray)):
+        with contextlib.suppress(Exception):
+            detail = msgpack.unpackb(detail, raw=False)
+    if not isinstance(detail, dict) and isinstance(err_msg, str):
+        with contextlib.suppress(json.JSONDecodeError, TypeError):
+            parsed = json.loads(err_msg)
+            if isinstance(parsed, dict):
+                detail = parsed
+    return detail
+
+
+def _raise_placement_redirect(detail: dict[str, Any]) -> NoReturn:
+    """Turn a ``status == "redirected"`` OperationResult into StaleRouteError."""
+    operation = _exact_mapping("OperationResult", detail, _OPERATION_RESULT_FIELDS)
+    route = _exact_mapping(
+        "OperationRedirect", operation["redirect"], _OPERATION_REDIRECT_FIELDS
+    )
+    if operation["schema_version"] != "1" or route["kind"] != "placement":
+        raise RuntimeError("invalid operation redirect")
+    raise StaleRouteError("placement route redirected", route)
+
+
+def _raise_send_error(resp: dict[str, Any]) -> NoReturn:
+    """Raise the typed exception for an error response frame."""
+    err_msg = resp.get("error", "Unknown error")
+    detail = _send_error_detail(resp.get("result"), err_msg)
+    if isinstance(detail, dict) and detail.get("status") == "redirected":
+        _raise_placement_redirect(detail)
+    # The engine's overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) returns a typed
+    # RESULT_TOO_LARGE error for an oversize full-graph dump. Surface it as
+    # a dedicated, catchable exception (still a RuntimeError subclass) so a
+    # caller can fall back to a bounded query without string-matching.
+    if isinstance(err_msg, str) and err_msg.startswith("RESULT_TOO_LARGE"):
+        raise ResultTooLargeError(err_msg)
+    raise RuntimeError(err_msg)
+
+
+def _decode_send_result(result: Any) -> Any:
+    """Decode the compact result encoding (engine Phase C-D).
+
+    Heavy algorithm results and node/edge property blobs come back as a
+    top-level MessagePack ``bin`` (the ``Raw``/``PropertiesMsgpack`` payloads) —
+    the server skips building a JSON tree. Decode that second layer here so
+    every caller receives the method's declared result structure.
+    """
+    if isinstance(result, (bytes, bytearray)):
+        return msgpack.unpackb(result, raw=False)
+    return result
+
+
 _HEAVY_RPC_METHODS = frozenset(
     {
         "ParseFile",
@@ -13577,28 +13689,35 @@ class EpistemicGraphClient:
                     self._read_loop(self._reader, self._generation)
                 )
 
-    async def _send(
+    def _bind_send_params(
         self,
         method: str,
-        params: dict[str, Any] | None = None,
-        graph: str | None = None,
+        params: dict[str, Any] | None,
         *,
-        idempotency_key: str | None = None,
-    ) -> Any:
-        req_id = self._next_id()
-        target_graph = graph or self._graph_name
-        if method == "ApplyChangeEnvelope":
-            if params is None:
-                raise ValueError("ApplyChangeEnvelope requires an envelope")
-            params = self._bind_change_envelope(
-                params, request_id=req_id, graph=target_graph
-            )
-        elif method == "ApplyChangeEnvelopes":
-            if params is None:
-                raise ValueError("ApplyChangeEnvelopes requires envelopes")
-            params = self._bind_change_envelopes(
-                params, request_id=req_id, graph=target_graph
-            )
+        req_id: int,
+        target_graph: str,
+    ) -> dict[str, Any] | None:
+        """Bind the change-envelope methods' params to this request id/graph."""
+        binder = _CHANGE_ENVELOPE_BINDERS.get(method)
+        if binder is None:
+            return params
+        if params is None:
+            raise ValueError(f"{method} requires an envelope")
+        return getattr(self, binder)(params, request_id=req_id, graph=target_graph)
+
+    def _build_send_request(
+        self,
+        method: str,
+        params: dict[str, Any] | None,
+        *,
+        req_id: int,
+        target_graph: str,
+        idempotency_key: str | None,
+    ) -> dict[str, Any]:
+        """The complete, signed wire request for one RPC."""
+        params = self._bind_send_params(
+            method, params, req_id=req_id, target_graph=target_graph
+        )
         request: dict[str, Any] = {
             "id": req_id,
             "graph": target_graph,
@@ -13610,10 +13729,10 @@ class EpistemicGraphClient:
         if params:
             request["params"] = params
         request["auth_token"] = self._compute_verified_token(request, idempotency_key)
+        return request
 
-        payload = msgpack.packb(request, use_bin_type=True)
-        length_prefix = len(payload).to_bytes(4, byteorder="big")
-
+    def _send_timeouts(self, method: str) -> tuple[float | None, float | None]:
+        """``(read_timeout, write_timeout)`` for one RPC."""
         # Heavy ops (full-graph parse/scan/algorithms) get the longer read budget.
         timeout = self._heavy_timeout if method in _HEAVY_RPC_METHODS else self._timeout
         # The request flush is bounded separately and never longer than the read
@@ -13622,6 +13741,26 @@ class EpistemicGraphClient:
         write_timeout = _WRITE_TIMEOUT if _WRITE_TIMEOUT else None
         if timeout is not None:
             write_timeout = min(timeout, write_timeout) if write_timeout else timeout
+        return timeout, write_timeout
+
+    async def _write_frame(
+        self, payload: bytes, *, write_timeout: float | None
+    ) -> None:
+        """Write ONE length-prefixed frame under the write lock."""
+        length_prefix = len(payload).to_bytes(4, byteorder="big")
+        # Serialize ONLY the frame write so two callers never interleave bytes;
+        # the round-trip itself is NOT held under any lock — that is what lets
+        # independent concurrent calls pipeline on the one connection.
+        async with self._write_lock:
+            self._writer.write(length_prefix)
+            self._writer.write(payload)
+            await asyncio.wait_for(self._writer.drain(), write_timeout)
+
+    async def _roundtrip(
+        self, payload: bytes, *, req_id: int, method: str
+    ) -> dict[str, Any]:
+        """Write the frame and await THIS request's demuxed response."""
+        timeout, write_timeout = self._send_timeouts(method)
 
         # Establish/heal the connection and the background demux reader.
         await self._ensure_connection()
@@ -13631,15 +13770,9 @@ class EpistemicGraphClient:
         fut: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
         try:
-            # Serialize ONLY the frame write so two callers never interleave bytes;
-            # the round-trip itself is NOT held under any lock — that is what lets
-            # independent concurrent calls pipeline on the one connection.
-            async with self._write_lock:
-                self._writer.write(length_prefix)
-                self._writer.write(payload)
-                await asyncio.wait_for(self._writer.drain(), write_timeout)
+            await self._write_frame(payload, write_timeout=write_timeout)
             # Await ONLY our own response; per-caller ordering is automatic.
-            resp = await asyncio.wait_for(fut, timeout)
+            return await asyncio.wait_for(fut, timeout)
         except asyncio.CancelledError:
             # Caller cancellation is not a transport failure: keep the shared
             # connection reusable, but do not leave a cancelled request future
@@ -13673,66 +13806,28 @@ class EpistemicGraphClient:
             self._mark_dead(e)
             raise
 
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        req_id = self._next_id()
+        request = self._build_send_request(
+            method,
+            params,
+            req_id=req_id,
+            target_graph=graph or self._graph_name,
+            idempotency_key=idempotency_key,
+        )
+        payload = msgpack.packb(request, use_bin_type=True)
+        resp = await self._roundtrip(payload, req_id=req_id, method=method)
+
         if resp.get("error") is not None:
-            err_msg = resp.get("error", "Unknown error")
-            detail = resp.get("result")
-            if isinstance(detail, (bytes, bytearray)):
-                with contextlib.suppress(Exception):
-                    detail = msgpack.unpackb(detail, raw=False)
-            if not isinstance(detail, dict) and isinstance(err_msg, str):
-                with contextlib.suppress(json.JSONDecodeError, TypeError):
-                    parsed = json.loads(err_msg)
-                    if isinstance(parsed, dict):
-                        detail = parsed
-            if isinstance(detail, dict) and detail.get("status") == "redirected":
-                operation = _exact_mapping(
-                    "OperationResult",
-                    detail,
-                    frozenset(
-                        {
-                            "schema_version",
-                            "operation_id",
-                            "status",
-                            "result_kind",
-                            "result_ref",
-                            "error",
-                            "redirect",
-                        }
-                    ),
-                )
-                route = _exact_mapping(
-                    "OperationRedirect",
-                    operation["redirect"],
-                    frozenset(
-                        {
-                            "kind",
-                            "target_ref",
-                            "group",
-                            "epoch",
-                            "fencing_token",
-                            "leader_ref",
-                        }
-                    ),
-                )
-                if operation["schema_version"] != "1" or route["kind"] != "placement":
-                    raise RuntimeError("invalid operation redirect")
-                raise StaleRouteError("placement route redirected", route)
-            # The engine's overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) returns a typed
-            # RESULT_TOO_LARGE error for an oversize full-graph dump. Surface it as
-            # a dedicated, catchable exception (still a RuntimeError subclass) so a
-            # caller can fall back to a bounded query without string-matching.
-            if isinstance(err_msg, str) and err_msg.startswith("RESULT_TOO_LARGE"):
-                raise ResultTooLargeError(err_msg)
-            raise RuntimeError(err_msg)
-        result = resp.get("result")
-        # Compact result encoding (engine Phase C-D): heavy algorithm results and
-        # node/edge property blobs come back as a top-level MessagePack `bin` (the
-        # `Raw`/`PropertiesMsgpack` payloads) — the server skips building a JSON
-        # tree. Decode that second layer here so every caller receives the method's
-        # declared result structure.
-        if isinstance(result, (bytes, bytearray)):
-            result = msgpack.unpackb(result, raw=False)
-        return result
+            _raise_send_error(resp)
+        return _decode_send_result(resp.get("result"))
 
     # ── Connection Management ─────────────────────────────────────────────
 
