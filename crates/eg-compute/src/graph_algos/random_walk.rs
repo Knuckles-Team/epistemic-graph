@@ -91,28 +91,44 @@ where
             continue;
         }
         let out = graph.out_edges(current);
-        if out.is_empty() {
-            break; // dead end, no restart triggered this step ⇒ stop early
-        }
-        let total_w: f64 = out.iter().map(|(_, w)| *w).sum();
-        if total_w <= 0.0 {
-            break; // degenerate (all-zero weights) ⇒ no valid choice
-        }
-        let threshold = rng.next_f64() * total_w;
-        let mut acc = 0.0;
-        let mut chosen = out[out.len() - 1].0; // float-rounding fallback: last edge
-        for &(v, w) in out {
-            acc += w;
-            if threshold < acc {
-                chosen = v;
-                break;
+        match choose_weighted_out_edge(out, &mut rng) {
+            Some(chosen) => {
+                current = chosen;
+                walk.push(current);
             }
+            None => break, // dead end, or degenerate all-zero weights ⇒ stop early
         }
-        current = chosen;
-        walk.push(current);
     }
 
     walk.into_iter().map(|i| graph.node_at(i).clone()).collect()
+}
+
+/// Pick one of `out`'s targets with probability proportional to edge weight,
+/// drawing exactly one `rng` value. `None` means there was no valid choice
+/// (no out-edges, or all weights `<= 0.0`) -- the caller stops the walk.
+/// Pure extraction from [`random_walk`]'s per-step body -- identical
+/// sum/threshold/accumulate logic and RNG draw, no behaviour change; pulled
+/// out solely to keep [`random_walk`]'s own cyclomatic complexity within the
+/// repo's gate cap. CONCEPT:EG-KG.compute.random-walk
+fn choose_weighted_out_edge(out: &[(usize, f64)], rng: &mut SplitMix64) -> Option<usize> {
+    if out.is_empty() {
+        return None;
+    }
+    let total_w: f64 = out.iter().map(|(_, w)| *w).sum();
+    if total_w <= 0.0 {
+        return None;
+    }
+    let threshold = rng.next_f64() * total_w;
+    let mut acc = 0.0;
+    let mut chosen = out[out.len() - 1].0; // float-rounding fallback: last edge
+    for &(v, w) in out {
+        acc += w;
+        if threshold < acc {
+            chosen = v;
+            break;
+        }
+    }
+    Some(chosen)
 }
 
 #[cfg(test)]
