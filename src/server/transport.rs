@@ -830,22 +830,30 @@ where
             // `Box::pin` it — this was the one caller that didn't, latent until a
             // request finally reached deep enough into the dispatch chain to prove
             // it, per `per_graph_backpressure_isolates_tenants`).
+            // Plain `Box::pin(...)` heap-allocates the future but keeps its
+            // full CONCRETE type, so passing it straight into the generic
+            // `dispatch_within_deadline<F: Future>` still makes the compiler
+            // structurally prove `F: Send` through the entire dispatch call
+            // graph -- which now includes CX-EG-06's per-arm/per-guard-block
+            // extraction out of `dispatch_inner`/`dispatch_graph_op_inner`
+            // (58 arms + 12 guard blocks, each its own `async fn`), and
+            // overflows rustc's trait-resolution recursion limit (E0275).
+            // An explicit `dyn Future + Send` trait-object annotation forces
+            // the Send check to happen ONCE, here, against the erased type --
+            // the same pattern this file's own test-only `dispatch_on_heap`
+            // helper (and its 3 duplicates in dispatch.rs's test modules)
+            // already uses for exactly this reason.
+            type BoxedDispatch<'a> =
+                std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>>;
             let resp = match verified_qos_context {
                 Some(context) => {
-                    dispatch_within_deadline(
-                        Box::pin(dispatch_verified_request(&task_state, req, context)),
-                        dispatch_deadline,
-                        req_id,
-                    )
-                    .await
+                    let boxed: BoxedDispatch<'_> =
+                        Box::pin(dispatch_verified_request(&task_state, req, context));
+                    dispatch_within_deadline(boxed, dispatch_deadline, req_id).await
                 }
                 None => {
-                    dispatch_within_deadline(
-                        Box::pin(dispatch(&task_state, req)),
-                        dispatch_deadline,
-                        req_id,
-                    )
-                    .await
+                    let boxed: BoxedDispatch<'_> = Box::pin(dispatch(&task_state, req));
+                    dispatch_within_deadline(boxed, dispatch_deadline, req_id).await
                 }
             };
             // Observe per-class dispatch latency + release the per-class gauge (W2.4)
