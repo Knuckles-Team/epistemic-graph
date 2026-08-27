@@ -5000,6 +5000,62 @@ fn insert_on_conflict_in(
             rows.len()
         ));
     }
+    let ctx = prepare_insert_on_conflict_context(wtx, table, col_order)?;
+    let mut state = build_conflict_scan_state_in(
+        wtx,
+        table,
+        ctx.width,
+        &ctx.schema,
+        &ctx.unique_cols,
+        &ctx.composite_cols,
+    )?;
+
+    let mut affected: Vec<Vec<Cell>> = Vec::new();
+    let mut index_changes: Vec<IndexChange> = Vec::new();
+    let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    for row in rows {
+        process_insert_on_conflict_row(
+            wtx,
+            table,
+            col_order,
+            &ctx.targets,
+            &ctx.target_position_by_col,
+            &ctx.schema,
+            &ctx.unique_cols,
+            &ctx.composite_cols,
+            action,
+            row,
+            &mut rows_t,
+            &mut state,
+            &mut affected,
+            &mut index_changes,
+        )?;
+    }
+    drop(rows_t);
+    finalize_insert_on_conflict(wtx, tenant_scope, table, &ctx.schema, &index_changes, &affected)?;
+    Ok(affected)
+}
+
+/// Per-call setup for `insert_on_conflict_in`: the target schema, the
+/// resolved target-column positions, the set of unique (single-column)
+/// columns, a `col -> first-supplied-position` directory, and the set of
+/// multi-column PRIMARY KEY/UNIQUE constraints (NE-001 composite keys).
+/// Factored out purely to keep `insert_on_conflict_in`'s own CCN low; none
+/// of this logic changed.
+struct InsertOnConflictContext {
+    schema: TableSchema,
+    width: usize,
+    targets: Vec<usize>,
+    unique_cols: Vec<usize>,
+    target_position_by_col: Vec<Option<usize>>,
+    composite_cols: Vec<Vec<usize>>,
+}
+
+fn prepare_insert_on_conflict_context(
+    wtx: &WriteTransaction,
+    table: &str,
+    col_order: &[String],
+) -> Result<InsertOnConflictContext, String> {
     let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     let width = schema.columns().len();
@@ -5019,8 +5075,6 @@ fn insert_on_conflict_in(
         target_position_by_col[column].get_or_insert(position);
     }
 
-    // Current unique-value snapshot (committed + staged), rebuilt from the store. When
-    // the physical row table does not exist yet there are simply no existing rows.
     // Keep the existing per-column directory and add one bounded directory for each
     // composite table-level key; this lets ON CONFLICT honor NE-001 keys without
     // turning the final authoritative uniqueness scan into a second authority.
@@ -5046,210 +5100,416 @@ fn insert_on_conflict_in(
             _ => None,
         })
         .collect();
-    let mut existing: Vec<(u64, Vec<Cell>)> = Vec::new();
-    let mut row_slot: HashMap<u64, usize> = HashMap::new();
-    let mut unique_rows: Vec<HashMap<String, u64>> =
-        (0..unique_cols.len()).map(|_| HashMap::new()).collect();
-    let mut composite_rows: Vec<HashMap<String, u64>> =
-        (0..composite_cols.len()).map(|_| HashMap::new()).collect();
-    if let Ok(rows_t) = wtx.open_table(ROWS) {
-        let mut scanned_rows = 0usize;
-        let mut scanned_bytes = 0usize;
-        for r in rows_t
-            .range((table, 0u64)..=(table, u64::MAX))
-            .map_err(map_err)?
-        {
-            let (k, v) = r.map_err(map_err)?;
-            account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
-            let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
-            if cells.len() < width {
-                cells.resize(width, Cell::Null);
-            }
-            let rowid = k.value().1;
-            row_slot.insert(rowid, existing.len());
-            for (slot, &column) in unique_cols.iter().enumerate() {
-                if let Some(key) = unique_cell_key(&cells[column], schema.columns()[column].ty) {
-                    // Existing corruption is still rejected by the authoritative
-                    // final validation. Keeping the first row mirrors the old scan.
-                    unique_rows[slot].entry(key).or_insert(rowid);
-                }
-            }
-            for (slot, columns) in composite_cols.iter().enumerate() {
-                if let Some(key) = composite_cell_key(&cells, columns, &schema) {
-                    composite_rows[slot].entry(key).or_insert(rowid);
-                }
-            }
-            existing.push((rowid, cells));
+    Ok(InsertOnConflictContext {
+        schema,
+        width,
+        targets,
+        unique_cols,
+        target_position_by_col,
+        composite_cols,
+    })
+}
+
+/// Current unique-value snapshot (committed + staged), rebuilt from the
+/// store, for ON CONFLICT lookup during `insert_on_conflict_in`.
+struct ConflictScanState {
+    existing: Vec<(u64, Vec<Cell>)>,
+    row_slot: HashMap<u64, usize>,
+    unique_rows: Vec<HashMap<String, u64>>,
+    composite_rows: Vec<HashMap<String, u64>>,
+}
+
+/// Builds the ON CONFLICT lookup snapshot by scanning every existing row of
+/// `table`. When the physical row table does not exist yet there are simply
+/// no existing rows (an empty, not missing, snapshot).
+fn build_conflict_scan_state_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    width: usize,
+    schema: &TableSchema,
+    unique_cols: &[usize],
+    composite_cols: &[Vec<usize>],
+) -> Result<ConflictScanState, String> {
+    let mut state = ConflictScanState {
+        existing: Vec::new(),
+        row_slot: HashMap::new(),
+        unique_rows: (0..unique_cols.len()).map(|_| HashMap::new()).collect(),
+        composite_rows: (0..composite_cols.len()).map(|_| HashMap::new()).collect(),
+    };
+    let Ok(rows_t) = wtx.open_table(ROWS) else {
+        return Ok(state);
+    };
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
+    for r in rows_t
+        .range((table, 0u64)..=(table, u64::MAX))
+        .map_err(map_err)?
+    {
+        let (k, v) = r.map_err(map_err)?;
+        account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
+        let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
+        if cells.len() < width {
+            cells.resize(width, Cell::Null);
+        }
+        let rowid = k.value().1;
+        record_existing_row_in_conflict_index(rowid, cells, schema, unique_cols, composite_cols, &mut state);
+    }
+    Ok(state)
+}
+
+/// Records one already-committed row (`rowid`, `cells`) into the ON
+/// CONFLICT lookup snapshot: its slot in `existing`, and its unique/
+/// composite key entries (first row wins a duplicate key, mirroring the
+/// pre-extraction scan -- existing corruption is still rejected by the
+/// authoritative final `validate_uniqueness_in` pass).
+fn record_existing_row_in_conflict_index(
+    rowid: u64,
+    cells: Vec<Cell>,
+    schema: &TableSchema,
+    unique_cols: &[usize],
+    composite_cols: &[Vec<usize>],
+    state: &mut ConflictScanState,
+) {
+    state.row_slot.insert(rowid, state.existing.len());
+    for (slot, &column) in unique_cols.iter().enumerate() {
+        if let Some(key) = unique_cell_key(&cells[column], schema.columns()[column].ty) {
+            state.unique_rows[slot].entry(key).or_insert(rowid);
         }
     }
-
-    let mut affected: Vec<Vec<Cell>> = Vec::new();
-    let mut index_changes: Vec<IndexChange> = Vec::new();
-    let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
-    for row in rows {
-        for value in row {
-            validate_mutation_value(value)?;
+    for (slot, columns) in composite_cols.iter().enumerate() {
+        if let Some(key) = composite_cell_key(&cells, columns, schema) {
+            state.composite_rows[slot].entry(key).or_insert(rowid);
         }
-        // Coerce the supplied unique-column values to detect a conflict.
-        let mut conflict_rowid: Option<u64> = None;
-        for (slot, &uci) in unique_cols.iter().enumerate() {
-            // The value this row supplies for the unique column (if any).
-            let Some(pos) = target_position_by_col[uci] else {
-                continue;
+    }
+    state.existing.push((rowid, cells));
+}
+
+/// Same insertion shape as `record_existing_row_in_conflict_index`, for a
+/// row that was just written by this same `insert_on_conflict_in` call
+/// (fresh insert or DO UPDATE) rather than found in the pre-scan.
+fn insert_row_into_conflict_index(
+    rowid: u64,
+    cells: &[Cell],
+    schema: &TableSchema,
+    unique_cols: &[usize],
+    composite_cols: &[Vec<usize>],
+    state: &mut ConflictScanState,
+) {
+    for (map, &column) in state.unique_rows.iter_mut().zip(unique_cols) {
+        if let Some(key) = unique_cell_key(&cells[column], schema.columns()[column].ty) {
+            map.entry(key).or_insert(rowid);
+        }
+    }
+    for (map, columns) in state.composite_rows.iter_mut().zip(composite_cols) {
+        if let Some(key) = composite_cell_key(cells, columns, schema) {
+            map.entry(key).or_insert(rowid);
+        }
+    }
+}
+
+/// Inverse of `insert_row_into_conflict_index`: removes `rid`'s prior
+/// key entries before a DO UPDATE overwrites them, so a changed unique
+/// value cannot leave a stale directory entry pointing at the same row.
+fn remove_row_from_conflict_index(
+    rid: u64,
+    cells: &[Cell],
+    schema: &TableSchema,
+    unique_cols: &[usize],
+    composite_cols: &[Vec<usize>],
+    state: &mut ConflictScanState,
+) {
+    for (map, &column) in state.unique_rows.iter_mut().zip(unique_cols) {
+        if let Some(key) = unique_cell_key(&cells[column], schema.columns()[column].ty) {
+            if map.get(&key) == Some(&rid) {
+                map.remove(&key);
+            }
+        }
+    }
+    for (map, columns) in state.composite_rows.iter_mut().zip(composite_cols) {
+        if let Some(key) = composite_cell_key(cells, columns, schema) {
+            if map.get(&key) == Some(&rid) {
+                map.remove(&key);
+            }
+        }
+    }
+}
+
+/// Whether `row` conflicts with an existing row on a single-column UNIQUE/PK
+/// value, then (if not) on a composite UNIQUE/PK value. `Ok(None)` means no
+/// conflict: `row` is a fresh insert.
+fn detect_conflict_rowid(
+    row: &[Value],
+    target_position_by_col: &[Option<usize>],
+    schema: &TableSchema,
+    unique_cols: &[usize],
+    composite_cols: &[Vec<usize>],
+    state: &ConflictScanState,
+) -> Result<Option<u64>, String> {
+    if let Some(rowid) =
+        detect_unique_conflict(row, target_position_by_col, schema, unique_cols, state)?
+    {
+        return Ok(Some(rowid));
+    }
+    detect_composite_conflict(row, target_position_by_col, schema, composite_cols, state)
+}
+
+fn detect_unique_conflict(
+    row: &[Value],
+    target_position_by_col: &[Option<usize>],
+    schema: &TableSchema,
+    unique_cols: &[usize],
+    state: &ConflictScanState,
+) -> Result<Option<u64>, String> {
+    // Coerce the supplied unique-column values to detect a conflict.
+    for (slot, &uci) in unique_cols.iter().enumerate() {
+        // The value this row supplies for the unique column (if any).
+        let Some(pos) = target_position_by_col[uci] else {
+            continue;
+        };
+        let col = &schema.columns()[uci];
+        let supplied = Cell::coerce(&row[pos], col.ty, col.nullable)?;
+        if let Some(key) = unique_cell_key(&supplied, col.ty) {
+            if let Some(&rowid) = state.unique_rows[slot].get(&key) {
+                return Ok(Some(rowid));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn detect_composite_conflict(
+    row: &[Value],
+    target_position_by_col: &[Option<usize>],
+    schema: &TableSchema,
+    composite_cols: &[Vec<usize>],
+    state: &ConflictScanState,
+) -> Result<Option<u64>, String> {
+    // Composite conflict detection is possible when all key columns are
+    // explicitly supplied. Omitted columns are left to build_insert_cells
+    // and the final uniqueness pass, preserving DEFAULT/SERIAL behavior.
+    for (slot, columns) in composite_cols.iter().enumerate() {
+        let mut supplied = Vec::with_capacity(columns.len());
+        let mut complete = true;
+        for &column in columns {
+            let Some(pos) = target_position_by_col[column] else {
+                complete = false;
+                break;
             };
-            let col = &schema.columns()[uci];
-            let supplied = Cell::coerce(&row[pos], col.ty, col.nullable)?;
-            if let Some(key) = unique_cell_key(&supplied, col.ty) {
-                if let Some(&rowid) = unique_rows[slot].get(&key) {
-                    conflict_rowid = Some(rowid);
-                    break;
-                }
-            }
+            let col = &schema.columns()[column];
+            let value = Cell::coerce(&row[pos], col.ty, col.nullable)?;
+            let Some(key) = unique_cell_key(&value, col.ty) else {
+                complete = false;
+                break;
+            };
+            supplied.push(key);
         }
-        if conflict_rowid.is_none() {
-            // Composite conflict detection is possible when all key columns are
-            // explicitly supplied. Omitted columns are left to build_insert_cells
-            // and the final uniqueness pass, preserving DEFAULT/SERIAL behavior.
-            for (slot, columns) in composite_cols.iter().enumerate() {
-                let mut supplied = Vec::with_capacity(columns.len());
-                let mut complete = true;
-                for &column in columns {
-                    let Some(pos) = target_position_by_col[column] else {
-                        complete = false;
-                        break;
-                    };
-                    let col = &schema.columns()[column];
-                    let value = Cell::coerce(&row[pos], col.ty, col.nullable)?;
-                    let Some(key) = unique_cell_key(&value, col.ty) else {
-                        complete = false;
-                        break;
-                    };
-                    supplied.push(key);
-                }
-                if complete {
-                    let key =
-                        serde_json::to_string(&supplied).expect("Vec<String> is serializable");
-                    if let Some(&rowid) = composite_rows[slot].get(&key) {
-                        conflict_rowid = Some(rowid);
-                        break;
-                    }
-                }
-            }
-        }
-
-        match (conflict_rowid, action) {
-            (Some(_), ConflictAction::DoNothing) => { /* skip */ }
-            (Some(rid), ConflictAction::DoUpdate(set)) => {
-                // Merge the SET assignments into the conflicting row.
-                let index = *row_slot.get(&rid).expect("conflict rowid present");
-                let slot = &mut existing[index];
-                let old_cells = slot.1.clone();
-                for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
-                    if let Some(key) = unique_cell_key(&slot.1[column], schema.columns()[column].ty)
-                    {
-                        if map.get(&key) == Some(&rid) {
-                            map.remove(&key);
-                        }
-                    }
-                }
-                for (map, columns) in composite_rows.iter_mut().zip(&composite_cols) {
-                    if let Some(key) = composite_cell_key(&slot.1, columns, &schema) {
-                        if map.get(&key) == Some(&rid) {
-                            map.remove(&key);
-                        }
-                    }
-                }
-                for (col, val) in set {
-                    validate_mutation_value(val)?;
-                    let idx = schema.column_index(col).ok_or_else(|| {
-                        format!("column `{col}` does not exist in table `{table}`")
-                    })?;
-                    let c = &schema.columns()[idx];
-                    slot.1[idx] = Cell::coerce(val, c.ty, c.nullable)?;
-                }
-                // Re-check CHECK constraints on the updated row.
-                for (ci, col) in schema.columns().iter().enumerate() {
-                    if let Some(check) = &col.check {
-                        if !check.holds(&slot.1[ci].to_typed_json(col.ty)) {
-                            return Err(format!(
-                                "updated row violates CHECK constraint on column `{}`",
-                                col.name
-                            ));
-                        }
-                    }
-                }
-                for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
-                    if let Some(key) = unique_cell_key(&slot.1[column], schema.columns()[column].ty)
-                    {
-                        map.entry(key).or_insert(rid);
-                    }
-                }
-                for (map, columns) in composite_rows.iter_mut().zip(&composite_cols) {
-                    if let Some(key) = composite_cell_key(&slot.1, columns, &schema) {
-                        map.entry(key).or_insert(rid);
-                    }
-                }
-                let blob =
-                    rmp_serde::to_vec_named(&slot.1).map_err(|e| format!("encode row: {e}"))?;
-                if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
-                    return Err("encoded SQL row exceeds storage value limit".to_string());
-                }
-                rows_t
-                    .insert((table, rid), blob.as_slice())
-                    .map_err(map_err)?;
-                let new_cells = slot.1.clone();
-                affected.push(new_cells.clone());
-                index_changes.push((rid, Some(old_cells), Some(new_cells)));
-            }
-            (None, _) => {
-                // A fresh insert: allocate one rowid, build + write the row.
-                let rowid = alloc_rowids(wtx, table, 1)?;
-                let cells = build_insert_cells(&schema, col_order, &targets, row, rowid)?;
-                let blob =
-                    rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?;
-                if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
-                    return Err("encoded SQL row exceeds storage value limit".to_string());
-                }
-                rows_t
-                    .insert((table, rowid), blob.as_slice())
-                    .map_err(map_err)?;
-                row_slot.insert(rowid, existing.len());
-                for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
-                    if let Some(key) = unique_cell_key(&cells[column], schema.columns()[column].ty)
-                    {
-                        map.entry(key).or_insert(rowid);
-                    }
-                }
-                for (map, columns) in composite_rows.iter_mut().zip(&composite_cols) {
-                    if let Some(key) = composite_cell_key(&cells, columns, &schema) {
-                        map.entry(key).or_insert(rowid);
-                    }
-                }
-                existing.push((rowid, cells.clone()));
-                affected.push(cells.clone());
-                index_changes.push((rowid, None, Some(cells)));
+        if complete {
+            let key = serde_json::to_string(&supplied).expect("Vec<String> is serializable");
+            if let Some(&rowid) = state.composite_rows[slot].get(&key) {
+                return Ok(Some(rowid));
             }
         }
     }
-    drop(rows_t);
-    for (rowid, old, new) in &index_changes {
+    Ok(None)
+}
+
+/// Encodes `cells` and writes them at `(table, rowid)`, enforcing the
+/// stored-value size limit shared by every write path in this module.
+fn write_conflict_row(
+    rows_t: &mut redb::Table<'_, (&'static str, u64), &'static [u8]>,
+    table: &str,
+    rowid: u64,
+    cells: &[Cell],
+) -> Result<(), String> {
+    let blob = rmp_serde::to_vec_named(cells).map_err(|e| format!("encode row: {e}"))?;
+    if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
+        return Err("encoded SQL row exceeds storage value limit".to_string());
+    }
+    rows_t
+        .insert((table, rowid), blob.as_slice())
+        .map_err(map_err)?;
+    Ok(())
+}
+
+fn apply_do_update_assignments(
+    table: &str,
+    schema: &TableSchema,
+    set: &serde_json::Map<String, Value>,
+    cells: &mut [Cell],
+) -> Result<(), String> {
+    for (col, val) in set {
+        validate_mutation_value(val)?;
+        let idx = schema
+            .column_index(col)
+            .ok_or_else(|| format!("column `{col}` does not exist in table `{table}`"))?;
+        let c = &schema.columns()[idx];
+        cells[idx] = Cell::coerce(val, c.ty, c.nullable)?;
+    }
+    Ok(())
+}
+
+fn validate_do_update_check_constraints(schema: &TableSchema, cells: &[Cell]) -> Result<(), String> {
+    for (ci, col) in schema.columns().iter().enumerate() {
+        if let Some(check) = &col.check {
+            if !check.holds(&cells[ci].to_typed_json(col.ty)) {
+                return Err(format!(
+                    "updated row violates CHECK constraint on column `{}`",
+                    col.name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Merges a `DO UPDATE SET ...` conflict resolution into the existing row
+/// `rid`: removes its stale directory entries, applies the SET
+/// assignments, re-checks CHECK constraints, re-indexes, and writes the
+/// row. Returns `(old_cells, new_cells)` for the caller's `affected`/
+/// `index_changes` bookkeeping.
+fn apply_conflict_do_update(
+    rows_t: &mut redb::Table<'_, (&'static str, u64), &'static [u8]>,
+    table: &str,
+    schema: &TableSchema,
+    unique_cols: &[usize],
+    composite_cols: &[Vec<usize>],
+    rid: u64,
+    set: &serde_json::Map<String, Value>,
+    state: &mut ConflictScanState,
+) -> Result<(Vec<Cell>, Vec<Cell>), String> {
+    let index = *state.row_slot.get(&rid).expect("conflict rowid present");
+    let old_cells = state.existing[index].1.clone();
+    remove_row_from_conflict_index(rid, &old_cells, schema, unique_cols, composite_cols, state);
+    let mut new_cells = old_cells.clone();
+    apply_do_update_assignments(table, schema, set, &mut new_cells)?;
+    validate_do_update_check_constraints(schema, &new_cells)?;
+    insert_row_into_conflict_index(rid, &new_cells, schema, unique_cols, composite_cols, state);
+    write_conflict_row(rows_t, table, rid, &new_cells)?;
+    state.existing[index].1 = new_cells.clone();
+    Ok((old_cells, new_cells))
+}
+
+/// A fresh insert (no conflict): allocate one rowid, build + write the row,
+/// and index it. Returns the new `(rowid, cells)` for the caller's
+/// `affected`/`index_changes` bookkeeping.
+fn apply_conflict_fresh_insert(
+    wtx: &WriteTransaction,
+    rows_t: &mut redb::Table<'_, (&'static str, u64), &'static [u8]>,
+    table: &str,
+    col_order: &[String],
+    targets: &[usize],
+    schema: &TableSchema,
+    unique_cols: &[usize],
+    composite_cols: &[Vec<usize>],
+    row: &[Value],
+    state: &mut ConflictScanState,
+) -> Result<(u64, Vec<Cell>), String> {
+    let rowid = alloc_rowids(wtx, table, 1)?;
+    let cells = build_insert_cells(schema, col_order, targets, row, rowid)?;
+    write_conflict_row(rows_t, table, rowid, &cells)?;
+    state.row_slot.insert(rowid, state.existing.len());
+    insert_row_into_conflict_index(rowid, &cells, schema, unique_cols, composite_cols, state);
+    state.existing.push((rowid, cells.clone()));
+    Ok((rowid, cells))
+}
+
+/// Processes one input row of an `INSERT ... ON CONFLICT`: validates its
+/// values, detects a conflict, and dispatches to skip (DO NOTHING),
+/// `apply_conflict_do_update` (DO UPDATE), or `apply_conflict_fresh_insert`
+/// (no conflict) -- pushing the outcome into `affected`/`index_changes`.
+#[allow(clippy::too_many_arguments)]
+fn process_insert_on_conflict_row(
+    wtx: &WriteTransaction,
+    table: &str,
+    col_order: &[String],
+    targets: &[usize],
+    target_position_by_col: &[Option<usize>],
+    schema: &TableSchema,
+    unique_cols: &[usize],
+    composite_cols: &[Vec<usize>],
+    action: &ConflictAction,
+    row: &[Value],
+    rows_t: &mut redb::Table<'_, (&'static str, u64), &'static [u8]>,
+    state: &mut ConflictScanState,
+    affected: &mut Vec<Vec<Cell>>,
+    index_changes: &mut Vec<IndexChange>,
+) -> Result<(), String> {
+    for value in row {
+        validate_mutation_value(value)?;
+    }
+    let conflict_rowid = detect_conflict_rowid(
+        row,
+        target_position_by_col,
+        schema,
+        unique_cols,
+        composite_cols,
+        state,
+    )?;
+    match (conflict_rowid, action) {
+        (Some(_), ConflictAction::DoNothing) => { /* skip */ }
+        (Some(rid), ConflictAction::DoUpdate(set)) => {
+            let (old_cells, new_cells) = apply_conflict_do_update(
+                rows_t,
+                table,
+                schema,
+                unique_cols,
+                composite_cols,
+                rid,
+                set,
+                state,
+            )?;
+            affected.push(new_cells.clone());
+            index_changes.push((rid, Some(old_cells), Some(new_cells)));
+        }
+        (None, _) => {
+            let (rowid, cells) = apply_conflict_fresh_insert(
+                wtx,
+                rows_t,
+                table,
+                col_order,
+                targets,
+                schema,
+                unique_cols,
+                composite_cols,
+                row,
+                state,
+            )?;
+            affected.push(cells.clone());
+            index_changes.push((rowid, None, Some(cells)));
+        }
+    }
+    Ok(())
+}
+
+/// Post-loop bookkeeping shared by every `insert_on_conflict_in` call:
+/// secondary-index maintenance for every changed row, then the
+/// authoritative uniqueness pass, then per-row CHECK/FOREIGN KEY
+/// validation (CONCEPT:EG-KG.query.table-schema-constraints/NE-001 --
+/// fresh insert AND DO UPDATE merges both land in `affected`).
+fn finalize_insert_on_conflict(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    schema: &TableSchema,
+    index_changes: &[IndexChange],
+    affected: &[Vec<Cell>],
+) -> Result<(), String> {
+    for (rowid, old, new) in index_changes {
         maintain_secondary_row_in(
             wtx,
             tenant_scope,
             table,
-            &schema,
+            schema,
             *rowid,
             old.as_deref(),
             new.as_deref(),
         )?;
     }
-    validate_uniqueness_in(wtx, table, &schema)?;
-    // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — table-level CHECK + outgoing FOREIGN KEY per
-    // inserted-or-updated row (fresh insert AND a DO UPDATE merge both land in `affected`).
-    for cells in &affected {
-        validate_row_constraints_in(wtx, &schema, cells)?;
+    validate_uniqueness_in(wtx, table, schema)?;
+    for cells in affected {
+        validate_row_constraints_in(wtx, schema, cells)?;
     }
-    Ok(affected)
+    Ok(())
 }
 
 /// Canonical key used by the existing uniqueness validator, factored so the
