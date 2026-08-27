@@ -373,7 +373,7 @@ pub enum ForeignSourceSpec {
     /// openssl). A `federation` build WITHOUT `federation-sql` accepts + registers a
     /// `Sql` spec but errors clearly if a plan actually tries to fetch it.
     Sql {
-        /// The external database DSN (e.g. `postgres://user:pw@host:5432/db`).
+        /// The external database DSN (e.g. `postgres://user:changeme@host:5432/db`).
         dsn: String,
         /// The SQL query to run against the external DB. Its result columns are mapped
         /// to RowSet rows via `id_field` / `score_field`.

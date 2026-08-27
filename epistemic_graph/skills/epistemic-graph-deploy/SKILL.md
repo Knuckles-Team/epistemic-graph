@@ -41,9 +41,9 @@ What the script does (and why), step by step:
 2. **Backup + atomic stage** — `cp` the live binary to `.bak-<ts>`, write the new one to a
    same-dir temp, `mv -f` over the target (atomic rename; the running engine keeps its old
    inode — no `ETXTBSY`; the next start mmaps the new one).
-3. **Restart via the manager** — `ssh R820 docker service update --update-order stop-first
+3. **Restart via the manager** — `ssh <manager-node> docker service update --update-order stop-first
    --force`. `stop-first` because the engine binds a single UDS socket (start-first can't
-   bind twice). This node (`RW710`) is a **worker**; service commands run on the manager.
+   bind twice). This node is a **worker**; service commands run on the manager.
 4. **Migration-aware** (`--migrate`) — extends the healthcheck `--health-start-period` so the
    one-time `.mp`→redb first-boot migration (which binds the socket only when done) isn't
    killed into a restart loop; tails the log until `Listening on UDS`.
