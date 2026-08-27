@@ -18,3 +18,5 @@ mod apply_txn_op;
 mod apply_schema_migration_in;
 #[path = "characterization/commit_txn_batch_inner.rs"]
 mod commit_txn_batch_inner;
+#[path = "characterization/rename_table_in.rs"]
+mod rename_table_in;
