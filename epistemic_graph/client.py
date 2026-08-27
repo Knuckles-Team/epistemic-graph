@@ -452,36 +452,52 @@ def _mark_f32_scalar(container: dict[str, Any], field: str, *, path: str) -> Non
         container[field] = _CanonicalF32(container[field], field=path)
 
 
+def _mark_op_rank(payload: dict[str, Any], current: str) -> None:
+    _mark_f32_vector(payload, "query", path=f"{current}.query")
+
+
+def _mark_op_rank_mmr(payload: dict[str, Any], current: str) -> None:
+    _mark_f32_scalar(payload, "lambda", path=f"{current}.lambda")
+
+
+def _mark_op_fuse_rrf(payload: dict[str, Any], current: str) -> None:
+    """``FuseRrf`` carries an f32 ``k`` AND nested op branches to recurse into."""
+    _mark_f32_scalar(payload, "k", path=f"{current}.k")
+    branches = payload.get("branches")
+    if not isinstance(branches, list):
+        return
+    for branch_index, branch in enumerate(branches):
+        if isinstance(branch, list):
+            _mark_plan_ops(branch, ops_path=f"{current}.branches[{branch_index}]")
+
+
+# The only ``wire::Op`` variants carrying f32-typed schema fields.
+_PLAN_OP_F32_MARKERS = {
+    "Rank": _mark_op_rank,
+    "RankMmr": _mark_op_rank_mmr,
+    "FuseRrf": _mark_op_fuse_rrf,
+}
+
+
+def _mark_plan_ops(ops: list[Any], *, ops_path: str) -> None:
+    """Mark the f32 fields of one op list, recursing through nested branches."""
+    for index, op in enumerate(ops):
+        if not isinstance(op, dict) or len(op) != 1:
+            continue
+        tag, payload = next(iter(op.items()))
+        if not isinstance(payload, dict):
+            continue
+        marker = _PLAN_OP_F32_MARKERS.get(tag)
+        if marker is not None:
+            marker(payload, f"{ops_path}[{index}].{tag}")
+
+
 def _mark_plan_f32(plan: Any, *, path: str) -> None:
     """Apply the current ``wire::Op`` f32 schema recursively to one Plan."""
 
     if not isinstance(plan, dict) or not isinstance(plan.get("ops"), list):
         return
-
-    def mark_ops(ops: list[Any], *, ops_path: str) -> None:
-        for index, op in enumerate(ops):
-            if not isinstance(op, dict) or len(op) != 1:
-                continue
-            tag, payload = next(iter(op.items()))
-            if not isinstance(payload, dict):
-                continue
-            current = f"{ops_path}[{index}].{tag}"
-            if tag == "Rank":
-                _mark_f32_vector(payload, "query", path=f"{current}.query")
-            elif tag == "RankMmr":
-                _mark_f32_scalar(payload, "lambda", path=f"{current}.lambda")
-            elif tag == "FuseRrf":
-                _mark_f32_scalar(payload, "k", path=f"{current}.k")
-                branches = payload.get("branches")
-                if isinstance(branches, list):
-                    for branch_index, branch in enumerate(branches):
-                        if isinstance(branch, list):
-                            mark_ops(
-                                branch,
-                                ops_path=f"{current}.branches[{branch_index}]",
-                            )
-
-    mark_ops(plan["ops"], ops_path=f"{path}.ops")
+    _mark_plan_ops(plan["ops"], ops_path=f"{path}.ops")
 
 
 def _sort_btreemap_field(container: dict[str, Any], field: str) -> None:
@@ -1042,6 +1058,23 @@ _CAPACITY_PRIORITIES = frozenset(
 )
 _CAPACITY_RESOURCE_CLASSES = frozenset(
     {"llm_generator", "llm_embedding", "gpu", "worker", "cpu", "broker"}
+)
+_CHANGE_MUTATION_REQUIRED = frozenset(
+    {
+        "schema_version",
+        "batch_id",
+        "context",
+        "tenant",
+        "graph",
+        "placement_epoch",
+        "idempotency_key",
+        "operations",
+        "outbox",
+        "created_at_ms",
+    }
+)
+_CHANGE_MUTATION_OPTIONAL = frozenset(
+    {"expected_graph_version", "fencing_token", "authoritative_state"}
 )
 _KNOWLEDGE_FAMILIES = frozenset(
     {"graph", "sql", "rdf", "vector", "time_series", "job", "cross_modal"}
@@ -5406,29 +5439,38 @@ class ChangeEnvelopeClient:
         mutation_in = _closed_mapping(
             "mutation",
             envelope["mutation"],
-            frozenset(
-                {
-                    "schema_version",
-                    "batch_id",
-                    "context",
-                    "tenant",
-                    "graph",
-                    "placement_epoch",
-                    "idempotency_key",
-                    "operations",
-                    "outbox",
-                    "created_at_ms",
-                }
-            ),
-            frozenset(
-                {"expected_graph_version", "fencing_token", "authoritative_state"}
-            ),
+            _CHANGE_MUTATION_REQUIRED,
+            _CHANGE_MUTATION_OPTIONAL,
         )
         if _integer("mutation.schema_version", mutation_in["schema_version"]) != 2:
             raise ValueError("mutation.schema_version must be 2")
+        mutation = cls._canonical_mutation(mutation_in)
+
+        result: dict[str, Any] = {
+            "schema_version": int(envelope["schema_version"]),
+            "envelope_id": envelope["envelope_id"],
+            "mutation": mutation,
+            "content_version": cls._canonical_content_version(
+                envelope["content_version"]
+            ),
+        }
+        if envelope.get("cursor") is not None:
+            result["cursor"] = cls._canonical_cursor(envelope["cursor"])
+        cls._canonical_side_tables(envelope, result)
+        privacy = envelope["privacy"]
+        result["privacy"] = {
+            "policy_version": privacy["policy_version"],
+            "sanitizer_version": privacy["sanitizer_version"],
+            "sanitized_payload_digest": privacy["sanitized_payload_digest"],
+        }
+        return result
+
+    @staticmethod
+    def _canonical_context(context_in: Any) -> dict[str, Any]:
+        """The request context: two required claims plus explicit optionals."""
         context_in = _closed_mapping(
             "mutation.context",
-            mutation_in["context"],
+            context_in,
             frozenset({"request_id", "principal"}),
             frozenset({"purpose", "policy_fingerprint", "trace_id"}),
         )
@@ -5439,35 +5481,89 @@ class ChangeEnvelopeClient:
         for key in ("purpose", "policy_fingerprint", "trace_id"):
             if context_in.get(key) is not None:
                 context[key] = context_in[key]
+        return context
 
-        operations: list[dict[str, Any]] = []
-        for index, operation_value in enumerate(mutation_in["operations"]):
-            operation_in = _exact_mapping(
-                f"mutation.operations[{index}]",
-                operation_value,
-                frozenset({"ordinal", "surface", "domain", "method"}),
+    @staticmethod
+    def _canonical_operation(operation_value: Any, index: int) -> dict[str, Any]:
+        """One ``mutation.operations[i]`` row, with its method params canonicalized."""
+        operation_in = _exact_mapping(
+            f"mutation.operations[{index}]",
+            operation_value,
+            frozenset({"ordinal", "surface", "domain", "method"}),
+        )
+        method_in = _closed_mapping(
+            f"mutation.operations[{index}].method",
+            operation_in["method"],
+            frozenset({"method"}),
+            frozenset({"params"}),
+        )
+        method_name = method_in["method"]
+        method: dict[str, Any] = {"method": method_name}
+        if "params" in method_in:
+            method["params"] = _canonicalize_method_value(
+                method_in["params"], method=method_name
             )
-            method_in = _closed_mapping(
-                f"mutation.operations[{index}].method",
-                operation_in["method"],
-                frozenset({"method"}),
-                frozenset({"params"}),
-            )
-            method_name = method_in["method"]
-            method: dict[str, Any] = {"method": method_name}
-            if "params" in method_in:
-                method["params"] = _canonicalize_method_value(
-                    method_in["params"], method=method_name
-                )
-            operations.append(
+        return {
+            "ordinal": int(operation_in["ordinal"]),
+            "surface": operation_in["surface"],
+            "domain": operation_in["domain"],
+            "method": method,
+        }
+
+    @staticmethod
+    def _canonical_authoritative_state(state_in: Any) -> dict[str, Any]:
+        """The optional authoritative-state digest pair."""
+        state = _exact_mapping(
+            "mutation.authoritative_state",
+            state_in,
+            frozenset(
                 {
-                    "ordinal": int(operation_in["ordinal"]),
-                    "surface": operation_in["surface"],
-                    "domain": operation_in["domain"],
-                    "method": method,
+                    "algorithm",
+                    "digest",
+                    "source_graph_version",
+                    "target_graph_version",
+                }
+            ),
+        )
+        return {
+            "algorithm": state["algorithm"],
+            "digest": state["digest"],
+            "source_graph_version": int(state["source_graph_version"]),
+            "target_graph_version": int(state["target_graph_version"]),
+        }
+
+    @staticmethod
+    def _canonical_outbox(outbox_in: Any) -> list[dict[str, Any]]:
+        """The outbox intents, each with key-sorted headers."""
+        outbox: list[dict[str, Any]] = []
+        for index, intent_value in enumerate(outbox_in):
+            intent = _exact_mapping(
+                f"mutation.outbox[{index}]",
+                intent_value,
+                frozenset({"topic", "key", "payload", "headers"}),
+            )
+            outbox.append(
+                {
+                    "topic": intent["topic"],
+                    "key": intent["key"],
+                    "payload": bytes(intent["payload"]),
+                    "headers": {
+                        key: intent["headers"][key] for key in sorted(intent["headers"])
+                    },
                 }
             )
+        return outbox
 
+    @classmethod
+    def _canonical_mutation(cls, mutation_in: dict[str, Any]) -> dict[str, Any]:
+        """The canonical mutation body, in Rust declaration order."""
+        # Validation order is load-bearing for which error surfaces first:
+        # context, then operations, then authoritative_state -- as before.
+        context = cls._canonical_context(mutation_in["context"])
+        operations = [
+            cls._canonical_operation(value, index)
+            for index, value in enumerate(mutation_in["operations"])
+        ]
         mutation: dict[str, Any] = {
             "schema_version": 2,
             "batch_id": mutation_in["batch_id"],
@@ -5481,45 +5577,17 @@ class ChangeEnvelopeClient:
             if mutation_in.get(key) is not None:
                 mutation[key] = int(mutation_in[key])
         if mutation_in.get("authoritative_state") is not None:
-            state = _exact_mapping(
-                "mutation.authoritative_state",
-                mutation_in["authoritative_state"],
-                frozenset(
-                    {
-                        "algorithm",
-                        "digest",
-                        "source_graph_version",
-                        "target_graph_version",
-                    }
-                ),
+            mutation["authoritative_state"] = cls._canonical_authoritative_state(
+                mutation_in["authoritative_state"]
             )
-            mutation["authoritative_state"] = {
-                "algorithm": state["algorithm"],
-                "digest": state["digest"],
-                "source_graph_version": int(state["source_graph_version"]),
-                "target_graph_version": int(state["target_graph_version"]),
-            }
         mutation["operations"] = operations
-        outbox: list[dict[str, Any]] = []
-        for index, intent_value in enumerate(mutation_in["outbox"]):
-            intent = _exact_mapping(
-                f"mutation.outbox[{index}]",
-                intent_value,
-                frozenset({"topic", "key", "payload", "headers"}),
-            )
-            row: dict[str, Any] = {
-                "topic": intent["topic"],
-                "key": intent["key"],
-                "payload": bytes(intent["payload"]),
-                "headers": {
-                    key: intent["headers"][key] for key in sorted(intent["headers"])
-                },
-            }
-            outbox.append(row)
-        mutation["outbox"] = outbox
+        mutation["outbox"] = cls._canonical_outbox(mutation_in["outbox"])
         mutation["created_at_ms"] = int(mutation_in["created_at_ms"])
+        return mutation
 
-        version_in = envelope["content_version"]
+    @classmethod
+    def _canonical_content_version(cls, version_in: dict[str, Any]) -> dict[str, Any]:
+        """The content-version chain link."""
         version: dict[str, Any] = {
             "object_id": version_in["object_id"],
             "digest_algorithm": version_in.get("digest_algorithm", "sha256"),
@@ -5528,26 +5596,25 @@ class ChangeEnvelopeClient:
         if version_in.get("previous_digest") is not None:
             version["previous_digest"] = version_in["previous_digest"]
         version["source_version"] = cls._position(version_in["source_version"])
+        return version
 
-        result: dict[str, Any] = {
-            "schema_version": int(envelope["schema_version"]),
-            "envelope_id": envelope["envelope_id"],
-            "mutation": mutation,
-            "content_version": version,
+    @classmethod
+    def _canonical_cursor(cls, cursor_in: dict[str, Any]) -> dict[str, Any]:
+        """The optional source cursor."""
+        cursor: dict[str, Any] = {
+            "source": cursor_in["source"],
+            "partition": cursor_in.get("partition", ""),
+            "position": cls._position(cursor_in["position"]),
         }
-        if envelope.get("cursor") is not None:
-            cursor_in = envelope["cursor"]
-            cursor: dict[str, Any] = {
-                "source": cursor_in["source"],
-                "partition": cursor_in.get("partition", ""),
-                "position": cls._position(cursor_in["position"]),
-            }
-            if cursor_in.get("expected_previous") is not None:
-                cursor["expected_previous"] = cls._position(
-                    cursor_in["expected_previous"]
-                )
-            result["cursor"] = cursor
+        if cursor_in.get("expected_previous") is not None:
+            cursor["expected_previous"] = cls._position(cursor_in["expected_previous"])
+        return cursor
 
+    @staticmethod
+    def _canonical_side_tables(
+        envelope: dict[str, Any], result: dict[str, Any]
+    ) -> None:
+        """The five projection side tables, each a fixed-shape row list."""
         result["blobs"] = [
             {
                 "blob_id": row["blob_id"],
@@ -5607,13 +5674,6 @@ class ChangeEnvelopeClient:
             }
             for row in envelope.get("lineage", [])
         ]
-        privacy = envelope["privacy"]
-        result["privacy"] = {
-            "policy_version": privacy["policy_version"],
-            "sanitizer_version": privacy["sanitizer_version"],
-            "sanitized_payload_digest": privacy["sanitized_payload_digest"],
-        }
-        return result
 
     async def apply(self, envelope: dict[str, Any]) -> dict[str, Any]:
         canonical = self._canonical(envelope)
@@ -6835,37 +6895,43 @@ class ClusterTopologyClient:
         }:
             raise ValueError("ClusterMembers certificate metadata is malformed")
         certificate_id = certificate["id"]
-        if certificate_id is not None and (
-            not isinstance(certificate_id, str)
-            or not certificate_id
-            or len(certificate_id) > cls._MAX_CERTIFICATE_ID_BYTES
-            or any(
-                character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
-                for character in certificate_id
-            )
-        ):
+        if certificate_id is not None and not cls._is_certificate_id(certificate_id):
             raise ValueError("ClusterMembers certificate id is malformed")
         rotation_epoch = certificate["rotation_epoch"]
         not_before = certificate["not_before_ms"]
         not_after = certificate["not_after_ms"]
-        if (
-            isinstance(rotation_epoch, bool)
-            or not isinstance(rotation_epoch, int)
-            or not 0 <= rotation_epoch <= cls._MAX_U64
-        ):
+        if not cls._is_u64(rotation_epoch):
             raise ValueError("ClusterMembers certificate rotation epoch is malformed")
         for value in (not_before, not_after):
-            if value is not None and (
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or not 0 <= value <= cls._MAX_U64
-            ):
+            if value is not None and not cls._is_u64(value):
                 raise ValueError("ClusterMembers certificate validity is malformed")
         if not_before is not None and not_after is not None and not_before > not_after:
             raise ValueError("ClusterMembers certificate validity is inverted")
         if rotation_epoch > 0 and certificate_id is None:
             raise ValueError("ClusterMembers certificate rotation requires an id")
         return certificate_id, rotation_epoch, not_before, not_after
+
+    @classmethod
+    def _is_u64(cls, value: Any) -> bool:
+        """A real (non-bool) integer inside the wire's u64 range."""
+        return (
+            not isinstance(value, bool)
+            and isinstance(value, int)
+            and 0 <= value <= cls._MAX_U64
+        )
+
+    @classmethod
+    def _is_certificate_id(cls, certificate_id: Any) -> bool:
+        """A bounded, printable, whitespace-free certificate identifier."""
+        return (
+            isinstance(certificate_id, str)
+            and bool(certificate_id)
+            and len(certificate_id) <= cls._MAX_CERTIFICATE_ID_BYTES
+            and not any(
+                character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
+                for character in certificate_id
+            )
+        )
 
     def _validate_and_verify(
         self,
