@@ -84,38 +84,11 @@ where
     for _ in 0..config.max_iterations.max(1) {
         let mut changed = false;
         for u in 0..n {
-            let neighbors = graph.undirected_neighbors(u);
-            if neighbors.is_empty() {
-                continue;
-            }
-            let mut votes: HashMap<usize, f64> = HashMap::new();
-            for v in neighbors {
-                let w = if config.weighted {
-                    edge_weight_between(graph, u, v)
-                } else {
-                    1.0
-                };
-                // Reads `labels[v]` — the CURRENT array, already updated for any
-                // earlier-in-this-sweep neighbour (the asynchronous update this
-                // module's doc comment explains).
-                *votes.entry(labels[v]).or_insert(0.0) += w;
-            }
-            // Ascending-label iteration order breaks ties toward the smallest id
-            // deterministically, independent of HashMap iteration order.
-            let mut ordered: Vec<usize> = votes.keys().copied().collect();
-            ordered.sort_unstable();
-            let mut best_label = labels[u];
-            let mut best_weight = f64::MIN;
-            for lbl in ordered {
-                let w = votes[&lbl];
-                if w > best_weight {
-                    best_weight = w;
-                    best_label = lbl;
+            if let Some(best_label) = best_label_for_node(graph, u, &labels, config.weighted) {
+                if labels[u] != best_label {
+                    changed = true;
+                    labels[u] = best_label;
                 }
-            }
-            if labels[u] != best_label {
-                changed = true;
-                labels[u] = best_label;
             }
         }
         if !changed {
@@ -125,6 +98,54 @@ where
     LabelPropagationResult {
         communities: graph.label_partition(&labels),
     }
+}
+
+/// The label node `u` should adopt this sweep: the vote-weighted majority
+/// label among `u`'s undirected neighbours (ties toward the smallest label
+/// id), or `None` if `u` has no neighbours at all (caller leaves `u`
+/// untouched). Pure extraction from [`label_propagation`]'s per-node sweep
+/// body -- identical vote/tie-break logic, no behaviour change; pulled out
+/// solely to keep [`label_propagation`]'s own cyclomatic complexity within
+/// the repo's gate cap. CONCEPT:EG-KG.compute.label-propagation
+fn best_label_for_node<N>(
+    graph: &AdjacencyGraph<N>,
+    u: usize,
+    labels: &[usize],
+    weighted: bool,
+) -> Option<usize>
+where
+    N: Clone + Eq + Hash + Ord,
+{
+    let neighbors = graph.undirected_neighbors(u);
+    if neighbors.is_empty() {
+        return None;
+    }
+    let mut votes: HashMap<usize, f64> = HashMap::new();
+    for v in neighbors {
+        let w = if weighted {
+            edge_weight_between(graph, u, v)
+        } else {
+            1.0
+        };
+        // Reads `labels[v]` — the CURRENT array, already updated for any
+        // earlier-in-this-sweep neighbour (the asynchronous update this
+        // module's doc comment explains).
+        *votes.entry(labels[v]).or_insert(0.0) += w;
+    }
+    // Ascending-label iteration order breaks ties toward the smallest id
+    // deterministically, independent of HashMap iteration order.
+    let mut ordered: Vec<usize> = votes.keys().copied().collect();
+    ordered.sort_unstable();
+    let mut best_label = labels[u];
+    let mut best_weight = f64::MIN;
+    for lbl in ordered {
+        let w = votes[&lbl];
+        if w > best_weight {
+            best_weight = w;
+            best_label = lbl;
+        }
+    }
+    Some(best_label)
 }
 
 /// Total (out + in) edge weight between `u` and `v` in `graph`.
