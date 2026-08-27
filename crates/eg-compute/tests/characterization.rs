@@ -10,5 +10,7 @@
 
 #[path = "characterization/knn_similarity.rs"]
 mod knn_similarity;
+#[path = "characterization/label_propagation.rs"]
+mod label_propagation;
 #[path = "characterization/random_walk.rs"]
 mod random_walk;
