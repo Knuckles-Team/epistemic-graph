@@ -534,6 +534,28 @@ impl VirtualGraph {
         self
     }
 
+    /// CA-13 (CONCEPT:EG-KG.query.obda-query-rewrite) — every predicate this virtual graph
+    /// can EVER produce: each map's `predicate_object_maps` predicates, plus `rdf:type`
+    /// for any map with a declared `subject_class`. [`run_outcome_virtual`] uses this to
+    /// reject a query naming a predicate NO map declares, rather than silently
+    /// materializing zero triples for it (CONCEPT:EG-KG.ontology.foreign-source-seam's
+    /// "no silent empty binding" contract — the wire-method caller can otherwise never
+    /// distinguish "this predicate genuinely has no matching rows" from "this predicate
+    /// has no mapping loaded at all", which for an OBDA config/caller error is exactly
+    /// the failure mode CA-13's P6 negative case forbids).
+    pub fn declared_predicates(&self) -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for map in &self.triples_maps {
+            if map.subject_class.is_some() {
+                out.insert(RDF_TYPE_IRI.to_string());
+            }
+            for (pred, _) in &map.predicate_object_maps {
+                out.insert(pred.clone());
+            }
+        }
+        out
+    }
+
     /// CONCEPT:EG-KG.ontology.foreign-source-seam — materialize the virtual graph's triples by scanning each backing
     /// source ON DEMAND. `wanted_predicates` restricts materialization to the given
     /// predicate IRIs (`None` ⇒ every predicate) — the BGP-driven pushdown: only those
@@ -658,6 +680,33 @@ pub fn run_outcome_virtual(
     let query = crate::sparql::parse_query(query_str)?;
     let wanted = wanted_predicates(&query);
     let filters = FilterContext::from_query(&query);
+
+    // CA-13 — reject a query naming a predicate NO `TriplesMap` in `vg` declares, up
+    // front, as a typed error. Without this check the predicate simply materializes
+    // zero triples (every map's `active_poms` for it is empty — see
+    // `VirtualGraph::materialize`), and a SPARQL evaluator query over zero triples
+    // returns zero solutions: an empty result INDISTINGUISHABLE from "this predicate
+    // has data, just none matching the rest of the query" (a legitimate, correct SPARQL
+    // answer). `wanted` is `None` when the query cannot statically enumerate its
+    // predicates (a variable predicate or a property path) — every predicate is then
+    // potentially relevant and there is nothing to validate against, so the empty-result
+    // case stays exactly the standard SPARQL open-world answer.
+    if let Some(w) = &wanted {
+        let declared = vg.declared_predicates();
+        let unmapped: Vec<&str> = w
+            .iter()
+            .filter(|p| !declared.contains(p.as_str()))
+            .map(String::as_str)
+            .collect();
+        if !unmapped.is_empty() {
+            let mut known: Vec<&str> = declared.iter().map(String::as_str).collect();
+            known.sort_unstable();
+            return Err(format!(
+                "obda: no mapping for predicate(s) {unmapped:?} (declared: {known:?}) — \
+                 CONCEPT:EG-KG.query.obda-query-rewrite"
+            ));
+        }
+    }
 
     // (2)+(3) scan the backing source(s) on demand for only the needed columns, applying
     // the pushed-down FILTERs, and materialize the query-relevant triples via the TriplesMaps.
@@ -1711,6 +1760,156 @@ mod tests {
         let err = run_virtual(&vg, &reg, "SELECT * WHERE { ?s ?p ?o }").unwrap_err();
         assert!(err.contains("no foreign source registered under name 'people'"));
         assert!(err.contains("CONCEPT:EG-KG.ontology.foreign-source-seam"));
+    }
+
+    /// CA-13 — `VirtualGraph::declared_predicates` gathers every predicate-object-map
+    /// predicate, plus `rdf:type` for a map with a `subject_class`.
+    #[test]
+    fn ca13_declared_predicates_collects_class_and_poms() {
+        let vg = people_vgraph();
+        let declared = vg.declared_predicates();
+        assert!(declared.contains(RDF_TYPE_IRI));
+        assert!(declared.contains("http://example.org/name"));
+        assert!(declared.contains("http://example.org/age"));
+        assert!(declared.contains("http://example.org/knows"));
+        // Nothing else leaks in.
+        assert_eq!(declared.len(), 4);
+    }
+
+    /// CA-13 — a query naming a predicate NO loaded `TriplesMap` declares is a typed
+    /// error, not a silent empty result (P6 negative case / Acceptance gate 4: "querying
+    /// an unregistered predicate returns a typed error, demonstrated on purpose"). Before
+    /// this check, `people_vgraph()` (which declares `ex:name`/`ex:age`/`ex:knows`/
+    /// `rdf:type` but NOT `ex:unmapped`) would silently materialize zero triples for this
+    /// query and return zero solutions — indistinguishable from "no matching rows".
+    #[test]
+    fn ca13_unmapped_predicate_errors_instead_of_returning_empty() {
+        let reg = people_registry();
+        let vg = people_vgraph();
+        let err = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?v WHERE { ?p ex:unmapped ?v }"#,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("no mapping for predicate"),
+            "expected a typed unmapped-predicate error, got: {err}"
+        );
+        assert!(err.contains("http://example.org/unmapped"), "{err}");
+        assert!(err.contains("CONCEPT:EG-KG.query.obda-query-rewrite"), "{err}");
+    }
+
+    /// CA-13 — a query mixing a MAPPED and an unmapped predicate in the same BGP still
+    /// errors (the whole query is rejected up front, not partially evaluated).
+    #[test]
+    fn ca13_partially_unmapped_query_errors() {
+        let reg = people_registry();
+        let vg = people_vgraph();
+        let err = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?name ?v WHERE { ?p ex:name ?name ; ex:unmapped ?v }"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("http://example.org/unmapped"), "{err}");
+    }
+
+    /// CA-13 — the unmapped-predicate check is skipped (not falsely triggered) when the
+    /// query's predicate cannot be statically enumerated (a variable predicate), so a
+    /// legitimate `?s ?p ?o` scan over a properly-registered source still returns every
+    /// mapped triple instead of erroring.
+    #[test]
+    fn ca13_variable_predicate_query_still_succeeds() {
+        let reg = people_registry();
+        let vg = people_vgraph();
+        let res = run_virtual(&vg, &reg, "SELECT * WHERE { ?s ?p ?o }").unwrap();
+        assert_eq!(res.solutions.len(), 11); // same total as eg101_materialize_all_counts
+    }
+
+    /// CA-13 — a mapped predicate that simply has no matching rows for the rest of the
+    /// query (a genuine empty answer, NOT a config error) is still a normal, error-free
+    /// empty result — the new check narrows ONLY the "no mapping at all" case.
+    #[test]
+    fn ca13_mapped_predicate_with_no_matching_rows_is_empty_not_error() {
+        let reg = people_registry();
+        let vg = people_vgraph();
+        let res = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?p WHERE { ?p ex:name "Nobody Home" }"#,
+        )
+        .unwrap();
+        assert!(res.solutions.is_empty());
+    }
+
+    /// CA-13 (W06) — an `ObdaSource` that only ever returns a RLS-permitted SUBSET of
+    /// rows (mirroring `TableStoreSource::load`'s use of
+    /// `sql_catalog_acl::open_authorized_table` in `src/server/handlers/rdf.rs`, which
+    /// applies the caller's row-level ACL BEFORE OBDA ever sees a row) never has the
+    /// hidden row reappear through the OBDA materialize/SPARQL-evaluate pipeline — proving
+    /// `run_outcome_virtual` introduces no bypass of whatever row-set its source hands it.
+    /// An "admin" registry backed by the FULL table is used as the known-bad control: the
+    /// SAME query against it DOES return the row an RLS-scoped caller must never see.
+    #[test]
+    fn ca13_source_row_restriction_is_never_bypassed_by_obda() {
+        let vg = people_typed_vgraph();
+
+        // "Admin" — an unrestricted source over the full table (the known-bad control).
+        let admin_src = std::sync::Arc::new(RecordingSource::new(people_table()));
+        let mut admin_reg = ObdaSourceRegistry::new();
+        admin_reg.register("people", admin_src);
+        let admin_res = run_virtual(
+            &vg,
+            &admin_reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?name WHERE { ?p ex:name ?name }"#,
+        )
+        .unwrap();
+        let admin_names: std::collections::BTreeSet<String> = admin_res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("name").map(|b| b.as_str().to_string()))
+            .collect();
+        assert!(
+            admin_names.contains("Carol"),
+            "known-bad control must include the row an RLS-scoped caller must never see"
+        );
+
+        // RLS-scoped source: "Carol" (id 3) is excluded before OBDA ever scans it, the
+        // same way an `AuthorizedTable::select` already excludes a row-hidden `_owner_id`.
+        let rls_table = TableSource::from_records(
+            ["id", "name", "age"].map(String::from),
+            [
+                vec!["1".into(), "Alice".into(), "30".into()],
+                vec!["2".into(), "Bob".into(), "25".into()],
+                // Carol (id 3) deliberately omitted — the RLS-hidden row.
+            ],
+        );
+        let rls_src = std::sync::Arc::new(RecordingSource::new(rls_table));
+        let mut rls_reg = ObdaSourceRegistry::new();
+        rls_reg.register("people", rls_src);
+
+        let rls_res = run_virtual(
+            &vg,
+            &rls_reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?name WHERE { ?p ex:name ?name }"#,
+        )
+        .unwrap();
+        let rls_names: std::collections::BTreeSet<String> = rls_res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("name").map(|b| b.as_str().to_string()))
+            .collect();
+        assert!(
+            !rls_names.contains("Carol"),
+            "the RLS-hidden row must never appear via OBDA: {rls_names:?}"
+        );
+        assert_eq!(rls_names.len(), 2);
     }
 
     /// CONCEPT:EG-KG.ontology.foreign-source-seam — the minimal textual mapping form parses to an equivalent graph.
