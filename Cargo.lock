@@ -3114,6 +3114,9 @@ dependencies = [
  "eg-types",
  "futures-util",
  "hex",
+ "iceberg",
+ "iceberg-catalog-rest",
+ "iceberg-storage-opendal",
  "ipnet",
  "md-5 0.10.6",
  "ndarray 0.17.2",
@@ -4307,6 +4310,26 @@ dependencies = [
  "uuid",
  "zeroize",
  "zstd",
+]
+
+[[package]]
+name = "iceberg-catalog-rest"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1500a26a9b18f286a319e914ce7290dddb7e2eef810edf535afc4ce0c8a6f45"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "http",
+ "iceberg",
+ "itertools 0.13.0",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "tokio",
+ "typed-builder",
+ "uuid",
 ]
 
 [[package]]
