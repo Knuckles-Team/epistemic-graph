@@ -31,6 +31,11 @@ pub struct GraphView {
     pub graph: StableDiGraph<String, String>,
     pub node_map: HashMap<String, NodeIndex>,
     pub node_properties: HashMap<String, Arc<Vec<u8>>>,
+    /// Snapshot mirror of `GraphCore::edge_properties` — see that field's doc for
+    /// the read/write model: multiple entries per pair are deliberate (distinct
+    /// typed edges and/or bitemporal history), and any reader selecting among them
+    /// must do so explicitly (by `relationship` and/or bitemporal liveness), never
+    /// by Vec position.
     pub edge_properties: HashMap<(String, String), Vec<Arc<Vec<u8>>>>,
     /// Interior-mutable, type-erased memo of expensive per-snapshot DERIVED stats
     /// (CONCEPT:EG-KG.query.column-range-stats) — e.g. the planner's per-column
@@ -452,6 +457,42 @@ impl ChangeNotifier {
 pub struct GraphCore {
     pub topo: RwLock<Topology>,
     pub node_properties: DashMap<String, Arc<Vec<u8>>>,
+    /// Property blobs for every ordered `(source, target)` pair, keyed by the pair
+    /// and holding a `Vec` of ONE ENTRY PER PARALLEL EDGE (CONCEPT:EG-KG.compute.
+    /// edge-write-read-model) — the topology graph is a real `petgraph` multigraph
+    /// (`Topology::graph`), and this `Vec` is its property-storage sibling, ordinal-
+    /// aligned with it (see `GraphCore::get_edges_page`'s `ordinal`).
+    ///
+    /// **This is deliberate, not an accident of implementation** — two established,
+    /// independent uses both need more than one entry per pair:
+    ///   1. **Distinct typed edges.** A pair may legitimately carry more than one
+    ///      `relationship`-tagged edge at once (e.g. `PART_OF` AND a separately
+    ///      asserted `SUPPORTS`) — `plain add_edge` never guards against this, and
+    ///      most readers correctly treat each blob as an independent logical edge,
+    ///      filtering by its own `relationship` field (`eg-rdf::update::edge_rel`,
+    ///      `eg-plan::exec::rel_matches`, `mining`/`graphlearn`'s
+    ///      `edge_matches_relation`, `GraphTxn::has_relationship_edge`).
+    ///   2. **Bitemporal history.** `GraphTxn::invalidate_edge` / `supersede_edge`
+    ///      NEVER delete — they close a matching entry's `valid_until`/`tx_to`
+    ///      window in place and, for `supersede_edge`, push a new entry alongside
+    ///      it. The prior and current state of one `relationship` therefore
+    ///      legitimately coexist in the same `Vec`, selected by
+    ///      `valid_from`/`valid_until`/`tx_from`/`tx_to`, exactly as
+    ///      `eg-plan::exec::live_at`/`Op::AsOf` already select among NODE property
+    ///      history for the same four keys.
+    ///
+    /// **The defect this codebase actually had** was never the storage shape — it
+    /// was that some readers picked ONE entry (`.first()`/`.last()`/`.next()`)
+    /// without applying either selection rule above, so whichever entry a writer
+    /// happened to push last (or first) silently shadowed the others for that
+    /// reader. The measured, severe instance was reasoning materialisation
+    /// relabeling an asserted edge (fixed by the connect-only guard,
+    /// `pair_already_connected` in `eg-compute::reasoning`, commit `28968274`);
+    /// smaller instances (a CDC pre-image, an epistemic-projection bootstrap
+    /// silently dropping a shadowed `GENERATED_BY`/`DERIVED_FROM` edge) are fixed
+    /// alongside this note. A NEW reader over `edge_properties` must pick among
+    /// multiple entries EXPLICITLY — by `relationship`, by bitemporal liveness, or
+    /// both — never by Vec position.
     pub edge_properties: DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
     pub ledger: Mutex<Vec<String>>,
     pub semantic_store: RwLock<crate::compute::semantic::SemanticStore>,
