@@ -145,3 +145,10 @@ scratch/
 # clients/js (D-EGTC-2's sibling gate): `npm install` materializes this from
 # the committed package-lock.json every gate run — never commit the tree itself.
 node_modules/
+
+# CX-HYG-01 (check_gitignore_convergence.py, fleet-shared REQUIRED set):
+# `kiss check` writes a self-calibrating .kissconfig the first time it runs --
+# a ratchet that installs itself the moment it is trackable. Twin of
+# check_root_hygiene.py's FORBIDDEN_ANYWHERE (which catches it if it is ever
+# tracked anyway); this stops it from becoming stageable in the first place.
+.kissconfig
