@@ -4803,6 +4803,51 @@ pub enum Method {
         #[serde(default)]
         as_claim: bool,
     },
+
+    /// Export the M1 (row-visibility) policy bundle (CA-16, DEC-CA-04,
+    /// feature `policy_export`, off by default). Renders
+    /// `crate_eg_core::isolation::IsolationLayer`'s live `_owner`/`_visibility`/
+    /// `_grants` row-visibility predicate set (and ONLY that mechanism -- see
+    /// `plans/company-architecture/decisions/DEC-CA-04-*.md`'s mechanism table,
+    /// M2-M9 are out of scope) plus a caller-supplied Marking->predicate bridge
+    /// as one JSON bundle scoped to `tenant`. `principals`/`marking_names` are
+    /// caller-supplied inputs (eg has no native Marking registry and no
+    /// enumerable Keycloak subject list -- see `server::policy_export`'s module
+    /// doc); the calling principal's OWN live-token-verified role set is always
+    /// merged in by the handler before generation, so every export call is
+    /// self-proving against a real verified token. `graphs` MUST be sourced by
+    /// the caller from au's `tenant_sharing.accessible_graphs`, never from this
+    /// crate's dead `IsolationLayer::accessible_graphs` (DEC-CA-04 A3's named
+    /// trap -- that function's `agent:<id>`/`team:<t>` naming matches no live
+    /// graph on this deployment).
+    #[cfg(feature = "policy_export")]
+    PolicyExport {
+        /// The tenant this bundle is scoped to (DEC-CA-04 A3: one bundle per
+        /// tenant, never per graph).
+        tenant: String,
+        /// Every graph this tenant may read, in `tenant_sharing.accessible_graphs`
+        /// order (tenant graph first, then ancestors, `__commons__` always last).
+        /// GOC-61: union READ, never a merge -- this list is read scope, not a
+        /// write target.
+        graphs: Vec<String>,
+        /// Seed principal->effective-role-set entries this call should fold into
+        /// the bundle, in addition to the calling principal's own live token
+        /// (which the handler always adds). `roles` is the UNION of the
+        /// subject's realm roles, client roles, and OAuth2 scopes (mirrors au's
+        /// `base_capabilities()` ceiling) -- never a read of `rbac.redb`/
+        /// `IsolationLayer.agents` (DEC-CA-04 A2).
+        #[serde(default)]
+        principals: std::collections::BTreeMap<String, Vec<String>>,
+        /// The set of Marking names currently defined in au's `MARKING_REGISTRY`
+        /// (names only, not the per-`(tenant, node_id)` assignment -- that stays
+        /// in au, keyed data this bundle does not carry). Each name is rendered
+        /// as a `requires_role` predicate over the reserved `_markings` row
+        /// column convention this module defines (DEC-CA-04 A4: eg has no native
+        /// Marking concept, so this is a bridge this lane defines, not a
+        /// pre-existing mechanism).
+        #[serde(default)]
+        marking_names: Vec<String>,
+    },
 }
 
 impl Method {

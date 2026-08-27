@@ -104,3 +104,12 @@ asr-native = ["eg-types/asr-native"]
 # `eg-capabilities?/viz` (weak-dep syntax: only takes effect if `eg-capabilities` is
 # ALSO linked via `server` from elsewhere) in lockstep -- see root Cargo.toml.
 viz = ["eg-types/viz"]
+# CA-16 (DEC-CA-04) -- see the module doc above. Mirrors `eg-types/policy_export` 1:1
+# (same lockstep contract as `jobs`/`statechart`/`viz`): `policy_export` is off by
+# default (unlike most eg-types features this crate force-enables above), so this
+# crate carries its OWN mirrored `policy_export` feature that both turns on
+# `eg-types/policy_export` AND cfg-gates `policy()`'s one `Method::PolicyExport` arm
+# together, so the two can never drift out of sync. The root `epistemic-graph`
+# package's `policy_export` facade feature enables `eg-capabilities?/policy_export`
+# (weak-dep syntax) in lockstep -- see root Cargo.toml.
+policy_export = ["eg-types/policy_export"]
