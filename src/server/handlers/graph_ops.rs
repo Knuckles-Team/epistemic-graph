@@ -188,35 +188,47 @@ fn stamp_owner_id_if_applicable(
     caller: Option<&str>,
     isolation: &crate::isolation::IsolationLayer,
 ) -> Method {
-    let mut method = method;
-    if matches!(
+    // Flat guard clauses rather than nested `if`s: each exemption below returns
+    // `method` untouched, which is byte-for-byte what the nested form did by
+    // falling out of its `if` chain. Same conditions, same order, same result --
+    // only the nesting depth (and so the cognitive complexity) differs.
+    if !matches!(
         method,
         Method::AddNode { .. } | Method::CreateNodeIfAbsent { .. }
     ) {
-        if let Some(caller_id) = caller {
-            if !isolation.is_system(caller_id) {
-                let blob = match &method {
-                    Method::AddNode {
-                        properties_msgpack, ..
-                    }
-                    | Method::CreateNodeIfAbsent {
-                        properties_msgpack, ..
-                    } => properties_msgpack,
-                    _ => unreachable!("matched above"),
-                };
-                if let Some(stamped) = crate::isolation::stamp_owner_id_if_absent(blob, caller_id) {
-                    match &mut method {
-                        Method::AddNode {
-                            properties_msgpack, ..
-                        }
-                        | Method::CreateNodeIfAbsent {
-                            properties_msgpack, ..
-                        } => *properties_msgpack = stamped,
-                        _ => unreachable!("matched above"),
-                    }
-                }
-            }
+        return method;
+    }
+    // An absent `caller` (state-machine-authorized replicated apply) has no
+    // per-request identity to stamp with.
+    let Some(caller_id) = caller else {
+        return method;
+    };
+    // A `System`-role caller is not a real per-agent owner.
+    if isolation.is_system(caller_id) {
+        return method;
+    }
+    let blob = match &method {
+        Method::AddNode {
+            properties_msgpack, ..
         }
+        | Method::CreateNodeIfAbsent {
+            properties_msgpack, ..
+        } => properties_msgpack,
+        _ => unreachable!("matched above"),
+    };
+    // Already owned (or unstampable) => leave the blob exactly as the caller sent it.
+    let Some(stamped) = crate::isolation::stamp_owner_id_if_absent(blob, caller_id) else {
+        return method;
+    };
+    let mut method = method;
+    match &mut method {
+        Method::AddNode {
+            properties_msgpack, ..
+        }
+        | Method::CreateNodeIfAbsent {
+            properties_msgpack, ..
+        } => *properties_msgpack = stamped,
+        _ => unreachable!("matched above"),
     }
     method
 }
