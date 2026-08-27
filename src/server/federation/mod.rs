@@ -857,16 +857,21 @@ fn decode_local_rows(bytes: &[u8], lang: &str) -> Vec<FedRow> {
     }
 }
 
-/// The full federated read (CONCEPT:EG-KG.ontology.federation-client): run locally AND fan out to peers, then merge.
-/// `local_only` short-circuits the fan-out (used when a super-cluster peer calls us with
-/// `?local=1`, preventing recursion). A local-store error degrades to a partial answer
-/// rather than failing the request.
-pub async fn run_federated(
+/// Collect per-source outcomes (local store + peer fan-out) WITHOUT merging
+/// (CONCEPT:EG-KG.ontology.federation-client). Pure extraction of [`run_federated`]'s prior body — a
+/// CA-14 hook point (see `federation::opensearch::run_federated_with_opensearch`), not a
+/// behavior change: `run_federated` is now a thin wrapper over this plus its unchanged
+/// merge call, so its own outcome/return value is byte-identical to before this split
+/// and its existing test suite is unaffected. Exposed `pub` so a caller that needs to
+/// append a NON-peer source (e.g. CA-14's OpenSearch leg) can do so before running the
+/// SAME [`merge_partials`]/[`merge_partials_typed`] pipeline `run_federated` uses,
+/// instead of forking a second merge path.
+pub async fn collect_outcomes(
     state: &Arc<RwLock<ServerState>>,
     query: &str,
     lang: &str,
     local_only: bool,
-) -> FederatedResponse {
+) -> Vec<PeerOutcome> {
     let graph = std::env::var(DEFAULT_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
     let local = local_execute(state, query, lang, &graph).await;
     let mut outcomes = vec![PeerOutcome {
@@ -881,6 +886,20 @@ pub async fn run_federated(
             outcomes.append(&mut peer_outcomes);
         }
     }
+    outcomes
+}
+
+/// The full federated read (CONCEPT:EG-KG.ontology.federation-client): run locally AND fan out to peers, then merge.
+/// `local_only` short-circuits the fan-out (used when a super-cluster peer calls us with
+/// `?local=1`, preventing recursion). A local-store error degrades to a partial answer
+/// rather than failing the request.
+pub async fn run_federated(
+    state: &Arc<RwLock<ServerState>>,
+    query: &str,
+    lang: &str,
+    local_only: bool,
+) -> FederatedResponse {
+    let outcomes = collect_outcomes(state, query, lang, local_only).await;
     // Tabular SQL / SPARQL partials get schema-aware typed fusion (CONCEPT:EG-KG.query.schema-typed-fusion-sql); the
     // ranked-search path keeps its hash-union + RRF re-rank (CONCEPT:EG-KG.ontology.federation-client) unchanged.
     if is_typed_lang(lang) {
