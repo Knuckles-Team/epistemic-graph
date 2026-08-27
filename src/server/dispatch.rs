@@ -8014,29 +8014,39 @@ async fn dispatch_op_workitem_mutation(
         };
     }
 
+/// Fence a `series.redb` WRITE to the current placement leader.
+///
+/// `Some(response)` is the stale-route rejection the caller must return; `None`
+/// means the fence passed and dispatch CONTINUES — the original inline form fell
+/// through, so an unconditional `return` here would strand every `TsAppend`.
+/// The method guard lives inside so the call site stays a single `if let`.
 #[cfg(all(feature = "raft", feature = "tsdb"))]
 async fn dispatch_op_tsdb_write_fence(
     req_id: u64,
     graph_name: &str,
-    #[cfg(feature = "raft")]
-    routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
-    method: Method,
-) -> Response
-{
-        if let Some(routed) = routed_raft.as_ref() {
-            let leader = routed.handle.current_leader().await;
-            if leader != Some(routed.handle.node_id) {
-                return Response::stale_route(
-                    req_id,
-                    graph_name,
-                    routed.group_id,
-                    routed.epoch,
-                    leader,
-                    "time-series writes require the current placement leader",
-                );
-            }
-        }
+    routed_raft: Option<&crate::raft::multi::RoutedRaftHandle>,
+    method: &Method,
+) -> Option<Response> {
+    if !matches!(
+        method,
+        Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. }
+    ) {
+        return None;
     }
+    let routed = routed_raft?;
+    let leader = routed.handle.current_leader().await;
+    if leader == Some(routed.handle.node_id) {
+        return None;
+    }
+    Some(Response::stale_route(
+        req_id,
+        graph_name,
+        routed.group_id,
+        routed.epoch,
+        leader,
+        "time-series writes require the current placement leader",
+    ))
+}
 
 #[cfg(feature = "knowledge-batch")]
 async fn dispatch_op_knowledge_stream(
@@ -8135,7 +8145,6 @@ async fn dispatch_op_audit_verify(
     req_id: u64,
     graph_name: &str,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    method: Method,
 ) -> Response
 {
         let fname = crate::persist::sanitize(graph_name);
@@ -8192,9 +8201,6 @@ async fn dispatch_op_served_modality(
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     #[cfg(feature = "streaming")]
     cdc: Option<Arc<crate::server::cdc::CdcHub>>,
-    write_coalescer: Arc<crate::write_coalescer::WriteCoalescerRegistry>,
-    #[cfg(feature = "raft")]
-    graph_type: crate::protocol::GraphType,
     #[cfg(feature = "raft")]
     routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
     #[cfg(feature = "modality-serving")]
@@ -8274,6 +8280,13 @@ async fn dispatch_op_served_modality(
         .await;
     }
 
+/// Replicate one durable mutation through Raft consensus instead of applying it
+/// locally.
+///
+/// Takes the ALREADY-UNWRAPPED [`RoutedRaftHandle`]: the barrier is only reachable
+/// with a routed group, and the caller's `if let Some(routed)` is that proof. The
+/// durability guard stays at the call site because a non-durable mutation must keep
+/// ownership of `method` for the local pipeline below.
 #[cfg(feature = "raft")]
 async fn dispatch_op_raft_write_routing_barrier(
     state: &Arc<RwLock<ServerState>>,
@@ -8281,74 +8294,69 @@ async fn dispatch_op_raft_write_routing_barrier(
     graph_name: &str,
     verified_context: &VerifiedRequestContext,
     tenant_scope: &str,
-    #[cfg(feature = "raft")]
     graph_type: crate::protocol::GraphType,
-    #[cfg(feature = "raft")]
-    routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
+    routed: crate::raft::multi::RoutedRaftHandle,
     method: Method,
-) -> Response
-{
-        if crate::mutation_apply::is_durable_mutation(&method) {
-            let created_at_ms = authoritative_now_ms();
-            let batch_id = crate::server::mutation_batch::opaque_request_key(
-                "raft-rpc", graph_name, req_id, &method,
-            );
-            let mutation = match crate::raft::RaftMutationContext::from_verified_request(
-                batch_id,
-                req_id,
-                &tenant_scope,
-                verified_context.principal_persistence_id(),
-                false,
-                routed.epoch,
-                Some(routed.group_id),
-                created_at_ms,
-            ) {
-                Ok(context) => context,
-                Err(error) => return Response::err(req_id, error),
-            };
-            let server_secret = timed_read(state).await.auth_secret.clone();
-            let command = match crate::raft::ReplicatedMutation::graph(method, &server_secret) {
-                Ok(command) => command,
-                Err(error) => return Response::err(req_id, error),
-            };
-            let req = crate::raft::RaftRequest {
-                graph_fname: crate::persist::sanitize(graph_name),
-                graph_name: graph_name.to_string(),
-                graph_type,
-                committed_at_ms: created_at_ms,
-                mutation,
-                command,
-            };
-            return match routed.handle.client_write(req).await {
-                Ok(response) => {
-                    if let Some(error) = response.native_error {
-                        Response::err(req_id, error)
-                    } else {
-                        Response::ok(
-                            req_id,
-                            ResultPayload::Json(serde_json::json!({
-                                "replicated": true,
-                                "group": routed.group_id,
-                                "epoch": routed.epoch,
-                                "fencing_token": routed.fencing_token(),
-                            })),
-                        )
-                    }
-                }
-                Err(e) => {
-                    let leader = routed.handle.current_leader().await;
-                    Response::stale_route(
+) -> Response {
+        let created_at_ms = authoritative_now_ms();
+        let batch_id = crate::server::mutation_batch::opaque_request_key(
+            "raft-rpc", graph_name, req_id, &method,
+        );
+        let mutation = match crate::raft::RaftMutationContext::from_verified_request(
+            batch_id,
+            req_id,
+            tenant_scope,
+            verified_context.principal_persistence_id(),
+            false,
+            routed.epoch,
+            Some(routed.group_id),
+            created_at_ms,
+        ) {
+            Ok(context) => context,
+            Err(error) => return Response::err(req_id, error),
+        };
+        let server_secret = timed_read(state).await.auth_secret.clone();
+        let command = match crate::raft::ReplicatedMutation::graph(method, &server_secret) {
+            Ok(command) => command,
+            Err(error) => return Response::err(req_id, error),
+        };
+        let req = crate::raft::RaftRequest {
+            graph_fname: crate::persist::sanitize(graph_name),
+            graph_name: graph_name.to_string(),
+            graph_type,
+            committed_at_ms: created_at_ms,
+            mutation,
+            command,
+        };
+        match routed.handle.client_write(req).await {
+            Ok(response) => {
+                if let Some(error) = response.native_error {
+                    Response::err(req_id, error)
+                } else {
+                    Response::ok(
                         req_id,
-                        graph_name,
-                        routed.group_id,
-                        routed.epoch,
-                        leader,
-                        e,
+                        ResultPayload::Json(serde_json::json!({
+                            "replicated": true,
+                            "group": routed.group_id,
+                            "epoch": routed.epoch,
+                            "fencing_token": routed.fencing_token(),
+                        })),
                     )
                 }
-            };
+            }
+            Err(e) => {
+                let leader = routed.handle.current_leader().await;
+                Response::stale_route(
+                    req_id,
+                    graph_name,
+                    routed.group_id,
+                    routed.epoch,
+                    leader,
+                    e,
+                )
+            }
         }
-    }
+}
 
 
 async fn check_change_envelope_placement_fence(
@@ -9251,18 +9259,10 @@ async fn dispatch_graph_op_inner(
     // whole-series delete would create a divergent `series.redb` projection and acknowledge a
     // write on the wrong replica. (`TsListSeries` is a read and is intentionally excluded.)
     #[cfg(all(feature = "raft", feature = "tsdb"))]
-    if matches!(
-        &method,
-        Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. }
-    ) {
-        return dispatch_op_tsdb_write_fence(
-            req_id,
-            graph_name,
-            #[cfg(feature = "raft")]
-            routed_raft.clone(),
-            method,
-        )
-        .await;
+    if let Some(stale) =
+        dispatch_op_tsdb_write_fence(req_id, graph_name, routed_raft.as_ref(), &method).await
+    {
+        return stale;
     }
 
     #[cfg(all(feature = "raft", feature = "tsdb"))]
@@ -9332,13 +9332,7 @@ async fn dispatch_graph_op_inner(
     // lock is released — so blocking on the writer-thread reply never holds the lock.
     #[cfg(feature = "security")]
     if matches!(method, Method::AuditVerify) {
-        return dispatch_op_audit_verify(
-            req_id,
-            graph_name,
-            persistence.clone(),
-            method,
-        )
-        .await;
+        return dispatch_op_audit_verify(req_id, graph_name, persistence.clone()).await;
     }
 
     // Provenance-anchor inclusion proof (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring): the
@@ -9347,10 +9341,7 @@ async fn dispatch_graph_op_inner(
     // the redb backend's owner thread (flushes pending first), handled after the
     // registry lock is released.
     #[cfg(feature = "security")]
-    if let Method::AuditProveInclusion {
-        node_id,
-        anchor_seq,
-    } = &method {
+    if matches!(&method, Method::AuditProveInclusion { .. }) {
         return dispatch_op_audit_prove_inclusion(
             req_id,
             graph_name,
@@ -9366,7 +9357,7 @@ async fn dispatch_graph_op_inner(
     // stages a complete graph image and commits the encrypted runtime snapshot
     // through the authoritative MutationBatch boundary before publishing RAM.
     #[cfg(feature = "modality-serving")]
-    if let Method::ServedModality { op } = &method {
+    if matches!(&method, Method::ServedModality { .. }) {
         return dispatch_op_served_modality(
             state,
             req_id,
@@ -9380,9 +9371,6 @@ async fn dispatch_graph_op_inner(
             persistence.clone(),
             #[cfg(feature = "streaming")]
             cdc.clone(),
-            write_coalescer.clone(),
-            #[cfg(feature = "raft")]
-            graph_type,
             #[cfg(feature = "raft")]
             routed_raft.clone(),
             #[cfg(feature = "modality-serving")]
@@ -9403,17 +9391,16 @@ async fn dispatch_graph_op_inner(
     // retries against the leader. This branch is the ONLY behavioral difference vs
     // single-node, and it is taken only for durable mutations with Raft active.
     #[cfg(feature = "raft")]
-    if let Some(routed) = routed_raft {
+    if let Some(routed) = routed_raft.filter(|_| crate::mutation_apply::is_durable_mutation(&method))
+    {
         return dispatch_op_raft_write_routing_barrier(
             state,
             req_id,
             graph_name,
             verified_context,
             &tenant_scope,
-            #[cfg(feature = "raft")]
             graph_type,
-            #[cfg(feature = "raft")]
-            routed_raft.clone(),
+            routed,
             method,
         )
         .await;
@@ -9427,7 +9414,6 @@ async fn dispatch_graph_op_inner(
         req_id,
         graph_name,
         caller,
-        access,
         read_authority.clone(),
         verified_actor,
         tenant_scope.clone(),
@@ -9738,7 +9724,6 @@ async fn run_dispatch_pipeline(
     req_id: u64,
     graph_name: &str,
     caller: Option<&str>,
-    access: AccessLevel,
     read_authority: Option<GraphReadAuthority>,
     verified_actor: &str,
     tenant_scope: String,
