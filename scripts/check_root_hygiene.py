@@ -86,6 +86,11 @@ MANIFEST_PATH = REPO_ROOT / ".repo-layout.toml"
 # editing the manifest is for everything else.
 ALLOWED_DOTFILES: frozenset[str] = frozenset(
     {
+        # The manifest THIS GATE READS. A bootstrap omission: without it the
+        # gate fails on its own config file, so wiring it as a blocking hook
+        # would have bricked every commit in the repo. Caught by the known-bad
+        # proof, not by review.
+        ".repo-layout.toml",
         ".bumpversion.cfg",  # release version bump config (bump2version)
         ".cargo-audit-allow.txt",  # risk-accepted RUSTSEC/OSV ledger (cargo-deny gate)
         ".codespellignore",  # codespell false-positive word list
