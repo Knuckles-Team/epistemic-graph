@@ -999,6 +999,22 @@ lake-rest = ["lake", "oidc"]
 # default and EMPTY until CA-15 implements it. Declared here by CA-17's single feature-
 # stub commit so that CA-15 never edits this shared table. Implies `lake`.
 lineage-transport = ["lake"]
+# CA-15's Kafka leg for the OpenLineage transport above (`openlineage.events` per
+# DEC-CA-03), off by default. A SEPARATE feature from `lineage-transport` (not folded
+# into it) so a plain HTTP-only `lineage-transport` build never pulls `rdkafka` --
+# matching `cdc-kafka`'s own "heavy C dependency stays opt-in" precedent. Composes the
+# ALREADY-DECLARED `cdc-kafka` feature (`dep:eg-stream` + `eg-stream/cdc-kafka`) rather
+# than declaring a second Kafka dependency anywhere in the workspace
+# (file-ownership.yaml FO-CA-026: `crates/eg-stream/Cargo.toml`'s `rdkafka` dep is
+# CA-11-exclusive) -- CA-15's `KafkaTransport` (`src/server/lake/lineage_transport.rs`)
+# is built on `eg_stream::sink::RawKafkaProducer`, a schema-agnostic producer added
+# alongside CA-11's `KafkaCdcSink` in that same feature-gated module, sharing its
+# construction but publishing OpenLineage JSON to `openlineage.events` (keyed by
+# `run.runId`) instead of CDC's per-graph `Envelope`/topic. Enabling both `cdc-kafka`
+# and `lineage-transport-kafka` compiles in exactly one `rdkafka` linkage; each keeps
+# its own independently-configured producer instance/env-var namespace at runtime, the
+# normal shape for two distinct topics, not a double-initialization of the dependency.
+lineage-transport-kafka = ["lineage-transport", "cdc-kafka"]
 # Remote KV-cache HTTP surface (CONCEPT:EG-187) — exposes the `eg-kvcache` shared,
 # content-addressed backend (EG-186) over HTTP so parallel vLLM/LMCache instances SHARE
 # KV blocks by token-hash (GET/PUT/HEAD /kv/<hash> + /kv/stats, bearer-token guard). A
