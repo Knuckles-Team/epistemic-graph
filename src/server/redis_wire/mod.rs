@@ -1537,257 +1537,334 @@ fn hello(args: &[Vec<u8>], conn: &mut ConnState, auth_secret: &str) -> Resp {
 }
 
 /// Execute a data command (auth already checked). `Err(msg)` becomes a RESP error.
+// CXA-EG-03 refactor: `execute_data` was CCN 90 as one `match cmd { .. }`
+// with ~24 arms, several containing their own inner loops/matches. Same
+// technique as the sibling `try_handle`/`apply_txn_op` dispatchers in this
+// lane: a `match` costs lizard ~1 regardless of arm count, so the fix is
+// giving every substantive arm a single tail-call to a named `cmd_*`
+// helper (verbatim original arm body, just moved) and leaving only the
+// handful of already-single-expression arms (TTL/INCR/DECR/LLEN/TYPE)
+// inline. The `key` closure (captured `args`/`cmd`) becomes a bare fn
+// taking both explicitly, since a helper fn can't share its closure.
+fn redis_key(args: &[Vec<u8>], cmd: &str, n: usize) -> Result<String, String> {
+    args.get(n)
+        .map(|bytes| utf8_argument(bytes, MAX_REDIS_KEY_BYTES))
+        .transpose()?
+        .ok_or_else(|| {
+            format!(
+                "ERR wrong number of arguments for '{}'",
+                cmd.to_ascii_lowercase()
+            )
+        })
+}
+
+fn cmd_set(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    let v = args
+        .get(2)
+        .cloned()
+        .ok_or_else(|| "ERR wrong number of arguments for 'set'".to_string())?;
+    let (mut expire, mut nx, mut xx) = (None, false, false);
+    let mut i = 3;
+    while i < args.len() {
+        match upper(&args[i]).as_str() {
+            "EX" => {
+                let s: u64 = parse_num(args.get(i + 1))?;
+                expire = Some(s * 1000);
+                i += 2;
+            }
+            "PX" => {
+                let ms: u64 = parse_num(args.get(i + 1))?;
+                expire = Some(ms);
+                i += 2;
+            }
+            "NX" => {
+                nx = true;
+                i += 1;
+            }
+            "XX" => {
+                xx = true;
+                i += 1;
+            }
+            other => return Err(format!("ERR syntax error near '{other}'")),
+        }
+    }
+    if store.set(&k, v, expire, nx, xx)? {
+        Ok(Resp::Simple("OK".into()))
+    } else {
+        Ok(Resp::Null)
+    }
+}
+
+fn redis_keys_from_args(args: &[Vec<u8>]) -> Result<Vec<String>, String> {
+    args[1..]
+        .iter()
+        .map(|bytes| utf8_argument(bytes, MAX_REDIS_KEY_BYTES))
+        .collect::<Result<_, _>>()
+}
+
+fn cmd_expire(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    let secs: i64 = parse_num(args.get(2))?;
+    Ok(Resp::Int(store.expire(&k, secs)? as i64))
+}
+
+fn cmd_mget(store: &RedisStore, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let mut out = Vec::new();
+    for a in &args[1..] {
+        let k = utf8_argument(a, MAX_REDIS_KEY_BYTES)?;
+        out.push(Resp::Bulk(store.get(&k)?));
+    }
+    Ok(Resp::Array(Some(out)))
+}
+
+fn cmd_mset(store: &RedisStore, args: &[Vec<u8>]) -> Result<Resp, String> {
+    if args.len() < 3 || !(args.len() - 1).is_multiple_of(2) {
+        return Err("ERR wrong number of arguments for 'mset'".into());
+    }
+    let mut i = 1;
+    while i + 1 < args.len() {
+        let k = utf8_argument(&args[i], MAX_REDIS_KEY_BYTES)?;
+        store.set(&k, args[i + 1].clone(), None, false, false)?;
+        i += 2;
+    }
+    Ok(Resp::Simple("OK".into()))
+}
+
+fn cmd_hset(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    if args.len() < 4 || !(args.len() - 2).is_multiple_of(2) {
+        return Err("ERR wrong number of arguments for 'hset'".into());
+    }
+    let mut pairs = Vec::new();
+    let mut i = 2;
+    while i + 1 < args.len() {
+        pairs.push((args[i].clone(), args[i + 1].clone()));
+        i += 2;
+    }
+    Ok(Resp::Int(store.hset(&k, &pairs)?))
+}
+
+fn cmd_hget(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    let field = args
+        .get(2)
+        .ok_or_else(|| "ERR wrong number of arguments for 'hget'".to_string())?;
+    Ok(Resp::Bulk(store.hget(&k, field)?))
+}
+
+fn cmd_hgetall(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let pairs = store.hgetall(&redis_key(args, cmd, 1)?)?;
+    let map = pairs
+        .into_iter()
+        .map(|(f, v)| (Resp::Bulk(Some(f)), Resp::Bulk(Some(v))))
+        .collect();
+    Ok(Resp::Map(map))
+}
+
+fn cmd_hdel(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    let fields: Vec<Vec<u8>> = args[2..].to_vec();
+    Ok(Resp::Int(store.hdel(&k, &fields)?))
+}
+
+fn cmd_push(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    let vals: Vec<Vec<u8>> = args[2..].to_vec();
+    if vals.is_empty() {
+        return Err(format!(
+            "ERR wrong number of arguments for '{}'",
+            cmd.to_ascii_lowercase()
+        ));
+    }
+    Ok(Resp::Int(store.push(&k, &vals, cmd == "LPUSH")?))
+}
+
+fn cmd_lrange(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    let start: i64 = parse_num(args.get(2))?;
+    let stop: i64 = parse_num(args.get(3))?;
+    let items = store
+        .lrange(&k, start, stop)?
+        .into_iter()
+        .map(|v| Resp::Bulk(Some(v)))
+        .collect();
+    Ok(Resp::Array(Some(items)))
+}
+
+fn cmd_sadd(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    let members: Vec<Vec<u8>> = args[2..].to_vec();
+    if members.is_empty() {
+        return Err("ERR wrong number of arguments for 'sadd'".into());
+    }
+    Ok(Resp::Int(store.sadd(&k, &members)?))
+}
+
+fn cmd_smembers(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let items = store
+        .smembers(&redis_key(args, cmd, 1)?)?
+        .into_iter()
+        .map(|v| Resp::Bulk(Some(v)))
+        .collect();
+    Ok(Resp::Set(items))
+}
+
+fn cmd_srem(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    let members: Vec<Vec<u8>> = args[2..].to_vec();
+    Ok(Resp::Int(store.srem(&k, &members)?))
+}
+
+fn cmd_zadd(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    if args.len() < 4 || !(args.len() - 2).is_multiple_of(2) {
+        return Err("ERR wrong number of arguments for 'zadd'".into());
+    }
+    let mut pairs = Vec::new();
+    let mut i = 2;
+    while i + 1 < args.len() {
+        let score: f64 = std::str::from_utf8(&args[i])
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(|| "ERR value is not a valid float".to_string())?;
+        pairs.push((score, args[i + 1].clone()));
+        i += 2;
+    }
+    Ok(Resp::Int(store.zadd(&k, &pairs)?))
+}
+
+fn zrange_member_resp(score: f64, proto: u8) -> Resp {
+    if proto >= 3 {
+        Resp::Double(score)
+    } else {
+        Resp::bulk_str(fmt_double(score))
+    }
+}
+
+fn cmd_zrange(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    let start: i64 = parse_num(args.get(2))?;
+    let stop: i64 = parse_num(args.get(3))?;
+    let withscores = args
+        .get(4)
+        .map(|b| upper(b) == "WITHSCORES")
+        .unwrap_or(false);
+    let z = store.zrange(&k, start, stop)?;
+    let mut out = Vec::new();
+    for (m, s) in z {
+        out.push(Resp::Bulk(Some(m)));
+        if withscores {
+            out.push(zrange_member_resp(s, proto));
+        }
+    }
+    Ok(Resp::Array(Some(out)))
+}
+
+fn cmd_zscore(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let k = redis_key(args, cmd, 1)?;
+    let member = args
+        .get(2)
+        .ok_or_else(|| "ERR wrong number of arguments for 'zscore'".to_string())?;
+    match store.zscore(&k, member)? {
+        Some(s) => Ok(Resp::bulk_str(fmt_double(s))),
+        None => Ok(Resp::Null),
+    }
+}
+
+fn cmd_scan(store: &RedisStore, args: &[Vec<u8>]) -> Result<Resp, String> {
+    // SCAN cursor [MATCH pattern] [COUNT n] [TYPE t] — one-shot (cursor 0).
+    let mut pattern = None;
+    let mut i = 2;
+    while i < args.len() {
+        match upper(&args[i]).as_str() {
+            "MATCH" => {
+                pattern = args
+                    .get(i + 1)
+                    .map(|bytes| utf8_argument(bytes, MAX_REDIS_KEY_BYTES))
+                    .transpose()?;
+                i += 2;
+            }
+            "COUNT" | "TYPE" => i += 2, // accepted, ignored (one-shot scan)
+            _ => i += 1,
+        }
+    }
+    let keys = store.scan(pattern.as_deref())?;
+    let items = keys.into_iter().map(Resp::bulk_str).collect();
+    Ok(Resp::Array(Some(vec![
+        Resp::bulk_str("0"),
+        Resp::Array(Some(items)),
+    ])))
+}
+
+fn cmd_get(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    Ok(Resp::Bulk(store.get(&redis_key(args, cmd, 1)?)?))
+}
+
+fn cmd_del_exec(store: &RedisStore, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let keys = redis_keys_from_args(args)?;
+    let refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
+    Ok(Resp::Int(store.del(&refs)?))
+}
+
+fn cmd_exists(store: &RedisStore, args: &[Vec<u8>]) -> Result<Resp, String> {
+    let keys = redis_keys_from_args(args)?;
+    let refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
+    Ok(Resp::Int(store.exists(&refs)?))
+}
+
+fn cmd_ttl(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    Ok(Resp::Int(store.ttl(&redis_key(args, cmd, 1)?)?))
+}
+
+fn cmd_incr(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    Ok(Resp::Int(store.incr_by(&redis_key(args, cmd, 1)?, 1)?))
+}
+
+fn cmd_decr(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    Ok(Resp::Int(store.incr_by(&redis_key(args, cmd, 1)?, -1)?))
+}
+
+fn cmd_llen(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    Ok(Resp::Int(store.llen(&redis_key(args, cmd, 1)?)?))
+}
+
+fn cmd_type(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
+    Ok(Resp::Simple(store.type_of(&redis_key(args, cmd, 1)?)?.into()))
+}
+
 fn execute_data(
     store: &RedisStore,
     cmd: &str,
     args: &[Vec<u8>],
     proto: u8,
 ) -> Result<Resp, String> {
-    let key = |n: usize| -> Result<String, String> {
-        args.get(n)
-            .map(|bytes| utf8_argument(bytes, MAX_REDIS_KEY_BYTES))
-            .transpose()?
-            .ok_or_else(|| {
-                format!(
-                    "ERR wrong number of arguments for '{}'",
-                    cmd.to_ascii_lowercase()
-                )
-            })
-    };
     match cmd {
-        "SET" => {
-            let k = key(1)?;
-            let v = args
-                .get(2)
-                .cloned()
-                .ok_or_else(|| "ERR wrong number of arguments for 'set'".to_string())?;
-            let (mut expire, mut nx, mut xx) = (None, false, false);
-            let mut i = 3;
-            while i < args.len() {
-                match upper(&args[i]).as_str() {
-                    "EX" => {
-                        let s: u64 = parse_num(args.get(i + 1))?;
-                        expire = Some(s * 1000);
-                        i += 2;
-                    }
-                    "PX" => {
-                        let ms: u64 = parse_num(args.get(i + 1))?;
-                        expire = Some(ms);
-                        i += 2;
-                    }
-                    "NX" => {
-                        nx = true;
-                        i += 1;
-                    }
-                    "XX" => {
-                        xx = true;
-                        i += 1;
-                    }
-                    other => return Err(format!("ERR syntax error near '{other}'")),
-                }
-            }
-            if store.set(&k, v, expire, nx, xx)? {
-                Ok(Resp::Simple("OK".into()))
-            } else {
-                Ok(Resp::Null)
-            }
-        }
-        "GET" => Ok(Resp::Bulk(store.get(&key(1)?)?)),
-        "DEL" => {
-            let keys: Vec<String> = args[1..]
-                .iter()
-                .map(|bytes| utf8_argument(bytes, MAX_REDIS_KEY_BYTES))
-                .collect::<Result<_, _>>()?;
-            let refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
-            Ok(Resp::Int(store.del(&refs)?))
-        }
-        "EXISTS" => {
-            let keys: Vec<String> = args[1..]
-                .iter()
-                .map(|bytes| utf8_argument(bytes, MAX_REDIS_KEY_BYTES))
-                .collect::<Result<_, _>>()?;
-            let refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
-            Ok(Resp::Int(store.exists(&refs)?))
-        }
-        "EXPIRE" => {
-            let k = key(1)?;
-            let secs: i64 = parse_num(args.get(2))?;
-            Ok(Resp::Int(store.expire(&k, secs)? as i64))
-        }
-        "TTL" => Ok(Resp::Int(store.ttl(&key(1)?)?)),
-        "INCR" => Ok(Resp::Int(store.incr_by(&key(1)?, 1)?)),
-        "DECR" => Ok(Resp::Int(store.incr_by(&key(1)?, -1)?)),
-        "MGET" => {
-            let mut out = Vec::new();
-            for a in &args[1..] {
-                let k = utf8_argument(a, MAX_REDIS_KEY_BYTES)?;
-                out.push(Resp::Bulk(store.get(&k)?));
-            }
-            Ok(Resp::Array(Some(out)))
-        }
-        "MSET" => {
-            if args.len() < 3 || !(args.len() - 1).is_multiple_of(2) {
-                return Err("ERR wrong number of arguments for 'mset'".into());
-            }
-            let mut i = 1;
-            while i + 1 < args.len() {
-                let k = utf8_argument(&args[i], MAX_REDIS_KEY_BYTES)?;
-                store.set(&k, args[i + 1].clone(), None, false, false)?;
-                i += 2;
-            }
-            Ok(Resp::Simple("OK".into()))
-        }
-        "HSET" => {
-            let k = key(1)?;
-            if args.len() < 4 || !(args.len() - 2).is_multiple_of(2) {
-                return Err("ERR wrong number of arguments for 'hset'".into());
-            }
-            let mut pairs = Vec::new();
-            let mut i = 2;
-            while i + 1 < args.len() {
-                pairs.push((args[i].clone(), args[i + 1].clone()));
-                i += 2;
-            }
-            Ok(Resp::Int(store.hset(&k, &pairs)?))
-        }
-        "HGET" => {
-            let k = key(1)?;
-            let field = args
-                .get(2)
-                .ok_or_else(|| "ERR wrong number of arguments for 'hget'".to_string())?;
-            Ok(Resp::Bulk(store.hget(&k, field)?))
-        }
-        "HGETALL" => {
-            let pairs = store.hgetall(&key(1)?)?;
-            let map = pairs
-                .into_iter()
-                .map(|(f, v)| (Resp::Bulk(Some(f)), Resp::Bulk(Some(v))))
-                .collect();
-            Ok(Resp::Map(map))
-        }
-        "HDEL" => {
-            let k = key(1)?;
-            let fields: Vec<Vec<u8>> = args[2..].to_vec();
-            Ok(Resp::Int(store.hdel(&k, &fields)?))
-        }
-        "LPUSH" | "RPUSH" => {
-            let k = key(1)?;
-            let vals: Vec<Vec<u8>> = args[2..].to_vec();
-            if vals.is_empty() {
-                return Err(format!(
-                    "ERR wrong number of arguments for '{}'",
-                    cmd.to_ascii_lowercase()
-                ));
-            }
-            Ok(Resp::Int(store.push(&k, &vals, cmd == "LPUSH")?))
-        }
-        "LRANGE" => {
-            let k = key(1)?;
-            let start: i64 = parse_num(args.get(2))?;
-            let stop: i64 = parse_num(args.get(3))?;
-            let items = store
-                .lrange(&k, start, stop)?
-                .into_iter()
-                .map(|v| Resp::Bulk(Some(v)))
-                .collect();
-            Ok(Resp::Array(Some(items)))
-        }
-        "LLEN" => Ok(Resp::Int(store.llen(&key(1)?)?)),
-        "SADD" => {
-            let k = key(1)?;
-            let members: Vec<Vec<u8>> = args[2..].to_vec();
-            if members.is_empty() {
-                return Err("ERR wrong number of arguments for 'sadd'".into());
-            }
-            Ok(Resp::Int(store.sadd(&k, &members)?))
-        }
-        "SMEMBERS" => {
-            let items = store
-                .smembers(&key(1)?)?
-                .into_iter()
-                .map(|v| Resp::Bulk(Some(v)))
-                .collect();
-            Ok(Resp::Set(items))
-        }
-        "SREM" => {
-            let k = key(1)?;
-            let members: Vec<Vec<u8>> = args[2..].to_vec();
-            Ok(Resp::Int(store.srem(&k, &members)?))
-        }
-        "ZADD" => {
-            let k = key(1)?;
-            if args.len() < 4 || !(args.len() - 2).is_multiple_of(2) {
-                return Err("ERR wrong number of arguments for 'zadd'".into());
-            }
-            let mut pairs = Vec::new();
-            let mut i = 2;
-            while i + 1 < args.len() {
-                let score: f64 = std::str::from_utf8(&args[i])
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .ok_or_else(|| "ERR value is not a valid float".to_string())?;
-                pairs.push((score, args[i + 1].clone()));
-                i += 2;
-            }
-            Ok(Resp::Int(store.zadd(&k, &pairs)?))
-        }
-        "ZRANGE" => {
-            let k = key(1)?;
-            let start: i64 = parse_num(args.get(2))?;
-            let stop: i64 = parse_num(args.get(3))?;
-            let withscores = args
-                .get(4)
-                .map(|b| upper(b) == "WITHSCORES")
-                .unwrap_or(false);
-            let z = store.zrange(&k, start, stop)?;
-            let mut out = Vec::new();
-            for (m, s) in z {
-                out.push(Resp::Bulk(Some(m)));
-                if withscores {
-                    out.push(if proto >= 3 {
-                        Resp::Double(s)
-                    } else {
-                        Resp::bulk_str(fmt_double(s))
-                    });
-                }
-            }
-            Ok(Resp::Array(Some(out)))
-        }
-        "ZSCORE" => {
-            let k = key(1)?;
-            let member = args
-                .get(2)
-                .ok_or_else(|| "ERR wrong number of arguments for 'zscore'".to_string())?;
-            match store.zscore(&k, member)? {
-                Some(s) => Ok(Resp::bulk_str(fmt_double(s))),
-                None => Ok(Resp::Null),
-            }
-        }
-        "SCAN" => {
-            // SCAN cursor [MATCH pattern] [COUNT n] [TYPE t] — one-shot (cursor 0).
-            let mut pattern = None;
-            let mut i = 2;
-            while i < args.len() {
-                match upper(&args[i]).as_str() {
-                    "MATCH" => {
-                        pattern = args
-                            .get(i + 1)
-                            .map(|bytes| utf8_argument(bytes, MAX_REDIS_KEY_BYTES))
-                            .transpose()?;
-                        i += 2;
-                    }
-                    "COUNT" | "TYPE" => i += 2, // accepted, ignored (one-shot scan)
-                    _ => i += 1,
-                }
-            }
-            let keys = store.scan(pattern.as_deref())?;
-            let items = keys.into_iter().map(Resp::bulk_str).collect();
-            Ok(Resp::Array(Some(vec![
-                Resp::bulk_str("0"),
-                Resp::Array(Some(items)),
-            ])))
-        }
-        "TYPE" => Ok(Resp::Simple(store.type_of(&key(1)?)?.into())),
+        "SET" => cmd_set(store, cmd, args),
+        "GET" => cmd_get(store, cmd, args),
+        "DEL" => cmd_del_exec(store, args),
+        "EXISTS" => cmd_exists(store, args),
+        "EXPIRE" => cmd_expire(store, cmd, args),
+        "TTL" => cmd_ttl(store, cmd, args),
+        "INCR" => cmd_incr(store, cmd, args),
+        "DECR" => cmd_decr(store, cmd, args),
+        "MGET" => cmd_mget(store, args),
+        "MSET" => cmd_mset(store, args),
+        "HSET" => cmd_hset(store, cmd, args),
+        "HGET" => cmd_hget(store, cmd, args),
+        "HGETALL" => cmd_hgetall(store, cmd, args),
+        "HDEL" => cmd_hdel(store, cmd, args),
+        "LPUSH" | "RPUSH" => cmd_push(store, cmd, args),
+        "LRANGE" => cmd_lrange(store, cmd, args),
+        "LLEN" => cmd_llen(store, cmd, args),
+        "SADD" => cmd_sadd(store, cmd, args),
+        "SMEMBERS" => cmd_smembers(store, cmd, args),
+        "SREM" => cmd_srem(store, cmd, args),
+        "ZADD" => cmd_zadd(store, cmd, args),
+        "ZRANGE" => cmd_zrange(store, cmd, args, proto),
+        "ZSCORE" => cmd_zscore(store, cmd, args),
+        "SCAN" => cmd_scan(store, args),
+        "TYPE" => cmd_type(store, cmd, args),
         other => Err(format!(
             "ERR unknown command '{}'",
             other.to_ascii_lowercase()
