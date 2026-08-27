@@ -393,9 +393,21 @@ repos:
   # so this hook runs the SAME command as release.yml's "Test (facade full)"
   # step, byte-for-byte, instead of the ratchet wrapper: a green local pre-push
   # now IS a green CI run for this step, by construction, not by convention.
-  # scripts/cargo_test_ratchet.py and scripts/facade_full_test_baseline.txt
-  # are kept (unwired) in case a future red-main episode needs the same
-  # differential-gating shape again — see that script's own module docstring.
+  # REMOVED (CX-RAT-06/17, no-ratchets policy): scripts/cargo_test_ratchet.py
+  # and scripts/facade_full_test_baseline.txt were kept (unwired) after the
+  # 2026-08-14 retirement above "in case a future red-main episode needs the
+  # same differential-gating shape again" — but a ratchet mechanism kept
+  # around unwired is still a mechanism someone can rewire, and this
+  # workspace's standing rule is no baseline/ratchet gates, full stop
+  # (findings are debt to burn down, never frozen). Verified dead at removal:
+  # the baseline was empty (comments only, no entries), and grep across
+  # .pre-commit-config.yaml, .github/workflows/, and this repo found no hook,
+  # workflow step, Makefile, or justfile target invoking
+  # scripts/cargo_test_ratchet.py — not even the `cargo-test-full` hook this
+  # comment block used to describe, itself removed in the 2026-08-15
+  # perf/gate-dedup pass below. If a future red-main episode needs the same
+  # differential-gating shape, re-derive it fresh against the then-current
+  # failure set rather than reviving a frozen baseline file.
   # perf/gate-dedup (2026-08-15): the `cargo-test-full` hook that lived here ran
   # the EXACT command above (`cargo test -p epistemic-graph --features full
   # --no-fail-fast`) on every push — byte-for-byte release.yml's `gates` job
