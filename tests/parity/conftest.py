@@ -18,14 +18,15 @@ import uuid
 
 import pytest
 
-# Plain (non-relative) import: `tests/` has no `__init__.py`, so pytest's
-# default "prepend" import mode treats `tests/parity/` as a standalone,
-# package-less directory -- it inserts that directory into `sys.path` and
-# imports every module in it (including this `conftest.py`) as a top-level
-# module, not a package submodule. A relative `from ._harness import ...`
-# would fail here with "attempted relative import with no known parent
-# package"; every module in this directory imports `_harness` the same way.
-from _harness import BoundEmbeddedTransport, TransportPair
+# BUG-CX-002 fix: `tests/parity/__init__.py` now makes this directory a
+# real package (`parity`), imported under a dotted module name distinct
+# from top-level `tests/conftest.py`'s bare `conftest` -- the two used to
+# collide under the SAME `conftest` module name (neither directory had an
+# `__init__.py`), which broke every top-level `tests/test_*.py` module's
+# `from conftest import ...` targeting the other file. Relative import now
+# works because this is a real package; every module in this directory
+# imports `_harness` the same way.
+from ._harness import BoundEmbeddedTransport, TransportPair
 
 from epistemic_graph.client import EpistemicGraphClient
 from epistemic_graph.embedded import EmbeddedTransport
@@ -33,11 +34,14 @@ from epistemic_graph.embedded import EmbeddedTransport
 # Two distinct principals for the RLS cases (plan §3.1/§4.3's proof-of-concept
 # requirement). OWNER reuses this session's already-bootstrapped System
 # identity -- the literal values are duplicated from `tests/conftest.py`'s
-# `TEST_AGENT_ID`/`TEST_SIGNER_KEY` rather than cross-imported: `tests/` has
-# no `__init__.py`, so each subdirectory is its own separate "rootless"
-# pytest collection scope (see `tests/test_isolation.py`'s sibling `from
-# conftest import ...`, which resolves to `tests/conftest.py` only because
-# that test file lives directly in `tests/`, not a subdirectory of it).
+# `TEST_AGENT_ID`/`TEST_SIGNER_KEY` rather than cross-imported: this module
+# is now the distinct `parity.conftest` package module (see
+# `tests/parity/__init__.py`), separate from top-level `tests/conftest.py`'s
+# bare `conftest` module (see `tests/test_isolation.py`'s sibling `from
+# conftest import ...`, which resolves to `tests/conftest.py` since that
+# test file lives directly in `tests/`, not this subdirectory) -- cross-
+# importing between them still isn't worth adding, so the values stay
+# duplicated here.
 # OTHER is a deliberately UNREGISTERED identity -- the simplest, already-
 # proven-over-the-wire isolation case (`tests/test_isolation.py::
 # test_unregistered_identity_is_denied`), not a row-level ownership scenario
@@ -62,9 +66,10 @@ def _context(agent_id: str) -> dict[str, object]:
 @pytest.fixture
 def owner_agent_id() -> str:
     """Exposed as a fixture (not imported directly) so test files never need
-    `from conftest import ...` -- `tests/` has no `__init__.py`, and pytest's
-    per-conftest module naming under nested, package-less directories is not
-    worth depending on when a fixture does the same job cleanly."""
+    `from conftest import ...` -- `parity.conftest` and top-level `conftest`
+    (`tests/conftest.py`) are now distinct modules (see
+    `tests/parity/__init__.py`), but cross-module attribute access still
+    isn't worth depending on when a fixture does the same job cleanly."""
     return OWNER_AGENT_ID
 
 

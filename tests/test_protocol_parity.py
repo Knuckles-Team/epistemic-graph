@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 import re
+import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -229,6 +230,20 @@ def _parse_entries(text: str) -> list[_BaselineEntry]:
 
 
 def _baseline_entries() -> list[_BaselineEntry]:
+    """Parse the baseline file -- fails CLOSED to an empty list (no entries)
+    if the file itself is missing, rather than crashing on an uncaught
+    ``FileNotFoundError`` (BUG-CX-002 hardening; matches this workspace's
+    ~19 other baseline-file gates, which all fail closed on a missing file
+    instead of crashing). "Closed" here still means the gate is loud, not
+    silent: with zero entries to justify anything, every real unbound
+    variant reports as newly-unbound in
+    :func:`test_unbound_variants_match_baseline`, and
+    :func:`test_baseline_entries_well_formed`'s ``assert entries`` fires --
+    the missing file surfaces as an ordinary, readable test failure instead
+    of an opaque traceback aborting the run.
+    """
+    if not _BASELINE.exists():
+        return []
     return _parse_entries(_BASELINE.read_text(encoding="utf-8"))
 
 
@@ -412,6 +427,22 @@ def test_baseline_entries_reject_missing_metadata_fields():
             f"{bad!r} parsed as well-formed but should have failed "
             "test_baseline_entries_well_formed"
         )
+
+
+def test_missing_baseline_file_fails_closed_not_crashes(tmp_path, monkeypatch):
+    """BUG-CX-002: a missing ``protocol_unbound_baseline.txt`` must fail
+    closed to an empty entry list, never crash with an uncaught
+    ``FileNotFoundError``.
+
+    Proven by pointing ``_BASELINE`` at a path that does not exist (rather
+    than deleting the real file, which every other test here depends on)
+    and asserting ``_baseline_entries()`` returns ``[]`` instead of raising.
+    """
+    missing = tmp_path / "does-not-exist.txt"
+    assert not missing.exists()
+    this_module = sys.modules[__name__]
+    monkeypatch.setattr(this_module, "_BASELINE", missing)
+    assert _baseline_entries() == []
 
 
 @pytest.mark.skip(reason="diagnostic helper, run manually")
