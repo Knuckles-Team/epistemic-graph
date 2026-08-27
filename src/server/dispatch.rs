@@ -3185,54 +3185,83 @@ async fn dispatch_case_12_delete_graph(
                 return Response::err(req_id, format!("durable graph purge failed: {e}"));
             }
 
-            let mut s = timed_write(state).await;
-            if !state_machine_authorized {
-                if let Some(entry) = s.registry.catalog_record(graph_name) {
-                if let Err(denied) = check_graph_access(
-                    &s.isolation,
-                    req_agent_id.as_deref(),
-                    graph_name,
-                    entry.graph_type,
-                    entry.owner.as_deref(),
-                    AccessLevel::Write,
-                ) {
-                    return Response::err(req_id, denied);
-                }
-            }
-            }
-            match s.registry.delete_graph(graph_name) {
-                Ok(()) => {
-                    crate::metrics::drop_graph(graph_name);
-                    // In-memory teardown (CONCEPT:EG-KG.backend.many-repeated-create-delete) — distinct from the durable
-                    // purge below. The registry entry (the live GraphCore) is gone, but
-                    // per-graph state keyed by NAME elsewhere in ServerState would
-                    // survive and shadow a same-name recreate. Drop it so the recreate
-                    // starts truly clean every cycle:
-                    //  • the write-coalescer's cached writer — its worker owns an
-                    //    `Arc<GraphCore>` of THIS (deleted) incarnation; left cached,
-                    //    `writer_for` returns it on recreate (it is name-keyed and
-                    //    ignores the new core) and routes the new tenant's writes into
-                    //    the orphaned core — silently dropping them in RAM. THIS is the
-                    //    tenant-churn corruption.
-                    //  • the per-graph in-flight semaphore (no data, but bounds an
-                    //    unbounded entry leak across many churn cycles).
-                    s.write_coalescer.remove(graph_name);
-                    // The routed-write-coalescer registry does not hold a stale
-                    // `Arc<GraphCore>` per writer (each queued job carries its own —
-                    // see its module docs), so this is resource hygiene only, not a
-                    // tenant-churn correctness fix like the line above.
-                    s.routed_write_coalescer.remove(graph_name);
-                    s.per_graph_inflight.remove(graph_name);
-                    // Cold-tenant tracker (CONCEPT:EG-KG.backend.r6-feature, R6): forget this graph's access
-                    // timestamp + offload mark so they don't leak across a same-name recreate.
-                    #[cfg(feature = "redb")]
-                    s.cold_tracker.forget(graph_name);
-                    Response::ok(req_id, deleted_result)
-                }
-                Err(e) => Response::err(req_id, e),
-            }
+            teardown_deleted_graph_in_memory(
+                state,
+                req_id,
+                req_agent_id.as_deref(),
+                graph_name,
+                state_machine_authorized,
+                deleted_result,
+            )
+            .await
         }
         _ => unreachable!("dispatch_case_12_delete_graph: classifier/handler diverged"),
+    }
+}
+
+/// The in-memory teardown half of `DeleteGraph`, after the durable purge has
+/// already committed: re-checks graph access under the write lock (the
+/// durable-purge check above ran under a read lock, released before the
+/// write-lock re-acquire here), removes the registry entry, and forgets every
+/// per-graph-NAME-keyed piece of `ServerState` that would otherwise survive
+/// a same-name recreate and shadow the new incarnation (write-coalescer
+/// cached writer, routed-write-coalescer, per-graph in-flight semaphore,
+/// cold-tenant tracker mark) -- see the inline comments at each `.remove()`/
+/// `.forget()` call for why each one specifically matters (this is the
+/// tenant-churn-corruption fix's own documentation, preserved verbatim).
+async fn teardown_deleted_graph_in_memory(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    req_agent_id: Option<&str>,
+    graph_name: &str,
+    state_machine_authorized: bool,
+    deleted_result: ResultPayload,
+) -> Response {
+    let mut s = timed_write(state).await;
+    if !state_machine_authorized {
+        if let Some(entry) = s.registry.catalog_record(graph_name) {
+            if let Err(denied) = check_graph_access(
+                &s.isolation,
+                req_agent_id,
+                graph_name,
+                entry.graph_type,
+                entry.owner.as_deref(),
+                AccessLevel::Write,
+            ) {
+                return Response::err(req_id, denied);
+            }
+        }
+    }
+    match s.registry.delete_graph(graph_name) {
+        Ok(()) => {
+            crate::metrics::drop_graph(graph_name);
+            // In-memory teardown (CONCEPT:EG-KG.backend.many-repeated-create-delete) — distinct from the durable
+            // purge below. The registry entry (the live GraphCore) is gone, but
+            // per-graph state keyed by NAME elsewhere in ServerState would
+            // survive and shadow a same-name recreate. Drop it so the recreate
+            // starts truly clean every cycle:
+            //  • the write-coalescer's cached writer — its worker owns an
+            //    `Arc<GraphCore>` of THIS (deleted) incarnation; left cached,
+            //    `writer_for` returns it on recreate (it is name-keyed and
+            //    ignores the new core) and routes the new tenant's writes into
+            //    the orphaned core — silently dropping them in RAM. THIS is the
+            //    tenant-churn corruption.
+            //  • the per-graph in-flight semaphore (no data, but bounds an
+            //    unbounded entry leak across many churn cycles).
+            s.write_coalescer.remove(graph_name);
+            // The routed-write-coalescer registry does not hold a stale
+            // `Arc<GraphCore>` per writer (each queued job carries its own —
+            // see its module docs), so this is resource hygiene only, not a
+            // tenant-churn correctness fix like the line above.
+            s.routed_write_coalescer.remove(graph_name);
+            s.per_graph_inflight.remove(graph_name);
+            // Cold-tenant tracker (CONCEPT:EG-KG.backend.r6-feature, R6): forget this graph's access
+            // timestamp + offload mark so they don't leak across a same-name recreate.
+            #[cfg(feature = "redb")]
+            s.cold_tracker.forget(graph_name);
+            Response::ok(req_id, deleted_result)
+        }
+        Err(e) => Response::err(req_id, e),
     }
 }
 
@@ -8322,6 +8351,493 @@ async fn dispatch_op_raft_write_routing_barrier(
     }
 
 
+async fn check_change_envelope_placement_fence(
+    req_id: u64,
+    graph_name: &str,
+    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    #[cfg(feature = "raft")]
+    routed_raft: Option<&crate::raft::multi::RoutedRaftHandle>,
+) -> Result<(), Response> {
+    #[cfg(feature = "raft")]
+    if let Some(routed) = routed_raft {
+        let leader = routed.handle.current_leader().await;
+        if leader != Some(routed.handle.node_id) {
+            return Err(Response::stale_route(
+                req_id,
+                graph_name,
+                routed.group_id,
+                routed.epoch,
+                leader,
+                "ChangeEnvelope commits require the current placement leader",
+            ));
+        }
+        if envelope.mutation.placement_epoch != routed.epoch
+            || envelope.mutation.fencing_token != Some(routed.group_id)
+        {
+            return Err(Response::stale_route(
+                req_id,
+                graph_name,
+                routed.group_id,
+                routed.epoch,
+                leader,
+                "ChangeEnvelope placement epoch or fencing token is stale",
+            ));
+        }
+    } else {
+        if envelope.mutation.placement_epoch != 0 || envelope.mutation.fencing_token.is_some() {
+            return Err(Response::err(
+                req_id,
+                "ChangeEnvelope carries a placement fence but no routed placement is active",
+            ));
+        }
+    }
+    #[cfg(not(feature = "raft"))]
+    if envelope.mutation.placement_epoch != 0 || envelope.mutation.fencing_token.is_some() {
+        return Err(Response::err(
+            req_id,
+            "ChangeEnvelope carries a placement fence in a single-node build",
+        ));
+    }
+    Ok(())
+}
+
+/// Attempt the clustered replication path for `ApplyChangeEnvelope`: one log
+/// entry, one native transaction on every replica, leader-selected timestamp
+/// for byte-stable replay/follower records. `Some(resp)` means the request
+/// was fully handled (locally or via a stale-route redirect) by this path;
+/// `None` means no routed placement is active and the caller should fall
+/// through to the local `commit_change_envelope` path.
+#[cfg(feature = "raft")]
+async fn try_replicate_change_envelope(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &str,
+    graph_type: crate::protocol::GraphType,
+    tenant_scope: &str,
+    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    committed_at_ms: u64,
+    fname: &str,
+    routed_raft: Option<&crate::raft::multi::RoutedRaftHandle>,
+) -> Option<Response> {
+    let routed = routed_raft?;
+    let mutation = match crate::raft::RaftMutationContext::from_verified_request(
+        envelope.mutation.batch_id.clone(),
+        envelope.mutation.context.request_id,
+        tenant_scope,
+        envelope.mutation.context.principal.clone(),
+        false,
+        envelope.mutation.placement_epoch,
+        envelope.mutation.fencing_token,
+        envelope.mutation.created_at_ms,
+    ) {
+        Ok(context) => context,
+        Err(error) => return Some(Response::err(req_id, error)),
+    };
+    let server_secret = timed_read(state).await.auth_secret.clone();
+    let command =
+        match crate::raft::ReplicatedMutation::change_envelope(envelope, &server_secret) {
+            Ok(command) => command,
+            Err(error) => return Some(Response::err(req_id, error)),
+        };
+    let request = crate::raft::RaftRequest {
+        graph_fname: fname.to_string(),
+        graph_name: graph_name.to_string(),
+        graph_type,
+        command,
+        committed_at_ms,
+        mutation,
+    };
+    Some(match routed.handle.client_write(request).await {
+        Ok(response) if response.native_error.is_some() => {
+            Response::err(req_id, response.native_error.unwrap_or_default())
+        }
+        Ok(response) => match response.change_envelope_commit {
+            Some(committed) => {
+                let mut result = change_envelope_result(&committed, response.projection_pending);
+                if let Some(object) = result.as_object_mut() {
+                    object.insert("replicated".to_string(), true.into());
+                    object.insert("group".to_string(), routed.group_id.into());
+                    object.insert("epoch".to_string(), routed.epoch.into());
+                    object.insert("fencing_token".to_string(), routed.fencing_token().into());
+                }
+                Response::ok(req_id, ResultPayload::Json(result))
+            }
+            None => Response::err(req_id, "replicated ChangeEnvelope returned no commit receipt"),
+        },
+        Err(error) => {
+            let leader = routed.handle.current_leader().await;
+            Response::stale_route(
+                req_id,
+                graph_name,
+                routed.group_id,
+                routed.epoch,
+                leader,
+                error,
+            )
+        }
+    })
+}
+
+async fn dispatch_change_env_apply_change_envelope(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &str,
+    core: Arc<crate::graph::GraphCore>,
+    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    #[cfg(feature = "raft")]
+    routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
+    #[cfg(feature = "raft")]
+    graph_type: crate::protocol::GraphType,
+    tenant_scope: &str,
+    method: Method,
+) -> Response {
+    match method {
+        Method::ApplyChangeEnvelope { envelope } => {
+            if let Err(resp) = check_change_envelope_placement_fence(
+                req_id,
+                graph_name,
+                &envelope,
+                #[cfg(feature = "raft")]
+                routed_raft.as_ref(),
+            )
+            .await
+            {
+                return resp;
+            }
+
+            let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+            if let Some(expected) = envelope.mutation.expected_graph_version {
+                if expected != core.version() {
+                    return Response::err(
+                        req_id,
+                        format!(
+                            "STALE_GRAPH_VERSION: expected {expected}, current {}",
+                            core.version()
+                        ),
+                    );
+                }
+            }
+            let committed_at_ms = authoritative_now_ms().max(envelope.mutation.created_at_ms);
+            let Some(backend) = persistence.as_ref() else {
+                return Response::err(
+                    req_id,
+                    "ApplyChangeEnvelope requires a configured persistence backend",
+                );
+            };
+            let fname = crate::persist::sanitize(graph_name);
+
+            #[cfg(feature = "raft")]
+            if let Some(resp) = try_replicate_change_envelope(
+                state,
+                req_id,
+                graph_name,
+                graph_type,
+                &tenant_scope,
+                &envelope,
+                committed_at_ms,
+                &fname,
+                routed_raft.as_ref(),
+            )
+            .await
+            {
+                return resp;
+            }
+
+            let committed = match backend
+                .commit_change_envelope(&fname, &envelope, committed_at_ms)
+                .await
+            {
+                Ok(committed) => committed,
+                Err(error) => {
+                    return Response::err(
+                        req_id,
+                        format!("ApplyChangeEnvelope atomic commit failed: {error}"),
+                    )
+                }
+            };
+            let projection_error = if committed.replayed {
+                None
+            } else {
+                crate::server::mutation_batch::publish_change_envelope_projection(&core, &envelope)
+                    .err()
+            };
+            let result = change_envelope_result(&committed, projection_error.is_some());
+            return Response::ok(req_id, ResultPayload::Json(result));
+        }
+        _ => unreachable!("dispatch_change_env_apply_change_envelope: classifier/handler diverged"),
+    }
+}
+
+/// Commit a `ApplyChangeEnvelopes` batch and translate the durable result
+/// (all-or-nothing per `crate::persist::sanitize`d graph) into the per-envelope
+/// JSON result array the caller returns as `{"results": [...]}` -- success
+/// entries and the atomic-abort's per-envelope conflict entries are the same
+/// shape either way, so callers never have to branch on which happened.
+async fn commit_change_envelope_batch_results(
+    backend: &Arc<dyn crate::server::persistence::PersistenceBackend>,
+    core: &Arc<crate::graph::GraphCore>,
+    fname: &str,
+    envelopes: &[eg_types::change_envelope::ChangeEnvelope],
+    committed_at_ms: u64,
+) -> Vec<serde_json::Value> {
+    let mut results: Vec<serde_json::Value> = Vec::with_capacity(envelopes.len());
+    match backend
+        .commit_change_envelopes(fname, envelopes, committed_at_ms)
+        .await
+    {
+        Ok(commits) => {
+            for (envelope, committed) in envelopes.iter().zip(commits.iter()) {
+                let projection_error = if committed.replayed {
+                    None
+                } else {
+                    crate::server::mutation_batch::publish_change_envelope_projection(
+                        core, envelope,
+                    )
+                    .err()
+                };
+                let mut entry = change_envelope_result(committed, projection_error.is_some());
+                if let Some(object) = entry.as_object_mut() {
+                    object.insert(
+                        "status".to_string(),
+                        serde_json::Value::String(
+                            if committed.replayed {
+                                "idempotent_skip"
+                            } else {
+                                "applied"
+                            }
+                            .to_string(),
+                        ),
+                    );
+                }
+                results.push(entry);
+            }
+        }
+        Err((failing_index, error)) => {
+            // The whole graph-batch aborted atomically — nothing committed.
+            // Report the batch outcome per envelope honestly: the offender
+            // carries its own error; the siblings carry the abort cause.
+            for (index, envelope) in envelopes.iter().enumerate() {
+                let this_error = if index == failing_index {
+                    error.clone()
+                } else {
+                    format!(
+                        "ABORTED_ATOMIC_GRAPH_BATCH: sibling envelope {failing_index} failed ({error})"
+                    )
+                };
+                results.push(serde_json::json!({
+                    "status": "conflict",
+                    "envelope_id": envelope.envelope_id,
+                    "error": this_error,
+                }));
+            }
+        }
+    }
+    results
+}
+
+async fn dispatch_change_env_apply_change_envelopes(
+    req_id: u64,
+    graph_name: &str,
+    core: Arc<crate::graph::GraphCore>,
+    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    #[cfg(feature = "raft")]
+    routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
+    method: Method,
+) -> Response {
+    match method {
+        Method::ApplyChangeEnvelopes { envelopes } => {
+            // Under an active cluster placement the batch is not offered: raft keeps
+            // each envelope one log entry (K=1 serializes anyway), so the client falls
+            // back to per-record `ApplyChangeEnvelope`. Single-node is where the
+            // one-transaction batching win lands, and prod is single-node.
+            #[cfg(feature = "raft")]
+            if routed_raft.is_some() {
+                return Response::err(
+                    req_id,
+                    "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT: use per-envelope ApplyChangeEnvelope",
+                );
+            }
+            let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+            for envelope in &envelopes {
+                if envelope.mutation.placement_epoch != 0
+                    || envelope.mutation.fencing_token.is_some()
+                {
+                    return Response::err(
+                        req_id,
+                        "ChangeEnvelope carries a placement fence in a single-node build",
+                    );
+                }
+            }
+            let committed_at_ms = envelopes.iter().fold(authoritative_now_ms(), |acc, e| {
+                acc.max(e.mutation.created_at_ms)
+            });
+            let Some(backend) = persistence.as_ref() else {
+                return Response::err(
+                    req_id,
+                    "ApplyChangeEnvelopes requires a configured persistence backend",
+                );
+            };
+            let fname = crate::persist::sanitize(graph_name);
+            let results = commit_change_envelope_batch_results(
+                backend,
+                &core,
+                &fname,
+                &envelopes,
+                committed_at_ms,
+            )
+            .await;
+            return Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({ "results": results })),
+            );
+        }
+        _ => unreachable!("dispatch_change_env_apply_change_envelopes: classifier/handler diverged"),
+    }
+}
+
+async fn dispatch_change_env_get_change_envelope(
+    req_id: u64,
+    graph_name: &str,
+    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    method: Method,
+) -> Response {
+    match method {
+        Method::GetChangeEnvelope {
+            envelope_id,
+            tenant,
+        } => {
+            let Some(backend) = persistence.as_ref() else {
+                return Response::err(req_id, "ChangeEnvelope persistence is unavailable");
+            };
+            let fname = crate::persist::sanitize(graph_name);
+            return match backend.read_change_envelope(&fname, &envelope_id).await {
+                Ok(Some(record))
+                    if record.envelope.mutation.tenant == tenant
+                        && record.envelope.mutation.graph == graph_name =>
+                {
+                    Response::ok(req_id, ResultPayload::raw(&record))
+                }
+                Ok(Some(_)) => Response::err(req_id, "ACCESS_DENIED: envelope tenant mismatch"),
+                Ok(None) => Response::ok(
+                    req_id,
+                    ResultPayload::raw(
+                        &Option::<crate::change_envelope::ChangeEnvelopeRecord>::None,
+                    ),
+                ),
+                Err(error) => Response::err(req_id, format!("ChangeEnvelope read failed: {error}")),
+            };
+        }
+        _ => unreachable!("dispatch_change_env_get_change_envelope: classifier/handler diverged"),
+    }
+}
+
+async fn dispatch_change_env_get_content_version(
+    req_id: u64,
+    graph_name: &str,
+    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    method: Method,
+) -> Response {
+    match method {
+        Method::GetContentVersion { object_id, tenant } => {
+            let Some(backend) = persistence.as_ref() else {
+                return Response::err(req_id, "content-version persistence is unavailable");
+            };
+            let fname = crate::persist::sanitize(graph_name);
+            return match backend
+                .read_content_version(&fname, &tenant, &object_id)
+                .await
+            {
+                Ok(version) => Response::ok(req_id, ResultPayload::raw(&version)),
+                Err(error) => {
+                    Response::err(req_id, format!("content-version read failed: {error}"))
+                }
+            };
+        }
+        _ => unreachable!("dispatch_change_env_get_content_version: classifier/handler diverged"),
+    }
+}
+
+async fn dispatch_change_env_get_change_cursor(
+    req_id: u64,
+    graph_name: &str,
+    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    method: Method,
+) -> Response {
+    match method {
+        Method::GetChangeCursor {
+            source,
+            partition,
+            tenant,
+        } => {
+            let Some(backend) = persistence.as_ref() else {
+                return Response::err(req_id, "change-cursor persistence is unavailable");
+            };
+            let fname = crate::persist::sanitize(graph_name);
+            return match backend
+                .read_change_cursor(&fname, &tenant, &source, &partition)
+                .await
+            {
+                Ok(cursor) => Response::ok(req_id, ResultPayload::raw(&cursor)),
+                Err(error) => Response::err(req_id, format!("change-cursor read failed: {error}")),
+            };
+        }
+        _ => unreachable!("dispatch_change_env_get_change_cursor: classifier/handler diverged"),
+    }
+}
+
+#[cfg(feature = "raft")]
+async fn resolve_routed_raft(
+    req_id: u64,
+    graph_name: &str,
+    multi_raft: Option<&std::sync::Arc<crate::raft::multi::MultiRaft>>,
+) -> Result<Option<crate::raft::multi::RoutedRaftHandle>, Response> {
+    let Some(multi) = multi_raft else {
+        return Ok(None);
+    };
+    match multi.handle_for_graph(graph_name).await {
+        Some(routed) => Ok(Some(routed)),
+        None => {
+            let route = multi.route_graph(graph_name).await;
+            Err(Response::stale_route(
+                req_id,
+                graph_name,
+                route.group,
+                route.epoch,
+                None,
+                "authoritative placement group is not running on this node",
+            ))
+        }
+    }
+}
+
+fn stamp_resource_and_capacity_timestamps(method: &mut Method) {
+    if crate::server::mutation_batch::is_resource_reservation_method(method) {
+        let now_ms = authoritative_now_ms();
+        match method {
+            Method::ReserveWorkItemResources { request }
+            | Method::ReleaseWorkItemResources { request }
+            | Method::ReclaimWorkItemResources { request } => request.now_ms = now_ms,
+            Method::QueryWorkItemReservation { request }
+            | Method::ResourceReservationStatus { request } => request.now_ms = now_ms,
+            Method::UpdateResourceHost { request } => request.now_ms = now_ms,
+            _ => unreachable!("resource method classifier and timestamp binding diverged"),
+        }
+    }
+    if crate::server::mutation_batch::is_capacity_method(method) {
+        let now_ms = authoritative_now_ms();
+        match method {
+            Method::AcquireCapacity { request } => request.now_ms = now_ms,
+            Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
+                request.now_ms = now_ms
+            }
+            Method::ReclaimExpiredCapacity { request } => request.now_ms = now_ms,
+            Method::UpdateCapacityCell { request } => request.now_ms = now_ms,
+            Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. } => {}
+            _ => unreachable!("capacity method classifier and timestamp binding diverged"),
+        }
+    }
+}
+
 async fn dispatch_graph_op_inner(
     state: &Arc<RwLock<ServerState>>,
     ctx: GraphOpContext<'_>,
@@ -8389,39 +8905,16 @@ async fn dispatch_graph_op_inner(
     // pass ACL for any graph whether the target graph exists (see
     // `access::check_caller_is_known`'s doc). A registered caller always falls
     // through unchanged to the real, graph-type/owner-aware decision below.
-    if !state_machine_authorized {
-        if let Err(denied) = check_caller_is_known(&s.isolation, caller, graph_name, access) {
-            return Response::err(req_id, denied);
-        }
+    if let Err(resp) = check_known_caller(&s.isolation, req_id, caller, graph_name, access, state_machine_authorized) {
+        return resp;
     }
 
     let entry = match s.registry.get(graph_name) {
         Some(e) => e,
         None => return Response::err(req_id, format!("Graph '{}' not found", graph_name)),
     };
-    if let Some(manifest) = s.registry.materialization_manifest(graph_name) {
-        if !manifest.valid {
-            let phase = match manifest.phase {
-                crate::registry::MaterializationPhase::CatalogOnly => "catalog_only",
-                crate::registry::MaterializationPhase::Partial => "partial",
-                crate::registry::MaterializationPhase::Complete => "complete",
-                crate::registry::MaterializationPhase::Failed => "failed",
-            };
-            return Response::err(
-                req_id,
-                serde_json::json!({
-                    "code": "PARTIAL_MATERIALIZATION",
-                    "phase": phase,
-                    "source_snapshot_version": manifest.source_snapshot_version,
-                    "completeness_cursor": manifest.completeness_cursor.as_ref().map(|cursor| serde_json::json!({
-                        "node_offset": cursor.node_offset,
-                        "edge_offset": cursor.edge_offset,
-                    })),
-                    "retryable": manifest.phase != crate::registry::MaterializationPhase::Failed,
-                })
-                .to_string(),
-            );
-        }
+    if let Err(resp) = check_materialization_valid(&s.registry, req_id, graph_name) {
+        return resp;
     }
 
     if !state_machine_authorized {
@@ -8565,218 +9058,36 @@ async fn dispatch_graph_op_inner(
     // the sole clustered authority. Resolving here also fences reads away from a
     // node that no longer runs the graph's current group.
     #[cfg(feature = "raft")]
-    let routed_raft = if let Some(multi) = multi_raft.as_ref() {
-        match multi.handle_for_graph(graph_name).await {
-            Some(routed) => Some(routed),
-            None => {
-                let route = multi.route_graph(graph_name).await;
-                return Response::stale_route(
-                    req_id,
-                    graph_name,
-                    route.group,
-                    route.epoch,
-                    None,
-                    "authoritative placement group is not running on this node",
-                );
-            }
-        }
-    } else {
-        None
+    let routed_raft = match resolve_routed_raft(req_id, graph_name, multi_raft.as_ref()).await {
+        Ok(routed_raft) => routed_raft,
+        Err(resp) => return resp,
     };
 
     // Resource lifecycle timestamps are authority inputs, not caller clocks.
     // Bind one leader/replicated-apply timestamp before dispatching either the
     // native MutationBatch or an authority read; followers replay the timestamp
     // carried by the committed Raft scope through `authoritative_now_ms()`.
-    if crate::server::mutation_batch::is_resource_reservation_method(&method) {
-        let now_ms = authoritative_now_ms();
-        match &mut method {
-            Method::ReserveWorkItemResources { request }
-            | Method::ReleaseWorkItemResources { request }
-            | Method::ReclaimWorkItemResources { request } => request.now_ms = now_ms,
-            Method::QueryWorkItemReservation { request }
-            | Method::ResourceReservationStatus { request } => request.now_ms = now_ms,
-            Method::UpdateResourceHost { request } => request.now_ms = now_ms,
-            _ => unreachable!("resource method classifier and timestamp binding diverged"),
-        }
-    }
-    if crate::server::mutation_batch::is_capacity_method(&method) {
-        let now_ms = authoritative_now_ms();
-        match &mut method {
-            Method::AcquireCapacity { request } => request.now_ms = now_ms,
-            Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
-                request.now_ms = now_ms
-            }
-            Method::ReclaimExpiredCapacity { request } => request.now_ms = now_ms,
-            Method::UpdateCapacityCell { request } => request.now_ms = now_ms,
-            Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. } => {}
-            _ => unreachable!("capacity method classifier and timestamp binding diverged"),
-        }
-    }
+    stamp_resource_and_capacity_timestamps(&mut method);
 
     // ChangeEnvelope is a first-class persistence operation, not a sequence of
     // direct graph calls. It executes only after graph ACL and placement
     // resolution, and before generic replicated mutation paths can decompose it.
     let method = match method {
-        Method::ApplyChangeEnvelope { envelope } => {
-            #[cfg(feature = "raft")]
-            if let Some(routed) = routed_raft.as_ref() {
-                let leader = routed.handle.current_leader().await;
-                if leader != Some(routed.handle.node_id) {
-                    return Response::stale_route(
-                        req_id,
-                        graph_name,
-                        routed.group_id,
-                        routed.epoch,
-                        leader,
-                        "ChangeEnvelope commits require the current placement leader",
-                    );
-                }
-                if envelope.mutation.placement_epoch != routed.epoch
-                    || envelope.mutation.fencing_token != Some(routed.group_id)
-                {
-                    return Response::stale_route(
-                        req_id,
-                        graph_name,
-                        routed.group_id,
-                        routed.epoch,
-                        leader,
-                        "ChangeEnvelope placement epoch or fencing token is stale",
-                    );
-                }
-            } else {
-                if envelope.mutation.placement_epoch != 0
-                    || envelope.mutation.fencing_token.is_some()
-                {
-                    return Response::err(
-                        req_id,
-                        "ChangeEnvelope carries a placement fence but no routed placement is active",
-                    );
-                }
-            }
-            #[cfg(not(feature = "raft"))]
-            if envelope.mutation.placement_epoch != 0 || envelope.mutation.fencing_token.is_some() {
-                return Response::err(
-                    req_id,
-                    "ChangeEnvelope carries a placement fence in a single-node build",
-                );
-            }
-
-            let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-            if let Some(expected) = envelope.mutation.expected_graph_version {
-                if expected != core.version() {
-                    return Response::err(
-                        req_id,
-                        format!(
-                            "STALE_GRAPH_VERSION: expected {expected}, current {}",
-                            core.version()
-                        ),
-                    );
-                }
-            }
-            let committed_at_ms = authoritative_now_ms().max(envelope.mutation.created_at_ms);
-            let Some(backend) = persistence.as_ref() else {
-                return Response::err(
-                    req_id,
-                    "ApplyChangeEnvelope requires a configured persistence backend",
-                );
-            };
-            let fname = crate::persist::sanitize(graph_name);
-
-            // A clustered ChangeEnvelope remains one log entry and one native
-            // transaction on every replica. The leader-selected timestamp travels
-            // in the entry so replay and follower records are byte-stable.
-            #[cfg(feature = "raft")]
-            {
-                if let Some(routed) = routed_raft.as_ref() {
-                    let mutation = match crate::raft::RaftMutationContext::from_verified_request(
-                        envelope.mutation.batch_id.clone(),
-                        envelope.mutation.context.request_id,
-                        &tenant_scope,
-                        envelope.mutation.context.principal.clone(),
-                        false,
-                        envelope.mutation.placement_epoch,
-                        envelope.mutation.fencing_token,
-                        envelope.mutation.created_at_ms,
-                    ) {
-                        Ok(context) => context,
-                        Err(error) => return Response::err(req_id, error),
-                    };
-                    let server_secret = timed_read(state).await.auth_secret.clone();
-                    let command = match crate::raft::ReplicatedMutation::change_envelope(
-                        &envelope,
-                        &server_secret,
-                    ) {
-                        Ok(command) => command,
-                        Err(error) => return Response::err(req_id, error),
-                    };
-                    let request = crate::raft::RaftRequest {
-                        graph_fname: fname.clone(),
-                        graph_name: graph_name.to_string(),
-                        graph_type,
-                        command,
-                        committed_at_ms,
-                        mutation,
-                    };
-                    return match routed.handle.client_write(request).await {
-                        Ok(response) if response.native_error.is_some() => {
-                            Response::err(req_id, response.native_error.unwrap_or_default())
-                        }
-                        Ok(response) => match response.change_envelope_commit {
-                            Some(committed) => {
-                                let mut result =
-                                    change_envelope_result(&committed, response.projection_pending);
-                                if let Some(object) = result.as_object_mut() {
-                                    object.insert("replicated".to_string(), true.into());
-                                    object.insert("group".to_string(), routed.group_id.into());
-                                    object.insert("epoch".to_string(), routed.epoch.into());
-                                    object.insert(
-                                        "fencing_token".to_string(),
-                                        routed.fencing_token().into(),
-                                    );
-                                }
-                                Response::ok(req_id, ResultPayload::Json(result))
-                            }
-                            None => Response::err(
-                                req_id,
-                                "replicated ChangeEnvelope returned no commit receipt",
-                            ),
-                        },
-                        Err(error) => {
-                            let leader = routed.handle.current_leader().await;
-                            Response::stale_route(
-                                req_id,
-                                graph_name,
-                                routed.group_id,
-                                routed.epoch,
-                                leader,
-                                error,
-                            )
-                        }
-                    };
-                }
-            }
-
-            let committed = match backend
-                .commit_change_envelope(&fname, &envelope, committed_at_ms)
-                .await
-            {
-                Ok(committed) => committed,
-                Err(error) => {
-                    return Response::err(
-                        req_id,
-                        format!("ApplyChangeEnvelope atomic commit failed: {error}"),
-                    )
-                }
-            };
-            let projection_error = if committed.replayed {
-                None
-            } else {
-                crate::server::mutation_batch::publish_change_envelope_projection(&core, &envelope)
-                    .err()
-            };
-            let result = change_envelope_result(&committed, projection_error.is_some());
-            return Response::ok(req_id, ResultPayload::Json(result));
+                method @ Method::ApplyChangeEnvelope { .. } => {
+            return dispatch_change_env_apply_change_envelope(
+                state,
+                req_id,
+                graph_name,
+                core.clone(),
+                persistence.clone(),
+                #[cfg(feature = "raft")]
+                routed_raft.clone(),
+                #[cfg(feature = "raft")]
+                graph_type,
+                &tenant_scope,
+                method,
+            )
+            .await
         }
         // Batch envelope commit for ONE graph (the top-level `dispatch_change_envelopes`
         // groups by graph and routes each group here). Every envelope targets
@@ -8784,153 +9095,44 @@ async fn dispatch_graph_op_inner(
         // graph-batch. A single failing envelope aborts the whole group and every
         // envelope in it reports the batch outcome honestly. Per-envelope results are
         // returned in group order under `{"results": [...]}`.
-        Method::ApplyChangeEnvelopes { envelopes } => {
-            // Under an active cluster placement the batch is not offered: raft keeps
-            // each envelope one log entry (K=1 serializes anyway), so the client falls
-            // back to per-record `ApplyChangeEnvelope`. Single-node is where the
-            // one-transaction batching win lands, and prod is single-node.
-            #[cfg(feature = "raft")]
-            if routed_raft.is_some() {
-                return Response::err(
-                    req_id,
-                    "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT: use per-envelope ApplyChangeEnvelope",
-                );
-            }
-            let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-            for envelope in &envelopes {
-                if envelope.mutation.placement_epoch != 0
-                    || envelope.mutation.fencing_token.is_some()
-                {
-                    return Response::err(
-                        req_id,
-                        "ChangeEnvelope carries a placement fence in a single-node build",
-                    );
-                }
-            }
-            let committed_at_ms = envelopes.iter().fold(authoritative_now_ms(), |acc, e| {
-                acc.max(e.mutation.created_at_ms)
-            });
-            let Some(backend) = persistence.as_ref() else {
-                return Response::err(
-                    req_id,
-                    "ApplyChangeEnvelopes requires a configured persistence backend",
-                );
-            };
-            let fname = crate::persist::sanitize(graph_name);
-            let mut results: Vec<serde_json::Value> = Vec::with_capacity(envelopes.len());
-            match backend
-                .commit_change_envelopes(&fname, &envelopes, committed_at_ms)
-                .await
-            {
-                Ok(commits) => {
-                    for (envelope, committed) in envelopes.iter().zip(commits.iter()) {
-                        let projection_error = if committed.replayed {
-                            None
-                        } else {
-                            crate::server::mutation_batch::publish_change_envelope_projection(
-                                &core, envelope,
-                            )
-                            .err()
-                        };
-                        let mut entry =
-                            change_envelope_result(committed, projection_error.is_some());
-                        if let Some(object) = entry.as_object_mut() {
-                            object.insert(
-                                "status".to_string(),
-                                serde_json::Value::String(
-                                    if committed.replayed {
-                                        "idempotent_skip"
-                                    } else {
-                                        "applied"
-                                    }
-                                    .to_string(),
-                                ),
-                            );
-                        }
-                        results.push(entry);
-                    }
-                }
-                Err((failing_index, error)) => {
-                    // The whole graph-batch aborted atomically — nothing committed.
-                    // Report the batch outcome per envelope honestly: the offender
-                    // carries its own error; the siblings carry the abort cause.
-                    for (index, envelope) in envelopes.iter().enumerate() {
-                        let this_error = if index == failing_index {
-                            error.clone()
-                        } else {
-                            format!(
-                                "ABORTED_ATOMIC_GRAPH_BATCH: sibling envelope {failing_index} failed ({error})"
-                            )
-                        };
-                        results.push(serde_json::json!({
-                            "status": "conflict",
-                            "envelope_id": envelope.envelope_id,
-                            "error": this_error,
-                        }));
-                    }
-                }
-            }
-            return Response::ok(
+                method @ Method::ApplyChangeEnvelopes { .. } => {
+            return dispatch_change_env_apply_change_envelopes(
                 req_id,
-                ResultPayload::Json(serde_json::json!({ "results": results })),
-            );
+                graph_name,
+                core.clone(),
+                persistence.clone(),
+                #[cfg(feature = "raft")]
+            routed_raft.clone(),
+                method,
+            )
+            .await
         }
-        Method::GetChangeEnvelope {
-            envelope_id,
-            tenant,
-        } => {
-            let Some(backend) = persistence.as_ref() else {
-                return Response::err(req_id, "ChangeEnvelope persistence is unavailable");
-            };
-            let fname = crate::persist::sanitize(graph_name);
-            return match backend.read_change_envelope(&fname, &envelope_id).await {
-                Ok(Some(record))
-                    if record.envelope.mutation.tenant == tenant
-                        && record.envelope.mutation.graph == graph_name =>
-                {
-                    Response::ok(req_id, ResultPayload::raw(&record))
-                }
-                Ok(Some(_)) => Response::err(req_id, "ACCESS_DENIED: envelope tenant mismatch"),
-                Ok(None) => Response::ok(
-                    req_id,
-                    ResultPayload::raw(
-                        &Option::<crate::change_envelope::ChangeEnvelopeRecord>::None,
-                    ),
-                ),
-                Err(error) => Response::err(req_id, format!("ChangeEnvelope read failed: {error}")),
-            };
+                method @ Method::GetChangeEnvelope { .. } => {
+            return dispatch_change_env_get_change_envelope(
+                req_id,
+                graph_name,
+                persistence.clone(),
+                method,
+            )
+            .await
         }
-        Method::GetContentVersion { object_id, tenant } => {
-            let Some(backend) = persistence.as_ref() else {
-                return Response::err(req_id, "content-version persistence is unavailable");
-            };
-            let fname = crate::persist::sanitize(graph_name);
-            return match backend
-                .read_content_version(&fname, &tenant, &object_id)
-                .await
-            {
-                Ok(version) => Response::ok(req_id, ResultPayload::raw(&version)),
-                Err(error) => {
-                    Response::err(req_id, format!("content-version read failed: {error}"))
-                }
-            };
+                method @ Method::GetContentVersion { .. } => {
+            return dispatch_change_env_get_content_version(
+                req_id,
+                graph_name,
+                persistence.clone(),
+                method,
+            )
+            .await
         }
-        Method::GetChangeCursor {
-            source,
-            partition,
-            tenant,
-        } => {
-            let Some(backend) = persistence.as_ref() else {
-                return Response::err(req_id, "change-cursor persistence is unavailable");
-            };
-            let fname = crate::persist::sanitize(graph_name);
-            return match backend
-                .read_change_cursor(&fname, &tenant, &source, &partition)
-                .await
-            {
-                Ok(cursor) => Response::ok(req_id, ResultPayload::raw(&cursor)),
-                Err(error) => Response::err(req_id, format!("change-cursor read failed: {error}")),
-            };
+                method @ Method::GetChangeCursor { .. } => {
+            return dispatch_change_env_get_change_cursor(
+                req_id,
+                graph_name,
+                persistence.clone(),
+                method,
+            )
+            .await
         }
         other => other,
     };
@@ -9282,6 +9484,55 @@ async fn dispatch_graph_op_inner(
 
     response
 }
+
+fn check_known_caller(
+    isolation: &crate::isolation::IsolationLayer,
+    req_id: u64,
+    caller: Option<&str>,
+    graph_name: &str,
+    access: AccessLevel,
+    state_machine_authorized: bool,
+) -> Result<(), Response> {
+    if !state_machine_authorized {
+        if let Err(denied) = check_caller_is_known(isolation, caller, graph_name, access) {
+            return Err(Response::err(req_id, denied));
+        }
+    }
+    Ok(())
+}
+
+fn check_materialization_valid(
+    registry: &crate::registry::GraphRegistry,
+    req_id: u64,
+    graph_name: &str,
+) -> Result<(), Response> {
+    if let Some(manifest) = registry.materialization_manifest(graph_name) {
+        if !manifest.valid {
+            let phase = match manifest.phase {
+                crate::registry::MaterializationPhase::CatalogOnly => "catalog_only",
+                crate::registry::MaterializationPhase::Partial => "partial",
+                crate::registry::MaterializationPhase::Complete => "complete",
+                crate::registry::MaterializationPhase::Failed => "failed",
+            };
+            return Err(Response::err(
+                req_id,
+                serde_json::json!({
+                    "code": "PARTIAL_MATERIALIZATION",
+                    "phase": phase,
+                    "source_snapshot_version": manifest.source_snapshot_version,
+                    "completeness_cursor": manifest.completeness_cursor.as_ref().map(|cursor| serde_json::json!({
+                        "node_offset": cursor.node_offset,
+                        "edge_offset": cursor.edge_offset,
+                    })),
+                    "retryable": manifest.phase != crate::registry::MaterializationPhase::Failed,
+                })
+                .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 
 #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
 async fn route_query_gateway(
