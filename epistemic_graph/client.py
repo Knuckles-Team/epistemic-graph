@@ -1123,6 +1123,137 @@ def _boolean(name: str, value: Any) -> bool:
     return value
 
 
+def _bounded_strings(
+    prefix: str,
+    mapping: dict[str, Any],
+    fields: tuple[str, ...],
+    *,
+    limit: int = 256,
+) -> None:
+    """Every named field is a non-empty trimmed string within ``limit`` chars."""
+    for field in fields:
+        _string(f"{prefix}.{field}", mapping[field])
+        if len(mapping[field]) > limit:
+            raise ValueError(f"{prefix}.{field} exceeds the {limit}-character bound")
+
+
+def _optional_bounded_strings(
+    prefix: str,
+    mapping: dict[str, Any],
+    fields: tuple[str, ...],
+    *,
+    limit: int = 256,
+) -> None:
+    """Each named field is ``None`` or a bounded non-empty trimmed string."""
+    for field in fields:
+        if mapping[field] is not None:
+            _string(f"{prefix}.{field}", mapping[field])
+            if len(mapping[field]) > limit:
+                raise ValueError(
+                    f"{prefix}.{field} exceeds the {limit}-character bound"
+                )
+
+
+def _integers(
+    prefix: str,
+    mapping: dict[str, Any],
+    fields: tuple[str, ...] | dict[str, Any],
+    *,
+    minimum: int = 0,
+) -> None:
+    """Every named field is an integer at or above ``minimum``."""
+    for field in fields:
+        _integer(f"{prefix}.{field}", mapping[field], minimum=minimum)
+
+
+def _optional_integers(
+    prefix: str,
+    mapping: dict[str, Any],
+    fields: tuple[str, ...],
+    *,
+    minimum: int = 0,
+) -> None:
+    """Every named field is either ``None`` or an integer at or above ``minimum``."""
+    for field in fields:
+        if mapping[field] is not None:
+            _integer(f"{prefix}.{field}", mapping[field], minimum=minimum)
+
+
+def _booleans(prefix: str, mapping: dict[str, Any], fields: tuple[str, ...]) -> None:
+    """Every named field is a boolean."""
+    for field in fields:
+        _boolean(f"{prefix}.{field}", mapping[field])
+
+
+def _is_bounded_string_list(labels: Any) -> bool:
+    """Element shape first, then uniqueness/bounds (request-side ordering)."""
+    return (
+        isinstance(labels, list)
+        and not any(
+            not isinstance(item, str) or not item or item != item.strip()
+            for item in labels
+        )
+        and len(labels) == len(set(labels))
+        and len(labels) <= 128
+        and not any(len(item) > 256 for item in labels)
+    )
+
+
+def _is_bounded_label_set(labels: Any) -> bool:
+    """Bounds/uniqueness first, then element shape (record-side ordering)."""
+    return (
+        isinstance(labels, list)
+        and len(labels) <= 128
+        and len(labels) == len(set(labels))
+        and not any(
+            not isinstance(item, str)
+            or not item
+            or item != item.strip()
+            or len(item) > 256
+            for item in labels
+        )
+    )
+
+
+def _is_bounded_id_list(labels: Any) -> bool:
+    """Bounds, then element shape, then uniqueness (identifier-list ordering)."""
+    return (
+        isinstance(labels, list)
+        and len(labels) <= 128
+        and not any(
+            not isinstance(item, str)
+            or not item
+            or item != item.strip()
+            or len(item) > 256
+            for item in labels
+        )
+        and len(labels) == len(set(labels))
+    )
+
+
+_RESOURCE_TARGET_KINDS = frozenset({"local", "inventory_alias"})
+_RESOURCE_REQUIREMENT_FIELDS = frozenset(
+    {"cpu_weight", "memory_mib", "disk_mib", "process_slots"}
+)
+_RESOURCE_REQUIREMENT_ORDER = ("cpu_weight", "memory_mib", "disk_mib", "process_slots")
+
+
+def _validate_target_kind_alias(
+    mapping: dict[str, Any],
+    *,
+    alias_label: str,
+    kind_error: str,
+    mismatch_error: str,
+) -> None:
+    """``target_kind``/``target_alias`` agree: exactly one of local | alias."""
+    if mapping["target_alias"] is not None:
+        _string(alias_label, mapping["target_alias"])
+    if mapping["target_kind"] not in _RESOURCE_TARGET_KINDS:
+        raise ValueError(kind_error)
+    if (mapping["target_kind"] == "local") != (mapping["target_alias"] is None):
+        raise ValueError(mismatch_error)
+
+
 _WORK_ITEM_CAPABILITY_DECISIONS = frozenset(
     {
         "minted",
@@ -1228,37 +1359,27 @@ _RESOURCE_RESERVATION_REQUEST_FIELDS = frozenset(
 )
 
 
-def _resource_reservation_request(value: Any) -> dict[str, Any]:
-    request = _exact_mapping(
-        "ResourceReservation request", value, _RESOURCE_RESERVATION_REQUEST_FIELDS
-    )
-    if request["schema_version"] != "1":
-        raise ValueError("ResourceReservation schema_version must be 1")
-    for field in (
-        "tenant_ref",
-        "work_item_id",
-        "owner_id",
-        "fence",
-        "reservation_id",
-        "profile_name",
-        "profile_version",
-        "host_ref",
-        "target_kind",
-        "repository_id",
-        "branch",
-        "concurrency_key",
-        "fairness_group",
-        "disk_policy_key",
-        "idempotency_key",
-    ):
-        _string(f"ResourceReservation.{field}", request[field])
-        if len(request[field]) > 256:
-            raise ValueError(
-                f"ResourceReservation.{field} exceeds the 256-character bound"
-            )
-    _canonical_profile_version(
-        "ResourceReservation.profile_version", request["profile_version"]
-    )
+_RESOURCE_RESERVATION_STRING_FIELDS = (
+    "tenant_ref",
+    "work_item_id",
+    "owner_id",
+    "fence",
+    "reservation_id",
+    "profile_name",
+    "profile_version",
+    "host_ref",
+    "target_kind",
+    "repository_id",
+    "branch",
+    "concurrency_key",
+    "fairness_group",
+    "disk_policy_key",
+    "idempotency_key",
+)
+
+
+def _reservation_request_fingerprint(request: dict[str, Any]) -> None:
+    """``input_fingerprint`` is ``v1:`` + 64 lowercase hex characters."""
     fingerprint = _string(
         "ResourceReservation.input_fingerprint", request["input_fingerprint"]
     )
@@ -1266,55 +1387,59 @@ def _resource_reservation_request(value: Any) -> dict[str, Any]:
         raise ValueError("ResourceReservation.input_fingerprint must use v1 namespace")
     if any(char not in "0123456789abcdef" for char in fingerprint[3:]):
         raise ValueError("ResourceReservation.input_fingerprint must be lowercase hex")
-    for field in ("lease_epoch", "fencing_token"):
-        _integer(f"ResourceReservation.{field}", request[field])
-    _integer("ResourceReservation.attempt", request["attempt"], minimum=1)
+
+
+def _reservation_request_requirement(request: dict[str, Any]) -> None:
+    """Validate and normalise the resource requirement sub-mapping in place."""
     requirement = _exact_mapping(
         "ResourceReservation.requirement",
         request["requirement"],
-        frozenset({"cpu_weight", "memory_mib", "disk_mib", "process_slots"}),
+        _RESOURCE_REQUIREMENT_FIELDS,
     )
-    for field in ("cpu_weight", "memory_mib", "disk_mib", "process_slots"):
-        _integer(
-            f"ResourceReservation.requirement.{field}", requirement[field], minimum=1
-        )
+    _integers(
+        "ResourceReservation.requirement",
+        requirement,
+        _RESOURCE_REQUIREMENT_ORDER,
+        minimum=1,
+    )
     request["requirement"] = requirement
-    if request["target_alias"] is not None:
-        _string("ResourceReservation.target_alias", request["target_alias"])
-    if request["target_kind"] not in {"local", "inventory_alias"}:
-        raise ValueError("ResourceReservation.target_kind is invalid")
-    if (request["target_kind"] == "local") != (request["target_alias"] is None):
-        raise ValueError("ResourceReservation target_alias does not match target_kind")
+
+
+def _reservation_request_placement(request: dict[str, Any]) -> None:
+    """Target selection, concurrency ceiling and the exclusivity flags."""
+    _validate_target_kind_alias(
+        request,
+        alias_label="ResourceReservation.target_alias",
+        kind_error="ResourceReservation.target_kind is invalid",
+        mismatch_error=(
+            "ResourceReservation target_alias does not match target_kind"
+        ),
+    )
     if request["concurrency_limit"] is not None:
         _integer(
             "ResourceReservation.concurrency_limit",
             request["concurrency_limit"],
             minimum=1,
         )
-    for field in ("repository_exclusive", "branch_exclusive"):
-        _boolean(f"ResourceReservation.{field}", request[field])
+    _booleans(
+        "ResourceReservation", request, ("repository_exclusive", "branch_exclusive")
+    )
     for field in ("required_labels", "anti_affinity"):
-        labels = request[field]
-        if (
-            not isinstance(labels, list)
-            or any(
-                not isinstance(item, str) or not item or item != item.strip()
-                for item in labels
-            )
-            or len(labels) != len(set(labels))
-            or len(labels) > 128
-            or any(len(item) > 256 for item in labels)
-        ):
+        if not _is_bounded_string_list(request[field]):
             raise ValueError(f"ResourceReservation.{field} must be unique strings")
+
+
+def _reservation_request_window(request: dict[str, Any]) -> None:
+    """Fairness cost, disk watermarks and the reservation validity window."""
     _integer("ResourceReservation.fairness_cost", request["fairness_cost"], minimum=1)
-    for field in ("disk_low_watermark_mib", "disk_high_watermark_mib"):
-        if request[field] is not None:
-            _integer(f"ResourceReservation.{field}", request[field])
-    if (
-        request["disk_low_watermark_mib"] is not None
-        and request["disk_high_watermark_mib"] is not None
-        and request["disk_low_watermark_mib"] > request["disk_high_watermark_mib"]
-    ):
+    _optional_integers(
+        "ResourceReservation",
+        request,
+        ("disk_low_watermark_mib", "disk_high_watermark_mib"),
+    )
+    low = request["disk_low_watermark_mib"]
+    high = request["disk_high_watermark_mib"]
+    if low is not None and high is not None and low > high:
         raise ValueError(
             "ResourceReservation disk low watermark exceeds high watermark"
         )
@@ -1323,9 +1448,31 @@ def _resource_reservation_request(value: Any) -> dict[str, Any]:
     _integer("ResourceReservation.now_ms", request["now_ms"])
     if request["expires_at_ms"] <= request["reserved_at_ms"]:
         raise ValueError("ResourceReservation expiry must be after reservation time")
-    for field in ("expected_host_revision", "expected_lifecycle_revision"):
-        if request[field] is not None:
-            _integer(f"ResourceReservation.{field}", request[field])
+    _optional_integers(
+        "ResourceReservation",
+        request,
+        ("expected_host_revision", "expected_lifecycle_revision"),
+    )
+
+
+def _resource_reservation_request(value: Any) -> dict[str, Any]:
+    request = _exact_mapping(
+        "ResourceReservation request", value, _RESOURCE_RESERVATION_REQUEST_FIELDS
+    )
+    if request["schema_version"] != "1":
+        raise ValueError("ResourceReservation schema_version must be 1")
+    _bounded_strings(
+        "ResourceReservation", request, _RESOURCE_RESERVATION_STRING_FIELDS
+    )
+    _canonical_profile_version(
+        "ResourceReservation.profile_version", request["profile_version"]
+    )
+    _reservation_request_fingerprint(request)
+    _integers("ResourceReservation", request, ("lease_epoch", "fencing_token"))
+    _integer("ResourceReservation.attempt", request["attempt"], minimum=1)
+    _reservation_request_requirement(request)
+    _reservation_request_placement(request)
+    _reservation_request_window(request)
     return request
 
 
@@ -1351,72 +1498,85 @@ _RESOURCE_RESERVATION_DECISIONS = frozenset(
 )
 
 
-def _resource_reservation_record(value: Any) -> dict[str, Any]:
-    record = _exact_mapping(
-        "ResourceReservation record",
-        value,
-        frozenset(
-            {
-                "reservation_id",
-                "tenant_ref",
-                "owner_id",
-                "work_item_id",
-                "fence",
-                "attempt",
-                "lease_epoch",
-                "fencing_token",
-                "input_fingerprint",
-                "host_ref",
-                "profile_name",
-                "profile_version",
-                "requirement",
-                "capacity_snapshot",
-                "selected_target",
-                "target_kind",
-                "target_alias",
-                "repository_id",
-                "branch",
-                "concurrency_key",
-                "concurrency_limit",
-                "repository_exclusive",
-                "branch_exclusive",
-                "required_labels",
-                "anti_affinity",
-                "fairness_group",
-                "fairness_cost",
-                "disk_low_watermark_mib",
-                "disk_high_watermark_mib",
-                "disk_policy_key",
-                "reserved_at_ms",
-                "expires_at_ms",
-                "state",
-                "revision",
-                "lifecycle_revision",
-                "tombstone",
-            }
-        ),
-    )
-    for field in (
+_RESOURCE_RESERVATION_RECORD_FIELDS = frozenset(
+    {
         "reservation_id",
         "tenant_ref",
         "owner_id",
         "work_item_id",
         "fence",
+        "attempt",
+        "lease_epoch",
+        "fencing_token",
+        "input_fingerprint",
         "host_ref",
         "profile_name",
         "profile_version",
+        "requirement",
+        "capacity_snapshot",
+        "selected_target",
         "target_kind",
+        "target_alias",
         "repository_id",
         "branch",
         "concurrency_key",
+        "concurrency_limit",
+        "repository_exclusive",
+        "branch_exclusive",
+        "required_labels",
+        "anti_affinity",
         "fairness_group",
+        "fairness_cost",
+        "disk_low_watermark_mib",
+        "disk_high_watermark_mib",
         "disk_policy_key",
-    ):
-        _string(f"ResourceReservation record.{field}", record[field])
-        if len(record[field]) > 256:
-            raise ValueError(
-                f"ResourceReservation record.{field} exceeds the 256-character bound"
-            )
+        "reserved_at_ms",
+        "expires_at_ms",
+        "state",
+        "revision",
+        "lifecycle_revision",
+        "tombstone",
+    }
+)
+_RESOURCE_RESERVATION_RECORD_STRING_FIELDS = (
+    "reservation_id",
+    "tenant_ref",
+    "owner_id",
+    "work_item_id",
+    "fence",
+    "host_ref",
+    "profile_name",
+    "profile_version",
+    "target_kind",
+    "repository_id",
+    "branch",
+    "concurrency_key",
+    "fairness_group",
+    "disk_policy_key",
+)
+_RESOURCE_RESERVATION_RECORD_COUNTERS = (
+    "lease_epoch",
+    "fencing_token",
+    "lifecycle_revision",
+    "reserved_at_ms",
+    "expires_at_ms",
+    "fairness_cost",
+)
+_RESOURCE_RESERVATION_RECORD_STATES = frozenset(
+    {"reserved", "released", "reclaimed", "expired", "superseded", "absent"}
+)
+_RESOURCE_CAPACITY_SNAPSHOT_FIELDS = frozenset(
+    {"cpu_weight", "memory_mib", "disk_mib", "process_slots", "host_revision"}
+)
+
+
+def _reservation_record_identity(record: dict[str, Any]) -> None:
+    """Bounded string identity claims, the profile version and the fingerprint."""
+    _bounded_strings(
+        "ResourceReservation record",
+        record,
+        _RESOURCE_RESERVATION_RECORD_STRING_FIELDS,
+    )
     _canonical_profile_version(
         "ResourceReservation record.profile_version", record["profile_version"]
     )
@@ -1429,49 +1589,49 @@ def _resource_reservation_record(value: Any) -> dict[str, Any]:
         or any(char not in "0123456789abcdef" for char in fingerprint[3:])
     ):
         raise ValueError("ResourceReservation record input_fingerprint is invalid")
-    for field in ("attempt", "revision"):
-        _integer(f"ResourceReservation record.{field}", record[field], minimum=1)
-    for field in (
-        "lease_epoch",
-        "fencing_token",
-        "lifecycle_revision",
-        "reserved_at_ms",
-        "expires_at_ms",
-        "fairness_cost",
-    ):
+
+
+def _reservation_record_counters(record: dict[str, Any]) -> None:
+    """Attempt/revision counters and the monotonic lease/time counters."""
+    _integers(
+        "ResourceReservation record", record, ("attempt", "revision"), minimum=1
+    )
+    for field in _RESOURCE_RESERVATION_RECORD_COUNTERS:
         _integer(
             f"ResourceReservation record.{field}",
             record[field],
             minimum=1 if field == "fairness_cost" else 0,
         )
+
+
+def _reservation_record_capacity(record: dict[str, Any]) -> None:
+    """The requirement and capacity-snapshot sub-mappings."""
     requirement = _exact_mapping(
         "ResourceReservation record.requirement",
         record["requirement"],
-        frozenset({"cpu_weight", "memory_mib", "disk_mib", "process_slots"}),
+        _RESOURCE_REQUIREMENT_FIELDS,
     )
-    for field in requirement:
-        _integer(
-            f"ResourceReservation record.requirement.{field}",
-            requirement[field],
-            minimum=1,
-        )
+    _integers(
+        "ResourceReservation record.requirement", requirement, requirement, minimum=1
+    )
     snapshot = _exact_mapping(
         "ResourceReservation record.capacity_snapshot",
         record["capacity_snapshot"],
-        frozenset(
-            {"cpu_weight", "memory_mib", "disk_mib", "process_slots", "host_revision"}
-        ),
+        _RESOURCE_CAPACITY_SNAPSHOT_FIELDS,
     )
-    for field in snapshot:
-        _integer(
-            f"ResourceReservation record.capacity_snapshot.{field}", snapshot[field]
-        )
+    _integers(
+        "ResourceReservation record.capacity_snapshot", snapshot, snapshot
+    )
+
+
+def _reservation_record_selected_target(record: dict[str, Any]) -> None:
+    """The chosen target: kind/alias agreement plus its capability labels."""
     selected = _exact_mapping(
         "ResourceReservation record.selected_target",
         record["selected_target"],
         frozenset({"kind", "alias", "capability_labels"}),
     )
-    if selected["kind"] not in {"local", "inventory_alias"}:
+    if selected["kind"] not in _RESOURCE_TARGET_KINDS:
         raise ValueError("ResourceReservation record.selected_target.kind is invalid")
     if (selected["kind"] == "local") != (selected["alias"] is None):
         raise ValueError("ResourceReservation record.selected_target alias is invalid")
@@ -1488,206 +1648,172 @@ def _resource_reservation_record(value: Any) -> dict[str, Any]:
         )
     for label in labels:
         _string("ResourceReservation selected target label", label)
-    if record["target_alias"] is not None:
-        _string("ResourceReservation record.target_alias", record["target_alias"])
-    if record["target_kind"] not in {"local", "inventory_alias"}:
-        raise ValueError("ResourceReservation record.target_kind is invalid")
-    if (record["target_kind"] == "local") != (record["target_alias"] is None):
-        raise ValueError(
+
+
+def _reservation_record_placement(record: dict[str, Any]) -> None:
+    """Target selection, concurrency ceiling and the exclusivity flags."""
+    _validate_target_kind_alias(
+        record,
+        alias_label="ResourceReservation record.target_alias",
+        kind_error="ResourceReservation record.target_kind is invalid",
+        mismatch_error=(
             "ResourceReservation record target_alias does not match target_kind"
-        )
+        ),
+    )
     if record["concurrency_limit"] is not None:
         _integer(
             "ResourceReservation record.concurrency_limit",
             record["concurrency_limit"],
             minimum=1,
         )
-    for field in ("repository_exclusive", "branch_exclusive", "tombstone"):
-        _boolean(f"ResourceReservation record.{field}", record[field])
+    _booleans(
+        "ResourceReservation record",
+        record,
+        ("repository_exclusive", "branch_exclusive", "tombstone"),
+    )
+
+
+def _reservation_record_policy(record: dict[str, Any]) -> None:
+    """Affinity label sets, disk watermarks and the lifecycle state."""
     for field in ("required_labels", "anti_affinity"):
-        labels = record[field]
-        if (
-            not isinstance(labels, list)
-            or len(labels) > 128
-            or len(labels) != len(set(labels))
-            or any(
-                not isinstance(item, str)
-                or not item
-                or item != item.strip()
-                or len(item) > 256
-                for item in labels
-            )
-        ):
+        if not _is_bounded_label_set(record[field]):
             raise ValueError(f"ResourceReservation record.{field} is invalid")
-    for field in ("disk_low_watermark_mib", "disk_high_watermark_mib"):
-        if record[field] is not None:
-            _integer(f"ResourceReservation record.{field}", record[field])
-    if record["state"] not in {
-        "reserved",
-        "released",
-        "reclaimed",
-        "expired",
-        "superseded",
-        "absent",
-    }:
+    _optional_integers(
+        "ResourceReservation record",
+        record,
+        ("disk_low_watermark_mib", "disk_high_watermark_mib"),
+    )
+    if record["state"] not in _RESOURCE_RESERVATION_RECORD_STATES:
         raise ValueError("ResourceReservation record state is invalid")
+
+
+def _resource_reservation_record(value: Any) -> dict[str, Any]:
+    record = _exact_mapping(
+        "ResourceReservation record", value, _RESOURCE_RESERVATION_RECORD_FIELDS
+    )
+    _reservation_record_identity(record)
+    _reservation_record_counters(record)
+    _reservation_record_capacity(record)
+    _reservation_record_selected_target(record)
+    _reservation_record_placement(record)
+    _reservation_record_policy(record)
     return record
 
 
-def _resource_reservation_result(value: Any) -> dict[str, Any]:
-    result = _exact_mapping(
-        "ResourceReservation result",
-        value,
-        frozenset(
-            {
-                "schema_version",
-                "decision",
-                "reservation_id",
-                "work_item_id",
-                "attempt",
-                "lease_epoch",
-                "fencing_token",
-                "lifecycle_revision",
-                "host_ref",
-                "host_revision",
-                "record",
-                "state",
-                "held_cpu_weight",
-                "held_memory_mib",
-                "held_disk_mib",
-                "held_process_slots",
-                "fairness_debt",
-                "tombstone",
-                "changed_work_item_ids",
-            }
-        ),
-    )
-    if result["schema_version"] != "1":
-        raise ValueError("ResourceReservation result schema_version must be 1")
-    if result["decision"] not in _RESOURCE_RESERVATION_DECISIONS:
-        raise ValueError("ResourceReservation result decision is invalid")
-    _string("ResourceReservation result.work_item_id", result["work_item_id"])
-    if len(result["work_item_id"]) > 256:
-        raise ValueError(
-            "ResourceReservation result.work_item_id exceeds the 256-character bound"
-        )
-    if result["reservation_id"] is not None:
-        _string("ResourceReservation result.reservation_id", result["reservation_id"])
-        if len(result["reservation_id"]) > 256:
-            raise ValueError(
-                "ResourceReservation result.reservation_id exceeds the 256-character bound"
-            )
-    for field in (
+_RESOURCE_RESERVATION_RESULT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "decision",
+        "reservation_id",
+        "work_item_id",
         "attempt",
         "lease_epoch",
         "fencing_token",
         "lifecycle_revision",
+        "host_ref",
         "host_revision",
+        "record",
+        "state",
         "held_cpu_weight",
         "held_memory_mib",
         "held_disk_mib",
         "held_process_slots",
         "fairness_debt",
-    ):
-        _integer(f"ResourceReservation result.{field}", result[field])
-    if result["host_ref"] is not None:
-        _string("ResourceReservation result.host_ref", result["host_ref"])
-        if len(result["host_ref"]) > 256:
-            raise ValueError(
-                "ResourceReservation result.host_ref exceeds the 256-character bound"
-            )
+        "tombstone",
+        "changed_work_item_ids",
+    }
+)
+_RESOURCE_RESERVATION_RESULT_COUNTERS = (
+    "attempt",
+    "lease_epoch",
+    "fencing_token",
+    "lifecycle_revision",
+    "host_revision",
+    "held_cpu_weight",
+    "held_memory_mib",
+    "held_disk_mib",
+    "held_process_slots",
+    "fairness_debt",
+)
+
+
+def _reservation_result_outcome(result: dict[str, Any]) -> None:
+    """The nested record, the lifecycle state and the changed-WorkItem fan-out."""
     if result["record"] is not None:
         _resource_reservation_record(result["record"])
-    if result["state"] not in {
-        "reserved",
-        "released",
-        "reclaimed",
-        "expired",
-        "superseded",
-        "absent",
-    }:
+    if result["state"] not in _RESOURCE_RESERVATION_RECORD_STATES:
         raise ValueError("ResourceReservation result state is invalid")
     _boolean("ResourceReservation result.tombstone", result["tombstone"])
-    changed = result["changed_work_item_ids"]
-    if (
-        not isinstance(changed, list)
-        or len(changed) > 128
-        or any(
-            not isinstance(item, str)
-            or not item
-            or item != item.strip()
-            or len(item) > 256
-            for item in changed
-        )
-        or len(changed) != len(set(changed))
-    ):
+    if not _is_bounded_id_list(result["changed_work_item_ids"]):
         raise ValueError("ResourceReservation result changed ids are invalid")
+
+
+def _resource_reservation_result(value: Any) -> dict[str, Any]:
+    result = _exact_mapping(
+        "ResourceReservation result", value, _RESOURCE_RESERVATION_RESULT_FIELDS
+    )
+    if result["schema_version"] != "1":
+        raise ValueError("ResourceReservation result schema_version must be 1")
+    if result["decision"] not in _RESOURCE_RESERVATION_DECISIONS:
+        raise ValueError("ResourceReservation result decision is invalid")
+    _bounded_strings("ResourceReservation result", result, ("work_item_id",))
+    _optional_bounded_strings("ResourceReservation result", result, ("reservation_id",))
+    _integers(
+        "ResourceReservation result", result, _RESOURCE_RESERVATION_RESULT_COUNTERS
+    )
+    _optional_bounded_strings("ResourceReservation result", result, ("host_ref",))
+    _reservation_result_outcome(result)
     return result
 
 
-def _resource_status_request(value: Any) -> dict[str, Any]:
-    request = _exact_mapping(
-        "ResourceReservationStatus request",
-        value,
-        frozenset(
-            {
-                "schema_version",
-                "tenant_ref",
-                "work_item_id",
-                "reservation_id",
-                "host_ref",
-                "owner_id",
-                "fence",
-                "attempt",
-                "lease_epoch",
-                "fencing_token",
-                "input_fingerprint",
-                "fairness_group",
-                "limit",
-                "cursor",
-                "now_ms",
-            }
-        ),
-    )
-    if request["schema_version"] != "1":
-        raise ValueError("ResourceReservationStatus schema_version must be 1")
-    _string("ResourceReservationStatus.tenant_ref", request["tenant_ref"])
-    if len(request["tenant_ref"]) > 256:
-        raise ValueError(
-            "ResourceReservationStatus.tenant_ref exceeds the 256-character bound"
-        )
-    for field in (
+_RESOURCE_STATUS_REQUEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "tenant_ref",
         "work_item_id",
         "reservation_id",
         "host_ref",
         "owner_id",
         "fence",
-        "cursor",
+        "attempt",
+        "lease_epoch",
+        "fencing_token",
+        "input_fingerprint",
         "fairness_group",
+        "limit",
+        "cursor",
+        "now_ms",
+    }
+)
+_RESOURCE_STATUS_OPTIONAL_STRINGS = (
+    "work_item_id",
+    "reservation_id",
+    "host_ref",
+    "owner_id",
+    "fence",
+    "cursor",
+    "fairness_group",
+)
+
+
+def _resource_status_request_fingerprint(request: dict[str, Any]) -> None:
+    """The optional ``input_fingerprint`` filter, when supplied."""
+    if request["input_fingerprint"] is None:
+        return
+    fingerprint = _string(
+        "ResourceReservationStatus.input_fingerprint",
+        request["input_fingerprint"],
+    )
+    if (
+        len(fingerprint) != 67
+        or not fingerprint.startswith("v1:")
+        or any(char not in "0123456789abcdef" for char in fingerprint[3:])
     ):
-        if request[field] is not None:
-            _string(f"ResourceReservationStatus.{field}", request[field])
-            if len(request[field]) > 256:
-                raise ValueError(
-                    f"ResourceReservationStatus.{field} exceeds the 256-character bound"
-                )
-    if request["input_fingerprint"] is not None:
-        fingerprint = _string(
-            "ResourceReservationStatus.input_fingerprint",
-            request["input_fingerprint"],
-        )
-        if (
-            len(fingerprint) != 67
-            or not fingerprint.startswith("v1:")
-            or any(char not in "0123456789abcdef" for char in fingerprint[3:])
-        ):
-            raise ValueError("ResourceReservationStatus input_fingerprint is invalid")
-    if request["fairness_group"] is not None:
-        _string("ResourceReservationStatus.fairness_group", request["fairness_group"])
-        if len(request["fairness_group"]) > 256:
-            raise ValueError(
-                "ResourceReservationStatus.fairness_group exceeds the 256-character bound"
-            )
+        raise ValueError("ResourceReservationStatus input_fingerprint is invalid")
+
+
+def _resource_status_request_counters(request: dict[str, Any]) -> None:
+    """Optional lease counters plus the mandatory page bound and clock."""
     for field in ("attempt", "lease_epoch", "fencing_token"):
         if request[field] is not None:
             _integer(
@@ -1699,6 +1825,23 @@ def _resource_status_request(value: Any) -> dict[str, Any]:
         "ResourceReservationStatus.limit", request["limit"], minimum=1, maximum=1000
     )
     _integer("ResourceReservationStatus.now_ms", request["now_ms"])
+
+
+def _resource_status_request(value: Any) -> dict[str, Any]:
+    request = _exact_mapping(
+        "ResourceReservationStatus request", value, _RESOURCE_STATUS_REQUEST_FIELDS
+    )
+    if request["schema_version"] != "1":
+        raise ValueError("ResourceReservationStatus schema_version must be 1")
+    _bounded_strings("ResourceReservationStatus", request, ("tenant_ref",))
+    _optional_bounded_strings(
+        "ResourceReservationStatus", request, _RESOURCE_STATUS_OPTIONAL_STRINGS
+    )
+    _resource_status_request_fingerprint(request)
+    _optional_bounded_strings(
+        "ResourceReservationStatus", request, ("fairness_group",)
+    )
+    _resource_status_request_counters(request)
     if (
         request["work_item_id"] is None
         and request["reservation_id"] is None
@@ -1710,183 +1853,175 @@ def _resource_status_request(value: Any) -> dict[str, Any]:
     return request
 
 
-def _resource_reservation_status_result(value: Any) -> dict[str, Any]:
-    result = _exact_mapping(
-        "ResourceReservationStatus result",
-        value,
-        frozenset(
-            {
-                "schema_version",
-                "complete",
-                "next_cursor",
-                "host_snapshot",
-                "host_ref",
-                "host_revision",
-                "held_cpu_weight",
-                "held_memory_mib",
-                "held_disk_mib",
-                "held_process_slots",
-                "fairness_debt",
-                "reservations",
-                "orphan_count",
-                "superseded_count",
-            }
-        ),
-    )
-    if result["schema_version"] != "1":
-        raise ValueError("ResourceReservationStatus result schema_version must be 1")
-    _boolean("ResourceReservationStatus result.complete", result["complete"])
-    if result["next_cursor"] is not None:
-        _string("ResourceReservationStatus result.next_cursor", result["next_cursor"])
-        if len(result["next_cursor"]) > 256:
-            raise ValueError(
-                "ResourceReservationStatus result.next_cursor exceeds the 256-character bound"
-            )
-    if result["host_ref"] is not None:
-        _string("ResourceReservationStatus result.host_ref", result["host_ref"])
-        if len(result["host_ref"]) > 256:
-            raise ValueError(
-                "ResourceReservationStatus result.host_ref exceeds the 256-character bound"
-            )
-    _resource_host_snapshot(
-        result["host_snapshot"],
-        "ResourceReservationStatus result.host_snapshot",
-    )
-    for field in (
+_RESOURCE_STATUS_RESULT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "complete",
+        "next_cursor",
+        "host_snapshot",
+        "host_ref",
         "host_revision",
         "held_cpu_weight",
         "held_memory_mib",
         "held_disk_mib",
         "held_process_slots",
         "fairness_debt",
+        "reservations",
         "orphan_count",
         "superseded_count",
+    }
+)
+_RESOURCE_STATUS_RESULT_COUNTERS = (
+    "host_revision",
+    "held_cpu_weight",
+    "held_memory_mib",
+    "held_disk_mib",
+    "held_process_slots",
+    "fairness_debt",
+    "orphan_count",
+    "superseded_count",
+)
+_RESERVATION_SUMMARY_FIELDS = frozenset(
+    {
+        "reservation_id",
+        "work_item_id",
+        "attempt",
+        "host_ref",
+        "profile_name",
+        "fairness_group",
+        "state",
+        "revision",
+        "expires_at_ms",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "tombstone",
+    }
+)
+_RESERVATION_SUMMARY_IDENTIFIERS = (
+    "reservation_id",
+    "work_item_id",
+    "host_ref",
+    "profile_name",
+    "fairness_group",
+)
+_RESERVATION_SUMMARY_HELD = (
+    "held_cpu_weight",
+    "held_memory_mib",
+    "held_disk_mib",
+    "held_process_slots",
+)
+
+
+def _reservation_summary(summary_value: Any, index: int) -> None:
+    """One ``reservations[i]`` page entry of a ResourceReservationStatus result."""
+    summary = _exact_mapping(
+        f"ResourceReservationStatus result.reservations[{index}]",
+        summary_value,
+        _RESERVATION_SUMMARY_FIELDS,
+    )
+    for field in _RESERVATION_SUMMARY_IDENTIFIERS:
+        _string(f"reservation summary {index}.{field}", summary[field])
+    if any(
+        len(summary[field]) > 256 for field in _RESERVATION_SUMMARY_IDENTIFIERS
     ):
-        _integer(f"ResourceReservationStatus result.{field}", result[field])
+        raise ValueError(f"reservation summary {index} contains an overlong identifier")
+    _integers(
+        f"reservation summary {index}", summary, ("attempt", "revision"), minimum=1
+    )
+    _integer(f"reservation summary {index}.expires_at_ms", summary["expires_at_ms"])
+    _integers(f"reservation summary {index}", summary, _RESERVATION_SUMMARY_HELD)
+    if summary["state"] not in _RESOURCE_RESERVATION_RECORD_STATES:
+        raise ValueError(f"reservation summary {index}.state is invalid")
+    _boolean(f"reservation summary {index}.tombstone", summary["tombstone"])
+
+
+def _resource_reservation_status_result(value: Any) -> dict[str, Any]:
+    result = _exact_mapping(
+        "ResourceReservationStatus result", value, _RESOURCE_STATUS_RESULT_FIELDS
+    )
+    if result["schema_version"] != "1":
+        raise ValueError("ResourceReservationStatus result schema_version must be 1")
+    _boolean("ResourceReservationStatus result.complete", result["complete"])
+    _optional_bounded_strings(
+        "ResourceReservationStatus result", result, ("next_cursor", "host_ref")
+    )
+    _resource_host_snapshot(
+        result["host_snapshot"],
+        "ResourceReservationStatus result.host_snapshot",
+    )
+    _integers(
+        "ResourceReservationStatus result", result, _RESOURCE_STATUS_RESULT_COUNTERS
+    )
     reservations = result["reservations"]
     if not isinstance(reservations, list) or len(reservations) > 1000:
         raise TypeError("ResourceReservationStatus result.reservations must be a list")
-    summary_fields = frozenset(
-        {
-            "reservation_id",
-            "work_item_id",
-            "attempt",
-            "host_ref",
-            "profile_name",
-            "fairness_group",
-            "state",
-            "revision",
-            "expires_at_ms",
-            "held_cpu_weight",
-            "held_memory_mib",
-            "held_disk_mib",
-            "held_process_slots",
-            "tombstone",
-        }
-    )
     for index, summary in enumerate(reservations):
-        summary = _exact_mapping(
-            f"ResourceReservationStatus result.reservations[{index}]",
-            summary,
-            summary_fields,
-        )
-        _string(
-            f"reservation summary {index}.reservation_id", summary["reservation_id"]
-        )
-        _string(f"reservation summary {index}.work_item_id", summary["work_item_id"])
-        _string(f"reservation summary {index}.host_ref", summary["host_ref"])
-        _string(f"reservation summary {index}.profile_name", summary["profile_name"])
-        _string(
-            f"reservation summary {index}.fairness_group", summary["fairness_group"]
-        )
-        if any(
-            len(summary[field]) > 256
-            for field in (
-                "reservation_id",
-                "work_item_id",
-                "host_ref",
-                "profile_name",
-                "fairness_group",
-            )
-        ):
-            raise ValueError(
-                f"reservation summary {index} contains an overlong identifier"
-            )
-        _integer(f"reservation summary {index}.attempt", summary["attempt"], minimum=1)
-        _integer(
-            f"reservation summary {index}.revision", summary["revision"], minimum=1
-        )
-        _integer(f"reservation summary {index}.expires_at_ms", summary["expires_at_ms"])
-        for field in (
-            "held_cpu_weight",
-            "held_memory_mib",
-            "held_disk_mib",
-            "held_process_slots",
-        ):
-            _integer(f"reservation summary {index}.{field}", summary[field])
-        if summary["state"] not in {
-            "reserved",
-            "released",
-            "reclaimed",
-            "expired",
-            "superseded",
-            "absent",
-        }:
-            raise ValueError(f"reservation summary {index}.state is invalid")
-        _boolean(f"reservation summary {index}.tombstone", summary["tombstone"])
+        _reservation_summary(summary, index)
     return result
 
 
-def _resource_host_snapshot(value: Any, name: str) -> dict[str, Any] | None:
-    """Validate the bounded, non-authoritative host reconciliation projection."""
-    if value is None:
-        return None
-    snapshot = _exact_mapping(
-        name,
-        value,
-        frozenset(
-            {
-                "host_ref",
-                "revision",
-                "capacity",
-                "observed",
-                "heartbeat_at_ms",
-                "heartbeat_ttl_ms",
-                "draining",
-                "quarantined",
-                "labels",
-                "target_kind",
-                "target_alias",
-                "disk_used_mib",
-                "disk_capacity_mib",
-                "held_cpu_weight",
-                "held_memory_mib",
-                "held_disk_mib",
-                "held_process_slots",
-                "disk_policies",
-            }
-        ),
-    )
-    _string(f"{name}.host_ref", snapshot["host_ref"])
-    if len(snapshot["host_ref"]) > 256:
-        raise ValueError(f"{name}.host_ref exceeds the 256-character bound")
-    _integer(f"{name}.revision", snapshot["revision"])
+_RESOURCE_HOST_SNAPSHOT_FIELDS = frozenset(
+    {
+        "host_ref",
+        "revision",
+        "capacity",
+        "observed",
+        "heartbeat_at_ms",
+        "heartbeat_ttl_ms",
+        "draining",
+        "quarantined",
+        "labels",
+        "target_kind",
+        "target_alias",
+        "disk_used_mib",
+        "disk_capacity_mib",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "disk_policies",
+    }
+)
+_RESOURCE_HOST_HELD_FIELDS = (
+    "held_cpu_weight",
+    "held_memory_mib",
+    "held_disk_mib",
+    "held_process_slots",
+)
+_RESOURCE_HOST_DISK_FIELDS = (
+    "heartbeat_at_ms",
+    "heartbeat_ttl_ms",
+    "disk_used_mib",
+    "disk_capacity_mib",
+)
+_RESOURCE_DISK_POLICY_FIELDS = frozenset(
+    {
+        "policy_key",
+        "blocked",
+        "low_watermark_mib",
+        "high_watermark_mib",
+        "revision",
+    }
+)
+
+
+def _host_snapshot_capacities(snapshot: dict[str, Any], name: str) -> None:
+    """Validate and normalise the ``capacity``/``observed`` sub-mappings."""
     for capacity_name in ("capacity", "observed"):
         capacity = _exact_mapping(
             f"{name}.{capacity_name}",
             snapshot[capacity_name],
-            frozenset({"cpu_weight", "memory_mib", "disk_mib", "process_slots"}),
+            _RESOURCE_REQUIREMENT_FIELDS,
         )
-        for field in capacity:
-            _integer(f"{name}.{capacity_name}.{field}", capacity[field])
+        _integers(f"{name}.{capacity_name}", capacity, capacity)
         snapshot[capacity_name] = capacity
-    for field in (
-        "heartbeat_at_ms",
-        "heartbeat_ttl_ms",
-        "disk_used_mib",
-        "disk_capacity_mib",
-    ):
-        _integer(f"{name}.{field}", snapshot[field])
+
+
+def _host_snapshot_counters(snapshot: dict[str, Any], name: str) -> None:
+    """Heartbeat window, disk accounting and the held-resource totals."""
+    _integers(name, snapshot, _RESOURCE_HOST_DISK_FIELDS)
     _integer(
         f"{name}.heartbeat_ttl_ms",
         snapshot["heartbeat_ttl_ms"],
@@ -1895,30 +2030,15 @@ def _resource_host_snapshot(value: Any, name: str) -> dict[str, Any] | None:
     )
     if snapshot["disk_used_mib"] > snapshot["disk_capacity_mib"]:
         raise ValueError(f"{name}.disk_used_mib exceeds disk_capacity_mib")
-    for field in (
-        "held_cpu_weight",
-        "held_memory_mib",
-        "held_disk_mib",
-        "held_process_slots",
-    ):
-        _integer(f"{name}.{field}", snapshot[field])
-    for field in ("draining", "quarantined"):
-        _boolean(f"{name}.{field}", snapshot[field])
-    labels = snapshot["labels"]
-    if (
-        not isinstance(labels, list)
-        or len(labels) > 128
-        or any(
-            not isinstance(item, str)
-            or not item
-            or item != item.strip()
-            or len(item) > 256
-            for item in labels
-        )
-        or len(labels) != len(set(labels))
-    ):
+    _integers(name, snapshot, _RESOURCE_HOST_HELD_FIELDS)
+    _booleans(name, snapshot, ("draining", "quarantined"))
+
+
+def _host_snapshot_placement(snapshot: dict[str, Any], name: str) -> None:
+    """Capability labels plus target kind/alias agreement."""
+    if not _is_bounded_id_list(snapshot["labels"]):
         raise ValueError(f"{name}.labels must be unique bounded strings")
-    if snapshot["target_kind"] not in {"local", "inventory_alias"}:
+    if snapshot["target_kind"] not in _RESOURCE_TARGET_KINDS:
         raise ValueError(f"{name}.target_kind is invalid")
     if snapshot["target_alias"] is not None:
         _string(f"{name}.target_alias", snapshot["target_alias"])
@@ -1926,91 +2046,97 @@ def _resource_host_snapshot(value: Any, name: str) -> dict[str, Any] | None:
             raise ValueError(f"{name}.target_alias exceeds the 256-character bound")
     if (snapshot["target_kind"] == "local") != (snapshot["target_alias"] is None):
         raise ValueError(f"{name}.target_alias does not match target_kind")
+
+
+def _host_disk_policy(
+    policy_value: Any, name: str, index: int, seen: set[str]
+) -> None:
+    """One ``disk_policies[i]`` entry, with cross-entry key uniqueness."""
+    label = f"{name}.disk_policies[{index}]"
+    policy = _exact_mapping(label, policy_value, _RESOURCE_DISK_POLICY_FIELDS)
+    _string(f"{label}.policy_key", policy["policy_key"])
+    if len(policy["policy_key"]) > 256 or policy["policy_key"] in seen:
+        raise ValueError(
+            f"{name}.disk_policies contains duplicate/overlong policy keys"
+        )
+    seen.add(policy["policy_key"])
+    _boolean(f"{label}.blocked", policy["blocked"])
+    _integer(f"{label}.revision", policy["revision"])
+    _optional_integers(label, policy, ("low_watermark_mib", "high_watermark_mib"))
+    low = policy["low_watermark_mib"]
+    high = policy["high_watermark_mib"]
+    if low is not None and high is not None and low > high:
+        raise ValueError(f"{label} has inverted watermarks")
+
+
+def _host_snapshot_disk_policies(snapshot: dict[str, Any], name: str) -> None:
+    """The bounded, key-unique list of per-policy disk watermarks."""
     policies = snapshot["disk_policies"]
     if not isinstance(policies, list) or len(policies) > 128:
         raise ValueError(f"{name}.disk_policies must be a bounded list")
     seen: set[str] = set()
     for index, policy_value in enumerate(policies):
-        policy = _exact_mapping(
-            f"{name}.disk_policies[{index}]",
-            policy_value,
-            frozenset(
-                {
-                    "policy_key",
-                    "blocked",
-                    "low_watermark_mib",
-                    "high_watermark_mib",
-                    "revision",
-                }
-            ),
-        )
-        _string(f"{name}.disk_policies[{index}].policy_key", policy["policy_key"])
-        if len(policy["policy_key"]) > 256 or policy["policy_key"] in seen:
-            raise ValueError(
-                f"{name}.disk_policies contains duplicate/overlong policy keys"
-            )
-        seen.add(policy["policy_key"])
-        _boolean(f"{name}.disk_policies[{index}].blocked", policy["blocked"])
-        _integer(f"{name}.disk_policies[{index}].revision", policy["revision"])
-        for field in ("low_watermark_mib", "high_watermark_mib"):
-            if policy[field] is not None:
-                _integer(f"{name}.disk_policies[{index}].{field}", policy[field])
-        if (
-            policy["low_watermark_mib"] is not None
-            and policy["high_watermark_mib"] is not None
-            and policy["low_watermark_mib"] > policy["high_watermark_mib"]
-        ):
-            raise ValueError(f"{name}.disk_policies[{index}] has inverted watermarks")
+        _host_disk_policy(policy_value, name, index, seen)
+
+
+def _resource_host_snapshot(value: Any, name: str) -> dict[str, Any] | None:
+    """Validate the bounded, non-authoritative host reconciliation projection."""
+    if value is None:
+        return None
+    snapshot = _exact_mapping(name, value, _RESOURCE_HOST_SNAPSHOT_FIELDS)
+    _bounded_strings(name, snapshot, ("host_ref",))
+    _integer(f"{name}.revision", snapshot["revision"])
+    _host_snapshot_capacities(snapshot, name)
+    _host_snapshot_counters(snapshot, name)
+    _host_snapshot_placement(snapshot, name)
+    _host_snapshot_disk_policies(snapshot, name)
     return snapshot
 
 
-def _resource_host_update_request(value: Any) -> dict[str, Any]:
-    request = _exact_mapping(
-        "ResourceHostUpdate request",
-        value,
-        frozenset(
-            {
-                "schema_version",
-                "tenant_ref",
-                "host_ref",
-                "revision",
-                "capacity",
-                "observed",
-                "heartbeat_at_ms",
-                "heartbeat_ttl_ms",
-                "now_ms",
-                "draining",
-                "quarantined",
-                "labels",
-                "target_kind",
-                "target_alias",
-                "disk_used_mib",
-                "disk_capacity_mib",
-            }
-        ),
-    )
-    if request["schema_version"] != "1":
-        raise ValueError("ResourceHostUpdate schema_version must be 1")
-    for field in ("tenant_ref", "host_ref"):
-        _string(f"ResourceHostUpdate.{field}", request[field])
-    _integer("ResourceHostUpdate.revision", request["revision"], minimum=1)
+_RESOURCE_HOST_UPDATE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "tenant_ref",
+        "host_ref",
+        "revision",
+        "capacity",
+        "observed",
+        "heartbeat_at_ms",
+        "heartbeat_ttl_ms",
+        "now_ms",
+        "draining",
+        "quarantined",
+        "labels",
+        "target_kind",
+        "target_alias",
+        "disk_used_mib",
+        "disk_capacity_mib",
+    }
+)
+_RESOURCE_HOST_UPDATE_COUNTERS = (
+    "heartbeat_at_ms",
+    "heartbeat_ttl_ms",
+    "now_ms",
+    "disk_used_mib",
+    "disk_capacity_mib",
+)
+
+
+def _host_update_capacities(request: dict[str, Any]) -> None:
+    """Validate and normalise the ``capacity``/``observed`` sub-mappings."""
     for capacity_name in ("capacity", "observed"):
         capacity = _exact_mapping(
             f"ResourceHostUpdate.{capacity_name}",
             request[capacity_name],
-            frozenset({"cpu_weight", "memory_mib", "disk_mib", "process_slots"}),
+            _RESOURCE_REQUIREMENT_FIELDS,
         )
-        for field in capacity:
-            _integer(f"ResourceHostUpdate.{capacity_name}.{field}", capacity[field])
+        _integers(f"ResourceHostUpdate.{capacity_name}", capacity, capacity)
         request[capacity_name] = capacity
-    for field in (
-        "heartbeat_at_ms",
-        "heartbeat_ttl_ms",
-        "now_ms",
-        "disk_used_mib",
-        "disk_capacity_mib",
-    ):
-        _integer(f"ResourceHostUpdate.{field}", request[field])
+
+
+def _host_update_heartbeat(request: dict[str, Any]) -> None:
+    """Heartbeat freshness window and the disk accounting invariant."""
+    _integers("ResourceHostUpdate", request, _RESOURCE_HOST_UPDATE_COUNTERS)
     _integer(
         "ResourceHostUpdate.heartbeat_ttl_ms",
         request["heartbeat_ttl_ms"],
@@ -2023,8 +2149,11 @@ def _resource_host_update_request(value: Any) -> dict[str, Any]:
         raise ValueError("ResourceHostUpdate heartbeat is stale")
     if request["disk_used_mib"] > request["disk_capacity_mib"]:
         raise ValueError("ResourceHostUpdate disk_used_mib exceeds disk_capacity_mib")
-    for field in ("draining", "quarantined"):
-        _boolean(f"ResourceHostUpdate.{field}", request[field])
+
+
+def _host_update_placement(request: dict[str, Any]) -> None:
+    """Drain/quarantine flags, capability labels and target kind/alias agreement."""
+    _booleans("ResourceHostUpdate", request, ("draining", "quarantined"))
     labels = request["labels"]
     if (
         not isinstance(labels, list)
@@ -2035,12 +2164,26 @@ def _resource_host_update_request(value: Any) -> dict[str, Any]:
         or len(labels) != len(set(labels))
     ):
         raise ValueError("ResourceHostUpdate.labels must be unique strings")
-    if request["target_kind"] not in {"local", "inventory_alias"}:
+    if request["target_kind"] not in _RESOURCE_TARGET_KINDS:
         raise ValueError("ResourceHostUpdate.target_kind is invalid")
     if request["target_alias"] is not None:
         _string("ResourceHostUpdate.target_alias", request["target_alias"])
     if (request["target_kind"] == "local") != (request["target_alias"] is None):
         raise ValueError("ResourceHostUpdate target_alias does not match target_kind")
+
+
+def _resource_host_update_request(value: Any) -> dict[str, Any]:
+    request = _exact_mapping(
+        "ResourceHostUpdate request", value, _RESOURCE_HOST_UPDATE_FIELDS
+    )
+    if request["schema_version"] != "1":
+        raise ValueError("ResourceHostUpdate schema_version must be 1")
+    for field in ("tenant_ref", "host_ref"):
+        _string(f"ResourceHostUpdate.{field}", request[field])
+    _integer("ResourceHostUpdate.revision", request["revision"], minimum=1)
+    _host_update_capacities(request)
+    _host_update_heartbeat(request)
+    _host_update_placement(request)
     return request
 
 
@@ -4214,9 +4357,11 @@ class CapacityLeaseClient:
             "ReconcileCapacity", request, reclaim=False
         )
 
-    async def _reclaim_or_status(
-        self, method: str, request: dict[str, Any], *, reclaim: bool
+    @staticmethod
+    def _reclaim_or_status_request(
+        method: str, request: dict[str, Any], *, reclaim: bool
     ) -> dict[str, Any]:
+        """The shared bounded page request for Reclaim* / *Status."""
         allowed = {"schema_version", "tenant_ref", "cell_id", "max_count", "cursor"}
         if not reclaim:
             allowed.add("lease_id")
@@ -4224,36 +4369,40 @@ class CapacityLeaseClient:
         if value["schema_version"] != "1":
             raise ValueError(f"{method} schema_version must be 1")
         _string(f"{method}.tenant_ref", value["tenant_ref"])
-        if value["cell_id"] is not None:
-            _string(f"{method}.cell_id", value["cell_id"])
-        if not reclaim and value["lease_id"] is not None:
-            _string(f"{method}.lease_id", value["lease_id"])
-        if value["cursor"] is not None:
-            _string(f"{method}.cursor", value["cursor"])
+        optional = ("cell_id", "cursor") if reclaim else ("cell_id", "lease_id", "cursor")
+        for field in optional:
+            if value[field] is not None:
+                _string(f"{method}.{field}", value[field])
         _integer(f"{method}.max_count", value["max_count"], minimum=1)
         if value["max_count"] > 128:
             raise ValueError(f"{method}.max_count exceeds 128")
-        await self._require_method(method)
-        result = await self._client._send(method, {"request": value})
-        if reclaim:
-            answer = _exact_mapping(
-                f"{method} result",
-                result,
-                frozenset(
-                    {"schema_version", "decision", "reclaimed_lease_ids", "next_cursor"}
-                ),
-            )
-            if (
-                answer["schema_version"] != "1"
-                or answer["decision"] not in _CAPACITY_DECISIONS
-            ):
-                raise ValueError(f"{method} result schema/decision is invalid")
-            if (
-                not isinstance(answer["reclaimed_lease_ids"], list)
-                or len(answer["reclaimed_lease_ids"]) > 128
-            ):
-                raise ValueError(f"{method} result lease ids are invalid")
-            return answer
+        return value
+
+    @staticmethod
+    def _reclaim_result(method: str, result: Any) -> dict[str, Any]:
+        """The Reclaim* answer: a decision plus a bounded reclaimed-lease page."""
+        answer = _exact_mapping(
+            f"{method} result",
+            result,
+            frozenset(
+                {"schema_version", "decision", "reclaimed_lease_ids", "next_cursor"}
+            ),
+        )
+        if (
+            answer["schema_version"] != "1"
+            or answer["decision"] not in _CAPACITY_DECISIONS
+        ):
+            raise ValueError(f"{method} result schema/decision is invalid")
+        if (
+            not isinstance(answer["reclaimed_lease_ids"], list)
+            or len(answer["reclaimed_lease_ids"]) > 128
+        ):
+            raise ValueError(f"{method} result lease ids are invalid")
+        return answer
+
+    @staticmethod
+    def _capacity_status_result(method: str, result: Any) -> dict[str, Any]:
+        """The *Status answer: bounded cell and lease pages."""
         answer = _exact_mapping(
             f"{method} result",
             result,
@@ -4268,6 +4417,16 @@ class CapacityLeaseClient:
         ):
             raise ValueError(f"{method} result shape is invalid")
         return answer
+
+    async def _reclaim_or_status(
+        self, method: str, request: dict[str, Any], *, reclaim: bool
+    ) -> dict[str, Any]:
+        value = self._reclaim_or_status_request(method, request, reclaim=reclaim)
+        await self._require_method(method)
+        result = await self._client._send(method, {"request": value})
+        if reclaim:
+            return self._reclaim_result(method, result)
+        return self._capacity_status_result(method, result)
 
     async def update_cell(self, request: dict[str, Any]) -> dict[str, Any]:
         value = _exact_mapping(
@@ -9411,6 +9570,129 @@ def _raise_send_error(resp: dict[str, Any]) -> NoReturn:
     raise RuntimeError(err_msg)
 
 
+def _tls_env(name: str) -> str:
+    """One TLS environment variable, normalised to a stripped string."""
+    return str(os.environ.get(name, "") or "").strip()
+
+
+_TLS_TRUTHY = frozenset({"1", "true", "yes", "on"})
+_TLS_FALSY = frozenset({"0", "false", "no", "off"})
+
+
+def _tls_profile_mode() -> bool | None:
+    """The NAMED-PROFILE opinion on TLS: ``True``/``False``, or ``None`` if silent."""
+    configured = str(os.environ.get("GRAPH_SERVICE_TLS", "")).strip().lower()
+    if configured in _TLS_FALSY:
+        return False
+    selects = bool(
+        _tls_env("GRAPH_SERVICE_TLS_CA")
+        or _tls_env("GRAPH_SERVICE_TLS_CA_DIRECTORY")
+        or _tls_env("GRAPH_SERVICE_TLS_CLIENT_CERT")
+        or _tls_env("GRAPH_SERVICE_TLS_CLIENT_KEY")
+        or configured in _TLS_TRUTHY
+    )
+    return True if selects else None
+
+
+def _tls_mode(
+    tls: bool | None, *, explicit_credential: bool
+) -> tuple[bool, str]:
+    """``(enabled, profile_tag)`` by explicit precedence alone.
+
+    Tier 1 is the explicit call argument -- ``tls=True``/``tls=False``, or an
+    mTLS credential passed as a CALL argument, which is itself an explicit
+    selection. Tier 2 is the named graph-service endpoint profile. Tier 3 is
+    the product default (plaintext).
+    """
+    if tls is True:
+        return True, "explicit-arg"
+    if tls is False:
+        return False, "explicit-arg"
+    if explicit_credential:
+        return True, "explicit-arg"
+    profile = _tls_profile_mode()
+    if profile is None:
+        return False, "default"
+    return profile, "named-profile"
+
+
+def _enforce_tls_server_allowlist(server_name: str | None) -> None:
+    """Reject a server name outside ``GRAPH_SERVICE_TLS_ALLOWED_SERVER_NAMES``."""
+    allowed = _tls_env("GRAPH_SERVICE_TLS_ALLOWED_SERVER_NAMES")
+    if not allowed or not server_name:
+        return
+    allowed_names = {n.strip() for n in allowed.split(",") if n.strip()}
+    if server_name not in allowed_names:
+        raise ValueError("TLS server name is outside the configured endpoint allowlist")
+
+
+def _tls_trust_context() -> ssl.SSLContext:
+    """A TLS 1.2+ context loaded with this endpoint's trust material.
+
+    The named profile's OWN CA source comes first; a generic,
+    unrelated-library CA variable is consulted only as a FALLBACK once TLS is
+    already selected -- the mode decision is already final and this can never
+    reopen it.
+    """
+    ca_bundle = (
+        _tls_env("GRAPH_SERVICE_TLS_CA")
+        or str(os.environ.get("SSL_CERT_FILE") or "").strip()
+        or str(os.environ.get("REQUESTS_CA_BUNDLE") or "").strip()
+    )
+    ca_directory = str(
+        os.environ.get("GRAPH_SERVICE_TLS_CA_DIRECTORY")
+        or os.environ.get("SSL_CERT_DIR")
+        or ""
+    ).strip()
+    try:
+        context = ssl.create_default_context(
+            cafile=ca_bundle or None,
+            capath=ca_directory or None,
+        )
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+    except (OSError, ssl.SSLError, ValueError):
+        raise ValueError(
+            "native TCP TLS trust material is unavailable or invalid"
+        ) from None
+    return context
+
+
+def _load_tls_client_identity(
+    context: ssl.SSLContext, client_cert: str | None, client_key: str | None
+) -> None:
+    """Load the mTLS identity (call argument first, then the named profile)."""
+    cert = str(client_cert or _tls_env("GRAPH_SERVICE_TLS_CLIENT_CERT")).strip()
+    key = str(client_key or _tls_env("GRAPH_SERVICE_TLS_CLIENT_KEY")).strip()
+    if bool(cert) != bool(key):
+        raise ValueError("native TCP mTLS requires both client certificate and key")
+    if not cert:
+        return
+    key_password = os.environ.get("GRAPH_SERVICE_TLS_CLIENT_KEY_PASSWORD")
+    try:
+        context.load_cert_chain(
+            certfile=cert,
+            keyfile=key,
+            password=key_password or None,
+        )
+    except (OSError, ssl.SSLError, ValueError):
+        raise ValueError("native TCP mTLS identity is unavailable or invalid") from None
+
+
+def _tls_trust_source(enabled: bool) -> str:
+    """The TAG naming where trust material comes from (diagnostics only)."""
+    if not enabled:
+        return "none"
+    if _tls_env("GRAPH_SERVICE_TLS_CA"):
+        return "ca_bundle"
+    if os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE"):
+        return "ca_bundle"
+    if os.environ.get("GRAPH_SERVICE_TLS_CA_DIRECTORY") or os.environ.get(
+        "SSL_CERT_DIR"
+    ):
+        return "ca_directory"
+    return "system_default"
+
+
 def _decode_send_result(result: Any) -> Any:
     """Decode the compact result encoding (engine Phase C-D).
 
@@ -12910,45 +13192,14 @@ class EpistemicGraphClient:
         Contradictory inputs (TLS explicitly disabled while a client
         certificate is supplied) are rejected here, not silently resolved.
         """
-        env_client_cert = str(
-            os.environ.get("GRAPH_SERVICE_TLS_CLIENT_CERT", "") or ""
-        ).strip()
-        env_client_key = str(
-            os.environ.get("GRAPH_SERVICE_TLS_CLIENT_KEY", "") or ""
-        ).strip()
+        env_client_cert = _tls_env("GRAPH_SERVICE_TLS_CLIENT_CERT")
+        env_client_key = _tls_env("GRAPH_SERVICE_TLS_CLIENT_KEY")
         has_cert_arg = bool(str(client_cert or "").strip())
         has_key_arg = bool(str(client_key or "").strip())
 
-        configured = str(os.environ.get("GRAPH_SERVICE_TLS", "")).strip().lower()
-        profile_ca = str(os.environ.get("GRAPH_SERVICE_TLS_CA", "") or "").strip()
-        profile_ca_directory = str(
-            os.environ.get("GRAPH_SERVICE_TLS_CA_DIRECTORY", "") or ""
-        ).strip()
-        profile_selects_tls = bool(
-            profile_ca
-            or profile_ca_directory
-            or env_client_cert
-            or env_client_key
-            or configured in {"1", "true", "yes", "on"}
+        enabled, profile = _tls_mode(
+            tls, explicit_credential=has_cert_arg or has_key_arg
         )
-        profile_disables_tls = configured in {"0", "false", "no", "off"}
-
-        if tls is True:
-            enabled, profile = True, "explicit-arg"
-        elif tls is False:
-            enabled, profile = False, "explicit-arg"
-        elif has_cert_arg or has_key_arg:
-            # An explicit mTLS credential passed as a CALL argument is itself
-            # an explicit selection (tier 1), distinct from the named-profile
-            # tier below.
-            enabled, profile = True, "explicit-arg"
-        elif profile_disables_tls:
-            enabled, profile = False, "named-profile"
-        elif profile_selects_tls:
-            enabled, profile = True, "named-profile"
-        else:
-            enabled, profile = False, "default"
-
         if not enabled and (
             has_cert_arg or has_key_arg or env_client_cert or env_client_key
         ):
@@ -12956,23 +13207,9 @@ class EpistemicGraphClient:
                 "a client certificate was supplied but TLS is explicitly disabled "
                 "for this connection"
             )
-
-        trust_source = "none"
-        if enabled:
-            if profile_ca:
-                trust_source = "ca_bundle"
-            elif os.environ.get("SSL_CERT_FILE") or os.environ.get(
-                "REQUESTS_CA_BUNDLE"
-            ):
-                trust_source = "ca_bundle"
-            elif os.environ.get("GRAPH_SERVICE_TLS_CA_DIRECTORY") or os.environ.get(
-                "SSL_CERT_DIR"
-            ):
-                trust_source = "ca_directory"
-            else:
-                trust_source = "system_default"
-
-        return _TlsDecision(enabled, profile, server_hostname, trust_source)
+        return _TlsDecision(
+            enabled, profile, server_hostname, _tls_trust_source(enabled)
+        )
 
     @classmethod
     def _resolve_tls(
@@ -13007,63 +13244,9 @@ class EpistemicGraphClient:
         if not decision.enabled:
             return None
 
-        allowed = str(
-            os.environ.get("GRAPH_SERVICE_TLS_ALLOWED_SERVER_NAMES", "") or ""
-        ).strip()
-        if allowed and decision.server_name:
-            allowed_names = {n.strip() for n in allowed.split(",") if n.strip()}
-            if decision.server_name not in allowed_names:
-                raise ValueError(
-                    "TLS server name is outside the configured endpoint allowlist"
-                )
-
-        env_client_cert = str(
-            os.environ.get("GRAPH_SERVICE_TLS_CLIENT_CERT", "") or ""
-        ).strip()
-        env_client_key = str(
-            os.environ.get("GRAPH_SERVICE_TLS_CLIENT_KEY", "") or ""
-        ).strip()
-        profile_ca = str(os.environ.get("GRAPH_SERVICE_TLS_CA", "") or "").strip()
-        # Trust material: the named profile's OWN CA source first; a generic,
-        # unrelated-library CA variable is consulted only as a FALLBACK once
-        # TLS is already selected -- the mode decision above is already final
-        # and this can never reopen it.
-        ca_bundle = (
-            profile_ca
-            or str(os.environ.get("SSL_CERT_FILE") or "").strip()
-            or str(os.environ.get("REQUESTS_CA_BUNDLE") or "").strip()
-        )
-        ca_directory = str(
-            os.environ.get("GRAPH_SERVICE_TLS_CA_DIRECTORY")
-            or os.environ.get("SSL_CERT_DIR")
-            or ""
-        ).strip()
-        try:
-            context = ssl.create_default_context(
-                cafile=ca_bundle or None,
-                capath=ca_directory or None,
-            )
-            context.minimum_version = ssl.TLSVersion.TLSv1_2
-        except (OSError, ssl.SSLError, ValueError):
-            raise ValueError(
-                "native TCP TLS trust material is unavailable or invalid"
-            ) from None
-        cert = str(client_cert or env_client_cert).strip()
-        key = str(client_key or env_client_key).strip()
-        if bool(cert) != bool(key):
-            raise ValueError("native TCP mTLS requires both client certificate and key")
-        if cert and key:
-            key_password = os.environ.get("GRAPH_SERVICE_TLS_CLIENT_KEY_PASSWORD")
-            try:
-                context.load_cert_chain(
-                    certfile=cert,
-                    keyfile=key,
-                    password=key_password or None,
-                )
-            except (OSError, ssl.SSLError, ValueError):
-                raise ValueError(
-                    "native TCP mTLS identity is unavailable or invalid"
-                ) from None
+        _enforce_tls_server_allowlist(decision.server_name)
+        context = _tls_trust_context()
+        _load_tls_client_identity(context, client_cert, client_key)
         # Sanitized diagnostics only -- mode/profile/trust-source TAGS, never
         # certificate/key paths or contents (GOC-81 W01 invariant 3).
         logger.debug(
