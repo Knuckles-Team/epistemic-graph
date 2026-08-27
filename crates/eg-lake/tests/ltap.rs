@@ -151,6 +151,40 @@ fn eg_317_lsn_as_of_snapshot_is_consistent() {
     assert!(table.snapshot.files_as_of(Lsn(0)).is_empty());
 }
 
+/// BUG-224 — the `Op::AsOf -> Lsn` query-time closure (CA-19, GOC-77-W05):
+/// [`LakeTable::iceberg_as_of_ts`] resolves a caller-supplied timestamp through a
+/// [`eg_lake::AsOfLsnResolver`] closure to the exact historical snapshot committed at
+/// or before it — the CALLER this seam previously had none of (`iceberg_as_of` itself
+/// existed and was tested, but nothing in the engine tree invoked it).
+#[test]
+fn bug_224_iceberg_as_of_ts_resolves_through_the_caller_closure() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 100, 1, Lsn(10));
+    table.record_file("data/part-1.parquet", 200, 2, Lsn(20));
+
+    // A resolver standing in for the engine's real timestamp<->LSN correlation: any
+    // ts >= 1000 resolves to LSN 10 (the "first commit" point in this fixture).
+    let resolver = |ts_ms: i64| if ts_ms >= 1_000 { Some(Lsn(10)) } else { None };
+
+    let historical = table.iceberg_as_of_ts(1_500, &resolver);
+    let meta = iceberg::parse_metadata(&historical.metadata_json).expect("parse metadata");
+    assert_eq!(
+        meta["current-snapshot-id"], 10,
+        "the resolver's LSN pins the historical projection, not \"now\""
+    );
+
+    // A resolver that cannot correlate the timestamp (returns None) degrades to the
+    // CURRENT snapshot — the same "absent as_of => current" contract the REST
+    // `LoadTable` route's `?as_of=<LSN>` extension already uses, never an error.
+    let no_correlation = |_ts_ms: i64| None;
+    let current = table.iceberg_as_of_ts(999, &no_correlation);
+    let meta_current = iceberg::parse_metadata(&current.metadata_json).expect("parse metadata");
+    assert_eq!(
+        meta_current["current-snapshot-id"], 20,
+        "no resolver correlation falls back to the CURRENT committed LSN"
+    );
+}
+
 /// CONCEPT:EG-KG.storage.lsn-as-snapshot-returns — the Iceberg metadata.json is real & parseable and references the
 /// real Avro manifest paths (the Avro itself is round-tripped in the EG-333 test).
 #[test]
