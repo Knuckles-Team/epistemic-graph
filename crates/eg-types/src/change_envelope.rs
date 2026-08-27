@@ -212,17 +212,81 @@ pub struct ChangeEnvelope {
 }
 
 impl ChangeEnvelope {
+    // CXA-EG-03 refactor: `validate` was CCN 90 as one flat sequence of ~20
+    // independent must-all-pass checks. A `match`-dispatch's arms collapse to
+    // ~1 CCN regardless of arm count (mutually exclusive, no `?` needed at the
+    // call site -- confirmed on the sibling `apply_txn_op`/`try_handle`
+    // dispatchers in this same lane), but a linear AND-chain of fallible steps
+    // has no such shortcut: each step needs its own `?` (or equivalent early
+    // return) wherever it lives, so flattening 20 `?`s into one function keeps
+    // CCN ~20 however they are named. The fix here is a small TREE instead: a
+    // few phase functions of ~4-6 `?`-calls each, called from `validate`
+    // itself (5 phases, CCN 6), each phase covering an independent group of
+    // the original checks (identity/text/content/material/operations). Every
+    // leaf below is the ORIGINAL check's body verbatim, moved, not rewritten
+    // -- same conditions, same Err strings, same order.
     pub fn validate(&self) -> Result<(), String> {
+        self.validate_identity()?;
+        self.validate_text_and_context()?;
+        self.validate_content()?;
+        self.validate_material()?;
+        self.validate_operations()?;
+        Ok(())
+    }
+
+    fn validate_identity(&self) -> Result<(), String> {
+        self.validate_schema_version()?;
+        self.mutation.validate()?;
+        self.validate_envelope_id()?;
+        self.validate_principal()?;
+        Ok(())
+    }
+
+    fn validate_schema_version(&self) -> Result<(), String> {
         if self.schema_version != CHANGE_ENVELOPE_VERSION {
             return Err(format!(
                 "unsupported ChangeEnvelope version {} (expected {})",
                 self.schema_version, CHANGE_ENVELOPE_VERSION
             ));
         }
-        self.mutation.validate()?;
+        Ok(())
+    }
+
+    fn validate_envelope_id(&self) -> Result<(), String> {
         if self.envelope_id.trim().is_empty() {
             return Err("change envelope_id must not be empty".to_string());
         }
+        Ok(())
+    }
+
+    // NOTE (CXA-EG-03 finding, documented in the lane report, not fixed here):
+    // this recheck is unreachable in practice. `self.mutation.validate()?` in
+    // `validate_identity` runs FIRST and already enforces a STRICTLY narrower
+    // "principal:sha256:" + 64-lowercase-hex acceptance set
+    // (`crate::mutation_batch::MutationBatch::validate`), so any principal
+    // that clears that gate always clears this one too; no input can produce
+    // either Err below. Kept verbatim (not deleted): not "genuinely dead" per
+    // the 5-evidence-check bar, and this lane's brief forbids fixing bugs
+    // found inside a behaviour-preserving refactor commit regardless.
+    fn validate_principal(&self) -> Result<(), String> {
+        let principal_digest = self
+            .mutation
+            .context
+            .principal
+            .strip_prefix("principal:sha256:")
+            .ok_or_else(|| "durable mutation principal must be an opaque sha256 id".to_string())?;
+        validate_digest("sha256", principal_digest)?;
+        Ok(())
+    }
+
+    fn validate_text_and_context(&self) -> Result<(), String> {
+        self.validate_core_text_fields()?;
+        self.validate_optional_context_fields()?;
+        self.validate_outbox()?;
+        Ok(())
+    }
+
+    fn validate_core_text_fields(&self) -> Result<(), String> {
         for value in [
             self.envelope_id.as_str(),
             self.mutation.batch_id.as_str(),
@@ -232,13 +296,10 @@ impl ChangeEnvelope {
         ] {
             validate_safe_text(value)?;
         }
-        let principal_digest = self
-            .mutation
-            .context
-            .principal
-            .strip_prefix("principal:sha256:")
-            .ok_or_else(|| "durable mutation principal must be an opaque sha256 id".to_string())?;
-        validate_digest("sha256", principal_digest)?;
+        Ok(())
+    }
+
+    fn validate_optional_context_fields(&self) -> Result<(), String> {
         for optional in [
             self.mutation.context.purpose.as_deref(),
             self.mutation.context.policy_fingerprint.as_deref(),
@@ -249,6 +310,10 @@ impl ChangeEnvelope {
         {
             validate_safe_text(optional)?;
         }
+        Ok(())
+    }
+
+    fn validate_outbox(&self) -> Result<(), String> {
         for intent in &self.mutation.outbox {
             validate_safe_text(&intent.topic)?;
             validate_safe_text(&intent.key)?;
@@ -258,6 +323,19 @@ impl ChangeEnvelope {
             }
             validate_msgpack_privacy(&intent.payload)?;
         }
+        Ok(())
+    }
+
+    fn validate_content(&self) -> Result<(), String> {
+        self.validate_content_version()?;
+        self.validate_privacy()?;
+        self.validate_commit_descriptor()?;
+        self.validate_cursor()?;
+        self.validate_source_version()?;
+        Ok(())
+    }
+
+    fn validate_content_version(&self) -> Result<(), String> {
         if self.content_version.object_id.trim().is_empty() {
             return Err("change content object_id must not be empty".to_string());
         }
@@ -272,12 +350,20 @@ impl ChangeEnvelope {
                 return Err("content version cannot replace itself".to_string());
             }
         }
+        Ok(())
+    }
+
+    fn validate_privacy(&self) -> Result<(), String> {
         if self.privacy.policy_version.trim().is_empty()
             || self.privacy.sanitizer_version.trim().is_empty()
         {
             return Err("privacy policy and sanitizer versions are required".to_string());
         }
         validate_digest("sha256", &self.privacy.sanitized_payload_digest)?;
+        Ok(())
+    }
+
+    fn validate_commit_descriptor(&self) -> Result<(), String> {
         match (self.commit_seq, &self.commit_descriptor_ref) {
             (Some(_), None) | (None, Some(_)) => {
                 return Err(
@@ -293,6 +379,10 @@ impl ChangeEnvelope {
             }
             (None, None) => {}
         }
+        Ok(())
+    }
+
+    fn validate_cursor(&self) -> Result<(), String> {
         if let Some(cursor) = &self.cursor {
             if cursor.source.trim().is_empty() {
                 return Err("cursor source must not be empty".to_string());
@@ -304,6 +394,10 @@ impl ChangeEnvelope {
                 validate_safe_text(value)?;
             }
         }
+        Ok(())
+    }
+
+    fn validate_source_version(&self) -> Result<(), String> {
         match &self.content_version.source_version {
             ContentVersionPosition::Opaque {
                 version_type,
@@ -314,30 +408,50 @@ impl ChangeEnvelope {
             }
             ContentVersionPosition::Sequence(_) | ContentVersionPosition::TimestampMillis(_) => {}
         }
-        // Governance proof is not optional: every materialized object's ACL row
-        // must be present in the same envelope and therefore the same commit.
+        Ok(())
+    }
+
+    // Governance proof is not optional: every materialized object's ACL row
+    // must be present in the same envelope and therefore the same commit.
+    fn validate_material(&self) -> Result<(), String> {
+        let governed = self.validate_policies()?;
+        let mut required_governance = BTreeSet::from([self.content_version.object_id.as_str()]);
+        self.validate_blobs()?;
+        self.validate_evidence(&mut required_governance)?;
+        self.validate_features(&mut required_governance)?;
+        self.validate_lineage(&mut required_governance)?;
+        validate_governance_proof(&governed, &required_governance)?;
+        Ok(())
+    }
+
+    fn validate_policies(&self) -> Result<BTreeSet<&str>, String> {
         let mut governed = BTreeSet::new();
         for policy in &self.policies {
-            if policy.tenant != self.mutation.tenant {
-                return Err("policy tenant does not match mutation tenant".to_string());
-            }
-            if policy.object_id.trim().is_empty()
-                || policy.classification.trim().is_empty()
-                || policy.policy_version.trim().is_empty()
-            {
-                return Err(
-                    "policy object, classification, and policy version are required".to_string(),
-                );
-            }
-            validate_safe_text(&policy.object_id)?;
-            validate_safe_text(&policy.policy_id)?;
-            validate_safe_text(&policy.classification)?;
-            validate_safe_text(&policy.policy_version)?;
-            validate_safe_text(&policy.retention_policy)?;
-            validate_digest("sha256", &policy.subject_set_digest)?;
+            self.validate_one_policy(policy)?;
             governed.insert(policy.object_id.as_str());
         }
-        let mut required_governance = BTreeSet::from([self.content_version.object_id.as_str()]);
+        Ok(governed)
+    }
+
+    fn validate_one_policy(&self, policy: &PolicyRecord) -> Result<(), String> {
+        if policy.tenant != self.mutation.tenant {
+            return Err("policy tenant does not match mutation tenant".to_string());
+        }
+        if !policy_required_fields_present(policy) {
+            return Err(
+                "policy object, classification, and policy version are required".to_string(),
+            );
+        }
+        validate_safe_text(&policy.object_id)?;
+        validate_safe_text(&policy.policy_id)?;
+        validate_safe_text(&policy.classification)?;
+        validate_safe_text(&policy.policy_version)?;
+        validate_safe_text(&policy.retention_policy)?;
+        validate_digest("sha256", &policy.subject_set_digest)?;
+        Ok(())
+    }
+
+    fn validate_blobs(&self) -> Result<(), String> {
         for blob in &self.blobs {
             if blob.blob_id.trim().is_empty() || blob.media_type.trim().is_empty() {
                 return Err("blob identity and media type are required".to_string());
@@ -346,6 +460,13 @@ impl ChangeEnvelope {
             validate_safe_text(&blob.media_type)?;
             validate_digest(&blob.digest_algorithm, &blob.digest)?;
         }
+        Ok(())
+    }
+
+    fn validate_evidence<'a>(
+        &'a self,
+        required_governance: &mut BTreeSet<&'a str>,
+    ) -> Result<(), String> {
         for evidence in &self.evidence {
             validate_safe_text(&evidence.evidence_id)?;
             validate_safe_text(&evidence.object_id)?;
@@ -354,6 +475,13 @@ impl ChangeEnvelope {
             validate_digest("sha256", &evidence.content_digest)?;
             validate_msgpack_privacy(&evidence.locus_msgpack)?;
         }
+        Ok(())
+    }
+
+    fn validate_features<'a>(
+        &'a self,
+        required_governance: &mut BTreeSet<&'a str>,
+    ) -> Result<(), String> {
         for feature in &self.features {
             validate_safe_text(&feature.feature_id)?;
             validate_safe_text(&feature.object_id)?;
@@ -362,6 +490,13 @@ impl ChangeEnvelope {
             required_governance.insert(feature.object_id.as_str());
             validate_msgpack_privacy(&feature.value_msgpack)?;
         }
+        Ok(())
+    }
+
+    fn validate_lineage<'a>(
+        &'a self,
+        required_governance: &mut BTreeSet<&'a str>,
+    ) -> Result<(), String> {
         for lineage in &self.lineage {
             validate_safe_text(&lineage.lineage_id)?;
             validate_safe_text(&lineage.object_id)?;
@@ -373,53 +508,88 @@ impl ChangeEnvelope {
                 validate_digest("sha256", digest)?;
             }
         }
-        if let Some(missing) = required_governance.difference(&governed).next() {
-            return Err(format!(
-                "ChangeEnvelope has no policy proof for material object '{missing}'"
-            ));
-        }
+        Ok(())
+    }
+
+    fn validate_operations(&self) -> Result<(), String> {
         for operation in &self.mutation.operations {
             match &operation.method {
                 crate::protocol::Method::AddNode {
                     node_id,
                     properties_msgpack,
-                } => {
-                    validate_safe_text(node_id)?;
-                    validate_msgpack_privacy(properties_msgpack)?;
-                }
+                } => validate_op_add_node(node_id, properties_msgpack)?,
                 crate::protocol::Method::AddEdge {
                     source_id,
                     target_id,
                     properties_msgpack,
-                } => {
-                    validate_safe_text(source_id)?;
-                    validate_safe_text(target_id)?;
-                    validate_msgpack_privacy(properties_msgpack)?;
-                }
-                crate::protocol::Method::RemoveNode { node_id } => {
-                    validate_safe_text(node_id)?;
-                }
+                } => validate_op_add_edge(source_id, target_id, properties_msgpack)?,
+                crate::protocol::Method::RemoveNode { node_id } => validate_safe_text(node_id)?,
                 crate::protocol::Method::CompareAndSetNodeFields {
                     node_id,
                     conditions_msgpack,
                     updates_msgpack,
-                } => {
-                    validate_safe_text(node_id)?;
-                    validate_msgpack_privacy(conditions_msgpack)?;
-                    validate_msgpack_privacy(updates_msgpack)?;
-                }
+                } => validate_op_compare_and_set(node_id, conditions_msgpack, updates_msgpack)?,
                 crate::protocol::Method::RemoveEdge {
                     source_id,
                     target_id,
-                } => {
-                    validate_safe_text(source_id)?;
-                    validate_safe_text(target_id)?;
-                }
+                } => validate_op_remove_edge(source_id, target_id)?,
                 _ => {}
             }
         }
         Ok(())
     }
+}
+
+fn policy_required_fields_present(policy: &PolicyRecord) -> bool {
+    !policy.object_id.trim().is_empty()
+        && !policy.classification.trim().is_empty()
+        && !policy.policy_version.trim().is_empty()
+}
+
+fn validate_governance_proof(
+    governed: &BTreeSet<&str>,
+    required_governance: &BTreeSet<&str>,
+) -> Result<(), String> {
+    if let Some(missing) = required_governance.difference(governed).next() {
+        return Err(format!(
+            "ChangeEnvelope has no policy proof for material object '{missing}'"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_op_add_node(node_id: &str, properties_msgpack: &[u8]) -> Result<(), String> {
+    validate_safe_text(node_id)?;
+    validate_msgpack_privacy(properties_msgpack)?;
+    Ok(())
+}
+
+fn validate_op_add_edge(
+    source_id: &str,
+    target_id: &str,
+    properties_msgpack: &[u8],
+) -> Result<(), String> {
+    validate_safe_text(source_id)?;
+    validate_safe_text(target_id)?;
+    validate_msgpack_privacy(properties_msgpack)?;
+    Ok(())
+}
+
+fn validate_op_compare_and_set(
+    node_id: &str,
+    conditions_msgpack: &[u8],
+    updates_msgpack: &[u8],
+) -> Result<(), String> {
+    validate_safe_text(node_id)?;
+    validate_msgpack_privacy(conditions_msgpack)?;
+    validate_msgpack_privacy(updates_msgpack)?;
+    Ok(())
+}
+
+fn validate_op_remove_edge(source_id: &str, target_id: &str) -> Result<(), String> {
+    validate_safe_text(source_id)?;
+    validate_safe_text(target_id)?;
+    Ok(())
 }
 
 fn validate_digest(algorithm: &str, digest: &str) -> Result<(), String> {
