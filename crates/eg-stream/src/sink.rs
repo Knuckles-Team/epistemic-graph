@@ -11,6 +11,23 @@
 //! and adapts [`KafkaCdcSink`] onto `crate::server::cdc::ExternalCdcSink`
 //! before installing it on the live `CdcHub`.
 //!
+//! ## CA-15 reuse (`RawKafkaProducer`)
+//!
+//! `file-ownership.yaml` `FO-CA-026` makes this crate's `rdkafka` dependency
+//! (feature `cdc-kafka`) CA-11-exclusive: no other lane may add a second
+//! Kafka dependency anywhere in the workspace. CA-15's OpenLineage transport
+//! (`src/server/lake/lineage_transport.rs` in the root crate) needs a Kafka
+//! producer too, but [`KafkaCdcSink`] can't serve it directly — it always
+//! wraps a message in DEC-CA-03's CDC `Envelope` shape (`seq`/`graph`/`op`/
+//! `node_id`/...) and targets a fixed `{topic_prefix}{graph}` on explicit
+//! partition 0, neither of which fits an OpenLineage `RunEvent` publishing
+//! its own spec-shaped JSON to the fixed `openlineage.events` topic keyed by
+//! `run.runId` (normal key-hash partitioning, not partition 0). [`RawKafkaProducer`]
+//! factors out the construction ([`client_config_from`] +
+//! [`spawn_delivery_tracked_producer`]) both producers share, then exposes a
+//! schema-agnostic `publish(topic, key, payload)` — one Kafka dependency,
+//! two producer TYPES built on the same delivery-tracked construction.
+//!
 //! ## DEC-CA-03 envelope gap (report this, don't paper over it)
 //!
 //! DEC-CA-03's `eg.cdc.<graph>` JSON schema names twelve fields: `seq`,
@@ -235,6 +252,83 @@ impl ProducerContext for DeliveryTracker {
 /// the graph key, because a topic can have more than one partition in
 /// principle and key-hash routing would not guarantee the single-partition
 /// `seq`-order contract P3 checks; targeting partition 0 explicitly does.
+/// Build a `librdkafka` `ClientConfig` from [`KafkaConfig`] — the connect/
+/// timeout/idempotence knobs [`KafkaCdcSink::new`] and [`RawKafkaProducer::new`]
+/// both need. Extracted so the two producers share ONE construction path
+/// (file-ownership `FO-CA-026`: this crate's `rdkafka` dependency is CA-11-
+/// exclusive; CA-15's lineage transport reuses it via this function and
+/// [`spawn_delivery_tracked_producer`] rather than declaring a second Kafka
+/// dependency anywhere else in the workspace).
+#[cfg(feature = "cdc-kafka")]
+fn client_config_from(config: &KafkaConfig) -> ClientConfig {
+    let mut client_config = ClientConfig::new();
+    client_config
+        .set("bootstrap.servers", &config.brokers)
+        // Mirrors `sparql_http.rs`'s 5s/30s connect/read pattern (lane
+        // brief's "Algorithmic and resource budget" note) — bounded so a
+        // dead broker never queues messages indefinitely.
+        .set("message.timeout.ms", "5000")
+        .set("socket.timeout.ms", "30000")
+        // P3's ordering guarantee holds only if a RETRY can never
+        // reorder two in-flight messages on the same partition.
+        // Idempotence forces `max.in.flight.requests.per.connection<=5`
+        // with per-partition sequencing and caps `acks=all` -- the
+        // standard librdkafka mechanism for exactly this. Without it,
+        // librdkafka's default `max.in.flight.requests.per.connection`
+        // (1,000,000) can reorder on a retried send.
+        .set("enable.idempotence", "true");
+    if let Some(proto) = &config.security_protocol {
+        client_config.set("security.protocol", proto);
+    }
+    if let Some(mech) = &config.sasl_mechanism {
+        client_config.set("sasl.mechanisms", mech);
+    }
+    if let Some(user) = &config.sasl_username {
+        client_config.set("sasl.username", user);
+    }
+    if let Some(pass) = &config.sasl_password {
+        client_config.set("sasl.password", pass);
+    }
+    client_config
+}
+
+/// Create the delivery-tracked producer + spawn its dedicated poll thread —
+/// the other half of the shared construction path (see
+/// [`client_config_from`]'s doc). Returns the producer plus the two
+/// broker-confirmed delivery counters `DeliveryTracker` feeds, so a caller
+/// (either [`KafkaCdcSink`] or [`RawKafkaProducer`]) can expose its own
+/// `delivered_count`/`delivery_failed_count`.
+#[cfg(feature = "cdc-kafka")]
+#[allow(clippy::type_complexity)]
+fn spawn_delivery_tracked_producer(
+    client_config: ClientConfig,
+) -> Result<(Arc<BaseProducer<DeliveryTracker>>, Arc<AtomicU64>, Arc<AtomicU64>), SinkError> {
+    let delivered = Arc::new(AtomicU64::new(0));
+    let delivery_failed = Arc::new(AtomicU64::new(0));
+    let context = DeliveryTracker {
+        delivered: Arc::clone(&delivered),
+        delivery_failed: Arc::clone(&delivery_failed),
+    };
+    let producer: BaseProducer<DeliveryTracker> = client_config
+        .create_with_context(context)
+        .map_err(|e: KafkaError| SinkError::Kafka(e.to_string()))?;
+    let producer = Arc::new(producer);
+    // `BaseProducer::send` is non-blocking (enqueues into librdkafka's
+    // local buffer; actual I/O runs on librdkafka's own background
+    // threads regardless), but delivery-report/error events pile up in
+    // an internal queue until `poll()` dispatches them — without a
+    // periodic poller that queue grows unbounded over the process
+    // life. One dedicated OS thread, detached (this producer lives for the
+    // process's life; there is no shutdown path to join it against).
+    let reaper = Arc::clone(&producer);
+    let _ = std::thread::Builder::new()
+        .name("eg-cdc-kafka-poll".into())
+        .spawn(move || loop {
+            reaper.poll(std::time::Duration::from_millis(200));
+        });
+    Ok((producer, delivered, delivery_failed))
+}
+
 #[cfg(feature = "cdc-kafka")]
 pub struct KafkaCdcSink {
     producer: Arc<BaseProducer<DeliveryTracker>>,
@@ -260,57 +354,9 @@ impl KafkaCdcSink {
     /// (`cdc_sink::install_from_env`) logs and leaves the hub sink-less
     /// (ring-only, exactly today's behavior) rather than crash the server.
     pub fn new(config: &KafkaConfig) -> Result<Self, SinkError> {
-        let mut client_config = ClientConfig::new();
-        client_config
-            .set("bootstrap.servers", &config.brokers)
-            // Mirrors `sparql_http.rs`'s 5s/30s connect/read pattern (lane
-            // brief's "Algorithmic and resource budget" note) — bounded so a
-            // dead broker never queues messages indefinitely.
-            .set("message.timeout.ms", "5000")
-            .set("socket.timeout.ms", "30000")
-            // P3's ordering guarantee holds only if a RETRY can never
-            // reorder two in-flight messages on the same partition.
-            // Idempotence forces `max.in.flight.requests.per.connection<=5`
-            // with per-partition sequencing and caps `acks=all` -- the
-            // standard librdkafka mechanism for exactly this. Without it,
-            // librdkafka's default `max.in.flight.requests.per.connection`
-            // (1,000,000) can reorder on a retried send.
-            .set("enable.idempotence", "true");
-        if let Some(proto) = &config.security_protocol {
-            client_config.set("security.protocol", proto);
-        }
-        if let Some(mech) = &config.sasl_mechanism {
-            client_config.set("sasl.mechanisms", mech);
-        }
-        if let Some(user) = &config.sasl_username {
-            client_config.set("sasl.username", user);
-        }
-        if let Some(pass) = &config.sasl_password {
-            client_config.set("sasl.password", pass);
-        }
-        let delivered = Arc::new(AtomicU64::new(0));
-        let delivery_failed = Arc::new(AtomicU64::new(0));
-        let context = DeliveryTracker {
-            delivered: Arc::clone(&delivered),
-            delivery_failed: Arc::clone(&delivery_failed),
-        };
-        let producer: BaseProducer<DeliveryTracker> = client_config
-            .create_with_context(context)
-            .map_err(|e: KafkaError| SinkError::Kafka(e.to_string()))?;
-        let producer = Arc::new(producer);
-        // `BaseProducer::send` is non-blocking (enqueues into librdkafka's
-        // local buffer; actual I/O runs on librdkafka's own background
-        // threads regardless), but delivery-report/error events pile up in
-        // an internal queue until `poll()` dispatches them — without a
-        // periodic poller that queue grows unbounded over the process
-        // life. One dedicated OS thread, detached (this sink lives for the
-        // process's life; there is no shutdown path to join it against).
-        let reaper = Arc::clone(&producer);
-        let _ = std::thread::Builder::new()
-            .name("eg-cdc-kafka-poll".into())
-            .spawn(move || loop {
-                reaper.poll(std::time::Duration::from_millis(200));
-            });
+        let client_config = client_config_from(config);
+        let (producer, delivered, delivery_failed) =
+            spawn_delivery_tracked_producer(client_config)?;
         Ok(KafkaCdcSink {
             producer,
             topic_prefix: config.topic_prefix.clone(),
@@ -396,6 +442,111 @@ impl CdcSink for KafkaCdcSink {
             .flush(std::time::Duration::from_millis(timeout_ms))
         {
             eprintln!("cdc-kafka sink: flush error: {e}");
+        }
+    }
+}
+
+/// A generic delivery-tracked Kafka producer, decoupled from the CDC
+/// envelope schema [`KafkaCdcSink`] is bound to (fixed topic-per-graph,
+/// [`SinkEvent`]'s node/edge shape, explicit partition 0). Built on the
+/// SAME [`client_config_from`]/[`spawn_delivery_tracked_producer`]
+/// construction — see those functions' docs for why this exists instead of
+/// a second `rdkafka` dependency (`FO-CA-026`). A caller publishes an
+/// arbitrary payload to an arbitrary topic/key (e.g. CA-15's lineage
+/// transport, publishing OpenLineage `RunEvent` JSON to the fixed
+/// `openlineage.events` topic keyed by `run.runId`, per `DEC-CA-03`) rather
+/// than [`SinkEvent`]'s CDC-shaped envelope. [`KafkaConfig::topic_prefix`]
+/// is not read here — the topic is named per [`Self::publish`] call.
+#[cfg(feature = "cdc-kafka")]
+pub struct RawKafkaProducer {
+    producer: Arc<BaseProducer<DeliveryTracker>>,
+    sent: AtomicU64,
+    failed: AtomicU64,
+    delivered: Arc<AtomicU64>,
+    delivery_failed: Arc<AtomicU64>,
+}
+
+#[cfg(feature = "cdc-kafka")]
+impl RawKafkaProducer {
+    /// Build the producer and start its background poll thread. Fails
+    /// closed (`Err`, no thread spawned) exactly like [`KafkaCdcSink::new`]
+    /// — the caller is expected to log and continue without this transport
+    /// rather than crash.
+    pub fn new(config: &KafkaConfig) -> Result<Self, SinkError> {
+        let client_config = client_config_from(config);
+        let (producer, delivered, delivery_failed) =
+            spawn_delivery_tracked_producer(client_config)?;
+        Ok(RawKafkaProducer {
+            producer,
+            sent: AtomicU64::new(0),
+            failed: AtomicU64::new(0),
+            delivered,
+            delivery_failed,
+        })
+    }
+
+    /// Non-blocking send (see [`CdcSink::emit`]'s doc for the same
+    /// contract): enqueues locally and returns immediately. No partition
+    /// override — unlike `eg.cdc.<graph>`'s single-partition requirement,
+    /// `openlineage.events` partitions normally by `key` (DEC-CA-03: "key:
+    /// run id"), so librdkafka's default key-hash routing is exactly what's
+    /// wanted here.
+    pub fn publish(&self, topic: &str, key: &[u8], payload: &[u8]) -> Result<(), SinkError> {
+        let record = BaseRecord::to(topic).key(key).payload(payload);
+        match self.producer.send(record) {
+            Ok(()) => {
+                self.sent.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+            Err((KafkaError::MessageProduction(code), _)) => {
+                self.failed.fetch_add(1, Ordering::Relaxed);
+                if format!("{code:?}").contains("QueueFull") {
+                    Err(SinkError::QueueFull)
+                } else {
+                    Err(SinkError::Kafka(format!("{code:?}")))
+                }
+            }
+            Err((e, _)) => {
+                self.failed.fetch_add(1, Ordering::Relaxed);
+                Err(SinkError::Kafka(e.to_string()))
+            }
+        }
+    }
+
+    /// Locally enqueued -- NOT proof of broker delivery.
+    pub fn sent_count(&self) -> u64 {
+        self.sent.load(Ordering::Relaxed)
+    }
+
+    pub fn failed_count(&self) -> u64 {
+        self.failed.load(Ordering::Relaxed)
+    }
+
+    /// Broker-confirmed delivered (via `DeliveryTracker`'s callback).
+    pub fn delivered_count(&self) -> u64 {
+        self.delivered.load(Ordering::Relaxed)
+    }
+
+    /// Broker-confirmed delivery failure (via `DeliveryTracker`'s callback).
+    pub fn delivery_failed_count(&self) -> u64 {
+        self.delivery_failed.load(Ordering::Relaxed)
+    }
+
+    /// Best-effort count of events queued locally but not yet
+    /// broker-acknowledged.
+    pub fn lag(&self) -> u64 {
+        self.producer.in_flight_count() as u64
+    }
+
+    /// Block up to `timeout_ms` waiting for every queued event to reach the
+    /// broker. For graceful shutdown / tests only — never called from a hot
+    /// write path (see [`CdcSink::flush`]'s doc for the same contract).
+    pub fn flush(&self, timeout_ms: u64) {
+        if let Err(e) = self
+            .producer
+            .flush(std::time::Duration::from_millis(timeout_ms))
+        {
+            eprintln!("raw kafka producer: flush error: {e}");
         }
     }
 }
@@ -498,5 +649,49 @@ mod tests {
         assert!(v.get("marking").is_none());
         assert!(v.get("actor").is_none());
         assert!(v.get("lsn").is_none());
+    }
+
+    /// CA-15 (lineage transport) reuses this construction path — proves it
+    /// builds a working producer against an unroutable broker string
+    /// without blocking (librdkafka connects lazily; `create_with_context`
+    /// itself never dials out) and that `publish` returns promptly (the
+    /// same non-blocking-send contract [`CdcSink::emit`] documents),
+    /// bounded so a CI run never hangs even without a real cluster.
+    #[test]
+    fn raw_kafka_producer_construction_and_publish_never_block() {
+        let config = KafkaConfig {
+            brokers: "127.0.0.1:1".to_string(),
+            topic_prefix: String::new(),
+            ..Default::default()
+        };
+        let started = std::time::Instant::now();
+        let producer =
+            RawKafkaProducer::new(&config).expect("construction does not require connectivity");
+        let result = producer.publish("openlineage.events", b"run-1", b"{}");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "construct+publish against an unroutable broker took {:?} -- should be non-blocking",
+            started.elapsed()
+        );
+        // The local enqueue itself may succeed (librdkafka buffers first,
+        // dials lazily) or fail fast depending on timing -- either is fine;
+        // what matters is it returned at all, promptly, and never panicked.
+        let _ = result;
+    }
+
+    #[test]
+    fn raw_kafka_producer_topic_and_key_are_per_call_not_baked_into_config() {
+        // `KafkaConfig::topic_prefix` is documented as unread by
+        // `RawKafkaProducer` -- unlike `KafkaCdcSink`, the topic is named at
+        // `publish()` time (DEC-CA-03's fixed `openlineage.events`, not a
+        // per-graph template). This is a compile-time/API shape assertion:
+        // publish() takes topic + key explicitly.
+        let config = KafkaConfig {
+            brokers: "127.0.0.1:1".to_string(),
+            topic_prefix: "ignored-by-raw-producer".to_string(),
+            ..Default::default()
+        };
+        let producer = RawKafkaProducer::new(&config).expect("construction never blocks");
+        let _ = producer.publish("openlineage.events", b"run-id-key", b"{\"eventType\":\"COMPLETE\"}");
     }
 }
