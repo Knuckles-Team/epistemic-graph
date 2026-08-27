@@ -761,7 +761,7 @@ pub(crate) const MATVIEW_OPERATOR_STATE: TableDefinition<&str, &[u8]> =
 /// schema bootstrap beside the table definitions so the served, embedded, and
 /// test paths cannot drift as new authoritative projections are added. Callers
 /// may open transport-specific tables in the same transaction before committing.
-pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
+fn init_canonical_core_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
     wtx.open_table(NODES).map_err(|error| error.to_string())?;
     wtx.open_table(EDGES).map_err(|error| error.to_string())?;
     wtx.open_table(LEDGER).map_err(|error| error.to_string())?;
@@ -771,6 +771,10 @@ pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Resul
         .map_err(|error| error.to_string())?;
     wtx.open_table(WORK_ITEM_COMMAND_SEQUENCE)
         .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn init_canonical_mutation_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
     wtx.open_table(MUTATION_BATCHES)
         .map_err(|error| error.to_string())?;
     wtx.open_table(MUTATION_IDEMPOTENCY)
@@ -787,6 +791,10 @@ pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Resul
         .map_err(|error| error.to_string())?;
     wtx.open_table(MUTATION_LIFECYCLE_HEAD)
         .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn init_canonical_resource_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
     wtx.open_table(RESOURCE_RESERVATIONS)
         .map_err(|error| error.to_string())?;
     wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS)
@@ -803,9 +811,17 @@ pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Resul
         .map_err(|error| error.to_string())?;
     wtx.open_table(RESOURCE_DISK_POLICIES)
         .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn init_canonical_capability_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
     development_lane::initialize_tables(wtx)?;
     capacity_lease::initialize_tables(wtx)?;
     work_item_capability::initialize_tables(wtx)?;
+    Ok(())
+}
+
+fn init_canonical_change_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
     wtx.open_table(CHANGE_ENVELOPES)
         .map_err(|error| error.to_string())?;
     wtx.open_table(CONTENT_VERSIONS)
@@ -822,6 +838,10 @@ pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Resul
         .map_err(|error| error.to_string())?;
     wtx.open_table(CHANGE_LINEAGE)
         .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn init_canonical_misc_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
     wtx.open_table(RAFT_LOG)
         .map_err(|error| error.to_string())?;
     wtx.open_table(XSHARD_PREPARE)
@@ -839,6 +859,16 @@ pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Resul
     #[cfg(feature = "security")]
     wtx.open_table(PROVENANCE_ANCHOR_MEMBERS)
         .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
+    init_canonical_core_tables(wtx)?;
+    init_canonical_mutation_tables(wtx)?;
+    init_canonical_resource_tables(wtx)?;
+    init_canonical_capability_tables(wtx)?;
+    init_canonical_change_tables(wtx)?;
+    init_canonical_misc_tables(wtx)?;
     Ok(())
 }
 
@@ -2289,6 +2319,658 @@ fn apply_row_delta_state(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
+fn open_native_operation_graph_tables<'txn>(
+    wtx: &'txn redb::WriteTransaction,
+) -> Result<
+    (
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+        redb::Table<'txn, (&'static str, &'static str, &'static str, u32), &'static [u8]>,
+        redb::Table<'txn, (&'static str, u64), &'static str>,
+        redb::Table<'txn, &'static str, &'static [u8]>,
+        redb::Table<'txn, &'static str, u64>,
+    ),
+    String,
+> {
+    let nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+    let native_work_items = wtx
+        .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+        .map_err(|e| e.to_string())?;
+    let edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
+    let ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+    let semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+    let command_sequences = wtx
+        .open_table(WORK_ITEM_COMMAND_SEQUENCE)
+        .map_err(|e| e.to_string())?;
+    Ok((
+        nodes,
+        native_work_items,
+        edges,
+        ledger,
+        semantic,
+        command_sequences,
+    ))
+}
+
+#[allow(clippy::type_complexity)]
+fn open_native_operation_resource_tables_a<'txn>(
+    wtx: &'txn redb::WriteTransaction,
+) -> Result<
+    (
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+        redb::Table<'txn, (&'static str, &'static str, &'static str), &'static str>,
+        redb::Table<'txn, (&'static str, &'static str, u64), &'static str>,
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+        redb::Table<'txn, (&'static str, &'static str), &'static str>,
+    ),
+    String,
+> {
+    let resource_reservations = wtx
+        .open_table(RESOURCE_RESERVATIONS)
+        .map_err(|e| e.to_string())?;
+    let resource_tenant_index = wtx
+        .open_table(RESOURCE_RESERVATION_TENANT_INDEX)
+        .map_err(|e| e.to_string())?;
+    let resource_attempts = wtx
+        .open_table(RESOURCE_RESERVATION_ATTEMPTS)
+        .map_err(|e| e.to_string())?;
+    let resource_hosts = wtx.open_table(RESOURCE_HOSTS).map_err(|e| e.to_string())?;
+    let resource_exclusivity = wtx
+        .open_table(RESOURCE_EXCLUSIVITY)
+        .map_err(|e| e.to_string())?;
+    Ok((
+        resource_reservations,
+        resource_tenant_index,
+        resource_attempts,
+        resource_hosts,
+        resource_exclusivity,
+    ))
+}
+
+#[allow(clippy::type_complexity)]
+fn open_native_operation_resource_tables_b<'txn>(
+    wtx: &'txn redb::WriteTransaction,
+) -> Result<
+    (
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+        redb::Table<'txn, (&'static str, &'static str), u64>,
+        redb::Table<'txn, (&'static str, &'static str, &'static str), u64>,
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+    ),
+    String,
+> {
+    let resource_fairness = wtx
+        .open_table(RESOURCE_FAIRNESS)
+        .map_err(|e| e.to_string())?;
+    let resource_concurrency = wtx
+        .open_table(RESOURCE_CONCURRENCY)
+        .map_err(|e| e.to_string())?;
+    let resource_anti_affinity = wtx
+        .open_table(RESOURCE_ANTI_AFFINITY)
+        .map_err(|e| e.to_string())?;
+    let resource_disk_policies = wtx
+        .open_table(RESOURCE_DISK_POLICIES)
+        .map_err(|e| e.to_string())?;
+    Ok((
+        resource_fairness,
+        resource_concurrency,
+        resource_anti_affinity,
+        resource_disk_policies,
+    ))
+}
+
+#[allow(clippy::type_complexity)]
+fn open_native_operation_lane_tables<'txn>(
+    wtx: &'txn redb::WriteTransaction,
+) -> Result<
+    (
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+        redb::Table<'txn, (&'static str, &'static str, u64), &'static str>,
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+        redb::Table<'txn, (&'static str, &'static str, &'static str, &'static str, u64, &'static str), u8>,
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+    ),
+    String,
+> {
+    let lane_holds = wtx
+        .open_table(development_lane::HOLDS)
+        .map_err(|e| e.to_string())?;
+    let lane_work_item_index = wtx
+        .open_table(development_lane::WORK_ITEM_INDEX)
+        .map_err(|e| e.to_string())?;
+    let lane_counters = wtx
+        .open_table(development_lane::COUNTERS)
+        .map_err(|e| e.to_string())?;
+    let lane_pressure_index = wtx
+        .open_table(development_lane::PRESSURE_INDEX)
+        .map_err(|e| e.to_string())?;
+    let lane_policies = wtx
+        .open_table(development_lane::POLICIES)
+        .map_err(|e| e.to_string())?;
+    Ok((
+        lane_holds,
+        lane_work_item_index,
+        lane_counters,
+        lane_pressure_index,
+        lane_policies,
+    ))
+}
+
+/// GOC-19/GOC-20 (BUG-015 "B9"): a `CommitWorkItemResult` batch may
+/// additionally carry co-committed `AddNode` provenance operations
+/// (RunTrace/ToolCall/OutcomeEvaluation) so a WorkItem's terminal status
+/// and its provenance land in the SAME redb write transaction -- never
+/// one durable without the other. Validated ONCE, before any row is
+/// touched below, so a disallowed shape is refused without partially
+/// applying anything in this transaction. Every other WorkItem method
+/// (Claim/Renew/Cancel/Defer/CasMetadata) keeps the original strict
+/// single-operation rule enforced further down -- this relaxation is
+/// deliberately narrow to `CommitWorkItemResult` alone, which is the one
+/// terminal transition `crates/eg-types/src/outcome_bundle.rs`'s
+/// `CommitOutcomeBundle` (GOC-20) is designed to accompany.
+fn validate_native_operations_commit_work_item_result_shape(
+    batch: &MutationBatch,
+) -> Result<(), String> {
+    let work_item_result_ops = batch
+        .operations
+        .iter()
+        .filter(|op| matches!(&op.method, Method::CommitWorkItemResult { .. }))
+        .count();
+    if work_item_result_ops > 1 {
+        return Err(
+            "a MutationBatch may contain at most one CommitWorkItemResult operation".to_string(),
+        );
+    }
+    if work_item_result_ops == 1
+        && batch.operations.iter().any(|op| {
+            !matches!(
+                &op.method,
+                Method::CommitWorkItemResult { .. } | Method::AddNode { .. }
+            )
+        })
+    {
+        return Err(
+            "a CommitWorkItemResult MutationBatch may only carry additional AddNode \
+             (provenance) operations"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_native_clear_or_delete_graph_rows(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    ledger: &mut redb::Table<(&str, u64), &str>,
+    command_sequences: &mut redb::Table<&str, u64>,
+    resource_reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
+    resource_attempts: &mut redb::Table<(&str, &str, u64), &str>,
+    resource_hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_exclusivity: &mut redb::Table<(&str, &str), &str>,
+    resource_fairness: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_concurrency: &mut redb::Table<(&str, &str), u64>,
+    resource_anti_affinity: &mut redb::Table<(&str, &str, &str), u64>,
+    resource_disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_holds: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
+    lane_counters: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    lane_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    clear_graph_rows(graph_fname, nodes, edges, ledger)?;
+    command_sequences
+        .remove(graph_fname)
+        .map_err(|e| e.to_string())?;
+    clear_resource_rows(
+        graph_fname,
+        resource_reservations,
+        resource_tenant_index,
+        resource_attempts,
+        resource_hosts,
+        resource_exclusivity,
+        resource_fairness,
+        resource_concurrency,
+        resource_anti_affinity,
+        resource_disk_policies,
+        crypto,
+    )?;
+    development_lane::clear_native_graph_rows_in_wtx_with_lane_tables(
+        wtx,
+        graph_fname,
+        lane_holds,
+        lane_work_item_index,
+        lane_counters,
+        lane_pressure_index,
+        lane_policies,
+        crypto,
+    )?;
+    capacity_lease::clear_graph_rows(wtx, graph_fname)?;
+    work_item_capability::clear_graph_rows_in_wtx_with_native(wtx, graph_fname, native_work_items)?;
+    Ok(())
+}
+
+fn apply_native_submit_work_item_operation(
+    graph_fname: &str,
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    command_sequences: &mut redb::Table<&str, u64>,
+    batch: &MutationBatch,
+    committed_at_ms: u64,
+    generated_result: &mut Option<Vec<u8>>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let result = apply_submit_work_item_rows(
+        graph_fname,
+        request,
+        nodes,
+        edges,
+        command_sequences,
+        WorkItemCommitScope {
+            crypto,
+            authoritative_now_ms: committed_at_ms,
+            outbox_id: &batch.batch_id,
+        },
+    )?;
+    if generated_result.is_some() || batch.operations.len() != 1 {
+        return Err(
+            "SubmitWorkItem MutationBatch must contain exactly one result-producing operation"
+                .to_string(),
+        );
+    }
+    let payload = crate::protocol::ResultPayload::raw(&result);
+    *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+fn apply_native_submit_work_items_operation(
+    graph_fname: &str,
+    request: &eg_types::native_control::SubmitWorkItemsRequest,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    command_sequences: &mut redb::Table<&str, u64>,
+    batch: &MutationBatch,
+    committed_at_ms: u64,
+    generated_result: &mut Option<Vec<u8>>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let result = apply_submit_work_items_rows(
+        graph_fname,
+        request,
+        nodes,
+        edges,
+        command_sequences,
+        WorkItemCommitScope {
+            crypto,
+            authoritative_now_ms: committed_at_ms,
+            outbox_id: &batch.batch_id,
+        },
+    )?;
+    if generated_result.is_some() || batch.operations.len() != 1 {
+        return Err(
+            "SubmitWorkItems MutationBatch must contain exactly one result-producing operation"
+                .to_string(),
+        );
+    }
+    let payload = crate::protocol::ResultPayload::raw(&result);
+    *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_native_work_item_family_operation(
+    graph_fname: &str,
+    method: &Method,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_holds: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_work_item_index: &redb::Table<(&str, &str, u64), &str>,
+    lane_counters: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    lane_policies: &redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &mut redb::Table<(&str, &str), &[u8]>,
+    batch: &MutationBatch,
+    generated_result: &mut Option<Vec<u8>>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let result = apply_work_item_rows(
+        graph_fname,
+        method,
+        nodes,
+        lane_holds,
+        lane_work_item_index,
+        lane_counters,
+        lane_pressure_index,
+        lane_policies,
+        native_work_items,
+        crypto,
+    )?
+    .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
+    if generated_result.is_some() || batch.operations.len() != 1 {
+        return Err(
+            "WorkItem MutationBatch must contain exactly one result-producing operation"
+                .to_string(),
+        );
+    }
+    *generated_result = Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+// GOC-19/GOC-20 (BUG-015 "B9"): split out from the shared WorkItem-family
+// helper above -- this is the ONE WorkItem terminal transition allowed to
+// co-commit additional `AddNode` provenance operations in the same batch
+// (validated once, before the operation loop, by
+// `validate_native_operations_commit_work_item_result_shape`). The
+// `batch.operations.len() != 1` sub-check is deliberately dropped here;
+// `generated_result.is_some()` alone still guarantees at most one
+// result-producing operation applies.
+#[allow(clippy::too_many_arguments)]
+fn apply_native_commit_work_item_result_operation(
+    graph_fname: &str,
+    method: &Method,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_holds: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_work_item_index: &redb::Table<(&str, &str, u64), &str>,
+    lane_counters: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    lane_policies: &redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &mut redb::Table<(&str, &str), &[u8]>,
+    generated_result: &mut Option<Vec<u8>>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let result = apply_work_item_rows(
+        graph_fname,
+        method,
+        nodes,
+        lane_holds,
+        lane_work_item_index,
+        lane_counters,
+        lane_pressure_index,
+        lane_policies,
+        native_work_items,
+        crypto,
+    )?
+    .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
+    if generated_result.is_some() {
+        return Err(
+            "WorkItem MutationBatch must contain exactly one result-producing operation"
+                .to_string(),
+        );
+    }
+    *generated_result = Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_native_resource_reservation_operation(
+    graph_fname: &str,
+    method: &Method,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
+    resource_attempts: &mut redb::Table<(&str, &str, u64), &str>,
+    resource_hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_exclusivity: &mut redb::Table<(&str, &str), &str>,
+    resource_fairness: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_concurrency: &mut redb::Table<(&str, &str), u64>,
+    resource_anti_affinity: &mut redb::Table<(&str, &str, &str), u64>,
+    resource_disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    batch: &MutationBatch,
+    generated_result: &mut Option<Vec<u8>>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let result = apply_resource_reservation_rows(
+        graph_fname,
+        method,
+        nodes,
+        resource_reservations,
+        resource_tenant_index,
+        resource_attempts,
+        resource_hosts,
+        resource_exclusivity,
+        resource_fairness,
+        resource_concurrency,
+        resource_anti_affinity,
+        resource_disk_policies,
+        crypto,
+    )?
+    .ok_or_else(|| "resource reservation mutation produced no durable result".to_string())?;
+    if generated_result.is_some() || batch.operations.len() != 1 {
+        return Err(
+            "resource reservation MutationBatch must contain exactly one result-producing operation"
+                .to_string(),
+        );
+    }
+    *generated_result = Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_one_native_operation_row(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    operation: &MutationOperation,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    generated_result: &mut Option<Vec<u8>>,
+    crossmodal_present: bool,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    ledger: &mut redb::Table<(&str, u64), &str>,
+    semantic: &mut redb::Table<&str, &[u8]>,
+    command_sequences: &mut redb::Table<&str, u64>,
+    resource_reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
+    resource_attempts: &mut redb::Table<(&str, &str, u64), &str>,
+    resource_hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_exclusivity: &mut redb::Table<(&str, &str), &str>,
+    resource_fairness: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_concurrency: &mut redb::Table<(&str, &str), u64>,
+    resource_anti_affinity: &mut redb::Table<(&str, &str, &str), u64>,
+    resource_disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_holds: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
+    lane_counters: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    lane_policies: &mut redb::Table<(&str, &str), &[u8]>,
+) -> Result<(), String> {
+    match &operation.method {
+        Method::CreateGraph { .. } => Ok(()),
+        Method::DeleteGraph { .. } | Method::ClearGraph => apply_native_clear_or_delete_graph_rows(
+            wtx,
+            graph_fname,
+            nodes,
+            edges,
+            ledger,
+            command_sequences,
+            resource_reservations,
+            resource_tenant_index,
+            resource_attempts,
+            resource_hosts,
+            resource_exclusivity,
+            resource_fairness,
+            resource_concurrency,
+            resource_anti_affinity,
+            resource_disk_policies,
+            lane_holds,
+            lane_work_item_index,
+            lane_counters,
+            lane_pressure_index,
+            lane_policies,
+            native_work_items,
+            crypto,
+        ),
+        Method::ClearLedger => clear_ledger_rows(graph_fname, ledger),
+        Method::SubmitWorkItem { request } => apply_native_submit_work_item_operation(
+            graph_fname,
+            request,
+            nodes,
+            edges,
+            command_sequences,
+            batch,
+            committed_at_ms,
+            generated_result,
+            crypto,
+        ),
+        Method::SubmitWorkItems { request } => apply_native_submit_work_items_operation(
+            graph_fname,
+            request,
+            nodes,
+            edges,
+            command_sequences,
+            batch,
+            committed_at_ms,
+            generated_result,
+            crypto,
+        ),
+        method @ (Method::ClaimWorkItem { .. }
+        | Method::RenewWorkItemLease { .. }
+        | Method::CancelWorkItem { .. }
+        | Method::DeferWorkItem { .. }
+        | Method::CasWorkItemMetadata { .. }) => apply_native_work_item_family_operation(
+            graph_fname,
+            method,
+            nodes,
+            lane_holds,
+            lane_work_item_index,
+            lane_counters,
+            lane_pressure_index,
+            lane_policies,
+            native_work_items,
+            batch,
+            generated_result,
+            crypto,
+        ),
+        method @ Method::CommitWorkItemResult { .. } => {
+            apply_native_commit_work_item_result_operation(
+                graph_fname,
+                method,
+                nodes,
+                lane_holds,
+                lane_work_item_index,
+                lane_counters,
+                lane_pressure_index,
+                lane_policies,
+                native_work_items,
+                generated_result,
+                crypto,
+            )
+        }
+        method @ (Method::ReserveWorkItemResources { .. }
+        | Method::ReleaseWorkItemResources { .. }
+        | Method::ReclaimWorkItemResources { .. }
+        | Method::UpdateResourceHost { .. }) => apply_native_resource_reservation_operation(
+            graph_fname,
+            method,
+            nodes,
+            resource_reservations,
+            resource_tenant_index,
+            resource_attempts,
+            resource_hosts,
+            resource_exclusivity,
+            resource_fairness,
+            resource_concurrency,
+            resource_anti_affinity,
+            resource_disk_policies,
+            batch,
+            generated_result,
+            crypto,
+        ),
+        Method::ApplyMutation { event_type, .. }
+            if crossmodal_present && event_type == "crossmodal_operation" =>
+        {
+            Ok(())
+        }
+        method => apply_method_rows(
+            graph_fname,
+            method,
+            nodes,
+            edges,
+            ledger,
+            semantic,
+            native_work_items,
+            crypto,
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_native_operation_rows_loop(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
+    generated_result: &mut Option<Vec<u8>>,
+    crossmodal_present: bool,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    ledger: &mut redb::Table<(&str, u64), &str>,
+    semantic: &mut redb::Table<&str, &[u8]>,
+    command_sequences: &mut redb::Table<&str, u64>,
+    resource_reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
+    resource_attempts: &mut redb::Table<(&str, &str, u64), &str>,
+    resource_hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_exclusivity: &mut redb::Table<(&str, &str), &str>,
+    resource_fairness: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_concurrency: &mut redb::Table<(&str, &str), u64>,
+    resource_anti_affinity: &mut redb::Table<(&str, &str, &str), u64>,
+    resource_disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_holds: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
+    lane_counters: &mut redb::Table<(&str, &str), &[u8]>,
+    lane_pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    lane_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    #[cfg(feature = "security")] audit: &mut redb::Table<(&str, u64), &[u8]>,
+) -> Result<(), String> {
+    for operation in &batch.operations {
+        apply_one_native_operation_row(
+            wtx,
+            graph_fname,
+            batch,
+            operation,
+            committed_at_ms,
+            crypto,
+            generated_result,
+            crossmodal_present,
+            nodes,
+            native_work_items,
+            edges,
+            ledger,
+            semantic,
+            command_sequences,
+            resource_reservations,
+            resource_tenant_index,
+            resource_attempts,
+            resource_hosts,
+            resource_exclusivity,
+            resource_fairness,
+            resource_concurrency,
+            resource_anti_affinity,
+            resource_disk_policies,
+            lane_holds,
+            lane_work_item_index,
+            lane_counters,
+            lane_pressure_index,
+            lane_policies,
+        )?;
+        #[cfg(feature = "security")]
+        append_audit_entry(audit, staged_audit_tail, graph_fname, &operation.method)?;
+    }
+    Ok(())
+}
+
 fn apply_native_operations(
     wtx: &redb::WriteTransaction,
     graph_fname: &str,
@@ -2301,344 +2983,85 @@ fn apply_native_operations(
     crossmodal_present: bool,
 ) -> Result<(), String> {
     let _ = audited;
-        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
-        let mut native_work_items = wtx
-            .open_table(work_item_capability::NATIVE_WORK_ITEMS)
-            .map_err(|e| e.to_string())?;
-        let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
-        let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
-        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
-        let mut resource_reservations = wtx
-            .open_table(RESOURCE_RESERVATIONS)
-            .map_err(|e| e.to_string())?;
-        let mut resource_tenant_index = wtx
-            .open_table(RESOURCE_RESERVATION_TENANT_INDEX)
-            .map_err(|e| e.to_string())?;
-        let mut resource_attempts = wtx
-            .open_table(RESOURCE_RESERVATION_ATTEMPTS)
-            .map_err(|e| e.to_string())?;
-        let mut resource_hosts = wtx.open_table(RESOURCE_HOSTS).map_err(|e| e.to_string())?;
-        let mut resource_exclusivity = wtx
-            .open_table(RESOURCE_EXCLUSIVITY)
-            .map_err(|e| e.to_string())?;
-        let mut resource_fairness = wtx
-            .open_table(RESOURCE_FAIRNESS)
-            .map_err(|e| e.to_string())?;
-        let mut resource_concurrency = wtx
-            .open_table(RESOURCE_CONCURRENCY)
-            .map_err(|e| e.to_string())?;
-        let mut resource_anti_affinity = wtx
-            .open_table(RESOURCE_ANTI_AFFINITY)
-            .map_err(|e| e.to_string())?;
-        let mut resource_disk_policies = wtx
-            .open_table(RESOURCE_DISK_POLICIES)
-            .map_err(|e| e.to_string())?;
-        let mut lane_holds = wtx
-            .open_table(development_lane::HOLDS)
-            .map_err(|e| e.to_string())?;
-        let mut lane_work_item_index = wtx
-            .open_table(development_lane::WORK_ITEM_INDEX)
-            .map_err(|e| e.to_string())?;
-        let mut lane_counters = wtx
-            .open_table(development_lane::COUNTERS)
-            .map_err(|e| e.to_string())?;
-        let mut lane_pressure_index = wtx
-            .open_table(development_lane::PRESSURE_INDEX)
-            .map_err(|e| e.to_string())?;
-        let mut lane_policies = wtx
-            .open_table(development_lane::POLICIES)
-            .map_err(|e| e.to_string())?;
-        let mut command_sequences = wtx
-            .open_table(WORK_ITEM_COMMAND_SEQUENCE)
-            .map_err(|e| e.to_string())?;
+    let (mut nodes, mut native_work_items, mut edges, mut ledger, mut semantic, mut command_sequences) =
+        open_native_operation_graph_tables(wtx)?;
+    let (
+        mut resource_reservations,
+        mut resource_tenant_index,
+        mut resource_attempts,
+        mut resource_hosts,
+        mut resource_exclusivity,
+    ) = open_native_operation_resource_tables_a(wtx)?;
+    let (
+        mut resource_fairness,
+        mut resource_concurrency,
+        mut resource_anti_affinity,
+        mut resource_disk_policies,
+    ) = open_native_operation_resource_tables_b(wtx)?;
+    let (
+        mut lane_holds,
+        mut lane_work_item_index,
+        mut lane_counters,
+        mut lane_pressure_index,
+        mut lane_policies,
+    ) = open_native_operation_lane_tables(wtx)?;
+    #[cfg(feature = "security")]
+    let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
+
+    validate_native_operations_commit_work_item_result_shape(batch)?;
+
+    apply_native_operation_rows_loop(
+        wtx,
+        graph_fname,
+        batch,
+        committed_at_ms,
+        crypto,
         #[cfg(feature = "security")]
-        let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
-        // GOC-19/GOC-20 (BUG-015 "B9"): a `CommitWorkItemResult` batch may
-        // additionally carry co-committed `AddNode` provenance operations
-        // (RunTrace/ToolCall/OutcomeEvaluation) so a WorkItem's terminal status
-        // and its provenance land in the SAME redb write transaction -- never
-        // one durable without the other. Validated ONCE, before any row is
-        // touched below, so a disallowed shape is refused without partially
-        // applying anything in this transaction. Every other WorkItem method
-        // (Claim/Renew/Cancel/Defer/CasMetadata) keeps the original strict
-        // single-operation rule enforced further down -- this relaxation is
-        // deliberately narrow to `CommitWorkItemResult` alone, which is the one
-        // terminal transition `crates/eg-types/src/outcome_bundle.rs`'s
-        // `CommitOutcomeBundle` (GOC-20) is designed to accompany.
-        let work_item_result_ops = batch
-            .operations
-            .iter()
-            .filter(|op| matches!(&op.method, Method::CommitWorkItemResult { .. }))
-            .count();
-        if work_item_result_ops > 1 {
-            return Err(
-                "a MutationBatch may contain at most one CommitWorkItemResult operation"
-                    .to_string(),
-            );
-        }
-        if work_item_result_ops == 1
-            && batch.operations.iter().any(|op| {
-                !matches!(
-                    &op.method,
-                    Method::CommitWorkItemResult { .. } | Method::AddNode { .. }
-                )
-            })
-        {
-            return Err(
-                "a CommitWorkItemResult MutationBatch may only carry additional AddNode \
-                 (provenance) operations"
-                    .to_string(),
-            );
-        }
-        for operation in &batch.operations {
-            match &operation.method {
-                Method::CreateGraph { .. } => {}
-                Method::DeleteGraph { .. } => {
-                    clear_graph_rows(graph_fname, &mut nodes, &mut edges, &mut ledger)?;
-                    command_sequences
-                        .remove(graph_fname)
-                        .map_err(|e| e.to_string())?;
-                    clear_resource_rows(
-                        graph_fname,
-                        &mut resource_reservations,
-                        &mut resource_tenant_index,
-                        &mut resource_attempts,
-                        &mut resource_hosts,
-                        &mut resource_exclusivity,
-                        &mut resource_fairness,
-                        &mut resource_concurrency,
-                        &mut resource_anti_affinity,
-                        &mut resource_disk_policies,
-                        crypto,
-                    )?;
-                    development_lane::clear_native_graph_rows_in_wtx_with_lane_tables(
-                        wtx,
-                        graph_fname,
-                        &mut lane_holds,
-                        &mut lane_work_item_index,
-                        &mut lane_counters,
-                        &mut lane_pressure_index,
-                        &mut lane_policies,
-                        crypto,
-                    )?;
-                    capacity_lease::clear_graph_rows(wtx, graph_fname)?;
-                    work_item_capability::clear_graph_rows_in_wtx_with_native(
-                        wtx,
-                        graph_fname,
-                        &mut native_work_items,
-                    )?;
-                }
-                Method::ClearGraph => {
-                    clear_graph_rows(graph_fname, &mut nodes, &mut edges, &mut ledger)?;
-                    command_sequences
-                        .remove(graph_fname)
-                        .map_err(|e| e.to_string())?;
-                    clear_resource_rows(
-                        graph_fname,
-                        &mut resource_reservations,
-                        &mut resource_tenant_index,
-                        &mut resource_attempts,
-                        &mut resource_hosts,
-                        &mut resource_exclusivity,
-                        &mut resource_fairness,
-                        &mut resource_concurrency,
-                        &mut resource_anti_affinity,
-                        &mut resource_disk_policies,
-                        crypto,
-                    )?;
-                    development_lane::clear_native_graph_rows_in_wtx_with_lane_tables(
-                        wtx,
-                        graph_fname,
-                        &mut lane_holds,
-                        &mut lane_work_item_index,
-                        &mut lane_counters,
-                        &mut lane_pressure_index,
-                        &mut lane_policies,
-                        crypto,
-                    )?;
-                    capacity_lease::clear_graph_rows(wtx, graph_fname)?;
-                    work_item_capability::clear_graph_rows_in_wtx_with_native(
-                        wtx,
-                        graph_fname,
-                        &mut native_work_items,
-                    )?;
-                }
-                Method::ClearLedger => {
-                    clear_ledger_rows(graph_fname, &mut ledger)?;
-                }
-                Method::SubmitWorkItem { request } => {
-                    let result = apply_submit_work_item_rows(
-                        graph_fname,
-                        request,
-                        &mut nodes,
-                        &mut edges,
-                        &mut command_sequences,
-                        WorkItemCommitScope {
-                            crypto,
-                            authoritative_now_ms: committed_at_ms,
-                            outbox_id: &batch.batch_id,
-                        },
-                    )?;
-                    if generated_result.is_some() || batch.operations.len() != 1 {
-                        return Err(
-                            "SubmitWorkItem MutationBatch must contain exactly one result-producing operation"
-                                .to_string(),
-                        );
-                    }
-                    let payload = crate::protocol::ResultPayload::raw(&result);
-                    *generated_result =
-                        Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
-                }
-                Method::SubmitWorkItems { request } => {
-                    let result = apply_submit_work_items_rows(
-                        graph_fname,
-                        request,
-                        &mut nodes,
-                        &mut edges,
-                        &mut command_sequences,
-                        WorkItemCommitScope {
-                            crypto,
-                            authoritative_now_ms: committed_at_ms,
-                            outbox_id: &batch.batch_id,
-                        },
-                    )?;
-                    if generated_result.is_some() || batch.operations.len() != 1 {
-                        return Err(
-                            "SubmitWorkItems MutationBatch must contain exactly one result-producing operation"
-                                .to_string(),
-                        );
-                    }
-                    let payload = crate::protocol::ResultPayload::raw(&result);
-                    *generated_result =
-                        Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
-                }
-                method @ (Method::ClaimWorkItem { .. }
-                | Method::RenewWorkItemLease { .. }
-                | Method::CancelWorkItem { .. }
-                | Method::DeferWorkItem { .. }
-                | Method::CasWorkItemMetadata { .. }) => {
-                    let result = apply_work_item_rows(
-                        graph_fname,
-                        method,
-                        &mut nodes,
-                        &mut lane_holds,
-                        &lane_work_item_index,
-                        &mut lane_counters,
-                        &mut lane_pressure_index,
-                        &lane_policies,
-                        &mut native_work_items,
-                        crypto,
-                    )?
-                    .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
-                    if generated_result.is_some() || batch.operations.len() != 1 {
-                        return Err(
-                            "WorkItem MutationBatch must contain exactly one result-producing operation"
-                                .to_string(),
-                        );
-                    }
-                    *generated_result =
-                        Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
-                }
-                // GOC-19/GOC-20 (BUG-015 "B9"): split out from the shared arm
-                // above -- this is the ONE WorkItem terminal transition allowed
-                // to co-commit additional `AddNode` provenance operations in the
-                // same batch (validated once, before this loop, above). The
-                // `batch.operations.len() != 1` sub-check is deliberately
-                // dropped here; `generated_result.is_some()` alone still
-                // guarantees at most one result-producing operation applies.
-                method @ Method::CommitWorkItemResult { .. } => {
-                    let result = apply_work_item_rows(
-                        graph_fname,
-                        method,
-                        &mut nodes,
-                        &mut lane_holds,
-                        &lane_work_item_index,
-                        &mut lane_counters,
-                        &mut lane_pressure_index,
-                        &lane_policies,
-                        &mut native_work_items,
-                        crypto,
-                    )?
-                    .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
-                    if generated_result.is_some() {
-                        return Err(
-                            "WorkItem MutationBatch must contain exactly one result-producing operation"
-                                .to_string(),
-                        );
-                    }
-                    *generated_result =
-                        Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
-                }
-                method @ (Method::ReserveWorkItemResources { .. }
-                | Method::ReleaseWorkItemResources { .. }
-                | Method::ReclaimWorkItemResources { .. }
-                | Method::UpdateResourceHost { .. }) => {
-                    let result = apply_resource_reservation_rows(
-                        graph_fname,
-                        method,
-                        &mut nodes,
-                        &mut resource_reservations,
-                        &mut resource_tenant_index,
-                        &mut resource_attempts,
-                        &mut resource_hosts,
-                        &mut resource_exclusivity,
-                        &mut resource_fairness,
-                        &mut resource_concurrency,
-                        &mut resource_anti_affinity,
-                        &mut resource_disk_policies,
-                        crypto,
-                    )?
-                    .ok_or_else(|| {
-                        "resource reservation mutation produced no durable result".to_string()
-                    })?;
-                    if generated_result.is_some() || batch.operations.len() != 1 {
-                        return Err(
-                            "resource reservation MutationBatch must contain exactly one result-producing operation"
-                                .to_string(),
-                        );
-                    }
-                    *generated_result =
-                        Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
-                }
-                Method::ApplyMutation { event_type, .. }
-                    if crossmodal_present && event_type == "crossmodal_operation" => {}
-                method => apply_method_rows(
-                    graph_fname,
-                    method,
-                    &mut nodes,
-                    &mut edges,
-                    &mut ledger,
-                    &mut semantic,
-                    &native_work_items,
-                    crypto,
-                )?,
-            }
-            #[cfg(feature = "security")]
-            append_audit_entry(
-                &mut audit,
-                staged_audit_tail,
-                graph_fname,
-                &operation.method,
-            )?;
-        }
-        // The compact graph/control path can replace or remove a linked
-        // WorkItem just as a snapshot/row-delta can.  Release the ordinary
-        // table guards, then run the same lane lifecycle validator inside this
-        // write transaction before status/outbox metadata is staged.
-        drop(nodes);
-        drop(edges);
-        drop(ledger);
-        drop(semantic);
-        drop(command_sequences);
-        drop(native_work_items);
-        drop(lane_holds);
-        drop(lane_work_item_index);
-        drop(lane_counters);
-        drop(lane_pressure_index);
-        drop(lane_policies);
+        staged_audit_tail,
+        generated_result,
+        crossmodal_present,
+        &mut nodes,
+        &mut native_work_items,
+        &mut edges,
+        &mut ledger,
+        &mut semantic,
+        &mut command_sequences,
+        &mut resource_reservations,
+        &mut resource_tenant_index,
+        &mut resource_attempts,
+        &mut resource_hosts,
+        &mut resource_exclusivity,
+        &mut resource_fairness,
+        &mut resource_concurrency,
+        &mut resource_anti_affinity,
+        &mut resource_disk_policies,
+        &mut lane_holds,
+        &mut lane_work_item_index,
+        &mut lane_counters,
+        &mut lane_pressure_index,
+        &mut lane_policies,
         #[cfg(feature = "security")]
-        drop(audit);
-        development_lane::validate_current_lane_links_in_wtx(wtx, graph_fname, crypto)?;
+        &mut audit,
+    )?;
+
+    // The compact graph/control path can replace or remove a linked
+    // WorkItem just as a snapshot/row-delta can.  Release the ordinary
+    // table guards, then run the same lane lifecycle validator inside this
+    // write transaction before status/outbox metadata is staged.
+    drop(nodes);
+    drop(edges);
+    drop(ledger);
+    drop(semantic);
+    drop(command_sequences);
+    drop(native_work_items);
+    drop(lane_holds);
+    drop(lane_work_item_index);
+    drop(lane_counters);
+    drop(lane_pressure_index);
+    drop(lane_policies);
+    #[cfg(feature = "security")]
+    drop(audit);
+    development_lane::validate_current_lane_links_in_wtx(wtx, graph_fname, crypto)?;
     Ok(())
 }
 
@@ -2951,6 +3374,569 @@ fn apply_crossmodal_rows_phase(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn mutation_batch_next_graph_version(
+    batch: &MutationBatch,
+    current_graph_version: u64,
+) -> Result<u64, String> {
+    match batch.authoritative_state.as_ref() {
+        Some(state) => Ok(state.target_graph_version),
+        None => current_graph_version
+            .checked_add(1)
+            .ok_or_else(|| "mutation graph version overflow".to_string()),
+    }
+}
+
+fn write_mutation_batch_identity_rows(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    sealed_record: &[u8],
+) -> Result<(), String> {
+    let mut records = wtx
+        .open_table(MUTATION_BATCHES)
+        .map_err(|e| e.to_string())?;
+    records
+        .insert(batch.batch_id.as_str(), sealed_record)
+        .map_err(|e| e.to_string())?;
+
+    let mut idem = wtx
+        .open_table(MUTATION_IDEMPOTENCY)
+        .map_err(|e| e.to_string())?;
+    idem.insert(
+        (
+            batch.tenant.as_str(),
+            graph_fname,
+            batch.idempotency_key.as_str(),
+        ),
+        batch.batch_id.as_str(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+fn write_mutation_batch_version_and_fence_rows(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    next_graph_version: u64,
+    proposed_fence: &DurableMutationFence,
+    lifecycle_is_some: bool,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut versions = wtx
+        .open_table(MUTATION_GRAPH_VERSION)
+        .map_err(|e| e.to_string())?;
+    versions
+        .insert(graph_fname, next_graph_version)
+        .map_err(|e| e.to_string())?;
+
+    let fence_bytes = rmp_serde::to_vec_named(proposed_fence).map_err(|e| e.to_string())?;
+    let sealed_fence = crypto.seal(&fence_bytes);
+    let mut fences = wtx.open_table(MUTATION_FENCE).map_err(|e| e.to_string())?;
+    fences
+        .insert(graph_fname, sealed_fence.as_ref())
+        .map_err(|e| e.to_string())?;
+
+    if lifecycle_is_some {
+        let mut heads = wtx
+            .open_table(MUTATION_LIFECYCLE_HEAD)
+            .map_err(|e| e.to_string())?;
+        heads
+            .insert(graph_fname, batch.batch_id.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn write_mutation_batch_core_rows(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    sealed_record: &[u8],
+    next_graph_version: u64,
+    proposed_fence: &DurableMutationFence,
+    lifecycle_is_some: bool,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    write_mutation_batch_identity_rows(wtx, graph_fname, batch, sealed_record)?;
+    write_mutation_batch_version_and_fence_rows(
+        wtx,
+        graph_fname,
+        batch,
+        next_graph_version,
+        proposed_fence,
+        lifecycle_is_some,
+        crypto,
+    )?;
+    Ok(())
+}
+
+// Every operation receives a canonical committed event even if a surface
+// supplied no bespoke projection intent.  This makes rebuild/replay a
+// property of the commit kernel, not handler discipline.
+fn write_mutation_outbox_operation_rows(
+    wtx: &redb::WriteTransaction,
+    batch: &MutationBatch,
+    next_graph_version: u64,
+    next_ordinal: &mut u32,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+    for operation in &batch.operations {
+        let payload = rmp_serde::to_vec_named(operation).map_err(|e| e.to_string())?;
+        let out = MutationOutboxRecord {
+            schema_version: MUTATION_BATCH_VERSION,
+            batch_id: batch.batch_id.clone(),
+            ordinal: *next_ordinal,
+            tenant: batch.tenant.clone(),
+            graph: batch.graph.clone(),
+            version_scope: MutationVersionScope::Graph,
+            source_graph_version: next_graph_version,
+            intent: MutationOutboxIntent {
+                topic: "engine.mutation.committed".to_string(),
+                key: batch.batch_id.clone(),
+                payload,
+                headers: Default::default(),
+            },
+            created_at_ms: batch.created_at_ms,
+        };
+        out.validate()?;
+        let bytes = rmp_serde::to_vec_named(&out).map_err(|e| e.to_string())?;
+        let sealed = crypto.seal(&bytes);
+        outbox
+            .insert((batch.batch_id.as_str(), *next_ordinal), sealed.as_ref())
+            .map_err(|e| e.to_string())?;
+        *next_ordinal = next_ordinal
+            .checked_add(1)
+            .ok_or_else(|| "mutation outbox ordinal overflow".to_string())?;
+    }
+    Ok(())
+}
+
+fn write_mutation_outbox_intent_rows(
+    wtx: &redb::WriteTransaction,
+    batch: &MutationBatch,
+    next_graph_version: u64,
+    next_ordinal: &mut u32,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+    for intent in &batch.outbox {
+        let out = MutationOutboxRecord {
+            schema_version: MUTATION_BATCH_VERSION,
+            batch_id: batch.batch_id.clone(),
+            ordinal: *next_ordinal,
+            tenant: batch.tenant.clone(),
+            graph: batch.graph.clone(),
+            version_scope: MutationVersionScope::Graph,
+            source_graph_version: next_graph_version,
+            intent: intent.clone(),
+            created_at_ms: batch.created_at_ms,
+        };
+        out.validate()?;
+        let bytes = rmp_serde::to_vec_named(&out).map_err(|e| e.to_string())?;
+        let sealed = crypto.seal(&bytes);
+        outbox
+            .insert((batch.batch_id.as_str(), *next_ordinal), sealed.as_ref())
+            .map_err(|e| e.to_string())?;
+        *next_ordinal = next_ordinal
+            .checked_add(1)
+            .ok_or_else(|| "mutation outbox ordinal overflow".to_string())?;
+    }
+    Ok(())
+}
+
+// The envelope event is metadata-only: material payloads remain in
+// their encrypted authoritative rows and are retrieved under policy.
+fn write_change_committed_outbox_row(
+    wtx: &redb::WriteTransaction,
+    batch: &MutationBatch,
+    change: &ChangeEnvelope,
+    next_graph_version: u64,
+    next_ordinal: &mut u32,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let event = serde_json::json!({
+        "schema": "epistemic.change.committed.v1",
+        "envelope_id": change.envelope_id.as_str(),
+        "batch_id": batch.batch_id.as_str(),
+        "tenant": batch.tenant.as_str(),
+        "graph": batch.graph.as_str(),
+        "object_id": change.content_version.object_id.as_str(),
+        "content_digest": change.content_version.digest.as_str(),
+    });
+    let event_payload = rmp_serde::to_vec_named(&event).map_err(|e| e.to_string())?;
+    let out = MutationOutboxRecord {
+        schema_version: MUTATION_BATCH_VERSION,
+        batch_id: batch.batch_id.clone(),
+        ordinal: *next_ordinal,
+        tenant: batch.tenant.clone(),
+        graph: batch.graph.clone(),
+        version_scope: MutationVersionScope::Graph,
+        source_graph_version: next_graph_version,
+        intent: MutationOutboxIntent {
+            topic: "engine.change.committed".to_string(),
+            key: change.envelope_id.clone(),
+            payload: event_payload,
+            headers: Default::default(),
+        },
+        created_at_ms: batch.created_at_ms,
+    };
+    out.validate()?;
+    let bytes = rmp_serde::to_vec_named(&out).map_err(|e| e.to_string())?;
+    let sealed = crypto.seal(&bytes);
+    let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+    outbox
+        .insert((batch.batch_id.as_str(), *next_ordinal), sealed.as_ref())
+        .map_err(|e| e.to_string())?;
+    *next_ordinal = next_ordinal
+        .checked_add(1)
+        .ok_or_else(|| "change envelope outbox ordinal overflow".to_string())?;
+    Ok(())
+}
+
+fn write_change_envelope_and_content_version_rows(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: &ChangeEnvelope,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let envelope_record = ChangeEnvelopeRecord {
+        envelope: change.clone(),
+        committed_at_ms,
+    };
+    let bytes = rmp_serde::to_vec_named(&envelope_record).map_err(|e| e.to_string())?;
+    let sealed = crypto.seal(&bytes);
+    let mut envelopes = wtx
+        .open_table(CHANGE_ENVELOPES)
+        .map_err(|e| e.to_string())?;
+    envelopes
+        .insert((graph_fname, change.envelope_id.as_str()), sealed.as_ref())
+        .map_err(|e| e.to_string())?;
+
+    let bytes = rmp_serde::to_vec_named(&change.content_version).map_err(|e| e.to_string())?;
+    let sealed = crypto.seal(&bytes);
+    let mut versions = wtx.open_table(CONTENT_VERSIONS).map_err(|e| e.to_string())?;
+    versions
+        .insert(
+            (
+                graph_fname,
+                batch.tenant.as_str(),
+                change.content_version.object_id.as_str(),
+            ),
+            sealed.as_ref(),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+fn write_change_committed_outbox_and_envelope_rows(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: &ChangeEnvelope,
+    next_graph_version: u64,
+    committed_at_ms: u64,
+    next_ordinal: &mut u32,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    write_change_committed_outbox_row(
+        wtx,
+        batch,
+        change,
+        next_graph_version,
+        next_ordinal,
+        crypto,
+    )?;
+    write_change_envelope_and_content_version_rows(
+        wtx,
+        graph_fname,
+        batch,
+        change,
+        committed_at_ms,
+        crypto,
+    )?;
+    Ok(())
+}
+
+fn write_change_cursor_row(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    cursor: &ChangeCursor,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let bytes = rmp_serde::to_vec_named(cursor).map_err(|e| e.to_string())?;
+    let sealed = crypto.seal(&bytes);
+    let mut cursors = wtx.open_table(CHANGE_CURSORS).map_err(|e| e.to_string())?;
+    cursors
+        .insert(
+            (
+                graph_fname,
+                batch.tenant.as_str(),
+                cursor.source.as_str(),
+                cursor.partition.as_str(),
+            ),
+            sealed.as_ref(),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn write_change_material_blobs(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: &ChangeEnvelope,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut blobs = wtx.open_table(CHANGE_BLOBS).map_err(|e| e.to_string())?;
+    for blob in &change.blobs {
+        let key = (graph_fname, batch.tenant.as_str(), blob.blob_id.as_str());
+        match blob.operation {
+            MaterialOperation::Upsert => {
+                let bytes = rmp_serde::to_vec_named(blob).map_err(|e| e.to_string())?;
+                let sealed = crypto.seal(&bytes);
+                blobs
+                    .insert(key, sealed.as_ref())
+                    .map_err(|e| e.to_string())?;
+            }
+            MaterialOperation::Delete => {
+                blobs.remove(key).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_change_material_features(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: &ChangeEnvelope,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut features = wtx.open_table(CHANGE_FEATURES).map_err(|e| e.to_string())?;
+    for feature in &change.features {
+        let key = (
+            graph_fname,
+            batch.tenant.as_str(),
+            feature.feature_id.as_str(),
+        );
+        match feature.operation {
+            MaterialOperation::Upsert => {
+                let bytes = rmp_serde::to_vec_named(feature).map_err(|e| e.to_string())?;
+                let sealed = crypto.seal(&bytes);
+                features
+                    .insert(key, sealed.as_ref())
+                    .map_err(|e| e.to_string())?;
+            }
+            MaterialOperation::Delete => {
+                features.remove(key).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_change_material_evidence(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: &ChangeEnvelope,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut evidence = wtx.open_table(CHANGE_EVIDENCE).map_err(|e| e.to_string())?;
+    for item in &change.evidence {
+        let key = (
+            graph_fname,
+            batch.tenant.as_str(),
+            item.evidence_id.as_str(),
+        );
+        match item.operation {
+            MaterialOperation::Upsert => {
+                let bytes = rmp_serde::to_vec_named(item).map_err(|e| e.to_string())?;
+                let sealed = crypto.seal(&bytes);
+                evidence
+                    .insert(key, sealed.as_ref())
+                    .map_err(|e| e.to_string())?;
+            }
+            MaterialOperation::Delete => {
+                evidence.remove(key).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_change_material_policies(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: &ChangeEnvelope,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut policies = wtx.open_table(CHANGE_POLICIES).map_err(|e| e.to_string())?;
+    for policy in &change.policies {
+        let key = (
+            graph_fname,
+            batch.tenant.as_str(),
+            policy.policy_id.as_str(),
+        );
+        match policy.operation {
+            MaterialOperation::Upsert => {
+                let bytes = rmp_serde::to_vec_named(policy).map_err(|e| e.to_string())?;
+                let sealed = crypto.seal(&bytes);
+                policies
+                    .insert(key, sealed.as_ref())
+                    .map_err(|e| e.to_string())?;
+            }
+            MaterialOperation::Delete => {
+                policies.remove(key).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_change_material_lineage(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: &ChangeEnvelope,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut lineage = wtx.open_table(CHANGE_LINEAGE).map_err(|e| e.to_string())?;
+    for item in &change.lineage {
+        let key = (graph_fname, batch.tenant.as_str(), item.lineage_id.as_str());
+        match item.operation {
+            MaterialOperation::Upsert => {
+                let bytes = rmp_serde::to_vec_named(item).map_err(|e| e.to_string())?;
+                let sealed = crypto.seal(&bytes);
+                lineage
+                    .insert(key, sealed.as_ref())
+                    .map_err(|e| e.to_string())?;
+            }
+            MaterialOperation::Delete => {
+                lineage.remove(key).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn apply_change_envelope_commit_rows(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: &ChangeEnvelope,
+    next_graph_version: u64,
+    committed_at_ms: u64,
+    next_ordinal: &mut u32,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    write_change_committed_outbox_and_envelope_rows(
+        wtx,
+        graph_fname,
+        batch,
+        change,
+        next_graph_version,
+        committed_at_ms,
+        next_ordinal,
+        crypto,
+    )?;
+
+    if let Some(cursor) = &change.cursor {
+        write_change_cursor_row(wtx, graph_fname, batch, cursor, crypto)?;
+    }
+
+    write_change_material_blobs(wtx, graph_fname, batch, change, crypto)?;
+    write_change_material_features(wtx, graph_fname, batch, change, crypto)?;
+    write_change_material_evidence(wtx, graph_fname, batch, change, crypto)?;
+    write_change_material_policies(wtx, graph_fname, batch, change, crypto)?;
+    write_change_material_lineage(wtx, graph_fname, batch, change, crypto)?;
+
+    debug_assert_eq!(
+        *next_ordinal as usize,
+        batch.operations.len() + batch.outbox.len() + 1
+    );
+    Ok(())
+}
+
+fn resolve_default_graph_meta_update(
+    meta: &redb::Table<&str, &[u8]>,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    integrity_policy_update: Option<&Option<crate::graph::IntegrityPolicy>>,
+) -> Result<Option<Vec<u8>>, String> {
+    let existing = meta
+        .get(graph_fname)
+        .map_err(|e| e.to_string())?
+        .map(|value| value.value().to_vec());
+    let encoded = match (existing, integrity_policy_update) {
+        (Some(existing), Some(policy)) => {
+            let record = decode_meta_record(graph_fname, &existing)?;
+            Some(encode_meta_record(
+                &record.name,
+                record.graph_type,
+                &record.incarnation_id,
+                policy.as_ref(),
+            )?)
+        }
+        (Some(_), None) => None,
+        (None, policy) => Some(encode_meta_record(
+            &batch.graph,
+            GraphType::Global,
+            &batch.batch_id,
+            policy.and_then(Option::as_ref),
+        )?),
+    };
+    Ok(encoded)
+}
+
+fn write_mutation_batch_graph_meta_row(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    lifecycle: Option<(bool, String, Option<GraphType>)>,
+    integrity_policy_update: Option<Option<crate::graph::IntegrityPolicy>>,
+) -> Result<(), String> {
+    let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+    match lifecycle {
+        Some((true, graph_name, Some(graph_type))) => {
+            let encoded = encode_meta_record(
+                &graph_name,
+                graph_type,
+                &batch.batch_id,
+                integrity_policy_update.as_ref().and_then(Option::as_ref),
+            )?;
+            meta.insert(graph_fname, encoded.as_slice())
+                .map_err(|e| e.to_string())?;
+        }
+        Some((false, _, _)) => {
+            meta.remove(graph_fname).map_err(|e| e.to_string())?;
+        }
+        _ => {
+            let encoded = resolve_default_graph_meta_update(
+                &meta,
+                graph_fname,
+                batch,
+                integrity_policy_update.as_ref(),
+            )?;
+            if let Some(encoded) = encoded {
+                meta.insert(graph_fname, encoded.as_slice())
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn write_mutation_batch_commit_rows(
     wtx: &redb::WriteTransaction,
     graph_fname: &str,
@@ -2974,346 +3960,38 @@ fn write_mutation_batch_commit_rows(
     let record_bytes = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
     let sealed_record = crypto.seal(&record_bytes);
 
-    {
-        let mut records = wtx
-            .open_table(MUTATION_BATCHES)
-            .map_err(|e| e.to_string())?;
-        records
-            .insert(batch.batch_id.as_str(), sealed_record.as_ref())
-            .map_err(|e| e.to_string())?;
+    let next_graph_version = mutation_batch_next_graph_version(batch, current_graph_version)?;
 
-        let mut idem = wtx
-            .open_table(MUTATION_IDEMPOTENCY)
-            .map_err(|e| e.to_string())?;
-        idem.insert(
-            (
-                batch.tenant.as_str(),
-                graph_fname,
-                batch.idempotency_key.as_str(),
-            ),
-            batch.batch_id.as_str(),
-        )
-        .map_err(|e| e.to_string())?;
+    write_mutation_batch_core_rows(
+        wtx,
+        graph_fname,
+        batch,
+        sealed_record.as_ref(),
+        next_graph_version,
+        &proposed_fence,
+        lifecycle.is_some(),
+        crypto,
+    )?;
 
-        let next_graph_version = match batch.authoritative_state.as_ref() {
-            Some(state) => state.target_graph_version,
-            None => current_graph_version
-                .checked_add(1)
-                .ok_or_else(|| "mutation graph version overflow".to_string())?,
-        };
-        let mut versions = wtx
-            .open_table(MUTATION_GRAPH_VERSION)
-            .map_err(|e| e.to_string())?;
-        versions
-            .insert(graph_fname, next_graph_version)
-            .map_err(|e| e.to_string())?;
+    let mut next_ordinal = 0u32;
+    write_mutation_outbox_operation_rows(wtx, batch, next_graph_version, &mut next_ordinal, crypto)?;
+    write_mutation_outbox_intent_rows(wtx, batch, next_graph_version, &mut next_ordinal, crypto)?;
 
-        let fence_bytes = rmp_serde::to_vec_named(&proposed_fence).map_err(|e| e.to_string())?;
-        let sealed_fence = crypto.seal(&fence_bytes);
-        let mut fences = wtx.open_table(MUTATION_FENCE).map_err(|e| e.to_string())?;
-        fences
-            .insert(graph_fname, sealed_fence.as_ref())
-            .map_err(|e| e.to_string())?;
-
-        if lifecycle.is_some() {
-            let mut heads = wtx
-                .open_table(MUTATION_LIFECYCLE_HEAD)
-                .map_err(|e| e.to_string())?;
-            heads
-                .insert(graph_fname, batch.batch_id.as_str())
-                .map_err(|e| e.to_string())?;
-        }
-
-        let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
-        let mut next_ordinal = 0u32;
-        // Every operation receives a canonical committed event even if a surface
-        // supplied no bespoke projection intent.  This makes rebuild/replay a
-        // property of the commit kernel, not handler discipline.
-        for operation in &batch.operations {
-            let payload = rmp_serde::to_vec_named(operation).map_err(|e| e.to_string())?;
-            let out = MutationOutboxRecord {
-                schema_version: MUTATION_BATCH_VERSION,
-                batch_id: batch.batch_id.clone(),
-                ordinal: next_ordinal,
-                tenant: batch.tenant.clone(),
-                graph: batch.graph.clone(),
-                version_scope: MutationVersionScope::Graph,
-                source_graph_version: next_graph_version,
-                intent: MutationOutboxIntent {
-                    topic: "engine.mutation.committed".to_string(),
-                    key: batch.batch_id.clone(),
-                    payload,
-                    headers: Default::default(),
-                },
-                created_at_ms: batch.created_at_ms,
-            };
-            out.validate()?;
-            let bytes = rmp_serde::to_vec_named(&out).map_err(|e| e.to_string())?;
-            let sealed = crypto.seal(&bytes);
-            outbox
-                .insert((batch.batch_id.as_str(), next_ordinal), sealed.as_ref())
-                .map_err(|e| e.to_string())?;
-            next_ordinal = next_ordinal
-                .checked_add(1)
-                .ok_or_else(|| "mutation outbox ordinal overflow".to_string())?;
-        }
-        for intent in &batch.outbox {
-            let out = MutationOutboxRecord {
-                schema_version: MUTATION_BATCH_VERSION,
-                batch_id: batch.batch_id.clone(),
-                ordinal: next_ordinal,
-                tenant: batch.tenant.clone(),
-                graph: batch.graph.clone(),
-                version_scope: MutationVersionScope::Graph,
-                source_graph_version: next_graph_version,
-                intent: intent.clone(),
-                created_at_ms: batch.created_at_ms,
-            };
-            out.validate()?;
-            let bytes = rmp_serde::to_vec_named(&out).map_err(|e| e.to_string())?;
-            let sealed = crypto.seal(&bytes);
-            outbox
-                .insert((batch.batch_id.as_str(), next_ordinal), sealed.as_ref())
-                .map_err(|e| e.to_string())?;
-            next_ordinal = next_ordinal
-                .checked_add(1)
-                .ok_or_else(|| "mutation outbox ordinal overflow".to_string())?;
-        }
-
-        if let Some(change) = change {
-            // The envelope event is metadata-only: material payloads remain in
-            // their encrypted authoritative rows and are retrieved under policy.
-            let event = serde_json::json!({
-                "schema": "epistemic.change.committed.v1",
-                "envelope_id": change.envelope_id.as_str(),
-                "batch_id": batch.batch_id.as_str(),
-                "tenant": batch.tenant.as_str(),
-                "graph": batch.graph.as_str(),
-                "object_id": change.content_version.object_id.as_str(),
-                "content_digest": change.content_version.digest.as_str(),
-            });
-            let event_payload = rmp_serde::to_vec_named(&event).map_err(|e| e.to_string())?;
-            let out = MutationOutboxRecord {
-                schema_version: MUTATION_BATCH_VERSION,
-                batch_id: batch.batch_id.clone(),
-                ordinal: next_ordinal,
-                tenant: batch.tenant.clone(),
-                graph: batch.graph.clone(),
-                version_scope: MutationVersionScope::Graph,
-                source_graph_version: next_graph_version,
-                intent: MutationOutboxIntent {
-                    topic: "engine.change.committed".to_string(),
-                    key: change.envelope_id.clone(),
-                    payload: event_payload,
-                    headers: Default::default(),
-                },
-                created_at_ms: batch.created_at_ms,
-            };
-            out.validate()?;
-            let bytes = rmp_serde::to_vec_named(&out).map_err(|e| e.to_string())?;
-            let sealed = crypto.seal(&bytes);
-            outbox
-                .insert((batch.batch_id.as_str(), next_ordinal), sealed.as_ref())
-                .map_err(|e| e.to_string())?;
-            next_ordinal = next_ordinal
-                .checked_add(1)
-                .ok_or_else(|| "change envelope outbox ordinal overflow".to_string())?;
-
-            let envelope_record = ChangeEnvelopeRecord {
-                envelope: change.clone(),
-                committed_at_ms,
-            };
-            let bytes = rmp_serde::to_vec_named(&envelope_record).map_err(|e| e.to_string())?;
-            let sealed = crypto.seal(&bytes);
-            let mut envelopes = wtx
-                .open_table(CHANGE_ENVELOPES)
-                .map_err(|e| e.to_string())?;
-            envelopes
-                .insert((graph_fname, change.envelope_id.as_str()), sealed.as_ref())
-                .map_err(|e| e.to_string())?;
-
-            let bytes =
-                rmp_serde::to_vec_named(&change.content_version).map_err(|e| e.to_string())?;
-            let sealed = crypto.seal(&bytes);
-            let mut versions = wtx
-                .open_table(CONTENT_VERSIONS)
-                .map_err(|e| e.to_string())?;
-            versions
-                .insert(
-                    (
-                        graph_fname,
-                        batch.tenant.as_str(),
-                        change.content_version.object_id.as_str(),
-                    ),
-                    sealed.as_ref(),
-                )
-                .map_err(|e| e.to_string())?;
-
-            if let Some(cursor) = &change.cursor {
-                let bytes = rmp_serde::to_vec_named(cursor).map_err(|e| e.to_string())?;
-                let sealed = crypto.seal(&bytes);
-                let mut cursors = wtx.open_table(CHANGE_CURSORS).map_err(|e| e.to_string())?;
-                cursors
-                    .insert(
-                        (
-                            graph_fname,
-                            batch.tenant.as_str(),
-                            cursor.source.as_str(),
-                            cursor.partition.as_str(),
-                        ),
-                        sealed.as_ref(),
-                    )
-                    .map_err(|e| e.to_string())?;
-            }
-
-            let mut blobs = wtx.open_table(CHANGE_BLOBS).map_err(|e| e.to_string())?;
-            for blob in &change.blobs {
-                let key = (graph_fname, batch.tenant.as_str(), blob.blob_id.as_str());
-                match blob.operation {
-                    MaterialOperation::Upsert => {
-                        let bytes = rmp_serde::to_vec_named(blob).map_err(|e| e.to_string())?;
-                        let sealed = crypto.seal(&bytes);
-                        blobs
-                            .insert(key, sealed.as_ref())
-                            .map_err(|e| e.to_string())?;
-                    }
-                    MaterialOperation::Delete => {
-                        blobs.remove(key).map_err(|e| e.to_string())?;
-                    }
-                }
-            }
-
-            let mut features = wtx.open_table(CHANGE_FEATURES).map_err(|e| e.to_string())?;
-            for feature in &change.features {
-                let key = (
-                    graph_fname,
-                    batch.tenant.as_str(),
-                    feature.feature_id.as_str(),
-                );
-                match feature.operation {
-                    MaterialOperation::Upsert => {
-                        let bytes = rmp_serde::to_vec_named(feature).map_err(|e| e.to_string())?;
-                        let sealed = crypto.seal(&bytes);
-                        features
-                            .insert(key, sealed.as_ref())
-                            .map_err(|e| e.to_string())?;
-                    }
-                    MaterialOperation::Delete => {
-                        features.remove(key).map_err(|e| e.to_string())?;
-                    }
-                }
-            }
-
-            let mut evidence = wtx.open_table(CHANGE_EVIDENCE).map_err(|e| e.to_string())?;
-            for item in &change.evidence {
-                let key = (
-                    graph_fname,
-                    batch.tenant.as_str(),
-                    item.evidence_id.as_str(),
-                );
-                match item.operation {
-                    MaterialOperation::Upsert => {
-                        let bytes = rmp_serde::to_vec_named(item).map_err(|e| e.to_string())?;
-                        let sealed = crypto.seal(&bytes);
-                        evidence
-                            .insert(key, sealed.as_ref())
-                            .map_err(|e| e.to_string())?;
-                    }
-                    MaterialOperation::Delete => {
-                        evidence.remove(key).map_err(|e| e.to_string())?;
-                    }
-                }
-            }
-
-            let mut policies = wtx.open_table(CHANGE_POLICIES).map_err(|e| e.to_string())?;
-            for policy in &change.policies {
-                let key = (
-                    graph_fname,
-                    batch.tenant.as_str(),
-                    policy.policy_id.as_str(),
-                );
-                match policy.operation {
-                    MaterialOperation::Upsert => {
-                        let bytes = rmp_serde::to_vec_named(policy).map_err(|e| e.to_string())?;
-                        let sealed = crypto.seal(&bytes);
-                        policies
-                            .insert(key, sealed.as_ref())
-                            .map_err(|e| e.to_string())?;
-                    }
-                    MaterialOperation::Delete => {
-                        policies.remove(key).map_err(|e| e.to_string())?;
-                    }
-                }
-            }
-
-            let mut lineage = wtx.open_table(CHANGE_LINEAGE).map_err(|e| e.to_string())?;
-            for item in &change.lineage {
-                let key = (graph_fname, batch.tenant.as_str(), item.lineage_id.as_str());
-                match item.operation {
-                    MaterialOperation::Upsert => {
-                        let bytes = rmp_serde::to_vec_named(item).map_err(|e| e.to_string())?;
-                        let sealed = crypto.seal(&bytes);
-                        lineage
-                            .insert(key, sealed.as_ref())
-                            .map_err(|e| e.to_string())?;
-                    }
-                    MaterialOperation::Delete => {
-                        lineage.remove(key).map_err(|e| e.to_string())?;
-                    }
-                }
-            }
-
-            debug_assert_eq!(
-                next_ordinal as usize,
-                batch.operations.len() + batch.outbox.len() + 1
-            );
-        }
-
-        let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
-        match lifecycle {
-            Some((true, graph_name, Some(graph_type))) => {
-                let encoded = encode_meta_record(
-                    &graph_name,
-                    graph_type,
-                    &batch.batch_id,
-                    integrity_policy_update.as_ref().and_then(Option::as_ref),
-                )?;
-                meta.insert(graph_fname, encoded.as_slice())
-                    .map_err(|e| e.to_string())?;
-            }
-            Some((false, _, _)) => {
-                meta.remove(graph_fname).map_err(|e| e.to_string())?;
-            }
-            _ => {
-                let existing = meta
-                    .get(graph_fname)
-                    .map_err(|e| e.to_string())?
-                    .map(|value| value.value().to_vec());
-                let encoded = match (existing, integrity_policy_update.as_ref()) {
-                    (Some(existing), Some(policy)) => {
-                        let record = decode_meta_record(graph_fname, &existing)?;
-                        Some(encode_meta_record(
-                            &record.name,
-                            record.graph_type,
-                            &record.incarnation_id,
-                            policy.as_ref(),
-                        )?)
-                    }
-                    (Some(_), None) => None,
-                    (None, policy) => Some(encode_meta_record(
-                        &batch.graph,
-                        GraphType::Global,
-                        &batch.batch_id,
-                        policy.and_then(Option::as_ref),
-                    )?),
-                };
-                if let Some(encoded) = encoded {
-                    meta.insert(graph_fname, encoded.as_slice())
-                        .map_err(|e| e.to_string())?;
-                }
-            }
-        }
+    if let Some(change) = change {
+        apply_change_envelope_commit_rows(
+            wtx,
+            graph_fname,
+            batch,
+            change,
+            next_graph_version,
+            committed_at_ms,
+            &mut next_ordinal,
+            crypto,
+        )?;
     }
+
+    write_mutation_batch_graph_meta_row(wtx, graph_fname, batch, lifecycle, integrity_policy_update)?;
+
     Ok(record)
 }
 
@@ -4004,11 +4682,9 @@ fn resource_bool_matches(
         == expected)
 }
 
-fn resource_extension_matches(
-    repository: &serde_json::Map<String, serde_json::Value>,
+fn validate_resource_extension_authority(
     extension: &serde_json::Map<String, serde_json::Value>,
-    request: &ResourceReservationRequest,
-) -> Result<bool, String> {
+) -> Result<(), String> {
     if extension
         .get("schema_version")
         .and_then(serde_json::Value::as_str)
@@ -4022,6 +4698,13 @@ fn resource_extension_matches(
             "WorkItem resource extension is legacy or lacks resolved-profile authority".into(),
         );
     }
+    Ok(())
+}
+
+fn resolve_resource_extension_branch(
+    extension: &serde_json::Map<String, serde_json::Value>,
+    request: &ResourceReservationRequest,
+) -> Result<String, String> {
     let extension_branch = resource_metadata_string(extension, "branch", "resource branch")?;
     if request.branch_exclusive
         && extension
@@ -4031,6 +4714,21 @@ fn resource_extension_matches(
     {
         return Err("branch-exclusive WorkItem has no explicit branch".into());
     }
+    Ok(extension_branch)
+}
+
+fn resource_extension_validate_and_extract_branch(
+    extension: &serde_json::Map<String, serde_json::Value>,
+    request: &ResourceReservationRequest,
+) -> Result<String, String> {
+    validate_resource_extension_authority(extension)?;
+    resolve_resource_extension_branch(extension, request)
+}
+
+fn resource_extension_resolve_labels(
+    extension: &serde_json::Map<String, serde_json::Value>,
+    request: &ResourceReservationRequest,
+) -> Result<(Vec<String>, Vec<String>, Vec<String>, Vec<String>), String> {
     let mut labels =
         resource_opaque_sequence(extension.get("host_labels"), "resource host_labels")?;
     labels.sort();
@@ -4041,11 +4739,17 @@ fn resource_extension_matches(
     anti_affinity.sort();
     let mut request_anti_affinity = request.anti_affinity.clone();
     request_anti_affinity.sort();
-    let alias = resource_opaque_string(extension.get("target_alias"), "resource target_alias")?;
-    // This is the immutable outer WorkItem digest, not an opaque user field.
-    // Keep its frozen `v1:<lowercase-hex>` spelling separate from the nested
-    // opaque:v1 values so a valid resolved WorkItem is not rejected at the
-    // trust boundary.
+    Ok((labels, request_labels, anti_affinity, request_anti_affinity))
+}
+
+// This is the immutable outer WorkItem digest, not an opaque user field.
+// Keep its frozen `v1:<lowercase-hex>` spelling separate from the nested
+// opaque:v1 values so a valid resolved WorkItem is not rejected at the
+// trust boundary.
+fn verify_resource_extension_work_item_digest(
+    repository: &serde_json::Map<String, serde_json::Value>,
+    extension: &serde_json::Map<String, serde_json::Value>,
+) -> Result<bool, String> {
     let work_item_digest = extension
         .get("work_item_input_fingerprint")
         .and_then(serde_json::Value::as_str)
@@ -4068,6 +4772,24 @@ fn resource_extension_matches(
         // cannot otherwise be detected by field-by-field policy comparison.
         return Ok(false);
     }
+    Ok(true)
+}
+
+fn resource_extension_resolve_alias_if_digest_matches(
+    repository: &serde_json::Map<String, serde_json::Value>,
+    extension: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<Option<String>>, String> {
+    let alias = resource_opaque_string(extension.get("target_alias"), "resource target_alias")?;
+    if !verify_resource_extension_work_item_digest(repository, extension)? {
+        return Ok(None);
+    }
+    Ok(Some(alias))
+}
+
+#[allow(clippy::type_complexity)]
+fn resolve_resource_extension_profile_fields(
+    extension: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(String, String, String, String, String, String), String> {
     let profile_version =
         resource_metadata_string(extension, "profile_version", "resource profile_version")?;
     let profile_version_number = profile_version
@@ -4086,13 +4808,28 @@ fn resource_extension_matches(
         resource_metadata_string(extension, "fairness_group", "resource fairness_group")?;
     let disk_policy_key =
         resource_metadata_string(extension, "disk_policy_key", "resource disk_policy_key")?;
+    Ok((
+        profile_version,
+        profile_name,
+        repository_id,
+        concurrency_key,
+        fairness_group,
+        disk_policy_key,
+    ))
+}
+
+#[allow(clippy::type_complexity)]
+fn resolve_resource_extension_repository_fields(
+    repository: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(String, String, String, Option<String>, String), String> {
     let repository_id_outer =
         resource_metadata_string(repository, "repository_id", "repository repository_id")?;
     let owner_id_outer = resource_metadata_string(repository, "owner_id", "repository owner_id")?;
     let outer_target_kind = repository
         .get("target_kind")
         .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "repository target_kind is missing".to_string())?;
+        .ok_or_else(|| "repository target_kind is missing".to_string())?
+        .to_string();
     let outer_target_alias =
         resource_opaque_string(repository.get("target_alias"), "repository target_alias")?;
     let tenant_id = repository
@@ -4100,6 +4837,35 @@ fn resource_extension_matches(
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| "repository tenant_id is missing".to_string())?;
     let tenant_id = resource_b64_value(tenant_id, "repository tenant_id")?;
+    Ok((
+        repository_id_outer,
+        owner_id_outer,
+        outer_target_kind,
+        outer_target_alias,
+        tenant_id,
+    ))
+}
+
+#[allow(clippy::type_complexity)]
+fn resource_extension_resolve_extracted_fields(
+    repository: &serde_json::Map<String, serde_json::Value>,
+    extension: &serde_json::Map<String, serde_json::Value>,
+) -> Result<
+    (
+        (String, String, String, String, String, String),
+        (String, String, String, Option<String>, String),
+    ),
+    String,
+> {
+    let profile_fields = resolve_resource_extension_profile_fields(extension)?;
+    let repository_fields = resolve_resource_extension_repository_fields(repository)?;
+    Ok((profile_fields, repository_fields))
+}
+
+fn resolve_resource_extension_target_kind(
+    extension: &serde_json::Map<String, serde_json::Value>,
+    alias: &Option<String>,
+) -> Result<String, String> {
     let extension_target_kind = extension
         .get("target_kind")
         .and_then(serde_json::Value::as_str)
@@ -4110,7 +4876,26 @@ fn resource_extension_matches(
     if (extension_target_kind == "local") != alias.is_none() {
         return Err("resource target_alias does not match target_kind".to_string());
     }
-    Ok(profile_name == request.profile_name
+    Ok(extension_target_kind.to_string())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resource_extension_identity_matches(
+    request: &ResourceReservationRequest,
+    profile_name: &str,
+    profile_version: &str,
+    repository_id: &str,
+    repository_id_outer: &str,
+    owner_id_outer: &str,
+    tenant_id: &str,
+    extension_branch: &str,
+    extension_target_kind: &str,
+    outer_target_kind: &str,
+    alias: &Option<String>,
+    outer_target_alias: &Option<String>,
+    concurrency_key: &str,
+) -> bool {
+    profile_name == request.profile_name
         && profile_version == request.profile_version
         && repository_id == request.repository_id
         && repository_id_outer == request.repository_id
@@ -4126,31 +4911,46 @@ fn resource_extension_matches(
         && extension_target_kind == outer_target_kind
         && alias.as_deref() == outer_target_alias.as_deref()
         && concurrency_key == request.concurrency_key
-        && resource_u64_matches(
-            extension,
-            "cpu_weight",
-            request.requirement.cpu_weight,
-            "resource cpu_weight",
-        )?
-        && resource_u64_matches(
-            extension,
-            "memory_mib",
-            request.requirement.memory_mib,
-            "resource memory_mib",
-        )?
-        && resource_u64_matches(
-            extension,
-            "disk_mib",
-            request.requirement.disk_mib,
-            "resource disk_mib",
-        )?
-        && resource_u64_matches(
-            extension,
-            "process_slots",
-            request.requirement.process_slots,
-            "resource process_slots",
-        )?
-        && labels == request_labels
+}
+
+fn resource_extension_requirements_match(
+    extension: &serde_json::Map<String, serde_json::Value>,
+    request: &ResourceReservationRequest,
+) -> Result<bool, String> {
+    Ok(resource_u64_matches(
+        extension,
+        "cpu_weight",
+        request.requirement.cpu_weight,
+        "resource cpu_weight",
+    )? && resource_u64_matches(
+        extension,
+        "memory_mib",
+        request.requirement.memory_mib,
+        "resource memory_mib",
+    )? && resource_u64_matches(
+        extension,
+        "disk_mib",
+        request.requirement.disk_mib,
+        "resource disk_mib",
+    )? && resource_u64_matches(
+        extension,
+        "process_slots",
+        request.requirement.process_slots,
+        "resource process_slots",
+    )?)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resource_extension_affinity_and_exclusivity_matches(
+    extension: &serde_json::Map<String, serde_json::Value>,
+    request: &ResourceReservationRequest,
+    labels: &[String],
+    request_labels: &[String],
+    anti_affinity: &[String],
+    request_anti_affinity: &[String],
+    fairness_group: &str,
+) -> Result<bool, String> {
+    Ok(labels == request_labels
         && anti_affinity == request_anti_affinity
         && fairness_group == request.fairness_group
         && resource_optional_u64_matches(
@@ -4170,26 +4970,130 @@ fn resource_extension_matches(
             "branch_exclusive",
             request.branch_exclusive,
             "resource branch_exclusive",
-        )?
-        && resource_optional_u64_matches(
-            extension,
-            "disk_low_watermark_mib",
-            request.disk_low_watermark_mib,
-            "resource disk_low_watermark_mib",
-        )?
-        && resource_optional_u64_matches(
-            extension,
-            "disk_high_watermark_mib",
-            request.disk_high_watermark_mib,
-            "resource disk_high_watermark_mib",
-        )?
-        && disk_policy_key == request.disk_policy_key
+        )?)
+}
+
+fn resource_extension_disk_policy_matches(
+    extension: &serde_json::Map<String, serde_json::Value>,
+    request: &ResourceReservationRequest,
+    disk_policy_key: &str,
+) -> Result<bool, String> {
+    Ok(resource_optional_u64_matches(
+        extension,
+        "disk_low_watermark_mib",
+        request.disk_low_watermark_mib,
+        "resource disk_low_watermark_mib",
+    )? && resource_optional_u64_matches(
+        extension,
+        "disk_high_watermark_mib",
+        request.disk_high_watermark_mib,
+        "resource disk_high_watermark_mib",
+    )? && disk_policy_key == request.disk_policy_key
         && resource_optional_u64_matches(
             extension,
             "fairness_cost",
             Some(request.fairness_cost),
             "resource fairness_cost",
         )?)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resource_extension_policy_matches(
+    extension: &serde_json::Map<String, serde_json::Value>,
+    request: &ResourceReservationRequest,
+    labels: &[String],
+    request_labels: &[String],
+    anti_affinity: &[String],
+    request_anti_affinity: &[String],
+    fairness_group: &str,
+    disk_policy_key: &str,
+) -> Result<bool, String> {
+    Ok(resource_extension_affinity_and_exclusivity_matches(
+        extension,
+        request,
+        labels,
+        request_labels,
+        anti_affinity,
+        request_anti_affinity,
+        fairness_group,
+    )? && resource_extension_disk_policy_matches(extension, request, disk_policy_key)?)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resource_extension_final_match(
+    extension: &serde_json::Map<String, serde_json::Value>,
+    request: &ResourceReservationRequest,
+    extension_branch: &str,
+    labels: &[String],
+    request_labels: &[String],
+    anti_affinity: &[String],
+    request_anti_affinity: &[String],
+    alias: &Option<String>,
+    profile_fields: &(String, String, String, String, String, String),
+    repository_fields: &(String, String, String, Option<String>, String),
+    extension_target_kind: &str,
+) -> Result<bool, String> {
+    let (profile_version, profile_name, repository_id, concurrency_key, fairness_group, disk_policy_key) =
+        profile_fields;
+    let (repository_id_outer, owner_id_outer, outer_target_kind, outer_target_alias, tenant_id) =
+        repository_fields;
+    let identity_ok = resource_extension_identity_matches(
+        request,
+        profile_name,
+        profile_version,
+        repository_id,
+        repository_id_outer,
+        owner_id_outer,
+        tenant_id,
+        extension_branch,
+        extension_target_kind,
+        outer_target_kind,
+        alias,
+        outer_target_alias,
+        concurrency_key,
+    );
+    let requirements_ok = resource_extension_requirements_match(extension, request)?;
+    let policy_ok = resource_extension_policy_matches(
+        extension,
+        request,
+        labels,
+        request_labels,
+        anti_affinity,
+        request_anti_affinity,
+        fairness_group,
+        disk_policy_key,
+    )?;
+    Ok(identity_ok && requirements_ok && policy_ok)
+}
+
+fn resource_extension_matches(
+    repository: &serde_json::Map<String, serde_json::Value>,
+    extension: &serde_json::Map<String, serde_json::Value>,
+    request: &ResourceReservationRequest,
+) -> Result<bool, String> {
+    let extension_branch = resource_extension_validate_and_extract_branch(extension, request)?;
+    let (labels, request_labels, anti_affinity, request_anti_affinity) =
+        resource_extension_resolve_labels(extension, request)?;
+    let alias = match resource_extension_resolve_alias_if_digest_matches(repository, extension)? {
+        Some(alias) => alias,
+        None => return Ok(false),
+    };
+    let (profile_fields, repository_fields) =
+        resource_extension_resolve_extracted_fields(repository, extension)?;
+    let extension_target_kind = resolve_resource_extension_target_kind(extension, &alias)?;
+    resource_extension_final_match(
+        extension,
+        request,
+        &extension_branch,
+        &labels,
+        &request_labels,
+        &anti_affinity,
+        &request_anti_affinity,
+        &alias,
+        &profile_fields,
+        &repository_fields,
+        &extension_target_kind,
+    )
 }
 
 fn resource_validate_work_item(
@@ -4825,6 +5729,187 @@ fn apply_resource_reservation_rows(
     }
 }
 
+fn validate_resource_host_update_identity(request: &ResourceHostUpdateRequest) -> Result<(), String> {
+    resource_text(&request.tenant_ref, "resource host tenant_ref")?;
+    resource_text(&request.host_ref, "resource host_ref")?;
+    resource_labels(&request.labels, "resource host labels")?;
+    resource_text(
+        request.target_alias.as_deref().unwrap_or("local"),
+        "resource host target_alias",
+    )?;
+    Ok(())
+}
+
+fn resolve_resource_host_update_target_kind(
+    request: &ResourceHostUpdateRequest,
+) -> Result<&'static str, String> {
+    let target_kind = resource_host_target_kind(request.target_kind);
+    if (target_kind == "local") != request.target_alias.is_none() {
+        return Err("resource host target_alias does not match target_kind".into());
+    }
+    Ok(target_kind)
+}
+
+fn resource_host_heartbeat_bounds_violated(request: &ResourceHostUpdateRequest) -> bool {
+    request.heartbeat_ttl_ms < 1_000
+        || request.heartbeat_ttl_ms > 86_400_000
+        || request.heartbeat_at_ms > request.now_ms
+        || request.now_ms.saturating_sub(request.heartbeat_at_ms) > request.heartbeat_ttl_ms
+}
+
+fn resource_host_capacity_bounds_violated(request: &ResourceHostUpdateRequest) -> bool {
+    request.capacity.cpu_weight == 0
+        || request.capacity.memory_mib == 0
+        || request.capacity.disk_mib == 0
+        || request.capacity.process_slots == 0
+        || request.capacity.cpu_weight > MAX_RESOURCE_DIMENSION
+        || request.capacity.memory_mib > MAX_RESOURCE_DIMENSION
+        || request.capacity.disk_mib > MAX_RESOURCE_DIMENSION
+        || request.capacity.process_slots > MAX_RESOURCE_DIMENSION
+}
+
+fn resource_host_disk_bounds_violated(request: &ResourceHostUpdateRequest) -> bool {
+    request.disk_used_mib > request.disk_capacity_mib
+        || request.disk_capacity_mib == 0
+        || request.disk_capacity_mib > MAX_RESOURCE_DIMENSION
+        || request.disk_used_mib > MAX_RESOURCE_DIMENSION
+}
+
+fn resource_host_observed_bounds_violated(request: &ResourceHostUpdateRequest) -> bool {
+    request.observed.cpu_weight > request.capacity.cpu_weight
+        || request.observed.memory_mib > request.capacity.memory_mib
+        || request.observed.disk_mib > request.capacity.disk_mib
+        || request.observed.process_slots > request.capacity.process_slots
+        || request.observed.cpu_weight > MAX_RESOURCE_DIMENSION
+        || request.observed.memory_mib > MAX_RESOURCE_DIMENSION
+        || request.observed.disk_mib > MAX_RESOURCE_DIMENSION
+        || request.observed.process_slots > MAX_RESOURCE_DIMENSION
+}
+
+fn validate_resource_host_update_telemetry_bounds(
+    request: &ResourceHostUpdateRequest,
+) -> Result<(), String> {
+    if resource_host_heartbeat_bounds_violated(request)
+        || resource_host_capacity_bounds_violated(request)
+        || resource_host_disk_bounds_violated(request)
+        || resource_host_observed_bounds_violated(request)
+        || request.revision == 0
+    {
+        return Err("resource host update violates telemetry bounds".into());
+    }
+    Ok(())
+}
+
+fn validate_resource_host_update_request(
+    request: &ResourceHostUpdateRequest,
+) -> Result<&'static str, String> {
+    validate_resource_host_update_identity(request)?;
+    let target_kind = resolve_resource_host_update_target_kind(request)?;
+    validate_resource_host_update_telemetry_bounds(request)?;
+    Ok(target_kind)
+}
+
+fn resource_host_update_exceeds_capacity(
+    request: &ResourceHostUpdateRequest,
+    host: &DurableResourceHost,
+) -> bool {
+    request
+        .observed
+        .cpu_weight
+        .checked_add(host.held_cpu_weight)
+        .is_none_or(|value| value > request.capacity.cpu_weight)
+        || request
+            .observed
+            .memory_mib
+            .checked_add(host.held_memory_mib)
+            .is_none_or(|value| value > request.capacity.memory_mib)
+        || request
+            .observed
+            .disk_mib
+            .checked_add(host.held_disk_mib)
+            .is_none_or(|value| value > request.capacity.disk_mib)
+        || request
+            .disk_used_mib
+            .checked_add(host.held_disk_mib)
+            .is_none_or(|value| value > request.disk_capacity_mib)
+        || request
+            .observed
+            .process_slots
+            .checked_add(host.held_process_slots)
+            .is_none_or(|value| value > request.capacity.process_slots)
+}
+
+fn check_resource_host_update_conflicts(
+    request: &ResourceHostUpdateRequest,
+    host: &DurableResourceHost,
+    target_kind: &str,
+    policy_rows: &[(String, DurableResourceDiskPolicy)],
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    if host.target_kind != target_kind || host.target_alias != request.target_alias {
+        return Ok(Some(resource_host_result(
+            request,
+            Some(host),
+            policy_rows,
+            false,
+            ResourceHostUpdateResultReason::Conflict,
+        )?));
+    }
+    if request.revision <= host.revision {
+        return Ok(Some(resource_host_result(
+            request,
+            Some(host),
+            policy_rows,
+            false,
+            ResourceHostUpdateResultReason::StaleHost,
+        )?));
+    }
+    if resource_host_update_exceeds_capacity(request, host) {
+        return Ok(Some(resource_host_result(
+            request,
+            Some(host),
+            policy_rows,
+            false,
+            ResourceHostUpdateResultReason::Conflict,
+        )?));
+    }
+    Ok(None)
+}
+
+fn build_resource_host_from_update(
+    request: &ResourceHostUpdateRequest,
+    current: Option<&DurableResourceHost>,
+    target_kind: &str,
+) -> DurableResourceHost {
+    DurableResourceHost {
+        // Physical host accounting is graph-scoped and shared across
+        // tenants.  Preserve the first controller's provenance label;
+        // authz on UpdateResourceHost, not this label, controls who may
+        // publish telemetry.
+        tenant_ref: current.map_or_else(
+            || request.tenant_ref.clone(),
+            |host| host.tenant_ref.clone(),
+        ),
+        host_ref: request.host_ref.clone(),
+        revision: request.revision,
+        capacity: request.capacity.clone(),
+        observed: request.observed.clone(),
+        heartbeat_at_ms: request.heartbeat_at_ms,
+        heartbeat_ttl_ms: request.heartbeat_ttl_ms,
+        now_ms: request.now_ms,
+        draining: request.draining,
+        quarantined: request.quarantined,
+        labels: request.labels.clone(),
+        target_kind: target_kind.to_string(),
+        target_alias: request.target_alias.clone(),
+        disk_used_mib: request.disk_used_mib,
+        disk_capacity_mib: request.disk_capacity_mib,
+        held_cpu_weight: current.map_or(0, |h| h.held_cpu_weight),
+        held_memory_mib: current.map_or(0, |h| h.held_memory_mib),
+        held_disk_mib: current.map_or(0, |h| h.held_disk_mib),
+        held_process_slots: current.map_or(0, |h| h.held_process_slots),
+    }
+}
+
 fn apply_update_resource_host_rows(
     request: &ResourceHostUpdateRequest,
     graph: &str,
@@ -4832,137 +5917,26 @@ fn apply_update_resource_host_rows(
     disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
-            resource_text(&request.tenant_ref, "resource host tenant_ref")?;
-            resource_text(&request.host_ref, "resource host_ref")?;
-            resource_labels(&request.labels, "resource host labels")?;
-            resource_text(
-                request.target_alias.as_deref().unwrap_or("local"),
-                "resource host target_alias",
-            )?;
-            let target_kind = resource_host_target_kind(request.target_kind);
-            if (target_kind == "local") != request.target_alias.is_none() {
-                return Err("resource host target_alias does not match target_kind".into());
-            }
-            if request.heartbeat_ttl_ms < 1_000
-                || request.heartbeat_ttl_ms > 86_400_000
-                || request.heartbeat_at_ms > request.now_ms
-                || request.now_ms.saturating_sub(request.heartbeat_at_ms) > request.heartbeat_ttl_ms
-                || request.disk_used_mib > request.disk_capacity_mib
-                || request.capacity.cpu_weight == 0
-                || request.capacity.memory_mib == 0
-                || request.capacity.disk_mib == 0
-                || request.capacity.process_slots == 0
-                || request.capacity.cpu_weight > MAX_RESOURCE_DIMENSION
-                || request.capacity.memory_mib > MAX_RESOURCE_DIMENSION
-                || request.capacity.disk_mib > MAX_RESOURCE_DIMENSION
-                || request.capacity.process_slots > MAX_RESOURCE_DIMENSION
-                || request.disk_capacity_mib == 0
-                || request.disk_capacity_mib > MAX_RESOURCE_DIMENSION
-                || request.disk_used_mib > MAX_RESOURCE_DIMENSION
-                || request.observed.cpu_weight > request.capacity.cpu_weight
-                || request.observed.memory_mib > request.capacity.memory_mib
-                || request.observed.disk_mib > request.capacity.disk_mib
-                || request.observed.process_slots > request.capacity.process_slots
-                || request.observed.cpu_weight > MAX_RESOURCE_DIMENSION
-                || request.observed.memory_mib > MAX_RESOURCE_DIMENSION
-                || request.observed.disk_mib > MAX_RESOURCE_DIMENSION
-                || request.observed.process_slots > MAX_RESOURCE_DIMENSION
-                || request.revision == 0
-            {
-                return Err("resource host update violates telemetry bounds".into());
-            }
-            let current = resource_load_host(hosts, graph, &request.host_ref, crypto)?;
-            let policy_rows =
-                resource_collect_disk_policy_rows(disk_policies, graph, &request.host_ref, crypto)?;
-            if let Some(host) = current.as_ref() {
-                if host.target_kind != target_kind || host.target_alias != request.target_alias {
-                    return Ok(Some(resource_host_result(
-                        request,
-                        Some(host),
-                        &policy_rows,
-                        false,
-                        ResourceHostUpdateResultReason::Conflict,
-                    )?));
-                }
-                if request.revision <= host.revision {
-                    return Ok(Some(resource_host_result(
-                        request,
-                        Some(host),
-                        &policy_rows,
-                        false,
-                        ResourceHostUpdateResultReason::StaleHost,
-                    )?));
-                }
-                if request
-                    .observed
-                    .cpu_weight
-                    .checked_add(host.held_cpu_weight)
-                    .is_none_or(|value| value > request.capacity.cpu_weight)
-                    || request
-                        .observed
-                        .memory_mib
-                        .checked_add(host.held_memory_mib)
-                        .is_none_or(|value| value > request.capacity.memory_mib)
-                    || request
-                        .observed
-                        .disk_mib
-                        .checked_add(host.held_disk_mib)
-                        .is_none_or(|value| value > request.capacity.disk_mib)
-                    || request
-                        .disk_used_mib
-                        .checked_add(host.held_disk_mib)
-                        .is_none_or(|value| value > request.disk_capacity_mib)
-                    || request
-                        .observed
-                        .process_slots
-                        .checked_add(host.held_process_slots)
-                        .is_none_or(|value| value > request.capacity.process_slots)
-                {
-                    return Ok(Some(resource_host_result(
-                        request,
-                        Some(host),
-                        &policy_rows,
-                        false,
-                        ResourceHostUpdateResultReason::Conflict,
-                    )?));
-                }
-            }
-            let host = DurableResourceHost {
-                // Physical host accounting is graph-scoped and shared across
-                // tenants.  Preserve the first controller's provenance label;
-                // authz on UpdateResourceHost, not this label, controls who may
-                // publish telemetry.
-                tenant_ref: current.as_ref().map_or_else(
-                    || request.tenant_ref.clone(),
-                    |host| host.tenant_ref.clone(),
-                ),
-                host_ref: request.host_ref.clone(),
-                revision: request.revision,
-                capacity: request.capacity.clone(),
-                observed: request.observed.clone(),
-                heartbeat_at_ms: request.heartbeat_at_ms,
-                heartbeat_ttl_ms: request.heartbeat_ttl_ms,
-                now_ms: request.now_ms,
-                draining: request.draining,
-                quarantined: request.quarantined,
-                labels: request.labels.clone(),
-                target_kind: target_kind.to_string(),
-                target_alias: request.target_alias.clone(),
-                disk_used_mib: request.disk_used_mib,
-                disk_capacity_mib: request.disk_capacity_mib,
-                held_cpu_weight: current.as_ref().map_or(0, |h| h.held_cpu_weight),
-                held_memory_mib: current.as_ref().map_or(0, |h| h.held_memory_mib),
-                held_disk_mib: current.as_ref().map_or(0, |h| h.held_disk_mib),
-                held_process_slots: current.as_ref().map_or(0, |h| h.held_process_slots),
-            };
-            resource_put_host(hosts, graph, &host, crypto)?;
-            Ok(Some(resource_host_result(
-                request,
-                Some(&host),
-                &policy_rows,
-                true,
-                ResourceHostUpdateResultReason::Accepted,
-            )?))
+    let target_kind = validate_resource_host_update_request(request)?;
+    let current = resource_load_host(hosts, graph, &request.host_ref, crypto)?;
+    let policy_rows =
+        resource_collect_disk_policy_rows(disk_policies, graph, &request.host_ref, crypto)?;
+    if let Some(host) = current.as_ref() {
+        if let Some(payload) =
+            check_resource_host_update_conflicts(request, host, target_kind, &policy_rows)?
+        {
+            return Ok(Some(payload));
+        }
+    }
+    let host = build_resource_host_from_update(request, current.as_ref(), target_kind);
+    resource_put_host(hosts, graph, &host, crypto)?;
+    Ok(Some(resource_host_result(
+        request,
+        Some(&host),
+        &policy_rows,
+        true,
+        ResourceHostUpdateResultReason::Accepted,
+    )?))
 }
 
 /// Early-return signal used while decomposing `apply_resource_reservation_lifecycle_rows`
@@ -6212,107 +7186,128 @@ fn resource_decode_result_payload(
 /// from one MVCC snapshot.  A null reservation id is the intentionally narrow
 /// current-WorkItem precheck used for scheduler ranking; it never returns a
 /// reservation ledger and Reserve revalidates the same fence transactionally.
-pub(crate) fn read_resource_reservation(
-    db: &Database,
+#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity)]
+fn resolve_current_work_item_query_identity_fields(
+    request: &ResourceReservationStatusRequest,
+) -> Result<(&str, &str, &str), String> {
+    let work_item_id = request
+        .work_item_id
+        .as_deref()
+        .ok_or_else(|| "current WorkItem query requires work_item_id".to_string())?;
+    let owner = request
+        .owner_id
+        .as_deref()
+        .ok_or_else(|| "current WorkItem query requires owner_id".to_string())?;
+    let fence = request
+        .fence
+        .as_deref()
+        .ok_or_else(|| "current WorkItem query requires fence".to_string())?;
+    Ok((work_item_id, owner, fence))
+}
+
+fn resolve_current_work_item_query_fence_fields(
+    request: &ResourceReservationStatusRequest,
+) -> Result<(u64, u64, u64), String> {
+    let attempt = request
+        .attempt
+        .ok_or_else(|| "current WorkItem query requires attempt".to_string())?;
+    let lease_epoch = request
+        .lease_epoch
+        .ok_or_else(|| "current WorkItem query requires lease_epoch".to_string())?;
+    let fencing_token = request
+        .fencing_token
+        .ok_or_else(|| "current WorkItem query requires fencing_token".to_string())?;
+    Ok((attempt, lease_epoch, fencing_token))
+}
+
+#[allow(clippy::type_complexity)]
+fn resolve_current_work_item_query_fields(
+    request: &ResourceReservationStatusRequest,
+) -> Result<(&str, &str, &str, u64, u64, u64), String> {
+    let (work_item_id, owner, fence) = resolve_current_work_item_query_identity_fields(request)?;
+    let (attempt, lease_epoch, fencing_token) =
+        resolve_current_work_item_query_fence_fields(request)?;
+    Ok((work_item_id, owner, fence, attempt, lease_epoch, fencing_token))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn current_work_item_query_matches(
+    props: &serde_json::Map<String, serde_json::Value>,
+    request: &ResourceReservationStatusRequest,
+    owner: &str,
+    fence: &str,
+    attempt: u64,
+    lease_epoch: u64,
+    fencing_token: u64,
+) -> bool {
+    let current_attempt = property_u64(props, "attempt");
+    let current_epoch = property_u64(props, "lease_epoch");
+    let current_token = property_u64(props, "fencing_token");
+    let status = property_string(props, "status");
+    let current_owner = if matches!(status, "leased" | "running") {
+        property_string(props, "lease_owner")
+    } else {
+        property_string(props, "last_lease_owner")
+    };
+    let live_until = (property_f64(props, "lease_expires_at") * 1000.0).max(0.0) as u64;
+    property_string(props, "node_type") == "WorkItem"
+        && property_string(props, "tenant") == request.tenant_ref
+        && current_attempt == attempt
+        && current_epoch == lease_epoch
+        && current_token == fencing_token
+        && fence == resource_expected_fence(fencing_token)
+        && current_owner == owner
+        && matches!(status, "leased" | "running")
+        && live_until > request.now_ms
+}
+
+fn read_resource_reservation_current_work_item_query(
+    nodes: &redb::ReadOnlyTable<(&str, &str), &[u8]>,
     graph: &str,
     request: &ResourceReservationStatusRequest,
     crypto: DurableCrypto<'_>,
 ) -> Result<ResourceReservationResult, String> {
-    resource_validate_query_request(request, false)?;
-    let rtx = db.begin_read().map_err(|error| error.to_string())?;
-    let nodes = rtx.open_table(NODES).map_err(|error| error.to_string())?;
-    if request.reservation_id.is_none() {
-        let work_item_id = request
-            .work_item_id
-            .as_deref()
-            .ok_or_else(|| "current WorkItem query requires work_item_id".to_string())?;
-        let owner = request
-            .owner_id
-            .as_deref()
-            .ok_or_else(|| "current WorkItem query requires owner_id".to_string())?;
-        let fence = request
-            .fence
-            .as_deref()
-            .ok_or_else(|| "current WorkItem query requires fence".to_string())?;
-        let attempt = request
-            .attempt
-            .ok_or_else(|| "current WorkItem query requires attempt".to_string())?;
-        let lease_epoch = request
-            .lease_epoch
-            .ok_or_else(|| "current WorkItem query requires lease_epoch".to_string())?;
-        let fencing_token = request
-            .fencing_token
-            .ok_or_else(|| "current WorkItem query requires fencing_token".to_string())?;
-        let bytes = nodes
-            .get((graph, work_item_id))
-            .map_err(|error| error.to_string())?
-            .map(|value| crypto.unseal(value.value()))
-            .transpose()?;
-        let Some(bytes) = bytes else {
-            return resource_decode_result_payload(resource_no_reservation_query_result(
-                request,
-                ResourceReservationResultDecision::NotFound,
-            ));
-        };
-        let props: serde_json::Map<String, serde_json::Value> = decode_durable(&bytes)?;
-        let current_attempt = property_u64(&props, "attempt");
-        let current_epoch = property_u64(&props, "lease_epoch");
-        let current_token = property_u64(&props, "fencing_token");
-        let status = property_string(&props, "status");
-        let current_owner = if matches!(status, "leased" | "running") {
-            property_string(&props, "lease_owner")
-        } else {
-            property_string(&props, "last_lease_owner")
-        };
-        let live_until = (property_f64(&props, "lease_expires_at") * 1000.0).max(0.0) as u64;
-        let current = property_string(&props, "node_type") == "WorkItem"
-            && property_string(&props, "tenant") == request.tenant_ref
-            && current_attempt == attempt
-            && current_epoch == lease_epoch
-            && current_token == fencing_token
-            && fence == resource_expected_fence(fencing_token)
-            && current_owner == owner
-            && matches!(status, "leased" | "running")
-            && live_until > request.now_ms;
-        let decision = if current {
-            ResourceReservationResultDecision::Accepted
-        } else {
-            ResourceReservationResultDecision::Stale
-        };
-        return resource_decode_result_payload(resource_no_reservation_query_result(
-            request, decision,
-        ));
-    }
-    let reservation_id = request.reservation_id.as_deref().unwrap_or_default();
-    resource_text(reservation_id, "resource reservation_id")?;
-    let reservations = rtx
-        .open_table(RESOURCE_RESERVATIONS)
-        .map_err(|error| error.to_string())?;
-    let Some(row) = reservations
-        .get((graph, reservation_id))
+    let (work_item_id, owner, fence, attempt, lease_epoch, fencing_token) =
+        resolve_current_work_item_query_fields(request)?;
+    let bytes = nodes
+        .get((graph, work_item_id))
         .map_err(|error| error.to_string())?
-    else {
-        // A mirrorless RM admission query is an expected pre-reserve read.  A
-        // missing native row is a typed absence, not a transport failure; the
-        // scheduler then submits Reserve and lets that transaction revalidate
-        // the WorkItem/fence atomically.
+        .map(|value| crypto.unseal(value.value()))
+        .transpose()?;
+    let Some(bytes) = bytes else {
         return resource_decode_result_payload(resource_no_reservation_query_result(
             request,
             ResourceReservationResultDecision::NotFound,
         ));
     };
-    let stored: DurableResourceReservation = resource_decode(row.value(), crypto)?;
-    let record = &stored.record;
-    if record.tenant_ref != request.tenant_ref {
-        // Preserve tenant isolation while keeping the public query vocabulary
-        // typed and bounded.  Do not reveal whether another tenant owns this
-        // reservation id through a transport error.
-        return resource_decode_result_payload(resource_no_reservation_query_result(
-            request,
-            ResourceReservationResultDecision::NotFound,
-        ));
-    }
-    let correlations_match = request.work_item_id.as_deref() == Some(record.work_item_id.as_str())
+    let props: serde_json::Map<String, serde_json::Value> = decode_durable(&bytes)?;
+    let current = current_work_item_query_matches(
+        &props,
+        request,
+        owner,
+        fence,
+        attempt,
+        lease_epoch,
+        fencing_token,
+    );
+    let decision = if current {
+        ResourceReservationResultDecision::Accepted
+    } else {
+        ResourceReservationResultDecision::Stale
+    };
+    resource_decode_result_payload(resource_no_reservation_query_result(request, decision))
+}
+
+// RM's mirrorless retry query intentionally omits the fingerprint: the
+// native record is the source of truth and the adapter compares it
+// after decoding.  If a mirror supplies one, it remains an exact
+// correlation and a mismatch fails closed.
+fn resource_reservation_query_correlates(
+    request: &ResourceReservationStatusRequest,
+    record: &ResourceReservationRecord,
+) -> bool {
+    request.work_item_id.as_deref() == Some(record.work_item_id.as_str())
         && request
             .host_ref
             .as_deref()
@@ -6322,35 +7317,57 @@ pub(crate) fn read_resource_reservation(
         && request.attempt == Some(record.attempt)
         && request.lease_epoch == Some(record.lease_epoch)
         && request.fencing_token == Some(record.fencing_token)
-        // RM's mirrorless retry query intentionally omits the fingerprint: the
-        // native record is the source of truth and the adapter compares it
-        // after decoding.  If a mirror supplies one, it remains an exact
-        // correlation and a mismatch fails closed.
         && request
             .input_fingerprint
             .as_deref()
-            .is_none_or(|fingerprint| fingerprint == record.input_fingerprint.as_str());
-    if !correlations_match {
-        return Err("resource reservation correlation does not match".into());
-    }
+            .is_none_or(|fingerprint| fingerprint == record.input_fingerprint.as_str())
+}
+
+fn resource_reservation_query_host(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    record: &ResourceReservationRecord,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<DurableResourceHost>, String> {
     let hosts = rtx
         .open_table(RESOURCE_HOSTS)
         .map_err(|error| error.to_string())?;
-    let host = hosts
+    hosts
         .get((graph, record.host_ref.as_str()))
         .map_err(|error| error.to_string())?
         .map(|row| resource_decode::<DurableResourceHost>(row.value(), crypto))
-        .transpose()?;
-    let request_for_payload = resource_request_from_record(record, request.now_ms);
+        .transpose()
+}
+
+fn resource_reservation_query_current_work_item(
+    nodes: &redb::ReadOnlyTable<(&str, &str), &[u8]>,
+    graph: &str,
+    record: &ResourceReservationRecord,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
     let current_item = nodes
         .get((graph, record.work_item_id.as_str()))
         .map_err(|error| error.to_string())?
         .map(|value| crypto.unseal(value.value()))
         .transpose()?;
-    let current = current_item
+    current_item
         .as_deref()
         .map(decode_durable::<serde_json::Map<String, serde_json::Value>>)
-        .transpose()?;
+        .transpose()
+}
+
+fn build_resource_reservation_query_result(
+    rtx: &redb::ReadTransaction,
+    nodes: &redb::ReadOnlyTable<(&str, &str), &[u8]>,
+    graph: &str,
+    request: &ResourceReservationStatusRequest,
+    stored: &DurableResourceReservation,
+    crypto: DurableCrypto<'_>,
+) -> Result<ResourceReservationResult, String> {
+    let record = &stored.record;
+    let host = resource_reservation_query_host(rtx, graph, record, crypto)?;
+    let request_for_payload = resource_request_from_record(record, request.now_ms);
+    let current = resource_reservation_query_current_work_item(nodes, graph, record, crypto)?;
     let current_valid = current
         .as_ref()
         .is_some_and(|props| resource_record_work_item_live(props, record, request.now_ms));
@@ -6371,15 +7388,74 @@ pub(crate) fn read_resource_reservation(
     resource_decode_result_payload(bytes)
 }
 
-pub(crate) fn read_resource_reservation_status(
+fn read_resource_reservation_by_id(
+    rtx: &redb::ReadTransaction,
+    nodes: &redb::ReadOnlyTable<(&str, &str), &[u8]>,
+    graph: &str,
+    request: &ResourceReservationStatusRequest,
+    crypto: DurableCrypto<'_>,
+) -> Result<ResourceReservationResult, String> {
+    let reservation_id = request.reservation_id.as_deref().unwrap_or_default();
+    resource_text(reservation_id, "resource reservation_id")?;
+    let reservations = rtx
+        .open_table(RESOURCE_RESERVATIONS)
+        .map_err(|error| error.to_string())?;
+    // A mirrorless RM admission query is an expected pre-reserve read.  A
+    // missing native row is a typed absence, not a transport failure; the
+    // scheduler then submits Reserve and lets that transaction revalidate
+    // the WorkItem/fence atomically.
+    let Some(row) = reservations
+        .get((graph, reservation_id))
+        .map_err(|error| error.to_string())?
+    else {
+        return resource_decode_result_payload(resource_no_reservation_query_result(
+            request,
+            ResourceReservationResultDecision::NotFound,
+        ));
+    };
+    let stored: DurableResourceReservation = resource_decode(row.value(), crypto)?;
+    if stored.record.tenant_ref != request.tenant_ref {
+        // Preserve tenant isolation while keeping the public query vocabulary
+        // typed and bounded.  Do not reveal whether another tenant owns this
+        // reservation id through a transport error.
+        return resource_decode_result_payload(resource_no_reservation_query_result(
+            request,
+            ResourceReservationResultDecision::NotFound,
+        ));
+    }
+    if !resource_reservation_query_correlates(request, &stored.record) {
+        return Err("resource reservation correlation does not match".into());
+    }
+    build_resource_reservation_query_result(rtx, nodes, graph, request, &stored, crypto)
+}
+
+pub(crate) fn read_resource_reservation(
     db: &Database,
     graph: &str,
     request: &ResourceReservationStatusRequest,
     crypto: DurableCrypto<'_>,
-) -> Result<ResourceReservationStatusResult, String> {
-    resource_validate_query_request(request, true)?;
-    let cursor = request.cursor.as_deref().unwrap_or("");
+) -> Result<ResourceReservationResult, String> {
+    resource_validate_query_request(request, false)?;
     let rtx = db.begin_read().map_err(|error| error.to_string())?;
+    let nodes = rtx.open_table(NODES).map_err(|error| error.to_string())?;
+    if request.reservation_id.is_none() {
+        return read_resource_reservation_current_work_item_query(&nodes, graph, request, crypto);
+    }
+    read_resource_reservation_by_id(&rtx, &nodes, graph, request, crypto)
+}
+
+#[allow(clippy::type_complexity)]
+fn open_resource_reservation_status_tables(
+    rtx: &redb::ReadTransaction,
+) -> Result<
+    (
+        redb::ReadOnlyTable<(&'static str, &'static str), &'static [u8]>,
+        redb::ReadOnlyTable<(&'static str, &'static str, &'static str), &'static str>,
+        redb::ReadOnlyTable<(&'static str, &'static str), &'static [u8]>,
+        redb::ReadOnlyTable<(&'static str, &'static str), &'static [u8]>,
+    ),
+    String,
+> {
     let reservations = rtx
         .open_table(RESOURCE_RESERVATIONS)
         .map_err(|error| error.to_string())?;
@@ -6392,12 +7468,192 @@ pub(crate) fn read_resource_reservation_status(
     let disk_policies = rtx
         .open_table(RESOURCE_DISK_POLICIES)
         .map_err(|error| error.to_string())?;
-    let mut values = Vec::new();
+    Ok((reservations, tenant_index, hosts, disk_policies))
+}
+
+enum ResourceReservationStatusRowOutcome {
+    StopScan,
+    SkipCursor,
+    Orphan,
+    Processed {
+        superseded: bool,
+        summary: Option<ResourceReservationSummary>,
+    },
+}
+
+fn resource_reservation_status_row_is_filtered_out(
+    request: &ResourceReservationStatusRequest,
+    record: &ResourceReservationRecord,
+) -> bool {
+    request
+        .host_ref
+        .as_deref()
+        .is_some_and(|host| host != record.host_ref)
+        || request
+            .work_item_id
+            .as_deref()
+            .is_some_and(|id| id != record.work_item_id)
+        || request
+            .fairness_group
+            .as_deref()
+            .is_some_and(|group| group != record.fairness_group)
+        || request
+            .owner_id
+            .as_deref()
+            .is_some_and(|owner| owner != record.owner_id)
+        || request
+            .fence
+            .as_deref()
+            .is_some_and(|fence| fence != record.fence)
+        || request
+            .input_fingerprint
+            .as_deref()
+            .is_some_and(|fingerprint| fingerprint != record.input_fingerprint)
+}
+
+fn build_resource_reservation_summary(
+    record: &ResourceReservationRecord,
+    stored: &DurableResourceReservation,
+) -> ResourceReservationSummary {
+    let is_reserved = record.state == ResourceReservationRecordState::Reserved;
+    ResourceReservationSummary {
+        reservation_id: record.reservation_id.clone(),
+        work_item_id: record.work_item_id.clone(),
+        attempt: record.attempt,
+        host_ref: record.host_ref.clone(),
+        profile_name: record.profile_name.clone(),
+        fairness_group: record.fairness_group.clone(),
+        state: resource_summary_state(record.state),
+        revision: record.revision,
+        expires_at_ms: record.expires_at_ms,
+        held_cpu_weight: if is_reserved { stored.held_cpu_weight } else { 0 },
+        held_memory_mib: if is_reserved {
+            stored.held_memory_mib
+        } else {
+            0
+        },
+        held_disk_mib: if is_reserved { stored.held_disk_mib } else { 0 },
+        held_process_slots: if is_reserved {
+            stored.held_process_slots
+        } else {
+            0
+        },
+        tombstone: record.tombstone,
+    }
+}
+
+fn resolve_resource_reservation_status_row(
+    reservation_id: &str,
+    graph: &str,
+    request: &ResourceReservationStatusRequest,
+    reservations: &redb::ReadOnlyTable<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<ResourceReservationStatusRowOutcome, String> {
+    let Some(row) = reservations
+        .get((graph, reservation_id))
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(ResourceReservationStatusRowOutcome::Orphan);
+    };
+    let stored: DurableResourceReservation = resource_decode(row.value(), crypto)?;
+    let record = &stored.record;
+    if record.tenant_ref != request.tenant_ref {
+        return Ok(ResourceReservationStatusRowOutcome::Orphan);
+    }
+    let superseded = record.state == ResourceReservationRecordState::Superseded;
+    if resource_reservation_status_row_is_filtered_out(request, record) {
+        return Ok(ResourceReservationStatusRowOutcome::Processed {
+            superseded,
+            summary: None,
+        });
+    }
+    let summary = build_resource_reservation_summary(record, &stored);
+    Ok(ResourceReservationStatusRowOutcome::Processed {
+        superseded,
+        summary: Some(summary),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resource_reservation_status_row_outcome(
+    row_graph: &str,
+    tenant: &str,
+    reservation_id: &str,
+    index_value: &str,
+    graph: &str,
+    cursor: &str,
+    request: &ResourceReservationStatusRequest,
+    reservations: &redb::ReadOnlyTable<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<ResourceReservationStatusRowOutcome, String> {
+    if row_graph != graph || tenant != request.tenant_ref {
+        return Ok(ResourceReservationStatusRowOutcome::StopScan);
+    }
+    if reservation_id == cursor {
+        return Ok(ResourceReservationStatusRowOutcome::SkipCursor);
+    }
+    if index_value != reservation_id {
+        return Ok(ResourceReservationStatusRowOutcome::Orphan);
+    }
+    resolve_resource_reservation_status_row(reservation_id, graph, request, reservations, crypto)
+}
+
+struct ResourceReservationStatusScan {
+    values: Vec<ResourceReservationSummary>,
+    has_more: bool,
+    last_returned_cursor: Option<String>,
+    orphan_count: u64,
+    superseded_count: u64,
+}
+
+fn apply_resource_reservation_status_row_outcome(
+    outcome: ResourceReservationStatusRowOutcome,
+    scan: &mut ResourceReservationStatusScan,
+    limit: usize,
+) -> std::ops::ControlFlow<()> {
+    match outcome {
+        ResourceReservationStatusRowOutcome::StopScan => std::ops::ControlFlow::Break(()),
+        ResourceReservationStatusRowOutcome::SkipCursor => std::ops::ControlFlow::Continue(()),
+        ResourceReservationStatusRowOutcome::Orphan => {
+            scan.orphan_count = scan.orphan_count.saturating_add(1);
+            std::ops::ControlFlow::Continue(())
+        }
+        ResourceReservationStatusRowOutcome::Processed { superseded, summary } => {
+            if superseded {
+                scan.superseded_count = scan.superseded_count.saturating_add(1);
+            }
+            let Some(summary) = summary else {
+                return std::ops::ControlFlow::Continue(());
+            };
+            let reservation_cursor = summary.reservation_id.clone();
+            scan.values.push(summary);
+            if scan.values.len() > limit {
+                scan.values.pop();
+                scan.has_more = true;
+                return std::ops::ControlFlow::Break(());
+            }
+            scan.last_returned_cursor = Some(reservation_cursor);
+            std::ops::ControlFlow::Continue(())
+        }
+    }
+}
+
+fn scan_resource_reservation_status_rows(
+    tenant_index: &redb::ReadOnlyTable<(&str, &str, &str), &str>,
+    reservations: &redb::ReadOnlyTable<(&str, &str), &[u8]>,
+    graph: &str,
+    cursor: &str,
+    request: &ResourceReservationStatusRequest,
+    crypto: DurableCrypto<'_>,
+) -> Result<ResourceReservationStatusScan, String> {
+    let mut scan = ResourceReservationStatusScan {
+        values: Vec::new(),
+        has_more: false,
+        last_returned_cursor: None,
+        orphan_count: 0,
+        superseded_count: 0,
+    };
     let mut scanned = 0usize;
-    let mut last_returned_cursor = None;
-    let mut has_more = false;
-    let mut orphan_count = 0u64;
-    let mut superseded_count = 0u64;
     for row in tenant_index
         .range((graph, request.tenant_ref.as_str(), cursor)..)
         .map_err(|error| error.to_string())?
@@ -6408,166 +7664,124 @@ pub(crate) fn read_resource_reservation_status(
         }
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (row_graph, tenant, reservation_id) = key.value();
-        if row_graph != graph || tenant != request.tenant_ref {
-            break;
-        }
-        if reservation_id == cursor {
-            continue;
-        }
-        if value.value() != reservation_id {
-            orphan_count = orphan_count.saturating_add(1);
-            continue;
-        }
-        let reservation_id = value.value();
-        let Some(row) = reservations
-            .get((graph, reservation_id))
-            .map_err(|error| error.to_string())?
-        else {
-            orphan_count = orphan_count.saturating_add(1);
-            continue;
-        };
-        let stored: DurableResourceReservation = resource_decode(row.value(), crypto)?;
-        let record = &stored.record;
-        if record.tenant_ref != request.tenant_ref {
-            orphan_count = orphan_count.saturating_add(1);
-            continue;
-        }
-        if record.state == ResourceReservationRecordState::Superseded {
-            superseded_count = superseded_count.saturating_add(1);
-        }
-        if request
-            .host_ref
-            .as_deref()
-            .is_some_and(|host| host != record.host_ref)
-            || request
-                .work_item_id
-                .as_deref()
-                .is_some_and(|id| id != record.work_item_id)
-            || request
-                .fairness_group
-                .as_deref()
-                .is_some_and(|group| group != record.fairness_group)
-            || request
-                .owner_id
-                .as_deref()
-                .is_some_and(|owner| owner != record.owner_id)
-            || request
-                .fence
-                .as_deref()
-                .is_some_and(|fence| fence != record.fence)
-            || request
-                .input_fingerprint
-                .as_deref()
-                .is_some_and(|fingerprint| fingerprint != record.input_fingerprint)
+        let outcome = resource_reservation_status_row_outcome(
+            row_graph,
+            tenant,
+            reservation_id,
+            value.value(),
+            graph,
+            cursor,
+            request,
+            reservations,
+            crypto,
+        )?;
+        if apply_resource_reservation_status_row_outcome(outcome, &mut scan, request.limit as usize)
+            .is_break()
         {
-            continue;
-        }
-        values.push(ResourceReservationSummary {
-            reservation_id: record.reservation_id.clone(),
-            work_item_id: record.work_item_id.clone(),
-            attempt: record.attempt,
-            host_ref: record.host_ref.clone(),
-            profile_name: record.profile_name.clone(),
-            fairness_group: record.fairness_group.clone(),
-            state: resource_summary_state(record.state),
-            revision: record.revision,
-            expires_at_ms: record.expires_at_ms,
-            held_cpu_weight: if record.state == ResourceReservationRecordState::Reserved {
-                stored.held_cpu_weight
-            } else {
-                0
-            },
-            held_memory_mib: if record.state == ResourceReservationRecordState::Reserved {
-                stored.held_memory_mib
-            } else {
-                0
-            },
-            held_disk_mib: if record.state == ResourceReservationRecordState::Reserved {
-                stored.held_disk_mib
-            } else {
-                0
-            },
-            held_process_slots: if record.state == ResourceReservationRecordState::Reserved {
-                stored.held_process_slots
-            } else {
-                0
-            },
-            tombstone: record.tombstone,
-        });
-        if values.len() > request.limit as usize {
-            values.pop();
-            has_more = true;
             break;
         }
-        last_returned_cursor = Some(record.reservation_id.clone());
     }
-    let next_cursor = has_more.then_some(last_returned_cursor).flatten();
-    let host = request
-        .host_ref
-        .as_deref()
-        .map(|host_ref| {
-            hosts
-                .get((graph, host_ref))
-                .map_err(|error| error.to_string())?
-                .map(|row| resource_decode::<DurableResourceHost>(row.value(), crypto))
-                .transpose()
-        })
-        .transpose()?
-        .flatten();
-    let host_policies = if let Some(host) = host.as_ref() {
-        let prefix = format!("{}\0", host.host_ref);
-        let mut rows = Vec::new();
-        for row in disk_policies
-            .range((graph, prefix.as_str())..)
-            .map_err(|error| error.to_string())?
-        {
-            if rows.len() >= MAX_RESOURCE_HOST_DISK_POLICIES {
-                return Err("resource disk-policy scan exceeds native bound".to_string());
-            }
-            let (key, value) = row.map_err(|error| error.to_string())?;
-            let (row_graph, policy_key) = key.value();
-            if row_graph != graph || !policy_key.starts_with(&prefix) {
-                break;
-            }
-            let policy_key = policy_key
-                .strip_prefix(&prefix)
-                .ok_or_else(|| "resource disk-policy key escaped host scope".to_string())?;
-            resource_text(policy_key, "resource disk_policy_key")?;
-            rows.push((
-                policy_key.to_string(),
-                resource_decode::<DurableResourceDiskPolicy>(value.value(), crypto)?,
-            ));
-        }
-        rows
-    } else {
-        Vec::new()
+    Ok(scan)
+}
+
+fn resource_reservation_status_host(
+    hosts: &redb::ReadOnlyTable<(&str, &str), &[u8]>,
+    graph: &str,
+    request: &ResourceReservationStatusRequest,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<DurableResourceHost>, String> {
+    let Some(host_ref) = request.host_ref.as_deref() else {
+        return Ok(None);
     };
-    let host_snapshot = host
-        .as_ref()
-        .map(|value| resource_reservation_host_snapshot(value, &host_policies))
+    hosts
+        .get((graph, host_ref))
+        .map_err(|error| error.to_string())?
+        .map(|row| resource_decode::<DurableResourceHost>(row.value(), crypto))
+        .transpose()
+}
+
+fn decode_resource_disk_policy_row(
+    policy_key: &str,
+    prefix: &str,
+    value_bytes: &[u8],
+    crypto: DurableCrypto<'_>,
+) -> Result<(String, DurableResourceDiskPolicy), String> {
+    let policy_key = policy_key
+        .strip_prefix(prefix)
+        .ok_or_else(|| "resource disk-policy key escaped host scope".to_string())?;
+    resource_text(policy_key, "resource disk_policy_key")?;
+    Ok((
+        policy_key.to_string(),
+        resource_decode::<DurableResourceDiskPolicy>(value_bytes, crypto)?,
+    ))
+}
+
+fn resource_reservation_status_host_policies(
+    disk_policies: &redb::ReadOnlyTable<(&str, &str), &[u8]>,
+    graph: &str,
+    host: Option<&DurableResourceHost>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<(String, DurableResourceDiskPolicy)>, String> {
+    let Some(host) = host else {
+        return Ok(Vec::new());
+    };
+    let prefix = format!("{}\0", host.host_ref);
+    let mut rows = Vec::new();
+    for row in disk_policies
+        .range((graph, prefix.as_str())..)
+        .map_err(|error| error.to_string())?
+    {
+        if rows.len() >= MAX_RESOURCE_HOST_DISK_POLICIES {
+            return Err("resource disk-policy scan exceeds native bound".to_string());
+        }
+        let (key, value) = row.map_err(|error| error.to_string())?;
+        let (row_graph, policy_key) = key.value();
+        if row_graph != graph || !policy_key.starts_with(&prefix) {
+            break;
+        }
+        rows.push(decode_resource_disk_policy_row(
+            policy_key,
+            &prefix,
+            value.value(),
+            crypto,
+        )?);
+    }
+    Ok(rows)
+}
+
+fn resource_reservation_status_fairness_debt(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    request: &ResourceReservationStatusRequest,
+    crypto: DurableCrypto<'_>,
+) -> Result<u64, String> {
+    let Some(group) = request.fairness_group.as_deref() else {
+        return Ok(0);
+    };
+    let fairness = rtx
+        .open_table(RESOURCE_FAIRNESS)
+        .map_err(|error| error.to_string())?;
+    let row = fairness
+        .get((
+            graph,
+            resource_fairness_scope_key(&request.tenant_ref, group).as_str(),
+        ))
+        .map_err(|error| error.to_string())?
+        .map(|row| resource_decode::<DurableResourceFairness>(row.value(), crypto))
         .transpose()?;
-    let fairness_debt = request
-        .fairness_group
-        .as_deref()
-        .map(|group| {
-            let fairness = rtx
-                .open_table(RESOURCE_FAIRNESS)
-                .map_err(|error| error.to_string())?;
-            fairness
-                .get((
-                    graph,
-                    resource_fairness_scope_key(&request.tenant_ref, group).as_str(),
-                ))
-                .map_err(|error| error.to_string())?
-                .map(|row| resource_decode::<DurableResourceFairness>(row.value(), crypto))
-                .transpose()
-                .map(|value| value.map_or(0, |row| row.debt))
-        })
-        .transpose()?
-        .unwrap_or(0);
-    Ok(ResourceReservationStatusResult {
+    Ok(row.map_or(0, |row| row.debt))
+}
+
+fn build_resource_reservation_status_result(
+    scan: ResourceReservationStatusScan,
+    host: Option<DurableResourceHost>,
+    host_snapshot: Option<ResourceReservationHostSnapshot>,
+    fairness_debt: u64,
+) -> ResourceReservationStatusResult {
+    let next_cursor = scan.has_more.then_some(scan.last_returned_cursor).flatten();
+    ResourceReservationStatusResult {
         schema_version: ResourceReservationStatusResultSchemaVersion::V1,
-        complete: !has_more,
+        complete: !scan.has_more,
         next_cursor,
         host_snapshot,
         host_ref: host.as_ref().map(|value| value.host_ref.clone()),
@@ -6577,10 +7791,48 @@ pub(crate) fn read_resource_reservation_status(
         held_disk_mib: host.as_ref().map_or(0, |value| value.held_disk_mib),
         held_process_slots: host.as_ref().map_or(0, |value| value.held_process_slots),
         fairness_debt,
-        reservations: values,
-        orphan_count,
-        superseded_count,
-    })
+        reservations: scan.values,
+        orphan_count: scan.orphan_count,
+        superseded_count: scan.superseded_count,
+    }
+}
+
+pub(crate) fn read_resource_reservation_status(
+    db: &Database,
+    graph: &str,
+    request: &ResourceReservationStatusRequest,
+    crypto: DurableCrypto<'_>,
+) -> Result<ResourceReservationStatusResult, String> {
+    resource_validate_query_request(request, true)?;
+    let cursor = request.cursor.as_deref().unwrap_or("");
+    let rtx = db.begin_read().map_err(|error| error.to_string())?;
+    let (reservations, tenant_index, hosts, disk_policies) =
+        open_resource_reservation_status_tables(&rtx)?;
+
+    let scan = scan_resource_reservation_status_rows(
+        &tenant_index,
+        &reservations,
+        graph,
+        cursor,
+        request,
+        crypto,
+    )?;
+
+    let host = resource_reservation_status_host(&hosts, graph, request, crypto)?;
+    let host_policies =
+        resource_reservation_status_host_policies(&disk_policies, graph, host.as_ref(), crypto)?;
+    let host_snapshot = host
+        .as_ref()
+        .map(|value| resource_reservation_host_snapshot(value, &host_policies))
+        .transpose()?;
+    let fairness_debt = resource_reservation_status_fairness_debt(&rtx, graph, request, crypto)?;
+
+    Ok(build_resource_reservation_status_result(
+        scan,
+        host,
+        host_snapshot,
+        fairness_debt,
+    ))
 }
 
 /// Apply one native WorkItem transition while the MutationBatch write
@@ -6598,24 +7850,11 @@ struct WorkItemCommitScope<'a> {
     outbox_id: &'a str,
 }
 
-fn apply_submit_work_item_rows(
+fn validate_submit_work_item_identity(
     graph: &str,
     request: &eg_types::native_control::SubmitWorkItemRequest,
-    nodes: &mut redb::Table<(&str, &str), &[u8]>,
-    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
-    command_sequences: &mut redb::Table<&str, u64>,
-    scope: WorkItemCommitScope<'_>,
-) -> Result<eg_types::native_control::SubmitWorkItemResult, String> {
-    let WorkItemCommitScope {
-        crypto,
-        authoritative_now_ms,
-        outbox_id,
-    } = scope;
-    use eg_types::native_control::{
-        NativeControlSchemaVersion, MAX_SUBMIT_DEPENDENCIES, MAX_SUBMIT_METADATA_BYTES,
-        MAX_SUBMIT_PROVENANCE_REFS, MAX_SUBMIT_REF_BYTES,
-    };
-    use sha2::{Digest, Sha256};
+) -> Result<(), String> {
+    use eg_types::native_control::{NativeControlSchemaVersion, MAX_SUBMIT_REF_BYTES};
     if request.schema_version != NativeControlSchemaVersion::V1 {
         return Err("SubmitWorkItem schema_version must be 1".to_string());
     }
@@ -6636,6 +7875,13 @@ fn apply_submit_work_item_rows(
             return Err(format!("SubmitWorkItem {field} is outside native bounds"));
         }
     }
+    Ok(())
+}
+
+fn validate_submit_work_item_refs(
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+) -> Result<(), String> {
+    use eg_types::native_control::{MAX_SUBMIT_DEPENDENCIES, MAX_SUBMIT_REF_BYTES};
     if request.command_digest.len() != 64
         || !request
             .command_digest
@@ -6650,6 +7896,21 @@ fn apply_submit_work_item_rows(
     if request.depends_on.len() > MAX_SUBMIT_DEPENDENCIES {
         return Err("SubmitWorkItem dependency count exceeds native bound".to_string());
     }
+    Ok(())
+}
+
+fn validate_submit_work_item_identity_and_refs(
+    graph: &str,
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+) -> Result<(), String> {
+    validate_submit_work_item_identity(graph, request)?;
+    validate_submit_work_item_refs(request)?;
+    Ok(())
+}
+
+fn resolve_submit_work_item_max_inflight(
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+) -> Result<u64, String> {
     let max_inflight = if request.max_tenant_in_flight == 0 {
         4096
     } else {
@@ -6670,6 +7931,13 @@ fn apply_submit_work_item_rows(
     {
         return Err("SubmitWorkItem deadline_unix is invalid".to_string());
     }
+    Ok(max_inflight)
+}
+
+fn validate_submit_work_item_provenance_and_metadata(
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+) -> Result<(), String> {
+    use eg_types::native_control::{MAX_SUBMIT_METADATA_BYTES, MAX_SUBMIT_PROVENANCE_REFS, MAX_SUBMIT_REF_BYTES};
     if request.provenance_refs.len() > MAX_SUBMIT_PROVENANCE_REFS
         || request
             .provenance_refs
@@ -6682,42 +7950,120 @@ fn apply_submit_work_item_rows(
     if metadata_bytes.len() > MAX_SUBMIT_METADATA_BYTES {
         return Err("SubmitWorkItem metadata exceeds native bound".to_string());
     }
+    Ok(())
+}
+
+fn resolve_submit_work_item_admission_limits(
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+) -> Result<u64, String> {
+    let max_inflight = resolve_submit_work_item_max_inflight(request)?;
+    validate_submit_work_item_provenance_and_metadata(request)?;
+    Ok(max_inflight)
+}
+
+fn check_submit_work_item_dependencies_unique(
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+) -> Result<Vec<String>, String> {
     let mut dependencies = request.depends_on.clone();
     dependencies.sort();
     dependencies.dedup();
     if dependencies.len() != request.depends_on.len() {
         return Err("SubmitWorkItem dependencies must be unique".to_string());
     }
+    Ok(dependencies)
+}
 
-    // Resolve the dependency state in this same write snapshot.  A successful
-    // parent is already satisfied; every other existing WorkItem remains a
-    // counted dependency and receives a downstream index entry below.  The
-    // index is what the existing terminal WorkItem transition uses for atomic
-    // push-release, so native submit must populate it rather than relying on a
-    // later graph scan.
+// Resolve the dependency state in this same write snapshot.  A successful
+// parent is already satisfied; every other existing WorkItem remains a
+// counted dependency and receives a downstream index entry below.  The
+// index is what the existing terminal WorkItem transition uses for atomic
+// push-release, so native submit must populate it rather than relying on a
+// later graph scan.
+fn resolve_submit_work_item_dependency_row(
+    graph: &str,
+    dependency: &str,
+    context_tenant: &str,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<bool, String> {
+    if dependency.trim().is_empty() || dependency.len() > 512 {
+        return Err("SubmitWorkItem dependency id is outside native bounds".to_string());
+    }
+    let value = nodes
+        .get((graph, dependency))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("SubmitWorkItem dependency '{dependency}' was not found"))?;
+    let props: serde_json::Map<String, serde_json::Value> =
+        decode_durable(&crypto.unseal(value.value())?)?;
+    if property_string(&props, "node_type") != "WorkItem" {
+        return Err(format!(
+            "SubmitWorkItem dependency '{dependency}' is not a WorkItem"
+        ));
+    }
+    if property_string(&props, "tenant") != context_tenant {
+        return Err("ACCESS_DENIED: WorkItem dependency tenant mismatch".to_string());
+    }
+    Ok(property_string(&props, "status") != "succeeded")
+}
+
+fn resolve_submit_work_item_dependency_rows(
+    graph: &str,
+    dependencies: &[String],
+    context_tenant: &str,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<(String, bool)>, String> {
     let mut dependency_rows = Vec::with_capacity(dependencies.len());
-    for dependency in &dependencies {
-        if dependency.trim().is_empty() || dependency.len() > 512 {
-            return Err("SubmitWorkItem dependency id is outside native bounds".to_string());
-        }
-        let value = nodes
-            .get((graph, dependency.as_str()))
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("SubmitWorkItem dependency '{dependency}' was not found"))?;
-        let props: serde_json::Map<String, serde_json::Value> =
-            decode_durable(&crypto.unseal(value.value())?)?;
-        if property_string(&props, "node_type") != "WorkItem" {
-            return Err(format!(
-                "SubmitWorkItem dependency '{dependency}' is not a WorkItem"
-            ));
-        }
-        if property_string(&props, "tenant") != context_tenant {
-            return Err("ACCESS_DENIED: WorkItem dependency tenant mismatch".to_string());
-        }
-        let pending = property_string(&props, "status") != "succeeded";
+    for dependency in dependencies {
+        let pending = resolve_submit_work_item_dependency_row(
+            graph,
+            dependency,
+            context_tenant,
+            nodes,
+            crypto,
+        )?;
         dependency_rows.push((dependency.clone(), pending));
     }
+    Ok(dependency_rows)
+}
 
+fn validate_and_resolve_submit_work_item_dependencies(
+    graph: &str,
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(u64, Vec<String>, Vec<(String, bool)>), String> {
+    validate_submit_work_item_identity_and_refs(graph, request)?;
+    let max_inflight = resolve_submit_work_item_admission_limits(request)?;
+    let dependencies = check_submit_work_item_dependencies_unique(request)?;
+    let dependency_rows = resolve_submit_work_item_dependency_rows(
+        graph,
+        &dependencies,
+        request.context.tenant_id.as_str(),
+        nodes,
+        crypto,
+    )?;
+    Ok((max_inflight, dependencies, dependency_rows))
+}
+
+fn is_submit_work_item_inflight_row(
+    props: &serde_json::Map<String, serde_json::Value>,
+    context_tenant: &str,
+) -> bool {
+    property_string(props, "node_type") == "WorkItem"
+        && property_string(props, "tenant") == context_tenant
+        && !matches!(
+            property_string(props, "status"),
+            "succeeded" | "failed" | "cancelled" | "dead_letter" | "completed"
+        )
+}
+
+fn count_submit_work_item_tenant_inflight(
+    graph: &str,
+    context_tenant: &str,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<u64, String> {
     let mut inflight = 0u64;
     let mut scanned = 0usize;
     for row in nodes.range((graph, "")..).map_err(|e| e.to_string())? {
@@ -6733,22 +8079,20 @@ fn apply_submit_work_item_rows(
         }
         let props: serde_json::Map<String, serde_json::Value> =
             decode_durable(&crypto.unseal(value.value())?)?;
-        if property_string(&props, "node_type") == "WorkItem"
-            && property_string(&props, "tenant") == context_tenant
-            && !matches!(
-                property_string(&props, "status"),
-                "succeeded" | "failed" | "cancelled" | "dead_letter" | "completed"
-            )
-        {
+        if is_submit_work_item_inflight_row(&props, context_tenant) {
             inflight = inflight.saturating_add(1);
         }
     }
-    if inflight >= max_inflight {
-        return Err(format!(
-            "TENANT_QUOTA: tenant has {inflight} in-flight WorkItems (limit {max_inflight})"
-        ));
-    }
+    Ok(inflight)
+}
 
+fn resolve_submit_work_item_id(
+    graph: &str,
+    context_tenant: &str,
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
     let work_item_id = request.work_item_id.clone().unwrap_or_else(|| {
         let mut digest = Sha256::new();
         digest.update(graph.as_bytes());
@@ -6768,7 +8112,13 @@ fn apply_submit_work_item_rows(
     {
         return Err("IDEMPOTENCY_CONFLICT: work_item_id is already present".to_string());
     }
+    Ok(work_item_id)
+}
 
+fn resolve_submit_work_item_command_sequence(
+    graph: &str,
+    command_sequences: &mut redb::Table<&str, u64>,
+) -> Result<u64, String> {
     let found_command_sequence = command_sequences.get(graph).map_err(|e| e.to_string())?;
     let command_sequence = found_command_sequence
         .map(|v| v.value())
@@ -6778,16 +8128,48 @@ fn apply_submit_work_item_rows(
     command_sequences
         .insert(graph, command_sequence)
         .map_err(|e| e.to_string())?;
-    let now_s = authoritative_now_ms as f64 / 1000.0;
-    let pending_dependencies = dependency_rows
-        .iter()
-        .filter(|(_, pending)| *pending)
-        .count();
-    let status = if pending_dependencies == 0 {
+    Ok(command_sequence)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn admit_and_identify_submit_work_item(
+    graph: &str,
+    context_tenant: &str,
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    command_sequences: &mut redb::Table<&str, u64>,
+    max_inflight: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<(u64, String, u64), String> {
+    let inflight = count_submit_work_item_tenant_inflight(graph, context_tenant, nodes, crypto)?;
+    if inflight >= max_inflight {
+        return Err(format!(
+            "TENANT_QUOTA: tenant has {inflight} in-flight WorkItems (limit {max_inflight})"
+        ));
+    }
+    let work_item_id = resolve_submit_work_item_id(graph, context_tenant, request, nodes)?;
+    let command_sequence = resolve_submit_work_item_command_sequence(graph, command_sequences)?;
+    Ok((inflight, work_item_id, command_sequence))
+}
+
+fn submit_work_item_status(pending_dependencies: usize) -> &'static str {
+    if pending_dependencies == 0 {
         "ready"
     } else {
         "submitted"
-    };
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_submit_work_item_props(
+    context_tenant: &str,
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+    dependencies: &[String],
+    pending_dependencies: usize,
+    command_sequence: u64,
+    now_s: f64,
+    status: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     let mut props = serde_json::Map::new();
     props.insert(
         "node_type".into(),
@@ -6919,59 +8301,145 @@ fn apply_submit_work_item_rows(
     if let Some(deadline) = request.deadline_unix {
         props.insert("deadline_unix".into(), serde_json::Value::from(deadline));
     }
-    write_work_item_props(nodes, graph, &work_item_id, &props, crypto)?;
-    for dependency in &dependencies {
+    Ok(props)
+}
+
+fn write_submit_work_item_dependency_edges(
+    graph: &str,
+    work_item_id: &str,
+    context_tenant: &str,
+    dependencies: &[String],
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    for dependency in dependencies {
         let edge_props = rmp_serde::to_vec_named(&serde_json::json!({
             "relationship": "DEPENDS_ON",
             "tenant": context_tenant,
         }))
         .map_err(|e| e.to_string())?;
         let sealed = crypto.seal(&edge_props);
-        let ordinal = next_edge_ordinal(edges, graph, &work_item_id, dependency)?;
+        let ordinal = next_edge_ordinal(edges, graph, work_item_id, dependency)?;
         edges
             .insert(
-                (
-                    graph,
-                    work_item_id.as_str(),
-                    String::as_str(dependency),
-                    ordinal,
-                ),
+                (graph, work_item_id, String::as_str(dependency), ordinal),
                 sealed.as_ref(),
             )
             .map_err(|e| e.to_string())?;
     }
-    for (dependency, pending) in &dependency_rows {
+    Ok(())
+}
+
+fn insert_submit_work_item_downstream_id(
+    parent: &mut serde_json::Map<String, serde_json::Value>,
+    dependency: &str,
+    work_item_id: &str,
+) -> Result<bool, String> {
+    let downstream = parent
+        .entry("downstream_ids".to_string())
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+    let ids = downstream.as_array_mut().ok_or_else(|| {
+        format!("SubmitWorkItem dependency '{dependency}' has invalid downstream index")
+    })?;
+    if ids
+        .iter()
+        .any(|id| id.as_str() == Some(work_item_id))
+    {
+        Ok(false)
+    } else {
+        ids.push(serde_json::Value::String(work_item_id.to_string()));
+        Ok(true)
+    }
+}
+
+fn update_submit_work_item_downstream_row(
+    graph: &str,
+    work_item_id: &str,
+    dependency: &str,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut parent: serde_json::Map<String, serde_json::Value> = {
+        let value = nodes
+            .get((graph, dependency))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("SubmitWorkItem dependency '{dependency}' disappeared"))?;
+        decode_durable(&crypto.unseal(value.value())?)?
+    };
+    let insert_downstream =
+        insert_submit_work_item_downstream_id(&mut parent, dependency, work_item_id)?;
+    if insert_downstream {
+        write_work_item_props(nodes, graph, dependency, &parent, crypto)?;
+    }
+    Ok(())
+}
+
+fn update_submit_work_item_downstream_index(
+    graph: &str,
+    work_item_id: &str,
+    dependency_rows: &[(String, bool)],
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    for (dependency, pending) in dependency_rows {
         if !pending {
             continue;
         }
-        let mut parent: serde_json::Map<String, serde_json::Value> = {
-            let value = nodes
-                .get((graph, dependency.as_str()))
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| format!("SubmitWorkItem dependency '{dependency}' disappeared"))?;
-            decode_durable(&crypto.unseal(value.value())?)?
-        };
-        let insert_downstream = {
-            let downstream = parent
-                .entry("downstream_ids".to_string())
-                .or_insert_with(|| serde_json::Value::Array(Vec::new()));
-            let ids = downstream.as_array_mut().ok_or_else(|| {
-                format!("SubmitWorkItem dependency '{dependency}' has invalid downstream index")
-            })?;
-            if ids
-                .iter()
-                .any(|id| id.as_str() == Some(work_item_id.as_str()))
-            {
-                false
-            } else {
-                ids.push(serde_json::Value::String(work_item_id.clone()));
-                true
-            }
-        };
-        if insert_downstream {
-            write_work_item_props(nodes, graph, dependency, &parent, crypto)?;
-        }
+        update_submit_work_item_downstream_row(graph, work_item_id, dependency, nodes, crypto)?;
     }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_submit_work_item_node_and_edges(
+    graph: &str,
+    work_item_id: &str,
+    context_tenant: &str,
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+    dependencies: &[String],
+    dependency_rows: &[(String, bool)],
+    command_sequence: u64,
+    now_s: f64,
+    status: &str,
+    pending_dependencies: usize,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let props = build_submit_work_item_props(
+        context_tenant,
+        request,
+        dependencies,
+        pending_dependencies,
+        command_sequence,
+        now_s,
+        status,
+    )?;
+    write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
+    write_submit_work_item_dependency_edges(
+        graph,
+        work_item_id,
+        context_tenant,
+        dependencies,
+        edges,
+        crypto,
+    )?;
+    update_submit_work_item_downstream_index(graph, work_item_id, dependency_rows, nodes, crypto)?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_submit_work_item_result(
+    work_item_id: String,
+    status: &str,
+    command_sequence: u64,
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+    dependencies: &[String],
+    dependency_rows: &[(String, bool)],
+    inflight: u64,
+    max_inflight: u64,
+    outbox_id: &str,
+) -> eg_types::native_control::SubmitWorkItemResult {
     let mut changed_work_item_ids = Vec::with_capacity(1 + dependency_rows.len());
     changed_work_item_ids.push(work_item_id.clone());
     changed_work_item_ids.extend(
@@ -6980,9 +8448,9 @@ fn apply_submit_work_item_rows(
             .filter(|(_, pending)| *pending)
             .map(|(dependency, _)| dependency.clone()),
     );
-    Ok(eg_types::native_control::SubmitWorkItemResult {
-        schema_version: NativeControlSchemaVersion::V1,
-        work_item_id: work_item_id.clone(),
+    eg_types::native_control::SubmitWorkItemResult {
+        schema_version: eg_types::native_control::NativeControlSchemaVersion::V1,
+        work_item_id,
         status: status.to_string(),
         created: true,
         replayed: false,
@@ -6995,7 +8463,68 @@ fn apply_submit_work_item_rows(
         command_digest: request.command_digest.to_ascii_lowercase(),
         provenance_refs: request.provenance_refs.clone(),
         changed_work_item_ids,
-    })
+    }
+}
+
+fn apply_submit_work_item_rows(
+    graph: &str,
+    request: &eg_types::native_control::SubmitWorkItemRequest,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    command_sequences: &mut redb::Table<&str, u64>,
+    scope: WorkItemCommitScope<'_>,
+) -> Result<eg_types::native_control::SubmitWorkItemResult, String> {
+    let WorkItemCommitScope {
+        crypto,
+        authoritative_now_ms,
+        outbox_id,
+    } = scope;
+    let context_tenant = request.context.tenant_id.as_str();
+
+    let (max_inflight, dependencies, dependency_rows) =
+        validate_and_resolve_submit_work_item_dependencies(graph, request, nodes, crypto)?;
+
+    let (inflight, work_item_id, command_sequence) = admit_and_identify_submit_work_item(
+        graph,
+        context_tenant,
+        request,
+        nodes,
+        command_sequences,
+        max_inflight,
+        crypto,
+    )?;
+
+    let now_s = authoritative_now_ms as f64 / 1000.0;
+    let pending_dependencies = dependency_rows.iter().filter(|(_, pending)| *pending).count();
+    let status = submit_work_item_status(pending_dependencies);
+
+    write_submit_work_item_node_and_edges(
+        graph,
+        &work_item_id,
+        context_tenant,
+        request,
+        &dependencies,
+        &dependency_rows,
+        command_sequence,
+        now_s,
+        status,
+        pending_dependencies,
+        nodes,
+        edges,
+        crypto,
+    )?;
+
+    Ok(build_submit_work_item_result(
+        work_item_id,
+        status,
+        command_sequence,
+        request,
+        &dependencies,
+        &dependency_rows,
+        inflight,
+        max_inflight,
+        outbox_id,
+    ))
 }
 
 fn apply_submit_work_items_rows(
@@ -8374,14 +9903,11 @@ pub(crate) fn claim_mutation_outbox(
 /// in the same transaction. A superseded or expired worker fails closed; a retry
 /// of an already-delivered lease is idempotent only when its cursor is already at
 /// that exact event.
-pub(crate) fn ack_mutation_outbox(
-    db: &Database,
+fn validate_ack_outbox_request(
     graph_fname: &str,
     lease: &MutationOutboxLease,
     projection: &str,
-    now_ms: u64,
-    crypto: DurableCrypto<'_>,
-) -> Result<MutationProjectionCursor, String> {
+) -> Result<(), String> {
     if projection.trim().is_empty() || lease.consumer.trim().is_empty() {
         return Err("outbox ack requires projection and consumer".to_string());
     }
@@ -8389,173 +9915,247 @@ pub(crate) fn ack_mutation_outbox(
     if sanitize(&lease.record.graph) != graph_fname {
         return Err("outbox ack graph route does not match the leased record".to_string());
     }
-    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-    wtx.set_durability(Durability::Immediate)
-        .map_err(|e| e.to_string())?;
+    Ok(())
+}
 
-    // Bind the acknowledgement to the immutable outbox row, not merely to
-    // caller-supplied batch/ordinal strings.
-    {
-        let outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
-        let row = outbox
-            .get((lease.record.batch_id.as_str(), lease.record.ordinal))
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "outbox lease references a missing event".to_string())?;
-        let bytes = crypto.unseal(row.value())?;
-        let stored = decode_mutation_outbox_record(&bytes)?;
-        if stored != lease.record {
-            return Err("outbox lease record does not match durable event".to_string());
-        }
+// Bind the acknowledgement to the immutable outbox row, not merely to
+// caller-supplied batch/ordinal strings.
+fn verify_outbox_lease_matches_durable_event(
+    wtx: &redb::WriteTransaction,
+    lease: &MutationOutboxLease,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+    let row = outbox
+        .get((lease.record.batch_id.as_str(), lease.record.ordinal))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "outbox lease references a missing event".to_string())?;
+    let bytes = crypto.unseal(row.value())?;
+    let stored = decode_mutation_outbox_record(&bytes)?;
+    if stored != lease.record {
+        return Err("outbox lease record does not match durable event".to_string());
     }
+    Ok(())
+}
 
-    let source_graph_version = {
-        let batches = wtx
-            .open_table(MUTATION_BATCHES)
-            .map_err(|e| e.to_string())?;
-        let row = batches
-            .get(lease.record.batch_id.as_str())
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "outbox event has no committed mutation batch".to_string())?;
-        let bytes = crypto.unseal(row.value())?;
-        let batch = decode_mutation_batch_record(&bytes)?;
-        if batch.status != MutationBatchStatus::Committed
-            || batch.batch.batch_id != lease.record.batch_id
-            || batch.batch.tenant != lease.record.tenant
-            || batch.batch.graph != lease.record.graph
-        {
-            return Err("outbox event is not bound to its committed mutation batch".to_string());
+fn ack_outbox_derived_graph_version(batch: &MutationBatch) -> Result<Option<u64>, String> {
+    if let Some(state) = batch.authoritative_state.as_ref() {
+        Ok(Some(state.target_graph_version))
+    } else if let Some(version) = batch.expected_graph_version {
+        Ok(Some(
+            version
+                .checked_add(1)
+                .ok_or_else(|| "mutation graph version overflow".to_string())?,
+        ))
+    } else {
+        Ok(None)
+    }
+}
+
+fn ack_source_batch_is_bound(batch: &MutationBatchRecord, lease: &MutationOutboxLease) -> bool {
+    batch.status == MutationBatchStatus::Committed
+        && batch.batch.batch_id == lease.record.batch_id
+        && batch.batch.tenant == lease.record.tenant
+        && batch.batch.graph == lease.record.graph
+}
+
+fn load_ack_source_batch(
+    wtx: &redb::WriteTransaction,
+    lease: &MutationOutboxLease,
+    crypto: DurableCrypto<'_>,
+) -> Result<MutationBatchRecord, String> {
+    let batches = wtx
+        .open_table(MUTATION_BATCHES)
+        .map_err(|e| e.to_string())?;
+    let row = batches
+        .get(lease.record.batch_id.as_str())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "outbox event has no committed mutation batch".to_string())?;
+    let bytes = crypto.unseal(row.value())?;
+    let batch = decode_mutation_batch_record(&bytes)?;
+    if !ack_source_batch_is_bound(&batch, lease) {
+        return Err("outbox event is not bound to its committed mutation batch".to_string());
+    }
+    Ok(batch)
+}
+
+fn derive_ack_source_graph_version(
+    batch: &MutationBatchRecord,
+    lease: &MutationOutboxLease,
+) -> Result<u64, String> {
+    if lease.record.version_scope != MutationVersionScope::Graph {
+        return Err("graph projection cannot acknowledge a non-graph outbox event".to_string());
+    }
+    let derived = ack_outbox_derived_graph_version(&batch.batch)?;
+    if let Some(derived) = derived {
+        if lease.record.source_graph_version != derived {
+            return Err("outbox event graph version does not match its batch".to_string());
         }
-        if lease.record.version_scope != MutationVersionScope::Graph {
-            return Err("graph projection cannot acknowledge a non-graph outbox event".to_string());
-        }
-        let derived = if let Some(state) = batch.batch.authoritative_state.as_ref() {
-            Some(state.target_graph_version)
-        } else if let Some(version) = batch.batch.expected_graph_version {
-            Some(
-                version
-                    .checked_add(1)
-                    .ok_or_else(|| "mutation graph version overflow".to_string())?,
-            )
-        } else {
-            None
-        };
-        if let Some(derived) = derived {
-            if lease.record.source_graph_version != derived {
-                return Err("outbox event graph version does not match its batch".to_string());
-            }
-        } else if !batch.batch.operations.iter().all(|operation| {
-            matches!(
-                &operation.method,
-                Method::CreateGraph { .. } | Method::DeleteGraph { .. }
-            )
-        }) {
-            return Err(
-                "committed graph outbox event has no authoritative version source".to_string(),
-            );
-        }
-        lease.record.source_graph_version
-    };
+    } else if !batch.batch.operations.iter().all(|operation| {
+        matches!(
+            &operation.method,
+            Method::CreateGraph { .. } | Method::DeleteGraph { .. }
+        )
+    }) {
+        return Err("committed graph outbox event has no authoritative version source".to_string());
+    }
+    Ok(lease.record.source_graph_version)
+}
 
-    let cursor_key = (projection, lease.record.tenant.as_str(), graph_fname);
-    let current_cursor = {
-        let cursors = wtx
-            .open_table(MUTATION_PROJECTION_CURSOR)
-            .map_err(|e| e.to_string())?;
-        let value = cursors
-            .get(cursor_key)
-            .map_err(|e| e.to_string())?
-            .map(|value| {
-                let bytes = crypto.unseal(value.value())?;
-                decode_mutation_projection_cursor(&bytes)
-            })
-            .transpose()?;
-        value
-    };
+fn resolve_ack_source_graph_version(
+    wtx: &redb::WriteTransaction,
+    lease: &MutationOutboxLease,
+    crypto: DurableCrypto<'_>,
+) -> Result<u64, String> {
+    let batch = load_ack_source_batch(wtx, lease, crypto)?;
+    derive_ack_source_graph_version(&batch, lease)
+}
 
-    let delivery_key = (
-        lease.record.batch_id.as_str(),
-        lease.record.ordinal,
-        lease.consumer.as_str(),
-    );
-    let mut delivery = {
-        let deliveries = wtx
-            .open_table(MUTATION_OUTBOX_DELIVERY)
-            .map_err(|e| e.to_string())?;
-        let row = deliveries
-            .get(delivery_key)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "outbox lease is not durably claimed".to_string())?;
-        let bytes = crypto.unseal(row.value())?;
-        decode_durable::<DurableOutboxDelivery>(&bytes)?
-    };
+fn read_ack_current_cursor(
+    wtx: &redb::WriteTransaction,
+    projection: &str,
+    lease: &MutationOutboxLease,
+    graph_fname: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<MutationProjectionCursor>, String> {
+    let cursors = wtx
+        .open_table(MUTATION_PROJECTION_CURSOR)
+        .map_err(|e| e.to_string())?;
+    let value = cursors
+        .get((projection, lease.record.tenant.as_str(), graph_fname))
+        .map_err(|e| e.to_string())?
+        .map(|value| {
+            let bytes = crypto.unseal(value.value())?;
+            decode_mutation_projection_cursor(&bytes)
+        })
+        .transpose()?;
+    Ok(value)
+}
 
+fn read_ack_outbox_delivery(
+    wtx: &redb::WriteTransaction,
+    lease: &MutationOutboxLease,
+    crypto: DurableCrypto<'_>,
+) -> Result<DurableOutboxDelivery, String> {
+    let deliveries = wtx
+        .open_table(MUTATION_OUTBOX_DELIVERY)
+        .map_err(|e| e.to_string())?;
+    let row = deliveries
+        .get((
+            lease.record.batch_id.as_str(),
+            lease.record.ordinal,
+            lease.consumer.as_str(),
+        ))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "outbox lease is not durably claimed".to_string())?;
+    let bytes = crypto.unseal(row.value())?;
+    decode_durable::<DurableOutboxDelivery>(&bytes)
+}
+
+fn find_earlier_outbox_keys(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    lease: &MutationOutboxLease,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<(String, u32)>, String> {
     let proposed_order = (
         lease.record.source_graph_version,
         lease.record.created_at_ms,
         lease.record.batch_id.as_str(),
         lease.record.ordinal,
     );
-    let earlier = {
-        let outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
-        let mut keys = Vec::new();
-        for row in outbox.iter().map_err(|e| e.to_string())? {
-            let (_, value) = row.map_err(|e| e.to_string())?;
-            let bytes = crypto.unseal(value.value())?;
-            let record = decode_mutation_outbox_record(&bytes)?;
-            let order = (
-                record.source_graph_version,
-                record.created_at_ms,
-                record.batch_id.as_str(),
-                record.ordinal,
-            );
-            if sanitize(&record.graph) == graph_fname && order < proposed_order {
-                keys.push((record.batch_id, record.ordinal));
-            }
-        }
-        keys
-    };
-    {
-        let deliveries = wtx
-            .open_table(MUTATION_OUTBOX_DELIVERY)
-            .map_err(|e| e.to_string())?;
-        for (batch_id, ordinal) in &earlier {
-            let prior = deliveries
-                .get((batch_id.as_str(), *ordinal, lease.consumer.as_str()))
-                .map_err(|e| e.to_string())?
-                .map(|value| {
-                    let bytes = crypto.unseal(value.value())?;
-                    decode_durable::<DurableOutboxDelivery>(&bytes)
-                })
-                .transpose()?;
-            if prior.and_then(|state| state.delivered_at_ms).is_none() {
-                return Err(format!(
-                    "OUTBOX_ORDER_GAP: event '{}:{}' is not yet delivered",
-                    batch_id, ordinal
-                ));
-            }
+    let outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+    let mut keys = Vec::new();
+    for row in outbox.iter().map_err(|e| e.to_string())? {
+        let (_, value) = row.map_err(|e| e.to_string())?;
+        let bytes = crypto.unseal(value.value())?;
+        let record = decode_mutation_outbox_record(&bytes)?;
+        let order = (
+            record.source_graph_version,
+            record.created_at_ms,
+            record.batch_id.as_str(),
+            record.ordinal,
+        );
+        if sanitize(&record.graph) == graph_fname && order < proposed_order {
+            keys.push((record.batch_id, record.ordinal));
         }
     }
+    Ok(keys)
+}
 
+fn ensure_earlier_outbox_events_delivered(
+    wtx: &redb::WriteTransaction,
+    earlier: &[(String, u32)],
+    lease: &MutationOutboxLease,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let deliveries = wtx
+        .open_table(MUTATION_OUTBOX_DELIVERY)
+        .map_err(|e| e.to_string())?;
+    for (batch_id, ordinal) in earlier {
+        let prior = deliveries
+            .get((batch_id.as_str(), *ordinal, lease.consumer.as_str()))
+            .map_err(|e| e.to_string())?
+            .map(|value| {
+                let bytes = crypto.unseal(value.value())?;
+                decode_durable::<DurableOutboxDelivery>(&bytes)
+            })
+            .transpose()?;
+        if prior.and_then(|state| state.delivered_at_ms).is_none() {
+            return Err(format!(
+                "OUTBOX_ORDER_GAP: event '{}:{}' is not yet delivered",
+                batch_id, ordinal
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn already_delivered_cursor(
+    lease: &MutationOutboxLease,
+    current_cursor: &Option<MutationProjectionCursor>,
+    source_graph_version: u64,
+) -> Option<MutationProjectionCursor> {
+    let cursor = current_cursor.as_ref()?;
+    if cursor.batch_id == lease.record.batch_id
+        && cursor.outbox_ordinal == lease.record.ordinal
+        && cursor.version_scope == lease.record.version_scope
+        && cursor.source_graph_version == source_graph_version
+    {
+        Some(cursor.clone())
+    } else {
+        None
+    }
+}
+
+fn check_ack_delivery_freshness(
+    delivery: &DurableOutboxDelivery,
+    lease: &MutationOutboxLease,
+    now_ms: u64,
+    current_cursor: &Option<MutationProjectionCursor>,
+    source_graph_version: u64,
+) -> Result<Option<MutationProjectionCursor>, String> {
     if delivery.consumer != lease.consumer || delivery.lease_epoch != lease.lease_epoch {
         return Err("STALE_OUTBOX_LEASE: consumer or epoch was superseded".to_string());
     }
     if delivery.delivered_at_ms.is_some() {
-        if let Some(cursor) = current_cursor {
-            if cursor.batch_id == lease.record.batch_id
-                && cursor.outbox_ordinal == lease.record.ordinal
-                && cursor.version_scope == lease.record.version_scope
-                && cursor.source_graph_version == source_graph_version
-            {
-                return Ok(cursor);
-            }
-        }
-        return Err("STALE_OUTBOX_LEASE: event was already delivered".to_string());
+        return match already_delivered_cursor(lease, current_cursor, source_graph_version) {
+            Some(cursor) => Ok(Some(cursor)),
+            None => Err("STALE_OUTBOX_LEASE: event was already delivered".to_string()),
+        };
     }
     if delivery.lease_until_ms < now_ms || lease.lease_until_ms != delivery.lease_until_ms {
         return Err("STALE_OUTBOX_LEASE: lease expired or was replaced".to_string());
     }
+    Ok(None)
+}
 
-    if let Some(current) = &current_cursor {
+fn check_ack_cursor_watermark(
+    current_cursor: &Option<MutationProjectionCursor>,
+    lease: &MutationOutboxLease,
+    source_graph_version: u64,
+) -> Result<(), String> {
+    if let Some(current) = current_cursor {
         if current.version_scope != lease.record.version_scope
             || source_graph_version < current.source_graph_version
             || (source_graph_version == current.source_graph_version
@@ -8565,7 +10165,35 @@ pub(crate) fn ack_mutation_outbox(
             return Err("STALE_PROJECTION_CURSOR: event does not advance watermark".to_string());
         }
     }
+    Ok(())
+}
 
+fn check_ack_lease_and_cursor_state(
+    delivery: &DurableOutboxDelivery,
+    lease: &MutationOutboxLease,
+    now_ms: u64,
+    current_cursor: &Option<MutationProjectionCursor>,
+    source_graph_version: u64,
+) -> Result<Option<MutationProjectionCursor>, String> {
+    if let Some(cursor) = check_ack_delivery_freshness(
+        delivery,
+        lease,
+        now_ms,
+        current_cursor,
+        source_graph_version,
+    )? {
+        return Ok(Some(cursor));
+    }
+    check_ack_cursor_watermark(current_cursor, lease, source_graph_version)?;
+    Ok(None)
+}
+
+fn build_mutation_projection_cursor(
+    projection: &str,
+    lease: &MutationOutboxLease,
+    source_graph_version: u64,
+    now_ms: u64,
+) -> Result<MutationProjectionCursor, String> {
     let cursor = MutationProjectionCursor {
         schema_version: MUTATION_BATCH_VERSION,
         projection: projection.to_string(),
@@ -8578,26 +10206,100 @@ pub(crate) fn ack_mutation_outbox(
         advanced_at_ms: now_ms,
     };
     cursor.validate()?;
-    delivery.delivered_at_ms = Some(now_ms);
-    {
-        let delivery_bytes = rmp_serde::to_vec_named(&delivery).map_err(|e| e.to_string())?;
-        let sealed_delivery = crypto.seal(&delivery_bytes);
-        let mut deliveries = wtx
-            .open_table(MUTATION_OUTBOX_DELIVERY)
-            .map_err(|e| e.to_string())?;
-        deliveries
-            .insert(delivery_key, sealed_delivery.as_ref())
-            .map_err(|e| e.to_string())?;
+    Ok(cursor)
+}
 
-        let cursor_bytes = rmp_serde::to_vec_named(&cursor).map_err(|e| e.to_string())?;
-        let sealed_cursor = crypto.seal(&cursor_bytes);
-        let mut cursors = wtx
-            .open_table(MUTATION_PROJECTION_CURSOR)
-            .map_err(|e| e.to_string())?;
-        cursors
-            .insert(cursor_key, sealed_cursor.as_ref())
-            .map_err(|e| e.to_string())?;
+fn commit_ack_outbox_rows(
+    wtx: &redb::WriteTransaction,
+    delivery_key: (&str, u32, &str),
+    delivery: &DurableOutboxDelivery,
+    cursor_key: (&str, &str, &str),
+    cursor: &MutationProjectionCursor,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let delivery_bytes = rmp_serde::to_vec_named(delivery).map_err(|e| e.to_string())?;
+    let sealed_delivery = crypto.seal(&delivery_bytes);
+    let mut deliveries = wtx
+        .open_table(MUTATION_OUTBOX_DELIVERY)
+        .map_err(|e| e.to_string())?;
+    deliveries
+        .insert(delivery_key, sealed_delivery.as_ref())
+        .map_err(|e| e.to_string())?;
+
+    let cursor_bytes = rmp_serde::to_vec_named(cursor).map_err(|e| e.to_string())?;
+    let sealed_cursor = crypto.seal(&cursor_bytes);
+    let mut cursors = wtx
+        .open_table(MUTATION_PROJECTION_CURSOR)
+        .map_err(|e| e.to_string())?;
+    cursors
+        .insert(cursor_key, sealed_cursor.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn begin_verified_ack_outbox_wtx(
+    db: &Database,
+    graph_fname: &str,
+    lease: &MutationOutboxLease,
+    projection: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<redb::WriteTransaction, String> {
+    validate_ack_outbox_request(graph_fname, lease, projection)?;
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    verify_outbox_lease_matches_durable_event(&wtx, lease, crypto)?;
+    Ok(wtx)
+}
+
+#[allow(clippy::type_complexity)]
+fn resolve_ack_outbox_state(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    projection: &str,
+    lease: &MutationOutboxLease,
+    crypto: DurableCrypto<'_>,
+) -> Result<(u64, Option<MutationProjectionCursor>, DurableOutboxDelivery), String> {
+    let source_graph_version = resolve_ack_source_graph_version(wtx, lease, crypto)?;
+    let current_cursor = read_ack_current_cursor(wtx, projection, lease, graph_fname, crypto)?;
+    let delivery = read_ack_outbox_delivery(wtx, lease, crypto)?;
+    let earlier = find_earlier_outbox_keys(wtx, graph_fname, lease, crypto)?;
+    ensure_earlier_outbox_events_delivered(wtx, &earlier, lease, crypto)?;
+    Ok((source_graph_version, current_cursor, delivery))
+}
+
+pub(crate) fn ack_mutation_outbox(
+    db: &Database,
+    graph_fname: &str,
+    lease: &MutationOutboxLease,
+    projection: &str,
+    now_ms: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<MutationProjectionCursor, String> {
+    let wtx = begin_verified_ack_outbox_wtx(db, graph_fname, lease, projection, crypto)?;
+
+    let (source_graph_version, current_cursor, mut delivery) =
+        resolve_ack_outbox_state(&wtx, graph_fname, projection, lease, crypto)?;
+
+    if let Some(cursor) = check_ack_lease_and_cursor_state(
+        &delivery,
+        lease,
+        now_ms,
+        &current_cursor,
+        source_graph_version,
+    )? {
+        return Ok(cursor);
     }
+
+    let cursor = build_mutation_projection_cursor(projection, lease, source_graph_version, now_ms)?;
+    delivery.delivered_at_ms = Some(now_ms);
+    let delivery_key = (
+        lease.record.batch_id.as_str(),
+        lease.record.ordinal,
+        lease.consumer.as_str(),
+    );
+    let cursor_key = (projection, lease.record.tenant.as_str(), graph_fname);
+    commit_ack_outbox_rows(&wtx, delivery_key, &delivery, cursor_key, &cursor, crypto)?;
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(cursor)
 }
@@ -8812,6 +10514,439 @@ fn apply_crossmodal_projection_rows(
 // [+ audit tail]) is intrinsic to a one-`WriteTransaction` cross-modal commit; grouping
 // them into a struct would only relocate the same fields, so the arg count stays flat.
 #[allow(clippy::too_many_arguments)]
+fn begin_crossmodal_wtx(db: &Database) -> Result<redb::WriteTransaction, String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    Ok(wtx)
+}
+
+fn crossmodal_has_clear_or_delete(methods: &[Method]) -> bool {
+    methods
+        .iter()
+        .any(|method| matches!(method, Method::ClearGraph | Method::DeleteGraph { .. }))
+}
+
+fn crossmodal_has_node_topology_methods(methods: &[Method]) -> bool {
+    methods.iter().any(|method| {
+        matches!(
+            method,
+            Method::AddNode { .. }
+                | Method::RemoveNode { .. }
+                | Method::CompareAndSetNodeFields { .. }
+                | Method::BatchUpdate { .. }
+                | Method::ClearGraph
+                | Method::DeleteGraph { .. }
+        )
+    })
+}
+
+fn apply_crossmodal_clear_native_graph_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    development_lane::clear_native_graph_rows_in_wtx(wtx, graph, crypto)?;
+    capacity_lease::clear_graph_rows(wtx, graph)?;
+    Ok(())
+}
+
+#[allow(clippy::type_complexity)]
+fn open_crossmodal_graph_tables<'txn>(
+    wtx: &'txn redb::WriteTransaction,
+) -> Result<
+    (
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+        redb::Table<'txn, (&'static str, &'static str, &'static str, u32), &'static [u8]>,
+        redb::Table<'txn, (&'static str, u64), &'static str>,
+        redb::Table<'txn, &'static str, &'static [u8]>,
+    ),
+    String,
+> {
+    let nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+    let native_work_items = wtx
+        .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+        .map_err(|e| e.to_string())?;
+    let edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
+    let ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+    let semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+    Ok((nodes, native_work_items, edges, ledger, semantic))
+}
+
+// 1. Graph mutations (nodes/edges/properties) — the SAME row apply.
+#[allow(clippy::too_many_arguments)]
+fn apply_crossmodal_methods(
+    graph: &str,
+    methods: &[Method],
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    ledger: &mut redb::Table<(&str, u64), &str>,
+    semantic: &mut redb::Table<&str, &[u8]>,
+    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit: &mut redb::Table<(&str, u64), &[u8]>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<(), String> {
+    for method in methods {
+        apply_method_rows(
+            graph,
+            method,
+            nodes,
+            edges,
+            ledger,
+            semantic,
+            native_work_items,
+            crypto,
+        )?;
+        #[cfg(feature = "security")]
+        append_audit_entry(audit, audit_tail, graph, method)?;
+    }
+    Ok(())
+}
+
+// 2. Blob refs — a reserved `__blob__` node property pointing at the digest.
+// Read-modify-write the node's property blob so the ref rides the node row.
+// Unseal the current blob before merging, re-seal the merged result.
+//
+// Reopened-tables shape: used after the topology-method branch has already
+// dropped and reopened `nodes`, so the WorkItem-authority guard reads
+// `current` once and combines both checks with `||`.
+fn apply_crossmodal_blob_ref_reopened(
+    graph: &str,
+    node_id: &str,
+    digest: &str,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let current = nodes
+        .get((graph, node_id))
+        .map_err(|e| e.to_string())?
+        .map(|v| crypto.unseal(v.value()))
+        .transpose()?;
+    if native_work_items
+        .get((graph, node_id))
+        .map_err(|e| e.to_string())?
+        .is_some()
+        || current.as_ref().is_some_and(|bytes| {
+            decode_durable::<serde_json::Map<String, serde_json::Value>>(bytes)
+                .map(|props| property_string(&props, "node_type") == "WorkItem")
+                .unwrap_or(true)
+        })
+    {
+        return Err("native WorkItem authority required for generic blob update".to_string());
+    }
+    let mut props: serde_json::Map<String, serde_json::Value> = match current {
+        Some(bytes) => decode_durable(&bytes)?,
+        None => serde_json::Map::new(),
+    };
+    props.insert(
+        "__blob__".to_string(),
+        serde_json::Value::String(digest.to_string()),
+    );
+    let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
+    let blob = crypto.seal(&bytes);
+    nodes
+        .insert((graph, node_id), blob.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn apply_crossmodal_blob_refs_reopened(
+    graph: &str,
+    blob_refs: &[BlobRefRow],
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    for (node_id, digest) in blob_refs {
+        apply_crossmodal_blob_ref_reopened(graph, node_id, digest, nodes, native_work_items, crypto)?;
+    }
+    Ok(())
+}
+
+// Original-tables shape: used when `nodes` is still the FIRST handle opened
+// in this transaction (no topology method forced a drop/reopen), so the
+// WorkItem-authority guard checks `native_work_items` before ever reading
+// `current`, as two separate sequential checks.
+fn apply_crossmodal_blob_ref_original(
+    graph: &str,
+    node_id: &str,
+    digest: &str,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    if native_work_items
+        .get((graph, node_id))
+        .map_err(|e| e.to_string())?
+        .is_some()
+    {
+        return Err("native WorkItem authority required for generic blob update".to_string());
+    }
+    let current = nodes
+        .get((graph, node_id))
+        .map_err(|e| e.to_string())?
+        .map(|v| crypto.unseal(v.value()))
+        .transpose()?;
+    if current.as_ref().is_some_and(|bytes| {
+        decode_durable::<serde_json::Map<String, serde_json::Value>>(bytes)
+            .map(|props| property_string(&props, "node_type") == "WorkItem")
+            .unwrap_or(true)
+    }) {
+        return Err("native WorkItem authority required for generic blob update".to_string());
+    }
+    let mut props: serde_json::Map<String, serde_json::Value> = match current {
+        Some(bytes) => decode_durable(&bytes)?,
+        None => serde_json::Map::new(),
+    };
+    props.insert(
+        "__blob__".to_string(),
+        serde_json::Value::String(digest.to_string()),
+    );
+    let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
+    let blob = crypto.seal(&bytes);
+    nodes
+        .insert((graph, node_id), blob.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn apply_crossmodal_blob_refs_original(
+    graph: &str,
+    blob_refs: &[BlobRefRow],
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    for (node_id, digest) in blob_refs {
+        apply_crossmodal_blob_ref_original(graph, node_id, digest, nodes, native_work_items, crypto)?;
+    }
+    Ok(())
+}
+
+// 3. Vectors — read-modify-write the graph's SEMANTIC store blob in-txn.
+// Byte-identical between the topology and non-topology paths in the
+// pre-decomposition code, so both call this one copy.
+fn apply_crossmodal_vectors(
+    graph: &str,
+    vectors: &[VectorUpsert],
+    semantic: &mut redb::Table<&str, &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    if vectors.is_empty() {
+        return Ok(());
+    }
+    let current = semantic
+        .get(graph)
+        .map_err(|e| e.to_string())?
+        .map(|v| crypto.unseal(v.value()))
+        .transpose()?;
+    let mut store = match current {
+        Some(bytes) => decode_durable::<crate::compute::semantic::SemanticStore>(&bytes)?,
+        None => crate::compute::semantic::SemanticStore::default(),
+    };
+    for (node_id, embedding) in vectors {
+        // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): see the identical comment in
+        // `apply_crossmodal_projection_rows` above — `store` is a scratch
+        // decode discarded on this early return, and per this function's own
+        // doc comment ANY error here drops the whole `WriteTransaction`
+        // without committing, so a rejected write here never partially lands.
+        store
+            .add_embedding(node_id.clone(), embedding.clone())
+            .map_err(|error| error.to_string())?;
+    }
+    let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
+    let blob = crypto.seal(&bytes);
+    semantic
+        .insert(graph, blob.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Blob references are read-modify-write node projections and must be
+/// covered by the same final lane lifecycle check as topology methods.
+///
+/// The `if` branch drops/rebinds `nodes`/`edges`/`ledger`/`semantic`/`audit`
+/// before its own `validate_current_lane_links_in_wtx` call, so its
+/// (shadowed, block-local) handles go out of scope naturally. The `else`
+/// branch never rebinds them — it reuses the tables opened by the caller for
+/// its own blob-refs/vectors work — so they must be dropped explicitly here,
+/// BEFORE the shared `validate_current_lane_links_in_wtx` call in
+/// `finalize_crossmodal_commit` reopens `NODES`: leaving them open made that
+/// reopen fail with redb's "Table 'nodes' already opened" error whenever
+/// `methods` carried no AddNode/RemoveNode/CompareAndSetNodeFields/
+/// BatchUpdate/ClearGraph/DeleteGraph (e.g. a measurement-only or
+/// blob-refs-only cross-modal commit).
+#[allow(clippy::too_many_arguments)]
+fn apply_crossmodal_blob_and_vector_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    methods: &[Method],
+    vectors: &[VectorUpsert],
+    blob_refs: &[BlobRefRow],
+    nodes: redb::Table<'_, (&str, &str), &[u8]>,
+    edges: redb::Table<'_, (&str, &str, &str, u32), &[u8]>,
+    ledger: redb::Table<'_, (&str, u64), &str>,
+    semantic: redb::Table<'_, &str, &[u8]>,
+    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    #[cfg(feature = "security")] audit: redb::Table<'_, (&str, u64), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    if crossmodal_has_node_topology_methods(methods) {
+        drop(nodes);
+        drop(edges);
+        drop(ledger);
+        drop(semantic);
+        #[cfg(feature = "security")]
+        drop(audit);
+        development_lane::validate_current_lane_links_in_wtx(wtx, graph, crypto)?;
+        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+
+        apply_crossmodal_blob_refs_reopened(graph, blob_refs, &mut nodes, native_work_items, crypto)?;
+        apply_crossmodal_vectors(graph, vectors, &mut semantic, crypto)?;
+    } else {
+        let mut nodes = nodes;
+        let mut semantic = semantic;
+        apply_crossmodal_blob_refs_original(graph, blob_refs, &mut nodes, native_work_items, crypto)?;
+        apply_crossmodal_vectors(graph, vectors, &mut semantic, crypto)?;
+
+        drop(nodes);
+        drop(edges);
+        drop(ledger);
+        drop(semantic);
+        #[cfg(feature = "security")]
+        drop(audit);
+    }
+    Ok(())
+}
+
+// 4. Measurements (CONCEPT:EG-KG.backend.cross-modal-atomic-commit) — append each time-series batch into
+// SERIES_CHUNKS/SERIES_META ON THIS transaction (the shared eg-tsdb chunk
+// encoding, via `append_batch_in_wtx`), so the points land in the SAME
+// authoritative-shard commit as the node/vector/blob writes. redb's exclusive
+// per-process file lock means this is the ONLY way a measurement can be atomic
+// WITH the graph modalities: through the transaction the writer already owns.
+#[cfg(feature = "tsdb")]
+fn apply_crossmodal_measurements(
+    wtx: &redb::WriteTransaction,
+    measurements: &[crate::MeasurementBatch],
+) -> Result<(), String> {
+    for (series, n_fields, bucket_ns, field_names, points) in measurements {
+        // Persistence accepts only the authority-scoped key produced at the
+        // verified carrier boundary; it never derives or guesses a tenant.
+        if eg_tsdb::store::SeriesKey::decode(series).is_none() {
+            return Err("time-series key is not canonically scoped".to_string());
+        }
+        let pts: Vec<eg_tsdb::point::Point> = points
+            .iter()
+            .map(|(ts, values)| eg_tsdb::point::Point {
+                ts: *ts,
+                values: values.clone(),
+            })
+            .collect();
+        eg_tsdb::store::append_batch_in_wtx(wtx, series, *n_fields, *bucket_ns, field_names, &pts)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+// A build without the `tsdb` feature has no SERIES tables + no eg-tsdb dep, so a
+// measurement here has no durable home — error rather than silently drop it (the
+// staging handler is `tsdb`-gated, so in practice this is never non-empty).
+#[cfg(not(feature = "tsdb"))]
+fn apply_crossmodal_measurements(
+    _wtx: &redb::WriteTransaction,
+    measurements: &[crate::MeasurementBatch],
+) -> Result<(), String> {
+    if !measurements.is_empty() {
+        return Err("time-series cross-modal commit requires the `tsdb` feature".to_string());
+    }
+    Ok(())
+}
+
+/// Backfill a graph_meta identity row so authoritative load_all recovers it.
+fn backfill_crossmodal_graph_meta(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+    if meta.get(graph).map_err(|e| e.to_string())?.is_none() {
+        let incarnation_id = new_incarnation_id(graph);
+        let encoded = encode_meta_with_incarnation(graph, GraphType::Global, &incarnation_id)?;
+        meta.insert(graph, encoded.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn finalize_crossmodal_commit(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    measurements: &[crate::MeasurementBatch],
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    development_lane::validate_current_lane_links_in_wtx(wtx, graph, crypto)?;
+    apply_crossmodal_measurements(wtx, measurements)?;
+    backfill_crossmodal_graph_meta(wtx, graph)?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_crossmodal_body(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    methods: &[Method],
+    vectors: &[VectorUpsert],
+    blob_refs: &[BlobRefRow],
+    measurements: &[crate::MeasurementBatch],
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<(), String> {
+    let (mut nodes, mut native_work_items, mut edges, mut ledger, mut semantic) =
+        open_crossmodal_graph_tables(wtx)?;
+
+    if crossmodal_has_clear_or_delete(methods) {
+        work_item_capability::clear_graph_rows_in_wtx_with_native(wtx, graph, &mut native_work_items)?;
+    }
+
+    #[cfg(feature = "security")]
+    let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
+
+    apply_crossmodal_methods(
+        graph,
+        methods,
+        &mut nodes,
+        &mut edges,
+        &mut ledger,
+        &mut semantic,
+        &native_work_items,
+        crypto,
+        #[cfg(feature = "security")]
+        &mut audit,
+        #[cfg(feature = "security")]
+        audit_tail,
+    )?;
+
+    apply_crossmodal_blob_and_vector_rows(
+        wtx,
+        graph,
+        methods,
+        vectors,
+        blob_refs,
+        nodes,
+        edges,
+        ledger,
+        semantic,
+        &native_work_items,
+        #[cfg(feature = "security")]
+        audit,
+        crypto,
+    )?;
+
+    finalize_crossmodal_commit(wtx, graph, measurements, crypto)?;
+    Ok(())
+}
+
 pub(crate) fn commit_crossmodal(
     db: &Database,
     graph: &str,
@@ -8827,284 +10962,21 @@ pub(crate) fn commit_crossmodal(
     // O(1) audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store), shared with the group-commit path.
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<(), String> {
-    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-    wtx.set_durability(Durability::Immediate)
-        .map_err(|e| e.to_string())?;
-    if methods
-        .iter()
-        .any(|method| matches!(method, Method::ClearGraph | Method::DeleteGraph { .. }))
-    {
-        development_lane::clear_native_graph_rows_in_wtx(&wtx, graph, crypto)?;
-        capacity_lease::clear_graph_rows(&wtx, graph)?;
+    let wtx = begin_crossmodal_wtx(db)?;
+    if crossmodal_has_clear_or_delete(methods) {
+        apply_crossmodal_clear_native_graph_rows(&wtx, graph, crypto)?;
     }
-    {
-        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
-        let mut native_work_items = wtx
-            .open_table(work_item_capability::NATIVE_WORK_ITEMS)
-            .map_err(|e| e.to_string())?;
-        let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
-        let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
-        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
-
-        if methods
-            .iter()
-            .any(|method| matches!(method, Method::ClearGraph | Method::DeleteGraph { .. }))
-        {
-            work_item_capability::clear_graph_rows_in_wtx_with_native(
-                &wtx,
-                graph,
-                &mut native_work_items,
-            )?;
-        }
-
-        // 1. Graph mutations (nodes/edges/properties) — the SAME row apply.
+    apply_crossmodal_body(
+        &wtx,
+        graph,
+        methods,
+        vectors,
+        blob_refs,
+        measurements,
+        crypto,
         #[cfg(feature = "security")]
-        let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
-        for method in methods {
-            apply_method_rows(
-                graph,
-                method,
-                &mut nodes,
-                &mut edges,
-                &mut ledger,
-                &mut semantic,
-                &native_work_items,
-                crypto,
-            )?;
-            #[cfg(feature = "security")]
-            append_audit_entry(&mut audit, audit_tail, graph, method)?;
-        }
-
-        if methods.iter().any(|method| {
-            matches!(
-                method,
-                Method::AddNode { .. }
-                    | Method::RemoveNode { .. }
-                    | Method::CompareAndSetNodeFields { .. }
-                    | Method::BatchUpdate { .. }
-                    | Method::ClearGraph
-                    | Method::DeleteGraph { .. }
-            )
-        }) {
-            drop(nodes);
-            drop(edges);
-            drop(ledger);
-            drop(semantic);
-            #[cfg(feature = "security")]
-            drop(audit);
-            development_lane::validate_current_lane_links_in_wtx(&wtx, graph, crypto)?;
-            let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
-            let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
-
-            // 2. Blob refs — a reserved `__blob__` node property pointing at the digest.
-            // Read-modify-write the node's property blob so the ref rides the node row.
-            // Unseal the current blob before merging, re-seal the merged result.
-            for (node_id, digest) in blob_refs {
-                let current = nodes
-                    .get((graph, node_id.as_str()))
-                    .map_err(|e| e.to_string())?
-                    .map(|v| crypto.unseal(v.value()))
-                    .transpose()?;
-                if native_work_items
-                    .get((graph, node_id.as_str()))
-                    .map_err(|e| e.to_string())?
-                    .is_some()
-                    || current.as_ref().is_some_and(|bytes| {
-                        decode_durable::<serde_json::Map<String, serde_json::Value>>(bytes)
-                            .map(|props| property_string(&props, "node_type") == "WorkItem")
-                            .unwrap_or(true)
-                    })
-                {
-                    return Err(
-                        "native WorkItem authority required for generic blob update".to_string()
-                    );
-                }
-                let mut props: serde_json::Map<String, serde_json::Value> = match current {
-                    Some(bytes) => decode_durable(&bytes)?,
-                    None => serde_json::Map::new(),
-                };
-                props.insert(
-                    "__blob__".to_string(),
-                    serde_json::Value::String(digest.clone()),
-                );
-                let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
-                let blob = crypto.seal(&bytes);
-                nodes
-                    .insert((graph, node_id.as_str()), blob.as_ref())
-                    .map_err(|e| e.to_string())?;
-            }
-
-            // 3. Vectors — read-modify-write the graph's SEMANTIC store blob in-txn.
-            if !vectors.is_empty() {
-                let current = semantic
-                    .get(graph)
-                    .map_err(|e| e.to_string())?
-                    .map(|v| crypto.unseal(v.value()))
-                    .transpose()?;
-                let mut store = match current {
-                    Some(bytes) => {
-                        decode_durable::<crate::compute::semantic::SemanticStore>(&bytes)?
-                    }
-                    None => crate::compute::semantic::SemanticStore::default(),
-                };
-                for (node_id, embedding) in vectors {
-                    // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): see the identical comment in
-                    // `apply_crossmodal_projection_rows` above — `store` is a scratch
-                    // decode discarded on this early return, and per this function's own
-                    // doc comment ANY error here drops the whole `WriteTransaction`
-                    // without committing, so a rejected write here never partially lands.
-                    store
-                        .add_embedding(node_id.clone(), embedding.clone())
-                        .map_err(|error| error.to_string())?;
-                }
-                let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
-                let blob = crypto.seal(&bytes);
-                semantic
-                    .insert(graph, blob.as_ref())
-                    .map_err(|e| e.to_string())?;
-            }
-        } else {
-            // 2. Blob refs — a reserved `__blob__` node property pointing at the digest.
-            // Read-modify-write the node's property blob so the ref rides the node row.
-            // Unseal the current blob before merging, re-seal the merged result.
-            for (node_id, digest) in blob_refs {
-                if native_work_items
-                    .get((graph, node_id.as_str()))
-                    .map_err(|e| e.to_string())?
-                    .is_some()
-                {
-                    return Err(
-                        "native WorkItem authority required for generic blob update".to_string()
-                    );
-                }
-                let current = nodes
-                    .get((graph, node_id.as_str()))
-                    .map_err(|e| e.to_string())?
-                    .map(|v| crypto.unseal(v.value()))
-                    .transpose()?;
-                if current.as_ref().is_some_and(|bytes| {
-                    decode_durable::<serde_json::Map<String, serde_json::Value>>(bytes)
-                        .map(|props| property_string(&props, "node_type") == "WorkItem")
-                        .unwrap_or(true)
-                }) {
-                    return Err(
-                        "native WorkItem authority required for generic blob update".to_string()
-                    );
-                }
-                let mut props: serde_json::Map<String, serde_json::Value> = match current {
-                    Some(bytes) => decode_durable(&bytes)?,
-                    None => serde_json::Map::new(),
-                };
-                props.insert(
-                    "__blob__".to_string(),
-                    serde_json::Value::String(digest.clone()),
-                );
-                let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
-                let blob = crypto.seal(&bytes);
-                nodes
-                    .insert((graph, node_id.as_str()), blob.as_ref())
-                    .map_err(|e| e.to_string())?;
-            }
-
-            // 3. Vectors — read-modify-write the graph's SEMANTIC store blob in-txn.
-            if !vectors.is_empty() {
-                let current = semantic
-                    .get(graph)
-                    .map_err(|e| e.to_string())?
-                    .map(|v| crypto.unseal(v.value()))
-                    .transpose()?;
-                let mut store = match current {
-                    Some(bytes) => {
-                        decode_durable::<crate::compute::semantic::SemanticStore>(&bytes)?
-                    }
-                    None => crate::compute::semantic::SemanticStore::default(),
-                };
-                for (node_id, embedding) in vectors {
-                    // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): see the identical comment in
-                    // `apply_crossmodal_projection_rows` above — `store` is a scratch
-                    // decode discarded on this early return, and per this function's own
-                    // doc comment ANY error here drops the whole `WriteTransaction`
-                    // without committing, so a rejected write here never partially lands.
-                    store
-                        .add_embedding(node_id.clone(), embedding.clone())
-                        .map_err(|error| error.to_string())?;
-                }
-                let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
-                let blob = crypto.seal(&bytes);
-                semantic
-                    .insert(graph, blob.as_ref())
-                    .map_err(|e| e.to_string())?;
-            }
-            // The `if` branch above already dropped/rebound `nodes`/`edges`/`ledger`/
-            // `semantic`/`audit` before its own `validate_current_lane_links_in_wtx`
-            // call, so its (shadowed, block-local) handles go out of scope here
-            // naturally. This `else` branch never rebinds them — it reused the
-            // OUTER handles opened above (line ~7108) for its own blob-refs/vectors
-            // work — so they must be dropped explicitly here, BEFORE the shared
-            // `validate_current_lane_links_in_wtx` call below reopens `NODES`:
-            // leaving them open made that reopen fail with redb's "Table 'nodes'
-            // already opened" error whenever `methods` carried no AddNode/RemoveNode/
-            // CompareAndSetNodeFields/BatchUpdate/ClearGraph/DeleteGraph (e.g. a
-            // measurement-only or blob-refs-only cross-modal commit).
-            drop(nodes);
-            drop(edges);
-            drop(ledger);
-            drop(semantic);
-            #[cfg(feature = "security")]
-            drop(audit);
-        }
-
-        // Blob references are read-modify-write node projections and must be
-        // covered by the same final lane lifecycle check as topology methods.
-        development_lane::validate_current_lane_links_in_wtx(&wtx, graph, crypto)?;
-
-        // 4. Measurements (CONCEPT:EG-KG.backend.cross-modal-atomic-commit) — append each time-series batch into
-        // SERIES_CHUNKS/SERIES_META ON THIS transaction (the shared eg-tsdb chunk
-        // encoding, via `append_batch_in_wtx`), so the points land in the SAME
-        // authoritative-shard commit as the node/vector/blob writes. redb's exclusive
-        // per-process file lock means this is the ONLY way a measurement can be atomic
-        // WITH the graph modalities: through the transaction the writer already owns.
-        #[cfg(feature = "tsdb")]
-        for (series, n_fields, bucket_ns, field_names, points) in measurements {
-            // Persistence accepts only the authority-scoped key produced at the
-            // verified carrier boundary; it never derives or guesses a tenant.
-            if eg_tsdb::store::SeriesKey::decode(series).is_none() {
-                return Err("time-series key is not canonically scoped".to_string());
-            }
-            let pts: Vec<eg_tsdb::point::Point> = points
-                .iter()
-                .map(|(ts, values)| eg_tsdb::point::Point {
-                    ts: *ts,
-                    values: values.clone(),
-                })
-                .collect();
-            eg_tsdb::store::append_batch_in_wtx(
-                &wtx,
-                series,
-                *n_fields,
-                *bucket_ns,
-                field_names,
-                &pts,
-            )
-            .map_err(|e| e.to_string())?;
-        }
-        // A build without the `tsdb` feature has no SERIES tables + no eg-tsdb dep, so a
-        // measurement here has no durable home — error rather than silently drop it (the
-        // staging handler is `tsdb`-gated, so in practice this is never non-empty).
-        #[cfg(not(feature = "tsdb"))]
-        if !measurements.is_empty() {
-            return Err("time-series cross-modal commit requires the `tsdb` feature".to_string());
-        }
-
-        // Backfill a graph_meta identity row so authoritative load_all recovers it.
-        let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
-        if meta.get(graph).map_err(|e| e.to_string())?.is_none() {
-            let incarnation_id = new_incarnation_id(graph);
-            let encoded = encode_meta_with_incarnation(graph, GraphType::Global, &incarnation_id)?;
-            meta.insert(graph, encoded.as_slice())
-                .map_err(|e| e.to_string())?;
-        }
-    }
+        audit_tail,
+    )?;
     // The atomic commit point: every modality lands here, or (on any `?` above) the
     // dropped wtx discards them all.
     wtx.commit().map_err(|e| e.to_string())?;
@@ -10339,11 +12211,348 @@ pub(crate) fn clear_ledger_rows(
     Ok(())
 }
 
+// Terminal reservation rows are retained as exact lifecycle tombstones,
+// but they no longer hold capacity.  A graph clear/delete may remove that
+// terminal history atomically; a live Reserved row still requires an
+// explicit release/reclaim drain so it cannot silently strand capacity.
+fn resource_reservation_row_is_active(stored: &DurableResourceReservation) -> bool {
+    stored.record.state == ResourceReservationRecordState::Reserved
+        || stored.held_cpu_weight != 0
+        || stored.held_memory_mib != 0
+        || stored.held_disk_mib != 0
+        || stored.held_process_slots != 0
+}
+
+fn check_resource_reservations_active(
+    graph: &str,
+    reservations: &redb::Table<(&str, &str), &[u8]>,
+    tenant_index: &redb::Table<(&str, &str, &str), &str>,
+    crypto: DurableCrypto<'_>,
+) -> Result<bool, String> {
+    let mut has_active_rows = false;
+    let rows = reservations
+        .range((graph, "")..)
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (key, value) = row.map_err(|error| error.to_string())?;
+        let (row_graph, row_reservation_id) = key.value();
+        if row_graph != graph {
+            break;
+        }
+        let stored: DurableResourceReservation = resource_decode(value.value(), crypto)?;
+        if row_reservation_id != stored.record.reservation_id {
+            return Err("resource reservation key/index consistency check failed".into());
+        }
+        let index_value = tenant_index
+            .get((
+                graph,
+                stored.record.tenant_ref.as_str(),
+                stored.record.reservation_id.as_str(),
+            ))
+            .map_err(|error| error.to_string())?;
+        if index_value.as_ref().map(|entry| entry.value())
+            != Some(stored.record.reservation_id.as_str())
+        {
+            return Err("resource tenant index consistency check failed".into());
+        }
+        // A Reserved row, or any row that still carries held capacity, is
+        // a live claim even if a corrupted or partially written value also
+        // carries the tombstone bit.  Refuse the destructive lifecycle
+        // operation for either representation; never infer that held
+        // capacity is safe to drop from one flag.
+        if resource_reservation_row_is_active(&stored) {
+            has_active_rows = true;
+        }
+    }
+    Ok(has_active_rows)
+}
+
+fn check_resource_tenant_index_consistency(
+    graph: &str,
+    tenant_index: &redb::Table<(&str, &str, &str), &str>,
+    reservations: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let rows = tenant_index
+        .range((graph, "", "")..)
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (key, value) = row.map_err(|error| error.to_string())?;
+        let (row_graph, tenant, reservation_id) = key.value();
+        if row_graph != graph {
+            break;
+        }
+        if value.value() != reservation_id {
+            return Err("resource tenant index key/value consistency check failed".into());
+        }
+        let reservation = reservations
+            .get((graph, reservation_id))
+            .map_err(|error| error.to_string())?;
+        let Some(reservation) = reservation else {
+            return Err("resource tenant index references missing reservation".into());
+        };
+        let stored: DurableResourceReservation = resource_decode(reservation.value(), crypto)?;
+        if stored.record.tenant_ref != tenant {
+            return Err("resource tenant index tenant mismatch".into());
+        }
+    }
+    Ok(())
+}
+
+/// Clear every `(graph, key)` row of a two-part-key table for `graph`, in
+/// bounded `MAX_RESOURCE_CLEAR_SCAN`-sized passes so the caller's open
+/// `WriteTransaction` never has to allocate an unbounded key list.
+fn clear_resource_two_part_table<V: redb::Value + 'static>(
+    table: &mut redb::Table<(&str, &str), V>,
+    graph: &str,
+) -> Result<(), String> {
+    let mut cursor: Option<String> = None;
+    loop {
+        let keys = {
+            let start = cursor.as_deref().unwrap_or("");
+            let mut keys = Vec::with_capacity(MAX_RESOURCE_CLEAR_SCAN);
+            for row in table
+                .range((graph, start)..)
+                .map_err(|error| error.to_string())?
+            {
+                let (key, _) = row.map_err(|error| error.to_string())?;
+                let (row_graph, key_part) = key.value();
+                if row_graph != graph {
+                    break;
+                }
+                if cursor.as_deref() == Some(key_part) {
+                    continue;
+                }
+                keys.push(key_part.to_string());
+                if keys.len() == MAX_RESOURCE_CLEAR_SCAN {
+                    break;
+                }
+            }
+            keys
+        };
+        if keys.is_empty() {
+            break;
+        }
+        for key in &keys {
+            table
+                .remove((graph, key.as_str()))
+                .map_err(|error| error.to_string())?;
+        }
+        cursor = keys.last().cloned();
+    }
+    Ok(())
+}
+
+fn collect_resource_attempts_clear_keys(
+    table: &redb::Table<(&str, &str, u64), &str>,
+    graph: &str,
+    cursor: &Option<(String, u64)>,
+) -> Result<Vec<(String, u64)>, String> {
+    let (start_work_item, start_attempt) = cursor
+        .as_ref()
+        .map(|(work_item, attempt)| (work_item.as_str(), *attempt))
+        .unwrap_or(("", 0));
+    let mut keys = Vec::with_capacity(MAX_RESOURCE_CLEAR_SCAN);
+    for row in table
+        .range((graph, start_work_item, start_attempt)..)
+        .map_err(|error| error.to_string())?
+    {
+        let (key, _) = row.map_err(|error| error.to_string())?;
+        let (row_graph, work_item, attempt) = key.value();
+        if row_graph != graph {
+            break;
+        }
+        if cursor
+            .as_ref()
+            .is_some_and(|(cursor_work_item, cursor_attempt)| {
+                cursor_work_item == work_item && *cursor_attempt == attempt
+            })
+        {
+            continue;
+        }
+        keys.push((work_item.to_string(), attempt));
+        if keys.len() == MAX_RESOURCE_CLEAR_SCAN {
+            break;
+        }
+    }
+    Ok(keys)
+}
+
+fn clear_resource_attempts_table(
+    table: &mut redb::Table<(&str, &str, u64), &str>,
+    graph: &str,
+) -> Result<(), String> {
+    let mut cursor: Option<(String, u64)> = None;
+    loop {
+        let keys = collect_resource_attempts_clear_keys(table, graph, &cursor)?;
+        if keys.is_empty() {
+            break;
+        }
+        for (work_item, attempt) in &keys {
+            table
+                .remove((graph, work_item.as_str(), *attempt))
+                .map_err(|error| error.to_string())?;
+        }
+        cursor = keys.last().cloned();
+    }
+    Ok(())
+}
+
+fn collect_resource_tenant_index_clear_keys(
+    table: &redb::Table<(&str, &str, &str), &str>,
+    graph: &str,
+    cursor: &Option<(String, String)>,
+) -> Result<Vec<(String, String)>, String> {
+    let (start_tenant, start_reservation) = cursor
+        .as_ref()
+        .map(|(tenant, reservation)| (tenant.as_str(), reservation.as_str()))
+        .unwrap_or(("", ""));
+    let mut keys = Vec::with_capacity(MAX_RESOURCE_CLEAR_SCAN);
+    for row in table
+        .range((graph, start_tenant, start_reservation)..)
+        .map_err(|error| error.to_string())?
+    {
+        let (key, value) = row.map_err(|error| error.to_string())?;
+        let (row_graph, tenant, reservation_id) = key.value();
+        if row_graph != graph {
+            break;
+        }
+        if value.value() != reservation_id {
+            return Err("resource tenant index key/value escaped clear scope".into());
+        }
+        if cursor
+            .as_ref()
+            .is_some_and(|(cursor_tenant, cursor_reservation)| {
+                cursor_tenant == tenant && cursor_reservation == reservation_id
+            })
+        {
+            continue;
+        }
+        keys.push((tenant.to_string(), reservation_id.to_string()));
+        if keys.len() == MAX_RESOURCE_CLEAR_SCAN {
+            break;
+        }
+    }
+    Ok(keys)
+}
+
+fn clear_resource_tenant_index_table(
+    table: &mut redb::Table<(&str, &str, &str), &str>,
+    graph: &str,
+) -> Result<(), String> {
+    let mut cursor: Option<(String, String)> = None;
+    loop {
+        let keys = collect_resource_tenant_index_clear_keys(table, graph, &cursor)?;
+        if keys.is_empty() {
+            break;
+        }
+        for (tenant, reservation_id) in &keys {
+            table
+                .remove((graph, tenant.as_str(), reservation_id.as_str()))
+                .map_err(|error| error.to_string())?;
+        }
+        cursor = keys.last().cloned();
+    }
+    Ok(())
+}
+
+fn collect_resource_anti_affinity_clear_keys(
+    table: &redb::Table<(&str, &str, &str), u64>,
+    graph: &str,
+    cursor: &Option<(String, String)>,
+) -> Result<Vec<(String, String)>, String> {
+    let (start_host, start_tag) = cursor
+        .as_ref()
+        .map(|(host, tag)| (host.as_str(), tag.as_str()))
+        .unwrap_or(("", ""));
+    let mut keys = Vec::with_capacity(MAX_RESOURCE_CLEAR_SCAN);
+    for row in table
+        .range((graph, start_host, start_tag)..)
+        .map_err(|error| error.to_string())?
+    {
+        let (key, _) = row.map_err(|error| error.to_string())?;
+        let (row_graph, host, tag) = key.value();
+        if row_graph != graph {
+            break;
+        }
+        if cursor.as_ref().is_some_and(|(cursor_host, cursor_tag)| {
+            cursor_host == host && cursor_tag == tag
+        }) {
+            continue;
+        }
+        keys.push((host.to_string(), tag.to_string()));
+        if keys.len() == MAX_RESOURCE_CLEAR_SCAN {
+            break;
+        }
+    }
+    Ok(keys)
+}
+
+fn clear_resource_anti_affinity_table(
+    table: &mut redb::Table<(&str, &str, &str), u64>,
+    graph: &str,
+) -> Result<(), String> {
+    let mut cursor: Option<(String, String)> = None;
+    loop {
+        let keys = collect_resource_anti_affinity_clear_keys(table, graph, &cursor)?;
+        if keys.is_empty() {
+            break;
+        }
+        for (host, tag) in &keys {
+            table
+                .remove((graph, host.as_str(), tag.as_str()))
+                .map_err(|error| error.to_string())?;
+        }
+        cursor = keys.last().cloned();
+    }
+    Ok(())
+}
+
+fn clear_resource_reservation_side_tables(
+    graph: &str,
+    reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
+    attempts: &mut redb::Table<(&str, &str, u64), &str>,
+) -> Result<(), String> {
+    clear_resource_two_part_table(reservations, graph)?;
+    clear_resource_tenant_index_table(tenant_index, graph)?;
+    clear_resource_attempts_table(attempts, graph)?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn clear_resource_host_side_tables(
+    graph: &str,
+    hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    exclusivity: &mut redb::Table<(&str, &str), &str>,
+    fairness: &mut redb::Table<(&str, &str), &[u8]>,
+    concurrency: &mut redb::Table<(&str, &str), u64>,
+    anti_affinity: &mut redb::Table<(&str, &str, &str), u64>,
+    disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+) -> Result<(), String> {
+    clear_resource_two_part_table(hosts, graph)?;
+    clear_resource_two_part_table(exclusivity, graph)?;
+    clear_resource_two_part_table(fairness, graph)?;
+    clear_resource_two_part_table(concurrency, graph)?;
+    clear_resource_anti_affinity_table(anti_affinity, graph)?;
+    clear_resource_two_part_table(disk_policies, graph)?;
+    Ok(())
+}
+
 /// Clear all native reservation indexes together with a graph image.  These
 /// rows are not a cache: retaining one across DeleteGraph/recreate would leak
 /// held capacity into the new incarnation.  The caller invokes this inside the
 /// same WriteTransaction as the graph clear/purge, so no half-cleared resource
 /// authority is observable.
+///
+/// The clear/delete operation is itself the governed administrative
+/// continuation for terminal history: every range pass below handles at
+/// most MAX_RESOURCE_CLEAR_SCAN keys, then resumes from the last key while
+/// the same write transaction remains open.  This keeps allocation bounded
+/// without imposing a lifetime bound on retained tombstones, so a graph
+/// cannot become uncleareable merely because its terminal history is large.
+/// The active-row validation remains a complete streaming pass and happens
+/// before any removal; no active hold is silently deleted.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn clear_resource_rows(
     graph: &str,
@@ -10358,276 +12567,21 @@ pub(crate) fn clear_resource_rows(
     disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    // Terminal reservation rows are retained as exact lifecycle tombstones,
-    // but they no longer hold capacity.  A graph clear/delete may remove that
-    // terminal history atomically; a live Reserved row still requires an
-    // explicit release/reclaim drain so it cannot silently strand capacity.
-    //
-    // The clear/delete operation is itself the governed administrative
-    // continuation for terminal history: every range pass below handles at
-    // most MAX_RESOURCE_CLEAR_SCAN keys, then resumes from the last key while
-    // the same write transaction remains open.  This keeps allocation bounded
-    // without imposing a lifetime bound on retained tombstones, so a graph
-    // cannot become uncleareable merely because its terminal history is large.
-    // The active-row validation remains a complete streaming pass and happens
-    // before any removal; no active hold is silently deleted.
-    let mut has_active_rows = false;
-    {
-        let rows = reservations
-            .range((graph, "")..)
-            .map_err(|error| error.to_string())?;
-        for row in rows {
-            let (key, value) = row.map_err(|error| error.to_string())?;
-            let (row_graph, row_reservation_id) = key.value();
-            if row_graph != graph {
-                break;
-            }
-            let stored: DurableResourceReservation = resource_decode(value.value(), crypto)?;
-            if row_reservation_id != stored.record.reservation_id {
-                return Err("resource reservation key/index consistency check failed".into());
-            }
-            let index_value = tenant_index
-                .get((
-                    graph,
-                    stored.record.tenant_ref.as_str(),
-                    stored.record.reservation_id.as_str(),
-                ))
-                .map_err(|error| error.to_string())?;
-            if index_value.as_ref().map(|entry| entry.value())
-                != Some(stored.record.reservation_id.as_str())
-            {
-                return Err("resource tenant index consistency check failed".into());
-            }
-            // A Reserved row, or any row that still carries held capacity, is
-            // a live claim even if a corrupted or partially written value also
-            // carries the tombstone bit.  Refuse the destructive lifecycle
-            // operation for either representation; never infer that held
-            // capacity is safe to drop from one flag.
-            if stored.record.state == ResourceReservationRecordState::Reserved
-                || stored.held_cpu_weight != 0
-                || stored.held_memory_mib != 0
-                || stored.held_disk_mib != 0
-                || stored.held_process_slots != 0
-            {
-                has_active_rows = true;
-            }
-        }
-    }
-    {
-        let rows = tenant_index
-            .range((graph, "", "")..)
-            .map_err(|error| error.to_string())?;
-        for row in rows {
-            let (key, value) = row.map_err(|error| error.to_string())?;
-            let (row_graph, tenant, reservation_id) = key.value();
-            if row_graph != graph {
-                break;
-            }
-            if value.value() != reservation_id {
-                return Err("resource tenant index key/value consistency check failed".into());
-            }
-            let reservation = reservations
-                .get((graph, reservation_id))
-                .map_err(|error| error.to_string())?;
-            let Some(reservation) = reservation else {
-                return Err("resource tenant index references missing reservation".into());
-            };
-            let stored: DurableResourceReservation = resource_decode(reservation.value(), crypto)?;
-            if stored.record.tenant_ref != tenant {
-                return Err("resource tenant index tenant mismatch".into());
-            }
-        }
-    }
+    let has_active_rows = check_resource_reservations_active(graph, reservations, tenant_index, crypto)?;
+    check_resource_tenant_index_consistency(graph, tenant_index, reservations, crypto)?;
     if has_active_rows {
         return Err("resource graph clear requires native reservation rows to be drained".into());
     }
-    macro_rules! clear_two {
-        ($table:expr) => {{
-            let mut cursor: Option<String> = None;
-            loop {
-                let keys = {
-                    let start = cursor.as_deref().unwrap_or("");
-                    let mut keys = Vec::with_capacity(MAX_RESOURCE_CLEAR_SCAN);
-                    for row in $table
-                        .range((graph, start)..)
-                        .map_err(|error| error.to_string())?
-                    {
-                        let (key, _) = row.map_err(|error| error.to_string())?;
-                        let (row_graph, key_part) = key.value();
-                        if row_graph != graph {
-                            break;
-                        }
-                        if cursor.as_deref() == Some(key_part) {
-                            continue;
-                        }
-                        keys.push(key_part.to_string());
-                        if keys.len() == MAX_RESOURCE_CLEAR_SCAN {
-                            break;
-                        }
-                    }
-                    keys
-                };
-                if keys.is_empty() {
-                    break;
-                }
-                for key in &keys {
-                    $table
-                        .remove((graph, key.as_str()))
-                        .map_err(|error| error.to_string())?;
-                }
-                cursor = keys.last().cloned();
-            }
-        }};
-    }
-    macro_rules! clear_attempts {
-        ($table:expr) => {{
-            let mut cursor: Option<(String, u64)> = None;
-            loop {
-                let keys = {
-                    let (start_work_item, start_attempt) = cursor
-                        .as_ref()
-                        .map(|(work_item, attempt)| (work_item.as_str(), *attempt))
-                        .unwrap_or(("", 0));
-                    let mut keys = Vec::with_capacity(MAX_RESOURCE_CLEAR_SCAN);
-                    for row in $table
-                        .range((graph, start_work_item, start_attempt)..)
-                        .map_err(|error| error.to_string())?
-                    {
-                        let (key, _) = row.map_err(|error| error.to_string())?;
-                        let (row_graph, work_item, attempt) = key.value();
-                        if row_graph != graph {
-                            break;
-                        }
-                        if cursor
-                            .as_ref()
-                            .is_some_and(|(cursor_work_item, cursor_attempt)| {
-                                cursor_work_item == work_item && *cursor_attempt == attempt
-                            })
-                        {
-                            continue;
-                        }
-                        keys.push((work_item.to_string(), attempt));
-                        if keys.len() == MAX_RESOURCE_CLEAR_SCAN {
-                            break;
-                        }
-                    }
-                    keys
-                };
-                if keys.is_empty() {
-                    break;
-                }
-                for (work_item, attempt) in &keys {
-                    $table
-                        .remove((graph, work_item.as_str(), *attempt))
-                        .map_err(|error| error.to_string())?;
-                }
-                cursor = keys.last().cloned();
-            }
-        }};
-    }
-    macro_rules! clear_tenant_index {
-        ($table:expr) => {{
-            let mut cursor: Option<(String, String)> = None;
-            loop {
-                let keys = {
-                    let (start_tenant, start_reservation) = cursor
-                        .as_ref()
-                        .map(|(tenant, reservation)| (tenant.as_str(), reservation.as_str()))
-                        .unwrap_or(("", ""));
-                    let mut keys = Vec::with_capacity(MAX_RESOURCE_CLEAR_SCAN);
-                    for row in $table
-                        .range((graph, start_tenant, start_reservation)..)
-                        .map_err(|error| error.to_string())?
-                    {
-                        let (key, value) = row.map_err(|error| error.to_string())?;
-                        let (row_graph, tenant, reservation_id) = key.value();
-                        if row_graph != graph {
-                            break;
-                        }
-                        if value.value() != reservation_id {
-                            return Err(
-                                "resource tenant index key/value escaped clear scope".into()
-                            );
-                        }
-                        if cursor
-                            .as_ref()
-                            .is_some_and(|(cursor_tenant, cursor_reservation)| {
-                                cursor_tenant == tenant && cursor_reservation == reservation_id
-                            })
-                        {
-                            continue;
-                        }
-                        keys.push((tenant.to_string(), reservation_id.to_string()));
-                        if keys.len() == MAX_RESOURCE_CLEAR_SCAN {
-                            break;
-                        }
-                    }
-                    keys
-                };
-                if keys.is_empty() {
-                    break;
-                }
-                for (tenant, reservation_id) in &keys {
-                    $table
-                        .remove((graph, tenant.as_str(), reservation_id.as_str()))
-                        .map_err(|error| error.to_string())?;
-                }
-                cursor = keys.last().cloned();
-            }
-        }};
-    }
-    macro_rules! clear_anti {
-        ($table:expr) => {{
-            let mut cursor: Option<(String, String)> = None;
-            loop {
-                let keys = {
-                    let (start_host, start_tag) = cursor
-                        .as_ref()
-                        .map(|(host, tag)| (host.as_str(), tag.as_str()))
-                        .unwrap_or(("", ""));
-                    let mut keys = Vec::with_capacity(MAX_RESOURCE_CLEAR_SCAN);
-                    for row in $table
-                        .range((graph, start_host, start_tag)..)
-                        .map_err(|error| error.to_string())?
-                    {
-                        let (key, _) = row.map_err(|error| error.to_string())?;
-                        let (row_graph, host, tag) = key.value();
-                        if row_graph != graph {
-                            break;
-                        }
-                        if cursor.as_ref().is_some_and(|(cursor_host, cursor_tag)| {
-                            cursor_host == host && cursor_tag == tag
-                        }) {
-                            continue;
-                        }
-                        keys.push((host.to_string(), tag.to_string()));
-                        if keys.len() == MAX_RESOURCE_CLEAR_SCAN {
-                            break;
-                        }
-                    }
-                    keys
-                };
-                if keys.is_empty() {
-                    break;
-                }
-                for (host, tag) in &keys {
-                    $table
-                        .remove((graph, host.as_str(), tag.as_str()))
-                        .map_err(|error| error.to_string())?;
-                }
-                cursor = keys.last().cloned();
-            }
-        }};
-    }
-    clear_two!(reservations);
-    clear_tenant_index!(tenant_index);
-    clear_attempts!(attempts);
-    clear_two!(hosts);
-    clear_two!(exclusivity);
-    clear_two!(fairness);
-    clear_two!(concurrency);
-    clear_anti!(anti_affinity);
-    clear_two!(disk_policies);
+    clear_resource_reservation_side_tables(graph, reservations, tenant_index, attempts)?;
+    clear_resource_host_side_tables(
+        graph,
+        hosts,
+        exclusivity,
+        fairness,
+        concurrency,
+        anti_affinity,
+        disk_policies,
+    )?;
     Ok(())
 }
 
@@ -11347,6 +13301,322 @@ fn validate_checkpoint_resource_links(
 
 /// Snapshot the full registry dump into redb, overwriting each graph's rows, and
 /// commit durably. Folds any buffered mutations into the SAME transaction first.
+#[allow(clippy::type_complexity)]
+fn open_checkpoint_graph_tables<'txn>(
+    wtx: &'txn redb::WriteTransaction,
+) -> Result<
+    (
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+        redb::Table<'txn, (&'static str, &'static str), &'static [u8]>,
+        redb::Table<'txn, (&'static str, &'static str, &'static str, u32), &'static [u8]>,
+        redb::Table<'txn, (&'static str, u64), &'static str>,
+        redb::Table<'txn, &'static str, &'static [u8]>,
+        redb::Table<'txn, &'static str, &'static [u8]>,
+        redb::Table<'txn, &'static str, u64>,
+    ),
+    String,
+> {
+    let nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+    let native_work_items = wtx
+        .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+        .map_err(|e| e.to_string())?;
+    let edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
+    let ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+    let semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+    let meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+    let versions = wtx
+        .open_table(MUTATION_GRAPH_VERSION)
+        .map_err(|e| e.to_string())?;
+    Ok((
+        nodes,
+        native_work_items,
+        edges,
+        ledger,
+        semantic,
+        meta,
+        versions,
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_checkpoint_pending_operation(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    method: &Method,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    ledger: &mut redb::Table<(&str, u64), &str>,
+    semantic: &mut redb::Table<&str, &[u8]>,
+    native_work_items: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
+    resource_attempts: &mut redb::Table<(&str, &str, u64), &str>,
+    resource_hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_exclusivity: &mut redb::Table<(&str, &str), &str>,
+    resource_fairness: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_concurrency: &mut redb::Table<(&str, &str), u64>,
+    resource_anti_affinity: &mut redb::Table<(&str, &str, &str), u64>,
+    resource_disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    if matches!(method, Method::ClearGraph | Method::DeleteGraph { .. }) {
+        clear_resource_rows(
+            graph,
+            resource_reservations,
+            resource_tenant_index,
+            resource_attempts,
+            resource_hosts,
+            resource_exclusivity,
+            resource_fairness,
+            resource_concurrency,
+            resource_anti_affinity,
+            resource_disk_policies,
+            crypto,
+        )?;
+        development_lane::clear_native_graph_rows_in_wtx(wtx, graph, crypto)?;
+        capacity_lease::clear_graph_rows(wtx, graph)?;
+        work_item_capability::clear_graph_rows_in_wtx_with_native(wtx, graph, native_work_items)?;
+    }
+    apply_method_rows(
+        graph,
+        method,
+        nodes,
+        edges,
+        ledger,
+        semantic,
+        native_work_items,
+        crypto,
+    )?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_checkpoint_pending_operations(
+    wtx: &redb::WriteTransaction,
+    pending: &[(String, Method)],
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    ledger: &mut redb::Table<(&str, u64), &str>,
+    semantic: &mut redb::Table<&str, &[u8]>,
+    native_work_items: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
+    resource_attempts: &mut redb::Table<(&str, &str, u64), &str>,
+    resource_hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_exclusivity: &mut redb::Table<(&str, &str), &str>,
+    resource_fairness: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_concurrency: &mut redb::Table<(&str, &str), u64>,
+    resource_anti_affinity: &mut redb::Table<(&str, &str, &str), u64>,
+    resource_disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    for (graph, method) in pending.iter() {
+        apply_checkpoint_pending_operation(
+            wtx,
+            graph,
+            method,
+            nodes,
+            edges,
+            ledger,
+            semantic,
+            native_work_items,
+            resource_reservations,
+            resource_tenant_index,
+            resource_attempts,
+            resource_hosts,
+            resource_exclusivity,
+            resource_fairness,
+            resource_concurrency,
+            resource_anti_affinity,
+            resource_disk_policies,
+            crypto,
+        )?;
+    }
+    Ok(())
+}
+
+fn checkpoint_dump_current_snapshot_version(
+    versions: &redb::Table<&str, u64>,
+    graph: &str,
+) -> Result<u64, String> {
+    Ok(versions
+        .get(graph)
+        .map_err(|e| e.to_string())?
+        .map(|value| value.value())
+        .unwrap_or(0))
+}
+
+// The dump's node/edge/semantic blobs are plaintext (from the live
+// GraphCore snapshot) — SEAL them on the way to disk (no-op when
+// encryption is off). The ledger lines stay plaintext (operational mirror
+// / audit-chain input).
+fn validate_and_clear_checkpoint_dump(
+    wtx: &redb::WriteTransaction,
+    dump: &GraphDump,
+    resource_reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let incoming_nodes = dump
+        .nodes
+        .iter()
+        .map(|(node_id, properties)| (node_id.clone(), properties.clone()))
+        .collect::<Vec<_>>();
+    work_item_capability::validate_snapshot_nodes(&incoming_nodes)?;
+    work_item_capability::clear_graph_rows_in_wtx(wtx, &dump.graph)?;
+    validate_checkpoint_resource_links(
+        &dump.graph,
+        &dump.nodes,
+        resource_reservations,
+        resource_hosts,
+        crypto,
+    )?;
+    let lane_holds = wtx
+        .open_table(development_lane::HOLDS)
+        .map_err(|e| e.to_string())?;
+    development_lane::validate_checkpoint_lane_links(&dump.graph, &dump.nodes, &lane_holds, crypto)?;
+    Ok(())
+}
+
+fn write_checkpoint_dump_nodes(
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    dump: &GraphDump,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    for (id, props) in &dump.nodes {
+        let blob = crypto.seal(props);
+        nodes
+            .insert((dump.graph.as_str(), id.as_str()), blob.as_ref())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn write_checkpoint_dump_edges(
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    dump: &GraphDump,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    for (src, tgt, props) in &dump.edges {
+        let ord = next_edge_ordinal(edges, &dump.graph, src, tgt)?;
+        let blob = crypto.seal(props);
+        edges
+            .insert(
+                (dump.graph.as_str(), src.as_str(), tgt.as_str(), ord),
+                blob.as_ref(),
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn write_checkpoint_dump_ledger(
+    ledger: &mut redb::Table<(&str, u64), &str>,
+    dump: &GraphDump,
+) -> Result<(), String> {
+    for (seq, line) in dump.ledger.iter().enumerate() {
+        ledger
+            .insert((dump.graph.as_str(), seq as u64), line.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn write_checkpoint_dump_semantic_and_meta(
+    semantic: &mut redb::Table<&str, &[u8]>,
+    meta: &mut redb::Table<&str, &[u8]>,
+    versions: &mut redb::Table<&str, u64>,
+    dump: &GraphDump,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let sem = crypto.seal(&dump.semantic);
+    semantic
+        .insert(dump.graph.as_str(), sem.as_ref())
+        .map_err(|e| e.to_string())?;
+    let encoded = encode_meta_record(
+        &dump.name,
+        dump.graph_type,
+        &dump.incarnation_id,
+        dump.integrity_policy.as_ref(),
+    )?;
+    meta.insert(dump.graph.as_str(), encoded.as_slice())
+        .map_err(|e| e.to_string())?;
+    versions
+        .insert(dump.graph.as_str(), dump.source_snapshot_version)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_checkpoint_dump(
+    wtx: &redb::WriteTransaction,
+    dump: GraphDump,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    ledger: &mut redb::Table<(&str, u64), &str>,
+    semantic: &mut redb::Table<&str, &[u8]>,
+    meta: &mut redb::Table<&str, &[u8]>,
+    versions: &mut redb::Table<&str, u64>,
+    resource_reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let current_snapshot_version =
+        checkpoint_dump_current_snapshot_version(versions, dump.graph.as_str())?;
+    if dump.source_snapshot_version < current_snapshot_version {
+        // A checkpoint image must not move the graph authority backwards
+        // while native holds remain preserved outside the ordinary dump.
+        // Keep the refusal generic so graph identifiers cannot escape via
+        // storage errors.
+        return Err("checkpoint graph image is stale".to_string());
+    }
+    validate_and_clear_checkpoint_dump(wtx, &dump, resource_reservations, resource_hosts, crypto)?;
+    clear_graph_rows(&dump.graph, nodes, edges, ledger)?;
+    // Resource rows are a separate native authority and are not part of
+    // an ordinary GraphDump.  Preserve them across checkpoint image
+    // replacement; only an explicit, committed ClearGraph/DeleteGraph
+    // above may clear them after the drain guard succeeds.
+    write_checkpoint_dump_nodes(nodes, &dump, crypto)?;
+    write_checkpoint_dump_edges(edges, &dump, crypto)?;
+    write_checkpoint_dump_ledger(ledger, &dump)?;
+    write_checkpoint_dump_semantic_and_meta(semantic, meta, versions, &dump, crypto)?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_checkpoint_dumps(
+    wtx: &redb::WriteTransaction,
+    graphs: Vec<GraphDump>,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    ledger: &mut redb::Table<(&str, u64), &str>,
+    semantic: &mut redb::Table<&str, &[u8]>,
+    meta: &mut redb::Table<&str, &[u8]>,
+    versions: &mut redb::Table<&str, u64>,
+    resource_reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    resource_hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<usize, String> {
+    let mut count = 0usize;
+    for dump in graphs {
+        apply_checkpoint_dump(
+            wtx,
+            dump,
+            nodes,
+            edges,
+            ledger,
+            semantic,
+            meta,
+            versions,
+            resource_reservations,
+            resource_hosts,
+            crypto,
+        )?;
+        count += 1;
+    }
+    Ok(count)
+}
+
 pub(crate) fn apply_checkpoint(
     db: &Database,
     pending: &mut Vec<(String, Method)>,
@@ -11356,167 +13626,59 @@ pub(crate) fn apply_checkpoint(
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
-    let mut count = 0usize;
-    {
-        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
-        let mut native_work_items = wtx
-            .open_table(work_item_capability::NATIVE_WORK_ITEMS)
-            .map_err(|e| e.to_string())?;
-        let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
-        let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
-        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
-        let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
-        let mut versions = wtx
-            .open_table(MUTATION_GRAPH_VERSION)
-            .map_err(|e| e.to_string())?;
-        let mut resource_reservations = wtx
-            .open_table(RESOURCE_RESERVATIONS)
-            .map_err(|e| e.to_string())?;
-        let mut resource_tenant_index = wtx
-            .open_table(RESOURCE_RESERVATION_TENANT_INDEX)
-            .map_err(|e| e.to_string())?;
-        let mut resource_attempts = wtx
-            .open_table(RESOURCE_RESERVATION_ATTEMPTS)
-            .map_err(|e| e.to_string())?;
-        let mut resource_hosts = wtx.open_table(RESOURCE_HOSTS).map_err(|e| e.to_string())?;
-        let mut resource_exclusivity = wtx
-            .open_table(RESOURCE_EXCLUSIVITY)
-            .map_err(|e| e.to_string())?;
-        let mut resource_fairness = wtx
-            .open_table(RESOURCE_FAIRNESS)
-            .map_err(|e| e.to_string())?;
-        let mut resource_concurrency = wtx
-            .open_table(RESOURCE_CONCURRENCY)
-            .map_err(|e| e.to_string())?;
-        let mut resource_anti_affinity = wtx
-            .open_table(RESOURCE_ANTI_AFFINITY)
-            .map_err(|e| e.to_string())?;
-        let mut resource_disk_policies = wtx
-            .open_table(RESOURCE_DISK_POLICIES)
-            .map_err(|e| e.to_string())?;
-        for (graph, method) in pending.iter() {
-            if matches!(method, Method::ClearGraph | Method::DeleteGraph { .. }) {
-                clear_resource_rows(
-                    graph,
-                    &mut resource_reservations,
-                    &mut resource_tenant_index,
-                    &mut resource_attempts,
-                    &mut resource_hosts,
-                    &mut resource_exclusivity,
-                    &mut resource_fairness,
-                    &mut resource_concurrency,
-                    &mut resource_anti_affinity,
-                    &mut resource_disk_policies,
-                    crypto,
-                )?;
-                development_lane::clear_native_graph_rows_in_wtx(&wtx, graph, crypto)?;
-                capacity_lease::clear_graph_rows(&wtx, graph)?;
-                work_item_capability::clear_graph_rows_in_wtx_with_native(
-                    &wtx,
-                    graph,
-                    &mut native_work_items,
-                )?;
-            }
-            apply_method_rows(
-                graph,
-                method,
-                &mut nodes,
-                &mut edges,
-                &mut ledger,
-                &mut semantic,
-                &native_work_items,
-                crypto,
-            )?;
-        }
+    let count = {
+        let (mut nodes, mut native_work_items, mut edges, mut ledger, mut semantic, mut meta, mut versions) =
+            open_checkpoint_graph_tables(&wtx)?;
+        let (
+            mut resource_reservations,
+            mut resource_tenant_index,
+            mut resource_attempts,
+            mut resource_hosts,
+            mut resource_exclusivity,
+        ) = open_native_operation_resource_tables_a(&wtx)?;
+        let (
+            mut resource_fairness,
+            mut resource_concurrency,
+            mut resource_anti_affinity,
+            mut resource_disk_policies,
+        ) = open_native_operation_resource_tables_b(&wtx)?;
+
+        apply_checkpoint_pending_operations(
+            &wtx,
+            pending,
+            &mut nodes,
+            &mut edges,
+            &mut ledger,
+            &mut semantic,
+            &mut native_work_items,
+            &mut resource_reservations,
+            &mut resource_tenant_index,
+            &mut resource_attempts,
+            &mut resource_hosts,
+            &mut resource_exclusivity,
+            &mut resource_fairness,
+            &mut resource_concurrency,
+            &mut resource_anti_affinity,
+            &mut resource_disk_policies,
+            crypto,
+        )?;
 
         drop(native_work_items);
 
-        for dump in graphs {
-            let current_snapshot_version = versions
-                .get(dump.graph.as_str())
-                .map_err(|e| e.to_string())?
-                .map(|value| value.value())
-                .unwrap_or(0);
-            if dump.source_snapshot_version < current_snapshot_version {
-                // A checkpoint image must not move the graph authority backwards
-                // while native holds remain preserved outside the ordinary dump.
-                // Keep the refusal generic so graph identifiers cannot escape via
-                // storage errors.
-                return Err("checkpoint graph image is stale".to_string());
-            }
-            let incoming_nodes = dump
-                .nodes
-                .iter()
-                .map(|(node_id, properties)| (node_id.clone(), properties.clone()))
-                .collect::<Vec<_>>();
-            work_item_capability::validate_snapshot_nodes(&incoming_nodes)?;
-            work_item_capability::clear_graph_rows_in_wtx(&wtx, &dump.graph)?;
-            // The dump's node/edge/semantic blobs are plaintext (from the live
-            // GraphCore snapshot) — SEAL them on the way to disk (no-op when
-            // encryption is off). The ledger lines stay plaintext (operational mirror
-            // / audit-chain input).
-            validate_checkpoint_resource_links(
-                &dump.graph,
-                &dump.nodes,
-                &mut resource_reservations,
-                &mut resource_hosts,
-                crypto,
-            )?;
-            {
-                let lane_holds = wtx
-                    .open_table(development_lane::HOLDS)
-                    .map_err(|e| e.to_string())?;
-                development_lane::validate_checkpoint_lane_links(
-                    &dump.graph,
-                    &dump.nodes,
-                    &lane_holds,
-                    crypto,
-                )?;
-            }
-            clear_graph_rows(&dump.graph, &mut nodes, &mut edges, &mut ledger)?;
-            // Resource rows are a separate native authority and are not part of
-            // an ordinary GraphDump.  Preserve them across checkpoint image
-            // replacement; only an explicit, committed ClearGraph/DeleteGraph
-            // above may clear them after the drain guard succeeds.
-            for (id, props) in &dump.nodes {
-                let blob = crypto.seal(props);
-                nodes
-                    .insert((dump.graph.as_str(), id.as_str()), blob.as_ref())
-                    .map_err(|e| e.to_string())?;
-            }
-            for (src, tgt, props) in &dump.edges {
-                let ord = next_edge_ordinal(&edges, &dump.graph, src, tgt)?;
-                let blob = crypto.seal(props);
-                edges
-                    .insert(
-                        (dump.graph.as_str(), src.as_str(), tgt.as_str(), ord),
-                        blob.as_ref(),
-                    )
-                    .map_err(|e| e.to_string())?;
-            }
-            for (seq, line) in dump.ledger.iter().enumerate() {
-                ledger
-                    .insert((dump.graph.as_str(), seq as u64), line.as_str())
-                    .map_err(|e| e.to_string())?;
-            }
-            let sem = crypto.seal(&dump.semantic);
-            semantic
-                .insert(dump.graph.as_str(), sem.as_ref())
-                .map_err(|e| e.to_string())?;
-            let encoded = encode_meta_record(
-                &dump.name,
-                dump.graph_type,
-                &dump.incarnation_id,
-                dump.integrity_policy.as_ref(),
-            )?;
-            meta.insert(dump.graph.as_str(), encoded.as_slice())
-                .map_err(|e| e.to_string())?;
-            versions
-                .insert(dump.graph.as_str(), dump.source_snapshot_version)
-                .map_err(|e| e.to_string())?;
-            count += 1;
-        }
-    }
+        apply_checkpoint_dumps(
+            &wtx,
+            graphs,
+            &mut nodes,
+            &mut edges,
+            &mut ledger,
+            &mut semantic,
+            &mut meta,
+            &mut versions,
+            &mut resource_reservations,
+            &mut resource_hosts,
+            crypto,
+        )?
+    };
     wtx.commit().map_err(|e| e.to_string())?;
     pending.clear();
     Ok(count)
@@ -11645,6 +13807,240 @@ pub(crate) struct PageCursorRef<'a> {
     pub page_size: usize,
 }
 
+fn load_graph_dump_page_meta(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Option<GraphMetaRecord>, String> {
+    let meta_table = rtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+    let Some(meta_value) = meta_table.get(graph).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    Ok(Some(decode_meta_record(graph, meta_value.value())?))
+}
+
+fn read_graph_dump_page_source_version(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<u64, String> {
+    let version_table = rtx
+        .open_table(MUTATION_GRAPH_VERSION)
+        .map_err(|e| e.to_string())?;
+    Ok(version_table
+        .get(graph)
+        .map_err(|e| e.to_string())?
+        .map(|value| value.value())
+        .unwrap_or(0))
+}
+
+// Nodes: seek to the last returned composite key, skip that one inclusive row,
+// then take at most `page_size` more. This makes a complete paged recovery
+// O(N log N/pages + N), rather than restarting at the prefix and skipping an
+// ever-growing offset (O(N^2/page_size)). One extra `.next()` after filling the
+// page (NOT collected) tells us whether more nodes remain.
+#[allow(clippy::type_complexity)]
+enum GraphDumpPageNodeRowStep {
+    EndOfGraph,
+    SkipEqual,
+    Pushed(String, Vec<u8>),
+}
+
+fn graph_dump_page_node_row_step(
+    row: redb::Result<(redb::AccessGuard<'_, (&str, &str)>, redb::AccessGuard<'_, &[u8]>)>,
+    graph: &str,
+    skip_equal: Option<&str>,
+    crypto: DurableCrypto<'_>,
+) -> Result<GraphDumpPageNodeRowStep, String> {
+    let (k, v) = row.map_err(|e| e.to_string())?;
+    let (g, id) = k.value();
+    if g != graph {
+        // ran off the end of this graph's key range
+        return Ok(GraphDumpPageNodeRowStep::EndOfGraph);
+    }
+    if skip_equal.is_some_and(|cursor| cursor == id) {
+        return Ok(GraphDumpPageNodeRowStep::SkipEqual);
+    }
+    Ok(GraphDumpPageNodeRowStep::Pushed(
+        id.to_string(),
+        crypto.unseal(v.value())?,
+    ))
+}
+
+fn graph_dump_page_nodes_peek_exhausted(
+    iter: &mut redb::Range<'_, (&str, &str), &[u8]>,
+    graph: &str,
+) -> Result<bool, String> {
+    match iter.next() {
+        Some(row) => {
+            let (k, _v) = row.map_err(|e| e.to_string())?;
+            Ok(k.value().0 != graph)
+        }
+        None => Ok(true),
+    }
+}
+
+// Nodes: seek to the last returned composite key, skip that one inclusive row,
+// then take at most `page_size` more. This makes a complete paged recovery
+// O(N log N/pages + N), rather than restarting at the prefix and skipping an
+// ever-growing offset (O(N^2/page_size)). One extra `.next()` after filling the
+// page (NOT collected) tells us whether more nodes remain.
+#[allow(clippy::type_complexity)]
+fn read_graph_dump_page_nodes(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    node_after: Option<&str>,
+    page_size: usize,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<(String, Vec<u8>)>, bool, Option<String>), String> {
+    let nodes_table = rtx.open_table(NODES).map_err(|e| e.to_string())?;
+    let mut nodes = Vec::with_capacity(page_size.min(1024));
+    let mut nodes_exhausted = true;
+    let mut next_node_after = node_after.map(str::to_string);
+    let lower = node_after.unwrap_or("");
+    let mut iter = nodes_table
+        .range((graph, lower)..)
+        .map_err(|e| e.to_string())?;
+    let mut skip_equal = node_after;
+    while nodes.len() < page_size {
+        let Some(row) = iter.next() else { break };
+        match graph_dump_page_node_row_step(row, graph, skip_equal, crypto)? {
+            GraphDumpPageNodeRowStep::EndOfGraph => break,
+            GraphDumpPageNodeRowStep::SkipEqual => {
+                skip_equal = None;
+                continue;
+            }
+            GraphDumpPageNodeRowStep::Pushed(id, bytes) => {
+                skip_equal = None;
+                next_node_after = Some(id.clone());
+                nodes.push((id, bytes));
+                nodes_exhausted = false; // provisional; corrected by the peek below
+            }
+        }
+    }
+    if !nodes_exhausted {
+        nodes_exhausted = graph_dump_page_nodes_peek_exhausted(&mut iter, graph)?;
+    }
+    Ok((nodes, nodes_exhausted, next_node_after))
+}
+
+enum GraphDumpPageEdgeRowStep {
+    EndOfGraph,
+    SkipEqual,
+    Pushed(String, String, u32, Vec<u8>),
+}
+
+fn graph_dump_page_edge_row_step(
+    row: redb::Result<(
+        redb::AccessGuard<'_, (&str, &str, &str, u32)>,
+        redb::AccessGuard<'_, &[u8]>,
+    )>,
+    graph: &str,
+    skip_equal: Option<(&str, &str, u32)>,
+    crypto: DurableCrypto<'_>,
+) -> Result<GraphDumpPageEdgeRowStep, String> {
+    let (k, v) = row.map_err(|e| e.to_string())?;
+    let (g, s, t, ordinal) = k.value();
+    if g != graph {
+        return Ok(GraphDumpPageEdgeRowStep::EndOfGraph);
+    }
+    if skip_equal.is_some_and(|(cursor_source, cursor_target, cursor_ordinal)| {
+        cursor_source == s && cursor_target == t && cursor_ordinal == ordinal
+    }) {
+        return Ok(GraphDumpPageEdgeRowStep::SkipEqual);
+    }
+    Ok(GraphDumpPageEdgeRowStep::Pushed(
+        s.to_string(),
+        t.to_string(),
+        ordinal,
+        crypto.unseal(v.value())?,
+    ))
+}
+
+fn graph_dump_page_edges_peek_exhausted(
+    iter: &mut redb::Range<'_, (&str, &str, &str, u32), &[u8]>,
+    graph: &str,
+) -> Result<bool, String> {
+    match iter.next() {
+        Some(row) => {
+            let (k, _v) = row.map_err(|e| e.to_string())?;
+            Ok(k.value().0 != graph)
+        }
+        None => Ok(true),
+    }
+}
+
+// Edges: only once every node has been paged in (mirrors `apply_material_page`'s
+// nodes-before-edges ordering, so a partially-opened graph never has an edge
+// dangling on a not-yet-added node), spend the page's remaining budget on edges.
+// `should_scan` is exactly "no more node rows remain for this graph AND the page
+// still has budget left" (the same nodes-first gate `apply_material_page` uses).
+// The returned `bool` tracks whether the EDGE range itself is drained (only
+// meaningful once nodes are exhausted); the caller always ANDs it with
+// `nodes_exhausted`, so a page that is still working through nodes never
+// falsely reports edges done.
+#[allow(clippy::type_complexity)]
+fn read_graph_dump_page_edges(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    edge_after: Option<(&str, &str, u32)>,
+    edge_budget: usize,
+    should_scan: bool,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<(String, String, Vec<u8>)>, bool, Option<(String, String, u32)>), String> {
+    let mut edges = Vec::new();
+    let mut edges_done_this_call = false;
+    let mut next_edge_after =
+        edge_after.map(|(source, target, ordinal)| (source.to_string(), target.to_string(), ordinal));
+    if !should_scan {
+        return Ok((edges, edges_done_this_call, next_edge_after));
+    }
+    let edges_table = rtx.open_table(EDGES).map_err(|e| e.to_string())?;
+    let (lower_source, lower_target, lower_ordinal) = edge_after.unwrap_or(("", "", 0));
+    let mut iter = edges_table
+        .range((graph, lower_source, lower_target, lower_ordinal)..)
+        .map_err(|e| e.to_string())?;
+    let mut skip_equal = edge_after;
+    edges_done_this_call = true;
+    while edges.len() < edge_budget {
+        let Some(row) = iter.next() else { break };
+        match graph_dump_page_edge_row_step(row, graph, skip_equal, crypto)? {
+            GraphDumpPageEdgeRowStep::EndOfGraph => break,
+            GraphDumpPageEdgeRowStep::SkipEqual => {
+                skip_equal = None;
+                continue;
+            }
+            GraphDumpPageEdgeRowStep::Pushed(s, t, ordinal, bytes) => {
+                skip_equal = None;
+                next_edge_after = Some((s.clone(), t.clone(), ordinal));
+                edges.push((s, t, bytes));
+                edges_done_this_call = false;
+            }
+        }
+    }
+    if !edges_done_this_call {
+        edges_done_this_call = graph_dump_page_edges_peek_exhausted(&mut iter, graph)?;
+    }
+    Ok((edges, edges_done_this_call, next_edge_after))
+}
+
+fn read_graph_dump_page_semantic(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    node_after: Option<&str>,
+    edge_after: Option<(&str, &str, u32)>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<u8>, String> {
+    if node_after.is_some() || edge_after.is_some() {
+        return Ok(Vec::new());
+    }
+    let semantic_table = rtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+    Ok(semantic_table
+        .get(graph)
+        .map_err(|e| e.to_string())?
+        .map(|v| crypto.unseal(v.value()))
+        .transpose()?
+        .unwrap_or_default())
+}
+
 pub(crate) fn read_graph_dump_page(
     db: &Database,
     graph: &str,
@@ -11660,134 +14056,21 @@ pub(crate) fn read_graph_dump_page(
     } = cursor;
     let page_size = page_size.max(1);
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let meta_table = rtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
-    let meta_record = match meta_table.get(graph).map_err(|e| e.to_string())? {
-        Some(value) => decode_meta_record(graph, value.value())?,
-        None => return Ok(None),
+    let Some(meta_record) = load_graph_dump_page_meta(&rtx, graph)? else {
+        return Ok(None);
     };
-    let version_table = rtx
-        .open_table(MUTATION_GRAPH_VERSION)
-        .map_err(|e| e.to_string())?;
-    let source_snapshot_version = version_table
-        .get(graph)
-        .map_err(|e| e.to_string())?
-        .map(|value| value.value())
-        .unwrap_or(0);
-    let nodes_table = rtx.open_table(NODES).map_err(|e| e.to_string())?;
-    let edges_table = rtx.open_table(EDGES).map_err(|e| e.to_string())?;
+    let source_snapshot_version = read_graph_dump_page_source_version(&rtx, graph)?;
 
-    // Nodes: seek to the last returned composite key, skip that one inclusive row,
-    // then take at most `page_size` more. This makes a complete paged recovery
-    // O(N log N/pages + N), rather than restarting at the prefix and skipping an
-    // ever-growing offset (O(N^2/page_size)). One extra `.next()` after filling the
-    // page (NOT collected) tells us whether more nodes remain.
-    let mut nodes = Vec::with_capacity(page_size.min(1024));
-    let mut nodes_exhausted;
-    let mut next_node_after = node_after.map(str::to_string);
-    {
-        let lower = node_after.unwrap_or("");
-        let mut iter = nodes_table
-            .range((graph, lower)..)
-            .map_err(|e| e.to_string())?;
-        let mut skip_equal = node_after;
-        nodes_exhausted = true;
-        while nodes.len() < page_size {
-            match iter.next() {
-                Some(row) => {
-                    let (k, v) = row.map_err(|e| e.to_string())?;
-                    let (g, id) = k.value();
-                    if g != graph {
-                        break; // ran off the end of this graph's key range
-                    }
-                    if skip_equal.is_some_and(|cursor| cursor == id) {
-                        skip_equal = None;
-                        continue;
-                    }
-                    skip_equal = None;
-                    nodes.push((id.to_string(), crypto.unseal(v.value())?));
-                    next_node_after = Some(id.to_string());
-                    nodes_exhausted = false; // provisional; corrected by the peek below
-                }
-                None => break,
-            }
-        }
-        if !nodes_exhausted {
-            nodes_exhausted = match iter.next() {
-                Some(row) => {
-                    let (k, _v) = row.map_err(|e| e.to_string())?;
-                    k.value().0 != graph
-                }
-                None => true,
-            };
-        }
-    }
+    let (nodes, nodes_exhausted, next_node_after) =
+        read_graph_dump_page_nodes(&rtx, graph, node_after, page_size, crypto)?;
 
-    // Edges: only once every node has been paged in (mirrors `apply_material_page`'s
-    // nodes-before-edges ordering, so a partially-opened graph never has an edge
-    // dangling on a not-yet-added node), spend the page's remaining budget on edges.
-    // `nodes_exhausted` (computed above, including the one-row peek) is exactly "no
-    // more node rows remain for this graph", the same nodes-first gate
-    // `apply_material_page` uses. `edges_done_this_call` tracks whether the EDGE
-    // range itself is drained (only meaningful once nodes are exhausted); the
-    // final `edges_exhausted` returned always ANDs it with `nodes_exhausted` below,
-    // so a page that is still working through nodes never falsely reports edges done.
     let edge_budget = page_size.saturating_sub(nodes.len());
-    let mut edges = Vec::new();
-    let mut edges_done_this_call = false;
-    let mut next_edge_after = edge_after
-        .map(|(source, target, ordinal)| (source.to_string(), target.to_string(), ordinal));
-    if nodes_exhausted && edge_budget > 0 {
-        let (lower_source, lower_target, lower_ordinal) = edge_after.unwrap_or(("", "", 0));
-        let mut iter = edges_table
-            .range((graph, lower_source, lower_target, lower_ordinal)..)
-            .map_err(|e| e.to_string())?;
-        let mut skip_equal = edge_after;
-        edges_done_this_call = true;
-        while edges.len() < edge_budget {
-            match iter.next() {
-                Some(row) => {
-                    let (k, v) = row.map_err(|e| e.to_string())?;
-                    let (g, s, t, ordinal) = k.value();
-                    if g != graph {
-                        break;
-                    }
-                    if skip_equal.is_some_and(|(cursor_source, cursor_target, cursor_ordinal)| {
-                        cursor_source == s && cursor_target == t && cursor_ordinal == ordinal
-                    }) {
-                        skip_equal = None;
-                        continue;
-                    }
-                    skip_equal = None;
-                    edges.push((s.to_string(), t.to_string(), crypto.unseal(v.value())?));
-                    next_edge_after = Some((s.to_string(), t.to_string(), ordinal));
-                    edges_done_this_call = false;
-                }
-                None => break,
-            }
-        }
-        if !edges_done_this_call {
-            edges_done_this_call = match iter.next() {
-                Some(row) => {
-                    let (k, _v) = row.map_err(|e| e.to_string())?;
-                    k.value().0 != graph
-                }
-                None => true,
-            };
-        }
-    }
+    let should_scan_edges = nodes_exhausted && edge_budget > 0;
+    let (edges, edges_done_this_call, next_edge_after) =
+        read_graph_dump_page_edges(&rtx, graph, edge_after, edge_budget, should_scan_edges, crypto)?;
     let edges_exhausted = nodes_exhausted && edges_done_this_call;
 
-    let semantic = if node_after.is_none() && edge_after.is_none() {
-        let semantic_table = rtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
-        semantic_table
-            .get(graph)
-            .map_err(|e| e.to_string())?
-            .map(|v| crypto.unseal(v.value()))
-            .transpose()?
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let semantic = read_graph_dump_page_semantic(&rtx, graph, node_after, edge_after, crypto)?;
 
     let first_page = node_after.is_none() && edge_after.is_none();
     Ok(Some(GraphDumpPage {
