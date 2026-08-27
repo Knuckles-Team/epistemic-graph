@@ -16,3 +16,5 @@ mod insert_on_conflict_in;
 mod apply_txn_op;
 #[path = "characterization/apply_schema_migration_in.rs"]
 mod apply_schema_migration_in;
+#[path = "characterization/commit_txn_batch_inner.rs"]
+mod commit_txn_batch_inner;
