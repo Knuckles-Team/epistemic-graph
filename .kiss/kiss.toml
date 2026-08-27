@@ -1,0 +1,66 @@
+# CX program — kiss thresholds for epistemic-graph.
+#
+# ═══ THIS FILE IS NOT A BASELINE. ═══════════════════════════════════════════
+# Every number is HAND-SET at a final, justified value; none was derived from
+# what this repo currently passes. A metric is either OFF (999999, still
+# reported by `kiss stats` every run) or ON at its target. (CX MR-11.)
+#
+# ⚠ NEVER run bare `kiss check` here -- it writes a self-calibrating
+#   .kissconfig that also disables four global rules. Use scripts/run_kiss.sh.
+#
+# Measured 2026-08-27, src/ + crates/ (811 files, 20,149 units).
+
+[global]
+min_similarity          = 0.9      # ON. 50 duplicate violations measured.
+orphan_module_enabled   = true     # ON here (unlike au): check_liveness.py does
+                                   # not run against this repo, so there is no
+                                   # competing definition. Measured: 1 orphan.
+duplication_enabled     = true
+comment_removal_enabled = false    # OFF PERMANENTLY -- see au config.
+docs_allowed            = ["./"]   # Neutralises `doc == 0` (default [] fires on
+                                   # every /// in the tree).
+orphan_allowed          = []
+
+[rust]
+# ---- ON at final values -------------------------------------------------
+max_indentation           = 5      # measured p95=3,  max=19
+nested_function_depth     = 2      # measured p99=2,  max=5
+boolean_parameters        = 1      # measured p99=1,  max=4
+returns_per_function      = 5      # measured p95=3,  max=77
+arguments                 = 8      # measured p99=7,  max=18
+statements_per_function   = 35     # measured p99=55, max=603
+local_variables           = 20     # measured p99=24, max=479
+calls_per_function        = 45     # measured p99=86, max=829
+methods_per_class         = 10     # measured p90=8,  max=190
+imported_names_per_file   = 50     # measured p99=51, max=99
+statements_per_file       = 250    # measured p90=282, max=3040
+lines_per_file            = 900    # measured p50=255, max=11280
+functions_per_file        = 40     # measured p90=38, max=269
+concrete_types_per_file   = 8      # measured p90=8,  max=140
+
+# ---- RETUNED off the upstream default, deliberately ---------------------
+interface_types_per_file  = 3      # ⚠ upstream default is 0 -- ZERO traits per
+                                   # file. Absurd for a 48-crate workspace whose
+                                   # every crate contract IS a trait. Measured
+                                   # p95=1, max=5; 3 allows a trait plus its
+                                   # extension traits and still flags the 2
+                                   # files that are doing too much.
+attributes_per_function   = 6      # ⚠ upstream default is 1. Idiomatic Rust
+                                   # carries #[inline] + #[cfg] + #[allow] +
+                                   # #[tracing::instrument] + #[test] together.
+                                   # Measured max=2, so 6 is a guard, not a
+                                   # constraint.
+
+# ---- ON, and ALREADY SATISFIED: these are regression guards -------------
+# eg's module graph is genuinely clean, unlike au's. Enabling these now costs
+# nothing and stops the collapse from introducing what does not yet exist.
+cycle_size                = 0      # measured max=0  -- ZERO cycles today.
+dependency_depth          = 4      # measured max=3.
+
+# ---- OFF, with the measurement that justifies it ------------------------
+branches_per_function     = 999999 # OFF: check_complexity.py owns branching.
+indirect_dependencies     = 999999 # OFF: measured p99=2 but max=244 -- a single
+                                   # outlier crate. Enabling at 244 would be a
+                                   # baseline; enabling at 10 blocks on one
+                                   # known file. Fix the outlier, then enable
+                                   # at 10. Reported every run meanwhile.
