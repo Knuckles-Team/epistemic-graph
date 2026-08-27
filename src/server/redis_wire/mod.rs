@@ -2613,6 +2613,139 @@ mod tests {
         );
     }
 
+    // CXA-EG-03 characterization: `execute_data` (CCN 90) arms not already
+    // exercised above -- MGET/MSET/HDEL/RPUSH/SCAN, the unknown-command
+    // fallback, SET's EX/PX/XX option parsing, ZADD's odd-arg-count error,
+    // ZRANGE WITHSCORES, and a ZSCORE miss -- ahead of decomposing the match.
+
+    #[test]
+    fn eg174_mget_mset() {
+        let store = mem_store();
+        let mut c = conn3();
+        assert_eq!(
+            execute(
+                &store,
+                &a(&["MSET", "k1", "v1", "k2", "v2"]),
+                &mut c,
+                TEST_SECRET
+            ),
+            Resp::Simple("OK".into())
+        );
+        assert_eq!(
+            execute(&store, &a(&["MGET", "k1", "k2", "nope"]), &mut c, TEST_SECRET),
+            Resp::Array(Some(vec![
+                Resp::Bulk(Some(b"v1".to_vec())),
+                Resp::Bulk(Some(b"v2".to_vec())),
+                Resp::Bulk(None),
+            ]))
+        );
+        // Odd argument count is a wrong-number-of-arguments error.
+        assert!(matches!(
+            execute(&store, &a(&["MSET", "k1", "v1", "k2"]), &mut c, TEST_SECRET),
+            Resp::Error(_)
+        ));
+    }
+
+    #[test]
+    fn eg174_hdel_and_rpush() {
+        let store = mem_store();
+        let mut c = conn3();
+        execute(
+            &store,
+            &a(&["HSET", "h", "f1", "v1", "f2", "v2"]),
+            &mut c,
+            TEST_SECRET,
+        );
+        assert_eq!(
+            execute(&store, &a(&["HDEL", "h", "f1"]), &mut c, TEST_SECRET),
+            Resp::Int(1)
+        );
+        assert_eq!(
+            execute(&store, &a(&["RPUSH", "l", "a", "b"]), &mut c, TEST_SECRET),
+            Resp::Int(2)
+        );
+        assert_eq!(
+            execute(&store, &a(&["LRANGE", "l", "0", "-1"]), &mut c, TEST_SECRET),
+            Resp::Array(Some(vec![Resp::bulk_str("a"), Resp::bulk_str("b")]))
+        );
+        // RPUSH/LPUSH with no values is a wrong-number-of-arguments error.
+        assert!(matches!(
+            execute(&store, &a(&["RPUSH", "l"]), &mut c, TEST_SECRET),
+            Resp::Error(_)
+        ));
+    }
+
+    #[test]
+    fn eg174_scan_and_unknown_command() {
+        let store = mem_store();
+        let mut c = conn3();
+        execute(&store, &a(&["SET", "alpha", "1"]), &mut c, TEST_SECRET);
+        execute(&store, &a(&["SET", "beta", "1"]), &mut c, TEST_SECRET);
+        match execute(&store, &a(&["SCAN", "0"]), &mut c, TEST_SECRET) {
+            Resp::Array(Some(items)) => {
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0], Resp::bulk_str("0"));
+            }
+            other => panic!("unexpected SCAN reply: {other:?}"),
+        }
+        assert!(matches!(
+            execute(&store, &a(&["SCAN", "0", "MATCH", "al*"]), &mut c, TEST_SECRET),
+            Resp::Array(Some(_))
+        ));
+        assert!(matches!(
+            execute(&store, &a(&["NOSUCHCOMMAND"]), &mut c, TEST_SECRET),
+            Resp::Error(_)
+        ));
+    }
+
+    #[test]
+    fn eg174_set_with_ex_px_options() {
+        let store = mem_store();
+        let mut c = conn3();
+        assert_eq!(
+            execute(&store, &a(&["SET", "k", "v", "EX", "100"]), &mut c, TEST_SECRET),
+            Resp::Simple("OK".into())
+        );
+        assert!(
+            matches!(execute(&store, &a(&["TTL", "k"]), &mut c, TEST_SECRET), Resp::Int(t) if t > 0 && t <= 100)
+        );
+        assert_eq!(
+            execute(&store, &a(&["SET", "k2", "v", "PX", "100000"]), &mut c, TEST_SECRET),
+            Resp::Simple("OK".into())
+        );
+        // Unknown SET option is a syntax error.
+        assert!(matches!(
+            execute(&store, &a(&["SET", "k3", "v", "BOGUS"]), &mut c, TEST_SECRET),
+            Resp::Error(_)
+        ));
+    }
+
+    #[test]
+    fn eg174_zadd_odd_args_and_zrange_withscores_and_zscore_miss() {
+        let store = mem_store();
+        let mut c = conn3();
+        assert!(matches!(
+            execute(&store, &a(&["ZADD", "z", "1", "a", "2"]), &mut c, TEST_SECRET),
+            Resp::Error(_)
+        ));
+        execute(&store, &a(&["ZADD", "z", "1", "a"]), &mut c, TEST_SECRET);
+        assert_eq!(
+            execute(
+                &store,
+                &a(&["ZRANGE", "z", "0", "-1", "WITHSCORES"]),
+                &mut c,
+                TEST_SECRET
+            ),
+            // `c` (conn3()) is proto 3, so scores come back as native Resp::Double.
+            Resp::Array(Some(vec![Resp::bulk_str("a"), Resp::Double(1.0)]))
+        );
+        assert_eq!(
+            execute(&store, &a(&["ZSCORE", "z", "nope"]), &mut c, TEST_SECRET),
+            Resp::Null
+        );
+    }
+
+
     #[test]
     fn eg174_wrongtype_is_reported() {
         let store = mem_store();
