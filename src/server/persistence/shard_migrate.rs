@@ -738,6 +738,10 @@ mod tests {
     use crate::protocol::{GraphType, Method};
     use crate::server::persistence::redb_backend::RedbBackend;
     use crate::server::persistence::PersistenceBackend;
+    #[cfg(feature = "security")]
+    use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
+    #[cfg(feature = "matview")]
+    use crate::redb_store::{MATVIEW_OPERATOR_STATE, PLAN_MATVIEWS};
 
     fn props(v: serde_json::Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&v).unwrap()
@@ -1073,5 +1077,409 @@ mod tests {
         let err = migrate_shards(&src, &dst, 4).unwrap_err();
         assert!(err.contains("already exists"), "got: {err}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    // ── CX-EG-10 characterization additions ─────────────────────────────────
+    //
+    // The tests above predate this lane and already cover: K=1->K4 round trip,
+    // in-place K1->K4 (with backup), the retired-K1 canonical rewrite,
+    // mixed/sparse layout rejection, and mutation/change-authority routing for a
+    // SINGLE source shard. None of them exercises a source layout with MORE THAN
+    // ONE shard file -- the "for src in &src_dbs" loop this lane's decomposition
+    // reshapes the most -- so the two tests below fill exactly that gap, plus one
+    // that pins an OBSERVED bug. Per the lane brief's two-commit discipline these
+    // were added in a commit that touches ONLY this `mod tests` block, proven
+    // green against the UNMODIFIED `migrate_shards`/`copy_global_tables` before
+    // the refactor commit landed. See `plans/complex/lane-reports/CX-EG-10.md`.
+
+    /// Open a table at `path` and count its rows (0 if the table was never
+    /// created). Used to inspect a migration's ON-DISK output directly.
+    fn table_row_count<K, V>(path: &std::path::Path, def: redb::TableDefinition<K, V>) -> usize
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        let db = Database::open(path).expect("open shard for inspection");
+        let rtx = db.begin_read().expect("begin read");
+        match rtx.open_table(def) {
+            Ok(t) => t.iter().expect("iterate table").count(),
+            Err(_) => 0,
+        }
+    }
+
+    /// Seed `graphs.len()` graphs (2 nodes + 1 edge each) through a backend opened
+    /// at an EXPLICIT shard count `k` (`seed_k1` above only ever produces K=1).
+    async fn seed_at_k(dir: &str, k: usize, graphs: &[&str]) {
+        let backend =
+            RedbBackend::open_with_shards(dir.to_string(), DurabilityPolicy::Each, 256, k)
+                .expect("open backend at requested K");
+        for g in graphs {
+            backend
+                .register_graph(g, g, GraphType::Global)
+                .await
+                .expect("register");
+            backend
+                .record_durable(
+                    g,
+                    &Method::AddNode {
+                        node_id: "a".into(),
+                        properties_msgpack: props(serde_json::json!({"type": "Task", "g": g})),
+                    },
+                )
+                .await
+                .expect("node a");
+            backend
+                .record_durable(
+                    g,
+                    &Method::AddNode {
+                        node_id: "b".into(),
+                        properties_msgpack: props(serde_json::json!({"type": "Task"})),
+                    },
+                )
+                .await
+                .expect("node b");
+            backend
+                .record_durable(
+                    g,
+                    &Method::AddEdge {
+                        source_id: "a".into(),
+                        target_id: "b".into(),
+                        properties_msgpack: props(serde_json::json!({"w": 1})),
+                    },
+                )
+                .await
+                .expect("edge");
+        }
+        backend.shutdown();
+    }
+
+    /// CX-EG-10: round-trips a GENUINE multi-source-shard layout (K=2, not K=1)
+    /// through `migrate_shards`. Every embedded test above starts from K=1 (one
+    /// source `Database`); this is the only proof that the "for src in &src_dbs"
+    /// loop over MULTIPLE source handles is correct.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn multi_source_migration_preserves_graphs() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "eg-migrate-multisrc-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let src = root.join("k2");
+        let dst = root.join("k3");
+        std::fs::create_dir_all(&src).unwrap();
+        let src_s = src.to_string_lossy().to_string();
+
+        let graphs = [
+            "one", "two", "three", "four", "five", "six", "seven", "eight",
+        ];
+        seed_at_k(&src_s, 2, &graphs).await;
+
+        assert!(src.join("graph-0.redb").exists(), "K=2 shard 0 written");
+        assert!(src.join("graph-1.redb").exists(), "K=2 shard 1 written");
+
+        let report = migrate_shards(&src, &dst, 3).expect("migrate K=2 -> K=3");
+        assert_eq!(report.source_shards, 2);
+        assert_eq!(report.dest_shards, 3);
+        assert_eq!(report.dest_raft_groups, 3);
+        assert_eq!(report.graphs, graphs.len());
+        assert_eq!(report.nodes, (graphs.len() * 2) as u64);
+        assert_eq!(report.edges, graphs.len() as u64);
+
+        for i in 0..3 {
+            assert!(
+                dst.join(format!("graph-{i}.redb")).exists(),
+                "graph-{i}.redb"
+            );
+        }
+
+        let dst_s = dst.to_string_lossy().to_string();
+        let backend =
+            RedbBackend::open(dst_s.clone(), DurabilityPolicy::Each, 256).expect("reopen K=3");
+        assert_eq!(backend.shard_count(), 3, "on-disk layout honored as K=3");
+        for g in &graphs {
+            let dump = backend
+                .read_graph_dump_blocking(g)
+                .expect("read")
+                .unwrap_or_else(|| panic!("graph {g} missing after migration"));
+            assert_eq!(dump.name, *g);
+            assert_eq!(dump.nodes.len(), 2, "graph {g} nodes");
+            assert_eq!(dump.edges.len(), 1, "graph {g} edges");
+            let a = dump
+                .nodes
+                .iter()
+                .find(|(id, _)| id == "a")
+                .map(|(_, blob)| blob.clone())
+                .expect("node a present");
+            let val: serde_json::Value = rmp_serde::from_slice(&a).unwrap();
+            assert_eq!(val.get("g").and_then(|x| x.as_str()), Some(*g));
+        }
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// CX-EG-10: pins the per-source scoping of the mutation-batch replay chain
+    /// when TWO DIFFERENT source shard files each carry their own batch and both
+    /// graphs route to the SAME destination shard (K=1). In the unmodified
+    /// function `routed_batch_ids` is declared FRESH inside the "for src" loop
+    /// (reset every source iteration); a decomposition that hoists or shares that
+    /// set across sources would silently cross-contaminate or drop one source's
+    /// batch. Raw redb, mirroring `migration_routes_mutation_and_change_authority_with_its_graph`
+    /// above but across two source files instead of one.
+    #[test]
+    fn mutation_batch_chain_routes_independently_per_source_shard() {
+        let root = std::env::temp_dir().join(format!(
+            "eg-migrate-multisrc-mutation-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let src = root.join("src");
+        let dst = root.join("dst");
+        std::fs::create_dir_all(&src).unwrap();
+
+        {
+            let db = Database::create(src.join("graph-0.redb")).unwrap();
+            let wtx = db.begin_write().unwrap();
+            {
+                wtx.open_table(GRAPH_META)
+                    .unwrap()
+                    .insert("alpha", &b"meta-alpha"[..])
+                    .unwrap();
+                wtx.open_table(MUTATION_IDEMPOTENCY)
+                    .unwrap()
+                    .insert(("tenant-a", "alpha", "idem-alpha"), "batch-alpha")
+                    .unwrap();
+                wtx.open_table(MUTATION_BATCHES)
+                    .unwrap()
+                    .insert("batch-alpha", &b"payload-alpha"[..])
+                    .unwrap();
+                wtx.open_table(MUTATION_OUTBOX)
+                    .unwrap()
+                    .insert(("batch-alpha", 0u32), &b"outbox-alpha"[..])
+                    .unwrap();
+                wtx.open_table(MUTATION_OUTBOX_DELIVERY)
+                    .unwrap()
+                    .insert(("batch-alpha", 0u32, "sink-a"), &b"delivery-alpha"[..])
+                    .unwrap();
+            }
+            wtx.commit().unwrap();
+        }
+        {
+            let db = Database::create(src.join("graph-1.redb")).unwrap();
+            let wtx = db.begin_write().unwrap();
+            {
+                wtx.open_table(GRAPH_META)
+                    .unwrap()
+                    .insert("beta", &b"meta-beta"[..])
+                    .unwrap();
+                wtx.open_table(MUTATION_IDEMPOTENCY)
+                    .unwrap()
+                    .insert(("tenant-b", "beta", "idem-beta"), "batch-beta")
+                    .unwrap();
+                wtx.open_table(MUTATION_BATCHES)
+                    .unwrap()
+                    .insert("batch-beta", &b"payload-beta"[..])
+                    .unwrap();
+                wtx.open_table(MUTATION_OUTBOX)
+                    .unwrap()
+                    .insert(("batch-beta", 0u32), &b"outbox-beta"[..])
+                    .unwrap();
+                wtx.open_table(MUTATION_OUTBOX_DELIVERY)
+                    .unwrap()
+                    .insert(("batch-beta", 0u32, "sink-b"), &b"delivery-beta"[..])
+                    .unwrap();
+            }
+            wtx.commit().unwrap();
+        }
+
+        let report = migrate_shards(&src, &dst, 1).expect("migrate K=2 -> K=1");
+        assert_eq!(report.source_shards, 2);
+        assert_eq!(report.graphs, 2);
+        assert_eq!(report.auxiliary, 8, "4 aux rows x 2 sources");
+
+        let target = Database::open(dst.join("graph-0.redb")).unwrap();
+        let rtx = target.begin_read().unwrap();
+        let batches = rtx.open_table(MUTATION_BATCHES).unwrap();
+        assert_eq!(
+            batches.get("batch-alpha").unwrap().unwrap().value(),
+            b"payload-alpha"
+        );
+        assert_eq!(
+            batches.get("batch-beta").unwrap().unwrap().value(),
+            b"payload-beta"
+        );
+        let outbox = rtx.open_table(MUTATION_OUTBOX).unwrap();
+        assert_eq!(
+            outbox.get(("batch-alpha", 0u32)).unwrap().unwrap().value(),
+            b"outbox-alpha"
+        );
+        assert_eq!(
+            outbox.get(("batch-beta", 0u32)).unwrap().unwrap().value(),
+            b"outbox-beta"
+        );
+        let delivery = rtx.open_table(MUTATION_OUTBOX_DELIVERY).unwrap();
+        assert_eq!(
+            delivery
+                .get(("batch-alpha", 0u32, "sink-a"))
+                .unwrap()
+                .unwrap()
+                .value(),
+            b"delivery-alpha"
+        );
+        assert_eq!(
+            delivery
+                .get(("batch-beta", 0u32, "sink-b"))
+                .unwrap()
+                .unwrap()
+                .value(),
+            b"delivery-beta"
+        );
+        drop(rtx);
+        drop(target);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// CX-EG-10 BUG PIN (do not "fix" by widening -- see BUGS FOUND in
+    /// `plans/complex/lane-reports/CX-EG-10.md`): `provenance_anchor_members`
+    /// (graph-scoped, feature `security`) and `plan_matviews` /
+    /// `matview_operator_state` (global, `shard0()`-homed, feature `matview`) live
+    /// in the SAME `graph-<n>.redb` shard files as `nodes`/`audit_chain`, but
+    /// `migrate_shards`/`copy_global_tables` never import or route them, so a
+    /// K-shard migration silently drops them while every table the function DOES
+    /// know about survives. `NODES` is asserted as the differential control.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn migration_silently_drops_provenance_anchor_and_matview_state() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "eg-migrate-dropped-tables-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let src = root.join("src");
+        let dst = root.join("dst");
+        std::fs::create_dir_all(&src).unwrap();
+        let src_s = src.to_string_lossy().to_string();
+
+        let backend = RedbBackend::open(src_s.clone(), DurabilityPolicy::Each, 256)
+            .expect("open K=1 backend");
+        backend
+            .register_graph("g", "g", GraphType::Global)
+            .await
+            .expect("register");
+        backend
+            .record_durable(
+                "g",
+                &Method::AddNode {
+                    node_id: "a".into(),
+                    properties_msgpack: props(serde_json::json!({"type": "Task"})),
+                },
+            )
+            .await
+            .expect("node a");
+
+        #[cfg(feature = "security")]
+        {
+            backend
+                .provenance_anchor_commit_blocking(
+                    "g",
+                    [9u8; 32],
+                    vec![("a".to_string(), [7u8; 32])],
+                )
+                .expect("provenance anchor commit")
+                .expect("anchor actually wrote a row (root differs from none)");
+        }
+        #[cfg(feature = "matview")]
+        {
+            backend
+                .plan_matview_put("mv-1", b"plan-matview-definition".to_vec())
+                .await
+                .expect("plan matview put");
+            backend
+                .matview_operator_state_put("mv-1", b"operator-state".to_vec())
+                .await
+                .expect("matview operator state put");
+        }
+        backend.shutdown();
+
+        // Sanity: the rows are actually on disk in the SOURCE before migration --
+        // otherwise their absence downstream would prove nothing about
+        // migrate_shards.
+        #[cfg(feature = "security")]
+        assert_eq!(
+            table_row_count(&src.join("graph-0.redb"), PROVENANCE_ANCHOR_MEMBERS),
+            1,
+            "source has the provenance anchor row pre-migration"
+        );
+        #[cfg(feature = "matview")]
+        {
+            assert_eq!(
+                table_row_count(&src.join("graph-0.redb"), PLAN_MATVIEWS),
+                1,
+                "source has the plan matview row pre-migration"
+            );
+            assert_eq!(
+                table_row_count(&src.join("graph-0.redb"), MATVIEW_OPERATOR_STATE),
+                1,
+                "source has the matview operator-state row pre-migration"
+            );
+        }
+        assert_eq!(
+            table_row_count(&src.join("graph-0.redb"), NODES),
+            1,
+            "source has the node pre-migration"
+        );
+
+        let report = migrate_shards(&src, &dst, 2).expect("migrate K=1 -> K=2");
+        assert_eq!(report.graphs, 1);
+        assert_eq!(report.nodes, 1);
+
+        let nodes_after: usize = (0..2)
+            .map(|i| table_row_count(&dst.join(format!("graph-{i}.redb")), NODES))
+            .sum();
+        assert_eq!(nodes_after, 1, "node survives the migration (known-good table)");
+
+        #[cfg(feature = "security")]
+        {
+            let anchors_after: usize = (0..2)
+                .map(|i| {
+                    table_row_count(
+                        &dst.join(format!("graph-{i}.redb")),
+                        PROVENANCE_ANCHOR_MEMBERS,
+                    )
+                })
+                .sum();
+            assert_eq!(
+                anchors_after, 0,
+                "BUG: provenance_anchor_members is silently dropped by migrate_shards"
+            );
+        }
+        #[cfg(feature = "matview")]
+        {
+            let plan_matviews_after: usize = (0..2)
+                .map(|i| table_row_count(&dst.join(format!("graph-{i}.redb")), PLAN_MATVIEWS))
+                .sum();
+            assert_eq!(
+                plan_matviews_after, 0,
+                "BUG: plan_matviews is silently dropped by migrate_shards / copy_global_tables"
+            );
+            let matview_state_after: usize = (0..2)
+                .map(|i| {
+                    table_row_count(
+                        &dst.join(format!("graph-{i}.redb")),
+                        MATVIEW_OPERATOR_STATE,
+                    )
+                })
+                .sum();
+            assert_eq!(
+                matview_state_after, 0,
+                "BUG: matview_operator_state is silently dropped by migrate_shards / copy_global_tables"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
