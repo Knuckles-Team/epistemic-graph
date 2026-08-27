@@ -112,6 +112,15 @@ struct Args {
     #[arg(long, env = "EPISTEMIC_GRAPH_SPARQL_ADDR")]
     sparql_addr: Option<String>,
 
+    /// CA-16 (DEC-CA-04) `/policy/export` HTTP listener address (e.g.
+    /// 127.0.0.1:7879), feature `policy_export`. Disabled when unset. Serves the
+    /// M1 row-visibility policy bundle as JSON; admin-gated by an OIDC bearer
+    /// token (`kg:admin`/`policy:export`) via the SAME primary-protocol OIDC
+    /// validator as the `eg2.` RPC surface (`oidc::JwtValidator::from_env_primary`)
+    /// -- no separate credential shape. Separate from the RPC transports.
+    #[arg(long, env = "EPISTEMIC_GRAPH_POLICY_EXPORT_ADDR")]
+    policy_export_addr: Option<String>,
+
     /// Loopback address for the authenticated GraphQL subscription SSE carrier
     /// (e.g. 127.0.0.1:7879), feature `graphql`. Non-loopback binds are refused;
     /// remote access must use a same-host TLS reverse proxy. Every subscription
@@ -851,6 +860,30 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "sparql-http"))]
     if sparql_addr.is_some() {
         tracing::warn!("--sparql-addr ignored: binary built without the `sparql-http` feature");
+    }
+
+    // ── CA-16 (DEC-CA-04) `/policy/export` HTTP listener ────────────────────────
+    // Opt-in AND feature-gated, exactly like the SPARQL/metrics listeners above:
+    // starts only when built `--features policy_export` AND
+    // --policy-export-addr / EPISTEMIC_GRAPH_POLICY_EXPORT_ADDR is set.
+    let policy_export_addr =
+        resolve_listener_addr(args.policy_export_addr.as_deref(), "127.0.0.1:7879");
+    #[cfg(feature = "policy_export")]
+    if let Some(ref policy_export_addr) = policy_export_addr {
+        let listener = tokio::net::TcpListener::bind(policy_export_addr).await?;
+        info!(
+            "policy-export: serving the CA-16/DEC-CA-04 M1 policy bundle on http://{}/policy/export",
+            policy_export_addr
+        );
+        tokio::spawn(async move {
+            epistemic_graph::server::policy_export::serve(listener).await;
+        });
+    }
+    #[cfg(not(feature = "policy_export"))]
+    if policy_export_addr.is_some() {
+        tracing::warn!(
+            "--policy-export-addr ignored: binary built without the `policy_export` feature"
+        );
     }
 
     // ── Fuseki SERVICE-federation startup health-check (CA-12, feature `sparql-fuseki`) ──

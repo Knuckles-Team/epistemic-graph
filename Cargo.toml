@@ -1196,11 +1196,14 @@ compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlear
 # Security is mandatory in the one main `full` build and remains present in both
 # source-built layers.
 security = ["redb", "oidc", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-# RLS marking-predicate export (CA-16), off by default and EMPTY until CA-16 implements
-# it. Declared here by CA-17's single feature-stub commit so that CA-16 never edits this
-# shared table. Implies `security`. Underscore, not hyphen, so the feature name and its
-# module path `src/server/policy_export/` are the same identifier.
-policy_export = ["security"]
+# RLS marking-predicate export (CA-16), off by default. Declared EMPTY here by CA-17's
+# single feature-stub commit; CA-16 extends this ONE line (never any other line in this
+# table) to thread its `Method::PolicyExport` variant through in lockstep, the same
+# `eg-types/eg-capabilities` weak-dep pattern `viz`/`quantum-agent-api`/`asr-whisper`
+# already use -- see those crates' own Cargo.toml comments. Implies `security`.
+# Underscore, not hyphen, so the feature name and its module path
+# `src/server/policy_export/` are the same identifier.
+policy_export = ["security", "eg-types/policy_export", "eg-capabilities?/policy_export"]
 # Shared OIDC/JWKS bearer-token verification core (`src/server/oidc.rs`):
 # RSA-signature-against-JWKS, issuer/audience/expiry, Keycloak-compatible. A small,
 # dependency-bounded feature so the RSA/JWT crates are linked exactly once and reused
